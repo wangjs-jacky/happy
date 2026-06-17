@@ -304,9 +304,17 @@ export class ApiSessionClient extends EventEmitter {
             throw new Error('request-download returned no downloadUrl');
         }
 
-        const isServerUrl = downloadUrl.startsWith(configuration.serverUrl);
+        // Local-storage download URLs point back at our own happy server and
+        // require the Bearer token. The configured serverUrl may be a loopback
+        // address (the CLI reaches the server over localhost) while the server
+        // builds the download URL from its PUBLIC_URL host — so an exact
+        // serverUrl prefix match misses, the token gets dropped, and the
+        // local-storage endpoint rejects the GET with 401. Presigned S3 URLs
+        // instead carry their auth in the query string and reject extra
+        // headers, so only those should go out unauthenticated.
+        const isPresignedS3 = /[?&](X-Amz-Algorithm|X-Amz-Signature|X-Amz-Credential|Signature|Expires)=/.test(downloadUrl);
         const headers: Record<string, string> = {};
-        if (isServerUrl) {
+        if (!isPresignedS3) {
             headers['Authorization'] = `Bearer ${this.token}`;
         }
         const response = await axios.get(downloadUrl, {
