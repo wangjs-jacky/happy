@@ -662,6 +662,27 @@ export async function startDaemon(): Promise<void> {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
+          // Fallback for "imported" mirror sessions: sessions pushed directly to the
+          // relay by push-to-happy.mjs are not tracked in this daemon's memory. We
+          // resume them by spawning a fresh Happy session that runs
+          // `claude --resume <claudeSessionId>` in the recorded working directory.
+          // The mapping (happySessionId -> claudeSessionId + directory) is stored in
+          // plaintext at ~/.happy/imported-sessions.json (no E2E key needed here).
+          try {
+            const importedPath = join(os.homedir(), '.happy', 'imported-sessions.json');
+            const imported = JSON.parse(await fs.readFile(importedPath, 'utf8')) as Record<string, { claudeSessionId?: string; directory?: string }>;
+            const entry = imported[happySessionId];
+            if (entry?.claudeSessionId && entry?.directory) {
+              logger.debug(`[DAEMON RUN] Resuming imported mirror session ${happySessionId} -> claude --resume ${entry.claudeSessionId} @ ${entry.directory}`);
+              return spawnSession({
+                directory: entry.directory,
+                resumeClaudeSessionId: entry.claudeSessionId,
+                agent: 'claude',
+              });
+            }
+          } catch (e) {
+            logger.debug(`[DAEMON RUN] imported-sessions lookup failed: ${e instanceof Error ? e.message : e}`);
+          }
           return { type: 'error', errorMessage: `Session ${happySessionId} is not tracked by this daemon. It may have been started before the daemon or on another machine.` };
         }
         if (!tracked.happySessionMetadataFromLocalWebhook) {

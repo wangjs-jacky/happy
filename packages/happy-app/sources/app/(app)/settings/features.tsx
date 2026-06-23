@@ -105,7 +105,6 @@ export default function FeaturesSettingsScreen() {
                     }
                     showChevron={false}
                 />
-                {/* Image upload hidden — broken, shipping next release
                 <Item
                     title={t('settingsFeatures.imageUpload')}
                     subtitle={t('settingsFeatures.imageUploadSubtitle')}
@@ -118,7 +117,7 @@ export default function FeaturesSettingsScreen() {
                     }
                     showChevron={false}
                 />
-                */}
+                {/* image upload re-enabled — local PUT path */}
             </ItemGroup>
 
             {/* Privacy */}

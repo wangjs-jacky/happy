@@ -12,6 +12,7 @@ import { TabBar, TabType } from './TabBar';
 import { InboxView } from './InboxView';
 import { SettingsViewWrapper } from './SettingsViewWrapper';
 import { SessionsListWrapper } from './SessionsListWrapper';
+import { EmptyMainScreen } from './EmptyMainScreen';
 import { Header } from './navigation/Header';
 import { HeaderLogo } from './HeaderLogo';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
@@ -289,11 +290,16 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
     }
 
     // Phone variant
-    // Tablet in phone mode - special case (when showing index view on tablets, show empty view)
+    // Tablet in phone mode - the sessions list lives in the sidebar, so the
+    // main area acts as the "detail" pane. Show the same get-started empty
+    // state used on phone instead of a blank view, otherwise the desktop
+    // layout looks like it is stuck loading when no session is selected yet.
     if (isTablet) {
-        // Just show an empty view on tablets for the index view
-        // The sessions list is shown in the sidebar, so the main area should be blank
-        return <View style={styles.emptyStateContentContainer} />;
+        return (
+            <View style={styles.emptyStateContentContainer}>
+                <EmptyMainScreen />
+            </View>
+        );
     }
 
     // Regular phone mode with tabs

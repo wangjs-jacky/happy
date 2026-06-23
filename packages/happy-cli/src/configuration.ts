@@ -18,6 +18,7 @@ class Configuration {
   // Directories and paths (from persistence)
   public readonly happyHomeDir: string
   public readonly logsDir: string
+  public readonly attachmentsDir: string
   public readonly settingsFile: string
   public readonly privateKeyFile: string
   public readonly daemonStateFile: string
@@ -43,6 +44,10 @@ class Configuration {
     }
 
     this.logsDir = join(this.happyHomeDir, 'logs')
+    // Staging dir for original (full-resolution) attachment bytes received from
+    // the mobile client. The copy sent to the model gets downscaled by the SDK,
+    // so we persist the originals here for archival (e.g. saving into Obsidian).
+    this.attachmentsDir = join(this.happyHomeDir, 'attachments')
     this.settingsFile = join(this.happyHomeDir, 'settings.json')
     this.privateKeyFile = join(this.happyHomeDir, 'access.key')
     this.daemonStateFile = join(this.happyHomeDir, 'daemon.state.json')
@@ -79,6 +84,9 @@ class Configuration {
     // Ensure directories exist
     if (!existsSync(this.logsDir)) {
       mkdirSync(this.logsDir, { recursive: true })
+    }
+    if (!existsSync(this.attachmentsDir)) {
+      mkdirSync(this.attachmentsDir, { recursive: true })
     }
   }
 }

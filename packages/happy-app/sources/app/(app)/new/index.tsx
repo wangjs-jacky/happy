@@ -41,6 +41,8 @@ import { createWorktree, listWorktrees } from '@/utils/worktree';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
+import { useImagePicker } from '@/hooks/useImagePicker';
+import { AgentInputAttachmentStrip } from '@/components/AgentInputAttachmentStrip';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useShallow } from 'zustand/react/shallow';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
@@ -549,6 +551,7 @@ function NewSessionScreen() {
     const allMachines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const agentInputEnterToSend = useSetting('agentInputEnterToSend');
+    const expImageUpload = useSetting('expImageUpload');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
@@ -600,6 +603,11 @@ function NewSessionScreen() {
     const [effortIndex, setEffortIndex] = React.useState(0);
     const [isSpawning, setIsSpawning] = React.useState(false);
     const [activePicker, setActivePicker] = React.useState<PickerType | null>(null);
+
+    // Image attachment state (expImageUpload feature flag). Attachments are
+    // only wired into the Claude pipeline, so the picker is gated to claude.
+    const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
+    const canAttach = expImageUpload && selectedAgent === 'claude';
 
     // Config collapse — auto-collapses when typing, expands when empty
     const [isConfigExpanded, setIsConfigExpanded] = React.useState(true);
@@ -970,9 +978,13 @@ function NewSessionScreen() {
                     const trimmedPrompt = draftState.input.trim();
                     draftState.setInput('');
 
-                    // Send initial message if provided
-                    if (trimmedPrompt) {
-                        await sync.sendMessage(result.sessionId, trimmedPrompt, { source: 'new_session' });
+                    // Pull image attachments (claude-only) and clear the strip.
+                    const attachments = canAttach && selectedImages.length > 0 ? selectedImages : undefined;
+                    if (attachments) clearImages();
+
+                    // Send initial message if there's text or attachments.
+                    if (trimmedPrompt || attachments) {
+                        await sync.sendMessage(result.sessionId, trimmedPrompt, { source: 'new_session', attachments });
                     }
 
                     router.back();
@@ -1001,7 +1013,7 @@ function NewSessionScreen() {
         } finally {
             setIsSpawning(false);
         }
-    }, [selectedMachineId, selectedMachine, selectedPath, selectedAgent, router, navigateToSession, currentPermission.key, currentModelKey, currentEffort?.key, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.effortLevel, worktreeKey]);
+    }, [selectedMachineId, selectedMachine, selectedPath, selectedAgent, router, navigateToSession, currentPermission.key, currentModelKey, currentEffort?.key, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.effortLevel, worktreeKey, canAttach, selectedImages, clearImages]);
 
     const canSend = selectedMachineId && selectedMachine && isMachineOnline(selectedMachine) && !isSpawning;
     const sidebarLayout = getNewSessionSidebarLayout({
@@ -1316,6 +1328,12 @@ function NewSessionScreen() {
 
     const composerNode = (
         <View style={styles.inputBox}>
+            {canAttach && selectedImages.length > 0 && (
+                <AgentInputAttachmentStrip
+                    images={selectedImages}
+                    onRemove={removeImage}
+                />
+            )}
             <View style={styles.inputField}>
                 <PromptInput
                     ref={composerInputRef}
@@ -1324,7 +1342,23 @@ function NewSessionScreen() {
                 />
             </View>
             <View style={styles.actionButtonsContainer}>
-                <View style={styles.actionButtonsLeft} />
+                <View style={styles.actionButtonsLeft}>
+                    {canAttach && (
+                        <Pressable
+                            onPress={pickImages}
+                            hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                            style={(p) => [styles.attachButton, p.pressed && styles.sendButtonInnerPressed]}
+                        >
+                            <Ionicons
+                                name="image-outline"
+                                size={16}
+                                color={selectedImages.length > 0
+                                    ? theme.colors.radio.active
+                                    : theme.colors.button.secondary.tint}
+                            />
+                        </Pressable>
+                    )}
+                </View>
                 <View style={[
                     styles.sendButton,
                     isSpawning ? styles.sendButtonActive :
@@ -1702,9 +1736,19 @@ const styles = StyleSheet.create((theme) => ({
     },
     actionButtonsLeft: {
         flexDirection: 'row',
+        alignItems: 'center',
         gap: 8,
         flex: 1,
         overflow: 'hidden',
+    },
+    attachButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: COMPOSER_SEND_BUTTON_SIZE,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        borderRadius: Platform.select({ default: 16, android: 20 }),
     },
     sendButton: {
         width: COMPOSER_SEND_BUTTON_SIZE,
