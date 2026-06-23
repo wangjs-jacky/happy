@@ -1,0 +1,17 @@
+import { describe, it, expect } from 'vitest';
+import { createEnvelope, sessionEnvelopeSchema } from '@slopus/happy-wire';
+
+describe('sendFileEvent envelope contract', () => {
+    it('builds a schema-valid file envelope with role user and no image block', () => {
+        const envelope = createEnvelope('user', { t: 'file', ref: 'r1', name: 'pic.png', size: 123 });
+        expect(sessionEnvelopeSchema.safeParse(envelope).success).toBe(true);
+        expect(envelope.role).toBe('user');
+        expect(envelope.ev).toMatchObject({ t: 'file', ref: 'r1', name: 'pic.png', size: 123 });
+        expect((envelope.ev as any).image).toBeUndefined();
+    });
+
+    it('rejects a file event with image block missing thumbhash (why we omit image)', () => {
+        const bad = { id: 'x', time: 1, role: 'user', ev: { t: 'file', ref: 'r', name: 'n', size: 1, image: { width: 10, height: 10 } } };
+        expect(sessionEnvelopeSchema.safeParse(bad).success).toBe(false);
+    });
+});

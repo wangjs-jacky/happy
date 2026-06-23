@@ -1,6 +1,6 @@
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
-import { readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
@@ -339,7 +339,11 @@ export class ApiSessionClient extends EventEmitter {
      * blob key. Throws on read/encrypt/upload failure.
      */
     async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number }> {
-        const raw = new Uint8Array(readFileSync(filePath));
+        const raw = new Uint8Array(await readFile(filePath));
+        const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+        if (raw.length > MAX_ATTACHMENT_BYTES) {
+            throw new Error(`Image too large: ${raw.length} bytes (max ${MAX_ATTACHMENT_BYTES})`);
+        }
         const name = basename(filePath);
         const key = await this.getBlobKey();
         const encrypted = encryptBlob(raw, key);
