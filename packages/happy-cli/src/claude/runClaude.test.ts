@@ -127,7 +127,7 @@ describe('runClaude remote JSONL scanner', () => {
         mockNotifyDaemonSessionStarted.mockResolvedValue({});
         mockStartHappyServer.mockResolvedValue({
             url: 'http://127.0.0.1:12345',
-            toolNames: ['change_title'],
+            toolNames: ['change_title', 'send_image'],
             stop: vi.fn(),
         });
         mockStartHookServer.mockResolvedValue({

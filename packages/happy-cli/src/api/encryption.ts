@@ -130,6 +130,21 @@ export function decryptBlob(bundle: Uint8Array, key: Uint8Array): Uint8Array | n
 }
 
 /**
+ * Encrypt a binary blob with NaCl crypto_secretbox (XSalsa20-Poly1305).
+ * Wire format: [nonce (24 bytes)] [ciphertext + auth tag].
+ * Mirror of decryptBlob; matches the app-side encryptBlob() in
+ * packages/happy-app/sources/encryption/blob.ts.
+ */
+export function encryptBlob(data: Uint8Array, key: Uint8Array): Uint8Array {
+  const nonce = getRandomBytes(tweetnacl.secretbox.nonceLength); // 24
+  const box = tweetnacl.secretbox(data, nonce, key);
+  const out = new Uint8Array(nonce.length + box.length);
+  out.set(nonce, 0);
+  out.set(box, nonce.length);
+  return out;
+}
+
+/**
  * Encrypt data using AES-256-GCM with the data encryption key
  * @param data - The data to encrypt
  * @param dataKey - The 32-byte AES-256 key
