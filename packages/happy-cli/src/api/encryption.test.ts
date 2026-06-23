@@ -56,19 +56,19 @@ describe('decryptBlob', () => {
 });
 
 describe('encryptBlob', () => {
-  it('round-trips with decryptBlob', () => {
-    const key = getRandomBytes(32);
-    const data = new Uint8Array([1, 2, 3, 4, 5, 250, 0, 99]);
-    const bundle = encryptBlob(data, key);
-    expect(bundle.length).toBeGreaterThanOrEqual(24 + data.length + 16);
-    const out = decryptBlob(bundle, key);
-    expect(out).not.toBeNull();
-    expect(Array.from(out!)).toEqual(Array.from(data));
-  });
+    it('round-trips with decryptBlob', () => {
+        const key = getRandomBytes(32);
+        const data = new Uint8Array([1, 2, 3, 4, 5, 250, 0, 99]);
+        const bundle = encryptBlob(data, key);
+        expect(bundle.length).toBe(24 + data.length + 16);
+        const out = decryptBlob(bundle, key);
+        expect(out).not.toBeNull();
+        expect(Array.from(out!)).toEqual(Array.from(data));
+    });
 
-  it('fails to decrypt with a wrong key', () => {
-    const data = new Uint8Array([9, 9, 9]);
-    const bundle = encryptBlob(data, getRandomBytes(32));
-    expect(decryptBlob(bundle, getRandomBytes(32))).toBeNull();
-  });
+    it('fails to decrypt with a wrong key', () => {
+        const data = new Uint8Array([9, 9, 9]);
+        const bundle = encryptBlob(data, getRandomBytes(32));
+        expect(decryptBlob(bundle, getRandomBytes(32))).toBeNull();
+    });
 });
