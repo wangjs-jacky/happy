@@ -52,10 +52,11 @@ export async function uploadEncryptedBlob(
     }
     // POST (S3 presigned): multipart form with formFields + file.
     const form = new FormData();
+    // S3 presigned POST requires all policy fields (esp. `key`) to precede the `file` field and ignores anything after it, so this order (formFields first, then file) is load-bearing and must not be reordered.
     for (const [k, v] of Object.entries(descriptor.formFields ?? {})) {
         form.append(k, v);
     }
-    form.append('file', new Blob([encrypted]));
+    form.append('file', new Blob([encrypted], { type: 'application/octet-stream' }), 'blob');
     const res = await axios.post(descriptor.uploadUrl, form, {
         timeout: 60000,
         maxContentLength: 10 * 1024 * 1024,
