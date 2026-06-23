@@ -17,6 +17,9 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { configuration } from '@/configuration';
 
 interface PermissionsField {
     date: number;
@@ -348,6 +351,20 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             if (attachments.length > 0) {
                                 const contentBlocks: ContentBlockParam[] = [];
                                 for (const att of attachments) {
+                                    // Archive the ORIGINAL full-resolution bytes to the staging
+                                    // dir before they are base64'd and handed to the SDK (which
+                                    // downscales images to the model's max dimensions). This is
+                                    // the only point where we still hold the untouched original.
+                                    try {
+                                        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+                                        const safeName = (att.name || 'attachment').replace(/[^\w.\-]+/g, '_');
+                                        const archivePath = join(configuration.attachmentsDir, `${stamp}-${safeName}`);
+                                        writeFileSync(archivePath, att.data);
+                                        logger.debug(`[remote] Archived original attachment to ${archivePath} (${att.data.length} bytes)`);
+                                    } catch (e) {
+                                        logger.debug(`[remote] Failed to archive attachment ${att.name}: ${e}`);
+                                    }
+
                                     // Detect media type from the decrypted bytes' magic header
                                     // rather than trusting the wire-supplied mimeType. iOS image
                                     // pickers happily report things like "image/heic" or no
