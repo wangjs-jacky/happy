@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
-    sendImage: (path: string, caption?: string) => Promise<{ success: boolean; error?: string }>;
+    sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
 };
 
 function createMcpServer(handlers: HappyMcpHandlers): McpServer {
@@ -64,10 +64,9 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         title: 'Send Image To Chat',
         inputSchema: {
             path: z.string().describe('Absolute path to the local image file (PNG/JPEG)'),
-            caption: z.string().optional().describe('Optional caption shown with the image'),
         },
     }, async (args) => {
-        const response = await handlers.sendImage(args.path, args.caption);
+        const response = await handlers.sendImage(args.path);
         logger.debug('[happyMCP] Response:', response);
 
         if (response.success) {
@@ -113,7 +112,7 @@ export async function startHappyServer(client: ApiSessionClient) {
                 return { success: false, error: String(error) };
             }
         },
-        sendImage: async (path: string, _caption?: string) => {
+        sendImage: async (path: string) => {
             logger.debug('[happyMCP] Sending image:', path);
             try {
                 const { ref, name, size } = await client.uploadImageAttachment(path);
