@@ -1,8 +1,11 @@
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
-import { decodeBase64, decryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
+import { decodeBase64, decryptBlob, encryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
+import { requestAttachmentUpload, uploadEncryptedBlob } from './attachmentUpload';
 import { backoff, delay } from '@/utils/time';
 import { configuration } from '@/configuration';
 import { RawJSONLines } from '@/claude/types';
@@ -13,7 +16,7 @@ import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
-import { type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
+import { createEnvelope, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
 import {
     closeClaudeTurnWithStatus,
     mapClaudeLogMessageToSessionEnvelopes,
@@ -328,6 +331,38 @@ export class ApiSessionClient extends EventEmitter {
         const key = await this.getBlobKey();
         const decrypted = decryptBlob(encrypted, key);
         return decrypted;
+    }
+
+    /**
+     * Encrypt + upload a local image file via the attachment channel, returning the
+     * server ref. Reuses getBlobKey() so the app can decrypt with the same session
+     * blob key. Throws on read/encrypt/upload failure.
+     */
+    async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number }> {
+        const raw = new Uint8Array(readFileSync(filePath));
+        const name = basename(filePath);
+        const key = await this.getBlobKey();
+        const encrypted = encryptBlob(raw, key);
+        const descriptor = await requestAttachmentUpload(
+            configuration.serverUrl,
+            this.token,
+            this.sessionId,
+            name,
+            encrypted.length,
+        );
+        await uploadEncryptedBlob(descriptor, encrypted, this.token);
+        return { ref: descriptor.ref, name, size: raw.length };
+    }
+
+    /**
+     * Emit a file event so the app renders the uploaded attachment inline (FileView).
+     * image{} is intentionally omitted: the wire schema requires image.thumbhash,
+     * which we don't compute here; FileView falls back to a 4:3 inline render.
+     * Use role 'user' to match the proven user-attachment path.
+     */
+    sendFileEvent(ref: string, name: string, size: number): void {
+        const envelope = createEnvelope('user', { t: 'file', ref, name, size });
+        this.sendSessionProtocolMessage(envelope);
     }
 
     /**
