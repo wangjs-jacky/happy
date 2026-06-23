@@ -115,8 +115,8 @@ export async function startHappyServer(client: ApiSessionClient) {
         sendImage: async (path: string) => {
             logger.debug('[happyMCP] Sending image:', path);
             try {
-                const { ref, name, size } = await client.uploadImageAttachment(path);
-                client.sendFileEvent(ref, name, size);
+                const { ref, name, size, dims } = await client.uploadImageAttachment(path);
+                client.sendFileEvent(ref, name, size, dims);
                 return { success: true };
             } catch (error) {
                 return { success: false, error: String(error) };

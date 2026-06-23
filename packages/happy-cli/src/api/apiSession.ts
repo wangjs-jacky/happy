@@ -23,6 +23,7 @@ import {
     type ClaudeSessionProtocolState,
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
+import { readImageSize } from './imageSize';
 import axios from 'axios';
 
 /**
@@ -338,12 +339,13 @@ export class ApiSessionClient extends EventEmitter {
      * server ref. Reuses getBlobKey() so the app can decrypt with the same session
      * blob key. Throws on read/encrypt/upload failure.
      */
-    async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number }> {
+    async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number; dims: { width: number; height: number } | null }> {
         const raw = new Uint8Array(await readFile(filePath));
         const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
         if (raw.length > MAX_ATTACHMENT_BYTES) {
             throw new Error(`Image too large: ${raw.length} bytes (max ${MAX_ATTACHMENT_BYTES})`);
         }
+        const dims = readImageSize(raw);
         const name = basename(filePath);
         const key = await this.getBlobKey();
         const encrypted = encryptBlob(raw, key);
@@ -355,18 +357,23 @@ export class ApiSessionClient extends EventEmitter {
             encrypted.length,
         );
         await uploadEncryptedBlob(descriptor, encrypted, this.token);
-        return { ref: descriptor.ref, name, size: raw.length };
+        return { ref: descriptor.ref, name, size: raw.length, dims };
     }
 
     /**
      * Emit a file event so the app renders the uploaded attachment inline (FileView).
-     * image{} is intentionally omitted: the wire schema requires image.thumbhash,
-     * which we don't compute here; FileView falls back to a 4:3 inline render.
-     * Use role 'user' to match the proven user-attachment path.
+     * When dims are provided we include an image{} block carrying the real width/height
+     * so the app renders at the true aspect ratio. The wire schema requires
+     * image.thumbhash; we don't compute a real one, so we pass thumbhash:'' — the app's
+     * FileView treats a falsy thumbhash as "no placeholder" but still uses width/height.
+     * When dims is null/undefined (non-image or unparseable) we omit image{} and the app
+     * falls back to a 4:3 inline render. Use role 'user' to match the proven path.
      */
-    sendFileEvent(ref: string, name: string, size: number): void {
-        const envelope = createEnvelope('user', { t: 'file', ref, name, size });
-        this.sendSessionProtocolMessage(envelope);
+    sendFileEvent(ref: string, name: string, size: number, dims?: { width: number; height: number } | null): void {
+        const ev = dims
+            ? { t: 'file' as const, ref, name, size, image: { width: dims.width, height: dims.height, thumbhash: '' } }
+            : { t: 'file' as const, ref, name, size };
+        this.sendSessionProtocolMessage(createEnvelope('user', ev));
     }
 
     /**
