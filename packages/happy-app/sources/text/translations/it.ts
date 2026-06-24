@@ -15,6 +15,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * Must match the exact structure of the English translations
  */
 export const it: TranslationStructure = {
+    composeHome: {
+        greeting: ({ name }: { name: string }) => `Ciao ${name}, cosa facciamo oggi?`,
+        greetingNoName: 'Cosa facciamo oggi?',
+        placeholder: 'Chiedi qualsiasi cosa, anche con immagini',
+        byline: 'Generato dall\'IA · crittografia end-to-end',
+        createDirectoryTitle: 'Creare la cartella?',
+        createDirectoryMessage: ({ path }: { path: string }) => `La cartella "${path}" non esiste. Crearla?`,
+    },
     tabs: {
         // Tab navigation labels
         inbox: 'Posta',

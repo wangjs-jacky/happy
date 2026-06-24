@@ -36,17 +36,33 @@ export const SidebarNavigator = React.memo(() => {
 
     const drawerNavigationOptions = React.useMemo(() => {
         if (!isDesktopLayout) {
-            // Non-tablet: use front drawer, hidden
+            // Phone: front drawer holding the session list (SidebarView), opened by a
+            // left-edge swipe or the list button in the compose home header. When the
+            // user isn't authenticated yet there's no session list, so keep it disabled.
+            if (!auth.isAuthenticated) {
+                return {
+                    lazy: false,
+                    headerShown: false,
+                    drawerType: 'front' as const,
+                    swipeEnabled: false,
+                    drawerStyle: {
+                        width: 0,
+                        display: 'none' as const,
+                    },
+                };
+            }
             return {
                 lazy: false,
                 headerShown: false,
                 drawerType: 'front' as const,
-                swipeEnabled: false,
+                swipeEnabled: true,
+                swipeEdgeWidth: 40,
                 drawerStyle: {
-                    width: 0,
-                    display: 'none' as const,
+                    width: fullDrawerWidth,
+                    backgroundColor: 'transparent',
+                    borderRightWidth: 0,
                 },
-            };
+            } as any;
         }
 
         // Tablet: always permanent, just collapse width in zen mode.
@@ -83,7 +99,7 @@ export const SidebarNavigator = React.memo(() => {
         <View style={{ flex: 1 }}>
             <Drawer
                 screenOptions={drawerNavigationOptions}
-                drawerContent={isDesktopLayout ? drawerContent : undefined}
+                drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
             />
             {/* Persistent header overlay — always visible on desktop, same position regardless of zen mode */}
             {isDesktopLayout && (

@@ -15,6 +15,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const en = {
+    composeHome: {
+        greeting: ({ name }: { name: string }) => `Hi ${name}, what should we do today?`,
+        greetingNoName: 'What should we do today?',
+        placeholder: 'Ask anything, images too',
+        byline: 'AI-generated · end-to-end encrypted',
+        createDirectoryTitle: 'Create directory?',
+        createDirectoryMessage: ({ path }: { path: string }) => `The directory "${path}" doesn't exist. Create it?`,
+    },
     tabs: {
         // Tab navigation labels
         inbox: 'Inbox',
