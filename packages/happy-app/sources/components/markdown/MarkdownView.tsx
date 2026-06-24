@@ -10,6 +10,7 @@ import { SimpleSyntaxHighlighter } from '../SimpleSyntaxHighlighter';
 import { Modal } from '@/modal';
 import { useLocalSetting } from '@/sync/storage';
 import { storeTempText } from '@/sync/persistence';
+import { imageViewer } from '@/sync/imageViewer';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
@@ -212,12 +213,15 @@ function RenderImageBlock(props: { url: string, alt: string, first: boolean, las
 
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
-            <Image
-                source={{ uri: props.url }}
-                style={style.image}
-                accessibilityLabel={accessibleLabel}
-                resizeMode="contain"
-            />
+            {/* Tap to open the fullscreen zoomable viewer. */}
+            <Pressable onPress={() => imageViewer.open({ uri: props.url })}>
+                <Image
+                    source={{ uri: props.url }}
+                    style={style.image}
+                    accessibilityLabel={accessibleLabel}
+                    resizeMode="contain"
+                />
+            </Pressable>
             {props.alt ? (
                 <Text style={style.imageCaption}>{props.alt}</Text>
             ) : null}
