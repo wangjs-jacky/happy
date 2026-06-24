@@ -95,7 +95,10 @@ const styles = StyleSheet.create(() => ({
     stripContent: {
         flexDirection: 'row',
         gap: 8,
-        paddingHorizontal: 4,
+        // 删除按钮绝对定位在缩略图框外侧（top/right: -6），ScrollView 会裁切超出内容区的子元素，
+        // 故内边距需 ≥6px 把按钮兜进可滚动区域，否则最右/最上缩略图的 ❌ 会被裁掉
+        paddingHorizontal: 8,
+        paddingTop: 8,
     },
     thumbContainer: {
         width: THUMB_SIZE,
