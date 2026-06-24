@@ -1,8 +1,11 @@
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
+import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
-import { decodeBase64, decryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
+import { decodeBase64, decryptBlob, encryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
+import { requestAttachmentUpload, uploadEncryptedBlob } from './attachmentUpload';
 import { backoff, delay } from '@/utils/time';
 import { configuration } from '@/configuration';
 import { RawJSONLines } from '@/claude/types';
@@ -13,13 +16,14 @@ import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
-import { type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
+import { createEnvelope, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
 import {
     closeClaudeTurnWithStatus,
     mapClaudeLogMessageToSessionEnvelopes,
     type ClaudeSessionProtocolState,
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
+import { readImageSize } from './imageSize';
 import axios from 'axios';
 
 /**
@@ -336,6 +340,48 @@ export class ApiSessionClient extends EventEmitter {
         const key = await this.getBlobKey();
         const decrypted = decryptBlob(encrypted, key);
         return decrypted;
+    }
+
+    /**
+     * Encrypt + upload a local image file via the attachment channel, returning the
+     * server ref. Reuses getBlobKey() so the app can decrypt with the same session
+     * blob key. Throws on read/encrypt/upload failure.
+     */
+    async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number; dims: { width: number; height: number } | null }> {
+        const raw = new Uint8Array(await readFile(filePath));
+        const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+        if (raw.length > MAX_ATTACHMENT_BYTES) {
+            throw new Error(`Image too large: ${raw.length} bytes (max ${MAX_ATTACHMENT_BYTES})`);
+        }
+        const dims = readImageSize(raw);
+        const name = basename(filePath);
+        const key = await this.getBlobKey();
+        const encrypted = encryptBlob(raw, key);
+        const descriptor = await requestAttachmentUpload(
+            configuration.serverUrl,
+            this.token,
+            this.sessionId,
+            name,
+            encrypted.length,
+        );
+        await uploadEncryptedBlob(descriptor, encrypted, this.token);
+        return { ref: descriptor.ref, name, size: raw.length, dims };
+    }
+
+    /**
+     * Emit a file event so the app renders the uploaded attachment inline (FileView).
+     * When dims are provided we include an image{} block carrying the real width/height
+     * so the app renders at the true aspect ratio. The wire schema requires
+     * image.thumbhash; we don't compute a real one, so we pass thumbhash:'' — the app's
+     * FileView treats a falsy thumbhash as "no placeholder" but still uses width/height.
+     * When dims is null/undefined (non-image or unparseable) we omit image{} and the app
+     * falls back to a 4:3 inline render. Use role 'user' to match the proven path.
+     */
+    sendFileEvent(ref: string, name: string, size: number, dims?: { width: number; height: number } | null): void {
+        const ev = dims
+            ? { t: 'file' as const, ref, name, size, image: { width: dims.width, height: dims.height, thumbhash: '' } }
+            : { t: 'file' as const, ref, name, size };
+        this.sendSessionProtocolMessage(createEnvelope('user', ev));
     }
 
     /**

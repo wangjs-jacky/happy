@@ -18,6 +18,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const ja: TranslationStructure = {
+    composeHome: {
+        greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,
+        greetingNoName: '今日は何をしますか？',
+        placeholder: '何でも聞いてください、画像もOK',
+        byline: 'AI生成 · エンドツーエンド暗号化',
+        createDirectoryTitle: 'フォルダを作成しますか？',
+        createDirectoryMessage: ({ path }: { path: string }) => `フォルダ "${path}" は存在しません。作成しますか？`,
+    },
     tabs: {
         // Tab navigation labels
         inbox: '受信トレイ',

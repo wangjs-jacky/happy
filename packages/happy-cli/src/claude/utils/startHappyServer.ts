@@ -15,7 +15,12 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 
-function createMcpServer(handler: (title: string) => Promise<{ success: boolean; error?: string }>): McpServer {
+type HappyMcpHandlers = {
+    changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
+    sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+};
+
+function createMcpServer(handlers: HappyMcpHandlers): McpServer {
     const mcp = new McpServer({
         name: "Happy MCP",
         version: "1.0.0",
@@ -28,7 +33,7 @@ function createMcpServer(handler: (title: string) => Promise<{ success: boolean;
             title: z.string().describe('The new title for the chat session'),
         },
     }, async (args) => {
-        const response = await handler(args.title);
+        const response = await handlers.changeTitle(args.title);
         logger.debug('[happyMCP] Response:', response);
 
         if (response.success) {
@@ -54,28 +59,73 @@ function createMcpServer(handler: (title: string) => Promise<{ success: boolean;
         }
     });
 
+    mcp.registerTool('send_image', {
+        description: 'Send a local image file into the current chat so the user sees it inline (works on phone and desktop). Use after generating or editing an image. Provide an absolute path to a PNG/JPEG.',
+        title: 'Send Image To Chat',
+        inputSchema: {
+            path: z.string().describe('Absolute path to the local image file (PNG/JPEG)'),
+        },
+    }, async (args) => {
+        const response = await handlers.sendImage(args.path);
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Sent image to chat: ${args.path}`,
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to send image: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     return mcp;
 }
 
 export async function startHappyServer(client: ApiSessionClient) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
 
-    const handler = async (title: string) => {
-        logger.debug('[happyMCP] Changing title to:', title);
-        try {
-            client.sendClaudeSessionMessage({
-                type: 'summary',
-                summary: title,
-                leafUuid: randomUUID()
-            });
-            return { success: true };
-        } catch (error) {
-            return { success: false, error: String(error) };
-        }
+    const handlers: HappyMcpHandlers = {
+        changeTitle: async (title: string) => {
+            logger.debug('[happyMCP] Changing title to:', title);
+            try {
+                client.sendClaudeSessionMessage({
+                    type: 'summary',
+                    summary: title,
+                    leafUuid: randomUUID()
+                });
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: String(error) };
+            }
+        },
+        sendImage: async (path: string) => {
+            logger.debug('[happyMCP] Sending image:', path);
+            try {
+                const { ref, name, size, dims } = await client.uploadImageAttachment(path);
+                client.sendFileEvent(ref, name, size, dims);
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: String(error) };
+            }
+        },
     };
 
     const server = createServer(async (req, res) => {
-        const mcp = createMcpServer(handler);
+        const mcp = createMcpServer(handlers);
         try {
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined
@@ -106,7 +156,7 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title'],
+        toolNames: ['change_title', 'send_image'],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
             server.close();

@@ -17,6 +17,14 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHans: TranslationStructure = {
+    composeHome: {
+        greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Happy 做点什么`,
+        greetingNoName: '今天和 Happy 做点什么',
+        placeholder: '尽管问，带图也行',
+        byline: '内容由 AI 生成 · 端到端加密',
+        createDirectoryTitle: '创建目录？',
+        createDirectoryMessage: ({ path }: { path: string }) => `目录 "${path}" 不存在，是否创建？`,
+    },
     tabs: {
         // Tab navigation labels
         inbox: '收件箱',

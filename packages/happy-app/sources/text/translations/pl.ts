@@ -26,6 +26,14 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  * Must match the exact structure of the English translations
  */
 export const pl: TranslationStructure = {
+    composeHome: {
+        greeting: ({ name }: { name: string }) => `Cześć ${name}, co dziś zrobimy?`,
+        greetingNoName: 'Co dziś zrobimy?',
+        placeholder: 'Pytaj o cokolwiek, też ze zdjęciami',
+        byline: 'Wygenerowane przez AI · szyfrowanie end-to-end',
+        createDirectoryTitle: 'Utworzyć katalog?',
+        createDirectoryMessage: ({ path }: { path: string }) => `Katalog "${path}" nie istnieje. Utworzyć go?`,
+    },
     tabs: {
         // Tab navigation labels
         inbox: 'Skrzynka',
