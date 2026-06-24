@@ -120,3 +120,52 @@ Co-Authored-By: Happy <yesreply@happy.engineering>
 ```
 
 - 推送/拉取前若需代理：`git config --global http.proxy http://127.0.0.1:10802`（https 同理），完成后 `--unset`。
+
+## 八、本地构建 Android APK 并发布到 GitHub Release
+
+> 在本机直接出一个可 sideload 安装的 Android APK，并作为构建产物发到 GitHub Release（不进 npm、不进商店）。所有命令在 `packages/happy-app/` 下执行。
+
+### 前置条件（本机已就绪，换机时核对）
+
+- JDK 17（`java -version`）、`ANDROID_HOME` 已指向 Android SDK、`android/gradlew` 存在
+- **无需自备 keystore**：`android/app/build.gradle` 中 release 签名回退到 `debug.keystore`，产物为 debug 签名，足够 sideload 安装/内测（**不可上架商店**）
+
+### 构建步骤
+
+```bash
+cd packages/happy-app
+
+# 1) android/ 是 gitignore 的 prebuild 产物。首次/换机/配置变更后需重建；已存在可跳过
+pnpm prebuild                  # = rm -rf android ios && expo prebuild
+
+# 2) 构建 release APK（APP_ENV 决定环境，按需 preview/production）
+cd android && APP_ENV=production ./gradlew assembleRelease
+
+# 产物固定路径：
+#   packages/happy-app/android/app/build/outputs/apk/release/app-release.apk
+```
+
+> 想直接装到连着的真机/模拟器而不出 APK 文件，用 `pnpm android:production`（会 install 而非只 assemble）。
+
+### 发布到 GitHub Release
+
+```bash
+# 版本号取自 app.config.js（APP_ENV=production 下当前为 1.7.0），不要用 package.json 的 1.0.0
+VERSION=$(cd packages/happy-app && APP_ENV=production node -e "const c=require('./app.config.js');const cfg=typeof c==='function'?c({config:{}}):(c.default||c);console.log(cfg.expo?.version||cfg.version)")
+TAG="android-v$VERSION"            # tag 加 android- 前缀，与桌面/其他端 release 区分
+APK="packages/happy-app/android/app/build/outputs/apk/release/app-release.apk"
+
+# 走代理（见第七节）后再推 tag 与建 release
+git tag "$TAG" && git push origin "$TAG"
+gh release create "$TAG" --repo wangjs-jacky/happy \
+  --title "Android $TAG" \
+  --notes "本地构建的 Android APK（debug 签名，可直接 sideload）。" \
+  "$APK"
+```
+
+### 约定
+
+- **Release tag 用 `android-v<version>` 前缀**，避免与 iOS/桌面端或上游 release 命名冲突
+- APK 是构建产物，**不提交进 git**（`*.apk` 已隐含在 prebuild 产物链路中，不要 `git add`）
+- 同一版本号重复发布前先删旧 release/tag，或递增 `app.config.js` 的 version
+- 此流程纯属本机/内测分发；正式商店包仍走 EAS（`pnpm release:build:appstore`）
