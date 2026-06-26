@@ -9,6 +9,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import { SessionConfigPanel } from './SessionConfigPanel';
+import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
@@ -189,6 +190,7 @@ export const ComposeHome = React.memo(() => {
                 behavior="padding"
             >
                 <View style={styles.greetWrap}>
+                    <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
                     <Text style={styles.greeting}>
                         {name
                             ? t('composeHome.greeting', { name })
