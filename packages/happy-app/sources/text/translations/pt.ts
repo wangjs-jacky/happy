@@ -717,6 +717,16 @@ export const pt: TranslationStructure = {
         nativeUpdateAvailable: 'Atualização do aplicativo disponível',
         tapToUpdateAppStore: 'Toque para atualizar na App Store',
         tapToUpdatePlayStore: 'Toque para atualizar na Play Store',
+        forceCheck: 'Verificar atualizações',
+        forceCheckSubtitle: 'Baixe e aplique a atualização mais recente agora',
+        checking: 'Verificando atualizações…',
+        upToDateTitle: 'Atualizado',
+        upToDateMessage: 'Você já tem a versão mais recente.',
+        readyTitle: 'Atualização pronta',
+        readyMessage: 'Uma nova versão foi baixada. Recarregar agora para aplicá-la?',
+        reloadNow: 'Recarregar agora',
+        devModeTitle: 'Build de desenvolvimento',
+        devModeMessage: 'As atualizações over-the-air estão desativadas em builds de desenvolvimento.',
     },
 
     changelog: {

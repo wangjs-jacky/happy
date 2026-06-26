@@ -719,6 +719,16 @@ export const ja: TranslationStructure = {
         nativeUpdateAvailable: 'アプリのアップデートが利用可能',
         tapToUpdateAppStore: 'タップしてApp Storeで更新',
         tapToUpdatePlayStore: 'タップしてPlay Storeで更新',
+        forceCheck: 'アップデートを確認',
+        forceCheckSubtitle: '今すぐ最新のアップデートを取得して適用',
+        checking: 'アップデートを確認中…',
+        upToDateTitle: '最新の状態です',
+        upToDateMessage: 'すでに最新バージョンです。',
+        readyTitle: 'アップデートの準備完了',
+        readyMessage: '新しいバージョンをダウンロードしました。今すぐ再読み込みして適用しますか？',
+        reloadNow: '今すぐ再読み込み',
+        devModeTitle: '開発ビルド',
+        devModeMessage: '開発ビルドでは無線（OTA）アップデートが無効になっています。',
     },
 
     changelog: {

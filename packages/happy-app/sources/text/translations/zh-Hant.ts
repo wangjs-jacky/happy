@@ -718,6 +718,16 @@ export const zhHant: TranslationStructure = {
         nativeUpdateAvailable: '應用程式更新可用',
         tapToUpdateAppStore: '點擊在 App Store 中更新',
         tapToUpdatePlayStore: '點擊在 Play Store 中更新',
+        forceCheck: '檢查更新',
+        forceCheckSubtitle: '立即拉取並套用最新版本',
+        checking: '正在檢查更新…',
+        upToDateTitle: '已是最新',
+        upToDateMessage: '你已經是最新版本了。',
+        readyTitle: '更新已就緒',
+        readyMessage: '已下載新版本，是否立即重新載入應用程式以生效？',
+        reloadNow: '立即重新載入',
+        devModeTitle: '開發版本',
+        devModeMessage: '開發版本下不會拉取 OTA 更新。',
     },
 
     changelog: {

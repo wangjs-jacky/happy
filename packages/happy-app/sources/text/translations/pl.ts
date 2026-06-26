@@ -734,6 +734,16 @@ export const pl: TranslationStructure = {
         nativeUpdateAvailable: 'Dostępna aktualizacja aplikacji',
         tapToUpdateAppStore: 'Naciśnij, aby zaktualizować w App Store',
         tapToUpdatePlayStore: 'Naciśnij, aby zaktualizować w Sklepie Play',
+        forceCheck: 'Sprawdź aktualizacje',
+        forceCheckSubtitle: 'Pobierz i zastosuj najnowszą aktualizację teraz',
+        checking: 'Sprawdzanie aktualizacji…',
+        upToDateTitle: 'Aktualna wersja',
+        upToDateMessage: 'Masz już najnowszą wersję.',
+        readyTitle: 'Aktualizacja gotowa',
+        readyMessage: 'Pobrano nową wersję. Przeładować teraz, aby ją zastosować?',
+        reloadNow: 'Przeładuj teraz',
+        devModeTitle: 'Kompilacja deweloperska',
+        devModeMessage: 'Aktualizacje OTA są wyłączone w kompilacjach deweloperskich.',
     },
 
     changelog: {
