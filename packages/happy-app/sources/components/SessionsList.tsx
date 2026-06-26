@@ -18,7 +18,6 @@ import { UpdateBanner } from './UpdateBanner';
 import { layout } from './layout';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { useSettingMutable } from '@/sync/storage';
 import { t } from '@/text';
 
@@ -386,11 +385,20 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
         });
     }, []);
 
-    const showActionAlert = useSessionActionAlert(session.id);
+    // Native long-press: anchor the context menu at the touch point instead of
+    // showing a centered alert. pageX/pageY come from the gesture responder event.
+    const handleLongPress = React.useCallback((event: any) => {
+        setActionsAnchor({
+            type: 'point',
+            x: event.nativeEvent.pageX ?? 0,
+            y: event.nativeEvent.pageY ?? 0,
+        });
+    }, []);
+
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
     } as any : {
-        onLongPress: showActionAlert,
+        onLongPress: handleLongPress,
     };
 
     return (
@@ -458,14 +466,12 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                 </View>
             </View>
         </Pressable>
-        {Platform.OS === 'web' && (
-            <SessionActionsPopover
-                anchor={actionsAnchor}
-                onClose={() => setActionsAnchor(null)}
-                sessionId={session.id}
-                visible={!!actionsAnchor}
-            />
-        )}
+        <SessionActionsPopover
+            anchor={actionsAnchor}
+            onClose={() => setActionsAnchor(null)}
+            sessionId={session.id}
+            visible={!!actionsAnchor}
+        />
         </View>
     );
 });
