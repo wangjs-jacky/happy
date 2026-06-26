@@ -21,6 +21,7 @@ const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun';
 
 const PREFIX = `manifests/${PLATFORM}/${RUNTIME_VERSION}/`;
 const LATEST_KEY = `${PREFIX}latest.json`;
+const META_PREFIX = `meta/${PLATFORM}/${RUNTIME_VERSION}/`; // 轻量版本元信息（含 git commit）
 
 // 把毫秒时间戳格式化成 本地可读时间
 function fmtTime(ms) {
@@ -44,6 +45,29 @@ function listObjects() {
     if (m) rows.push({ etag: m[1].toUpperCase(), key: m[2] });
   }
   return rows;
+}
+
+// 读取某版本的轻量 meta（含 git commit）。老版本发布时未记录则返回 null。
+function readMeta(stamp) {
+  try {
+    const out = execFileSync(
+      ALIYUN_BIN,
+      ['ossutil', 'cat', `oss://${BUCKET}/${META_PREFIX}${stamp}.json`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    return JSON.parse(out);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 把一个版本的 git 信息压成一行简短描述，供菜单展示
+function describeVersion(meta) {
+  if (!meta || !meta.git || !meta.git.sha) return '(无 commit 记录)';
+  const g = meta.git;
+  const dirty = g.dirty ? '*' : '';
+  const subject = g.subject ? ' ' + g.subject : '';
+  return `${g.sha}${dirty}${subject}`;
 }
 
 // 问一个问题，返回用户输入（去空白）
@@ -83,12 +107,15 @@ async function main() {
     ? (versions.find((v) => v.etag === latest.etag) || {}).stamp
     : null;
 
-  // 3) 打印菜单
+  // 3) 为每个版本读取 meta（commit 信息），再打印菜单
   console.log(`\n  平台 ${PLATFORM} · runtimeVersion ${RUNTIME_VERSION}\n`);
+  for (const v of versions) {
+    v.desc = describeVersion(readMeta(v.stamp));
+  }
   versions.forEach((v, i) => {
     const isCurrent = v.stamp === currentStamp;
     const tag = isCurrent ? '  ← 当前线上' : '';
-    console.log(`  [${String(i + 1).padStart(2)}] ${v.stamp}  ${fmtTime(v.stamp)}${tag}`);
+    console.log(`  [${String(i + 1).padStart(2)}] ${fmtTime(v.stamp)}  ${v.desc}${tag}`);
   });
   console.log('');
 

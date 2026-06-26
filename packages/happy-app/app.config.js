@@ -134,6 +134,7 @@ export default {
         plugins: [
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withCleartextTraffic.js"),
+            require("./plugins/withSelfHostedServerTrust.js"),
             [
                 "expo-router",
                 {
