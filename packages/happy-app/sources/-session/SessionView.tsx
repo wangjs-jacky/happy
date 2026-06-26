@@ -43,7 +43,7 @@ import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSes
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
@@ -235,12 +235,13 @@ export const SessionView = React.memo((props: { id: string }) => {
         />
     ) : undefined;
 
-    // New-session button on the header's right edge. Hands off to the full
-    // composer (/new) like the home screen's "+" does. Hidden while a file /
-    // diff overlay owns the right slot.
+    // New-session button on the header's right edge. Returns to the particle
+    // home (ComposeHome) to start a fresh session — not the older /new composer.
+    // A Kimi-style "new chat" bubble+plus glyph. Hidden while a file / diff
+    // overlay owns the right slot.
     const newSessionButton = (
-        <Pressable onPress={() => router.navigate('/new')} hitSlop={12} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
-            <Ionicons name="create-outline" size={23} color={theme.colors.header.tint} />
+        <Pressable onPress={() => router.navigate('/')} hitSlop={12} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+            <MaterialCommunityIcons name="message-plus-outline" size={23} color={theme.colors.header.tint} />
         </Pressable>
     );
 
