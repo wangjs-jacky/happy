@@ -11,7 +11,6 @@ import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
-import { registerSidebarDrawerCloser } from './sidebarDrawerControl';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -113,16 +112,6 @@ export const SidebarView = React.memo(() => {
         navigation.dispatch(DrawerActions.closeDrawer());
         router.navigate(path as any);
     }, [navigation, router]);
-
-    // Session rows live inside SessionsList's FlatList where useNavigation() does not
-    // resolve to this drawer navigator, so their own closeDrawer() is a no-op. Expose
-    // this view's working close to them (via the module-level control) so tapping a
-    // session closes the drawer the same way these buttons do.
-    React.useEffect(() => {
-        return registerSidebarDrawerCloser(() => {
-            navigation.dispatch(DrawerActions.closeDrawer());
-        });
-    }, [navigation]);
 
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
