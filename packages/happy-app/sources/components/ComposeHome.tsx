@@ -156,13 +156,13 @@ export const ComposeHome = React.memo(() => {
                 headerShadowVisible={false}
                 headerTransparent={true}
                 headerLeft={() => (
-                    <Pressable onPress={openSettings} hitSlop={12} style={styles.headerButton}>
-                        <Ionicons name="settings-outline" size={23} color={theme.colors.header.tint} />
+                    <Pressable onPress={openDrawer} hitSlop={12} style={styles.headerButton}>
+                        <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
                     </Pressable>
                 )}
                 headerRight={() => (
-                    <Pressable onPress={openDrawer} hitSlop={12} style={styles.headerButton}>
-                        <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
+                    <Pressable onPress={openSettings} hitSlop={12} style={styles.headerButton}>
+                        <Ionicons name="settings-outline" size={23} color={theme.colors.header.tint} />
                     </Pressable>
                 )}
             />

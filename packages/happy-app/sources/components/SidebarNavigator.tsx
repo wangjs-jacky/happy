@@ -37,8 +37,9 @@ export const SidebarNavigator = React.memo(() => {
     const drawerNavigationOptions = React.useMemo(() => {
         if (!isDesktopLayout) {
             // Phone: front drawer holding the session list (SidebarView), opened by a
-            // left-edge swipe or the list button in the compose home header. When the
-            // user isn't authenticated yet there's no session list, so keep it disabled.
+            // swipe starting from the left part of the screen or the list button in the
+            // compose home header. When the user isn't authenticated yet there's no
+            // session list, so keep it disabled.
             if (!auth.isAuthenticated) {
                 return {
                     lazy: false,
@@ -56,7 +57,9 @@ export const SidebarNavigator = React.memo(() => {
                 headerShown: false,
                 drawerType: 'front' as const,
                 swipeEnabled: true,
-                swipeEdgeWidth: 40,
+                // Widened from the default 40px edge so the left-to-right open gesture is
+                // easy to catch from the left ~third of the screen, not just the very edge.
+                swipeEdgeWidth: Math.max(Math.floor(windowWidth / 3), 100),
                 drawerStyle: {
                     width: fullDrawerWidth,
                     backgroundColor: 'transparent',
@@ -88,7 +91,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth]);
+    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,
