@@ -14,7 +14,7 @@ import { AuthCredentials } from '@/auth/tokenStorage';
 import { getServerUrl } from './serverConfig';
 import { appendFormFile } from './uploadFormFile';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 /**
  * If a self-hosted server's request-upload / request-download response points
