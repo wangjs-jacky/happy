@@ -169,7 +169,7 @@ export const ComposeHome = React.memo(() => {
 
             <KeyboardAvoidingView
                 style={styles.body}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior="padding"
             >
                 <View style={styles.greetWrap}>
                     <Text style={styles.greeting}>
