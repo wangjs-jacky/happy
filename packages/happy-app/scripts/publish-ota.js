@@ -56,6 +56,23 @@ function toUUID(hashHex) {
   );
 }
 
+// 读取当前 git 信息，作为本次 OTA 版本的人类可读标识（任何子命令失败都退化为空字段，不影响发布）
+function gitInfo() {
+  const run = (args) => {
+    try {
+      return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch (e) {
+      return '';
+    }
+  };
+  return {
+    sha: run(['rev-parse', '--short', 'HEAD']),
+    branch: run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    subject: run(['log', '-1', '--pretty=%s']),
+    dirty: run(['status', '--porcelain']).length > 0, // 工作区有未提交改动时为 true
+  };
+}
+
 // 用 aliyun ossutil 上传一个本地文件到 OSS 指定 key
 function ossUpload(localPath, ossKey, contentType) {
   execFileSync(
@@ -135,7 +152,8 @@ async function main() {
     };
   });
 
-  // 5) 组装 manifest
+  // 5) 组装 manifest（extra.git 记录本次发布对应的 commit，回退时据此辨认是哪个版本）
+  const git = gitInfo();
   const manifest = {
     id: toUUID(crypto.createHash('sha256').update(bundleBuf.toString('hex') + stamp).digest('hex')),
     createdAt: new Date(Number(stamp)).toISOString(),
@@ -143,7 +161,7 @@ async function main() {
     launchAsset,
     assets,
     metadata: {},
-    extra: {},
+    extra: { git },
   };
 
   // 6) 上传 manifest 到固定位置 latest.json（每次覆盖）。先写临时文件再传。
@@ -155,9 +173,20 @@ async function main() {
   ossUpload(tmpManifest, `manifests/${PLATFORM}/${RUNTIME_VERSION}/${stamp}.json`, 'application/json');
   fs.unlinkSync(tmpManifest);
 
+  // 7) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git。
+  //    回退脚本读这个小文件即可展示「这是哪个 commit」，无需下载体积较大的整份 manifest。
+  const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, git };
+  const tmpMeta = path.join(os.tmpdir(), `ota-meta-${stamp}.json`);
+  fs.writeFileSync(tmpMeta, JSON.stringify(meta, null, 2));
+  ossUpload(tmpMeta, `meta/${PLATFORM}/${RUNTIME_VERSION}/${stamp}.json`, 'application/json');
+  fs.unlinkSync(tmpMeta);
+
   console.log('\n✅ 发布完成！');
   console.log('manifest 地址:', `${OSS_PUBLIC_BASE}/${manifestKey}`);
   console.log('新版本 id:', manifest.id);
+  if (git.sha) {
+    console.log('对应 commit:', `${git.sha}${git.dirty ? '*' : ''} ${git.subject}`);
+  }
 }
 
 main().catch((err) => {
