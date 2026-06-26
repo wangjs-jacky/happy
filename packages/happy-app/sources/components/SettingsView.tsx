@@ -6,6 +6,7 @@ import { Text } from '@/components/StyledText';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useAuth } from '@/auth/AuthContext';
 import { Typography } from "@/constants/Typography";
 import { Item } from '@/components/Item';
@@ -114,6 +115,40 @@ export const SettingsView = React.memo(function SettingsView() {
     const handleReportIssue = async () => {
         await openExternalUrl('https://github.com/slopus/happy/issues');
     };
+
+    // Manual "force update" — a deterministic alternative to the passive update
+    // banner. Tapping always yields a result: check → download → confirm → reload,
+    // or an explicit "up to date" / error message. Mirrors useUpdates' flow but
+    // user-triggered so there's no waiting on the next foreground check.
+    const [checkingUpdate, setCheckingUpdate] = React.useState(false);
+    const handleCheckUpdate = React.useCallback(async () => {
+        if (checkingUpdate) return;
+        if (__DEV__) {
+            Modal.alert(t('updateBanner.devModeTitle'), t('updateBanner.devModeMessage'));
+            return;
+        }
+        setCheckingUpdate(true);
+        try {
+            const update = await Updates.checkForUpdateAsync();
+            if (!update.isAvailable) {
+                Modal.alert(t('updateBanner.upToDateTitle'), t('updateBanner.upToDateMessage'));
+                return;
+            }
+            await Updates.fetchUpdateAsync();
+            const confirmed = await Modal.confirm(
+                t('updateBanner.readyTitle'),
+                t('updateBanner.readyMessage'),
+                { confirmText: t('updateBanner.reloadNow'), cancelText: t('common.cancel') },
+            );
+            if (confirmed) {
+                await Updates.reloadAsync();
+            }
+        } catch (error) {
+            Modal.alert(t('common.error'), error instanceof Error ? error.message : String(error));
+        } finally {
+            setCheckingUpdate(false);
+        }
+    }, [checkingUpdate]);
 
     const handleSubscribe = async () => {
         trackPaywallButtonClicked('voluntary_support');
@@ -452,6 +487,16 @@ export const SettingsView = React.memo(function SettingsView() {
                         title={t('settings.eula')}
                         icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />}
                         onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}
+                    />
+                )}
+                {Platform.OS !== 'web' && (
+                    <Item
+                        title={t('updateBanner.forceCheck')}
+                        subtitle={checkingUpdate ? t('updateBanner.checking') : t('updateBanner.forceCheckSubtitle')}
+                        icon={<Ionicons name="cloud-download-outline" size={29} color="#34C759" />}
+                        onPress={handleCheckUpdate}
+                        loading={checkingUpdate}
+                        showChevron={false}
                     />
                 )}
                 <Item

@@ -722,6 +722,16 @@ export const ru: TranslationStructure = {
         nativeUpdateAvailable: 'Доступно обновление приложения',
         tapToUpdateAppStore: 'Нажмите для обновления в App Store',
         tapToUpdatePlayStore: 'Нажмите для обновления в Play Store',
+        forceCheck: 'Проверить обновления',
+        forceCheckSubtitle: 'Загрузить и применить последнее обновление сейчас',
+        checking: 'Проверка обновлений…',
+        upToDateTitle: 'Актуальная версия',
+        upToDateMessage: 'У вас уже установлена последняя версия.',
+        readyTitle: 'Обновление готово',
+        readyMessage: 'Новая версия загружена. Перезагрузить сейчас, чтобы применить?',
+        reloadNow: 'Перезагрузить сейчас',
+        devModeTitle: 'Сборка для разработки',
+        devModeMessage: 'Обновления по воздуху отключены в сборках для разработки.',
     },
 
     changelog: {

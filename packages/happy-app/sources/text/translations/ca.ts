@@ -718,6 +718,16 @@ export const ca: TranslationStructure = {
         nativeUpdateAvailable: 'Actualització de l\'aplicació disponible',
         tapToUpdateAppStore: 'Toca per actualitzar a l\'App Store',
         tapToUpdatePlayStore: 'Toca per actualitzar a Play Store',
+        forceCheck: 'Cerca actualitzacions',
+        forceCheckSubtitle: 'Descarrega i aplica l\'última actualització ara',
+        checking: 'Cercant actualitzacions…',
+        upToDateTitle: 'Actualitzat',
+        upToDateMessage: 'Ja tens l\'última versió.',
+        readyTitle: 'Actualització a punt',
+        readyMessage: 'S\'ha descarregat una versió nova. Vols tornar a carregar ara per aplicar-la?',
+        reloadNow: 'Torna a carregar ara',
+        devModeTitle: 'Compilació de desenvolupament',
+        devModeMessage: 'Les actualitzacions per aire estan desactivades en les compilacions de desenvolupament.',
     },
 
     changelog: {

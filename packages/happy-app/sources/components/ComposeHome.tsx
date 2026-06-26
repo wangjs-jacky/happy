@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, TextInput, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, Pressable, TextInput, ActivityIndicator, Platform, LayoutAnimation } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
+import { SessionConfigPanel } from './SessionConfigPanel';
+import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { Modal } from '@/modal';
@@ -46,6 +48,7 @@ export const ComposeHome = React.memo(() => {
     const router = useRouter();
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
+    const headerHeight = useHeaderHeight();
     const profile = useProfile();
     const machines = useAllMachines();
     const { sending, spawn } = useSpawnSession();
@@ -84,6 +87,20 @@ export const ComposeHome = React.memo(() => {
     const openComposer = React.useCallback(() => {
         router.navigate('/new');
     }, [router]);
+
+    // The machine/agent chip drops the full session-config panel down in place
+    // (instead of navigating to /new). Tapping the chip again — or anywhere
+    // outside — collapses it. The panel writes straight to the shared draft
+    // store, so the chip label and the inline-spawn config stay in sync.
+    const [panelOpen, setPanelOpen] = React.useState(false);
+    const togglePanel = React.useCallback(() => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setPanelOpen(v => !v);
+    }, []);
+    const closePanel = React.useCallback(() => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setPanelOpen(false);
+    }, []);
 
     // Hand off to the full composer with the typed text prefilled.
     const handoffToComposer = React.useCallback((prompt: string) => {
@@ -139,13 +156,13 @@ export const ComposeHome = React.memo(() => {
     const canSend = (text.trim().length > 0 || hasImages) && !sending;
 
     const modelChip = (
-        <Pressable onPress={openComposer} hitSlop={8} style={styles.modelChip}>
+        <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
             <Text style={styles.modelChipAgent} numberOfLines={1}>{agentLabel}</Text>
             <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
             <Text style={styles.modelChipMachine} numberOfLines={1}>
                 {machineName ?? t('agentInput.noMachinesAvailable')}
             </Text>
-            <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
+            <Ionicons name={panelOpen ? 'chevron-up' : 'chevron-down'} size={13} color={theme.colors.textSecondary} />
         </Pressable>
     );
 
@@ -223,6 +240,21 @@ export const ComposeHome = React.memo(() => {
                     <Text style={styles.byline}>{t('composeHome.byline')}</Text>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* In-place config dropdown anchored under the header chip. The
+                backdrop starts below the header so the chip itself stays tappable
+                (tap again to collapse); tapping anywhere else dismisses it. */}
+            {panelOpen && (
+                <>
+                    <Pressable
+                        style={[styles.panelBackdrop, { top: insets.top + headerHeight }]}
+                        onPress={closePanel}
+                    />
+                    <View style={[styles.panelDropdown, { top: insets.top + headerHeight }]}>
+                        <SessionConfigPanel layout="inline" collapsible={false} />
+                    </View>
+                </>
+            )}
         </View>
     );
 });
@@ -237,6 +269,21 @@ const styles = StyleSheet.create((theme) => ({
         height: 36,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    panelBackdrop: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 10,
+    },
+    panelDropdown: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        paddingHorizontal: 12,
+        paddingTop: 8,
+        zIndex: 11,
     },
     modelChip: {
         flexDirection: 'row',

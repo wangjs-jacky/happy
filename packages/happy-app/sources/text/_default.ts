@@ -733,6 +733,16 @@ export const en = {
         nativeUpdateAvailable: 'App Update Available',
         tapToUpdateAppStore: 'Tap to update in App Store',
         tapToUpdatePlayStore: 'Tap to update in Play Store',
+        forceCheck: 'Check for updates',
+        forceCheckSubtitle: 'Fetch and apply the latest update now',
+        checking: 'Checking for updates…',
+        upToDateTitle: 'Up to date',
+        upToDateMessage: 'You already have the latest version.',
+        readyTitle: 'Update ready',
+        readyMessage: 'A new version has been downloaded. Reload now to apply it?',
+        reloadNow: 'Reload now',
+        devModeTitle: 'Development build',
+        devModeMessage: 'Over-the-air updates are disabled in development builds.',
     },
 
     changelog: {
