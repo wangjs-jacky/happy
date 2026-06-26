@@ -42,7 +42,8 @@ import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
 import { ActivityIndicator, Platform, Pressable, Text, View, useWindowDimensions } from 'react-native';
@@ -55,6 +56,7 @@ import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
     const router = useRouter();
+    const navigation = useNavigation();
     const session = useSession(sessionId);
     const isDataReady = useIsDataReady();
     const { theme } = useUnistyles();
@@ -145,6 +147,11 @@ export const SessionView = React.memo((props: { id: string }) => {
     // Right-side header content published by the active overlay (diff toggle / save button).
     const [headerRightSlot, setHeaderRightSlot] = React.useState<React.ReactNode>(null);
 
+    // Opens the phone session-list drawer (same root Drawer the compose home opens).
+    const openSessionList = React.useCallback(() => {
+        navigation.dispatch(DrawerActions.openDrawer());
+    }, [navigation]);
+
     // Wire intra-session back / forward into the global SidebarNavigator arrows.
     const canOverlayBack = overlayHistory.cursor > 0;
     const canOverlayForward = overlayHistory.cursor < overlayHistory.stack.length - 1;
@@ -233,7 +240,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         extraPathSegment={fileViewPath ?? undefined}
                         rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : null}
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
-                        onBackPress={() => router.back()}
+                        onListPress={openSessionList}
                     />
                     {/* Voice status bar below header - not on tablet (shown in sidebar) */}
                     {!isTablet && realtimeStatus !== 'disconnected' && (
