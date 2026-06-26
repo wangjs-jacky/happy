@@ -17,6 +17,8 @@ interface ChatHeaderViewProps {
     rightSlot?: React.ReactNode;
     onTitlePress?: () => void;
     onBackPress?: () => void;
+    /** Opens the session-list drawer. Shown as a ☰ button left of the back arrow on phones. */
+    onListPress?: () => void;
     backgroundColor?: string;
     tintColor?: string;
     isConnected?: boolean;
@@ -29,6 +31,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     rightSlot,
     onTitlePress,
     onBackPress,
+    onListPress,
     isConnected = true,
 }) => {
     const { theme } = useUnistyles();
@@ -36,12 +39,24 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
     const showBackButton = !isTablet && !!onBackPress;
+    // The session-list drawer only exists on phones (tablet keeps a permanent
+    // sidebar), so mirror the back button's phone-only visibility.
+    const showListButton = !isTablet && !!onListPress;
     const hasExtra = !!extraPathSegment;
 
     return (
         <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.colors.header.background }]}>
             <View style={styles.contentWrapper}>
                 <View style={[styles.content, { height: headerHeight }]}>
+                    {showListButton && (
+                        <Pressable onPress={onListPress} hitSlop={15} style={styles.listButton}>
+                            <Ionicons
+                                name="menu-outline"
+                                size={26}
+                                color={theme.colors.header.tint}
+                            />
+                        </Pressable>
+                    )}
                     {showBackButton && (
                         <Pressable onPress={onBackPress} hitSlop={15} style={styles.backButton}>
                             <Ionicons
@@ -174,6 +189,10 @@ const styles = StyleSheet.create({
         flexShrink: 0,
     },
     backButton: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    listButton: {
         paddingHorizontal: 8,
         paddingVertical: 4,
     },
