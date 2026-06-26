@@ -28,3 +28,8 @@ export function registerSidebarDrawerCloser(fn: () => void): () => void {
 export function closeSidebarDrawer(): void {
     closer?.();
 }
+
+/** DEBUG: whether a closer is currently registered. Temporary, for on-device diagnosis. */
+export function isSidebarDrawerCloserRegistered(): boolean {
+    return closer !== null;
+}
