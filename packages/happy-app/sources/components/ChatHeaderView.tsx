@@ -13,6 +13,12 @@ interface ChatHeaderViewProps {
     folderName?: string;
     /** Extra path segment appended to the title with a separator (used for the file-view overlay). */
     extraPathSegment?: string;
+    /**
+     * Replaces the breadcrumb title region entirely with custom content (e.g. the
+     * session chip). When set, the title text / folder breadcrumb and onTitlePress
+     * are ignored — the slot handles its own press behaviour.
+     */
+    titleSlot?: React.ReactNode;
     /** Optional content rendered at the right edge of the header (used by file-view / diff overlays). */
     rightSlot?: React.ReactNode;
     onTitlePress?: () => void;
@@ -28,6 +34,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     title,
     folderName,
     extraPathSegment,
+    titleSlot,
     rightSlot,
     onTitlePress,
     onBackPress,
@@ -66,6 +73,11 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             />
                         </Pressable>
                     )}
+                    {titleSlot ? (
+                        <View style={styles.titleContainer}>
+                            {titleSlot}
+                        </View>
+                    ) : (
                     <Pressable
                         style={styles.titleContainer}
                         onPress={onTitlePress}
@@ -118,6 +130,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             </Text>
                         )}
                     </Pressable>
+                    )}
                     {rightSlot ? (
                         <View style={styles.rightSlot}>
                             {rightSlot}
