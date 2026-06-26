@@ -2,7 +2,7 @@
  * Image picker hook for attaching images to messages.
  *
  * Wraps expo-image-picker with permission handling and thumbhash generation.
- * Enforces limits: max 20 images per message, 10MB per file.
+ * Enforces limits: max 20 images per message, 50MB per file.
  *
  * Note: fileSize from expo-image-picker is optional — some platforms do not
  * provide it (returns undefined → size=0). Such files pass the client-side
@@ -18,7 +18,7 @@ import { t } from '@/text';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 
 export const MAX_IMAGES_PER_MESSAGE = 20;
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export type { AttachmentPreview };
 

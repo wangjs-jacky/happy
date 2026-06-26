@@ -326,7 +326,7 @@ export class ApiSessionClient extends EventEmitter {
             responseType: 'arraybuffer',
             timeout: 60000,
             maxRedirects: 5,
-            maxContentLength: 10 * 1024 * 1024,
+            maxContentLength: 50 * 1024 * 1024,
         });
         return new Uint8Array(response.data);
     }
@@ -349,7 +349,7 @@ export class ApiSessionClient extends EventEmitter {
      */
     async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number; dims: { width: number; height: number } | null }> {
         const raw = new Uint8Array(await readFile(filePath));
-        const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+        const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
         if (raw.length > MAX_ATTACHMENT_BYTES) {
             throw new Error(`Image too large: ${raw.length} bytes (max ${MAX_ATTACHMENT_BYTES})`);
         }

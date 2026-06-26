@@ -42,8 +42,8 @@ export async function uploadEncryptedBlob(
         const res = await axios.put(descriptor.uploadUrl, encrypted, {
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
             timeout: 60000,
-            maxContentLength: 10 * 1024 * 1024,
-            maxBodyLength: 10 * 1024 * 1024,
+            maxContentLength: 50 * 1024 * 1024,
+            maxBodyLength: 50 * 1024 * 1024,
         });
         if (res.status < 200 || res.status >= 300) {
             throw new Error(`attachment PUT failed: ${res.status}`);
@@ -59,8 +59,8 @@ export async function uploadEncryptedBlob(
     form.append('file', new Blob([encrypted], { type: 'application/octet-stream' }), 'blob');
     const res = await axios.post(descriptor.uploadUrl, form, {
         timeout: 60000,
-        maxContentLength: 10 * 1024 * 1024,
-        maxBodyLength: 10 * 1024 * 1024,
+        maxContentLength: 50 * 1024 * 1024,
+        maxBodyLength: 50 * 1024 * 1024,
     });
     if (res.status < 200 || res.status >= 300) {
         throw new Error(`attachment POST failed: ${res.status}`);

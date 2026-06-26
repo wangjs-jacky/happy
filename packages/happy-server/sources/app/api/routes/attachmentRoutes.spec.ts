@@ -165,7 +165,7 @@ describe("attachmentRoutes — request-upload", () => {
         expect(body.method).toBe("POST");
         expect(body.uploadUrl).toBe("https://s3.test/post-url");
         expect(body.formFields).toBeDefined();
-        expect(state.s3PolicyMaxLength).toBe(10 * 1024 * 1024);
+        expect(state.s3PolicyMaxLength).toBe(50 * 1024 * 1024);
     });
 
     it("returns 404 when the requesting user is not the session owner", async () => {
@@ -193,7 +193,7 @@ describe("attachmentRoutes — request-upload", () => {
         expect(res.statusCode).toBe(401);
     });
 
-    it("returns 413 when the declared size exceeds the 10MB limit", async () => {
+    it("returns 413 when the declared size exceeds the 50MB limit", async () => {
         seedSession("s1", "u1");
         app = await createApp();
 
@@ -201,9 +201,9 @@ describe("attachmentRoutes — request-upload", () => {
             method: "POST",
             url: "/v1/sessions/s1/attachments/request-upload",
             headers: { "x-user-id": "u1" },
-            payload: { filename: "huge.bin", size: 10 * 1024 * 1024 + 1 },
+            payload: { filename: "huge.bin", size: 50 * 1024 * 1024 + 1 },
         });
-        // Zod schema rejects size > 10MB at validation stage with 400.
+        // Zod schema rejects size > 50MB at validation stage with 400.
         expect([400, 413]).toContain(res.statusCode);
     });
 });
