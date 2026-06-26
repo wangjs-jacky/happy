@@ -319,7 +319,7 @@ export const SessionView = React.memo((props: { id: string }) => {
             {infoPanelOpen && session && (
                 <SessionInfoDropdown
                     session={session}
-                    agentLabel={agentLabel}
+                    machineName={machineName}
                     online={sessionOnline}
                     top={safeArea.top + headerHeight}
                     onClose={() => setInfoPanelOpen(false)}

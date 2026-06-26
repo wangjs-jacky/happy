@@ -1,31 +1,67 @@
 import * as React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Platform, Image as RNImage } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
-import { Avatar } from '@/components/Avatar';
-import { Item } from '@/components/Item';
-import { ItemGroup } from '@/components/ItemGroup';
 import { Session } from '@/sync/storageTypes';
+import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import {
-    getSessionName,
-    getSessionAvatarId,
-    useSessionStatus,
-    formatPathRelativeToHome,
-    formatOSPlatform,
-} from '@/utils/sessionUtils';
+    getAvailableModels,
+    getAvailablePermissionModes,
+    getEffortLevelsForModel,
+    resolveCurrentOption,
+} from '@/components/modelModeOptions';
+import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
+import { useSetting } from '@/sync/storage';
 import { t } from '@/text';
 
+// Agent icon assets — mirrors SessionConfigPanel so the panel reads identically.
+const agentIcons = {
+    claude: require('@/assets/images/icon-claude.png'),
+    codex: require('@/assets/images/icon-gpt.png'),
+    openclaw: require('@/assets/images/icon-openclaw.png'),
+    gemini: require('@/assets/images/icon-gemini.png'),
+} as const;
+
+const AGENT_LABELS: Record<string, string> = {
+    claude: 'claude code',
+    codex: 'codex',
+    openclaw: 'openclaw',
+    gemini: 'gemini',
+};
+
+type AgentKey = keyof typeof agentIcons;
+
+// Permission glyph, matching SessionConfigPanel's getPermissionStyle.
+function permissionIcon(key: string | undefined): 'play-forward' | 'pause' | 'shield-outline' {
+    switch (key) {
+        case 'acceptEdits':
+        case 'auto_edit':
+        case 'dontAsk':
+        case 'safe-yolo':
+        case 'bypassPermissions':
+        case 'yolo':
+            return 'play-forward';
+        case 'plan':
+        case 'read-only':
+            return 'pause';
+        default:
+            return 'shield-outline';
+    }
+}
+
 /**
- * Read-only session info panel that drops down under the chat header when the
- * SessionHeaderChip is tapped. An already-running session can't switch its
- * machine/agent, so this only surfaces the current session's metadata plus a
- * shortcut into the full info screen. Renders its own full-screen backdrop so
- * a tap anywhere outside collapses it — mirrors ComposeHome's inline dropdown.
+ * Read-only session config panel that drops down under the chat header when the
+ * SessionHeaderChip is tapped. Visually mirrors the particle home's inline
+ * SessionConfigPanel (machine / folder / agent·model·effort / permission), but
+ * reflects the *running* session's metadata and isn't editable — an active
+ * session can't switch its machine/agent. A "Session details" row at the bottom
+ * links into the full info screen. Renders its own full-screen backdrop so a tap
+ * anywhere outside collapses it.
  */
 interface SessionInfoDropdownProps {
     session: Session;
-    agentLabel: string;
+    machineName: string | null;
     online: boolean;
     /** Y offset where the panel/backdrop begin (header bottom = safeArea.top + headerHeight). */
     top: number;
@@ -33,61 +69,117 @@ interface SessionInfoDropdownProps {
     onViewDetails: () => void;
 }
 
-export const SessionInfoDropdown = React.memo(({ session, agentLabel, online, top, onClose, onViewDetails }: SessionInfoDropdownProps) => {
+export const SessionInfoDropdown = React.memo(({ session, machineName, online, top, onClose, onViewDetails }: SessionInfoDropdownProps) => {
     const { theme } = useUnistyles();
-    const status = useSessionStatus(session);
-    const sessionName = getSessionName(session);
     const metadata = session.metadata;
+    const flavor = metadata?.flavor ?? undefined;
+    const agentKey: AgentKey = (flavor && flavor in agentIcons ? flavor : 'claude') as AgentKey;
+    const agentLabel = AGENT_LABELS[agentKey] ?? agentKey;
+    const pathName = metadata?.path ? formatPathRelativeToHome(metadata.path, metadata.homeDir) : null;
+
+    // Resolve the session's current model / permission / effort display names the
+    // same way SessionViewLoaded does, so the panel matches the chat's selectors.
+    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
+    const effectiveAgentDefaults = React.useMemo(() => resolveAgentDefaultConfig(agentDefaultOverrides, flavor), [agentDefaultOverrides, flavor]);
+
+    const availableModels = React.useMemo(() => getAvailableModels(flavor, metadata, t), [flavor, metadata]);
+    const availableModes = React.useMemo(() => getAvailablePermissionModes(flavor, metadata, t), [flavor, metadata]);
+
+    const permissionMode = React.useMemo(() => resolveCurrentOption(availableModes, [
+        session.permissionMode,
+        effectiveAgentDefaults.permissionMode,
+        metadata?.currentOperatingModeCode,
+    ]), [availableModes, session.permissionMode, effectiveAgentDefaults.permissionMode, metadata?.currentOperatingModeCode]);
+
+    const modelMode = React.useMemo(() => resolveCurrentOption(availableModels, [
+        session.modelMode,
+        effectiveAgentDefaults.modelMode,
+        metadata?.currentModelCode,
+    ]), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, metadata?.currentModelCode]);
+
+    const modelKey = modelMode?.key ?? 'default';
+    const availableEffortLevels = React.useMemo(() => getEffortLevelsForModel(flavor, modelKey), [flavor, modelKey]);
+    const effortLevel = React.useMemo(() => resolveCurrentOption(availableEffortLevels, [
+        session.effortLevel,
+        effectiveAgentDefaults.effortLevel,
+    ]), [availableEffortLevels, session.effortLevel, effectiveAgentDefaults.effortLevel]);
 
     return (
         <>
             <Pressable style={[styles.backdrop, { top }]} onPress={onClose} />
             <View style={[styles.dropdown, { top }]}>
-                <View style={styles.card}>
-                    <View style={styles.headerRow}>
-                        <Avatar id={getSessionAvatarId(session)} size={40} monochrome={!status.isConnected} flavor={metadata?.flavor} />
-                        <View style={styles.headerText}>
-                            <Text style={styles.name} numberOfLines={1}>{sessionName}</Text>
-                            <View style={styles.statusRow}>
-                                <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
-                                <Text style={styles.agent} numberOfLines={1}>
-                                    {agentLabel} · {online ? t('status.online') : t('status.offline')}
-                                </Text>
-                            </View>
-                        </View>
+                <View style={styles.configBox}>
+                    {/* Machine */}
+                    <View style={styles.configRow}>
+                        <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
+                        <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                            {machineName ?? t('agentInput.noMachinesAvailable')}
+                        </Text>
+                        <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
                     </View>
 
-                    <ItemGroup>
-                        {metadata?.host ? (
-                            <Item
-                                title={t('sessionInfo.host')}
-                                subtitle={metadata.host}
-                                icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />}
-                                showChevron={false}
+                    {/* Folder */}
+                    {pathName ? (
+                        <View style={styles.configRow}>
+                            <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                                {pathName}
+                            </Text>
+                        </View>
+                    ) : null}
+
+                    {/* Agent · Model · Effort */}
+                    <View style={styles.configRow}>
+                        <View style={styles.configInlineField}>
+                            <RNImage
+                                source={agentIcons[agentKey]}
+                                style={[styles.agentIcon, { tintColor: theme.colors.textSecondary }]}
+                                resizeMode="contain"
                             />
+                            <Text style={[styles.configLabel, styles.configInlineText]} numberOfLines={1}>
+                                {agentLabel}
+                            </Text>
+                        </View>
+                        {modelMode?.name ? (
+                            <>
+                                <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
+                                <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                    {modelMode.name}
+                                </Text>
+                            </>
                         ) : null}
-                        {metadata?.path ? (
-                            <Item
-                                title={t('sessionInfo.path')}
-                                subtitle={formatPathRelativeToHome(metadata.path, metadata.homeDir)}
-                                icon={<Ionicons name="folder-outline" size={29} color={theme.colors.textSecondary} />}
-                                showChevron={false}
-                            />
+                        {effortLevel?.name ? (
+                            <>
+                                <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
+                                <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                    {effortLevel.name}
+                                </Text>
+                            </>
                         ) : null}
-                        {metadata?.os ? (
-                            <Item
-                                title={t('sessionInfo.operatingSystem')}
-                                subtitle={formatOSPlatform(metadata.os)}
-                                icon={<Ionicons name="hardware-chip-outline" size={29} color={theme.colors.textSecondary} />}
-                                showChevron={false}
-                            />
-                        ) : null}
-                        <Item
-                            title={t('sessionInfo.viewDetails')}
-                            icon={<Ionicons name="information-circle-outline" size={29} color={theme.colors.text} />}
-                            onPress={onViewDetails}
-                        />
-                    </ItemGroup>
+                    </View>
+
+                    {/* Permission mode */}
+                    {permissionMode?.name ? (
+                        <View style={styles.configRow}>
+                            <Ionicons name={permissionIcon(permissionMode.key)} size={15} color={theme.colors.textSecondary} />
+                            <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                                {permissionMode.name}
+                            </Text>
+                        </View>
+                    ) : null}
+
+                    {/* Divider + entry into the full info screen (the one tappable row). */}
+                    <View style={styles.divider} />
+                    <Pressable
+                        style={(p) => [styles.configRow, p.pressed && styles.rowPressed]}
+                        onPress={onViewDetails}
+                    >
+                        <Ionicons name="information-circle-outline" size={15} color={theme.colors.text} />
+                        <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                            {t('sessionInfo.viewDetails')}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                    </Pressable>
                 </View>
             </View>
         </>
@@ -110,12 +202,13 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 8,
         zIndex: 11,
     },
-    card: {
-        backgroundColor: theme.colors.groupped.background,
-        borderRadius: 16,
+    configBox: {
+        backgroundColor: theme.colors.input.background,
+        borderRadius: Platform.select({ default: 16, android: 20 }),
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
-        paddingBottom: 8,
+        paddingVertical: 4,
+        paddingHorizontal: 4,
         overflow: 'hidden',
         shadowColor: theme.colors.shadow.color,
         shadowOffset: { width: 0, height: 4 },
@@ -123,38 +216,53 @@ const styles = StyleSheet.create((theme) => ({
         shadowRadius: 12,
         elevation: 8,
     },
-    headerRow: {
+    configRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 4,
-    },
-    headerText: {
-        flex: 1,
+        gap: 8,
         minWidth: 0,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 12,
     },
-    name: {
-        ...Typography.default('semiBold'),
-        fontSize: 16,
+    rowPressed: {
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    configLabel: {
+        minWidth: 0,
+        fontSize: 14,
         color: theme.colors.text,
+        ...Typography.default('semiBold'),
+        ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
     },
-    statusRow: {
+    configValueText: {
+        flex: 1,
+        flexShrink: 1,
+    },
+    configInlineField: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        marginTop: 3,
-    },
-    agent: {
-        ...Typography.default(),
-        fontSize: 13,
-        color: theme.colors.textSecondary,
+        gap: 4,
+        minWidth: 0,
         flexShrink: 1,
+    },
+    configInlineText: {
+        minWidth: 0,
+        flexShrink: 1,
+    },
+    agentIcon: {
+        width: 15,
+        height: 15,
     },
     dot: {
         width: 7,
         height: 7,
         borderRadius: 3.5,
+    },
+    divider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: theme.colors.divider,
+        marginHorizontal: 12,
+        marginVertical: 2,
     },
 }));
