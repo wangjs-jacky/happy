@@ -1,6 +1,5 @@
 import type { Router } from "expo-router"
-import { useRouter, useNavigation } from "expo-router"
-import { DrawerActions } from '@react-navigation/native';
+import { useRouter } from "expo-router"
 import { storage } from '@/sync/storage';
 import { trackSessionSwitched } from '@/track';
 
@@ -10,17 +9,17 @@ export function navigateToSession(router: Router, sessionId: string) {
         trackSessionSwitched(session);
     }
 
-    router.push(`/session/${encodeURIComponent(sessionId)}`);
+    // Use navigate (not push) so the phone sidebar's front drawer closes. On-device
+    // testing showed DrawerActions.closeDrawer() is a no-op for this drawer; what
+    // actually dismisses it is the navigate itself — the sidebar's own buttons close
+    // the drawer purely via router.navigate(...) (their closeDrawer() call does
+    // nothing). A plain router.push() left the drawer stuck open over the session.
+    router.navigate(`/session/${encodeURIComponent(sessionId)}`);
 }
 
 export function useNavigateToSession() {
     const router = useRouter();
-    const navigation = useNavigation();
     return (sessionId: string) => {
-        // On phone the sidebar is a `front` drawer overlay that would otherwise
-        // stay open on top of the pushed session screen, so close it first.
-        // On desktop the drawer is permanent and closeDrawer is a harmless no-op.
-        navigation.dispatch(DrawerActions.closeDrawer());
         navigateToSession(router, sessionId);
     }
 }
