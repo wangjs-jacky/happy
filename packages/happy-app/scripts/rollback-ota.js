@@ -62,12 +62,14 @@ function readMeta(stamp) {
 }
 
 // 把一个版本的 git 信息压成一行简短描述，供菜单展示
+// inferred:true 的版本是事后按发布时间近似推断的（老版本回填），加「(推断)」标注以示区别
 function describeVersion(meta) {
   if (!meta || !meta.git || !meta.git.sha) return '(无 commit 记录)';
   const g = meta.git;
   const dirty = g.dirty ? '*' : '';
+  const inferred = g.inferred ? ' (推断)' : '';
   const subject = g.subject ? ' ' + g.subject : '';
-  return `${g.sha}${dirty}${subject}`;
+  return `${g.sha}${dirty}${inferred}${subject}`;
 }
 
 // 问一个问题，返回用户输入（去空白）
