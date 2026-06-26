@@ -1,0 +1,45 @@
+# Serverless Devs 部署描述：自建 Expo OTA 大脑（FC v3 custom runtime Web 函数）
+# 部署：cd packages/happy-app/ota-server && s deploy -y
+# 复刻本账号已验证的 my-first-web-fn 组合：custom.debian11 + 官方 Nodejs20 层 + npm run start + port 9000
+edition: 3.0.0
+name: happy-ota
+access: default
+
+resources:
+  happyOta:
+    component: fc3
+    props:
+      region: cn-hangzhou
+      functionName: happy-ota-server
+      description: Self-hosted Expo OTA manifest server for Happy fork
+      runtime: custom.debian11
+      handler: index.handler
+      memorySize: 512
+      cpu: 0.35
+      diskSize: 512
+      timeout: 60
+      internetAccess: true
+      # 关键：Nodejs20 层把 node/npm 放在 /opt/nodejs20/bin，必须显式加进 PATH，
+      # 否则 custom runtime 启动 `npm run start` 会报 CAFileNotFound。
+      environmentVariables:
+        PATH: /opt/nodejs20/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/bin:/code:/code/bin
+        NODE_PATH: /opt/nodejs/node_modules
+        LD_LIBRARY_PATH: /code:/code/lib:/usr/lib:/opt/lib:/usr/local/lib
+      layers:
+        - acs:fc:cn-hangzhou:official:layers/Nodejs20/versions/3
+      customRuntimeConfig:
+        command:
+          - npm
+          - run
+          - start
+        port: 9000
+      code: ./code
+      triggers:
+        - triggerName: defaultTrigger
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+              - HEAD

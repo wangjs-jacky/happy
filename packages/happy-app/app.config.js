@@ -206,7 +206,9 @@ export default {
             ]
         ],
         updates: {
-            url: "https://u.expo.dev/4558dd3d-cd5a-47cd-bad9-e591a241cc06",
+            // 自建 OTA：指向阿里云 FC（happy-ota-server），替换官方 u.expo.dev。
+            // 改了这个地址必须重新构建装机才生效。
+            url: "https://happy-oa-server-vqzpvgrhgx.cn-hangzhou.fcapp.run",
             requestHeaders: {
                 "expo-channel-name": "production"
             }
