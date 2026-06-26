@@ -169,3 +169,49 @@ gh release create "$TAG" --repo wangjs-jacky/happy \
 - APK 是构建产物，**不提交进 git**（`*.apk` 已隐含在 prebuild 产物链路中，不要 `git add`）
 - 同一版本号重复发布前先删旧 release/tag，或递增 `app.config.js` 的 version
 - 此流程纯属本机/内测分发；正式商店包仍走 EAS（`pnpm release:build:appstore`）
+
+## 九、自建 OTA：发布、版本管理与真机验证
+
+> 改了 JS 层（RN 组件 / 逻辑，**无原生改动**）后，不必重新出 APK，直接推自建 OTA，真机冷启动即拉到更新。所有命令在 `packages/happy-app/` 下执行。
+
+### 机制速记
+
+- 自建 OTA 把 `expo export` 的产物上传到**阿里云 OSS 桶 `happy-app-ota-jacky`**（`oss-cn-hangzhou`），脚本 `scripts/publish-ota.js`。
+- 当前只发 **Android、`runtimeVersion: 21`**（见 `app.config.js`）。**runtimeVersion 必须和装机 APK 完全一致**，否则该机器永远跳过这次更新。
+- App 端 `updates.url` 指向 FC 服务 `happy-oa-server-...fcapp.run`（`expo-channel-name: production`），它读 OSS 的 `latest.json` 下发；改这个 url 必须重新构建装机才生效。
+- 凭证复用本机 `aliyun configure` 的默认 profile（`~/.aliyun/config.json`），脚本用 `aliyun ossutil` 上传，无需环境变量里写 AccessKey。
+
+### 发布
+
+```bash
+cd packages/happy-app
+pnpm ota:selfhost   # = expo export --platform android && node scripts/publish-ota.js
+```
+
+- 建议**先在功能分支提交一次再发**，让发出去的包对得上一个明确 commit。
+- 发布成功会打印「新版本 id」（UUID）与 manifest 地址。OSS 上版本结构：
+  - `manifests/android/21/latest.json` —— 当前线上指针（每次覆盖）
+  - `manifests/android/21/<毫秒时间戳>.json` —— 每次发布留的历史备份（JS 包从不删，故任意历史版本可回滚）
+
+### 列出全部 OTA 版本 / 看当前线上
+
+```bash
+aliyun ossutil ls oss://happy-app-ota-jacky/manifests/android/21/ | grep -E '\.json'
+```
+
+- `latest.json` 与某个 `<时间戳>.json` 的 **ETag 相同** → 那个时间戳就是当前线上版本。
+- 或直接 `pnpm ota:rollback`：它会列出所有历史版本并标注「← 当前线上」，选序号即把该版本覆盖回 `latest.json` 完成回滚。
+
+### 真机验证「是否已拉到本次 OTA」
+
+App 内 `useUpdates`（`sources/hooks/useUpdates.ts`）在**每次启动 + 每次切回前台**查更新，查到就后台下载并弹「**有可用更新**」横幅；点横幅 `reloadApp()` 重载进新包，不点则下次冷启动自动生效（`__DEV__` 下不查更新）。
+
+两种验证手段：
+
+1. **看行为**（最快）：完全杀掉 App 重开 → 等横幅 → 点它重载（或再冷启一次）→ 观察这次 OTA 的可见改动是否出现。
+2. **看 Update ID**（最准）：
+   - **设置 → 连点底部「版本号」那一行好几下** 解锁开发者模式（多击 hook 在 `SettingsView.tsx`，切 `devModeEnabled`）。
+   - 出现 **Developer** 分组 → `/dev` → **Expo Constants**（`/dev/expo-constants`）。
+   - **Update ID** 应等于发布时打印的那个 UUID；同页 **Runtime Version** 必须是 `21`。对上即真机正跑该 OTA。
+
+> 服务端侧无法直接确认设备是否来拉（OSS 未开访问日志）；以真机上的 **Update ID / 行为** 为准。PostHog 有 `ota_update_available` / `ota_update_applied` 事件（带 `ota_version`）可作旁证。
