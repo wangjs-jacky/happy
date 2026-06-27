@@ -22,6 +22,7 @@ const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
     const isTablet = useIsTablet();
+    const { theme } = useUnistyles();
     const zenMode = useLocalSetting('zenMode');
     const isDesktopLayout = auth.isAuthenticated && isTablet;
     const showSidebar = isDesktopLayout && !zenMode;
@@ -55,14 +56,21 @@ export const SidebarNavigator = React.memo(() => {
             return {
                 lazy: false,
                 headerShown: false,
-                drawerType: 'front' as const,
+                // Card-stack: on native the sidebar sits BEHIND the main content
+                // (drawerType 'back'), and the content slides away + scales (see
+                // CardStackScene) to reveal it — instead of a panel sliding over the
+                // top ('front'). Web keeps 'front' because its drawer progress is a
+                // 0/1 binary jump (no per-frame value), so the scale would flicker.
+                drawerType: (Platform.OS === 'web' ? 'front' : 'back') as 'front' | 'back',
                 swipeEnabled: true,
                 // Widened from the default 40px edge so the left-to-right open gesture is
                 // easy to catch from the left ~third of the screen, not just the very edge.
                 swipeEdgeWidth: Math.max(Math.floor(windowWidth / 3), 100),
                 drawerStyle: {
                     width: fullDrawerWidth,
-                    backgroundColor: 'transparent',
+                    // Solid background so the revealed sidebar reads as its own card
+                    // (was transparent, fine for 'front' but shows through in 'back').
+                    backgroundColor: theme.colors.surface,
                     borderRightWidth: 0,
                 },
             } as any;
@@ -91,7 +99,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth]);
+    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,
@@ -99,7 +107,7 @@ export const SidebarNavigator = React.memo(() => {
     );
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
             <Drawer
                 screenOptions={drawerNavigationOptions}
                 drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
