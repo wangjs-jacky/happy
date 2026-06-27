@@ -126,28 +126,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         zIndex: 1000,
     },
 
-    // Status styles
-    statusContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingBottom: 4,
-    },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    statusText: {
-        fontSize: 11,
-        ...Typography.default(),
-    },
-    contextWarningText: {
-        fontSize: 11,
-        marginLeft: 8,
-        ...Typography.default(),
-    },
-
     // Button styles
     actionButtonsContainer: {
         flexDirection: 'row',
@@ -160,21 +138,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         gap: 8,
         flex: 1,
         overflow: 'hidden',
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderRadius: Platform.select({ default: 16, android: 20 }),
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-        justifyContent: 'center',
-        height: 32,
-    },
-    actionButtonPressed: {
-        opacity: 0.7,
-    },
-    actionButtonIcon: {
-        color: theme.colors.button.secondary.tint,
     },
     sendButton: {
         width: 32,
@@ -195,15 +158,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         backgroundColor: theme.colors.surfaceHigh,
         borderWidth: 1,
         borderColor: theme.colors.divider,
-    },
-    sendButtonInner: {
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    sendButtonInnerPressed: {
-        opacity: 0.7,
     },
     sendButtonIcon: {
         color: theme.colors.button.primary.tint,
