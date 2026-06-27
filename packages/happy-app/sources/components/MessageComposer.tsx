@@ -77,8 +77,6 @@ interface MessageComposerProps {
     onPickImages?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
-    /** home mode: tapping the "+" button opens the full editor (/new). */
-    onExpand?: () => void;
 }
 
 const MAX_CONTEXT_SIZE = 190000;
@@ -101,6 +99,8 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     unifiedPanel: {
         backgroundColor: theme.colors.input.background,
         borderRadius: Platform.select({ default: 16, android: 20 }),
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
         overflow: 'hidden',
         paddingVertical: 2,
         paddingBottom: 8,
@@ -139,6 +139,11 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flex: 1,
         overflow: 'hidden',
     },
+    actionButtonsRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 0,
+    },
     sendButton: {
         width: 32,
         height: 32,
@@ -153,11 +158,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     sendButtonInactive: {
         backgroundColor: theme.colors.button.primary.disabled,
-    },
-    sendButtonLocked: {
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
     },
     sendButtonIcon: {
         color: theme.colors.button.primary.tint,
@@ -797,30 +797,10 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                     <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
                                 )}
 
-                                {/* Expand button (home only) — opens the full editor (/new) */}
-                                {props.onExpand && (
-                                    <Pressable
-                                        onPress={props.onExpand}
-                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                        style={(p) => ({
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            borderRadius: Platform.select({ default: 16, android: 20 }),
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 6,
-                                            justifyContent: 'center',
-                                            height: 32,
-                                            opacity: p.pressed ? 0.7 : 1,
-                                        })}
-                                    >
-                                        <Ionicons
-                                            name="add"
-                                            size={22}
-                                            color={theme.colors.button.secondary.tint}
-                                        />
-                                    </Pressable>
-                                )}
+                                </View>}
 
+                                {/* Right cluster: image picker + send (image sits at far right, next to send) */}
+                                <View style={styles.actionButtonsRight}>
                                 {/* Image picker button (expImageUpload) */}
                                 {props.onPickImages && (
                                     <Pressable
@@ -846,13 +826,11 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                         />
                                     </Pressable>
                                 )}
-                                </View>}
 
-                                {/* Send button - aligned with first row */}
+                                {/* Send button */}
                                 <View
                                     style={[
                                         styles.sendButton,
-                                        isSendBlocked ? styles.sendButtonLocked :
                                         (hasText || props.isSending)
                                             ? styles.sendButtonActive
                                             : styles.sendButtonInactive
@@ -875,12 +853,6 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                 size="small"
                                                 color={theme.colors.button.primary.tint}
                                             />
-                                        ) : isSendBlocked ? (
-                                            <Ionicons
-                                                name="lock-closed"
-                                                size={15}
-                                                color={theme.colors.textSecondary}
-                                            />
                                         ) : (
                                             <Octicons
                                                 name="arrow-up"
@@ -893,6 +865,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             />
                                         )}
                                     </Pressable>
+                                </View>
                                 </View>
                             </View>
                         </View>

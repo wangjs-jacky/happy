@@ -85,10 +85,6 @@ export const ComposeHome = React.memo(() => {
         router.push('/settings');
     }, [router]);
 
-    const openComposer = React.useCallback(() => {
-        router.navigate('/new');
-    }, [router]);
-
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
     // outside — collapses it. The panel writes straight to the shared draft
@@ -154,8 +150,6 @@ export const ComposeHome = React.memo(() => {
         });
     }, [text, sending, machines, spawn, handoffToComposer, hasImages, selectedImages, clearImages]);
 
-    const canSend = (text.trim().length > 0 || hasImages) && !sending;
-
     const modelChip = (
         <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
             <Text style={styles.modelChipAgent} numberOfLines={1}>{agentLabel}</Text>
@@ -206,8 +200,6 @@ export const ComposeHome = React.memo(() => {
                         onChangeText={setText}
                         onSend={handleSend}
                         isSending={sending}
-                        blockSend={!canSend}
-                        onExpand={openComposer}
                         selectedImages={hasImages ? selectedImages : undefined}
                         onPickImages={canAttach ? pickImages : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
