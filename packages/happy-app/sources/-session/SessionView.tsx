@@ -1,14 +1,7 @@
 import { AgentContentView } from '@/components/AgentContentView';
-import { AgentInput } from '@/components/AgentInput';
+import { MessageComposer } from '@/components/MessageComposer';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
-import {
-    getAvailableModels,
-    getAvailablePermissionModes,
-    getEffortLevelsForModel,
-    resolveCurrentOption,
-    EffortLevel,
-} from '@/components/modelModeOptions';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { SessionHeaderChip } from '@/components/SessionHeaderChip';
@@ -16,21 +9,15 @@ import { SessionInfoDropdown } from '@/components/SessionInfoDropdown';
 import { ChatList } from '@/components/ChatList';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
-import { VoiceAssistantStatusBar } from '@/components/VoiceAssistantStatusBar';
 import { useDraft } from '@/hooks/useDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
-import { Modal } from '@/modal';
-import { voiceHooks } from '@/realtime/hooks/voiceHooks';
-import { getCurrentVoiceConversationId, getCurrentVoiceSessionDurationSeconds, startRealtimeSession, stopRealtimeSession } from '@/realtime/RealtimeSession';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
-import { storage, useIsDataReady, useLocalSetting, useRealtimeStatus, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
+import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
-import { tracking } from '@/track';
-import { getVoiceMessageCount, getVoiceOnboardingPromptLoadCount } from '@/sync/persistence';
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
@@ -52,8 +39,6 @@ import { ActivityIndicator, Platform, Pressable, Text, View, useWindowDimensions
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import type { ModelMode, PermissionMode } from '@/components/PermissionModeSelector';
-import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 
 // Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
 // off the running session's `flavor` (an active session reports its agent there).
@@ -75,8 +60,6 @@ export const SessionView = React.memo((props: { id: string }) => {
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const headerHeight = useHeaderHeight();
-    const realtimeStatus = useRealtimeStatus();
-    const isTablet = useIsTablet();
     const { width: windowWidth } = useWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
@@ -287,15 +270,11 @@ export const SessionView = React.memo((props: { id: string }) => {
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
-                    {/* Voice status bar below header - not on tablet (shown in sidebar) */}
-                    {!isTablet && realtimeStatus !== 'disconnected' && (
-                        <VoiceAssistantStatusBar variant="full" />
-                    )}
                 </View>
             )}
 
             {/* Content based on state */}
-            <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight + (!isTablet && realtimeStatus !== 'disconnected' ? 32 : 0) : 0 }}>
+            <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
                 {!isDataReady ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
@@ -410,7 +389,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
 const SIDEBAR_MIN_WINDOW_WIDTH = 1100;
 
-// Hoisted so AgentInput's React.memo doesn't see a new array ref on every keystroke
+// Hoisted so MessageComposer's React.memo doesn't see a new array ref on every keystroke
 const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
 
 // Imperative handle exposed by ChatComposer so SessionViewLoaded can read /
@@ -422,7 +401,7 @@ type ChatComposerHandle = {
 };
 
 type ChatComposerProps = Omit<
-    React.ComponentProps<typeof AgentInput>,
+    React.ComponentProps<typeof MessageComposer>,
     'initialValue' | 'onChangeText'
 > & {
     sessionId: string;
@@ -468,7 +447,7 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     }), [clearDraft]);
 
     return (
-        <AgentInput
+        <MessageComposer
             {...rest}
             ref={inputHandleRef}
             sessionId={sessionId}
@@ -485,7 +464,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
-    const realtimeStatus = useRealtimeStatus();
     const { messages, isLoaded } = useSessionMessages(sessionId);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
@@ -497,45 +475,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const isCliOutdated = cliVersion && !isVersionSupported(cliVersion, MINIMUM_CLI_VERSION);
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
-    const flavor = session.metadata?.flavor;
-    const availableModels = React.useMemo(() => (
-        getAvailableModels(flavor, session.metadata, t)
-    ), [flavor, session.metadata]);
-    const availableModes = React.useMemo(() => (
-        getAvailablePermissionModes(flavor, session.metadata, t)
-    ), [flavor, session.metadata]);
-    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const effectiveAgentDefaults = React.useMemo(() => (
-        resolveAgentDefaultConfig(agentDefaultOverrides, flavor)
-    ), [agentDefaultOverrides, flavor]);
-
-    const permissionMode = React.useMemo<PermissionMode | null>(() => (
-        resolveCurrentOption(availableModes, [
-            session.permissionMode,
-            effectiveAgentDefaults.permissionMode,
-            session.metadata?.currentOperatingModeCode,
-        ])
-    ), [availableModes, session.permissionMode, effectiveAgentDefaults.permissionMode, session.metadata?.currentOperatingModeCode]);
-
-    const modelMode = React.useMemo<ModelMode | null>(() => (
-        resolveCurrentOption(availableModels, [
-            session.modelMode,
-            effectiveAgentDefaults.modelMode,
-            session.metadata?.currentModelCode,
-        ])
-    ), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, session.metadata?.currentModelCode]);
-
-    // Effort level state
-    const modelKey = modelMode?.key ?? 'default';
-    const availableEffortLevels = React.useMemo<EffortLevel[]>(() => (
-        getEffortLevelsForModel(flavor, modelKey)
-    ), [flavor, modelKey]);
-    const effortLevel = React.useMemo<EffortLevel | null>(() => (
-        resolveCurrentOption(availableEffortLevels, [
-            session.effortLevel,
-            effectiveAgentDefaults.effortLevel,
-        ])
-    ), [availableEffortLevels, session.effortLevel, effectiveAgentDefaults.effortLevel]);
 
     const sessionStatus = useSessionStatus(session);
     const sessionUsage = useSessionUsage(sessionId);
@@ -567,19 +506,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             });
         }
     }, [machineId, cliVersion, acknowledgedCliVersions]);
-
-    // Function to update permission mode
-    const updatePermissionMode = React.useCallback((mode: PermissionMode) => {
-        storage.getState().updateSessionPermissionMode(sessionId, mode.key);
-    }, [sessionId]);
-
-    const updateModelMode = React.useCallback((mode: ModelMode) => {
-        storage.getState().updateSessionModelMode(sessionId, mode.key);
-    }, [sessionId]);
-
-    const updateEffortLevel = React.useCallback((level: EffortLevel) => {
-        storage.getState().updateSessionEffortLevel(sessionId, level.key);
-    }, [sessionId]);
 
     // Memoize header-dependent styles to prevent re-renders
     const headerDependentStyles = React.useMemo(() => ({
@@ -635,56 +561,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         };
     }, [sessionUsage, session.latestUsage]);
 
-
-    // Handle microphone button press - memoized to prevent button flashing
-    const handleMicrophonePress = React.useCallback(async () => {
-        if (realtimeStatus === 'connecting') {
-            return; // Prevent actions during transitions
-        }
-        if (realtimeStatus === 'disconnected' || realtimeStatus === 'error') {
-            try {
-                const initialPrompt = voiceHooks.onVoiceStarted(sessionId);
-                const conversationId = await startRealtimeSession(sessionId, initialPrompt);
-                if (conversationId) {
-                    const hasPro = storage.getState().purchases.entitlements['pro'] ?? false;
-                    tracking?.capture('voice_session_started', {
-                        session_id: sessionId,
-                        elevenlabs_conversation_id: conversationId,
-                        has_pro: hasPro,
-                        onboarding_prompt_load_count: getVoiceOnboardingPromptLoadCount(),
-                        voice_message_count: getVoiceMessageCount(),
-                    });
-                }
-            } catch (error) {
-                console.error('Failed to start realtime session:', error);
-                Modal.alert(t('common.error'), t('errors.voiceSessionFailed'));
-                tracking?.capture('voice_session_error', {
-                    session_id: sessionId,
-                    elevenlabs_conversation_id: getCurrentVoiceConversationId(),
-                    error: error instanceof Error ? error.message : 'Unknown error',
-                });
-            }
-        } else if (realtimeStatus === 'connected') {
-            const conversationId = getCurrentVoiceConversationId();
-            const durationSeconds = getCurrentVoiceSessionDurationSeconds();
-            await stopRealtimeSession();
-            tracking?.capture('voice_session_stopped', {
-                session_id: sessionId,
-                elevenlabs_conversation_id: conversationId,
-                ...(durationSeconds !== undefined ? { duration_seconds: durationSeconds } : {}),
-            });
-
-            // Notify voice assistant about voice session stop
-            voiceHooks.onVoiceStopped();
-        }
-    }, [realtimeStatus, sessionId]);
-
-    // Memoize mic button state to prevent flashing during chat transitions
-    const micButtonState = useMemo(() => ({
-        onMicPress: handleMicrophonePress,
-        isMicActive: realtimeStatus === 'connected' || realtimeStatus === 'connecting'
-    }), [handleMicrophonePress, realtimeStatus]);
-
     // Trigger session visibility and initialize git status sync
     React.useLayoutEffect(() => {
 
@@ -704,7 +580,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId, realtimeStatus]);
+    }, [sessionId]);
 
     let content = (
         <>
@@ -727,24 +603,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
 
     const composer = (
         <ChatComposer
+            mode="session"
             composerHandleRef={composerHandleRef}
             placeholder={t('session.inputPlaceholder')}
             sessionId={sessionId}
-            permissionMode={permissionMode}
-            onPermissionModeChange={updatePermissionMode}
-            availableModes={availableModes}
-            modelMode={modelMode}
-            availableModels={availableModels}
-            onModelModeChange={updateModelMode}
-            effortLevel={effortLevel}
-            availableEffortLevels={availableEffortLevels}
-            onEffortLevelChange={updateEffortLevel}
-            metadata={session.metadata}
             connectionStatus={connectionStatus}
             blockSend={false}
             onSend={handleSend}
-            onMicPress={isDisconnected ? undefined : micButtonState.onMicPress}
-            isMicActive={isDisconnected ? false : micButtonState.isMicActive}
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}

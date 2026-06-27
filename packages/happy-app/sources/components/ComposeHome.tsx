@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, TextInput, ActivityIndicator, Platform, LayoutAnimation } from 'react-native';
+import { View, Text, Pressable, LayoutAnimation } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
-import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
+import { MessageComposer } from './MessageComposer';
 import { SessionConfigPanel } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
@@ -102,8 +102,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         router.back();
     }, [router]);
 
-    // The machine/agent chip drops the full session-config panel down in place.
-    // Tapping the chip again — or anywhere
+    // The machine/agent chip drops the full session-config panel down in place
+    // (instead of navigating to /new). Tapping the chip again — or anywhere
     // outside — collapses it. The panel writes straight to the shared draft
     // store, so the chip label and the inline-spawn config stay in sync.
     const [panelOpen, setPanelOpen] = React.useState(false);
@@ -152,9 +152,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
-    // request. When it isn't, the button greys out instead of navigating away.
+    // request. When it isn't, MessageComposer's send button greys out (via
+    // isSendDisabled) instead of letting a doomed spawn through.
     const canSpawn = online && worktreeKey !== '__new__';
-    const canSend = (text.trim().length > 0 || hasImages) && !sending && canSpawn;
 
     const modelChip = (
         <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
@@ -210,43 +210,18 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
-                    {hasImages && (
-                        <AgentInputAttachmentStrip
-                            images={selectedImages}
-                            onRemove={removeImage}
-                        />
-                    )}
-                    <View style={styles.inputPill}>
-                        {canAttach && (
-                            <Pressable onPress={pickImages} hitSlop={8} style={styles.inputImage}>
-                                <Ionicons
-                                    name="image-outline"
-                                    size={20}
-                                    color={selectedImages.length > 0
-                                        ? theme.colors.radio.active
-                                        : theme.colors.textSecondary}
-                                />
-                            </Pressable>
-                        )}
-                        <TextInput
-                            style={styles.input}
-                            value={text}
-                            onChangeText={setText}
-                            placeholder={t('composeHome.placeholder')}
-                            placeholderTextColor={theme.colors.input.placeholder}
-                            multiline
-                            maxLength={100000}
-                        />
-                        <Pressable
-                            onPress={handleSend}
-                            disabled={!canSend}
-                            style={[styles.sendButton, { opacity: canSend ? 1 : 0.4 }]}
-                        >
-                            {sending
-                                ? <ActivityIndicator size="small" color={theme.colors.fab.icon} />
-                                : <Ionicons name="arrow-up" size={20} color={theme.colors.fab.icon} />}
-                        </Pressable>
-                    </View>
+                    <MessageComposer
+                        mode="home"
+                        placeholder={t('composeHome.placeholder')}
+                        initialValue={text}
+                        onChangeText={setText}
+                        onSend={handleSend}
+                        isSending={sending}
+                        isSendDisabled={!canSpawn}
+                        selectedImages={hasImages ? selectedImages : undefined}
+                        onPickImages={canAttach ? pickImages : undefined}
+                        onRemoveImage={canAttach ? removeImage : undefined}
+                    />
                     <Text style={styles.byline}>{t('composeHome.byline')}</Text>
                 </View>
             </KeyboardAvoidingView>
@@ -343,42 +318,6 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
-    },
-    inputPill: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        backgroundColor: theme.colors.input.background,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-        borderRadius: 24,
-        paddingLeft: 8,
-        paddingRight: 8,
-        paddingVertical: 7,
-        minHeight: 52,
-    },
-    inputImage: {
-        width: 34,
-        height: 38,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    input: {
-        flex: 1,
-        ...Typography.default(),
-        fontSize: 15.5,
-        lineHeight: 21,
-        color: theme.colors.input.text,
-        paddingTop: Platform.OS === 'ios' ? 9 : 6,
-        paddingBottom: Platform.OS === 'ios' ? 9 : 6,
-        maxHeight: 140,
-    },
-    sendButton: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: theme.colors.fab.background,
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     byline: {
         ...Typography.default(),
