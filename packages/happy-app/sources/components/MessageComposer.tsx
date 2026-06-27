@@ -97,10 +97,13 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         position: 'relative',
     },
     unifiedPanel: {
+        // In light mode input.background equals the screen background, so a faint
+        // hairline divider makes the box nearly invisible — use a stronger grey
+        // border there. Dark mode already reads as a box via fill contrast.
         backgroundColor: theme.colors.input.background,
         borderRadius: Platform.select({ default: 16, android: 20 }),
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
+        borderWidth: 1,
+        borderColor: theme.dark ? theme.colors.divider : '#C9C9CE',
         overflow: 'hidden',
         paddingVertical: 2,
         paddingBottom: 8,
