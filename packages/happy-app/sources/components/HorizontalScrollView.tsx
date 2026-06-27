@@ -1,5 +1,7 @@
 import * as React from 'react';
-import { Platform, ScrollView, ScrollViewProps } from 'react-native';
+import { Platform, ScrollView, ScrollViewProps, LayoutChangeEvent } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { DrawerGestureContext } from 'react-native-drawer-layout';
 
 // Gesture-locked horizontal wheel scroll.
 //
@@ -69,7 +71,9 @@ function useHorizontalWheelScroll() {
 
 type Props = Omit<ScrollViewProps, 'horizontal'>;
 
-export function HorizontalScrollView(props: Props) {
+// Web: trackpad / mouse-wheel horizontal scroll with axis lock + boundary
+// passthrough (the wheel handler above). Touch gestures don't exist here.
+function WebHorizontalScrollView(props: Props) {
     const {
         showsHorizontalScrollIndicator = true,
         nestedScrollEnabled = true,
@@ -85,4 +89,88 @@ export function HorizontalScrollView(props: Props) {
             {...rest}
         />
     );
+}
+
+// Native: a wide table renders inside the drawer's full-screen open gesture —
+// SidebarNavigator sets `swipeEdgeWidth = windowWidth`, so the drawer's pan
+// listens across the whole screen and was swallowing horizontal drags meant for
+// the table, leaving the table unscrollable.
+//
+// Fix: give the table's own scroll gesture priority over the drawer, but ONLY
+// while the content actually overflows horizontally. We grab the drawer's pan
+// from DrawerGestureContext (react-native-drawer-layout, the engine under
+// @react-navigation/drawer) and have the ScrollView's native gesture
+// `blocksExternalGesture(drawerPan)`: a horizontal pan started on an
+// overflowing table scrolls the table and the drawer stays put. Everywhere else
+// — empty space, text, bubbles, and tables that already fit — the drawer's
+// open-anywhere swipe is completely untouched.
+//
+// drawerPan is undefined when the table is rendered outside any drawer (e.g. a
+// modal); then there's nothing to contend with and we just scroll normally.
+function NativeHorizontalScrollView(props: Props) {
+    const {
+        showsHorizontalScrollIndicator = true,
+        nestedScrollEnabled = true,
+        onLayout,
+        onContentSizeChange,
+        ...rest
+    } = props;
+
+    const drawerPan = React.useContext(DrawerGestureContext);
+
+    // Only contend with the drawer when there's actually something to scroll, so
+    // a narrow table that already fits keeps the open-anywhere swipe.
+    const viewportWidth = React.useRef(0);
+    const contentWidth = React.useRef(0);
+    const [hasOverflow, setHasOverflow] = React.useState(false);
+
+    const recomputeOverflow = React.useCallback(() => {
+        const overflow = contentWidth.current > viewportWidth.current + 1;
+        setHasOverflow((prev) => (prev !== overflow ? overflow : prev));
+    }, []);
+
+    const handleLayout = React.useCallback((e: LayoutChangeEvent) => {
+        viewportWidth.current = e.nativeEvent.layout.width;
+        recomputeOverflow();
+        onLayout?.(e);
+    }, [onLayout, recomputeOverflow]);
+
+    const handleContentSizeChange = React.useCallback((w: number, h: number) => {
+        contentWidth.current = w;
+        recomputeOverflow();
+        onContentSizeChange?.(w, h);
+    }, [onContentSizeChange, recomputeOverflow]);
+
+    // Gesture.Native() represents the ScrollView's own scroll recognizer; we
+    // only attach the blocking relation while overflowing + inside a drawer.
+    // Changing the gesture object doesn't remount the ScrollView, so scroll
+    // position survives an overflow toggle.
+    const scrollGesture = React.useMemo(() => {
+        const g = Gesture.Native();
+        if (drawerPan && hasOverflow) {
+            g.blocksExternalGesture(drawerPan);
+        }
+        return g;
+    }, [drawerPan, hasOverflow]);
+
+    return (
+        <GestureDetector gesture={scrollGesture}>
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={showsHorizontalScrollIndicator}
+                nestedScrollEnabled={nestedScrollEnabled}
+                onLayout={handleLayout}
+                onContentSizeChange={handleContentSizeChange}
+                {...rest}
+            />
+        </GestureDetector>
+    );
+}
+
+export function HorizontalScrollView(props: Props) {
+    // Platform.OS is constant per build, so this branch is stable across renders.
+    if (Platform.OS === 'web') {
+        return <WebHorizontalScrollView {...props} />;
+    }
+    return <NativeHorizontalScrollView {...props} />;
 }
