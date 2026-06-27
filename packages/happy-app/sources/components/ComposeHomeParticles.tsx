@@ -26,9 +26,9 @@ import { useGravityField } from '@/hooks/useGravityField';
  */
 
 // —— 重力感应叠加幅度（明显但不浮夸）——
-const GRAV_AMP = 0.18;   // 倾斜飘移：引力点偏移 = 归一化倾斜 × 屏幕尺寸 × 此系数
-const SHAKE_RAD = 0.55;  // 摇晃时公转半径的放大比例（粒子被甩向外圈）
-const SHAKE_JIT = 34;    // 摇晃时叠加的混沌抖动幅度（px）
+const GRAV_AMP = 0.30;   // 倾斜飘移：引力点偏移 = 归一化倾斜 × 屏幕尺寸 × 此系数
+const SHAKE_RAD = 0.65;  // 摇晃时公转半径的放大比例（粒子被甩向外圈）
+const SHAKE_JIT = 42;    // 摇晃时叠加的混沌抖动幅度（px）
 
 interface ParticleCfg {
     r: number;      // 公转基础半径
