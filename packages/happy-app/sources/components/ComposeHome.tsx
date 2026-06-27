@@ -18,7 +18,8 @@ import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
-import { getDisplayName } from '@/sync/profile';
+import { getDisplayName, getAvatarUrl } from '@/sync/profile';
+import { Avatar } from './Avatar';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
@@ -180,7 +181,12 @@ export const ComposeHome = React.memo(() => {
                 )}
                 headerRight={() => (
                     <Pressable onPress={openSettings} hitSlop={12} style={styles.headerButton}>
-                        <Ionicons name="settings-outline" size={23} color={theme.colors.header.tint} />
+                        <Avatar
+                            id={profile.id}
+                            size={28}
+                            imageUrl={getAvatarUrl(profile)}
+                            thumbhash={profile.avatar?.thumbhash}
+                        />
                     </Pressable>
                 )}
             />
