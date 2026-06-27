@@ -7,6 +7,7 @@ import { Platform, TouchableOpacity, Text } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
+import { CardStackScene } from '@/components/CardStackScene';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -18,6 +19,7 @@ export default function RootLayout() {
     const { theme } = useUnistyles();
 
     return (
+        <CardStackScene>
         <Stack
             initialRouteName='index'
             screenOptions={{
@@ -320,5 +322,6 @@ export default function RootLayout() {
                 }}
             />
         </Stack>
+        </CardStackScene>
     );
 }

@@ -22,6 +22,7 @@ const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
     const isTablet = useIsTablet();
+    const { theme } = useUnistyles();
     const zenMode = useLocalSetting('zenMode');
     const isDesktopLayout = auth.isAuthenticated && isTablet;
     const showSidebar = isDesktopLayout && !zenMode;
@@ -55,14 +56,25 @@ export const SidebarNavigator = React.memo(() => {
             return {
                 lazy: false,
                 headerShown: false,
-                drawerType: 'front' as const,
+                // Card-stack: on native the sidebar and the main content slide
+                // TOGETHER as one filmstrip (drawerType 'slide') — two cards moving
+                // side-by-side, neither covering the other. ('back' fixed the sidebar
+                // and let content cover it; 'front' slides a panel over the top.)
+                // CardStackScene adds scale + corner radius to the content for the card
+                // look. Web keeps 'front' because its drawer progress is a 0/1 binary
+                // jump (no per-frame value), so the scale would flicker.
+                drawerType: (Platform.OS === 'web' ? 'front' : 'slide') as 'front' | 'slide',
                 swipeEnabled: true,
-                // Widened from the default 40px edge so the left-to-right open gesture is
-                // easy to catch from the left ~third of the screen, not just the very edge.
-                swipeEdgeWidth: Math.max(Math.floor(windowWidth / 3), 100),
+                // Full-screen open gesture: a right-swipe started anywhere on the screen
+                // pulls the sidebar in (not just the left edge / left third). May contend
+                // with in-page horizontal scroll — the drawer wins; narrow this back if
+                // that becomes a problem.
+                swipeEdgeWidth: windowWidth,
                 drawerStyle: {
                     width: fullDrawerWidth,
-                    backgroundColor: 'transparent',
+                    // Solid background so the revealed sidebar reads as its own card
+                    // (was transparent, fine for 'front' but shows through in 'back').
+                    backgroundColor: theme.colors.surface,
                     borderRightWidth: 0,
                 },
             } as any;
@@ -91,7 +103,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth]);
+    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,
@@ -99,7 +111,7 @@ export const SidebarNavigator = React.memo(() => {
     );
 
     return (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
             <Drawer
                 screenOptions={drawerNavigationOptions}
                 drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
