@@ -50,8 +50,8 @@ interface MessageComposerProps {
             gemini?: boolean | null;
         };
     };
-    autocompletePrefixes: string[];
-    autocompleteSuggestions: (query: string) => Promise<{ key: string, text: string, component: React.ElementType }[]>;
+    autocompletePrefixes?: string[];
+    autocompleteSuggestions?: (query: string) => Promise<{ key: string, text: string, component: React.ElementType }[]>;
     usageData?: {
         inputTokens: number;
         outputTokens: number;
@@ -77,9 +77,16 @@ interface MessageComposerProps {
     onPickImages?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
+    /** home mode: tapping the "+" button opens the full editor (/new). */
+    onExpand?: () => void;
 }
 
 const MAX_CONTEXT_SIZE = 190000;
+
+// Stable fallbacks so home mode (which has no autocomplete) can omit these
+// props without handing MessageComposer.memo a fresh ref on every render.
+const EMPTY_AUTOCOMPLETE_PREFIXES: string[] = [];
+const EMPTY_AUTOCOMPLETE_SUGGESTIONS = async () => [];
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
@@ -418,6 +425,8 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     const screenWidth = useWindowDimensions().width;
     const isSendBlocked = props.blockSend ?? false;
     const isSession = props.mode === 'session';
+    const autocompletePrefixes = props.autocompletePrefixes ?? EMPTY_AUTOCOMPLETE_PREFIXES;
+    const autocompleteSuggestions = props.autocompleteSuggestions ?? EMPTY_AUTOCOMPLETE_SUGGESTIONS;
 
     // `hasText` drives only the send-button appearance/enabled state. It's
     // updated via startTransition from the keystroke handler so a busy reducer
@@ -545,10 +554,10 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     }, []);
 
     // Use the tracked selection from inputState
-    const activeWord = useActiveWord(inputState.text, inputState.selection, props.autocompletePrefixes);
+    const activeWord = useActiveWord(inputState.text, inputState.selection, autocompletePrefixes);
     // Using default options: clampSelection=true, autoSelectFirst=true, wrapAround=true
-    // To customize: useActiveSuggestions(activeWord, props.autocompleteSuggestions, { clampSelection: false, wrapAround: false })
-    const [suggestions, selected, moveUp, moveDown] = useActiveSuggestions(activeWord, props.autocompleteSuggestions, { clampSelection: true, wrapAround: true });
+    // To customize: useActiveSuggestions(activeWord, autocompleteSuggestions, { clampSelection: false, wrapAround: false })
+    const [suggestions, selected, moveUp, moveDown] = useActiveSuggestions(activeWord, autocompleteSuggestions, { clampSelection: true, wrapAround: true });
 
     // Handle suggestion selection
     const handleSuggestionSelect = React.useCallback((index: number) => {
@@ -561,7 +570,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             inputState.text,
             inputState.selection,
             suggestion.text,
-            props.autocompletePrefixes,
+            autocompletePrefixes,
             true // add space after
         );
 
@@ -573,7 +582,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
 
         // Small haptic feedback
         hapticsLight();
-    }, [suggestions, inputState, props.autocompletePrefixes]);
+    }, [suggestions, inputState, autocompletePrefixes]);
 
     // Handle abort button press
     const handleAbortPress = React.useCallback(async () => {
@@ -832,6 +841,30 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 {/* Git Status Badge (session only) */}
                                 {isSession && (
                                     <GitStatusButton sessionId={props.sessionId} onPress={props.onFileViewerPress} />
+                                )}
+
+                                {/* Expand button (home only) — opens the full editor (/new) */}
+                                {props.onExpand && (
+                                    <Pressable
+                                        onPress={props.onExpand}
+                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                        style={(p) => ({
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            borderRadius: Platform.select({ default: 16, android: 20 }),
+                                            paddingHorizontal: 8,
+                                            paddingVertical: 6,
+                                            justifyContent: 'center',
+                                            height: 32,
+                                            opacity: p.pressed ? 0.7 : 1,
+                                        })}
+                                    >
+                                        <Ionicons
+                                            name="add"
+                                            size={22}
+                                            color={theme.colors.button.secondary.tint}
+                                        />
+                                    </Pressable>
                                 )}
 
                                 {/* Image picker button (expImageUpload) */}
