@@ -411,7 +411,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
         <Pressable
             style={[
                 styles.sessionItem,
-                selected && styles.sessionItemSelected,
+                (selected || !!actionsAnchor) && styles.sessionItemSelected,
                 isSingle ? styles.sessionItemSingle :
                     isFirst ? styles.sessionItemFirst :
                         isLast ? styles.sessionItemLast : {}

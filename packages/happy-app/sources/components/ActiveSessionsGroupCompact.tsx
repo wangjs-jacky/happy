@@ -356,7 +356,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             style={[
                 styles.sessionRow,
                 showBorder && styles.sessionRowWithBorder,
-                selected && styles.sessionRowSelected
+                (selected || !!actionsAnchor) && styles.sessionRowSelected
             ]}
             onPress={handlePress}
             {...menuProps}
