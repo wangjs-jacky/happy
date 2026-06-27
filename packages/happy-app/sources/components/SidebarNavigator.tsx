@@ -30,7 +30,7 @@ export const SidebarNavigator = React.memo(() => {
 
     // Calculate target drawer width
     const fullDrawerWidth = React.useMemo(() => {
-        if (!isDesktopLayout) return 280;
+        if (!isDesktopLayout) return 320;
         return Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
     }, [windowWidth, isDesktopLayout]);
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;

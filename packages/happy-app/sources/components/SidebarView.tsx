@@ -3,7 +3,6 @@ import { Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
-import { useHeaderHeight } from '@/utils/responsive';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useFriendRequests, useProfile } from '@/sync/storage';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
@@ -112,7 +111,6 @@ export const SidebarView = React.memo(() => {
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
     const navigation = useNavigation();
-    const headerHeight = useHeaderHeight();
     const realtimeStatus = useRealtimeStatus();
     const friendRequests = useFriendRequests();
     const profile = useProfile();
@@ -127,7 +125,7 @@ export const SidebarView = React.memo(() => {
     }, [navigation, router]);
 
     return (
-        <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
+        <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>
             {/* User card — tap to open settings (replaces the old gear row) */}
             <Pressable
                 onPress={() => go('/settings')}
