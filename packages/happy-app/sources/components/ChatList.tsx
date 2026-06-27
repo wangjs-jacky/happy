@@ -7,6 +7,7 @@ import { useHeaderHeight } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
+import { AttachmentGalleryView } from './AttachmentGalleryView';
 import { DuplicateSheet } from './DuplicateSheet';
 import { Metadata, Session } from '@/sync/storageTypes';
 import { ChatFooter } from './ChatFooter';
@@ -233,6 +234,14 @@ const ChatListInternal = React.memo((props: {
                     sessionId={props.sessionId}
                     expanded={!collapsedGroups.has(item.id)}
                     onToggle={() => handleToggleGroup(item.id)}
+                />
+            );
+        }
+        if (item.type === 'image-group') {
+            return (
+                <AttachmentGalleryView
+                    messages={item.messages}
+                    sessionId={props.sessionId}
                 />
             );
         }

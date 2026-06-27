@@ -37,7 +37,60 @@ function toolMessage(id: string, createdAt: number, options: { pendingPermission
     };
 }
 
+function fileMessage(id: string, createdAt: number): ToolCallMessage {
+    return {
+        kind: 'tool-call',
+        id,
+        localId: null,
+        createdAt,
+        tool: {
+            name: 'file',
+            state: 'completed',
+            input: { ref: `ref-${id}`, name: `${id}.jpg` },
+            createdAt,
+            startedAt: createdAt,
+            completedAt: createdAt + 1,
+            description: id,
+        },
+        children: [],
+    };
+}
+
 describe('useGroupedMessages', () => {
+    it('collapses consecutive user image attachments into one chronological image-group', () => {
+        const messages: Message[] = [
+            fileMessage('img-3', 4),
+            fileMessage('img-2', 3),
+            fileMessage('img-1', 2),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 1,
+                text: 'look at these',
+            },
+        ];
+
+        const items = groupMessagesForDisplay(messages, true);
+        const gallery = items.find((item) => item.type === 'image-group');
+
+        expect(gallery).toBeDefined();
+        expect(items.filter((item) => item.type === 'image-group')).toHaveLength(1);
+        expect((gallery as any).messages.map((m: Message) => m.id)).toEqual([
+            'img-1',
+            'img-2',
+            'img-3',
+        ]);
+    });
+
+    it('renders a single attachment as a one-item image-group', () => {
+        const messages: Message[] = [fileMessage('only', 2)];
+        const items = groupMessagesForDisplay(messages, true);
+        expect(items).toHaveLength(1);
+        expect(items[0].type).toBe('image-group');
+        expect((items[0] as any).messages).toHaveLength(1);
+    });
+
     it('stores grouped tools in chronological render order', () => {
         const messages: Message[] = [
             {

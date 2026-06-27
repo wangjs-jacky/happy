@@ -23,6 +23,7 @@ import { useTrackScreens } from '@/track/useTrackScreens';
 import { RealtimeProvider } from '@/realtime/RealtimeProvider';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
+import { ImageViewerHost } from '@/components/ImageViewerHost';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
 // import * as SystemUI from 'expo-system-ui';
 import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogging';
@@ -402,6 +403,7 @@ export default function RootLayout() {
                                         </HorizontalSafeAreaWrapper>
                                     </RealtimeProvider>
                                 </CommandPaletteProvider>
+                                <ImageViewerHost />
                             </ModalProvider>
                         </ThemeProvider>
                     </AuthProvider>

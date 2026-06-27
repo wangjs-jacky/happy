@@ -7,6 +7,7 @@ import { Platform, TouchableOpacity, Text } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
+import { CardStackScene } from '@/components/CardStackScene';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -18,6 +19,7 @@ export default function RootLayout() {
     const { theme } = useUnistyles();
 
     return (
+        <CardStackScene>
         <Stack
             initialRouteName='index'
             screenOptions={{
@@ -312,10 +314,14 @@ export default function RootLayout() {
             <Stack.Screen
                 name="new/index"
                 options={{
-                    headerTitle: t('newSession.title'),
-                    headerBackTitle: t('common.back'),
+                    // The new-session route now renders <ComposeHome variant="screen" />,
+                    // which draws its own header (back button + machine/agent chip).
+                    // Hide the native stack header to avoid stacking two headers —
+                    // same pattern as the "index" home screen above.
+                    headerShown: false,
                 }}
             />
         </Stack>
+        </CardStackScene>
     );
 }

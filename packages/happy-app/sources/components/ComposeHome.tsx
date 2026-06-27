@@ -13,12 +13,12 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { Modal } from '@/modal';
 import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
-import { getDisplayName } from '@/sync/profile';
+import { getDisplayName, getAvatarUrl } from '@/sync/profile';
+import { Avatar } from './Avatar';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
@@ -37,14 +37,26 @@ function getMachineName(machine: Machine | undefined): string | null {
 }
 
 /**
- * Compose-first home (phone). A greeting, the current machine/agent shown as a
- * chip, and a real text input. Sending spawns a session inline via useSpawnSession
- * for the straightforward case (machine online, no new worktree); for anything that
- * needs more setup — no machine selected, an offline machine, a fresh worktree, or
- * image attachments — it hands off to the full composer (/new) with the text
- * prefilled. The session list lives in the swipe drawer; settings sits top-left.
+ * Compose-first new-session page. A greeting, the current machine/agent shown as
+ * a chip (tap to drop the inline config panel), and a real text input. Sending
+ * spawns a session inline via useSpawnSession. It only spawns when the target is
+ * actually reachable — a selected, online machine and no fresh-worktree request;
+ * otherwise the send button stays disabled (greyed) rather than bouncing
+ * elsewhere. Creating a new worktree / spawning on an offline machine is not
+ * supported here.
+ *
+ * Two variants:
+ *  - 'home'   (default): the phone home. Header shows the drawer hamburger (session
+ *             list) on the left and the settings avatar on the right.
+ *  - 'screen': pushed as the `/new` route (tablet empty state, command palette,
+ *             home header "+", …). Header shows a back button and drops the avatar.
  */
-export const ComposeHome = React.memo(() => {
+type ComposeHomeProps = {
+    variant?: 'home' | 'screen';
+};
+
+export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) => {
+    const isScreen = variant === 'screen';
     const { theme } = useUnistyles();
     const router = useRouter();
     const navigation = useNavigation();
@@ -55,9 +67,10 @@ export const ComposeHome = React.memo(() => {
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
 
-    const { agentType, selectedMachineId } = useNewSessionDraft(useShallow((s) => ({
+    const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
         selectedMachineId: s.selectedMachineId,
+        worktreeKey: s.worktreeKey,
     })));
 
     // Inline image attachments (claude-only, behind the expImageUpload flag) — same
@@ -85,6 +98,10 @@ export const ComposeHome = React.memo(() => {
         router.push('/settings');
     }, [router]);
 
+    const goBack = React.useCallback(() => {
+        router.back();
+    }, [router]);
+
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
     // outside — collapses it. The panel writes straight to the shared draft
@@ -99,12 +116,6 @@ export const ComposeHome = React.memo(() => {
         setPanelOpen(false);
     }, []);
 
-    // Hand off to the full composer with the typed text prefilled.
-    const handoffToComposer = React.useCallback((prompt: string) => {
-        useNewSessionDraft.getState().setInput(prompt);
-        router.navigate('/new');
-    }, [router]);
-
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
@@ -113,24 +124,14 @@ export const ComposeHome = React.memo(() => {
         const draft = useNewSessionDraft.getState();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
 
-        // Inline-spawnable only when a machine is selected, online, and we're not
-        // creating a fresh worktree. Otherwise hand off to /new for full setup.
-        const canInline = !!draft.selectedMachineId
+        // Spawnable only when a machine is selected, online, and we're not asked to
+        // create a fresh worktree. The send button is disabled in every other case
+        // (see `canSpawn` below), so this is just a safety guard.
+        const canSpawn = !!draft.selectedMachineId
             && !!machine
             && isMachineOnline(machine)
             && draft.worktreeKey !== '__new__';
-
-        if (!canInline) {
-            // Attachments live in this component's picker state and can't ride the
-            // navigation to /new (which has its own empty picker), so block rather
-            // than silently drop them. Text-only handoff stays as before.
-            if (images) {
-                Modal.alert(t('common.error'), t('newSession.machineOffline'));
-                return;
-            }
-            handoffToComposer(trimmed);
-            return;
-        }
+        if (!canSpawn) return;
 
         // Clear the input only once a session was actually created, so the prompt
         // and attachments aren't lost if spawning fails or directory creation is declined.
@@ -148,7 +149,12 @@ export const ComposeHome = React.memo(() => {
                 clearImages();
             }
         });
-    }, [text, sending, machines, spawn, handoffToComposer, hasImages, selectedImages, clearImages]);
+    }, [text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+
+    // The send target must be reachable: an online machine and no fresh-worktree
+    // request. When it isn't, MessageComposer's send button greys out (via
+    // isSendDisabled) instead of letting a doomed spawn through.
+    const canSpawn = online && worktreeKey !== '__new__';
 
     const modelChip = (
         <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
@@ -168,13 +174,24 @@ export const ComposeHome = React.memo(() => {
                 headerShadowVisible={false}
                 headerTransparent={true}
                 headerLeft={() => (
-                    <Pressable onPress={openDrawer} hitSlop={12} style={styles.headerButton}>
-                        <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
-                    </Pressable>
+                    isScreen ? (
+                        <Pressable onPress={goBack} hitSlop={12} style={styles.headerButton}>
+                            <Ionicons name="chevron-back" size={28} color={theme.colors.header.tint} />
+                        </Pressable>
+                    ) : (
+                        <Pressable onPress={openDrawer} hitSlop={12} style={styles.headerButton}>
+                            <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
+                        </Pressable>
+                    )
                 )}
-                headerRight={() => (
+                headerRight={isScreen ? undefined : () => (
                     <Pressable onPress={openSettings} hitSlop={12} style={styles.headerButton}>
-                        <Ionicons name="settings-outline" size={23} color={theme.colors.header.tint} />
+                        <Avatar
+                            id={profile.id}
+                            size={28}
+                            imageUrl={getAvatarUrl(profile)}
+                            thumbhash={profile.avatar?.thumbhash}
+                        />
                     </Pressable>
                 )}
             />
@@ -200,6 +217,7 @@ export const ComposeHome = React.memo(() => {
                         onChangeText={setText}
                         onSend={handleSend}
                         isSending={sending}
+                        isSendDisabled={!canSpawn}
                         selectedImages={hasImages ? selectedImages : undefined}
                         onPickImages={canAttach ? pickImages : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}

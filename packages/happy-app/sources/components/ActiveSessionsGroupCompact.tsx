@@ -16,7 +16,6 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { useSessionActionAlert } from '@/hooks/useSessionQuickActions';
 import { sessionKill } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
@@ -310,11 +309,20 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         });
     }, []);
 
-    const showActionAlert = useSessionActionAlert(session.id);
+    // Native long-press: anchor the context menu at the touch point instead of
+    // showing a centered alert. pageX/pageY come from the gesture responder event.
+    const handleLongPress = React.useCallback((event: any) => {
+        setActionsAnchor({
+            type: 'point',
+            x: event.nativeEvent.pageX ?? 0,
+            y: event.nativeEvent.pageY ?? 0,
+        });
+    }, []);
+
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
     } as any : {
-        onLongPress: showActionAlert,
+        onLongPress: handleLongPress,
     };
 
     const renderLeadingIndicator = () => {
@@ -348,7 +356,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             style={[
                 styles.sessionRow,
                 showBorder && styles.sessionRowWithBorder,
-                selected && styles.sessionRowSelected
+                (selected || !!actionsAnchor) && styles.sessionRowSelected
             ]}
             onPress={handlePress}
             {...menuProps}
@@ -399,14 +407,22 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     );
 
     return (
-        <Swipeable
-            ref={swipeableRef}
-            renderRightActions={renderRightActions}
-            overshootRight={false}
-            enabled={!archivingSession}
-        >
-            {itemContent}
-        </Swipeable>
+        <>
+            <Swipeable
+                ref={swipeableRef}
+                renderRightActions={renderRightActions}
+                overshootRight={false}
+                enabled={!archivingSession}
+            >
+                {itemContent}
+            </Swipeable>
+            <SessionActionsPopover
+                anchor={actionsAnchor}
+                onClose={() => setActionsAnchor(null)}
+                sessionId={session.id}
+                visible={!!actionsAnchor}
+            />
+        </>
     );
 });
 

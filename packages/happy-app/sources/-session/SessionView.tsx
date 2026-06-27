@@ -4,6 +4,8 @@ import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
+import { SessionHeaderChip } from '@/components/SessionHeaderChip';
+import { SessionInfoDropdown } from '@/components/SessionInfoDropdown';
 import { ChatList } from '@/components/ChatList';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
@@ -28,7 +30,7 @@ import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSes
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
@@ -37,6 +39,15 @@ import { ActivityIndicator, Platform, Pressable, Text, View, useWindowDimensions
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
+
+// Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
+// off the running session's `flavor` (an active session reports its agent there).
+const AGENT_LABELS: Record<string, string> = {
+    claude: 'claude code',
+    codex: 'codex',
+    openclaw: 'openclaw',
+    gemini: 'gemini',
+};
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -184,6 +195,39 @@ export const SessionView = React.memo((props: { id: string }) => {
         };
     }, [session, isDataReady]);
 
+    // Header chip (replaces the breadcrumb title): shows the running session's
+    // agent + machine + connection state. Tapping it drops down a read-only
+    // info panel — an active session can't switch machine/agent, so there's
+    // nothing to pick, just metadata to surface.
+    const [infoPanelOpen, setInfoPanelOpen] = React.useState(false);
+    const sessionOnline = session?.presence === 'online';
+    const agentLabel = React.useMemo(() => {
+        const flavor = session?.metadata?.flavor ?? 'claude';
+        return AGENT_LABELS[flavor] ?? flavor;
+    }, [session?.metadata?.flavor]);
+    const machineName = session?.metadata?.name || session?.metadata?.host || null;
+    const showChip = isDataReady && !!session;
+
+    const headerTitleSlot = showChip ? (
+        <SessionHeaderChip
+            agentLabel={agentLabel}
+            machineName={machineName}
+            online={sessionOnline}
+            open={infoPanelOpen}
+            onPress={() => setInfoPanelOpen(v => !v)}
+        />
+    ) : undefined;
+
+    // New-session button on the header's right edge. Returns to the particle
+    // home (ComposeHome) to start a fresh session — not the older /new composer.
+    // A Kimi-style "new chat" bubble+plus glyph. Hidden while a file / diff
+    // overlay owns the right slot.
+    const newSessionButton = (
+        <Pressable onPress={() => router.navigate('/')} hitSlop={12} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+            <MaterialCommunityIcons name="message-plus-outline" size={23} color={theme.colors.header.tint} />
+        </Pressable>
+    );
+
     const mainContent = (
         <>
             {/* Status bar shadow for landscape mode */}
@@ -221,7 +265,8 @@ export const SessionView = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         extraPathSegment={fileViewPath ?? undefined}
-                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : null}
+                        titleSlot={headerTitleSlot}
+                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : newSessionButton}
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
@@ -244,6 +289,25 @@ export const SessionView = React.memo((props: { id: string }) => {
                     <SessionViewLoaded key={sessionId} sessionId={sessionId} session={session} />
                 )}
             </View>
+
+            {/* Read-only session-info dropdown, anchored under the header chip.
+                A sibling of the (padded) content view — not a child — so its
+                absolute `top` measures from the screen edge without the content
+                padding offsetting it. Its backdrop covers the chat; the header's
+                zIndex keeps the chip itself tappable above the panel. */}
+            {infoPanelOpen && session && (
+                <SessionInfoDropdown
+                    session={session}
+                    machineName={machineName}
+                    online={sessionOnline}
+                    top={safeArea.top + headerHeight}
+                    onClose={() => setInfoPanelOpen(false)}
+                    onViewDetails={() => {
+                        setInfoPanelOpen(false);
+                        router.push(`/session/${sessionId}/info`);
+                    }}
+                />
+            )}
         </>
     );
 

@@ -1,6 +1,5 @@
 import * as React from 'react';
-import { Pressable, Modal as RNModal, Platform, Text, View, useWindowDimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, Modal as RNModal, Text, View, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -57,14 +56,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         },
         elevation: 10,
     },
-    handle: {
-        width: 40,
-        height: 4,
-        borderRadius: 999,
-        marginTop: 10,
-        marginBottom: 8,
-        alignSelf: 'center',
-    },
     menuItem: {
         minHeight: 48,
         flexDirection: 'row',
@@ -85,15 +76,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 20,
         ...Typography.default(),
     },
-    nativeContainer: {
-        flex: 1,
-        justifyContent: 'flex-end',
-    },
-    nativeSheet: {
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        overflow: 'hidden',
-    },
     webContainer: {
         flex: 1,
     },
@@ -113,7 +95,6 @@ export function SessionActionsPopover({
 }: SessionActionsPopoverProps) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
-    const safeArea = useSafeAreaInsets();
     const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const session = useSession(sessionId);
     const { actionItems: actions } = useSessionQuickActions(session!, {
@@ -156,9 +137,6 @@ export function SessionActionsPopover({
 
     const content = (
         <View style={[styles.card, { backgroundColor: theme.colors.header.background }]}>
-            {Platform.OS !== 'web' && (
-                <View style={[styles.handle, { backgroundColor: theme.colors.textSecondary }]} />
-            )}
             {actions.map((action, index) => {
                 const isLast = index === actions.length - 1;
                 const color = action.destructive ? theme.colors.status.error : theme.colors.text;
@@ -188,32 +166,13 @@ export function SessionActionsPopover({
         </View>
     );
 
-    if (Platform.OS === 'web' && position) {
-        return (
-            <RNModal
-                animationType="none"
-                onRequestClose={onClose}
-                transparent
-                visible={visible}
-            >
-                <View style={styles.webContainer}>
-                    <Pressable onPress={onClose} style={styles.backdrop} />
-                    <View
-                        style={[
-                            styles.webMenu,
-                            {
-                                left: position.left,
-                                top: position.top,
-                            },
-                        ]}
-                    >
-                        {content}
-                    </View>
-                </View>
-            </RNModal>
-        );
+    if (!position) {
+        return null;
     }
 
+    // Anchored context menu — appears at the press point on all platforms
+    // (web right-click, native long-press), instead of a centered alert or
+    // bottom sheet. Matches the lightweight popover shown on web.
     return (
         <RNModal
             animationType="fade"
@@ -221,14 +180,14 @@ export function SessionActionsPopover({
             transparent
             visible={visible}
         >
-            <View style={styles.nativeContainer}>
+            <View style={styles.webContainer}>
                 <Pressable onPress={onClose} style={styles.backdrop} />
                 <View
                     style={[
-                        styles.nativeSheet,
+                        styles.webMenu,
                         {
-                            backgroundColor: theme.colors.header.background,
-                            paddingBottom: Math.max(16, safeArea.bottom),
+                            left: position.left,
+                            top: position.top,
                         },
                     ]}
                 >

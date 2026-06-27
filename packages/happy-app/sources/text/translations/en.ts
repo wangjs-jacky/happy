@@ -357,6 +357,7 @@ export const en: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "Session details",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: 'Kill Session',
         killSessionConfirm: 'Are you sure you want to terminate this session?',

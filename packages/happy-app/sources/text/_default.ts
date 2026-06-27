@@ -358,6 +358,7 @@ export const en = {
 
     sessionInfo: {
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
+        viewDetails: 'Session details',
         killSession: 'Kill Session',
         killSessionConfirm: 'Are you sure you want to terminate this session?',
         archiveSession: 'Archive Session',

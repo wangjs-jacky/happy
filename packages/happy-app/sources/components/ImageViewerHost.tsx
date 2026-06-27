@@ -1,0 +1,35 @@
+/**
+ * Single mount point for the global fullscreen image viewer.
+ * Subscribes to the `imageViewer` store and renders `ImageViewer` inside a
+ * native Modal so it sits above all navigation. The Modal hosts a fresh
+ * GestureHandlerRootView because RN Modal content is a separate view root —
+ * gesture-handler gestures would otherwise not fire inside it.
+ *
+ * Mounted once in app/_layout.tsx.
+ */
+import * as React from 'react';
+import { Modal, StatusBar } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ImageViewer } from './ImageViewer';
+import { useImageViewerStore } from '@/sync/imageViewer';
+
+export function ImageViewerHost() {
+    const visible = useImageViewerStore((s) => s.visible);
+    const source = useImageViewerStore((s) => s.source);
+    const close = useImageViewerStore((s) => s.close);
+
+    return (
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            statusBarTranslucent
+            onRequestClose={close}
+        >
+            <StatusBar backgroundColor="#000" barStyle="light-content" />
+            <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+                {source && <ImageViewer source={source} onClose={close} />}
+            </GestureHandlerRootView>
+        </Modal>
+    );
+}

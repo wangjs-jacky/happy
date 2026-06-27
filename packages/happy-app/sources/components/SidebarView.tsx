@@ -5,8 +5,10 @@ import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { useHeaderHeight } from '@/utils/responsive';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useFriendRequests } from '@/sync/storage';
+import { useRealtimeStatus, useFriendRequests, useProfile } from '@/sync/storage';
+import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { MainView } from './MainView';
+import { Avatar } from './Avatar';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,20 +81,29 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         ...Typography.default('semiBold'),
     },
-    settingsRow: {
+    userCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: theme.colors.divider,
-        gap: 10,
+        marginHorizontal: 16,
+        marginTop: 8,
+        marginBottom: 6,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        gap: 12,
     },
-    settingsText: {
-        fontSize: 14,
-        fontWeight: '500',
+    userCardPressed: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    userName: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '600',
         color: theme.colors.text,
-        ...Typography.default(),
+        ...Typography.default('semiBold'),
     },
 }));
 
@@ -104,6 +115,8 @@ export const SidebarView = React.memo(() => {
     const headerHeight = useHeaderHeight();
     const realtimeStatus = useRealtimeStatus();
     const friendRequests = useFriendRequests();
+    const profile = useProfile();
+    const displayName = getDisplayName(profile) ?? t('settings.title');
 
     // Navigate, closing the drawer first. On phone the drawer is a `front` overlay
     // that would otherwise stay open on top of the pushed screen; on desktop the
@@ -115,6 +128,24 @@ export const SidebarView = React.memo(() => {
 
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + headerHeight }]}>
+            {/* User card — tap to open settings (replaces the old gear row) */}
+            <Pressable
+                onPress={() => go('/settings')}
+                style={({ pressed }) => [
+                    styles.userCard,
+                    pressed && styles.userCardPressed,
+                ]}
+            >
+                <Avatar
+                    id={profile.id}
+                    size={40}
+                    imageUrl={getAvatarUrl(profile)}
+                    thumbhash={profile.avatar?.thumbhash}
+                />
+                <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
+                <Ionicons name="settings-outline" size={18} color={stylesheet.userName.color} />
+            </Pressable>
+
             {/* Messages / friends (formerly the Inbox tab) */}
             <Pressable onPress={() => go('/inbox')} style={styles.messagesRow}>
                 <Ionicons name="chatbubble-ellipses-outline" size={17} color={stylesheet.messagesText.color} />
@@ -144,15 +175,6 @@ export const SidebarView = React.memo(() => {
 
             {/* Sessions list */}
             <MainView variant="sidebar" />
-
-            {/* Settings at bottom */}
-            <Pressable
-                onPress={() => go('/settings')}
-                style={styles.settingsRow}
-            >
-                <Ionicons name="settings-outline" size={18} color={stylesheet.settingsText.color} />
-                <Text style={styles.settingsText}>{t('settings.title')}</Text>
-            </Pressable>
         </View>
     );
 });

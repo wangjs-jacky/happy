@@ -360,6 +360,7 @@ export const pl: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "Szczegóły sesji",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: 'Zakończ sesję',
         killSessionConfirm: 'Czy na pewno chcesz zakończyć tę sesję?',
