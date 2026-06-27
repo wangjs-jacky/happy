@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, Platform, Image as RNImage } from 'react-native';
+import { View, Text, Pressable, Platform, Image as RNImage, LayoutAnimation } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -119,25 +119,33 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
     const canEditEffort = availableEffortLevels.length > 1;
 
     // Which editable row is currently expanded into its option list (one at a time).
+    // Animate every expand/collapse so the option list slides in/out smoothly.
     const [expanded, setExpanded] = React.useState<'permission' | 'model' | 'effort' | null>(null);
-    const toggle = React.useCallback((row: 'permission' | 'model' | 'effort') => {
-        setExpanded((cur) => (cur === row ? null : row));
+    const animateNext = React.useCallback(() => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }, []);
+    const toggle = React.useCallback((row: 'permission' | 'model' | 'effort') => {
+        animateNext();
+        setExpanded((cur) => (cur === row ? null : row));
+    }, [animateNext]);
 
     // Apply a pick to the running session. happy-cli attaches the updated value
     // to the next outgoing message's meta, so the change lands on the next turn.
     const applyPermission = React.useCallback((key: string) => {
         storage.getState().updateSessionPermissionMode(session.id, key);
+        animateNext();
         setExpanded(null);
-    }, [session.id]);
+    }, [session.id, animateNext]);
     const applyModel = React.useCallback((key: string) => {
         storage.getState().updateSessionModelMode(session.id, key);
+        animateNext();
         setExpanded(null);
-    }, [session.id]);
+    }, [session.id, animateNext]);
     const applyEffort = React.useCallback((key: string) => {
         storage.getState().updateSessionEffortLevel(session.id, key);
+        animateNext();
         setExpanded(null);
-    }, [session.id]);
+    }, [session.id, animateNext]);
 
     // Inline option list shown under an expanded editable row.
     const renderOptions = (
