@@ -65,9 +65,11 @@ export const SidebarNavigator = React.memo(() => {
                 // jump (no per-frame value), so the scale would flicker.
                 drawerType: (Platform.OS === 'web' ? 'front' : 'slide') as 'front' | 'slide',
                 swipeEnabled: true,
-                // Widened from the default 40px edge so the left-to-right open gesture is
-                // easy to catch from the left ~third of the screen, not just the very edge.
-                swipeEdgeWidth: Math.max(Math.floor(windowWidth / 3), 100),
+                // Full-screen open gesture: a right-swipe started anywhere on the screen
+                // pulls the sidebar in (not just the left edge / left third). May contend
+                // with in-page horizontal scroll — the drawer wins; narrow this back if
+                // that becomes a problem.
+                swipeEdgeWidth: windowWidth,
                 drawerStyle: {
                     width: fullDrawerWidth,
                     // Solid background so the revealed sidebar reads as its own card
