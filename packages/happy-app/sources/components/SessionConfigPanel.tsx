@@ -101,6 +101,21 @@ function getPermissionStyle(key: string): PermissionStyle | null {
     }
 }
 
+// Option-list wrapper. Embedded (inline accordion under a row) renders a plain
+// content-sized View: inside an unbounded parent a ScrollView collapses to zero
+// height on native, which left the inline picker showing an empty strip. The
+// non-embedded popover/sheet keeps a real ScrollView for long, scrollable lists.
+function OptionListContainer({ embedded, children }: { embedded: boolean; children: React.ReactNode }) {
+    if (embedded) {
+        return <View style={pickerStyles.embeddedOptionListContent}>{children}</View>;
+    }
+    return (
+        <ScrollView style={pickerStyles.optionList} keyboardShouldPersistTaps="handled">
+            {children}
+        </ScrollView>
+    );
+}
+
 // Generic picker content — reused for machine, path, and worktree selection
 function PickerContent({
     title,
@@ -186,22 +201,18 @@ function PickerContent({
                 </View>
             )}
 
-            <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
-                contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
-                keyboardShouldPersistTaps="handled"
-            >
+            <OptionListContainer embedded={embedded}>
                 {fixedItems?.map(renderOption)}
                 {fixedItems && fixedItems.length > 0 && filtered.length > 0 && (
                     <View style={[pickerStyles.divider, { backgroundColor: theme.colors.divider }]} />
                 )}
                 {filtered.map(renderOption)}
-                {filtered.length === 0 && search.length > 0 && (
+                {filtered.length === 0 && (!fixedItems || fixedItems.length === 0) && (
                     <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
-                        no results
+                        {search.length > 0 ? 'no results' : 'no options'}
                     </Text>
                 )}
-            </ScrollView>
+            </OptionListContainer>
         </View>
     );
 }
@@ -347,11 +358,7 @@ function PathPickerContent({
                 Recent
             </Text>
 
-            <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
-                contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
-                keyboardShouldPersistTaps="handled"
-            >
+            <OptionListContainer embedded={embedded}>
                 {items.map((item) => {
                     const isSelected = item.key === matchedItemKey;
 
@@ -391,7 +398,7 @@ function PathPickerContent({
                         no recent projects yet
                     </Text>
                 )}
-            </ScrollView>
+            </OptionListContainer>
         </View>
     );
 }
