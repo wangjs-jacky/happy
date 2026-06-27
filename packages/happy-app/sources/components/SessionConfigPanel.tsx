@@ -27,6 +27,7 @@ import { listWorktrees } from '@/utils/worktree';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
+import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useShallow } from 'zustand/react/shallow';
 import type { Machine, Session } from '@/sync/storageTypes';
 import {
@@ -117,6 +118,10 @@ function BottomSheet({
 }) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
+    // Lift sheet content above the keyboard. The picker renders inside a native
+    // Modal, where react-native-keyboard-controller can't see the keyboard on
+    // Android — so we track height ourselves and pad/offset accordingly.
+    const keyboardHeight = useKeyboardHeight();
 
     if (Platform.OS === 'ios') {
         return (
@@ -130,8 +135,10 @@ function BottomSheet({
                     <View style={sheetStyles.handleRow}>
                         <View style={[sheetStyles.handle, { backgroundColor: theme.colors.textSecondary }]} />
                     </View>
-                    {children}
-                    <View style={{ height: safeArea.bottom }} />
+                    <View style={sheetStyles.iosContent}>
+                        {children}
+                    </View>
+                    <View style={{ height: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }} />
                 </View>
             </RNModal>
         );
@@ -172,6 +179,8 @@ function BottomSheet({
                         {
                             backgroundColor: theme.colors.header.background,
                             paddingBottom: Math.max(16, safeArea.bottom),
+                            // Sit the sheet right on top of the keyboard when it's open.
+                            marginBottom: keyboardHeight,
                             transform: [{ translateY: slideAnim }],
                         },
                     ]}
@@ -1375,6 +1384,9 @@ const styles = StyleSheet.create((theme) => ({
 // Bottom sheet styles
 const sheetStyles = {
     iosContainer: {
+        flex: 1,
+    } as const,
+    iosContent: {
         flex: 1,
     } as const,
     handleRow: {
