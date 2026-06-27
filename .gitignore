@@ -1,7 +1,9 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
 # dependencies
-node_modules/
+# 无尾斜杠：既忽略 node_modules 目录，也忽略名为 node_modules 的软链
+# （worktree 里 symlink 复用依赖时，带斜杠的规则匹配不到 symlink，会被误提交）
+node_modules
 
 # Expo
 .expo/
