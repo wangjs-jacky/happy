@@ -343,6 +343,7 @@ export const zhHant: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "工作階段詳情",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: '終止工作階段',
         killSessionConfirm: '您確定要終止此工作階段嗎？',

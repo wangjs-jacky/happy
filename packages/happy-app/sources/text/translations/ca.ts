@@ -343,6 +343,7 @@ export const ca: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "Detalls de la sessió",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: 'Finalitza la sessió',
         killSessionConfirm: 'Segur que vols finalitzar aquesta sessió?',

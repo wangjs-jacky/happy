@@ -344,6 +344,7 @@ export const zhHans: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "会话详情",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: '终止会话',
         killSessionConfirm: '您确定要终止此会话吗？',

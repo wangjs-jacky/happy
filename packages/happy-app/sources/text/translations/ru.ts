@@ -301,6 +301,7 @@ export const ru: TranslationStructure = {
     },
 
     sessionInfo: {
+        viewDetails: "Информация о сессии",
         // Used by Session Info screen (app/(app)/session/[id]/info.tsx)
         killSession: 'Завершить сессию',
         killSessionConfirm: 'Вы уверены, что хотите завершить эту сессию?',
