@@ -10,9 +10,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
+import { imageViewer } from '@/sync/imageViewer';
 
-const THUMB_SIZE = 64;
-const BORDER_RADIUS = 8;
+const THUMB_SIZE = 72;
+const BORDER_RADIUS = 12;
 
 interface AgentInputAttachmentStripProps {
     images: AttachmentPreview[];
@@ -61,27 +62,34 @@ function AttachmentThumbnail({
     }, [image.thumbhash]);
 
     return (
-        <View style={[
-            styles.thumbContainer,
-            { borderColor: theme.colors.divider }
-        ]}>
-            <Image
-                source={{ uri: image.uri }}
-                placeholder={placeholder}
-                style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, styles.thumb]}
-                contentFit="cover"
-                transition={150}
-            />
-            {/* Remove button */}
+        <View style={styles.thumbContainer}>
+            {/* Tap the image to open the fullscreen zoomable viewer. */}
+            <Pressable
+                onPress={() => imageViewer.open({ uri: image.uri, width: image.width, height: image.height })}
+                style={[styles.thumbPressable, { borderColor: theme.colors.divider }]}
+            >
+                <Image
+                    source={{ uri: image.uri }}
+                    placeholder={placeholder}
+                    style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, styles.thumb]}
+                    contentFit="cover"
+                    transition={150}
+                />
+            </Pressable>
+            {/* Remove button — sits above the image so its tap doesn't open the viewer. */}
             <Pressable
                 onPress={() => onRemove(image.id)}
-                hitSlop={4}
+                hitSlop={6}
                 style={(p) => [
                     styles.removeButton,
-                    { backgroundColor: theme.colors.surfaceHigh, opacity: p.pressed ? 0.7 : 1 }
+                    {
+                        backgroundColor: theme.colors.surfaceHigh,
+                        borderColor: theme.colors.divider,
+                        opacity: p.pressed ? 0.7 : 1,
+                    },
                 ]}
             >
-                <Ionicons name="close" size={10} color={theme.colors.text} />
+                <Ionicons name="close" size={12} color={theme.colors.text} />
             </Pressable>
         </View>
     );
@@ -103,10 +111,15 @@ const styles = StyleSheet.create(() => ({
     thumbContainer: {
         width: THUMB_SIZE,
         height: THUMB_SIZE,
-        borderRadius: BORDER_RADIUS,
         overflow: 'visible',
-        borderWidth: 1,
         position: 'relative',
+    },
+    thumbPressable: {
+        width: THUMB_SIZE,
+        height: THUMB_SIZE,
+        borderRadius: BORDER_RADIUS,
+        borderWidth: 1,
+        overflow: 'hidden',
     },
     thumb: {
         borderRadius: BORDER_RADIUS,
@@ -115,9 +128,10 @@ const styles = StyleSheet.create(() => ({
         position: 'absolute',
         top: -6,
         right: -6,
-        width: 18,
-        height: 18,
-        borderRadius: 9,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 1,
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 10,
