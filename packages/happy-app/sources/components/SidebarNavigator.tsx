@@ -56,12 +56,14 @@ export const SidebarNavigator = React.memo(() => {
             return {
                 lazy: false,
                 headerShown: false,
-                // Card-stack: on native the sidebar sits BEHIND the main content
-                // (drawerType 'back'), and the content slides away + scales (see
-                // CardStackScene) to reveal it — instead of a panel sliding over the
-                // top ('front'). Web keeps 'front' because its drawer progress is a
-                // 0/1 binary jump (no per-frame value), so the scale would flicker.
-                drawerType: (Platform.OS === 'web' ? 'front' : 'back') as 'front' | 'back',
+                // Card-stack: on native the sidebar and the main content slide
+                // TOGETHER as one filmstrip (drawerType 'slide') — two cards moving
+                // side-by-side, neither covering the other. ('back' fixed the sidebar
+                // and let content cover it; 'front' slides a panel over the top.)
+                // CardStackScene adds scale + corner radius to the content for the card
+                // look. Web keeps 'front' because its drawer progress is a 0/1 binary
+                // jump (no per-frame value), so the scale would flicker.
+                drawerType: (Platform.OS === 'web' ? 'front' : 'slide') as 'front' | 'slide',
                 swipeEnabled: true,
                 // Widened from the default 40px edge so the left-to-right open gesture is
                 // easy to catch from the left ~third of the screen, not just the very edge.
