@@ -28,8 +28,19 @@ export type AgentWorkGroupItem = {
     completedAt: number | null;
 };
 
+/**
+ * A run of consecutive user-sent image attachments, collapsed so the chat
+ * renders them as one horizontal gallery instead of a tall vertical stack.
+ * `messages` is chronological (oldest-first) like the other group items.
+ */
+export type ImageGroupItem = {
+    type: 'image-group';
+    id: string;
+    messages: Message[];
+};
+
 export type ToolDisplayItem = TextItem | ToolGroupItem;
-export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem;
+export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem | ImageGroupItem;
 
 /**
  * The messages array is newest-first for the inverted FlatList.
@@ -80,6 +91,12 @@ export function groupMessagesForDisplay(
 
     const toolRuns = collectToolRuns(messages, visibleForToolGrouping);
 
+    // Consecutive user image attachments collapse into one horizontal gallery.
+    const attachmentRuns = collectToolRuns(
+        messages,
+        (msg, index) => !hiddenWorkIndexes.has(index) && isUserAttachment(msg),
+    );
+
     // Build display items — groups are emitted at their oldest hidden member
     // so the visual order remains user message → collapsed work → final answer.
     const result: DisplayItem[] = [];
@@ -97,7 +114,17 @@ export function groupMessagesForDisplay(
         }
 
         if (isUserAttachment(msg)) {
-            result.push({ type: 'message', id: msg.id, message: msg });
+            const run = attachmentRuns.get(i);
+            // Emit the whole run once, at its oldest member, so visual order
+            // (newest-first array → oldest pushed first) stays correct.
+            if (run && i === run.oldestIdx) {
+                const chronological = [...run.msgs].reverse();
+                result.push({
+                    type: 'image-group',
+                    id: `images-${chronological[0].id}`,
+                    messages: chronological,
+                });
+            }
             continue;
         }
 
