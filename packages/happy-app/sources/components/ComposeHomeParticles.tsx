@@ -2,7 +2,7 @@ import * as React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Canvas, Points, BlurMask, useClock, type SkPoint } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
-import { useGravityField } from '@/hooks/useGravityField';
+import { useGravityField, GRAVITY_LAG_LEVELS } from '@/hooks/useGravityField';
 
 /**
  * 首页空白区的「蜂群」氛围背景。
@@ -36,6 +36,7 @@ interface ParticleCfg {
     spin: number;   // 角速度（可正可负 → 顺逆时针混合）
     wob: number;    // 半径摆动幅度
     ws: number;     // 半径摆动频率
+    lag: number;    // 重力级联层级（0=内圈领跑，末层=外圈拖尾），按半径映射
 }
 
 // 用确定性伪随机生成粒子参数，避免 Math.random（保证每次渲染同一团形态）。
@@ -47,12 +48,16 @@ function buildConfigs(count: number, seed: number): ParticleCfg[] {
         return s / 2147483647;
     };
     for (let i = 0; i < count; i++) {
+        const r = 20 + rnd() * 130;
+        // 半径 [20,150] → 级联层级 [0, LAG-1]：内圈领跑、外圈拖尾。
+        const lag = Math.min(GRAVITY_LAG_LEVELS - 1, Math.floor(((r - 20) / 130) * GRAVITY_LAG_LEVELS));
         cfgs.push({
-            r: 20 + rnd() * 130,
+            r,
             a0: rnd() * Math.PI * 2,
             spin: (rnd() - 0.5) * 0.5,
             wob: 6 + rnd() * 16,
             ws: 0.4 + rnd() * 0.9,
+            lag,
         });
     }
     return cfgs;
@@ -98,11 +103,16 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         if (w === 0) return [];
         const t = clock.value * 0.0017;
         const sh = shake.value;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
+        const ax0 = w * 0.5 + Math.cos(t * 0.35) * w * 0.20;
+        const ay0 = h * 0.46 + Math.sin(t * 0.5) * h * 0.18;
+        const cx = gx.value;
+        const cy = gy.value;
         const out: SkPoint[] = [];
         for (let i = 0; i < greenCfg.length; i++) {
             const p = greenCfg[i];
+            // 按粒子层级取延迟级联偏移：内圈领跑、外圈拖尾 → 整团有流动感。
+            const ax = ax0 + cx[p.lag] * w * GRAV_AMP;
+            const ay = ay0 + cy[p.lag] * h * GRAV_AMP;
             const ang = p.a0 + t * p.spin;
             const rad = (p.r + p.wob * Math.sin(t * p.ws + p.a0)) * (1 + sh * SHAKE_RAD);
             const jx = sh * SHAKE_JIT * Math.sin(t * 6.1 + p.a0 * 5.0);
@@ -117,11 +127,15 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         if (w === 0) return [];
         const t = clock.value * 0.0017;
         const sh = shake.value;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
+        const ax0 = w * 0.5 + Math.cos(t * 0.35) * w * 0.20;
+        const ay0 = h * 0.46 + Math.sin(t * 0.5) * h * 0.18;
+        const cx = gx.value;
+        const cy = gy.value;
         const out: SkPoint[] = [];
         for (let i = 0; i < blueCfg.length; i++) {
             const p = blueCfg[i];
+            const ax = ax0 + cx[p.lag] * w * GRAV_AMP;
+            const ay = ay0 + cy[p.lag] * h * GRAV_AMP;
             const ang = p.a0 + t * p.spin;
             const rad = (p.r + p.wob * Math.sin(t * p.ws + p.a0)) * (1 + sh * SHAKE_RAD);
             const jx = sh * SHAKE_JIT * Math.sin(t * 6.1 + p.a0 * 5.0);
@@ -136,8 +150,9 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         const { w, h } = size;
         if (w === 0) return [];
         const t = clock.value * 0.0017;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
+        // 中心引力点是「领头羊」，用 level0（最跟手那层）。
+        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value[0] * w * GRAV_AMP;
+        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value[0] * h * GRAV_AMP;
         return [{ x: ax, y: ay }];
     }, [size.w, size.h]);
 
