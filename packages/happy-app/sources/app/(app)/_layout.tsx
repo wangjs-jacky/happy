@@ -312,8 +312,11 @@ export default function RootLayout() {
             <Stack.Screen
                 name="new/index"
                 options={{
-                    headerTitle: t('newSession.title'),
-                    headerBackTitle: t('common.back'),
+                    // The new-session route now renders <ComposeHome variant="screen" />,
+                    // which draws its own header (back button + machine/agent chip).
+                    // Hide the native stack header to avoid stacking two headers —
+                    // same pattern as the "index" home screen above.
+                    headerShown: false,
                 }}
             />
         </Stack>
