@@ -2,6 +2,7 @@ import * as React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Canvas, Points, BlurMask, useClock, type SkPoint } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
+import { useGravityField } from '@/hooks/useGravityField';
 
 /**
  * 首页空白区的「蜂群」氛围背景。
@@ -17,7 +18,17 @@ import { useDerivedValue } from 'react-native-reanimated';
  *
  * 配色随主题切换：深色用霓虹绿/蓝 + Skia BlurMask 辉光；浅色压暗成墨绿/钢蓝、
  * 去辉光（白底辉光发糊），由 ComposeHome 传入的 mode 决定。
+ *
+ * 重力感应：通过 useGravityField 读手机加速度计，叠加两种运动到引力点上 ——
+ * 倾斜手机 → 整团朝重力方向飘移（GRAV_AMP）；摇一摇 → 粒子被甩开后弹性回位
+ * （SHAKE_RAD / SHAKE_JIT）。真机生效；模拟器/Web 无传感器时三个量恒为 0，自动
+ * 退回纯时钟运动，不影响原有表现。
  */
+
+// —— 重力感应叠加幅度（明显但不浮夸）——
+const GRAV_AMP = 0.18;   // 倾斜飘移：引力点偏移 = 归一化倾斜 × 屏幕尺寸 × 此系数
+const SHAKE_RAD = 0.55;  // 摇晃时公转半径的放大比例（粒子被甩向外圈）
+const SHAKE_JIT = 34;    // 摇晃时叠加的混沌抖动幅度（px）
 
 interface ParticleCfg {
     r: number;      // 公转基础半径
@@ -68,6 +79,8 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
     const [size, setSize] = React.useState({ w: 0, h: 0 });
     const clock = useClock();
     const pal = PALETTE[mode];
+    // 重力感应：gx/gy 倾斜飘移（归一化），shake 摇晃能量 [0,1]。真机生效，否则恒 0。
+    const { gx, gy, shake } = useGravityField();
 
     // 两组粒子（绿 / 蓝），各自一套确定性参数。蓝色少一些，作点缀。
     const greenCfg = React.useMemo(() => buildConfigs(46, 1337), []);
@@ -84,14 +97,17 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         const { w, h } = size;
         if (w === 0) return [];
         const t = clock.value * 0.0017;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18;
+        const sh = shake.value;
+        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
+        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
         const out: SkPoint[] = [];
         for (let i = 0; i < greenCfg.length; i++) {
             const p = greenCfg[i];
             const ang = p.a0 + t * p.spin;
-            const rad = p.r + p.wob * Math.sin(t * p.ws + p.a0);
-            out.push({ x: ax + Math.cos(ang) * rad, y: ay + Math.sin(ang) * rad });
+            const rad = (p.r + p.wob * Math.sin(t * p.ws + p.a0)) * (1 + sh * SHAKE_RAD);
+            const jx = sh * SHAKE_JIT * Math.sin(t * 6.1 + p.a0 * 5.0);
+            const jy = sh * SHAKE_JIT * Math.cos(t * 5.7 + p.a0 * 4.0);
+            out.push({ x: ax + Math.cos(ang) * rad + jx, y: ay + Math.sin(ang) * rad + jy });
         }
         return out;
     }, [greenCfg, size.w, size.h]);
@@ -100,14 +116,17 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         const { w, h } = size;
         if (w === 0) return [];
         const t = clock.value * 0.0017;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18;
+        const sh = shake.value;
+        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
+        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
         const out: SkPoint[] = [];
         for (let i = 0; i < blueCfg.length; i++) {
             const p = blueCfg[i];
             const ang = p.a0 + t * p.spin;
-            const rad = p.r + p.wob * Math.sin(t * p.ws + p.a0);
-            out.push({ x: ax + Math.cos(ang) * rad, y: ay + Math.sin(ang) * rad });
+            const rad = (p.r + p.wob * Math.sin(t * p.ws + p.a0)) * (1 + sh * SHAKE_RAD);
+            const jx = sh * SHAKE_JIT * Math.sin(t * 6.1 + p.a0 * 5.0);
+            const jy = sh * SHAKE_JIT * Math.cos(t * 5.7 + p.a0 * 4.0);
+            out.push({ x: ax + Math.cos(ang) * rad + jx, y: ay + Math.sin(ang) * rad + jy });
         }
         return out;
     }, [blueCfg, size.w, size.h]);
@@ -117,8 +136,8 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
         const { w, h } = size;
         if (w === 0) return [];
         const t = clock.value * 0.0017;
-        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20;
-        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18;
+        const ax = w * 0.5 + Math.cos(t * 0.35) * w * 0.20 + gx.value * w * GRAV_AMP;
+        const ay = h * 0.46 + Math.sin(t * 0.5) * h * 0.18 + gy.value * h * GRAV_AMP;
         return [{ x: ax, y: ay }];
     }, [size.w, size.h]);
 
