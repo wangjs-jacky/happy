@@ -109,11 +109,11 @@ export const SettingsView = React.memo(function SettingsView() {
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
 
     const handleGitHub = async () => {
-        await openExternalUrl('https://github.com/slopus/happy');
+        await openExternalUrl('https://github.com/wangjs-jacky/paws');
     };
 
     const handleReportIssue = async () => {
-        await openExternalUrl('https://github.com/slopus/happy/issues');
+        await openExternalUrl('https://github.com/wangjs-jacky/paws/issues');
     };
 
     // Manual "force update" — a deterministic alternative to the passive update
@@ -272,7 +272,7 @@ export const SettingsView = React.memo(function SettingsView() {
                                 t('modals.authenticateTerminal'),
                                 t('modals.pasteUrlFromTerminal'),
                                 {
-                                    placeholder: 'happy://terminal?...',
+                                    placeholder: 'paws://terminal?...',
                                     confirmText: t('common.authenticate')
                                 }
                             );
@@ -464,7 +464,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.github')}
                     icon={<Ionicons name="logo-github" size={29} color={theme.colors.text} />}
-                    detail="slopus/happy"
+                    detail="wangjs-jacky/paws"
                     onPress={handleGitHub}
                 />
                 <Item
@@ -475,12 +475,12 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.privacyPolicy')}
                     icon={<Ionicons name="shield-checkmark-outline" size={29} color="#007AFF" />}
-                    onPress={() => openExternalUrl('https://happy.engineering/privacy/')}
+                    onPress={() => openExternalUrl('https://paws.build/privacy/')}
                 />
                 <Item
                     title={t('settings.termsOfService')}
                     icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />}
-                    onPress={() => openExternalUrl('https://github.com/slopus/happy/blob/main/TERMS.md')}
+                    onPress={() => openExternalUrl('https://github.com/wangjs-jacky/paws/blob/main/TERMS.md')}
                 />
                 {Platform.OS === 'ios' && (
                     <Item

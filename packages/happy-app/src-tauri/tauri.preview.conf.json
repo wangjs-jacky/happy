@@ -1,11 +1,11 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Happy (preview)",
-  "identifier": "com.slopus.happy.preview",
+  "productName": "Paws (preview)",
+  "identifier": "build.paws.preview",
   "app": {
     "windows": [
       {
-        "title": "Happy (preview)",
+        "title": "Paws (preview)",
         "width": 1680,
         "height": 1050,
         "titleBarStyle": "Overlay",

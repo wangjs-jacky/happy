@@ -1,5 +1,5 @@
 /**
- * Centralized language configuration for the Happy app
+ * Centralized language configuration for the Paws app
  * This file contains all supported languages, their metadata, and configuration
  * 
  * When adding a new language:

@@ -35,7 +35,7 @@ export async function authLogin(config: Config): Promise<void> {
     }
 
     // 3. Generate and display QR code
-    const qrData = `happy:///account?${encodeBase64Url(keypair.publicKey)}`;
+    const qrData = `paws:///account?${encodeBase64Url(keypair.publicKey)}`;
     console.log('');
     qrcode.generate(qrData, { small: true }, (code: string) => {
         console.log(code);

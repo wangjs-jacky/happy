@@ -37,7 +37,7 @@ if (!html.includes(anchor)) {
 const placeholder = `
     <div id="app-loading">
       <div id="app-loading-spinner"></div>
-      <div id="app-loading-text">Happy 加载中…</div>
+      <div id="app-loading-text">Paws 加载中…</div>
     </div>
     <style id="app-loading-style">
       #app-loading { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background-color: #000; color: #6b6b76; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 14px; letter-spacing: 0.02em; }

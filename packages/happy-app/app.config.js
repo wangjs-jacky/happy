@@ -2,14 +2,14 @@ const { execFileSync } = require('node:child_process');
 
 const variant = process.env.APP_ENV || 'development';
 const name = {
-    development: "Happy (dev)",
-    preview: "Happy (preview)",
-    production: "Happy"
+    development: "Paws (dev)",
+    preview: "Paws (preview)",
+    production: "Paws"
 }[variant];
 const bundleId = {
-    development: "com.slopus.happy.dev",
-    preview: "com.slopus.happy.preview",
-    production: "com.ex3ndr.happy"
+    development: "build.paws.dev",
+    preview: "build.paws.preview",
+    production: "build.paws"
 }[variant];
 // const stagingElevenLabsAgentId = 'agent_7801k2c0r5hjfraa1kdbytpvs6yt';
 const productionElevenLabsAgentId = 'agent_6701k211syvvegba4kt7m68nxjmw';
@@ -58,12 +58,12 @@ const buildMetadata = loadBuildMetadata();
 export default {
     expo: {
         name,
-        slug: "happy",
+        slug: "paws",
         version: "1.7.1",
         runtimeVersion: "21",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
-        scheme: "happy",
+        scheme: "paws",
         userInterfaceStyle: "automatic",
         ios: {
             supportsTablet: true,
@@ -87,7 +87,8 @@ export default {
                     ? { NSAllowsLocalNetworking: true }
                     : { NSAllowsLocalNetworking: true, NSAllowsArbitraryLoads: true }
             },
-            associatedDomains: variant === 'production' ? ["applinks:app.happy.engineering"] : []
+            // Universal Links 需真实域名 + AASA 文件，IP 自托管暂不支持；有域名后填 ["applinks:<your-domain>"]
+            associatedDomains: []
         },
         android: {
             adaptiveIcon: {
@@ -111,20 +112,8 @@ export default {
             ],
             package: bundleId,
             googleServicesFile: "./google-services.json",
-            intentFilters: variant === 'production' ? [
-                {
-                    "action": "VIEW",
-                    "autoVerify": true,
-                    "data": [
-                        {
-                            "scheme": "https",
-                            "host": "app.happy.engineering",
-                            "pathPrefix": "/"
-                        }
-                    ],
-                    "category": ["BROWSABLE", "DEFAULT"]
-                }
-            ] : []
+            // Android App Links 需真实域名 + assetlinks.json，IP 自托管暂不支持；有域名后恢复 https intentFilter
+            intentFilters: []
         },
         web: {
             bundler: "metro",

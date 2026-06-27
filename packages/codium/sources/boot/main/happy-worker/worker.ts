@@ -199,7 +199,7 @@ async function startLinkDevice(requestId: string): Promise<void> {
         const flow: LinkFlow = {
             keypair,
             publicKey,
-            authUrl: `happy:///account?${publicKey}`,
+            authUrl: `paws:///account?${publicKey}`,
             startedAt: Date.now(),
             cancelled: false,
         }

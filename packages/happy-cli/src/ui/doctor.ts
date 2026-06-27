@@ -222,7 +222,7 @@ export async function runDoctorCommand(): Promise<void> {
     // Support and bug reports
     console.log(chalk.bold('\n🐛 Support & Bug Reports'));
     console.log(`Report issues: ${chalk.blue('https://github.com/slopus/happy-cli/issues')}`);
-    console.log(`Documentation: ${chalk.blue('https://happy.engineering/')}`);
+    console.log(`Documentation: ${chalk.blue('https://paws.build/')}`);
 
     // ── Concise useful info last (visible without scrolling) ──
 

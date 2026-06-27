@@ -21,14 +21,14 @@ export function useConnectTerminal(options?: UseConnectTerminalOptions) {
     const checkScannerPermissions = useCheckScannerPermissions();
 
     const processAuthUrl = React.useCallback(async (url: string) => {
-        if (!url.startsWith('happy://terminal?')) {
+        if (!url.startsWith('paws://terminal?')) {
             Modal.alert(t('common.error'), t('modals.invalidAuthUrl'), [{ text: t('common.ok') }]);
             return false;
         }
         
         setIsLoading(true);
         try {
-            const tail = url.slice('happy://terminal?'.length);
+            const tail = url.slice('paws://terminal?'.length);
             const publicKey = decodeBase64(tail, 'base64url');
             const responseV1 = encryptBox(decodeBase64(auth.credentials!.secret, 'base64url'), publicKey);
             let responseV2Bundle = new Uint8Array(sync.encryption.contentDataKey.length + 1);
@@ -75,7 +75,7 @@ export function useConnectTerminal(options?: UseConnectTerminalOptions) {
         if (CameraView.isModernBarcodeScannerAvailable) {
             const subscription = CameraView.onModernBarcodeScanned(async (event) => {
                 if (isProcessingRef.current) return;
-                if (event.data.startsWith('happy://terminal?')) {
+                if (event.data.startsWith('paws://terminal?')) {
                     isProcessingRef.current = true;
                     try {
                         if (Platform.OS === 'ios') {
