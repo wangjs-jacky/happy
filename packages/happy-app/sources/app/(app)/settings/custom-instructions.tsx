@@ -1,12 +1,10 @@
 import React from 'react';
-import { View, ScrollView, TextInput, Pressable, Platform } from 'react-native';
+import { View, ScrollView, TextInput, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { Stack } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
-import { Modal } from '@/modal';
 import { useSettingMutable } from '@/sync/storage';
-import { DEFAULT_CUSTOM_INSTRUCTIONS } from '@/sync/settings';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
@@ -16,24 +14,6 @@ export default React.memo(function CustomInstructionsScreen() {
     const safeArea = useSafeAreaInsets();
     const [value, setValue] = useSettingMutable('customInstructions');
     const [focused, setFocused] = React.useState(false);
-
-    // Restore the prefilled default (the Happy send_image rule) after confirmation.
-    const handleReset = React.useCallback(async () => {
-        const ok = await Modal.confirm(
-            '恢复默认',
-            '将自定义指令恢复为内置的默认内容（图片内联发送规则）？当前内容会被覆盖。',
-            { confirmText: '恢复默认', destructive: true }
-        );
-        if (ok) {
-            setValue(DEFAULT_CUSTOM_INSTRUCTIONS);
-        }
-    }, [setValue]);
-
-    const HeaderRight = React.useCallback(() => (
-        <Pressable style={styles.headerButton} onPress={handleReset} hitSlop={8}>
-            <Text style={styles.headerButtonText}>恢复默认</Text>
-        </Pressable>
-    ), [handleReset, styles]);
 
     const KeyboardWrapper = Platform.select({
         ios: KeyboardAvoidingView,
@@ -50,7 +30,6 @@ export default React.memo(function CustomInstructionsScreen() {
                 options={{
                     headerShown: true,
                     headerTitle: 'Custom Instructions',
-                    headerRight: HeaderRight,
                 }}
             />
             <View style={styles.container}>
@@ -86,7 +65,7 @@ export default React.memo(function CustomInstructionsScreen() {
                             autoCorrect={false}
                         />
                         <Text style={styles.footer}>
-                            修改即时保存。默认已预填「图片内联发送」规则——让 AI 用 send_image 工具直接把图片发给你，而不是只显示文件路径。
+                            修改即时保存。这段内容只放你自己的偏好；Happy 的内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。
                         </Text>
                     </ScrollView>
                 </KeyboardWrapper>
@@ -144,14 +123,5 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 19,
         color: theme.colors.textSecondary,
         marginTop: 12,
-    },
-    headerButton: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-    },
-    headerButtonText: {
-        fontSize: 17,
-        fontWeight: '600',
-        color: theme.colors.header.tint,
     },
 }));
