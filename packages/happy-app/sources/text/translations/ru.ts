@@ -382,6 +382,8 @@ export const ru: TranslationStructure = {
             screenshot: 'Снимок экрана',
             screenshotDesktop: 'Весь рабочий стол',
             screenshotBrowser: 'Активное окно браузера',
+            screenshotFailedTitle: 'Не удалось сделать снимок экрана',
+            screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
         },
     },
 

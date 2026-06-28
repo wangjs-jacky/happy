@@ -439,6 +439,8 @@ export const en = {
             screenshot: 'Screenshot',
             screenshotDesktop: 'Full desktop',
             screenshotBrowser: 'Frontmost browser window',
+            screenshotFailedTitle: 'Screenshot failed',
+            screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
         },
     },
 

@@ -425,6 +425,8 @@ export const ca: TranslationStructure = {
             screenshot: 'Captura de pantalla',
             screenshotDesktop: 'Escriptori complet',
             screenshotBrowser: 'Finestra del navegador en primer pla',
+            screenshotFailedTitle: 'La captura de pantalla ha fallat',
+            screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
         },
     },
 

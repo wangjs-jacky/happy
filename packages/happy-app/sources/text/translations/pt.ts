@@ -424,6 +424,8 @@ export const pt: TranslationStructure = {
             screenshot: 'Captura de tela',
             screenshotDesktop: 'Área de trabalho inteira',
             screenshotBrowser: 'Janela do navegador em primeiro plano',
+            screenshotFailedTitle: 'Falha na captura de tela',
+            screenshotFailedBody: 'Não foi possível capturar a tela. Tente novamente.',
         },
     },
 

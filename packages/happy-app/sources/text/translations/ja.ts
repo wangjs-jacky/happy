@@ -426,6 +426,8 @@ export const ja: TranslationStructure = {
             screenshot: 'スクリーンショット',
             screenshotDesktop: 'デスクトップ全体',
             screenshotBrowser: '最前面のブラウザウィンドウ',
+            screenshotFailedTitle: 'スクリーンショットに失敗しました',
+            screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
         },
     },
 

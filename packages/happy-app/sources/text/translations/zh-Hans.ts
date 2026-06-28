@@ -426,6 +426,8 @@ export const zhHans: TranslationStructure = {
             screenshot: '截屏',
             screenshotDesktop: '桌面整屏',
             screenshotBrowser: '最前浏览器窗口',
+            screenshotFailedTitle: '截屏失败',
+            screenshotFailedBody: '无法截取屏幕，请重试。',
         },
     },
 

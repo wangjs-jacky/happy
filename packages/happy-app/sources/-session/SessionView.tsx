@@ -13,6 +13,10 @@ import { useDraft } from '@/hooks/useDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
+import { requestScreenshot } from '@/sync/ops.screenshot';
+import { saveBase64Png, addScreenshotEntry } from '@/sync/screenshotGallery';
+import { imageViewer } from '@/sync/imageViewer';
+import { Modal } from '@/modal';
 import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
@@ -529,6 +533,34 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
         }
     }, [sessionId, expImageUpload, selectedImages, clearImages]);
 
+    // Manual screenshot: ask the CLI for a capture, persist it to the local
+    // gallery and immediately open it in the fullscreen viewer. Self-contained
+    // try/catch (instead of useHappyAction, which takes a no-arg action) so we
+    // can pass `target` and still surface every failure — including RPC throws —
+    // via Modal (RN Alert is banned). No unhandled rejection escapes.
+    const handleCaptureScreenshot = React.useCallback((target: 'desktop' | 'browser') => {
+        (async () => {
+            try {
+                const res = await requestScreenshot(sessionId, target);
+                if (!res.success || !res.dataBase64) {
+                    Modal.alert(
+                        t('components.messageComposer.screenshotFailedTitle'),
+                        res.error ?? t('components.messageComposer.screenshotFailedBody'),
+                    );
+                    return;
+                }
+                const uri = await saveBase64Png(res.dataBase64);
+                addScreenshotEntry(sessionId, { uri, source: 'manual', target, createdAt: Date.now() });
+                imageViewer.open({ uri });
+            } catch (e) {
+                Modal.alert(
+                    t('components.messageComposer.screenshotFailedTitle'),
+                    e instanceof Error ? e.message : t('components.messageComposer.screenshotFailedBody'),
+                );
+            }
+        })();
+    }, [sessionId]);
+
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);
         sessionAbort(sessionId);
@@ -617,6 +649,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onPickImages={expImageUpload ? pickImages : undefined}
             onRemoveImage={expImageUpload ? removeImage : undefined}
             onAddImages={expImageUpload ? addImages : undefined}
+            onCaptureScreenshot={expImageUpload ? handleCaptureScreenshot : undefined}
             autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}

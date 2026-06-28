@@ -425,6 +425,8 @@ export const es: TranslationStructure = {
             screenshot: 'Captura de pantalla',
             screenshotDesktop: 'Escritorio completo',
             screenshotBrowser: 'Ventana del navegador al frente',
+            screenshotFailedTitle: 'Error en la captura de pantalla',
+            screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
         },
     },
 

@@ -425,6 +425,8 @@ export const zhHant: TranslationStructure = {
             screenshot: '截圖',
             screenshotDesktop: '桌面整螢幕',
             screenshotBrowser: '最前瀏覽器視窗',
+            screenshotFailedTitle: '截圖失敗',
+            screenshotFailedBody: '無法擷取截圖，請再試一次。',
         },
     },
 
