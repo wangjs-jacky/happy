@@ -428,6 +428,7 @@ export const zhHant: TranslationStructure = {
             screenshotGallery: '圖庫',
             screenshotFailedTitle: '截圖失敗',
             screenshotFailedBody: '無法擷取截圖，請再試一次。',
+            screenshotUnsupportedPlatform: '截圖目前僅支援 macOS。',
         },
         screenshotGallery: {
             title: '截圖',

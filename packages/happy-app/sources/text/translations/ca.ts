@@ -428,6 +428,7 @@ export const ca: TranslationStructure = {
             screenshotGallery: 'Galeria',
             screenshotFailedTitle: 'La captura de pantalla ha fallat',
             screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
+            screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
         },
         screenshotGallery: {
             title: 'Captures de pantalla',

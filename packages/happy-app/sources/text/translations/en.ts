@@ -442,6 +442,7 @@ export const en: TranslationStructure = {
             screenshotGallery: 'Gallery',
             screenshotFailedTitle: 'Screenshot failed',
             screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
+            screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
         },
         screenshotGallery: {
             title: 'Screenshots',

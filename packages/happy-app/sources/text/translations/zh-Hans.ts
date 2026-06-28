@@ -429,6 +429,7 @@ export const zhHans: TranslationStructure = {
             screenshotGallery: '图库',
             screenshotFailedTitle: '截屏失败',
             screenshotFailedBody: '无法截取屏幕，请重试。',
+            screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
         },
         screenshotGallery: {
             title: '截图',

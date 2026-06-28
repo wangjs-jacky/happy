@@ -181,6 +181,7 @@ function ScreenshotGalleryDrawerImpl({
     sessionId: string;
     onAttach: (entry: ScreenshotEntry) => void;
 }) {
+    const { theme } = useUnistyles();
     const entries = useGallery(sessionId);
 
     // 打开抽屉即把红点清掉：记录当前最新 createdAt 为「已见到」。
@@ -205,7 +206,7 @@ function ScreenshotGalleryDrawerImpl({
                 <Text style={styles.title}>{t('components.screenshotGallery.title')}</Text>
                 {entries.length === 0 ? (
                     <View style={styles.emptyBox}>
-                        <Ionicons name="images-outline" size={36} color="#8E8E93" />
+                        <Ionicons name="images-outline" size={36} color={theme.colors.textSecondary} />
                         <Text style={styles.emptyText}>{t('components.screenshotGallery.empty')}</Text>
                         <Text style={styles.emptyHint}>{t('components.screenshotGallery.emptyHint')}</Text>
                     </View>

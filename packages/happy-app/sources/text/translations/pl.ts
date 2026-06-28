@@ -444,6 +444,7 @@ export const pl: TranslationStructure = {
             screenshotGallery: 'Galeria',
             screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
             screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
+            screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
         },
         screenshotGallery: {
             title: 'Zrzuty ekranu',

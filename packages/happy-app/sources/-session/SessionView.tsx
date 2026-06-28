@@ -462,6 +462,15 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
+/** 判断 CLI 返回的截图错误是否属于「平台不支持」（截图仅 macOS）。
+ *  CLI 的 error 文案可能是中/英混合，匹配几个稳定特征词即可，无需精确解析。 */
+function isUnsupportedPlatformError(error: string | undefined): boolean {
+    if (!error) {
+        return false;
+    }
+    return /macOS|platform|仅支持/i.test(error);
+}
+
 function SessionViewLoaded({ sessionId, session }: { sessionId: string, session: Session }) {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -564,9 +573,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             try {
                 const res = await requestScreenshot(sessionId, target);
                 if (!res.success || !res.dataBase64) {
+                    // 平台不支持（如非 macOS）时给本地化文案，否则原样回显 CLI error
+                    const body = isUnsupportedPlatformError(res.error)
+                        ? t('components.messageComposer.screenshotUnsupportedPlatform')
+                        : (res.error ?? t('components.messageComposer.screenshotFailedBody'));
                     Modal.alert(
                         t('components.messageComposer.screenshotFailedTitle'),
-                        res.error ?? t('components.messageComposer.screenshotFailedBody'),
+                        body,
                     );
                     return;
                 }

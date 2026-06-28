@@ -442,6 +442,7 @@ export const en = {
             screenshotGallery: 'Gallery',
             screenshotFailedTitle: 'Screenshot failed',
             screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
+            screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
         },
         screenshotGallery: {
             // Bottom drawer showing all screenshots captured in this session

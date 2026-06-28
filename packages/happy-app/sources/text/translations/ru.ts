@@ -385,6 +385,7 @@ export const ru: TranslationStructure = {
             screenshotGallery: 'Галерея',
             screenshotFailedTitle: 'Не удалось сделать снимок экрана',
             screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
+            screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
         },
         screenshotGallery: {
             title: 'Снимки экрана',
