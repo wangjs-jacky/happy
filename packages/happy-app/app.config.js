@@ -23,6 +23,14 @@ const consoleLoggingDefault = {
     preview: true,
     production: false,
 }[variant];
+// 自建 OTA 频道：开发/预览包都拉 preview 频道（供开发在真机预览 PR），
+// 正式包拉 production 频道。两条频道互不干扰，预览发布不会影响线上用户。
+// 注意：频道在构建时写死进包，改了必须重新构建装机才生效。
+const otaChannel = {
+    development: "preview",
+    preview: "preview",
+    production: "production",
+}[variant];
 const localHttpException = {
     NSExceptionAllowsInsecureHTTPLoads: true,
     NSTemporaryExceptionAllowsInsecureHTTPLoads: true,
@@ -218,7 +226,7 @@ export default {
             // 改了这个地址必须重新构建装机才生效。
             url: "https://happy-oa-server-vqzpvgrhgx.cn-hangzhou.fcapp.run",
             requestHeaders: {
-                "expo-channel-name": "production"
+                "expo-channel-name": otaChannel
             }
         },
         experiments: {

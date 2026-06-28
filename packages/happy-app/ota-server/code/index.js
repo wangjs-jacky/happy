@@ -44,11 +44,21 @@ const server = http.createServer(async (req, res) => {
 
     const platform = h['expo-platform'] || 'android';
     const currentUpdateId = h['expo-current-update-id'] || '';
+    // 频道：App 端按构建变体注入（preview 包发 preview，production 包发 production）。
+    // 缺省 production，兼容未带该头的老客户端。
+    const channel = h['expo-channel-name'] || 'production';
 
-    // 从 OSS 取对应清单
+    // 从 OSS 取对应清单（按频道分流）：manifests/<platform>/<runtime>/<channel>/latest.json
     const manifestUrl =
-      `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/latest.json`;
-    const r = await fetch(manifestUrl);
+      `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/${channel}/latest.json`;
+    let r = await fetch(manifestUrl);
+
+    // 兼容旧布局：production 频道在引入频道维度前发到的是
+    // manifests/<platform>/<runtime>/latest.json（无 channel 段）。
+    // 新路径未命中且是 production 时回退到旧路径，保证存量线上用户无感。
+    if (!r.ok && channel === 'production') {
+      r = await fetch(`${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/latest.json`);
+    }
 
     // 没找到清单 → 当作「无更新」（避免 App 报错）
     if (!r.ok) {

@@ -1,9 +1,11 @@
 // scripts/rollback-ota.js
 // 作用：交互式回退自建 OTA 到任意历史版本。
-// 用法：pnpm ota:rollback   （或 node scripts/rollback-ota.js）
+// 用法：pnpm ota:rollback [--channel <channel>] [--platform <platform>]
+//   --channel  回退哪个频道，缺省 production
+//   --platform 平台，缺省 android
 //
 // 原理：每次 publish-ota.js 发布都会在 OSS 留一份按时间戳命名的 manifest 备份
-//（manifests/<platform>/<runtime>/<时间戳>.json），而 latest.json 只是「当前线上」指针。
+//（manifests/<platform>/<runtime>/<channel>/<时间戳>.json），而 latest.json 只是「当前线上」指针。
 // 回退 = 把选中的历史 manifest 覆盖回 latest.json。对应的 JS 包从不删除，所以老版本始终可用。
 //
 // 凭证来源：复用 aliyun CLI 默认 profile（~/.aliyun/config.json），需能读写该桶。
@@ -11,17 +13,32 @@
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 
+// ---- 解析命令行参数（--channel / --platform） ----
+function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--channel') out.channel = argv[++i];
+    else if (a === '--platform') out.platform = argv[++i];
+    else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
+    else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
+  }
+  return out;
+}
+const ARGS = parseArgs(process.argv.slice(2));
+
 // ============ 配置区：与 publish-ota.js 保持一致 ============
 const BUCKET = 'happy-app-ota-jacky';
 const REGION = 'oss-cn-hangzhou';
 const RUNTIME_VERSION = '21';
-const PLATFORM = 'android';
+const PLATFORM = ARGS.platform || 'android';
+const CHANNEL = ARGS.channel || 'production';
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun';
 // ==========================================================
 
-const PREFIX = `manifests/${PLATFORM}/${RUNTIME_VERSION}/`;
+const PREFIX = `manifests/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}/`;
 const LATEST_KEY = `${PREFIX}latest.json`;
-const META_PREFIX = `meta/${PLATFORM}/${RUNTIME_VERSION}/`; // 轻量版本元信息（含 git commit）
+const META_PREFIX = `meta/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}/`; // 轻量版本元信息（含 git commit）
 
 // 把毫秒时间戳格式化成 本地可读时间
 function fmtTime(ms) {
@@ -108,7 +125,7 @@ async function main() {
     : null;
 
   // 3) 为每个版本读取 meta（commit 信息），再打印菜单
-  console.log(`\n  平台 ${PLATFORM} · runtimeVersion ${RUNTIME_VERSION}\n`);
+  console.log(`\n  频道 ${CHANNEL} · 平台 ${PLATFORM} · runtimeVersion ${RUNTIME_VERSION}\n`);
   for (const v of versions) {
     v.desc = describeVersion(readMeta(v.stamp));
   }
