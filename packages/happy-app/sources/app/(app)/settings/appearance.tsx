@@ -3,15 +3,13 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
-import { useRouter } from 'expo-router';
-import * as Localization from 'expo-localization';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
 import { applyTheme } from '@/unistyles';
 import { ACCENTS } from '@/themePacks';
 import { Typography } from '@/constants/Typography';
 import { Pressable, View, Text } from 'react-native';
-import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
+import { t } from '@/text';
 
 // Define known avatar styles for this version of the app
 type KnownAvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
@@ -22,7 +20,6 @@ const isKnownAvatarStyle = (style: string): style is KnownAvatarStyle => {
 
 export default function AppearanceSettingsScreen() {
     const { theme } = useUnistyles();
-    const router = useRouter();
     const [viewInline, setViewInline] = useSettingMutable('viewInline');
     const [expandTodos, setExpandTodos] = useSettingMutable('expandTodos');
     const [showLineNumbers, setShowLineNumbers] = useSettingMutable('showLineNumbers');
@@ -34,25 +31,10 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [themePack, setThemePack] = useLocalSettingMutable('themePack');
-    const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    
+
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
     
-    // Language display
-    const getLanguageDisplayText = () => {
-        if (preferredLanguage === null) {
-            const deviceLocale = Localization.getLocales()?.[0]?.languageTag ?? 'en-US';
-            const deviceLanguage = deviceLocale.split('-')[0].toLowerCase();
-            const detectedLanguageName = deviceLanguage in SUPPORTED_LANGUAGES ? 
-                                        getLanguageNativeName(deviceLanguage as keyof typeof SUPPORTED_LANGUAGES) : 
-                                        getLanguageNativeName('en');
-            return `${t('settingsLanguage.automatic')} (${detectedLanguageName})`;
-        } else if (preferredLanguage && preferredLanguage in SUPPORTED_LANGUAGES) {
-            return getLanguageNativeName(preferredLanguage as keyof typeof SUPPORTED_LANGUAGES);
-        }
-        return t('settingsLanguage.automatic');
-    };
     return (
         <ItemList style={{ paddingTop: 0 }}>
 
@@ -100,16 +82,6 @@ export default function AppearanceSettingsScreen() {
                         );
                     })}
                 </View>
-            </ItemGroup>
-
-            {/* Language Settings */}
-            <ItemGroup title={t('settingsLanguage.title')} footer={t('settingsLanguage.description')}>
-                <Item
-                    title={t('settingsLanguage.currentLanguage')}
-                    icon={<Ionicons name="language-outline" size={29} color={theme.colors.accent} />}
-                    detail={getLanguageDisplayText()}
-                    onPress={() => router.push('/settings/language')}
-                />
             </ItemGroup>
 
             {/* Text Settings */}
