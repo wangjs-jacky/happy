@@ -82,6 +82,26 @@ interface SessionListDirectoryResponse {
     error?: string;
 }
 
+// Browse directory operation types (new-session path picker)
+interface MachineBrowseDirectoryRequest {
+    path: string;
+}
+
+interface BrowseDirectoryEntry {
+    name: string;
+    path: string;
+    isProjectRoot: boolean;
+}
+
+interface MachineBrowseDirectoryResponse {
+    success: boolean;
+    path?: string;
+    parent?: string | null;
+    home?: string;
+    directories?: BrowseDirectoryEntry[];
+    error?: string;
+}
+
 // Directory tree operation types
 interface SessionGetDirectoryTreeRequest {
     path: string;
@@ -674,6 +694,33 @@ export async function sessionListDirectory(sessionId: string, path: string): Pro
 }
 
 /**
+ * Browse directories on a machine for the new-session path picker.
+ *
+ * Routes the daemon `browseDirectory` RPC at the machine level (no session
+ * exists yet when picking a working directory). The daemon roots browsing at
+ * the user's home directory and returns only sub-directories plus navigation
+ * context (resolved path / parent / home), so the UI can render a point-and-
+ * click breadcrumb browser without any local path math.
+ *
+ * Passing an empty path lands on the home directory.
+ */
+export async function machineBrowseDirectory(machineId: string, path: string): Promise<MachineBrowseDirectoryResponse> {
+    try {
+        const response = await apiSocket.machineRPC<MachineBrowseDirectoryResponse, MachineBrowseDirectoryRequest>(
+            machineId,
+            'browseDirectory',
+            { path }
+        );
+        return response;
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
+
+/**
  * Get directory tree from the session
  */
 export async function sessionGetDirectoryTree(
@@ -918,6 +965,8 @@ export type {
     SessionWriteFileResponse,
     SessionListDirectoryResponse,
     DirectoryEntry,
+    MachineBrowseDirectoryResponse,
+    BrowseDirectoryEntry,
     SessionGetDirectoryTreeResponse,
     TreeNode,
     SessionRipgrepResponse,

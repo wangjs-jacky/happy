@@ -10,6 +10,7 @@ import {
     TextInputSelectionChangeEventData,
     NativeSyntheticEvent,
     Image as RNImage,
+    ActivityIndicator,
 } from 'react-native';
 import { GlassView } from 'expo-glass-effect';
 import { Ionicons, Octicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import { useAllMachines, useLocalSetting, useSessions, useSetting } from '@/sync
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { listWorktrees } from '@/utils/worktree';
+import { machineBrowseDirectory } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
@@ -217,11 +219,41 @@ function PickerContent({
     );
 }
 
+// A single breadcrumb step: a display label and the absolute path it points to.
+type Crumb = { label: string; path: string };
+
+// Build breadcrumb steps from an absolute path, rooted at home ('~'). Falls
+// back to raw absolute segments if the path somehow sits outside home.
+function buildCrumbs(absPath: string | undefined, home: string | undefined): Crumb[] {
+    if (!absPath) return [];
+    if (home && absPath === home) return [{ label: '~', path: home }];
+    if (home && absPath.startsWith(home + '/')) {
+        const rel = absPath.slice(home.length + 1).split('/').filter(Boolean);
+        let acc = home;
+        const out: Crumb[] = [{ label: '~', path: home }];
+        for (const seg of rel) {
+            acc = `${acc}/${seg}`;
+            out.push({ label: seg, path: acc });
+        }
+        return out;
+    }
+    const parts = absPath.split('/').filter(Boolean);
+    let acc = '';
+    const out: Crumb[] = [{ label: '/', path: '/' }];
+    for (const seg of parts) {
+        acc = `${acc}/${seg}`;
+        out.push({ label: seg, path: acc });
+    }
+    return out;
+}
+
 function PathPickerContent({
     title,
     items,
     value,
     homeDir,
+    machineId,
+    machineOnline,
     onChangeValue,
     onDone,
     embedded = false,
@@ -230,6 +262,8 @@ function PathPickerContent({
     items: PickerItem[];
     value: string | null;
     homeDir?: string;
+    machineId: string | null;
+    machineOnline: boolean;
     onChangeValue: (value: string) => void;
     onDone?: () => void;
     embedded?: boolean;
@@ -239,12 +273,44 @@ function PathPickerContent({
     const currentValue = value ?? '';
     const [selection, setSelection] = React.useState<{ start: number; end: number } | undefined>(undefined);
 
-    React.useEffect(() => {
-        const timeout = setTimeout(() => {
-            inputRef.current?.focus();
-        }, 50);
-        return () => clearTimeout(timeout);
-    }, []);
+    // Point-and-click browse mode. Off by default so opening the picker no
+    // longer forces the keyboard up — typing is opt-in via the field below.
+    const [browsing, setBrowsing] = React.useState(false);
+    const [browseDirs, setBrowseDirs] = React.useState<{ name: string; path: string; isProjectRoot: boolean }[]>([]);
+    const [browsePath, setBrowsePath] = React.useState<string | undefined>(undefined);
+    const [browseHome, setBrowseHome] = React.useState<string | undefined>(undefined);
+    const [browseLoading, setBrowseLoading] = React.useState(false);
+    const [browseError, setBrowseError] = React.useState<string | null>(null);
+
+    // Load a directory from the machine. Empty string lands on the home dir.
+    const loadDir = React.useCallback(async (path: string) => {
+        if (!machineId) return;
+        setBrowseLoading(true);
+        setBrowseError(null);
+        const res = await machineBrowseDirectory(machineId, path);
+        if (res.success) {
+            setBrowseDirs(res.directories ?? []);
+            setBrowsePath(res.path);
+            setBrowseHome(res.home);
+        } else {
+            setBrowseError(res.error ?? 'Failed to list directory');
+        }
+        setBrowseLoading(false);
+    }, [machineId]);
+
+    const startBrowsing = React.useCallback(() => {
+        setBrowsing(true);
+        const trimmed = currentValue.trim();
+        // Seed from the current selection if any, otherwise from home.
+        loadDir(trimmed ? resolveAbsolutePath(trimmed, homeDir) : '');
+    }, [currentValue, homeDir, loadDir]);
+
+    const selectFolder = React.useCallback((path: string) => {
+        onChangeValue(path);
+        onDone?.();
+    }, [onChangeValue, onDone]);
+
+    const crumbs = React.useMemo(() => buildCrumbs(browsePath, browseHome ?? homeDir), [browsePath, browseHome, homeDir]);
 
     const matchedItemKey = React.useMemo(() => {
         const normalizedValue = normalizePathForComparison(currentValue, homeDir);
@@ -259,23 +325,18 @@ function PathPickerContent({
         return match?.key ?? null;
     }, [currentValue, homeDir, items]);
 
+    // Recent rows now select-and-close directly (no longer just fill the field).
     const handleSuggestionPress = React.useCallback((item: PickerItem) => {
-        const nextValue = item.label;
-        const nextSelection = { start: nextValue.length, end: nextValue.length };
-
-        onChangeValue(nextValue);
-        setSelection(nextSelection);
-
-        setTimeout(() => {
-            inputRef.current?.focus();
-        }, 0);
-    }, [onChangeValue]);
+        selectFolder(item.key);
+    }, [selectFolder]);
 
     const isCustomPath = currentValue.trim().length > 0 && matchedItemKey === null;
     const handleSelectionChange = React.useCallback((event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
         setSelection(event.nativeEvent.selection);
     }, []);
     const doneIconColor = theme.colors.header.tint;
+    const canBrowse = !!machineId && machineOnline;
+    const currentFolderName = browsePath ? (crumbs[crumbs.length - 1]?.label ?? browsePath) : '';
 
     return (
         <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer]}>
@@ -313,92 +374,216 @@ function PathPickerContent({
                 </View>
             )}
 
-            <View
-                style={[
-                    pickerStyles.pathInputRow,
-                    {
-                        backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
-                        borderColor: embedded ? 'transparent' : theme.colors.divider,
-                    },
-                    embedded && pickerStyles.embeddedPathInputRow,
-                ]}
-            >
-                <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
-                <View style={pickerStyles.pathInputField}>
-                    <TextInput
-                        ref={inputRef}
-                        value={currentValue}
-                        onChangeText={onChangeValue}
-                        onSelectionChange={handleSelectionChange}
-                        selection={selection}
-                        placeholder="Enter project path"
-                        placeholderTextColor={theme.colors.textSecondary}
-                        style={[
-                            pickerStyles.pathTextInput,
-                            embedded && pickerStyles.embeddedPathTextInput,
-                            { color: theme.colors.text },
-                        ]}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        multiline={false}
-                        numberOfLines={1}
-                        returnKeyType="done"
-                        onSubmitEditing={onDone}
-                    />
-                </View>
-            </View>
-
-            {isCustomPath && (
-                <Text style={[pickerStyles.pathMetaText, { color: theme.colors.textSecondary }]}>
-                    using custom path above
-                </Text>
-            )}
-
-            <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]}>
-                Recent
-            </Text>
-
-            <OptionListContainer embedded={embedded}>
-                {items.map((item) => {
-                    const isSelected = item.key === matchedItemKey;
-
-                    return (
+            {browsing ? (
+                <>
+                    {/* Breadcrumb + exit-browse control */}
+                    <View style={pickerStyles.breadcrumbRow}>
                         <Pressable
-                            key={item.key}
+                            onPress={() => setBrowsing(false)}
+                            hitSlop={8}
+                            style={(p) => [pickerStyles.crumbBack, p.pressed && pickerStyles.optionPressed]}
+                            accessibilityLabel="Close browser"
+                        >
+                            <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
+                        </Pressable>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={pickerStyles.crumbScroll}
+                            contentContainerStyle={pickerStyles.crumbScrollContent}
+                            keyboardShouldPersistTaps="handled"
+                        >
+                            {crumbs.map((c, i) => {
+                                const isLast = i === crumbs.length - 1;
+                                return (
+                                    <React.Fragment key={c.path}>
+                                        {i > 0 && (
+                                            <Ionicons name="chevron-forward" size={12} color={theme.colors.textSecondary} style={pickerStyles.crumbSep} />
+                                        )}
+                                        <Pressable onPress={() => !isLast && loadDir(c.path)} hitSlop={6}>
+                                            <Text
+                                                style={[
+                                                    pickerStyles.crumbText,
+                                                    { color: isLast ? theme.colors.text : theme.colors.textSecondary },
+                                                ]}
+                                                numberOfLines={1}
+                                            >
+                                                {c.label}
+                                            </Text>
+                                        </Pressable>
+                                    </React.Fragment>
+                                );
+                            })}
+                        </ScrollView>
+                    </View>
+
+                    {browseError ? (
+                        <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
+                            {browseError}
+                        </Text>
+                    ) : browseLoading && browseDirs.length === 0 ? (
+                        <View style={pickerStyles.browseLoading}>
+                            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                        </View>
+                    ) : (
+                        <OptionListContainer embedded={embedded}>
+                            {browseDirs.map((dir) => (
+                                <Pressable
+                                    key={dir.path}
+                                    style={(p) => [
+                                        pickerStyles.option,
+                                        embedded && pickerStyles.embeddedOption,
+                                        p.pressed && pickerStyles.optionPressed,
+                                    ]}
+                                    onPress={() => loadDir(dir.path)}
+                                >
+                                    <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={[pickerStyles.optionText, { color: theme.colors.text }]} numberOfLines={1}>
+                                            {dir.name}
+                                        </Text>
+                                    </View>
+                                    {dir.isProjectRoot && (
+                                        <Octicons name="git-branch" size={13} color={theme.colors.textSecondary} />
+                                    )}
+                                    <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            ))}
+                            {browseDirs.length === 0 && (
+                                <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
+                                    no sub-folders here
+                                </Text>
+                            )}
+                        </OptionListContainer>
+                    )}
+
+                    {/* Confirm the directory we're currently standing in */}
+                    {!!browsePath && (
+                        <Pressable
+                            onPress={() => selectFolder(browsePath)}
+                            style={(p) => [
+                                pickerStyles.selectButton,
+                                { backgroundColor: theme.colors.button.primary.background },
+                                p.pressed && pickerStyles.optionPressed,
+                            ]}
+                        >
+                            <Ionicons name="checkmark" size={16} color={theme.colors.button.primary.tint} />
+                            <Text style={[pickerStyles.selectButtonText, { color: theme.colors.button.primary.tint }]} numberOfLines={1}>
+                                Select “{currentFolderName}”
+                            </Text>
+                        </Pressable>
+                    )}
+                </>
+            ) : (
+                <>
+                    <View
+                        style={[
+                            pickerStyles.pathInputRow,
+                            {
+                                backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
+                                borderColor: embedded ? 'transparent' : theme.colors.divider,
+                            },
+                            embedded && pickerStyles.embeddedPathInputRow,
+                        ]}
+                    >
+                        <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+                        <View style={pickerStyles.pathInputField}>
+                            <TextInput
+                                ref={inputRef}
+                                value={currentValue}
+                                onChangeText={onChangeValue}
+                                onSelectionChange={handleSelectionChange}
+                                selection={selection}
+                                placeholder="Enter project path"
+                                placeholderTextColor={theme.colors.textSecondary}
+                                style={[
+                                    pickerStyles.pathTextInput,
+                                    embedded && pickerStyles.embeddedPathTextInput,
+                                    { color: theme.colors.text },
+                                ]}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                multiline={false}
+                                numberOfLines={1}
+                                returnKeyType="done"
+                                onSubmitEditing={onDone}
+                            />
+                        </View>
+                    </View>
+
+                    {isCustomPath && (
+                        <Text style={[pickerStyles.pathMetaText, { color: theme.colors.textSecondary }]}>
+                            using custom path above
+                        </Text>
+                    )}
+
+                    {/* Point-and-click browse entry — no typing required */}
+                    {canBrowse && (
+                        <Pressable
+                            onPress={startBrowsing}
                             style={(p) => [
                                 pickerStyles.option,
                                 embedded && pickerStyles.embeddedOption,
                                 p.pressed && pickerStyles.optionPressed,
                             ]}
-                            onPress={() => handleSuggestionPress(item)}
                         >
-                            <Ionicons
-                                name="folder-outline"
-                                size={16}
-                                color={theme.colors.textSecondary}
-                            />
+                            <Ionicons name="folder-open-outline" size={16} color={theme.colors.button.primary.background} />
                             <View style={{ flex: 1, minWidth: 0 }}>
-                                <Text style={[pickerStyles.optionText, { color: theme.colors.text }]} numberOfLines={1}>
-                                    {item.label}
+                                <Text style={[pickerStyles.optionText, { color: theme.colors.button.primary.background }]} numberOfLines={1}>
+                                    Browse folders…
                                 </Text>
                             </View>
-                            {isSelected && (
-                                <Ionicons
-                                    name="checkmark-circle"
-                                    size={18}
-                                    color={theme.colors.button.primary.background}
-                                />
-                            )}
+                            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                         </Pressable>
-                    );
-                })}
+                    )}
 
-                {items.length === 0 && (
-                    <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
-                        no recent projects yet
+                    <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]}>
+                        Recent
                     </Text>
-                )}
-            </OptionListContainer>
+
+                    <OptionListContainer embedded={embedded}>
+                        {items.map((item) => {
+                            const isSelected = item.key === matchedItemKey;
+
+                            return (
+                                <Pressable
+                                    key={item.key}
+                                    style={(p) => [
+                                        pickerStyles.option,
+                                        embedded && pickerStyles.embeddedOption,
+                                        p.pressed && pickerStyles.optionPressed,
+                                    ]}
+                                    onPress={() => handleSuggestionPress(item)}
+                                >
+                                    <Ionicons
+                                        name="folder-outline"
+                                        size={16}
+                                        color={theme.colors.textSecondary}
+                                    />
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={[pickerStyles.optionText, { color: theme.colors.text }]} numberOfLines={1}>
+                                            {item.label}
+                                        </Text>
+                                    </View>
+                                    {isSelected && (
+                                        <Ionicons
+                                            name="checkmark-circle"
+                                            size={18}
+                                            color={theme.colors.button.primary.background}
+                                        />
+                                    )}
+                                </Pressable>
+                            );
+                        })}
+
+                        {items.length === 0 && (
+                            <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
+                                no recent projects yet
+                            </Text>
+                        )}
+                    </OptionListContainer>
+                </>
+            )}
         </View>
     );
 }
@@ -863,6 +1048,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             items={pathItems}
                             value={selectedPath}
                             homeDir={selectedHomeDir}
+                            machineId={selectedMachineId}
+                            machineOnline={selectedMachine ? isMachineOnline(selectedMachine) : false}
                             onChangeValue={setSelectedPath}
                             onDone={dismissPicker}
                             embedded={embedded}
@@ -885,6 +1072,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             pathItems,
             pickerData,
             selectedHomeDir,
+            selectedMachineId,
+            selectedMachine,
             selectedPath,
             setSelectedPath,
             theme.colors.header.background,
@@ -1484,6 +1673,60 @@ const pickerStyles = {
         textAlign: 'center' as const,
         paddingVertical: 20,
         ...Typography.default(),
+        ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
+    } as const,
+    // --- Directory browser (point-and-click path picker) ---
+    breadcrumbRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 6,
+        paddingVertical: 6,
+        marginBottom: 2,
+    } as const,
+    crumbBack: {
+        width: 28,
+        height: 28,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        borderRadius: 8,
+    } as const,
+    crumbScroll: {
+        flex: 1,
+        minWidth: 0,
+    } as const,
+    crumbScrollContent: {
+        alignItems: 'center' as const,
+        gap: 2,
+        paddingRight: 8,
+    } as const,
+    crumbText: {
+        fontSize: 14,
+        maxWidth: 160,
+        paddingHorizontal: 2,
+        ...Typography.default('semiBold'),
+        ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
+    } as const,
+    crumbSep: {
+        marginHorizontal: 1,
+    } as const,
+    browseLoading: {
+        paddingVertical: 28,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    } as const,
+    selectButton: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        gap: 8,
+        marginTop: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+    } as const,
+    selectButtonText: {
+        fontSize: 15,
+        ...Typography.default('semiBold'),
         ...Platform.select({ web: { userSelect: 'none' } as any, default: {} }),
     } as const,
 };
