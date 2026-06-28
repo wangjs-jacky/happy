@@ -2270,6 +2270,20 @@ class Sync {
                     ? await sessionEncryption.decryptMetadata(updateData.body.metadata.version, updateData.body.metadata.value)
                     : session.metadata;
 
+                // 带外图库懒拉取：CLI 端 AI 截图后会把轻量引用写进 metadata。
+                // 仅当 screenshotVersion 较上次变大时触发，避免每次 update 全量重拉
+                // （hasRemoteId 去重已能兜底重复，但版本判断更省）。落盘+入库是 fire-and-forget，
+                // 不阻塞 metadata 应用；失败逐张吞掉不影响会话。screenshotSync 动态 import 以隔离其依赖。
+                const prevScreenshotVersion = session.metadata?.screenshotVersion ?? 0;
+                const nextScreenshotVersion = metadata?.screenshotVersion ?? 0;
+                if (metadata?.screenshotRefs && nextScreenshotVersion > prevScreenshotVersion) {
+                    const refs = metadata.screenshotRefs;
+                    const sessionId = updateData.body.id;
+                    import('@/sync/screenshotSync').then(({ syncScreenshotsForSession }) => {
+                        syncScreenshotsForSession(sessionId, refs);
+                    }).catch((e) => console.warn('[sync] 懒拉取 AI 截图失败', e));
+                }
+
                 this.applySessions([{
                     ...session,
                     agentState,
