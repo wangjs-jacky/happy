@@ -931,6 +931,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             </>
                                         )}
                                         <Pressable
+                                            accessibilityLabel={t('components.messageComposer.screenshot')}
                                             onPress={() => {
                                                 hapticsLight();
                                                 setScreenshotMenuOpen((v) => !v);
