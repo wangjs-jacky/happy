@@ -191,8 +191,8 @@ const styles = StyleSheet.create((theme) => ({
     title: {
         marginTop: 16,
         textAlign: 'center',
-        fontSize: 24,
-        ...Typography.default('semiBold'),
+        fontSize: 25,
+        ...Typography.display('semiBold'),
         color: theme.colors.text,
     },
     subtitle: {
@@ -242,8 +242,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     landscapeTitle: {
         textAlign: 'center',
-        fontSize: 24,
-        ...Typography.default('semiBold'),
+        fontSize: 25,
+        ...Typography.display('semiBold'),
         color: theme.colors.text,
     },
     landscapeSubtitle: {

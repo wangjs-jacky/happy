@@ -3,6 +3,7 @@ import '../theme.css';
 import * as React from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Fonts from 'expo-font';
+import { Fredoka_600SemiBold, Fredoka_700Bold } from '@expo-google-fonts/fredoka';
 import * as Notifications from 'expo-notifications';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -138,8 +139,12 @@ async function loadFonts() {
                 'IBMPlexMono-Italic': require('@/assets/fonts/IBMPlexMono-Italic.ttf'),
                 'IBMPlexMono-SemiBold': require('@/assets/fonts/IBMPlexMono-SemiBold.ttf'),
 
-                // Bricolage Grotesque  
+                // Bricolage Grotesque
                 'BricolageGrotesque-Bold': require('@/assets/fonts/BricolageGrotesque-Bold.ttf'),
+
+                // Fredoka (Paws 圆萌展示 / 品牌字标)
+                'Fredoka-SemiBold': Fredoka_600SemiBold,
+                'Fredoka-Bold': Fredoka_700Bold,
 
                 ...FontAwesome.font,
             });
@@ -162,8 +167,12 @@ async function loadFonts() {
                         'IBMPlexMono-Italic': require('@/assets/fonts/IBMPlexMono-Italic.ttf'),
                         'IBMPlexMono-SemiBold': require('@/assets/fonts/IBMPlexMono-SemiBold.ttf'),
 
-                        // Bricolage Grotesque  
+                        // Bricolage Grotesque
                         'BricolageGrotesque-Bold': require('@/assets/fonts/BricolageGrotesque-Bold.ttf'),
+
+                        // Fredoka (Paws 圆萌展示 / 品牌字标)
+                        'Fredoka-SemiBold': Fredoka_600SemiBold,
+                        'Fredoka-Bold': Fredoka_700Bold,
 
                         ...FontAwesome.font,
                     });
