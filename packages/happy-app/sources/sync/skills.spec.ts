@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTriggers } from './skills';
+import { parseTriggers, parseSkillList } from './skills';
 
 describe('parseTriggers', () => {
     it('抽取中文「触发词：」列表', () => {
@@ -18,5 +18,21 @@ describe('parseTriggers', () => {
     });
     it('空 description 返回空数组', () => {
         expect(parseTriggers('')).toEqual([]);
+    });
+});
+
+describe('parseSkillList', () => {
+    it('切分 bash 输出并标注来源', () => {
+        const raw = [
+            '/Users/x/.claude/skills/todo/SKILL.md\x1ftodo\x1f上下文快照。触发词：add、resolve',
+            '/Users/x/.claude/plugins/cache/m/p/1/skills/foo/SKILL.md\x1ffoo\x1fBar baz.',
+        ].join('\x1e');
+        const list = parseSkillList(raw);
+        expect(list).toHaveLength(2);
+        expect(list[0]).toMatchObject({ name: 'todo', source: 'personal', triggers: ['add', 'resolve'] });
+        expect(list[1].source).toBe('plugin');
+    });
+    it('空输出返回空数组', () => {
+        expect(parseSkillList('')).toEqual([]);
     });
 });
