@@ -35,17 +35,27 @@ export function parseSkillList(raw: string): SkillEntry[] {
             name: name || path.split('/').slice(-2, -1)[0] || path,
             description,
             triggers: parseTriggers(description),
-            source: path.includes('/plugins/cache/') ? 'plugin' as const : 'personal' as const,
+            source: path.includes('/.claude/plugins/') ? 'plugin' as const : 'personal' as const,
         };
     }).filter(e => e.path);
 }
 
 /** 在宿主机扫描所有 SKILL.md 并解析为 SkillEntry[] */
 export async function scanSkills(machineId: string): Promise<SkillEntry[]> {
+    // 两个扫描根：
+    //   1) ~/.claude/skills —— 个人 skill，多为 symlink（j-skills link 出来的），
+    //      必须 find -L 跟随符号链接，否则一个都扫不到。
+    //   2) ~/.claude/plugins —— 插件 skill，分布在 cache/ 与 marketplaces/ 两处，
+    //      统一从 plugins 根扫，maxdepth 8 覆盖最深的 marketplaces 布局。
+    // NUL 分隔遍历，避免路径含空格/通配符时被 word-splitting 拆坏。
+    // 注：desc 只取 frontmatter 中 description 的首行——多行 YAML 标量会被截断，
+    // 但足够提炼触发词；详情页读全文不受影响。awk 顺手剥掉值两侧的引号。
     const cmd = String.raw`
-for f in $(find "$HOME/.claude/skills" "$HOME"/.claude/plugins/cache/*/*/*/skills -maxdepth 2 -name SKILL.md 2>/dev/null); do
-  name=$(awk -F': *' '/^name:/{print $2; exit}' "$f")
-  desc=$(awk '/^description:/{sub(/^description: */,""); print; exit}' "$f")
+{ find -L "$HOME/.claude/skills" -maxdepth 2 -name SKILL.md -print0 2>/dev/null;
+  find -L "$HOME/.claude/plugins" -maxdepth 8 -name SKILL.md -print0 2>/dev/null; } |
+while IFS= read -r -d '' f; do
+  name=$(awk -F': *' '/^name:/{v=$2; gsub(/^"|"$/,"",v); print v; exit}' "$f")
+  desc=$(awk '/^description:/{sub(/^description: */,""); gsub(/^"|"$/,"",$0); print; exit}' "$f")
   printf '%s\x1f%s\x1f%s\x1e' "$f" "$name" "$desc"
 done
 `;
