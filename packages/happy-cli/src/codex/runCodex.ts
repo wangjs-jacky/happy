@@ -14,6 +14,8 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
+import { buildCodexInput } from './codexImageInput';
 import { projectPath } from '@/projectPath';
 import { join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
@@ -258,7 +260,35 @@ export async function runCodex(opts: {
         'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
     ];
 
-    session.onUserMessage((message) => {
+    // Handle file events — each download promise resolves to its own decoded
+    // attachment (or null). drainAttachmentsForUserMessage on the next text
+    // claims the in-flight set atomically; mirrors the Claude path so images
+    // sent from the app travel with the next user message.
+    session.onFileEvent((fileEvent) => {
+        const ev = fileEvent.content.data.ev;
+        logger.debug(`[Codex] File event received: ${ev.name} (${ev.size} bytes, ref: ${ev.ref})`);
+        const downloadPromise = (async (): Promise<{ data: Uint8Array; mimeType: string; name: string } | null> => {
+            try {
+                const decrypted = await session.downloadAndDecryptAttachment(ev.ref);
+                if (!decrypted) {
+                    logger.debug(`[Codex] Failed to decrypt attachment: ${ev.name}`);
+                    return null;
+                }
+                logger.debug(`[Codex] Attachment decrypted: ${ev.name} (${decrypted.length} bytes)`);
+                return { data: decrypted, mimeType: ev.mimeType ?? 'image/jpeg', name: ev.name };
+            } catch (error) {
+                logger.debug(`[Codex] Failed to download attachment: ${ev.name}`, { error });
+                return null;
+            }
+        })();
+        session.trackAttachmentDownload(downloadPromise);
+    });
+
+    session.onUserMessage(async (message) => {
+        // Claim every file attachment that arrived strictly before this text.
+        // New file events from this point on belong to the next user message.
+        const attachmentsForThisMessage = await session.drainAttachmentsForUserMessage();
+
         // Resolve permission mode (validate against Codex-native modes)
         let messagePermissionMode = currentPermissionMode;
         if (message.meta?.permissionMode) {
@@ -323,6 +353,7 @@ export async function runCodex(opts: {
         const enqueueResult = enqueueCodexUserText({
             text: message.content.text,
             mode: enhancedMode,
+            attachments: attachmentsForThisMessage,
             queue: messageQueue,
         });
         if (enqueueResult === 'clear') {
@@ -736,11 +767,11 @@ export async function runCodex(opts: {
             }
         }
 
-        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string } | null = null;
+        let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
-            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string } | null = pending;
+            let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = pending;
             pending = null;
             if (!message) {
                 // Capture the current signal to distinguish idle-abort from queue close
@@ -829,11 +860,22 @@ export async function runCodex(opts: {
                     includeTitleInstruction: first,
                 });
 
+                // Stage any image attachments to disk and hand Codex their paths
+                // as `localImage` input items (the text item is appended inside).
+                const turnInput = buildCodexInput(turnPrompt, message.attachments);
+                const turnImages = turnInput.filter(
+                    (item): item is { type: 'localImage'; path: string } => item.type === 'localImage',
+                );
+                if (turnImages.length > 0) {
+                    logger.debug(`[Codex] Attaching ${turnImages.length} image(s) to turn`);
+                }
+
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
                     effort: message.mode.effort,
+                    images: turnImages,
                 });
                 first = false;
                 if (includeAppendSystemPrompt) {

@@ -580,12 +580,13 @@ class Sync {
         const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
         const { displayText, source = 'chat', attachments } = options ?? {};
 
-        // Image attachments are wired into the Claude pipeline only; Codex /
-        // Gemini / OpenClaw runners read message.content.text and ignore
-        // file events, so dropping attachments silently would leave the user
-        // wondering why the image was skipped. Warn and send text only.
+        // Image attachments are wired into the Claude and Codex pipelines; both
+        // runners drain file events and forward the images to the model. Other
+        // runners (Gemini / OpenClaw) read message.content.text and ignore file
+        // events, so dropping attachments silently would leave the user
+        // wondering why the image was skipped. Warn and send text only there.
         const flavor = session.metadata?.flavor;
-        const supportsAttachments = !flavor || flavor === 'claude';
+        const supportsAttachments = !flavor || flavor === 'claude' || flavor === 'codex';
         const effectiveAttachments = supportsAttachments ? attachments : undefined;
 
         if (attachments && attachments.length > 0 && !supportsAttachments) {
