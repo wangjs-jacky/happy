@@ -110,6 +110,13 @@ function applyAccent(base: typeof lightTheme, a: AccentMode): typeof lightTheme 
             },
             particle: { primary: a.particleA, accent: a.particleB },
             accent: a.primary,
+            // 选中态 / 单选的边框与圆点也跟随主题包主色
+            radio: { ...base.colors.radio, active: a.primary, dot: a.primary },
+            // 输入框 / 消息输入栏背景也随主题包（否则各主题下都停留在焦糖米色）
+            input: { ...base.colors.input, background: a.surfaceHigh, text: a.text, placeholder: a.textSecondary },
+            // 用户消息气泡背景随主题包
+            userMessageBackground: a.surfaceHighest,
+            userMessageText: a.text,
         },
     };
 }
