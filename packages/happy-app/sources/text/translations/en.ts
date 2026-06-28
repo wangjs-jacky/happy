@@ -434,6 +434,12 @@ export const en: TranslationStructure = {
             scanQrCode: 'Scan the QR code',
             openCamera: 'Open Camera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Screenshot',
+            screenshotDesktop: 'Full desktop',
+            screenshotBrowser: 'Frontmost browser window',
+        },
     },
 
     agentInput: {

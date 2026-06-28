@@ -421,6 +421,12 @@ export const zhHans: TranslationStructure = {
             scanQrCode: '扫描二维码',
             openCamera: '打开相机',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: '截屏',
+            screenshotDesktop: '桌面整屏',
+            screenshotBrowser: '最前浏览器窗口',
+        },
     },
 
     agentInput: {

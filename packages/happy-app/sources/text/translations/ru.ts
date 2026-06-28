@@ -377,6 +377,12 @@ export const ru: TranslationStructure = {
             scanQrCode: 'Отсканируйте QR-код',
             openCamera: 'Открыть камеру',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Снимок экрана',
+            screenshotDesktop: 'Весь рабочий стол',
+            screenshotBrowser: 'Активное окно браузера',
+        },
     },
 
     profile: {

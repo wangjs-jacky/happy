@@ -77,6 +77,13 @@ interface MessageComposerProps {
     onPickImages?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
+    /**
+     * Manual screenshot capability (能力 A). When provided, a camera button is
+     * rendered next to the image picker; tapping it opens a small dropdown to
+     * pick the capture target. The actual capture is wired up by the caller
+     * (session view) — this component only surfaces the UI + target choice.
+     */
+    onCaptureScreenshot?: (target: 'desktop' | 'browser') => void;
 }
 
 const MAX_CONTEXT_SIZE = 190000;
@@ -164,6 +171,56 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     sendButtonIcon: {
         color: theme.colors.button.primary.tint,
+    },
+
+    // Screenshot target dropdown (能力 A)
+    screenshotAnchor: {
+        position: 'relative',
+    },
+    screenshotBackdrop: {
+        position: 'absolute',
+        top: -1000,
+        bottom: -1000,
+        left: -1000,
+        right: -1000,
+        zIndex: 1000,
+    },
+    screenshotMenu: {
+        position: 'absolute',
+        bottom: '100%',
+        right: 0,
+        marginBottom: 8,
+        minWidth: 200,
+        backgroundColor: theme.colors.input.background,
+        borderRadius: Platform.select({ default: 16, android: 20 }),
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        paddingVertical: 4,
+        paddingHorizontal: 4,
+        shadowColor: theme.colors.shadow.color,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: theme.colors.shadow.opacity,
+        shadowRadius: 12,
+        elevation: 8,
+        zIndex: 1001,
+    },
+    screenshotMenuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 12,
+    },
+    screenshotMenuItemPressed: {
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    screenshotMenuItemText: {
+        flex: 1,
+        flexShrink: 1,
+        fontSize: 14,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
     },
 }));
 
@@ -401,6 +458,17 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
 
     const agentInputEnterToSend = useSetting('agentInputEnterToSend');
 
+
+    // Screenshot capture dropdown (能力 A). Open state for the small target
+    // picker that pops up above the camera button; selecting a target closes it
+    // and forwards the choice to the caller via onCaptureScreenshot.
+    const [screenshotMenuOpen, setScreenshotMenuOpen] = React.useState(false);
+    const onCaptureScreenshot = props.onCaptureScreenshot;
+    const handleCaptureTarget = React.useCallback((target: 'desktop' | 'browser') => {
+        hapticsLight();
+        setScreenshotMenuOpen(false);
+        onCaptureScreenshot?.(target);
+    }, [onCaptureScreenshot]);
 
     // Abort button state
     const [isAborting, setIsAborting] = React.useState(false);
@@ -828,6 +896,66 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                 : theme.colors.button.secondary.tint}
                                         />
                                     </Pressable>
+                                )}
+
+                                {/* Screenshot button + target dropdown (能力 A) */}
+                                {props.onCaptureScreenshot && (
+                                    <View style={styles.screenshotAnchor}>
+                                        {screenshotMenuOpen && (
+                                            <>
+                                                {/* Full-screen backdrop: tap outside closes the menu */}
+                                                <Pressable
+                                                    style={styles.screenshotBackdrop}
+                                                    onPress={() => setScreenshotMenuOpen(false)}
+                                                />
+                                                <View style={styles.screenshotMenu}>
+                                                    <Pressable
+                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                        onPress={() => handleCaptureTarget('desktop')}
+                                                    >
+                                                        <Ionicons name="desktop-outline" size={15} color={theme.colors.text} />
+                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                            {t('components.messageComposer.screenshotDesktop')}
+                                                        </Text>
+                                                    </Pressable>
+                                                    <Pressable
+                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                        onPress={() => handleCaptureTarget('browser')}
+                                                    >
+                                                        <Ionicons name="globe-outline" size={15} color={theme.colors.text} />
+                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                            {t('components.messageComposer.screenshotBrowser')}
+                                                        </Text>
+                                                    </Pressable>
+                                                </View>
+                                            </>
+                                        )}
+                                        <Pressable
+                                            onPress={() => {
+                                                hapticsLight();
+                                                setScreenshotMenuOpen((v) => !v);
+                                            }}
+                                            hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
+                                            style={(p) => ({
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                borderRadius: Platform.select({ default: 16, android: 20 }),
+                                                paddingHorizontal: 8,
+                                                paddingVertical: 6,
+                                                justifyContent: 'center',
+                                                height: 32,
+                                                opacity: p.pressed ? 0.7 : 1,
+                                            })}
+                                        >
+                                            <Ionicons
+                                                name="camera-outline"
+                                                size={16}
+                                                color={screenshotMenuOpen
+                                                    ? theme.colors.radio.active
+                                                    : theme.colors.button.secondary.tint}
+                                            />
+                                        </Pressable>
+                                    </View>
                                 )}
 
                                 {/* Send button */}

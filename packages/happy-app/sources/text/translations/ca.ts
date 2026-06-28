@@ -420,6 +420,12 @@ export const ca: TranslationStructure = {
             scanQrCode: 'Escaneja el codi QR',
             openCamera: 'Obre la càmera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Captura de pantalla',
+            screenshotDesktop: 'Escriptori complet',
+            screenshotBrowser: 'Finestra del navegador en primer pla',
+        },
     },
 
     agentInput: {

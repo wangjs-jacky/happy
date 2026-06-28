@@ -421,6 +421,12 @@ export const ja: TranslationStructure = {
             scanQrCode: 'QRコードをスキャン',
             openCamera: 'カメラを開く',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'スクリーンショット',
+            screenshotDesktop: 'デスクトップ全体',
+            screenshotBrowser: '最前面のブラウザウィンドウ',
+        },
     },
 
     agentInput: {

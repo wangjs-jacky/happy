@@ -420,6 +420,12 @@ export const zhHant: TranslationStructure = {
             scanQrCode: '掃描 QR Code',
             openCamera: '開啟相機',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: '截圖',
+            screenshotDesktop: '桌面整螢幕',
+            screenshotBrowser: '最前瀏覽器視窗',
+        },
     },
 
     agentInput: {
