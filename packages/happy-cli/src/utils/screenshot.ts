@@ -92,10 +92,26 @@ export async function captureScreenshot(target: ScreenshotTarget): Promise<strin
     // browser 目标才去取最前窗口 id；任何失败都兜底成 null（整屏）
     const windowId = resolvedTarget === 'browser' ? await getFrontWindowId() : null;
     const args = buildScreencaptureArgs(resolvedTarget, outPath, { windowId });
-    await new Promise<void>((resolve, reject) => {
+    try {
+        await runScreencapture(args);
+    } catch (err) {
+        // browser 分支带 windowId 时，窗口可能在取 id 后已关闭/id 失效导致 screencapture 失败；
+        // 此时自动回退整屏再试一次，避免 browser 截图整体失败。desktop 分支不重试。
+        if (resolvedTarget === 'browser' && windowId != null) {
+            logger.debug('[screenshot] 指定窗口截图失败，回退整屏重试:', err);
+            await runScreencapture(['-x', outPath]);
+        } else {
+            throw err;
+        }
+    }
+    return outPath;
+}
+
+/** 跑一次 screencapture（给定参数），退出码非 0 或启动失败均 reject。 */
+async function runScreencapture(args: string[]): Promise<void> {
+    return await new Promise<void>((resolve, reject) => {
         const child = spawn('screencapture', args, { stdio: 'ignore' });
         child.on('error', reject);
         child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`screencapture 退出码 ${code}`)));
     });
-    return outPath;
 }
