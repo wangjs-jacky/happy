@@ -16,7 +16,7 @@ import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { captureScreenshot, type ScreenshotTarget } from "@/utils/screenshot";
-import { ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
+import { type ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -204,8 +204,9 @@ export async function startHappyServer(client: ApiSessionClient) {
         },
     };
 
-    // 会话内截图临时缓存：在此 new，单例贯穿整个会话；同时返回出去供 Task 3.1 的会话级 RPC 共享。
-    const screenshotStore = new ScreenshotStore();
+    // 会话内截图临时缓存：复用 client 持有的同一实例（构造时已 new），
+    // 这样 MCP take 工具与会话级 RPC getScreenshotById 共享同一 store，时序无忧。
+    const screenshotStore = client.screenshotStore;
     // Task 2.2：每次 take 后，把当前所有截图的轻量引用 + 版本号写进 session metadata。
     // CLI 不能直接 push 给 App，但服务器会把 metadata 更新自动推给 App，App 据此懒拉取（Task 3.1）。
     // 只写轻量引用（id/来源/备注/时间），不写图片字节——几十条无体积压力。
