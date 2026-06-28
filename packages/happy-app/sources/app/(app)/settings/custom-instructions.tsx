@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { randomUUID } from 'expo-crypto';
 import { Item } from '@/components/Item';
@@ -11,6 +12,7 @@ import { Modal } from '@/modal';
 import { useSettingMutable } from '@/sync/storage';
 
 const ACCENT = '#FF2D55';
+const DELETE_RED = '#FF3B30';
 const MAX_LEN = 4000;
 
 export default React.memo(function CustomInstructionsScreen() {
@@ -32,7 +34,7 @@ export default React.memo(function CustomInstructionsScreen() {
         }
     }, [items, setItems]);
 
-    // Edit an existing entry; empty input is treated as a no-op (use delete to remove).
+    // Edit an existing entry; empty input is treated as a no-op (swipe to delete instead).
     const handleEdit = React.useCallback(async (id: string, current: string) => {
         const text = await Modal.prompt('编辑指令', undefined, {
             defaultValue: current,
@@ -45,11 +47,10 @@ export default React.memo(function CustomInstructionsScreen() {
         }
     }, [items, setItems]);
 
-    const handleDelete = React.useCallback(async (id: string) => {
-        const ok = await Modal.confirm('删除指令', '确定删除这条指令？', { confirmText: '删除', destructive: true });
-        if (ok) {
-            setItems(items.filter((entry) => entry.id !== id));
-        }
+    // Swipe-left reveals this red action; tapping it removes the entry immediately
+    // (swipe + tap is deliberate enough, so no extra confirm dialog).
+    const handleDelete = React.useCallback((id: string) => {
+        setItems(items.filter((entry) => entry.id !== id));
     }, [items, setItems]);
 
     return (
@@ -76,27 +77,37 @@ export default React.memo(function CustomInstructionsScreen() {
                 />
             </ItemGroup>
 
-            {/* Instruction entries */}
+            {/* Instruction entries — swipe left to delete */}
             <ItemGroup
                 title="我的指令"
-                footer="内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。"
+                footer="左滑删除。内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。"
             >
                 {items.map((entry) => (
-                    <Item
+                    <ReanimatedSwipeable
                         key={entry.id}
-                        title={entry.text}
-                        onPress={() => handleEdit(entry.id, entry.text)}
-                        showChevron={false}
-                        rightElement={
-                            <Ionicons
-                                name="trash-outline"
-                                size={22}
-                                color={theme.colors.textSecondary}
-                                onPress={() => handleDelete(entry.id)}
-                                suppressHighlighting
-                            />
-                        }
-                    />
+                        friction={2}
+                        rightThreshold={40}
+                        renderRightActions={(_progress, _translation, methods) => (
+                            <Pressable
+                                style={styles.deleteAction}
+                                onPress={() => {
+                                    methods.close();
+                                    handleDelete(entry.id);
+                                }}
+                            >
+                                <Ionicons name="trash-outline" size={22} color="#FFFFFF" />
+                                <Text style={styles.deleteActionText}>删除</Text>
+                            </Pressable>
+                        )}
+                    >
+                        <Item
+                            title={entry.text}
+                            onPress={() => handleEdit(entry.id, entry.text)}
+                            showChevron={false}
+                            showDivider
+                            style={styles.rowOpaque}
+                        />
+                    </ReanimatedSwipeable>
                 ))}
                 <Item
                     title="添加指令"
@@ -104,6 +115,7 @@ export default React.memo(function CustomInstructionsScreen() {
                     icon={<Ionicons name="add-circle-outline" size={29} color={ACCENT} />}
                     onPress={handleAdd}
                     showChevron={false}
+                    showDivider={false}
                 />
             </ItemGroup>
         </ItemList>
@@ -137,5 +149,22 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 20,
         color: theme.colors.textSecondary,
         textAlign: 'center',
+    },
+    // Row must be opaque so the red delete action only shows in the vacated area while swiping.
+    rowOpaque: {
+        backgroundColor: theme.colors.surface,
+    },
+    deleteAction: {
+        backgroundColor: DELETE_RED,
+        width: 80,
+        height: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+    },
+    deleteActionText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
     },
 }));
