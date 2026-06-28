@@ -139,11 +139,14 @@ cd packages/happy-app
 pnpm prebuild                  # = rm -rf android ios && expo prebuild
 
 # 2) 构建 release APK（APP_ENV 决定环境，按需 preview/production）
-cd android && APP_ENV=production ./gradlew assembleRelease
+#    必须加 -PreactNativeArchitectures=arm64-v8a 只打真机用的 arm64：
+cd android && APP_ENV=production ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
 
 # 产物固定路径：
 #   packages/happy-app/android/app/build/outputs/apk/release/app-release.apk
 ```
+
+> ⚠️ **务必带 `-PreactNativeArchitectures=arm64-v8a`**：`gradle.properties` 默认 `reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64`，不加参数直接 `assembleRelease` 会打成含 4 种架构的 **universal 包（~293MB）**，其中 x86/x86_64 是模拟器专用、armeabi-v7a 是老 32 位 ARM，真机全用不到。只打 arm64 后包体回到 **~122MB**。sideload 给真机一律只要 arm64。
 
 > 想直接装到连着的真机/模拟器而不出 APK 文件，用 `pnpm android:production`（会 install 而非只 assemble）。
 
