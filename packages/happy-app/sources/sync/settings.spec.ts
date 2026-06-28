@@ -175,7 +175,8 @@ describe('settings', () => {
         it('should have correct default values', () => {
             expect(settingsDefaults).toEqual({
                 schemaVersion: 2,
-                customInstructions: '',
+                customInstructions: [],
+                customInstructionsEnabled: true,
                 viewInline: false,
                 expandTodos: true,
                 showLineNumbers: true,

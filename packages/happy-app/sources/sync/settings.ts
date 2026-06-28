@@ -12,7 +12,11 @@ export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
 
-    customInstructions: z.string().describe('User-defined instructions appended to the system prompt of every message'),
+    customInstructions: z.array(z.object({
+        id: z.string(),
+        text: z.string(),
+    })).describe('User-defined instruction entries appended to the system prompt of every message'),
+    customInstructionsEnabled: z.boolean().describe('Whether user-defined custom instructions are appended to messages'),
     viewInline: z.boolean().describe('Whether to view inline tool calls'),
     inferenceOpenAIKey: z.string().nullish().describe('OpenAI API key for inference'),
     expandTodos: z.boolean().describe('Whether to expand todo lists'),
@@ -84,7 +88,8 @@ export type Settings = z.infer<typeof SettingsSchema>;
 
 export const settingsDefaults: Settings = {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
-    customInstructions: '',
+    customInstructions: [],
+    customInstructionsEnabled: true,
     viewInline: false,
     inferenceOpenAIKey: null,
     expandTodos: true,

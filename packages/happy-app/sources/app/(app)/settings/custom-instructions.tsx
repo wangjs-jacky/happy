@@ -1,127 +1,141 @@
 import React from 'react';
-import { View, ScrollView, TextInput, Platform } from 'react-native';
-import { Text } from '@/components/StyledText';
-import { Stack } from 'expo-router';
+import { View, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { layout } from '@/components/layout';
+import { randomUUID } from 'expo-crypto';
+import { Item } from '@/components/Item';
+import { ItemGroup } from '@/components/ItemGroup';
+import { ItemList } from '@/components/ItemList';
+import { Switch } from '@/components/Switch';
+import { Modal } from '@/modal';
 import { useSettingMutable } from '@/sync/storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+
+const ACCENT = '#FF2D55';
+const MAX_LEN = 4000;
 
 export default React.memo(function CustomInstructionsScreen() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
-    const safeArea = useSafeAreaInsets();
-    const [value, setValue] = useSettingMutable('customInstructions');
-    const [focused, setFocused] = React.useState(false);
+    const [items, setItems] = useSettingMutable('customInstructions');
+    const [enabled, setEnabled] = useSettingMutable('customInstructionsEnabled');
 
-    const KeyboardWrapper = Platform.select({
-        ios: KeyboardAvoidingView,
-        default: React.Fragment,
-    });
-    const keyboardProps = Platform.select({
-        ios: { behavior: 'padding' as const, keyboardVerticalOffset: 0 },
-        default: {},
-    });
+    // Add a new instruction entry via the shared prompt modal.
+    const handleAdd = React.useCallback(async () => {
+        const text = await Modal.prompt('添加指令', '会追加到每条消息的系统提示词', {
+            placeholder: '例如：回复都用中文',
+            confirmText: '保存',
+            cancelText: '取消',
+        });
+        const trimmed = text?.trim();
+        if (trimmed) {
+            setItems([...items, { id: randomUUID(), text: trimmed.slice(0, MAX_LEN) }]);
+        }
+    }, [items, setItems]);
+
+    // Edit an existing entry; empty input is treated as a no-op (use delete to remove).
+    const handleEdit = React.useCallback(async (id: string, current: string) => {
+        const text = await Modal.prompt('编辑指令', undefined, {
+            defaultValue: current,
+            confirmText: '保存',
+            cancelText: '取消',
+        });
+        const trimmed = text?.trim();
+        if (trimmed) {
+            setItems(items.map((entry) => (entry.id === id ? { ...entry, text: trimmed.slice(0, MAX_LEN) } : entry)));
+        }
+    }, [items, setItems]);
+
+    const handleDelete = React.useCallback(async (id: string) => {
+        const ok = await Modal.confirm('删除指令', '确定删除这条指令？', { confirmText: '删除', destructive: true });
+        if (ok) {
+            setItems(items.filter((entry) => entry.id !== id));
+        }
+    }, [items, setItems]);
 
     return (
-        <>
-            <Stack.Screen
-                options={{
-                    headerShown: true,
-                    headerTitle: 'Custom Instructions',
-                }}
-            />
-            <View style={styles.container}>
-                <KeyboardWrapper {...keyboardProps}>
-                    <ScrollView
-                        style={styles.scrollView}
-                        contentContainerStyle={[
-                            styles.contentContainer,
-                            { maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%', paddingBottom: safeArea.bottom + 100 },
-                        ]}
-                        keyboardShouldPersistTaps="handled"
-                    >
-                        <Text style={styles.intro}>
-                            这里的内容会被追加到每次发送给 AI 的系统提示词里，对所有会话与设备生效（端到端同步）。留空则不追加。
-                        </Text>
-                        <Text style={styles.label}>指令内容</Text>
-                        <TextInput
-                            style={[
-                                styles.input,
-                                styles.textArea,
-                                focused && styles.inputFocused,
-                                Platform.OS === 'web' && ({ outlineStyle: 'none', outlineWidth: 0 } as any),
-                            ]}
-                            value={value}
-                            onChangeText={setValue}
-                            placeholder="输入自定义系统提示词…"
-                            placeholderTextColor={theme.colors.input.placeholder}
-                            onFocus={() => setFocused(true)}
-                            onBlur={() => setFocused(false)}
-                            multiline
-                            numberOfLines={12}
-                            autoCapitalize="sentences"
-                            autoCorrect={false}
-                        />
-                        <Text style={styles.footer}>
-                            修改即时保存。这段内容只放你自己的偏好；Happy 的内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。
-                        </Text>
-                    </ScrollView>
-                </KeyboardWrapper>
+        <ItemList style={{ paddingTop: 0 }}>
+            {/* Header card: big icon + title + description (Kimi-style) */}
+            <View style={styles.headerCard}>
+                <View style={styles.iconBadge}>
+                    <Ionicons name="sparkles" size={34} color={ACCENT} />
+                </View>
+                <Text style={styles.cardTitle}>自定义指令</Text>
+                <Text style={styles.cardSubtitle}>
+                    你的偏好会追加到每条消息的系统提示词，对所有会话与设备生效（端到端同步）。
+                </Text>
             </View>
-        </>
+
+            {/* Global enable toggle */}
+            <ItemGroup>
+                <Item
+                    title="启用"
+                    subtitle={enabled ? '指令会随消息一起发送' : '已关闭，指令暂不发送'}
+                    icon={<Ionicons name="power-outline" size={29} color={ACCENT} />}
+                    rightElement={<Switch value={enabled} onValueChange={setEnabled} />}
+                    showChevron={false}
+                />
+            </ItemGroup>
+
+            {/* Instruction entries */}
+            <ItemGroup
+                title="我的指令"
+                footer="内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。"
+            >
+                {items.map((entry) => (
+                    <Item
+                        key={entry.id}
+                        title={entry.text}
+                        onPress={() => handleEdit(entry.id, entry.text)}
+                        showChevron={false}
+                        rightElement={
+                            <Ionicons
+                                name="trash-outline"
+                                size={22}
+                                color={theme.colors.textSecondary}
+                                onPress={() => handleDelete(entry.id)}
+                                suppressHighlighting
+                            />
+                        }
+                    />
+                ))}
+                <Item
+                    title="添加指令"
+                    titleStyle={{ color: ACCENT }}
+                    icon={<Ionicons name="add-circle-outline" size={29} color={ACCENT} />}
+                    onPress={handleAdd}
+                    showChevron={false}
+                />
+            </ItemGroup>
+        </ItemList>
     );
 });
 
 const stylesheet = StyleSheet.create((theme) => ({
-    container: {
-        flex: 1,
-        backgroundColor: theme.colors.groupped.background,
+    headerCard: {
+        alignItems: 'center',
+        paddingTop: 28,
+        paddingBottom: 24,
+        paddingHorizontal: 32,
     },
-    scrollView: {
-        flex: 1,
+    iconBadge: {
+        width: 72,
+        height: 72,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+        marginBottom: 16,
     },
-    contentContainer: {
-        padding: 16,
+    cardTitle: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: theme.colors.text,
+        marginBottom: 8,
     },
-    intro: {
+    cardSubtitle: {
         fontSize: 14,
         lineHeight: 20,
         color: theme.colors.textSecondary,
-        marginBottom: 20,
-    },
-    label: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: theme.colors.textSecondary,
-        marginBottom: 8,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    input: {
-        backgroundColor: theme.colors.surface,
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        fontSize: 16,
-        color: theme.colors.text,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-    } as any,
-    inputFocused: {
-        borderColor: theme.colors.button.primary.background,
-    },
-    textArea: {
-        minHeight: 240,
-        textAlignVertical: 'top',
-        paddingTop: 14,
-        lineHeight: 22,
-    },
-    footer: {
-        fontSize: 13,
-        lineHeight: 19,
-        color: theme.colors.textSecondary,
-        marginTop: 12,
+        textAlign: 'center',
     },
 }));

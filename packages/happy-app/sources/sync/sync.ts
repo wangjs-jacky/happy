@@ -680,6 +680,12 @@ class Sync {
             sentFrom = 'web'; // fallback
         }
 
+        // Build the user-defined custom instructions block (only when enabled), joined into the system prompt
+        const settingsSnapshot = storage.getState().settings;
+        const customInstructionsBlock = settingsSnapshot.customInstructionsEnabled
+            ? settingsSnapshot.customInstructions.map((entry) => entry.text.trim()).filter(Boolean).join('\n')
+            : '';
+
         // Create user message content with metadata
         const content: RawRecord = {
             role: 'user',
@@ -689,7 +695,7 @@ class Sync {
             },
             meta: {
                 sentFrom,
-                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
+                appendSystemPrompt: [systemPrompt, customInstructionsBlock].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
