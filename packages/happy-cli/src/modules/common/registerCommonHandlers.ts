@@ -9,6 +9,7 @@ import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
 import { validatePath } from './pathSecurity';
+import { registerScreenshotHandler } from './registerScreenshotHandler';
 
 const execAsync = promisify(exec);
 
@@ -182,6 +183,9 @@ export type SpawnSessionResult =
  * Register all RPC handlers with the session
  */
 export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string) {
+
+    // 手动截屏 handler（注册名为 'screenshot' 的 RPC，App 截屏按钮走这里）
+    registerScreenshotHandler(rpcHandlerManager);
 
     // Shell command handler - executes commands in the default shell
     rpcHandlerManager.registerHandler<BashRequest, BashResponse>('bash', async (data) => {
