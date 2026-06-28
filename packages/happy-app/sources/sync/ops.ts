@@ -700,15 +700,6 @@ export async function machineBrowseDirectory(machineId: string, path: string): P
     }
 }
 
-/** machine 级读文件，返回 base64 content */
-export async function machineReadFile(machineId: string, path: string): Promise<SessionReadFileResponse> {
-    try {
-        return await apiSocket.machineRPC<SessionReadFileResponse, SessionReadFileRequest>(machineId, 'readFile', { path });
-    } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-}
-
 /**
  * Get directory tree from the session
  */

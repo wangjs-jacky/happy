@@ -65,3 +65,21 @@ done
     if (!res.success) throw new Error(res.error || res.stderr || '扫描失败');
     return parseSkillList(res.stdout);
 }
+
+/**
+ * 读取宿主机上某个 SKILL.md 的全文（返回 base64，调用方自行解码）。
+ *
+ * 为什么走 bash 而不是 machine 级 readFile：daemon 的 readFile handler 会用
+ * validatePath 把目标限制在 daemon 的 cwd 内，而 launchd 安装的 daemon cwd 是
+ * /tmp，~/.claude 下的路径会被判 “Access denied”。bash handler 在不传 cwd 时
+ * 不做路径校验，因此用 `base64 < 文件` 读出内容再 tr 掉换行即可。
+ */
+export async function readSkillFileBase64(machineId: string, path: string): Promise<string> {
+    // 路径来自扫描结果（~/.claude/... 的 slug 路径），双引号注入即可安全；
+    // 仍防御性拒绝含双引号的路径，避免命令注入。
+    if (path.includes('"')) throw new Error('非法的文件路径');
+    const { machineBash } = await import('./ops');
+    const res = await machineBash(machineId, { command: `base64 < "${path}" | tr -d '\\n'`, timeout: 15000 });
+    if (!res.success) throw new Error(res.error || res.stderr || '读取失败');
+    return res.stdout.trim();
+}

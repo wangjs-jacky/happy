@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTriggers, parseSkillList } from './skills';
+import { parseTriggers, parseSkillList, readSkillFileBase64 } from './skills';
 
 describe('parseTriggers', () => {
     it('抽取中文「触发词：」列表', () => {
@@ -42,5 +42,11 @@ describe('parseSkillList', () => {
     });
     it('空输出返回空数组', () => {
         expect(parseSkillList('')).toEqual([]);
+    });
+});
+
+describe('readSkillFileBase64', () => {
+    it('含双引号的路径直接拒绝（防命令注入），不触碰 ./ops', async () => {
+        await expect(readSkillFileBase64('m', '/a/b"c/SKILL.md')).rejects.toThrow('非法的文件路径');
     });
 });

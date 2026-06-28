@@ -6,7 +6,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { layout } from '@/components/layout';
-import { machineReadFile } from '@/sync/ops';
+import { readSkillFileBase64 } from '@/sync/skills';
 import { decodeBase64 } from '@/encryption/base64';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
@@ -32,14 +32,10 @@ export default React.memo(function SkillDetailScreen() {
         setError(null);
         (async () => {
             try {
-                const res = await machineReadFile(machineId, path);
+                const base64 = await readSkillFileBase64(machineId, path);
                 if (cancelled) return;
-                if (res.success && res.content != null) {
-                    const decoded = new TextDecoder().decode(decodeBase64(res.content));
-                    setText(decoded);
-                } else {
-                    setError(res.error || '读取文件失败');
-                }
+                const decoded = new TextDecoder().decode(decodeBase64(base64));
+                setText(decoded);
             } catch (e) {
                 if (cancelled) return;
                 setError(e instanceof Error ? e.message : '读取文件失败');
