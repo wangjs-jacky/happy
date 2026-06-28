@@ -424,6 +424,8 @@ export const ja: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'その他…',
+        customOptionPlaceholder: '返信を入力…',
         permissionMode: {
             title: '権限モード',
             default: 'デフォルト',

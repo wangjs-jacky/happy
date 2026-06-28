@@ -424,6 +424,8 @@ export const zhHans: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: '其他…',
+        customOptionPlaceholder: '输入你的回复…',
         permissionMode: {
             title: '权限模式',
             default: '默认',

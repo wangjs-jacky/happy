@@ -439,6 +439,8 @@ export const pl: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Inne…',
+        customOptionPlaceholder: 'Wpisz swoją odpowiedź…',
         permissionMode: {
             title: 'TRYB UPRAWNIEŃ',
             default: 'Domyślny',

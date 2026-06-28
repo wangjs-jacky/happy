@@ -1,9 +1,10 @@
 import { MarkdownSpan, parseMarkdown } from './parseMarkdown';
 import * as React from 'react';
-import { Image, Pressable, View, Platform } from 'react-native';
+import { Image, Pressable, View, Platform, TextInput } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '../StyledText';
 import { Typography } from '@/constants/Typography';
 import { SimpleSyntaxHighlighter } from '../SimpleSyntaxHighlighter';
@@ -229,20 +230,38 @@ function RenderImageBlock(props: { url: string, alt: string, first: boolean, las
     );
 }
 
-function RenderOptionsBlock(props: { 
-    items: string[], 
-    first: boolean, 
-    last: boolean, 
+function RenderOptionsBlock(props: {
+    items: string[],
+    first: boolean,
+    last: boolean,
     selectable: boolean,
-    onOptionPress?: (option: Option) => void 
+    onOptionPress?: (option: Option) => void
 }) {
+    const { theme } = useUnistyles();
+    // When none of the preset options fit, the user can tap "Other…" to reveal an
+    // inline text field and send a free-form reply through the same onOptionPress
+    // channel as the preset cards.
+    const [customMode, setCustomMode] = React.useState(false);
+    const [customText, setCustomText] = React.useState('');
+    const inputRef = React.useRef<TextInput>(null);
+
+    const submitCustom = React.useCallback(() => {
+        const value = customText.trim();
+        if (!value) {
+            return;
+        }
+        props.onOptionPress?.({ title: value });
+        setCustomText('');
+        setCustomMode(false);
+    }, [customText, props.onOptionPress]);
+
     return (
         <View style={[style.optionsContainer, props.first && style.first, props.last && style.last]}>
             {props.items.map((item, index) => {
                 if (props.onOptionPress) {
                     return (
-                        <Pressable 
-                            key={index} 
+                        <Pressable
+                            key={index}
                             style={({ pressed }) => [
                                 style.optionItem,
                                 pressed && style.optionItemPressed
@@ -260,6 +279,48 @@ function RenderOptionsBlock(props: {
                     );
                 }
             })}
+            {props.onOptionPress ? (
+                customMode ? (
+                    <View style={style.optionCustomRow}>
+                        <TextInput
+                            ref={inputRef}
+                            style={style.optionCustomInput}
+                            value={customText}
+                            onChangeText={setCustomText}
+                            placeholder={t('agentInput.customOptionPlaceholder')}
+                            placeholderTextColor={theme.colors.textSecondary}
+                            multiline
+                            autoFocus
+                            onSubmitEditing={submitCustom}
+                            blurOnSubmit
+                            returnKeyType="send"
+                        />
+                        <Pressable
+                            style={({ pressed }) => [
+                                style.optionCustomSend,
+                                !customText.trim() && style.optionCustomSendDisabled,
+                                pressed && customText.trim() && style.optionItemPressed,
+                            ]}
+                            disabled={!customText.trim()}
+                            onPress={submitCustom}
+                        >
+                            <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />
+                        </Pressable>
+                    </View>
+                ) : (
+                    <Pressable
+                        style={({ pressed }) => [
+                            style.optionItem,
+                            style.optionOtherItem,
+                            pressed && style.optionItemPressed,
+                        ]}
+                        onPress={() => setCustomMode(true)}
+                    >
+                        <Ionicons name="create-outline" size={16} color={theme.colors.textSecondary} />
+                        <Text style={[style.optionText, style.optionOtherText]}>{t('agentInput.customOption')}</Text>
+                    </Pressable>
+                )
+            ) : null}
         </View>
     );
 }
@@ -614,6 +675,47 @@ const style = StyleSheet.create((theme) => ({
         fontSize: 16,
         lineHeight: 24,
         color: theme.colors.text,
+    },
+    optionOtherItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        borderStyle: 'dashed',
+    },
+    optionOtherText: {
+        color: theme.colors.textSecondary,
+    },
+    optionCustomRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 8,
+        backgroundColor: theme.colors.surfaceHighest,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+    },
+    optionCustomInput: {
+        ...Typography.default(),
+        flex: 1,
+        fontSize: 16,
+        lineHeight: 22,
+        maxHeight: 120,
+        color: theme.colors.text,
+        paddingTop: Platform.OS === 'ios' ? 6 : 4,
+        paddingBottom: Platform.OS === 'ios' ? 6 : 4,
+    },
+    optionCustomSend: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.text,
+    },
+    optionCustomSendDisabled: {
+        opacity: 0.3,
     },
 
     //

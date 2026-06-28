@@ -421,6 +421,8 @@ export const it: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Altro…',
+        customOptionPlaceholder: 'Scrivi la tua risposta…',
         permissionMode: {
             title: 'MODALITÀ PERMESSI',
             default: 'Predefinito',
