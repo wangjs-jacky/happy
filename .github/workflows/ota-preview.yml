@@ -76,13 +76,13 @@ jobs:
             - name: Install aliyun CLI (含 ossutil 子命令)
               run: |
                   set -e
-                  ASSET_URL=$(curl -fsSL https://api.github.com/repos/aliyun/aliyun-cli/releases/latest \
-                    | grep browser_download_url | grep 'linux-amd64.tgz' | head -1 | cut -d '"' -f4)
-                  echo "下载 aliyun CLI: $ASSET_URL"
-                  curl -fsSL -o /tmp/aliyun-cli.tgz "$ASSET_URL"
+                  # 阿里云官方 CDN 的 latest 稳定直链，免 GitHub API、无限流
+                  curl -fsSL -o /tmp/aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
                   tar -xzf /tmp/aliyun-cli.tgz -C /tmp
                   sudo mv /tmp/aliyun /usr/local/bin/aliyun
                   aliyun version
+                  # 自检 ossutil 子命令存在（发布脚本依赖 `aliyun ossutil`）
+                  aliyun ossutil --help >/dev/null 2>&1 || { echo "::error::此 aliyun CLI 不含 ossutil 子命令"; exit 1; }
                   # 写一份默认 profile，作为 env 凭证之外的兜底
                   aliyun configure set --profile default --mode AK \
                     --access-key-id "$ALIBABA_CLOUD_ACCESS_KEY_ID" \
