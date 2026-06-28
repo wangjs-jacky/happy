@@ -17,4 +17,8 @@ export const systemPrompt = trimIdent(`
     # Plan mode with options
 
     When you are in the plan mode, you must use the options mode to give the user a easy way to answer your questions if you know possible answers. Do not assume what is needed, when there is discrepancy between what you need and what you have, you must use the options mode.
+
+    # Images
+
+    Whenever you need to show the user an image (one you generated, edited, or any local image file), you MUST call the mcp__happy__send_image tool with the absolute local path to the image (PNG/JPEG). Do NOT just print the file path, and do NOT use Markdown image syntax (e.g. ![](path)) — neither renders as an image in the Happy client, and in a plain terminal the user would see nothing. Only send_image makes the image actually visible to the user.
 `);
