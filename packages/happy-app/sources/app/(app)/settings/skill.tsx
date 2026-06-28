@@ -34,7 +34,7 @@ export default React.memo(function SkillDetailScreen() {
             try {
                 const res = await machineReadFile(machineId, path);
                 if (cancelled) return;
-                if (res.success && res.content) {
+                if (res.success && res.content != null) {
                     const decoded = new TextDecoder().decode(decodeBase64(res.content));
                     setText(decoded);
                 } else {

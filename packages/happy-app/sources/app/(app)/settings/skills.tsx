@@ -8,6 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import { useAllMachines } from '@/sync/storage';
 import { scanSkills, type SkillEntry } from '@/sync/skills';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { layout } from '@/components/layout';
 
 export default React.memo(function SkillsScreen() {
     const { theme } = useUnistyles();
@@ -209,6 +210,9 @@ export default React.memo(function SkillsScreen() {
 
 const stylesheet = StyleSheet.create((theme) => ({
     searchContainer: {
+        width: '100%',
+        maxWidth: layout.maxWidth,
+        alignSelf: 'center',
         paddingHorizontal: 16,
         paddingTop: 12,
         paddingBottom: 4,
