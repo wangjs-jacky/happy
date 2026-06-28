@@ -56,8 +56,9 @@ const PALETTE: Record<ParticleMode, {
     coreGlow: number;  // 中心引力点辉光半径
     opacity: number;
 }> = {
-    dark: { green: '#00ff88', blue: '#00d4ff', glow: 6, coreGlow: 14, opacity: 0.9 },
-    light: { green: '#00a352', blue: '#0090be', glow: 0, coreGlow: 0, opacity: 0.78 },
+    // Paws 暖色粒子：green 槽 = 焦糖（主），blue 槽 = 格纹蓝（点缀）
+    dark: { green: '#E0975A', blue: '#7FB6D9', glow: 6, coreGlow: 14, opacity: 0.9 },
+    light: { green: '#C77D3E', blue: '#5E97C0', glow: 0, coreGlow: 0, opacity: 0.82 },
 };
 
 interface Props {
