@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Platform, View } from 'react-native';
 import Animated, { useAnimatedStyle, interpolate, Extrapolation } from 'react-native-reanimated';
-import { useDrawerProgress } from '@react-navigation/drawer';
+import { DrawerProgressContext } from '@react-navigation/drawer';
 import { useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { useAuth } from '@/auth/AuthContext';
@@ -19,22 +19,22 @@ import { useAuth } from '@/auth/AuthContext';
  *  - web 端 progress 是 0/1 二值跳变（CSS transition 实现，无逐帧），缩放会突兀闪跳；
  *  这两种情况直接平铺渲染。
  *
- * 注意：useDrawerProgress() 在 Drawer 外会抛错，但 SidebarNavigator 始终挂载
- * <Drawer>，本组件渲染在 (app) 场景树内，provider 必然存在，故无条件调用安全。
+ * 注意：启动/错误恢复路径中本组件可能先于 Drawer provider 渲染。没有 progress 时
+ * 直接退化为静态容器，避免开发构建在进入主界面前被 drawer hook 打断。
  */
 export const CardStackScene = React.memo((props: { children: React.ReactNode }) => {
-    const progress = useDrawerProgress();
+    const progress = React.useContext(DrawerProgressContext);
     const isTablet = useIsTablet();
     const auth = useAuth();
     const { theme } = useUnistyles();
 
-    const enabled = !isTablet && auth.isAuthenticated && Platform.OS !== 'web';
+    const enabled = !!progress && !isTablet && auth.isAuthenticated && Platform.OS !== 'web';
 
     const animatedStyle = useAnimatedStyle(() => {
         if (!enabled) {
             return {};
         }
-        const p = progress.value;
+        const p = progress?.value ?? 0;
         return {
             transform: [
                 { translateX: interpolate(p, [0, 1], [0, 12], Extrapolation.CLAMP) },
