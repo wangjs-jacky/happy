@@ -52,7 +52,7 @@ function NotAuthenticated() {
     const portraitLayout = (
         <View style={styles.portraitContainer}>
             <Image
-                source={theme.dark ? require('@/assets/images/logotype-light.png') : require('@/assets/images/logotype-dark.png')}
+                source={require('@/assets/images/icon.png')}
                 resizeMode="contain"
                 style={styles.logo}
             />
@@ -111,7 +111,7 @@ function NotAuthenticated() {
             <View style={styles.landscapeInner}>
                 <View style={styles.landscapeLogoSection}>
                     <Image
-                        source={theme.dark ? require('@/assets/images/logotype-light.png') : require('@/assets/images/logotype-dark.png')}
+                        source={require('@/assets/images/icon.png')}
                         resizeMode="contain"
                         style={styles.logo}
                     />
@@ -184,14 +184,15 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'center',
     },
     logo: {
-        width: 300,
-        height: 90,
+        width: 132,
+        height: 132,
+        borderRadius: 30,
     },
     title: {
         marginTop: 16,
         textAlign: 'center',
-        fontSize: 24,
-        ...Typography.default('semiBold'),
+        fontSize: 25,
+        ...Typography.display('semiBold'),
         color: theme.colors.text,
     },
     subtitle: {
@@ -241,8 +242,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     landscapeTitle: {
         textAlign: 'center',
-        fontSize: 24,
-        ...Typography.default('semiBold'),
+        fontSize: 25,
+        ...Typography.display('semiBold'),
         color: theme.colors.text,
     },
     landscapeSubtitle: {

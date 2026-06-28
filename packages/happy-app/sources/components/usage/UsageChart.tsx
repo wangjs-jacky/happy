@@ -145,9 +145,9 @@ export const UsageChart: React.FC<UsageChartProps> = ({
                                         styles.bar,
                                         {
                                             height: Math.max(barHeight, 2),
-                                            backgroundColor: metric === 'cost' 
-                                                ? '#FF9500' 
-                                                : '#007AFF',
+                                            backgroundColor: metric === 'cost'
+                                                ? '#FF9500'
+                                                : theme.colors.accent,
                                         }
                                     ]}
                                 />

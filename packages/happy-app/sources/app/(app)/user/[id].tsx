@@ -97,7 +97,7 @@ export default function UserProfileScreen() {
     if (isLoading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
+                <ActivityIndicator size="large" color={theme.colors.accent} />
             </View>
         );
     }
@@ -152,7 +152,7 @@ export default function UserProfileScreen() {
             default:
                 return [{
                     title: t('friends.requestFriendship'),
-                    icon: <Ionicons name="person-add-outline" size={29} color="#007AFF" />,
+                    icon: <Ionicons name="person-add-outline" size={29} color={theme.colors.accent} />,
                     onPress: addFriend,
                     loading: addingFriend,
                 }];

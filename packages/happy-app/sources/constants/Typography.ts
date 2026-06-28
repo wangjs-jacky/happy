@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 /**
- * Typography system for Happy Coder app
+ * Typography system for Paws app
  * 
  * Default typography: IBM Plex Sans
  * Monospace typography: IBM Plex Mono  
@@ -49,6 +49,13 @@ export const FontFamilies = {
   logo: {
     bold: 'BricolageGrotesque-Bold',
   },
+
+  // Fredoka (Paws 圆萌展示字体 — 标题 / 品牌字标。注：仅含拉丁字形，
+  // 中文会回退到系统字体，故只用在标题这类「中英混排、英文要出彩」的场景)
+  display: {
+    semiBold: 'Fredoka-SemiBold',
+    bold: 'Fredoka-Bold',
+  },
   
   // Legacy fonts (keep for backward compatibility)
   legacy: {
@@ -68,6 +75,10 @@ export const getMonoFont = (weight: 'regular' | 'italic' | 'semiBold' = 'regular
 
 export const getLogoFont = () => {
   return FontFamilies.logo.bold;
+};
+
+export const getDisplayFont = (weight: 'semiBold' | 'bold' = 'semiBold') => {
+  return FontFamilies.display[weight];
 };
 
 // Font weight mappings for the font families
@@ -92,6 +103,11 @@ export const Typography = {
   // Logo font style (Bricolage Grotesque)
   logo: () => ({
     fontFamily: getLogoFont(),
+  }),
+
+  // Display font style (Fredoka 圆萌 — 标题 / 品牌字标)
+  display: (weight: 'semiBold' | 'bold' = 'semiBold') => ({
+    fontFamily: getDisplayFont(weight),
   }),
   
   // Header text style

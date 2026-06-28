@@ -38,10 +38,10 @@ export const lightTheme = {
         // Main colors
         //
 
-        text: '#000000',
+        text: '#3D2E22',
         textDestructive: Platform.select({ ios: '#FF3B30', default: '#F44336' }),
-        textSecondary: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
-        textLink: '#2BACCC',
+        textSecondary: Platform.select({ ios: '#9A8B7C', default: '#9A8B7C' }),
+        textLink: '#3E84B0',
         deleteAction: '#FF6B6B', // Delete/remove button color
         warningCritical: '#FF3B30',
         warning: '#8E8E93',
@@ -51,9 +51,9 @@ export const lightTheme = {
         surfacePressed: '#f0f0f2',
         surfaceSelected: Platform.select({ ios: '#C6C6C8', default: '#eaeaea' }),
         surfacePressedOverlay: Platform.select({ ios: '#D1D1D6', default: 'transparent' }),
-        surfaceHigh: '#F8F8F8',
-        surfaceHighest: '#f0f0f0',
-        divider: Platform.select({ ios: '#eaeaea', default: '#eaeaea' }),
+        surfaceHigh: '#F8F3EA',
+        surfaceHighest: '#F0E8D9',
+        divider: Platform.select({ ios: '#EBE3D6', default: '#EBE3D6' }),
         shadow: {
             color: Platform.select({ default: '#000000', web: 'rgba(0, 0, 0, 0.1)' }),
             opacity: 0.1,
@@ -64,13 +64,13 @@ export const lightTheme = {
         //
 
         groupped: {
-            background: Platform.select({ ios: '#F2F2F7', default: '#F5F5F5' }),
-            chevron: Platform.select({ ios: '#C7C7CC', default: '#49454F' }),
-            sectionTitle: Platform.select({ ios: '#8E8E93', default: '#49454F' }),
+            background: Platform.select({ ios: '#FBF7F0', default: '#FBF7F0' }),
+            chevron: Platform.select({ ios: '#C9BCA9', default: '#9A8B7C' }),
+            sectionTitle: Platform.select({ ios: '#9A8B7C', default: '#9A8B7C' }),
         },
         header: {
-            background: '#ffffff',
-            tint: '#18171C'
+            background: '#FFFDFA',
+            tint: '#3D2E22'
         },
         switch: {
             track: {
@@ -83,8 +83,8 @@ export const lightTheme = {
             },
         },
         fab: {
-            background: '#000000',
-            backgroundPressed: '#1a1a1a',
+            background: '#C77D3E',
+            backgroundPressed: '#A9662F',
             icon: '#FFFFFF',
         },
         radio: {
@@ -97,18 +97,18 @@ export const lightTheme = {
         },
         button: {
             primary: {
-                background: '#000000',
+                background: '#C77D3E',
                 tint: '#FFFFFF',
-                disabled: '#C0C0C0',
+                disabled: '#E0CDB6',
             },
             secondary: {
-                tint: '#666666',
+                tint: '#8A6A4E',
             }
         },
         input: {
-            background: '#F5F5F5',
-            text: '#000000',
-            placeholder: '#999999',
+            background: '#F2EBDF',
+            text: '#3D2E22',
+            placeholder: '#B0A38C',
         },
         box: {
             warning: {
@@ -234,6 +234,15 @@ export const lightTheme = {
             emptyOutput: '#6272A4',
         },
 
+        // Home particles (主题包会覆盖；primary = 主色, accent = 点缀色)
+        particle: {
+            primary: '#C77D3E',
+            accent: '#5E97C0',
+        },
+
+        // 装饰性强调色（图标/可点元素的 tint）——随主题包变化，取主色
+        accent: '#C77D3E',
+
     },
 
     ...sharedSpacing,
@@ -247,23 +256,23 @@ export const darkTheme = {
         // Main colors
         //
 
-        text: '#ffffff',
+        text: '#F0E6DA',
         textDestructive: Platform.select({ ios: '#FF453A', default: '#F48FB1' }),
-        textSecondary: Platform.select({ ios: '#8E8E93', default: '#CAC4D0' }),
-        textLink: '#2BACCC',
+        textSecondary: Platform.select({ ios: '#A89684', default: '#A89684' }),
+        textLink: '#7FB6D9',
         deleteAction: '#FF6B6B', // Delete/remove button color (same in both themes)
         warningCritical: '#FF453A',
         warning: '#8E8E93',
         success: '#32D74B',
-        surface: Platform.select({ ios: '#18171C', default: '#212121' }),
-        surfaceRipple: 'rgba(255, 255, 255, 0.08)',
-        surfacePressed: '#2C2C2E',
-        surfaceSelected: '#2C2C2E',
-        surfacePressedOverlay: Platform.select({ ios: '#2C2C2E', default: 'transparent' }),
-        // iOS dark theme is #1c1c1e for items, and #000 for the background
-        surfaceHigh: Platform.select({ ios: '#2C2C2E', default: '#171717' }),
-        surfaceHighest: Platform.select({ ios: '#38383A', default: '#292929' }),
-        divider: Platform.select({ ios: '#38383A', default: '#292929' }),
+        surface: Platform.select({ ios: '#241C17', default: '#241C17' }),
+        surfaceRipple: 'rgba(240, 230, 218, 0.08)',
+        surfacePressed: '#2F251D',
+        surfaceSelected: '#2F251D',
+        surfacePressedOverlay: Platform.select({ ios: '#2F251D', default: 'transparent' }),
+        // Warm dark surfaces (栗壳) — elevated items lighter than the base bg
+        surfaceHigh: Platform.select({ ios: '#2B221B', default: '#1F1813' }),
+        surfaceHighest: Platform.select({ ios: '#352A20', default: '#2B221B' }),
+        divider: Platform.select({ ios: '#352A20', default: '#2B221B' }),
         shadow: {
             color: Platform.select({ default: '#000000', web: 'rgba(0, 0, 0, 0.1)' }),
             opacity: 0.1,
@@ -274,8 +283,8 @@ export const darkTheme = {
         //
 
         header: {
-            background: Platform.select({ ios: '#18171C', default: '#212121' }),
-            tint: '#ffffff'
+            background: Platform.select({ ios: '#1A1512', default: '#1A1512' }),
+            tint: '#F0E6DA'
         },
         switch: {
             track: {
@@ -288,14 +297,14 @@ export const darkTheme = {
             },
         },
         groupped: {
-            background: Platform.select({ ios: '#1C1C1E', default: '#1e1e1e' }),
-            chevron: Platform.select({ ios: '#48484A', default: '#CAC4D0' }),
-            sectionTitle: Platform.select({ ios: '#8E8E93', default: '#CAC4D0' }),
+            background: Platform.select({ ios: '#1A1512', default: '#1A1512' }),
+            chevron: Platform.select({ ios: '#6B5B49', default: '#A89684' }),
+            sectionTitle: Platform.select({ ios: '#A89684', default: '#A89684' }),
         },
         fab: {
-            background: '#FFFFFF',
-            backgroundPressed: '#f0f0f0',
-            icon: '#000000',
+            background: '#E0975A',
+            backgroundPressed: '#C77D3E',
+            icon: '#1A1512',
         },
         radio: {
             active: '#0A84FF',
@@ -307,18 +316,18 @@ export const darkTheme = {
         },
         button: {
             primary: {
-                background: '#000000',
-                tint: '#FFFFFF',
-                disabled: '#C0C0C0',
+                background: '#E0975A',
+                tint: '#1A1512',
+                disabled: '#5A4636',
             },
             secondary: {
-                tint: '#8E8E93',
+                tint: '#A89684',
             }
         },
         input: {
-            background: Platform.select({ ios: '#1C1C1E', default: '#303030' }),
-            text: '#FFFFFF',
-            placeholder: '#8E8E93',
+            background: Platform.select({ ios: '#241C17', default: '#2B221B' }),
+            text: '#F0E6DA',
+            placeholder: '#A89684',
         },
         box: {
             warning: {
@@ -409,8 +418,8 @@ export const darkTheme = {
         },
 
         // Message View colors
-        userMessageBackground: '#2C2C2E',
-        userMessageText: '#FFFFFF',
+        userMessageBackground: '#2F251D',
+        userMessageText: '#F0E6DA',
         agentMessageText: '#FFFFFF',
         agentEventText: '#8E8E93',
 
@@ -443,6 +452,15 @@ export const darkTheme = {
             error: '#FF6B6B',
             emptyOutput: '#7B7B93',
         },
+
+        // Home particles (主题包会覆盖；primary = 主色, accent = 点缀色)
+        particle: {
+            primary: '#E0975A',
+            accent: '#7FB6D9',
+        },
+
+        // 装饰性强调色（图标/可点元素的 tint）——随主题包变化，取主色
+        accent: '#E0975A',
 
     },
 

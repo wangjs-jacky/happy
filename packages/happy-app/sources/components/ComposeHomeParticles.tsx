@@ -2,6 +2,7 @@ import * as React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Canvas, Points, BlurMask, useClock, type SkPoint } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
+import { useUnistyles } from 'react-native-unistyles';
 import { useGravityField, GRAVITY_LAG_LEVELS } from '@/hooks/useGravityField';
 
 /**
@@ -111,8 +112,9 @@ const PALETTE: Record<ParticleMode, {
     glow: number;      // 普通粒子辉光半径（0 = 关闭）
     opacity: number;
 }> = {
-    dark: { green: '#00ff88', blue: '#00d4ff', glow: 6, opacity: 0.9 },
-    light: { green: '#00a352', blue: '#0090be', glow: 0, opacity: 0.78 },
+    // Paws 暖色粒子：green 槽 = 焦糖（主），blue 槽 = 格纹蓝（点缀）。颜色实际由主题包覆盖。
+    dark: { green: '#E0975A', blue: '#7FB6D9', glow: 6, opacity: 0.9 },
+    light: { green: '#C77D3E', blue: '#5E97C0', glow: 0, opacity: 0.82 },
 };
 
 interface Props {
@@ -122,7 +124,9 @@ interface Props {
 export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
     const [size, setSize] = React.useState({ w: 0, h: 0 });
     const clock = useClock();
-    const pal = PALETTE[mode];
+    const { theme } = useUnistyles();
+    // 颜色跟随当前主题包（particle.primary/accent）；glow/opacity 仍按明暗态走
+    const pal = { ...PALETTE[mode], green: theme.colors.particle.primary, blue: theme.colors.particle.accent };
     // 重力感应：gx/gy 倾斜飘移（延迟级联数组），shake 摇晃能量 [0,1]。真机生效，否则恒 0。
     const { gx, gy, shake } = useGravityField();
 

@@ -1,19 +1,19 @@
 {
-  "name": "happy",
+  "name": "@wangjs-jacky/paws",
   "version": "1.1.10-beta.10",
   "description": "Mobile and Web client for Claude Code and Codex",
-  "author": "Kirill Dubovitskiy",
+  "author": "wangjs-jacky",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://happy.engineering",
-  "bugs": "https://github.com/slopus/happy/issues",
+  "homepage": "https://paws.build",
+  "bugs": "https://github.com/wangjs-jacky/paws/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/slopus/happy"
+    "url": "https://github.com/wangjs-jacky/paws"
   },
   "bin": {
-    "happy": "./bin/happy.mjs",
-    "happy-mcp": "./bin/happy-mcp.mjs"
+    "paws": "./bin/happy.mjs",
+    "paws-mcp": "./bin/happy-mcp.mjs"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",

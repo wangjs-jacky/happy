@@ -107,7 +107,7 @@ export default React.memo(function FilesScreen() {
                 statusIcon = "diff-added";
                 break;
             case 'renamed':
-                statusColor = "#007AFF";
+                statusColor = theme.colors.accent;
                 statusIcon = "arrow-right";
                 break;
             case 'untracked':
@@ -140,7 +140,7 @@ export default React.memo(function FilesScreen() {
 
     const renderFileIconForSearch = (file: FileItem) => {
         if (file.fileType === 'folder') {
-            return <Octicons name="file-directory" size={29} color="#007AFF" />;
+            return <Octicons name="file-directory" size={29} color={theme.colors.accent} />;
         }
 
         return <FileIcon fileName={file.fileName} size={29} />;

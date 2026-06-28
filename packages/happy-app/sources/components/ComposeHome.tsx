@@ -309,8 +309,8 @@ const styles = StyleSheet.create((theme) => ({
         paddingTop: 28,
     },
     greeting: {
-        ...Typography.default('semiBold'),
-        fontSize: 25,
+        ...Typography.display('semiBold'),
+        fontSize: 26,
         lineHeight: 34,
         color: theme.colors.text,
         maxWidth: 360,

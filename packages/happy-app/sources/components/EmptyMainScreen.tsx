@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { Typography } from '@/constants/Typography';
 import { RoundButton } from '@/components/RoundButton';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
@@ -92,6 +93,12 @@ export function EmptyMainScreen() {
 
     return (
         <View style={styles.container}>
+            {/* Paws 土拨鼠挥手吉祥物 — 空状态友好引导 */}
+            <Image
+                source={require('@/assets/images/paws-mascot.png')}
+                style={{ width: 140, height: 169, marginBottom: 20 }}
+                contentFit="contain"
+            />
             {/* Terminal-style code block */}
             <Text style={styles.title}>{t('components.emptyMainScreen.readyToCode')}</Text>
             <View style={styles.terminalBlock}>
@@ -151,7 +158,7 @@ export function EmptyMainScreen() {
                                         t('modals.authenticateTerminal'),
                                         t('modals.pasteUrlFromTerminal'),
                                         {
-                                            placeholder: 'happy://terminal?...',
+                                            placeholder: 'paws://terminal?...',
                                             cancelText: t('common.cancel'),
                                             confirmText: t('common.authenticate')
                                         }

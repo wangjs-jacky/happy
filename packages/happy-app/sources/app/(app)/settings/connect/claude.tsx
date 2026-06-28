@@ -130,7 +130,7 @@ const styles = StyleSheet.create((theme) => ({
     retryButton: {
         paddingHorizontal: 20,
         paddingVertical: 10,
-        backgroundColor: '#007AFF',
+        backgroundColor: theme.colors.accent,
         borderRadius: 8,
     },
     retryButtonText: {

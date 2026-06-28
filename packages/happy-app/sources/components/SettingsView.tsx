@@ -109,11 +109,11 @@ export const SettingsView = React.memo(function SettingsView() {
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
 
     const handleGitHub = async () => {
-        await openExternalUrl('https://github.com/slopus/happy');
+        await openExternalUrl('https://github.com/wangjs-jacky/paws');
     };
 
     const handleReportIssue = async () => {
-        await openExternalUrl('https://github.com/slopus/happy/issues');
+        await openExternalUrl('https://github.com/wangjs-jacky/paws/issues');
     };
 
     // Manual "force update" — a deterministic alternative to the passive update
@@ -245,9 +245,9 @@ export const SettingsView = React.memo(function SettingsView() {
                         // Logo view: Original logo + version
                         <>
                             <Image
-                                source={theme.dark ? require('@/assets/images/logotype-light.png') : require('@/assets/images/logotype-dark.png')}
+                                source={require('@/assets/images/icon.png')}
                                 contentFit="contain"
-                                style={{ width: 300, height: 90, marginBottom: 12 }}
+                                style={{ width: 96, height: 96, borderRadius: 22, marginBottom: 12 }}
                             />
                         </>
                     )}
@@ -259,20 +259,20 @@ export const SettingsView = React.memo(function SettingsView() {
                 <ItemGroup>
                     <Item
                         title={t('settings.scanQrCodeToAuthenticate')}
-                        icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="qr-code-outline" size={29} color={theme.colors.accent} />}
                         onPress={connectTerminal}
                         loading={isLoading}
                         showChevron={false}
                     />
                     <Item
                         title={t('connect.enterUrlManually')}
-                        icon={<Ionicons name="link-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="link-outline" size={29} color={theme.colors.accent} />}
                         onPress={async () => {
                             const url = await Modal.prompt(
                                 t('modals.authenticateTerminal'),
                                 t('modals.pasteUrlFromTerminal'),
                                 {
-                                    placeholder: 'happy://terminal?...',
+                                    placeholder: 'paws://terminal?...',
                                     confirmText: t('common.authenticate')
                                 }
                             );
@@ -284,17 +284,6 @@ export const SettingsView = React.memo(function SettingsView() {
                     />
                 </ItemGroup>
             )}
-
-            {/* Support Us */}
-            <ItemGroup>
-                <Item
-                    title={t('settings.supportUs')}
-                    subtitle={isPro ? t('settings.supportUsSubtitlePro') : t('settings.supportUsSubtitle')}
-                    icon={<Ionicons name="heart" size={29} color="#FF3B30" />}
-                    showChevron={false}
-                    onPress={isPro ? undefined : handleSubscribe}
-                />
-            </ItemGroup>
 
             <ItemGroup title={t('settings.connectedAccounts')}>
                 <Item
@@ -338,7 +327,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('navigation.friends')}
                     subtitle={t('friends.manageFriends')}
-                    icon={<Ionicons name="people-outline" size={29} color="#007AFF" />}
+                    icon={<Ionicons name="people-outline" size={29} color={theme.colors.accent} />}
                     onPress={() => router.push('/friends')}
                 />
             </ItemGroup> */}
@@ -402,7 +391,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.account')}
                     subtitle={t('settings.accountSubtitle')}
-                    icon={<Ionicons name="person-circle-outline" size={29} color="#007AFF" />}
+                    icon={<Ionicons name="person-circle-outline" size={29} color={theme.colors.accent} />}
                     onPress={() => router.push('/settings/account')}
                 />
                 <Item
@@ -433,7 +422,7 @@ export const SettingsView = React.memo(function SettingsView() {
                     <Item
                         title={t('settings.usage')}
                         subtitle={t('settings.usageSubtitle')}
-                        icon={<Ionicons name="analytics-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="analytics-outline" size={29} color={theme.colors.accent} />}
                         onPress={() => router.push('/settings/usage')}
                     />
                 )}
@@ -464,7 +453,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.github')}
                     icon={<Ionicons name="logo-github" size={29} color={theme.colors.text} />}
-                    detail="slopus/happy"
+                    detail="wangjs-jacky/paws"
                     onPress={handleGitHub}
                 />
                 <Item
@@ -474,18 +463,18 @@ export const SettingsView = React.memo(function SettingsView() {
                 />
                 <Item
                     title={t('settings.privacyPolicy')}
-                    icon={<Ionicons name="shield-checkmark-outline" size={29} color="#007AFF" />}
-                    onPress={() => openExternalUrl('https://happy.engineering/privacy/')}
+                    icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => openExternalUrl('https://paws.build/privacy/')}
                 />
                 <Item
                     title={t('settings.termsOfService')}
-                    icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />}
-                    onPress={() => openExternalUrl('https://github.com/slopus/happy/blob/main/TERMS.md')}
+                    icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => openExternalUrl('https://github.com/wangjs-jacky/paws/blob/main/TERMS.md')}
                 />
                 {Platform.OS === 'ios' && (
                     <Item
                         title={t('settings.eula')}
-                        icon={<Ionicons name="document-text-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />}
                         onPress={() => openExternalUrl('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}
                     />
                 )}

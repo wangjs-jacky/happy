@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -20,6 +21,7 @@ interface JsonViewerProps {
 }
 
 function JsonViewer({ title, data, defaultExpanded = false }: JsonViewerProps) {
+    const { theme } = useUnistyles();
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     
     const handleCopy = async () => {
@@ -67,7 +69,7 @@ function JsonViewer({ title, data, defaultExpanded = false }: JsonViewerProps) {
                     hitSlop={10}
                     style={{ padding: 4 }}
                 >
-                    <Ionicons name="copy-outline" size={20} color="#007AFF" />
+                    <Ionicons name="copy-outline" size={20} color={theme.colors.accent} />
                 </Pressable>
             </Pressable>
             

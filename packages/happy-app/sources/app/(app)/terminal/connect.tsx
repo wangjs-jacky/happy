@@ -6,12 +6,14 @@ import { Typography } from '@/constants/Typography';
 import { RoundButton } from '@/components/RoundButton';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { ItemList } from '@/components/ItemList';
 import { ItemGroup } from '@/components/ItemGroup';
 import { Item } from '@/components/Item';
 import { t } from '@/text';
 
 export default function TerminalConnectScreen() {
+    const { theme } = useUnistyles();
     const router = useRouter();
     const [publicKey, setPublicKey] = useState<string | null>(null);
     const [hashProcessed, setHashProcessed] = useState(false);
@@ -40,8 +42,8 @@ export default function TerminalConnectScreen() {
 
     const handleConnect = async () => {
         if (publicKey) {
-            // Convert the hash key format to the expected happy:// URL format
-            const authUrl = `happy://terminal?${publicKey}`;
+            // Convert the hash key format to the expected paws:// URL format
+            const authUrl = `paws://terminal?${publicKey}`;
             await processAuthUrl(authUrl);
         }
     };
@@ -159,9 +161,9 @@ export default function TerminalConnectScreen() {
                     paddingHorizontal: 16
                 }}>
                     <Ionicons 
-                        name="terminal-outline" 
-                        size={48} 
-                        color="#007AFF" 
+                        name="terminal-outline"
+                        size={48}
+                        color={theme.colors.accent}
                         style={{ marginBottom: 16 }} 
                     />
                     <Text style={{ 
@@ -189,7 +191,7 @@ export default function TerminalConnectScreen() {
                 <Item
                     title={t('terminal.publicKey')}
                     detail={`${publicKey.substring(0, 12)}...`}
-                    icon={<Ionicons name="key-outline" size={29} color="#007AFF" />}
+                    icon={<Ionicons name="key-outline" size={29} color={theme.colors.accent} />}
                     showChevron={false}
                 />
                 <Item
