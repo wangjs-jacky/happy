@@ -234,6 +234,12 @@ export const lightTheme = {
             emptyOutput: '#6272A4',
         },
 
+        // Home particles (主题包会覆盖；primary = 主色, accent = 点缀色)
+        particle: {
+            primary: '#C77D3E',
+            accent: '#5E97C0',
+        },
+
     },
 
     ...sharedSpacing,
@@ -442,6 +448,12 @@ export const darkTheme = {
             stderr: '#FFB86C',
             error: '#FF6B6B',
             emptyOutput: '#7B7B93',
+        },
+
+        // Home particles (主题包会覆盖；primary = 主色, accent = 点缀色)
+        particle: {
+            primary: '#E0975A',
+            accent: '#7FB6D9',
         },
 
     },

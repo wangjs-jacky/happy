@@ -2,6 +2,7 @@ import * as React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Canvas, Points, BlurMask, useClock, type SkPoint } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
+import { useUnistyles } from 'react-native-unistyles';
 
 /**
  * 首页空白区的「蜂群」氛围背景。
@@ -68,7 +69,9 @@ interface Props {
 export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
     const [size, setSize] = React.useState({ w: 0, h: 0 });
     const clock = useClock();
-    const pal = PALETTE[mode];
+    const { theme } = useUnistyles();
+    // 颜色跟随当前主题包（particle.primary/accent）；glow/opacity 仍按明暗态走
+    const pal = { ...PALETTE[mode], green: theme.colors.particle.primary, blue: theme.colors.particle.accent };
 
     // 两组粒子（绿 / 蓝），各自一套确定性参数。蓝色少一些，作点缀。
     const greenCfg = React.useMemo(() => buildConfigs(46, 1337), []);

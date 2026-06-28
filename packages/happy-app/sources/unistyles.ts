@@ -1,17 +1,16 @@
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
-import { darkTheme, lightTheme } from './theme';
-import { loadThemePreference } from './sync/persistence';
+import { appThemes, resolveThemeName, type ThemePackId, type AppThemeName } from './themePacks';
+import { loadThemePreference, loadThemePack } from './sync/persistence';
 import { Appearance, Platform } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
 //
 // Theme
 //
-
-const appThemes = {
-    light: lightTheme,
-    dark: darkTheme
-};
+// Paws 多主题包系统：注册 7 套主题包 × 亮/暗 = 14 套命名主题。
+// 明暗态由 themePreference（light/dark/adaptive）决定，主题包由 themePack 决定。
+// 不用 unistyles 内置 adaptiveThemes（它要求主题名恰为 'light'/'dark'），改为手动管理。
+//
 
 const breakpoints = {
     xs: 0, // <-- make sure to register one breakpoint with value 0
@@ -19,39 +18,29 @@ const breakpoints = {
     md: 500,
     lg: 800,
     xl: 1200
-    // use as many breakpoints as you need
 };
 
-// Load theme preference from storage
+type ThemePref = 'light' | 'dark' | 'adaptive';
+
+const systemIsDark = () => Appearance.getColorScheme() === 'dark';
+
+/** 由偏好解析出当前是否暗色 */
+function isDarkFor(pref: ThemePref): boolean {
+    return pref === 'adaptive' ? systemIsDark() : pref === 'dark';
+}
+
+// Load persisted preferences
 const themePreference = loadThemePreference();
+const themePack = loadThemePack();
 
-// Determine initial theme and adaptive settings
-const getInitialTheme = (): 'light' | 'dark' => {
-    if (themePreference === 'adaptive') {
-        const systemTheme = Appearance.getColorScheme();
-        return systemTheme === 'dark' ? 'dark' : 'light';
-    }
-    return themePreference;
-};
-
-const settings = themePreference === 'adaptive'
-    ? {
-        // When adaptive, let Unistyles handle theme switching automatically
-        adaptiveThemes: true,
-        CSSVars: true, // Enable CSS variables for web
-    }
-    : {
-        // When fixed theme, set the initial theme explicitly
-        initialTheme: getInitialTheme(),
-        CSSVars: true, // Enable CSS variables for web
-    };
+const initialThemeName: AppThemeName = resolveThemeName(themePack, isDarkFor(themePreference));
 
 //
 // Bootstrap
 //
 
-type AppThemes = typeof appThemes
-type AppBreakpoints = typeof breakpoints
+type AppThemes = typeof appThemes;
+type AppBreakpoints = typeof breakpoints;
 
 declare module 'react-native-unistyles' {
     export interface UnistylesThemes extends AppThemes { }
@@ -59,39 +48,49 @@ declare module 'react-native-unistyles' {
 }
 
 StyleSheet.configure({
-    settings,
+    settings: {
+        initialTheme: initialThemeName,
+        CSSVars: true, // Enable CSS variables for web
+    },
     breakpoints,
     themes: appThemes,
-})
+});
 
-// Set initial root view background color based on theme
-const setRootBackgroundColor = () => {
-    if (themePreference === 'adaptive') {
-        const systemTheme = Appearance.getColorScheme();
-        const color = systemTheme === 'dark' ? appThemes.dark.colors.groupped.background : appThemes.light.colors.groupped.background;
-        UnistylesRuntime.setRootViewBackgroundColor(color);
-        SystemUI.setBackgroundColorAsync(color);
-    } else {
-        const color = themePreference === 'dark' ? appThemes.dark.colors.groupped.background : appThemes.light.colors.groupped.background;
-        UnistylesRuntime.setRootViewBackgroundColor(color);
-        SystemUI.setBackgroundColorAsync(color);
+/**
+ * 运行时切换主题（设置页和系统明暗变化都走这里）。
+ * 同时更新根视图背景色，避免切换时闪白/闪黑。
+ */
+export function applyTheme(pack: ThemePackId, pref: ThemePref) {
+    const name = resolveThemeName(pack, isDarkFor(pref));
+    UnistylesRuntime.setTheme(name);
+    const color = appThemes[name].colors.groupped.background;
+    UnistylesRuntime.setRootViewBackgroundColor(color);
+    SystemUI.setBackgroundColorAsync(color);
+}
+
+// Set initial root background color
+{
+    const color = appThemes[initialThemeName].colors.groupped.background;
+    UnistylesRuntime.setRootViewBackgroundColor(color);
+    SystemUI.setBackgroundColorAsync(color);
+}
+
+// 系统明暗变化时，若当前为 adaptive，则自动跟随（读取最新持久化偏好）
+Appearance.addChangeListener(() => {
+    const pref = loadThemePreference();
+    if (pref === 'adaptive') {
+        applyTheme(loadThemePack(), 'adaptive');
     }
-};
+});
 
-// Set initial background color
-setRootBackgroundColor();
-
-// Re-sync theme when tab becomes visible (web only — Appearance API may miss changes while hidden)
-if (Platform.OS === 'web' && themePreference === 'adaptive') {
+// Web：标签页重新可见时再同步一次（Appearance 在隐藏时可能漏掉变化）
+if (Platform.OS === 'web') {
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            const themeName = Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
-            // Toggle adaptive off, set correct theme, toggle back on
-            UnistylesRuntime.setAdaptiveThemes(false);
-            UnistylesRuntime.setTheme(themeName);
-            UnistylesRuntime.setAdaptiveThemes(true);
-            const color = appThemes[themeName].colors.groupped.background;
-            UnistylesRuntime.setRootViewBackgroundColor(color);
+            const pref = loadThemePreference();
+            if (pref === 'adaptive') {
+                applyTheme(loadThemePack(), 'adaptive');
+            }
         }
     });
 }

@@ -170,8 +170,9 @@ export default function UnistylesDemo() {
     const styles = stylesheet;
     const [showRuntimeInfo, setShowRuntimeInfo] = useState(true);
 
-    const switchTheme = (themeName: 'light' | 'dark') => {  
-        UnistylesRuntime.setTheme(themeName);
+    const switchTheme = (mode: 'light' | 'dark') => {
+        // 主题名已改为「主题包 + 明暗」结构，dev 演示用默认焦糖包
+        UnistylesRuntime.setTheme(mode === 'dark' ? 'caramelDark' : 'caramelLight');
     };
 
     const toggleColorScheme = () => {

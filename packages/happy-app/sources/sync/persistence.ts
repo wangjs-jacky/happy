@@ -96,6 +96,21 @@ export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
     return localSettingsDefaults.themePreference;
 }
 
+export function loadThemePack(): LocalSettings['themePack'] {
+    const localSettings = mmkv.getString('local-settings');
+    if (localSettings) {
+        try {
+            const parsed = JSON.parse(localSettings);
+            const settings = localSettingsParse(parsed);
+            return settings.themePack;
+        } catch (e) {
+            console.error('Failed to parse local settings for theme pack', e);
+            return localSettingsDefaults.themePack;
+        }
+    }
+    return localSettingsDefaults.themePack;
+}
+
 export function loadPurchases(): Purchases {
     const purchases = mmkv.getString('purchases');
     if (purchases) {

@@ -5,11 +5,12 @@ import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
 import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
-import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
+import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
-import { Appearance } from 'react-native';
-import * as SystemUI from 'expo-system-ui';
-import { darkTheme, lightTheme } from '@/theme';
+import { applyTheme } from '@/unistyles';
+import { ACCENTS } from '@/themePacks';
+import { Typography } from '@/constants/Typography';
+import { Pressable, View, Text } from 'react-native';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
 // Define known avatar styles for this version of the app
@@ -32,6 +33,7 @@ export default function AppearanceSettingsScreen() {
     const [avatarStyle, setAvatarStyle] = useSettingMutable('avatarStyle');
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
+    const [themePack, setThemePack] = useLocalSettingMutable('themePack');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
     
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
@@ -66,27 +68,38 @@ export default function AppearanceSettingsScreen() {
                         const nextIndex = (currentIndex + 1) % 3;
                         const nextTheme = nextIndex === 0 ? 'adaptive' : nextIndex === 1 ? 'light' : 'dark';
                         
-                        // Update the setting
+                        // Update the setting and apply immediately (含主题包)
                         setThemePreference(nextTheme);
-                        
-                        // Apply the theme change immediately
-                        if (nextTheme === 'adaptive') {
-                            // Enable adaptive themes and set to system theme
-                            UnistylesRuntime.setAdaptiveThemes(true);
-                            const systemTheme = Appearance.getColorScheme();
-                            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        } else {
-                            // Disable adaptive themes and set explicit theme
-                            UnistylesRuntime.setAdaptiveThemes(false);
-                            UnistylesRuntime.setTheme(nextTheme);
-                            const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-                            UnistylesRuntime.setRootViewBackgroundColor(color);
-                            SystemUI.setBackgroundColorAsync(color);
-                        }
+                        applyTheme(themePack, nextTheme);
                     }}
                 />
+                {/* 主题配色包选择器 — 一排色板，点选即切换 */}
+                <View style={styles.swatchRow}>
+                    {ACCENTS.map((acc) => {
+                        const selected = acc.id === themePack;
+                        return (
+                            <Pressable
+                                key={acc.id}
+                                style={styles.swatchItem}
+                                onPress={() => {
+                                    setThemePack(acc.id as typeof themePack);
+                                    applyTheme(acc.id as typeof themePack, themePreference);
+                                }}
+                            >
+                                <View style={[
+                                    styles.swatchCircle,
+                                    { backgroundColor: acc.swatch.primary },
+                                    selected && { borderColor: theme.colors.text, borderWidth: 3 },
+                                ]}>
+                                    {selected && <Ionicons name="checkmark" size={18} color={acc.light.onPrimary} />}
+                                </View>
+                                <Text style={[styles.swatchLabel, { color: selected ? theme.colors.text : theme.colors.textSecondary }]}>
+                                    {acc.id.charAt(0).toUpperCase() + acc.id.slice(1)}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
             </ItemGroup>
 
             {/* Language Settings */}
@@ -257,3 +270,32 @@ export default function AppearanceSettingsScreen() {
         </ItemList>
     );
 }
+
+const styles = StyleSheet.create((theme) => ({
+    swatchRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+        paddingHorizontal: 18,
+        paddingVertical: 16,
+        backgroundColor: theme.colors.surface,
+    },
+    swatchItem: {
+        alignItems: 'center',
+        width: 56,
+    },
+    swatchCircle: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderColor: 'transparent',
+        borderWidth: 0,
+    },
+    swatchLabel: {
+        ...Typography.default(),
+        fontSize: 11,
+        marginTop: 6,
+    },
+}));
