@@ -126,6 +126,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/custom-instructions"
+                options={{
+                    headerTitle: 'Custom Instructions',
+                }}
+            />
+            <Stack.Screen
                 name="terminal/connect"
                 options={{
                     headerTitle: t('navigation.connectTerminal'),

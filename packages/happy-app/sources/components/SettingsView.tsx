@@ -413,6 +413,12 @@ export const SettingsView = React.memo(function SettingsView() {
                     onPress={() => router.push('/settings/agents' as any)}
                 />
                 <Item
+                    title="Custom Instructions"
+                    subtitle="Extra system prompt sent with every message"
+                    icon={<Ionicons name="document-text-outline" size={29} color="#FF2D55" />}
+                    onPress={() => router.push('/settings/custom-instructions' as any)}
+                />
+                <Item
                     title={t('settings.featuresTitle')}
                     subtitle={t('settings.featuresSubtitle')}
                     icon={<Ionicons name="flask-outline" size={29} color="#FF9500" />}
