@@ -1,8 +1,9 @@
 import { parseSpecialCommand } from '@/parsers/specialCommands';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
 
 type CodexUserTextQueue<T> = {
-    push: (message: string, mode: T) => void;
-    pushIsolateAndClear: (message: string, mode: T) => void;
+    push: (message: string, mode: T, attachments?: PendingAttachment[]) => void;
+    pushIsolateAndClear: (message: string, mode: T, attachments?: PendingAttachment[]) => void;
 };
 
 export function isCodexClearText(text: string): boolean {
@@ -12,13 +13,14 @@ export function isCodexClearText(text: string): boolean {
 export function enqueueCodexUserText<T>(opts: {
     text: string;
     mode: T;
+    attachments?: PendingAttachment[];
     queue: CodexUserTextQueue<T>;
 }): 'clear' | 'queued' {
     if (isCodexClearText(opts.text)) {
-        opts.queue.pushIsolateAndClear(opts.text, opts.mode);
+        opts.queue.pushIsolateAndClear(opts.text, opts.mode, opts.attachments);
         return 'clear';
     }
 
-    opts.queue.push(opts.text, opts.mode);
+    opts.queue.push(opts.text, opts.mode, opts.attachments);
     return 'queued';
 }

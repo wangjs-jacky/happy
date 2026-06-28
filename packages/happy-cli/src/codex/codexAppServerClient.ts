@@ -896,12 +896,16 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         effort?: ReasoningEffort;
+        images?: Array<{ type: 'localImage'; path: string }>;
     }): Promise<void> {
         if (!this._threadId) {
             throw new Error('No active thread. Call startThread first.');
         }
 
+        // Images first, then text — mirrors the Claude path's ordering and is
+        // what Codex expects (visual context precedes the instruction).
         const input: InputItem[] = [
+            ...(opts?.images ?? []),
             { type: 'text', text: prompt },
         ];
 
@@ -957,6 +961,7 @@ export class CodexAppServerClient {
         sandbox?: SandboxMode;
         effort?: ReasoningEffort;
         turnTimeoutMs?: number;
+        images?: Array<{ type: 'localImage'; path: string }>;
     }): Promise<{ aborted: boolean }> {
         // Wait for any in-flight interruptTurn() to complete before starting a new
         // turn. Otherwise the stale turn/interrupt RPC can reach Codex after our
