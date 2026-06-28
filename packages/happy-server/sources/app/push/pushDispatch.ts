@@ -10,18 +10,14 @@
  * Connected clients still receive the realtime message update over socket;
  * only the Expo push for "new message" went away.
  *
- * Suppression: if the user has ANY non-machine client that is active
- * (connected + not backgrounded), suppress the push — they can see in-app
- * indicators (unread dots, tab title counter) instead.
- *
- * "Active" is determined by socket.data.appState:
- *   - Clients send `app-state: { state: 'active' | 'background' }` via socket.
- *   - Old clients that never send it are treated as active (connected = present).
- *   - On disconnect the socket (and its state) disappears automatically.
+ * Suppression: DISABLED. Session-event pushes (done/permission/question)
+ * always fire, even when an app client is connected/foreground — the user
+ * wants a system notification whenever Claude finishes or needs interaction,
+ * regardless of whether the app is open. (The foreground display itself is
+ * additionally gated client-side in app/_layout.tsx's notification handler.)
  */
 
 import { db } from "@/storage/db";
-import { isUserActive } from "@/app/push/focusTracker";
 import { sendPushNotifications } from "@/app/push/pushSend";
 import { log } from "@/utils/log";
 
@@ -87,15 +83,8 @@ export async function dispatchSessionEventPush(params: {
     const { userId, sessionId, title, body, data } = params;
 
     try {
-        try {
-            if (await isUserActive(userId)) {
-                log({ module: 'push' }, `Suppressed session-event push for user ${userId} session ${sessionId}: user active`);
-                return;
-            }
-        } catch (presenceError) {
-            log({ module: 'push', level: 'error' }, `Presence check failed, sending push anyway: ${presenceError}`);
-        }
-
+        // No presence-based suppression: always deliver session-event pushes
+        // so the user gets a notification even with the app open/foreground.
         await fetchTokensAndSend({
             userId,
             sessionId,

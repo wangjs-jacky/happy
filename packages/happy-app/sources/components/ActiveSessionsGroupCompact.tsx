@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Pressable, Platform } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
 import { Text } from '@/components/StyledText';
 import { Machine } from '@/sync/storageTypes';
 import { SessionRowData } from '@/sync/storage';
@@ -13,10 +12,7 @@ import { useAllMachines, useSessionGitStatus } from '@/sync/storage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { useHappyAction } from '@/hooks/useHappyAction';
-import { HappyError } from '@/utils/errors';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
-import { sessionKill } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
@@ -279,21 +275,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         ? { ...baseStatus, color: theme.colors.accent, dotColor: theme.colors.accent, isPulsing: false, isConnected: baseStatus.isConnected }
         : baseStatus;
     const navigateToSession = useNavigateToSession();
-    const swipeableRef = React.useRef<Swipeable | null>(null);
-    const swipeEnabled = Platform.OS !== 'web';
     const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
-
-    const [archivingSession, performArchive] = useHappyAction(async () => {
-        const result = await sessionKill(session.id);
-        if (!result.success) {
-            throw new HappyError(result.message || t('sessionInfo.failedToArchiveSession'), false);
-        }
-    });
-
-    const handleArchive = React.useCallback(() => {
-        swipeableRef.current?.close();
-        performArchive();
-    }, [performArchive]);
 
     const handlePress = React.useCallback(() => {
         navigateToSession(session.id);
@@ -379,43 +361,9 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
         </Pressable>
     );
 
-    if (!swipeEnabled) {
-        return (
-            <>
-                {itemContent}
-                <SessionActionsPopover
-                    anchor={actionsAnchor}
-                    onClose={() => setActionsAnchor(null)}
-                    sessionId={session.id}
-                    visible={!!actionsAnchor}
-                />
-            </>
-        );
-    }
-
-    const renderRightActions = () => (
-        <Pressable
-            style={styles.swipeAction}
-            onPress={handleArchive}
-            disabled={archivingSession}
-        >
-            <Ionicons name="archive-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.swipeActionText} numberOfLines={2}>
-                {t('sessionInfo.archiveSession')}
-            </Text>
-        </Pressable>
-    );
-
     return (
         <>
-            <Swipeable
-                ref={swipeableRef}
-                renderRightActions={renderRightActions}
-                overshootRight={false}
-                enabled={!archivingSession}
-            >
-                {itemContent}
-            </Swipeable>
+            {itemContent}
             <SessionActionsPopover
                 anchor={actionsAnchor}
                 onClose={() => setActionsAnchor(null)}
@@ -565,19 +513,5 @@ const stylesheet = StyleSheet.create((theme) => ({
         width: 16,
         height: 16,
         marginRight: 8,
-    },
-    swipeAction: {
-        width: 112,
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.status.error,
-    },
-    swipeActionText: {
-        marginTop: 4,
-        fontSize: 12,
-        color: '#FFFFFF',
-        textAlign: 'center',
-        ...Typography.default('semiBold'),
     },
 }));

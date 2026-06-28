@@ -4,9 +4,6 @@ import {
     Text,
     Platform,
     Pressable,
-    Modal as RNModal,
-    TouchableWithoutFeedback,
-    Animated,
     TextInput,
     ScrollView,
     LayoutAnimation,
@@ -18,7 +15,6 @@ import { GlassView } from 'expo-glass-effect';
 import { Ionicons, Octicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '@/text';
 import { useAllMachines, useLocalSetting, useSessions, useSetting } from '@/sync/storage';
 import type { NewSessionAgentType } from '@/sync/persistence';
@@ -27,7 +23,6 @@ import { listWorktrees } from '@/utils/worktree';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
-import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useShallow } from 'zustand/react/shallow';
 import type { Machine, Session } from '@/sync/storageTypes';
 import {
@@ -106,92 +101,18 @@ function getPermissionStyle(key: string): PermissionStyle | null {
     }
 }
 
-// Bottom sheet modal — native formSheet on iOS, slide-up sheet on Android
-function BottomSheet({
-    visible,
-    onClose,
-    children,
-}: {
-    visible: boolean;
-    onClose: () => void;
-    children: React.ReactNode;
-}) {
-    const { theme } = useUnistyles();
-    const safeArea = useSafeAreaInsets();
-    // Lift sheet content above the keyboard. The picker renders inside a native
-    // Modal, where react-native-keyboard-controller can't see the keyboard on
-    // Android — so we track height ourselves and pad/offset accordingly.
-    const keyboardHeight = useKeyboardHeight();
-
-    if (Platform.OS === 'ios') {
-        return (
-            <RNModal
-                visible={visible}
-                animationType="slide"
-                presentationStyle="formSheet"
-                onRequestClose={onClose}
-            >
-                <View style={[sheetStyles.iosContainer, { backgroundColor: theme.colors.header.background }]}>
-                    <View style={sheetStyles.handleRow}>
-                        <View style={[sheetStyles.handle, { backgroundColor: theme.colors.textSecondary }]} />
-                    </View>
-                    <View style={sheetStyles.iosContent}>
-                        {children}
-                    </View>
-                    <View style={{ height: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }} />
-                </View>
-            </RNModal>
-        );
+// Option-list wrapper. Embedded (inline accordion under a row) renders a plain
+// content-sized View: inside an unbounded parent a ScrollView collapses to zero
+// height on native, which left the inline picker showing an empty strip. The
+// non-embedded popover/sheet keeps a real ScrollView for long, scrollable lists.
+function OptionListContainer({ embedded, children }: { embedded: boolean; children: React.ReactNode }) {
+    if (embedded) {
+        return <View style={pickerStyles.embeddedOptionListContent}>{children}</View>;
     }
-
-    // Android: slide-up sheet with backdrop
-    const fadeAnim = React.useRef(new Animated.Value(0)).current;
-    const slideAnim = React.useRef(new Animated.Value(300)).current;
-
-    React.useEffect(() => {
-        if (visible) {
-            Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-                Animated.spring(slideAnim, { toValue: 0, damping: 25, stiffness: 300, useNativeDriver: true }),
-            ]).start();
-        } else {
-            Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-                Animated.timing(slideAnim, { toValue: 300, duration: 200, useNativeDriver: true }),
-            ]).start();
-        }
-    }, [visible, fadeAnim, slideAnim]);
-
     return (
-        <RNModal
-            visible={visible}
-            transparent
-            animationType="none"
-            onRequestClose={onClose}
-        >
-            <View style={sheetStyles.overlay}>
-                <TouchableWithoutFeedback onPress={onClose}>
-                    <Animated.View style={[sheetStyles.backdrop, { opacity: fadeAnim }]} />
-                </TouchableWithoutFeedback>
-                <Animated.View
-                    style={[
-                        sheetStyles.sheet,
-                        {
-                            backgroundColor: theme.colors.header.background,
-                            paddingBottom: Math.max(16, safeArea.bottom),
-                            // Sit the sheet right on top of the keyboard when it's open.
-                            marginBottom: keyboardHeight,
-                            transform: [{ translateY: slideAnim }],
-                        },
-                    ]}
-                >
-                    <View style={sheetStyles.handleRow}>
-                        <View style={[sheetStyles.handle, { backgroundColor: theme.colors.textSecondary }]} />
-                    </View>
-                    {children}
-                </Animated.View>
-            </View>
-        </RNModal>
+        <ScrollView style={pickerStyles.optionList} keyboardShouldPersistTaps="handled">
+            {children}
+        </ScrollView>
     );
 }
 
@@ -280,22 +201,18 @@ function PickerContent({
                 </View>
             )}
 
-            <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
-                contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
-                keyboardShouldPersistTaps="handled"
-            >
+            <OptionListContainer embedded={embedded}>
                 {fixedItems?.map(renderOption)}
                 {fixedItems && fixedItems.length > 0 && filtered.length > 0 && (
                     <View style={[pickerStyles.divider, { backgroundColor: theme.colors.divider }]} />
                 )}
                 {filtered.map(renderOption)}
-                {filtered.length === 0 && search.length > 0 && (
+                {filtered.length === 0 && (!fixedItems || fixedItems.length === 0) && (
                     <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
-                        no results
+                        {search.length > 0 ? 'no results' : 'no options'}
                     </Text>
                 )}
-            </ScrollView>
+            </OptionListContainer>
         </View>
     );
 }
@@ -441,11 +358,7 @@ function PathPickerContent({
                 Recent
             </Text>
 
-            <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
-                contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
-                keyboardShouldPersistTaps="handled"
-            >
+            <OptionListContainer embedded={embedded}>
                 {items.map((item) => {
                     const isSelected = item.key === matchedItemKey;
 
@@ -485,7 +398,7 @@ function PathPickerContent({
                         no recent projects yet
                     </Text>
                 )}
-            </ScrollView>
+            </OptionListContainer>
         </View>
     );
 }
@@ -793,8 +706,21 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             setIsConfigExpanded(v => !v);
         }, []);
 
+        // Expand/collapse a picker inline under its row. Animate on native so the
+        // option list slides in/out (web inline popovers don't need LayoutAnimation).
         const togglePicker = React.useCallback((type: PickerType) => {
+            if (Platform.OS !== 'web') {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            }
             setActivePicker(v => v === type ? null : type);
+        }, []);
+
+        // Collapse the open picker (option picked / dismissed), animated on native.
+        const dismissPicker = React.useCallback(() => {
+            if (Platform.OS !== 'web') {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            }
+            setActivePicker(null);
         }, []);
 
         const isOffline = selectedMachine ? !isMachineOnline(selectedMachine) : false;
@@ -885,10 +811,11 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                     break;
                 }
             }
-            setActivePicker(null);
+            dismissPicker();
         }, [
             activePicker,
             availableAgents,
+            dismissPicker,
             draft.setModelMode,
             draft.setPermissionMode,
             effortLevels,
@@ -907,20 +834,28 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 effortKey: currentEffort?.key ?? null,
                 worktreeKey,
             }),
-            closePickers: () => setActivePicker(null),
-        }), [currentPermission?.key, currentModelKey, currentEffort?.key, worktreeKey]);
+            closePickers: dismissPicker,
+        }), [currentPermission?.key, currentModelKey, currentEffort?.key, worktreeKey, dismissPicker]);
 
+        // Render the active picker inline directly under its row. Web (non-sidebar)
+        // shows it as a dropdown popover; sidebar and native render it embedded as a
+        // flush accordion. Native previously opened a bottom-sheet modal — it now
+        // expands in place, matching the running-session SessionInfoDropdown.
+        const isWeb = Platform.OS === 'web';
         const renderActivePickerPopover = React.useCallback((type: PickerType) => {
-            if (Platform.OS !== 'web' || activePicker !== type) {
+            if (activePicker !== type) {
                 return null;
             }
 
+            const embedded = isSidebar || !isWeb;
             return (
                 <View style={[
                     styles.popover,
                     isSidebar
                         ? styles.sidebarPopover
-                        : { backgroundColor: theme.colors.header.background },
+                        : isWeb
+                            ? { backgroundColor: theme.colors.header.background }
+                            : styles.inlinePopover,
                 ]}>
                     {type === 'path' ? (
                         <PathPickerContent
@@ -929,22 +864,24 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             value={selectedPath}
                             homeDir={selectedHomeDir}
                             onChangeValue={setSelectedPath}
-                            onDone={() => setActivePicker(null)}
-                            embedded={isSidebar}
+                            onDone={dismissPicker}
+                            embedded={embedded}
                         />
                     ) : pickerData ? (
                         <PickerContent
                             {...pickerData}
                             onSelect={handlePickerSelect}
-                            embedded={isSidebar}
+                            embedded={embedded}
                         />
                     ) : null}
                 </View>
             );
         }, [
             activePicker,
+            dismissPicker,
             handlePickerSelect,
             isSidebar,
+            isWeb,
             pathItems,
             pickerData,
             selectedHomeDir,
@@ -957,7 +894,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             <>
                 <View style={[
                     styles.configBox,
-                    activePicker && styles.configBoxWithPopover,
+                    // Web popovers overflow the box (shadow/positioning); native inline
+                    // pickers stay clipped inside the rounded box like an accordion.
+                    activePicker && isWeb && styles.configBoxWithPopover,
                     isSidebar && styles.sidebarConfigBox,
                 ]}>
                     {isSidebar || isConfigExpanded ? (
@@ -1187,33 +1126,14 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 </View>
 
                 {/* Web inline: click-away layer behind the popover (inline layout only;
-                    the sidebar layout's backdrop is owned by the host shell). */}
+                    the sidebar layout's backdrop is owned by the host shell). Native
+                    pickers expand inline under their row — no bottom sheet, no backdrop;
+                    re-tapping the row or picking an option collapses them. */}
                 {Platform.OS === 'web' && !isSidebar && activePicker && (
                     <Pressable
                         style={styles.clickAwayBackdropBehind}
-                        onPress={() => setActivePicker(null)}
+                        onPress={dismissPicker}
                     />
-                )}
-
-                {/* Native: picker bottom sheet */}
-                {Platform.OS !== 'web' && (
-                    <BottomSheet
-                        visible={!!activePicker}
-                        onClose={() => setActivePicker(null)}
-                    >
-                        {activePicker === 'path' ? (
-                            <PathPickerContent
-                                title="Project"
-                                items={pathItems}
-                                value={selectedPath}
-                                homeDir={selectedHomeDir}
-                                onChangeValue={setSelectedPath}
-                                onDone={() => setActivePicker(null)}
-                            />
-                        ) : pickerData ? (
-                            <PickerContent {...pickerData} onSelect={handlePickerSelect} />
-                        ) : null}
-                    </BottomSheet>
                 )}
             </>
         );
@@ -1286,6 +1206,19 @@ const styles = StyleSheet.create((theme) => ({
                 elevation: 0,
             },
         }),
+    },
+    // Native inline picker: flush accordion under the row, mirroring the running
+    // session's SessionInfoDropdown option list (subtle raised surface, no border).
+    inlinePopover: {
+        marginTop: 2,
+        marginBottom: 4,
+        marginHorizontal: 4,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        borderWidth: 0,
+        backgroundColor: theme.colors.surfaceHigh,
+        shadowOpacity: 0,
+        elevation: 0,
     },
     configRow: {
         flexDirection: 'row',
@@ -1380,45 +1313,6 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default(),
     },
 }));
-
-// Bottom sheet styles
-const sheetStyles = {
-    iosContainer: {
-        flex: 1,
-    } as const,
-    iosContent: {
-        flex: 1,
-    } as const,
-    handleRow: {
-        alignItems: 'center' as const,
-        paddingTop: 10,
-        paddingBottom: 6,
-    },
-    handle: {
-        width: 36,
-        height: 4,
-        borderRadius: 2,
-        opacity: 0.3,
-    },
-    overlay: {
-        flex: 1,
-        justifyContent: 'flex-end' as const,
-    },
-    backdrop: {
-        position: 'absolute' as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'black',
-        opacity: 0.4,
-    },
-    sheet: {
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        maxHeight: '70%' as const,
-    },
-};
 
 // Picker styles
 const pickerStyles = {

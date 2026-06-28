@@ -13,8 +13,15 @@ config.resolver.assetExts.push('wasm');
 // Exclude Tauri Rust build artifacts from Metro's file watcher.
 // Cargo writes/deletes transient files in src-tauri/target/debug/deps during
 // `tauri dev`, which crashes Metro's fallback watcher on Windows with ENOENT.
+//
+// Also exclude any stray `node_modules/electron` install. It's not a real
+// dependency of this app, but a transitive/optional install can drop it into
+// the root node_modules. Metro's TreeFS then crawls electron's
+// `Electron Framework.framework/Libraries` symlink and crashes with
+// "already exists in the file map as a file", aborting `expo export` / OTA.
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
+  /[/\\]node_modules[/\\]electron[/\\].*/,
 ];
 
 // Force every preact / preact/hooks import (ESM or CJS, from any package) to

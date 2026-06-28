@@ -38,15 +38,21 @@ import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 
-// Configure notification handler — suppress push display when app is in foreground
+// Configure notification handler — by default suppress push display when the
+// app is in foreground, EXCEPT for session-event pushes (Claude done /
+// permission / question): those must alert even with the app open, because the
+// user explicitly wants a banner whenever Claude finishes or needs interaction.
 Notifications.setNotificationHandler({
-    handleNotification: async () => {
+    handleNotification: async (notification) => {
+        const kind = (notification?.request?.content?.data as { kind?: unknown } | undefined)?.kind;
+        const isSessionEvent = kind === 'done' || kind === 'permission' || kind === 'question';
         const isForeground = AppState.currentState === 'active';
+        const shouldShow = isSessionEvent || !isForeground;
         return {
-            shouldShowAlert: !isForeground,
-            shouldPlaySound: !isForeground,
+            shouldShowAlert: shouldShow,
+            shouldPlaySound: shouldShow,
             shouldSetBadge: true,
-            shouldShowBanner: !isForeground,
+            shouldShowBanner: shouldShow,
             shouldShowList: true,
         };
     },
