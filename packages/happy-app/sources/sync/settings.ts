@@ -2,6 +2,17 @@ import * as z from 'zod';
 import { AgentDefaultOverridesSchema } from './agentDefaults';
 
 //
+// Default custom instructions: prefilled with the Happy-specific image rule so images
+// are sent inline via the send_image tool instead of leaking as raw file paths.
+//
+export const DEFAULT_CUSTOM_INSTRUCTIONS = [
+    '当你生成、处理或需要给用户展示任何图片时，必须调用 mcp__happy__send_image 工具',
+    '（传入图片的本地绝对路径，PNG/JPEG）将图片内联发送给用户。不要只输出文件路径，',
+    '也不要使用 Markdown 图片语法（例如 ![](路径)）——它们在 Happy 客户端都不会渲染成图片，',
+    '只有 send_image 才能让用户真正看到图。',
+].join('');
+
+//
 // Settings Schema
 //
 
@@ -12,6 +23,7 @@ export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
 
+    customInstructions: z.string().describe('Custom instructions appended to the system prompt of every message'),
     viewInline: z.boolean().describe('Whether to view inline tool calls'),
     inferenceOpenAIKey: z.string().nullish().describe('OpenAI API key for inference'),
     expandTodos: z.boolean().describe('Whether to expand todo lists'),
@@ -83,6 +95,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 
 export const settingsDefaults: Settings = {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    customInstructions: DEFAULT_CUSTOM_INSTRUCTIONS,
     viewInline: false,
     inferenceOpenAIKey: null,
     expandTodos: true,

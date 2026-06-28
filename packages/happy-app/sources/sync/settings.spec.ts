@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import { settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, DEFAULT_CUSTOM_INSTRUCTIONS, type Settings } from './settings';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -175,6 +175,7 @@ describe('settings', () => {
         it('should have correct default values', () => {
             expect(settingsDefaults).toEqual({
                 schemaVersion: 2,
+                customInstructions: DEFAULT_CUSTOM_INSTRUCTIONS,
                 viewInline: false,
                 expandTodos: true,
                 showLineNumbers: true,
