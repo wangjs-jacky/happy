@@ -382,8 +382,17 @@ export const ru: TranslationStructure = {
             screenshot: 'Снимок экрана',
             screenshotDesktop: 'Весь рабочий стол',
             screenshotBrowser: 'Активное окно браузера',
+            screenshotGallery: 'Галерея',
             screenshotFailedTitle: 'Не удалось сделать снимок экрана',
             screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
+        },
+        screenshotGallery: {
+            title: 'Снимки экрана',
+            empty: 'Пока нет снимков',
+            emptyHint: 'Сделанные снимки появятся здесь',
+            attach: 'Прикрепить к вводу',
+            sourceManual: 'Вручную',
+            sourceAi: 'ИИ',
         },
     },
 

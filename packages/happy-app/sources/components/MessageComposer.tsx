@@ -84,6 +84,13 @@ interface MessageComposerProps {
      * (session view) — this component only surfaces the UI + target choice.
      */
     onCaptureScreenshot?: (target: 'desktop' | 'browser') => void;
+    /**
+     * Opens the bottom screenshot gallery drawer (能力 B). When provided, a
+     * "Gallery" item is added to the screenshot dropdown. `galleryHasNew` shows
+     * a red dot on the camera button when there are unseen screenshots.
+     */
+    onOpenGallery?: () => void;
+    galleryHasNew?: boolean;
 }
 
 const MAX_CONTEXT_SIZE = 190000;
@@ -221,6 +228,21 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         fontSize: 14,
         color: theme.colors.text,
         ...Typography.default('semiBold'),
+    },
+    screenshotMenuDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#FF3B30',
+    },
+    screenshotCameraDot: {
+        position: 'absolute',
+        top: 3,
+        right: 6,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#FF3B30',
     },
 }));
 
@@ -469,6 +491,12 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
         setScreenshotMenuOpen(false);
         onCaptureScreenshot?.(target);
     }, [onCaptureScreenshot]);
+    const onOpenGallery = props.onOpenGallery;
+    const handleOpenGallery = React.useCallback(() => {
+        hapticsLight();
+        setScreenshotMenuOpen(false);
+        onOpenGallery?.();
+    }, [onOpenGallery]);
 
     // Abort button state
     const [isAborting, setIsAborting] = React.useState(false);
@@ -927,6 +955,18 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                             {t('components.messageComposer.screenshotBrowser')}
                                                         </Text>
                                                     </Pressable>
+                                                    {props.onOpenGallery && (
+                                                        <Pressable
+                                                            style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                            onPress={handleOpenGallery}
+                                                        >
+                                                            <Ionicons name="images-outline" size={15} color={theme.colors.text} />
+                                                            <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                                {t('components.messageComposer.screenshotGallery')}
+                                                            </Text>
+                                                            {props.galleryHasNew && <View style={styles.screenshotMenuDot} />}
+                                                        </Pressable>
+                                                    )}
                                                 </View>
                                             </>
                                         )}
@@ -955,6 +995,9 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                     ? theme.colors.radio.active
                                                     : theme.colors.button.secondary.tint}
                                             />
+                                            {props.galleryHasNew && !screenshotMenuOpen && (
+                                                <View style={styles.screenshotCameraDot} />
+                                            )}
                                         </Pressable>
                                     </View>
                                 )}

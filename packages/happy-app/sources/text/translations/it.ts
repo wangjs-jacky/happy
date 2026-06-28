@@ -423,8 +423,17 @@ export const it: TranslationStructure = {
             screenshot: 'Screenshot',
             screenshotDesktop: 'Intero desktop',
             screenshotBrowser: 'Finestra del browser in primo piano',
+            screenshotGallery: 'Galleria',
             screenshotFailedTitle: 'Screenshot non riuscito',
             screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
+        },
+        screenshotGallery: {
+            title: 'Screenshot',
+            empty: 'Nessuno screenshot',
+            emptyHint: 'Gli screenshot che acquisisci appariranno qui',
+            attach: 'Allega all\'input',
+            sourceManual: 'Manuale',
+            sourceAi: 'IA',
         },
     },
 

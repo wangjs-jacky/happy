@@ -424,8 +424,17 @@ export const pt: TranslationStructure = {
             screenshot: 'Captura de tela',
             screenshotDesktop: 'Área de trabalho inteira',
             screenshotBrowser: 'Janela do navegador em primeiro plano',
+            screenshotGallery: 'Galeria',
             screenshotFailedTitle: 'Falha na captura de tela',
             screenshotFailedBody: 'Não foi possível capturar a tela. Tente novamente.',
+        },
+        screenshotGallery: {
+            title: 'Capturas de tela',
+            empty: 'Ainda não há capturas',
+            emptyHint: 'As capturas que você fizer aparecerão aqui',
+            attach: 'Anexar à entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
         },
     },
 

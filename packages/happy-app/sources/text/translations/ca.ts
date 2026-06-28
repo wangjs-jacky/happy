@@ -425,8 +425,17 @@ export const ca: TranslationStructure = {
             screenshot: 'Captura de pantalla',
             screenshotDesktop: 'Escriptori complet',
             screenshotBrowser: 'Finestra del navegador en primer pla',
+            screenshotGallery: 'Galeria',
             screenshotFailedTitle: 'La captura de pantalla ha fallat',
             screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
+        },
+        screenshotGallery: {
+            title: 'Captures de pantalla',
+            empty: 'Encara no hi ha captures',
+            emptyHint: 'Les captures que facis apareixeran aquí',
+            attach: 'Adjunta a l\'entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
         },
     },
 

@@ -14,7 +14,8 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
 import { requestScreenshot } from '@/sync/ops.screenshot';
-import { saveBase64Png, addScreenshotEntry } from '@/sync/screenshotGallery';
+import { saveBase64Png, addScreenshotEntry, useHasNewScreenshots, type ScreenshotEntry } from '@/sync/screenshotGallery';
+import { ScreenshotGalleryDrawer } from '@/components/ScreenshotGalleryDrawer';
 import { imageViewer } from '@/sync/imageViewer';
 import { Modal } from '@/modal';
 import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
@@ -493,6 +494,26 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const expImageUpload = useSetting('expImageUpload');
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
 
+    // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
+    // screenshots; opening the drawer clears it (handled inside the drawer).
+    const [galleryOpen, setGalleryOpen] = React.useState(false);
+    const { hasNew: galleryHasNew } = useHasNewScreenshots(sessionId);
+    const handleOpenGallery = React.useCallback(() => setGalleryOpen(true), []);
+    const handleCloseGallery = React.useCallback(() => setGalleryOpen(false), []);
+    // Attach a gallery screenshot to the composer input. Intrinsic size is
+    // unknown for screenshots (0/0 is accepted by the upload pipeline).
+    const handleAttachScreenshot = React.useCallback((entry: ScreenshotEntry) => {
+        addImages([{
+            id: entry.id,
+            uri: entry.uri,
+            width: 0,
+            height: 0,
+            mimeType: 'image/png',
+            size: 0,
+            name: entry.id,
+        }]);
+    }, [addImages]);
+
     // ChatComposer owns the message state + useDraft subscription. We only
     // hold an imperative handle so handleSend can read the live text and
     // clear it without subscribing to it (which would re-render the whole
@@ -650,6 +671,8 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onRemoveImage={expImageUpload ? removeImage : undefined}
             onAddImages={expImageUpload ? addImages : undefined}
             onCaptureScreenshot={expImageUpload ? handleCaptureScreenshot : undefined}
+            onOpenGallery={expImageUpload ? handleOpenGallery : undefined}
+            galleryHasNew={expImageUpload ? galleryHasNew : undefined}
             autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
@@ -766,6 +789,16 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
                     </Pressable>
                 )
             }
+
+            {/* Screenshot gallery bottom drawer (能力 B) */}
+            {expImageUpload && (
+                <ScreenshotGalleryDrawer
+                    visible={galleryOpen}
+                    onClose={handleCloseGallery}
+                    sessionId={sessionId}
+                    onAttach={handleAttachScreenshot}
+                />
+            )}
         </>
     )
 }

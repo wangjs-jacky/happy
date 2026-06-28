@@ -441,8 +441,17 @@ export const pl: TranslationStructure = {
             screenshot: 'Zrzut ekranu',
             screenshotDesktop: 'Cały pulpit',
             screenshotBrowser: 'Aktywne okno przeglądarki',
+            screenshotGallery: 'Galeria',
             screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
             screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
+        },
+        screenshotGallery: {
+            title: 'Zrzuty ekranu',
+            empty: 'Brak zrzutów ekranu',
+            emptyHint: 'Zrobione zrzuty pojawią się tutaj',
+            attach: 'Dołącz do pola tekstowego',
+            sourceManual: 'Ręcznie',
+            sourceAi: 'AI',
         },
     },
 

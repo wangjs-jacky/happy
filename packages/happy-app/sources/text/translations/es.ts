@@ -425,8 +425,17 @@ export const es: TranslationStructure = {
             screenshot: 'Captura de pantalla',
             screenshotDesktop: 'Escritorio completo',
             screenshotBrowser: 'Ventana del navegador al frente',
+            screenshotGallery: 'Galería',
             screenshotFailedTitle: 'Error en la captura de pantalla',
             screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
+        },
+        screenshotGallery: {
+            title: 'Capturas de pantalla',
+            empty: 'Aún no hay capturas',
+            emptyHint: 'Las capturas que hagas aparecerán aquí',
+            attach: 'Adjuntar a la entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
         },
     },
 

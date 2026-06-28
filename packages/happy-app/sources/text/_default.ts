@@ -439,8 +439,18 @@ export const en = {
             screenshot: 'Screenshot',
             screenshotDesktop: 'Full desktop',
             screenshotBrowser: 'Frontmost browser window',
+            screenshotGallery: 'Gallery',
             screenshotFailedTitle: 'Screenshot failed',
             screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
+        },
+        screenshotGallery: {
+            // Bottom drawer showing all screenshots captured in this session
+            title: 'Screenshots',
+            empty: 'No screenshots yet',
+            emptyHint: 'Screenshots you capture will show up here',
+            attach: 'Attach to input',
+            sourceManual: 'Manual',
+            sourceAi: 'AI',
         },
     },
 

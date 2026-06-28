@@ -426,8 +426,17 @@ export const ja: TranslationStructure = {
             screenshot: 'スクリーンショット',
             screenshotDesktop: 'デスクトップ全体',
             screenshotBrowser: '最前面のブラウザウィンドウ',
+            screenshotGallery: 'ギャラリー',
             screenshotFailedTitle: 'スクリーンショットに失敗しました',
             screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
+        },
+        screenshotGallery: {
+            title: 'スクリーンショット',
+            empty: 'スクリーンショットはまだありません',
+            emptyHint: '撮影したスクリーンショットがここに表示されます',
+            attach: '入力欄に添付',
+            sourceManual: '手動',
+            sourceAi: 'AI',
         },
     },
 

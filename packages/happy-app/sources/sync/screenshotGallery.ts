@@ -1,4 +1,5 @@
-import { MMKV } from 'react-native-mmkv';
+import * as React from 'react';
+import { MMKV, useMMKVString } from 'react-native-mmkv';
 import {
     documentDirectory,
     makeDirectoryAsync,
@@ -9,6 +10,8 @@ import {
 
 const mmkv = new MMKV();
 const KEY = 'screenshot-gallery-v1';
+/** 每个会话「上次打开图库抽屉时见到的最新 createdAt」，用于红点判断。 */
+const LAST_SEEN_KEY = 'screenshot-gallery-last-seen-v1';
 
 /**
  * 单条截图记录。base64 PNG 落盘后只保留 file:// 本地路径，避免 MMKV 里堆大块 base64。
@@ -86,6 +89,88 @@ export function hasRemoteId(sessionId: string, remoteId: string): boolean {
     const all = readAll();
     const list = all[sessionId] ?? [];
     return list.some((e) => e.remoteId === remoteId);
+}
+
+// ============ 红点（未读新图）状态 ============
+
+/** 读取某会话「上次见到的最新 createdAt」，从未打开过返回 0。 */
+export function getLastSeen(sessionId: string): number {
+    const raw = mmkv.getString(LAST_SEEN_KEY);
+    if (!raw) {
+        return 0;
+    }
+    try {
+        const parsed = JSON.parse(raw) as Record<string, number>;
+        return (parsed && typeof parsed === 'object' && typeof parsed[sessionId] === 'number')
+            ? parsed[sessionId]
+            : 0;
+    } catch {
+        return 0;
+    }
+}
+
+/** 记录某会话「已见到的最新 createdAt」（打开抽屉时调用，清除红点）。 */
+export function setLastSeen(sessionId: string, createdAt: number): void {
+    let parsed: Record<string, number> = {};
+    const raw = mmkv.getString(LAST_SEEN_KEY);
+    if (raw) {
+        try {
+            const obj = JSON.parse(raw);
+            if (obj && typeof obj === 'object') {
+                parsed = obj;
+            }
+        } catch {
+            // 解析失败时退回空对象
+        }
+    }
+    parsed[sessionId] = createdAt;
+    mmkv.set(LAST_SEEN_KEY, JSON.stringify(parsed));
+}
+
+// ============ React hooks（响应式）============
+
+/**
+ * 响应式读取某会话的截图列表（倒序）。监听 MMKV 的 gallery key，
+ * AI/手动截图写入后抽屉里自动出现新图，无需手动刷新。
+ */
+export function useGallery(sessionId: string): ScreenshotEntry[] {
+    const [raw] = useMMKVString(KEY, mmkv);
+    return React.useMemo(() => {
+        if (!raw) {
+            return [];
+        }
+        try {
+            const parsed = JSON.parse(raw) as AllGalleries;
+            return sortDesc(parsed?.[sessionId] ?? []);
+        } catch {
+            return [];
+        }
+    }, [raw, sessionId]);
+}
+
+/**
+ * 响应式判断某会话是否有「未查看的新截图」——即图库里存在比 lastSeen 更新的条目。
+ * 监听 gallery key，新图写入即变 true；调用方在打开抽屉时 setLastSeen 后回落 false。
+ * 第二返回值是当前图库最新 createdAt（打开抽屉时传给 setLastSeen 用）。
+ */
+export function useHasNewScreenshots(sessionId: string): { hasNew: boolean; latestCreatedAt: number } {
+    const list = useGallery(sessionId);
+    const [lastSeenRaw] = useMMKVString(LAST_SEEN_KEY, mmkv);
+    return React.useMemo(() => {
+        const latestCreatedAt = list.length > 0 ? list[0].createdAt : 0;
+        let lastSeen = 0;
+        if (lastSeenRaw) {
+            try {
+                const parsed = JSON.parse(lastSeenRaw) as Record<string, number>;
+                if (parsed && typeof parsed === 'object' && typeof parsed[sessionId] === 'number') {
+                    lastSeen = parsed[sessionId];
+                }
+            } catch {
+                lastSeen = 0;
+            }
+        }
+        return { hasNew: latestCreatedAt > lastSeen, latestCreatedAt };
+    }, [list, lastSeenRaw, sessionId]);
 }
 
 // ============ base64 落盘工具（IO，不进单测）============

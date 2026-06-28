@@ -425,8 +425,17 @@ export const zhHant: TranslationStructure = {
             screenshot: '截圖',
             screenshotDesktop: '桌面整螢幕',
             screenshotBrowser: '最前瀏覽器視窗',
+            screenshotGallery: '圖庫',
             screenshotFailedTitle: '截圖失敗',
             screenshotFailedBody: '無法擷取截圖，請再試一次。',
+        },
+        screenshotGallery: {
+            title: '截圖',
+            empty: '尚無截圖',
+            emptyHint: '你擷取的截圖會顯示在這裡',
+            attach: '加入輸入欄',
+            sourceManual: '手動',
+            sourceAi: 'AI',
         },
     },
 
