@@ -2280,7 +2280,8 @@ class Sync {
                     const refs = metadata.screenshotRefs;
                     const sessionId = updateData.body.id;
                     import('@/sync/screenshotSync').then(({ syncScreenshotsForSession }) => {
-                        syncScreenshotsForSession(sessionId, refs);
+                        // return 把内层 promise 接回链上，确保其 rejection 也被下面 .catch 捕获（避免 unhandled rejection）
+                        return syncScreenshotsForSession(sessionId, refs);
                     }).catch((e) => console.warn('[sync] 懒拉取 AI 截图失败', e));
                 }
 
