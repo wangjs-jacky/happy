@@ -23,6 +23,22 @@ const consoleLoggingDefault = {
     preview: true,
     production: false,
 }[variant];
+const localHttpException = {
+    NSExceptionAllowsInsecureHTTPLoads: true,
+    NSTemporaryExceptionAllowsInsecureHTTPLoads: true,
+    NSIncludesSubdomains: true,
+};
+const developmentAppTransportSecurity = {
+    NSAllowsLocalNetworking: true,
+    NSAllowsArbitraryLoads: true,
+    NSAllowsArbitraryLoadsInWebContent: true,
+    NSAllowsArbitraryLoadsForMedia: true,
+    NSExceptionDomains: {
+        localhost: localHttpException,
+        "127.0.0.1": localHttpException,
+        "198.18.0.1": localHttpException,
+    },
+};
 
 function git(args) {
     try {
@@ -80,12 +96,13 @@ export default {
                 //   addresses (e.g. self-hosted server at 192.168.x.y) without
                 //   forcing TLS. Production cloud server is HTTPS, so the
                 //   default policy still applies there.
-                // - In dev/preview only, allow arbitrary HTTP loads so a
-                //   developer pointing the app at their machine doesn't have
-                //   to ship a TLS cert just to test attachment uploads.
+                // - In dev/preview, explicitly allow local HTTP endpoints used
+                //   by Expo Dev Launcher and iOS Simulator. Some loader paths
+                //   enforce ATS before the broader arbitrary-load switch is
+                //   honored, so keep domain-level exceptions for local hosts.
                 NSAppTransportSecurity: variant === 'production'
                     ? { NSAllowsLocalNetworking: true }
-                    : { NSAllowsLocalNetworking: true, NSAllowsArbitraryLoads: true }
+                    : developmentAppTransportSecurity
             },
             // Universal Links 需真实域名 + AASA 文件，IP 自托管暂不支持；有域名后填 ["applinks:<your-domain>"]
             associatedDomains: []
