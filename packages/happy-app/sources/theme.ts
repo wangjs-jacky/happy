@@ -240,6 +240,9 @@ export const lightTheme = {
             accent: '#5E97C0',
         },
 
+        // 装饰性强调色（图标/可点元素的 tint）——随主题包变化，取主色
+        accent: '#C77D3E',
+
     },
 
     ...sharedSpacing,
@@ -455,6 +458,9 @@ export const darkTheme = {
             primary: '#E0975A',
             accent: '#7FB6D9',
         },
+
+        // 装饰性强调色（图标/可点元素的 tint）——随主题包变化，取主色
+        accent: '#E0975A',
 
     },
 

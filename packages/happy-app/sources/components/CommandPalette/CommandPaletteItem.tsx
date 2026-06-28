@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { Command } from './types';
 import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 
 interface CommandPaletteItemProps {
     command: Command;
@@ -12,6 +13,7 @@ interface CommandPaletteItemProps {
 }
 
 export function CommandPaletteItem({ command, isSelected, onPress, onHover }: CommandPaletteItemProps) {
+    const { theme } = useUnistyles();
     const [isHovered, setIsHovered] = React.useState(false);
     
     const handleMouseEnter = React.useCallback(() => {
@@ -51,7 +53,7 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
                         <Ionicons 
                             name={command.icon as any} 
                             size={20} 
-                            color={isSelected ? '#007AFF' : '#666'} 
+                            color={isSelected ? theme.colors.accent : '#666'}
                         />
                     </View>
                 )}

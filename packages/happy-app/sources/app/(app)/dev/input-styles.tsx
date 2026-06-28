@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Platform } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,6 +13,7 @@ type InputStyle = {
 };
 
 export default function InputStylesDemo() {
+    const { theme } = useUnistyles();
     const [selectedStyle, setSelectedStyle] = React.useState('slack');
     const safeArea = useSafeAreaInsets();
 
@@ -1900,7 +1902,7 @@ export default function InputStylesDemo() {
                             borderRadius: 12,
                             overflow: 'hidden',
                             borderWidth: selectedStyle === style.id ? 2 : 1,
-                            borderColor: selectedStyle === style.id ? '#007AFF' : '#e0e0e0',
+                            borderColor: selectedStyle === style.id ? theme.colors.accent : '#e0e0e0',
                         }}
                     >
                         <View style={{
@@ -1923,7 +1925,7 @@ export default function InputStylesDemo() {
                                     {style.name}
                                 </Text>
                                 {selectedStyle === style.id && (
-                                    <Ionicons name="checkmark-circle" size={24} color="#007AFF" />
+                                    <Ionicons name="checkmark-circle" size={24} color={theme.colors.accent} />
                                 )}
                             </View>
                             <Text style={{

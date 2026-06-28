@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View, Text, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { log, MAX_APP_LOG_ENTRIES } from '@/log';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -9,6 +10,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 
 export default function LogsScreen() {
+    const { theme } = useUnistyles();
     const [logs, setLogs] = React.useState<string[]>([]);
     const flatListRef = React.useRef<FlatList>(null);
 
@@ -102,7 +104,7 @@ export default function LogsScreen() {
                     />
                     <Item 
                         title="Copy All Logs"
-                        icon={<Ionicons name="copy-outline" size={24} color="#007AFF" />}
+                        icon={<Ionicons name="copy-outline" size={24} color={theme.colors.accent} />}
                         onPress={handleCopyAll}
                         disabled={logs.length === 0}
                     />

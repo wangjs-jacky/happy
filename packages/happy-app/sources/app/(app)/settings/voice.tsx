@@ -2,6 +2,7 @@ import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -26,6 +27,7 @@ function formatVoiceTime(totalSeconds: number): string {
 }
 
 export default React.memo(function VoiceSettingsScreen() {
+    const { theme } = useUnistyles();
     const router = useRouter();
     const auth = useAuth();
     const [voiceAssistantLanguage] = useSettingMutable('voiceAssistantLanguage');
@@ -159,7 +161,7 @@ export default React.memo(function VoiceSettingsScreen() {
                             label={t('settingsVoice.usageLabel')}
                             value={usage.usedSeconds}
                             maxValue={usage.limitSeconds}
-                            color={usage.usedSeconds >= usage.limitSeconds ? '#FF3B30' : '#007AFF'}
+                            color={usage.usedSeconds >= usage.limitSeconds ? '#FF3B30' : theme.colors.accent}
                         />
                         <Text style={{ fontSize: 13, color: '#8E8E93', marginTop: 4 }}>
                             {formatVoiceTime(usage.usedSeconds)} / {formatVoiceTime(usage.limitSeconds)}
@@ -168,7 +170,7 @@ export default React.memo(function VoiceSettingsScreen() {
                             label={t('settingsVoice.conversationsLabel')}
                             value={usage.conversationCount}
                             maxValue={usage.conversationLimit}
-                            color={usage.conversationCount >= usage.conversationLimit ? '#FF3B30' : '#007AFF'}
+                            color={usage.conversationCount >= usage.conversationLimit ? '#FF3B30' : theme.colors.accent}
                         />
                         <Text style={{ fontSize: 13, color: '#8E8E93', marginTop: 4 }}>
                             {usage.conversationCount} / {usage.conversationLimit}
@@ -198,7 +200,7 @@ export default React.memo(function VoiceSettingsScreen() {
                         title="Voice Experiment Override"
                         subtitle="Simple local override for the voice-upsell flag"
                         detail={developerOverrideLabel}
-                        icon={<Ionicons name="options-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="options-outline" size={29} color={theme.colors.accent} />}
                         onPress={handleVoiceExperimentOverride}
                     />
                     <Item
@@ -227,7 +229,7 @@ export default React.memo(function VoiceSettingsScreen() {
                 <Item
                     title={t('settingsVoice.preferredLanguage')}
                     subtitle={t('settingsVoice.preferredLanguageSubtitle')}
-                    icon={<Ionicons name="language-outline" size={29} color="#007AFF" />}
+                    icon={<Ionicons name="language-outline" size={29} color={theme.colors.accent} />}
                     detail={getLanguageDisplayName(currentLanguage)}
                     onPress={() => router.push('/settings/voice/language')}
                 />

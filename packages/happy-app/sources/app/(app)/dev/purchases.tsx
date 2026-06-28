@@ -8,9 +8,11 @@ import { storage } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Modal } from '@/modal';
 
 export default function PurchasesDevScreen() {
+    const { theme } = useUnistyles();
     // Get purchases directly from storage
     const purchases = storage(state => state.purchases);
 
@@ -158,8 +160,8 @@ export default function PurchasesDevScreen() {
                         <Item
                             title={isPurchasing ? "Purchasing..." : "Purchase"}
                             icon={isPurchasing ?
-                                <ActivityIndicator size="small" color="#007AFF" /> :
-                                <Ionicons name="card-outline" size={29} color="#007AFF" />
+                                <ActivityIndicator size="small" color={theme.colors.accent} /> :
+                                <Ionicons name="card-outline" size={29} color={theme.colors.accent} />
                             }
                             onPress={handlePurchase}
                             disabled={isPurchasing}
@@ -172,14 +174,14 @@ export default function PurchasesDevScreen() {
                 <ItemGroup title="Actions">
                     <Item
                         title="Refresh Purchases"
-                        icon={<Ionicons name="refresh-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.accent} />}
                         onPress={() => sync.refreshPurchases()}
                     />
                     <Item
                         title={loadingOfferings ? "Loading Offerings..." : "Log Offerings"}
                         icon={loadingOfferings ?
-                            <ActivityIndicator size="small" color="#007AFF" /> :
-                            <Ionicons name="document-text-outline" size={29} color="#007AFF" />
+                            <ActivityIndicator size="small" color={theme.colors.accent} /> :
+                            <Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />
                         }
                         onPress={fetchOfferings}
                         disabled={loadingOfferings}

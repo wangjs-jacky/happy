@@ -1,11 +1,13 @@
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
 
 export default function ListDemoScreen() {
+    const { theme } = useUnistyles();
     const [isEnabled, setIsEnabled] = React.useState(false);
     const [selectedItem, setSelectedItem] = React.useState<string | null>(null);
 
@@ -32,7 +34,7 @@ export default function ListDemoScreen() {
             <ItemGroup title="With Icons">
                 <Item 
                     title="Settings"
-                    icon={<Ionicons name="settings-outline" size={28} color="#007AFF" />}
+                    icon={<Ionicons name="settings-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => {}}
                 />
                 <Item 

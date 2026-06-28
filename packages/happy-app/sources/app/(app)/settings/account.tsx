@@ -334,7 +334,7 @@ export default React.memo(() => {
                         <Item
                             title={t('settingsAccount.linkNewDevice')}
                             subtitle={isConnecting ? t('common.scanning') : t('settingsAccount.linkNewDeviceSubtitle')}
-                            icon={<Ionicons name="qr-code-outline" size={29} color="#007AFF" />}
+                            icon={<Ionicons name="qr-code-outline" size={29} color={theme.colors.accent} />}
                             onPress={connectAccount}
                             disabled={isConnecting}
                             showChevron={false}
@@ -510,7 +510,7 @@ export default React.memo(() => {
                         title="Permission"
                         detail={formatPushPermissionLabel(pushPermission)}
                         subtitle={formatPushPermissionSubtitle(pushPermission)}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.accent} />}
                         loading={loadingPushSettings}
                         showChevron={false}
                     />

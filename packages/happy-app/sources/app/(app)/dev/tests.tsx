@@ -5,6 +5,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { testRunner, TestSuite, TestResult } from '@/dev/testRunner';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 
 // Import all test files here
@@ -20,6 +21,7 @@ interface TestRunState {
 }
 
 export default function TestsScreen() {
+    const { theme } = useUnistyles();
     const [state, setState] = React.useState<TestRunState>({
         running: false,
         results: []
@@ -192,7 +194,7 @@ export default function TestsScreen() {
 
             {state.running && (
                 <View style={{ padding: 32, alignItems: 'center' }}>
-                    <ActivityIndicator size="large" color="#007AFF" />
+                    <ActivityIndicator size="large" color={theme.colors.accent} />
                     <Text style={{ ...Typography.default(), fontSize: 16, color: '#8E8E93', marginTop: 16 }}>
                         Running tests...
                     </Text>

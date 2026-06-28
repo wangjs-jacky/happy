@@ -32,7 +32,7 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
     },
     periodButtonActive: {
-        backgroundColor: '#007AFF',
+        backgroundColor: theme.colors.accent,
     },
     periodText: {
         fontSize: 14,
@@ -101,7 +101,7 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.divider,
     },
     metricButtonActive: {
-        backgroundColor: '#007AFF',
+        backgroundColor: theme.colors.accent,
     },
     metricText: {
         fontSize: 14,
@@ -179,7 +179,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
+                <ActivityIndicator size="large" color={theme.colors.accent} />
             </View>
         );
     }
@@ -272,7 +272,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                 label={model}
                                 value={tokens}
                                 maxValue={maxModelTokens}
-                                color="#007AFF"
+                                color={theme.colors.accent}
                             />
                         ))}
                     </View>

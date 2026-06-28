@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useUnistyles } from 'react-native-unistyles';
 import { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { buildResumeCommand, buildResumeCommandBlock, ResumeCommandBlock } from './resumeCommand';
@@ -20,6 +21,7 @@ export interface SessionStatus {
  * Uses centralized session state from storage.ts
  */
 export function useSessionStatus(session: Session): SessionStatus {
+    const { theme } = useUnistyles();
     const isOnline = session.presence === "online";
     const hasPermissions = (session.agentState?.requests && Object.keys(session.agentState.requests).length > 0 ? true : false);
 
@@ -57,8 +59,8 @@ export function useSessionStatus(session: Session): SessionStatus {
             isConnected: true,
             statusText: vibingMessage,
             shouldShowStatus: true,
-            statusColor: '#007AFF',
-            statusDotColor: '#007AFF',
+            statusColor: theme.colors.accent,
+            statusDotColor: theme.colors.accent,
             isPulsing: true
         };
     }

@@ -109,6 +109,7 @@ function applyAccent(base: typeof lightTheme, a: AccentMode): typeof lightTheme 
                 primary: { ...base.colors.button.primary, background: a.primary, tint: a.onPrimary },
             },
             particle: { primary: a.particleA, accent: a.particleB },
+            accent: a.primary,
         },
     };
 }

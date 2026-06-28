@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -8,6 +9,7 @@ import { Switch } from '@/components/Switch';
 import { t } from '@/text';
 
 export default function FeaturesSettingsScreen() {
+    const { theme } = useUnistyles();
     const [experiments, setExperiments] = useSettingMutable('experiments');
     const [analyticsOptOut, setAnalyticsOptOut] = useSettingMutable('analyticsOptOut');
     const [agentInputEnterToSend, setAgentInputEnterToSend] = useSettingMutable('agentInputEnterToSend');
@@ -148,7 +150,7 @@ export default function FeaturesSettingsScreen() {
                     <Item
                         title={t('settingsFeatures.enterToSend')}
                         subtitle={agentInputEnterToSend ? t('settingsFeatures.enterToSendEnabled') : t('settingsFeatures.enterToSendDisabled')}
-                        icon={<Ionicons name="return-down-forward-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="return-down-forward-outline" size={29} color={theme.colors.accent} />}
                         rightElement={
                             <Switch
                                 value={agentInputEnterToSend}
@@ -160,7 +162,7 @@ export default function FeaturesSettingsScreen() {
                     <Item
                         title={t('settingsFeatures.commandPalette')}
                         subtitle={commandPaletteEnabled ? t('settingsFeatures.commandPaletteEnabled') : t('settingsFeatures.commandPaletteDisabled')}
-                        icon={<Ionicons name="keypad-outline" size={29} color="#007AFF" />}
+                        icon={<Ionicons name="keypad-outline" size={29} color={theme.colors.accent} />}
                         rightElement={
                             <Switch
                                 value={commandPaletteEnabled}

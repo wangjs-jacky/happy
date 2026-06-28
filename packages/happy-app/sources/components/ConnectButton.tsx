@@ -4,9 +4,11 @@ import { RoundButton } from './RoundButton';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { trackConnectAttempt } from '@/track';
 import { Ionicons } from '@expo/vector-icons';
+import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
 export const ConnectButton = React.memo(() => {
+    const { theme } = useUnistyles();
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
     const [manualUrl, setManualUrl] = React.useState('');
     const [showManualEntry, setShowManualEntry] = React.useState(false);
@@ -104,9 +106,9 @@ export const ConnectButton = React.memo(() => {
                             }}
                         >
                             <Ionicons 
-                                name="checkmark-circle" 
-                                size={24} 
-                                color="#007AFF" 
+                                name="checkmark-circle"
+                                size={24}
+                                color={theme.colors.accent}
                             />
                         </TouchableOpacity>
                     </View>
