@@ -439,6 +439,8 @@ export const ru: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Другое…',
+        customOptionPlaceholder: 'Введите ответ…',
         permissionMode: {
             title: 'РЕЖИМ РАЗРЕШЕНИЙ',
             default: 'По умолчанию',

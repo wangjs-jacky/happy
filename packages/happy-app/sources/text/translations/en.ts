@@ -437,6 +437,8 @@ export const en: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Other…',
+        customOptionPlaceholder: 'Type your reply…',
         permissionMode: {
             title: 'PERMISSION MODE',
             default: 'default permissions',

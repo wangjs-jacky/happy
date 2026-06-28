@@ -437,6 +437,8 @@ export const en = {
     },
 
     agentInput: {
+        customOption: 'Other…',
+        customOptionPlaceholder: 'Type your reply…',
         permissionMode: {
             title: 'PERMISSION MODE',
             default: 'default permissions',

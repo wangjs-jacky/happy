@@ -422,6 +422,8 @@ export const pt: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Outro…',
+        customOptionPlaceholder: 'Digite sua resposta…',
         permissionMode: {
             title: 'MODO DE PERMISSÃO',
             default: 'Padrão',

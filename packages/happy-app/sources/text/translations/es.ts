@@ -423,6 +423,8 @@ export const es: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: 'Otro…',
+        customOptionPlaceholder: 'Escribe tu respuesta…',
         permissionMode: {
             title: 'MODO DE PERMISOS',
             default: 'Por defecto',

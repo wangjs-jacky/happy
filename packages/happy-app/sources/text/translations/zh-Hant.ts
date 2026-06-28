@@ -423,6 +423,8 @@ export const zhHant: TranslationStructure = {
     },
 
     agentInput: {
+        customOption: '其他…',
+        customOptionPlaceholder: '輸入你的回覆…',
         permissionMode: {
             title: '權限模式',
             default: '預設',
