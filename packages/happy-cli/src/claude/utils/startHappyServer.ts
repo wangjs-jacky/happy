@@ -152,8 +152,16 @@ function createMcpServer(handlers: HappyMcpHandlers, screenshotTools: ReturnType
             id: z.string().describe('图库里截图的 id（来自 take_screenshot / list_screenshots）'),
         },
     }, async (args) => {
-        const { base64, mimeType } = await screenshotTools.get(args);
-        return { content: [{ type: 'image', data: base64, mimeType }] };
+        // 与 change_title/send_image 一致：捕获错误返回 isError 文本，给 AI 干净的错误而非 HTTP 500
+        try {
+            const { base64, mimeType } = await screenshotTools.get(args);
+            return { content: [{ type: 'image', data: base64, mimeType }] };
+        } catch (error) {
+            return {
+                content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
+                isError: true,
+            };
+        }
     });
 
     mcp.registerTool('list_screenshots', {
@@ -198,8 +206,16 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     // 会话内截图临时缓存：在此 new，单例贯穿整个会话；同时返回出去供 Task 3.1 的会话级 RPC 共享。
     const screenshotStore = new ScreenshotStore();
-    // Task 2.2 在此把 signalNewScreenshot 换成真实的 updateMetadata；本任务先 no-op。
-    const signalNewScreenshot = (_refs: ScreenshotRef[]) => { };
+    // Task 2.2：每次 take 后，把当前所有截图的轻量引用 + 版本号写进 session metadata。
+    // CLI 不能直接 push 给 App，但服务器会把 metadata 更新自动推给 App，App 据此懒拉取（Task 3.1）。
+    // 只写轻量引用（id/来源/备注/时间），不写图片字节——几十条无体积压力。
+    const signalNewScreenshot = (refs: ScreenshotRef[]) => {
+        client.updateMetadata((prev) => ({
+            ...prev,
+            screenshotRefs: refs,
+            screenshotVersion: refs.length, // 计数即版本号，便于 App 检测变化
+        }));
+    };
     const screenshotTools = createScreenshotTools({
         store: screenshotStore,
         capture: captureScreenshot,
