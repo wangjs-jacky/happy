@@ -132,6 +132,18 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/skills"
+                options={{
+                    headerTitle: 'Skills 预览',
+                }}
+            />
+            <Stack.Screen
+                name="settings/skill"
+                options={{
+                    headerTitle: 'Skill',
+                }}
+            />
+            <Stack.Screen
                 name="terminal/connect"
                 options={{
                     headerTitle: t('navigation.connectTerminal'),
