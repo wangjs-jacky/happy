@@ -44,8 +44,7 @@ export async function maybeCleanupWorktree(
     // 2. Check git status for uncommitted changes
     const statusResult = await machineBash(
         machineId,
-        'git status --porcelain',
-        sessionPath,
+        { command: 'git status --porcelain', cwd: sessionPath }
     );
     if (!statusResult.success || statusResult.stdout.trim().length > 0) {
         // Either git failed (not a repo / machine offline) or there are changes → skip
