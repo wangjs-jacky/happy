@@ -426,7 +426,16 @@ function PathPickerContent({
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         </View>
                     ) : (
-                        <OptionListContainer embedded={embedded}>
+                        // Bounded, scrollable list: directory listings can be long, and the
+                        // embedded picker (a plain View) would otherwise clip them with no
+                        // way to scroll. nestedScrollEnabled lets it scroll inside the
+                        // parent ScrollView on Android.
+                        <ScrollView
+                            style={pickerStyles.dirScroll}
+                            contentContainerStyle={pickerStyles.embeddedOptionListContent}
+                            nestedScrollEnabled
+                            keyboardShouldPersistTaps="handled"
+                        >
                             {browseDirs.map((dir) => (
                                 <Pressable
                                     key={dir.path}
@@ -454,7 +463,7 @@ function PathPickerContent({
                                     no sub-folders here
                                 </Text>
                             )}
-                        </OptionListContainer>
+                        </ScrollView>
                     )}
 
                     {/* Confirm the directory we're currently standing in */}
@@ -1713,6 +1722,10 @@ const pickerStyles = {
         paddingVertical: 28,
         alignItems: 'center' as const,
         justifyContent: 'center' as const,
+    } as const,
+    dirScroll: {
+        maxHeight: 300,
+        flexGrow: 0,
     } as const,
     selectButton: {
         flexDirection: 'row' as const,
