@@ -1,0 +1,138 @@
+name: Self-hosted OTA production (on merge to jacky-main)
+
+# 生产 OTA：每当有改动合并进 jacky-main（且命中 packages/happy-app/**），
+# 自动把这次改动以 OTA 形式发到 production 频道，线上正式包（build.paws）冷启动即拉到。
+# 与 ota-preview.yml 互补：preview 在 PR 阶段真机验证，production 在合并后上线。
+#
+# 前提（不满足则本次 OTA 对线上无效，但不会报错）：
+# - 必须是纯 JS 改动（无原生变更）。原生变了应重新出 APK，OTA 推不动。
+# - runtimeVersion 必须仍与线上装机 APK 一致（当前 21，见 app.config.js）。
+#
+# 安全：只在本仓库 push 到 jacky-main 时运行。需在仓库 Secrets 配置
+# ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET（与 preview 共用）。
+
+on:
+  push:
+    branches:
+      - jacky-main
+    paths:
+      - 'packages/happy-app/**'
+      - '.github/workflows/ota-production.yml'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: '发布到哪个频道'
+        required: true
+        default: 'production'
+
+# 生产发布不抢跑：同一时刻只跑一个，且不取消正在进行的发布
+concurrency:
+  group: ota-production-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CHANNEL: ${{ github.event.inputs.channel || 'production' }}
+      ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+      ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+      ALIBABA_CLOUD_REGION_ID: cn-hangzhou
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard - secrets present
+        run: |
+          if [ -z "${ALIBABA_CLOUD_ACCESS_KEY_ID}" ] || [ -z "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" ]; then
+            echo "::error::缺少 ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET secret，无法发布生产 OTA。"
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install aliyun CLI
+        run: |
+          set -e
+          curl -fsSL -o /tmp/aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+          tar -xzf /tmp/aliyun-cli.tgz -C /tmp
+          sudo mv /tmp/aliyun /usr/local/bin/aliyun
+          aliyun version
+          aliyun ossutil --help >/dev/null 2>&1 || { echo "::error::此 aliyun CLI 不含 ossutil 子命令"; exit 1; }
+          aliyun configure set --profile default --mode AK \
+            --access-key-id "$ALIBABA_CLOUD_ACCESS_KEY_ID" \
+            --access-key-secret "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" \
+            --region cn-hangzhou
+
+      - name: Expo export (Android JS bundle)
+        working-directory: packages/happy-app
+        env:
+          APP_ENV: production
+          NODE_ENV: production
+        run: pnpm exec expo export --platform android
+
+      - name: Publish OTA to production channel
+        id: publish
+        working-directory: packages/happy-app
+        run: node scripts/publish-ota.js --channel "${CHANNEL}" --platform android
+
+      - name: Write job summary
+        if: success()
+        run: |
+          {
+            echo "### 🚀 生产 OTA 已发布"
+            echo ""
+            echo "| 字段 | 值 |"
+            echo "| --- | --- |"
+            echo "| Update ID | \`${{ steps.publish.outputs.ota_id }}\` |"
+            echo "| 频道 | \`${{ steps.publish.outputs.ota_channel }}\` |"
+            echo "| runtimeVersion | \`${{ steps.publish.outputs.ota_runtime }}\` |"
+            echo "| 对应 commit | \`${{ steps.publish.outputs.ota_commit }}\` |"
+            echo "| manifest | ${{ steps.publish.outputs.ota_manifest_url }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on merge commit
+        if: ${{ github.event_name == 'push' && success() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const id = `${{ steps.publish.outputs.ota_id }}`;
+            const channel = `${{ steps.publish.outputs.ota_channel }}`;
+            const runtime = `${{ steps.publish.outputs.ota_runtime }}`;
+            const commit = `${{ steps.publish.outputs.ota_commit }}`;
+            const manifest = `${{ steps.publish.outputs.ota_manifest_url }}`;
+            const body = [
+              '### 🚀 生产 OTA 已发布',
+              '',
+              '本次合并已发到自建 OTA 的 `' + channel + '` 频道。装了正式包（build.paws）的设备冷启动即可拉到。',
+              '',
+              '| 字段 | 值 |',
+              '| --- | --- |',
+              '| Update ID | `' + id + '` |',
+              '| 频道 | `' + channel + '` |',
+              '| runtimeVersion | `' + runtime + '` |',
+              '| 对应 commit | `' + (commit || 'n/a') + '` |',
+              '| manifest | ' + manifest + ' |',
+              '',
+              '> 回滚：本机 `cd packages/happy-app && pnpm ota:rollback`。',
+            ].join('\n');
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body,
+            });
