@@ -15,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { hapticsLight } from './haptics';
 
 export interface ItemProps {
     title: string;
@@ -172,10 +173,17 @@ export const Item = React.memo<ItemProps>((props) => {
     const handlePressIn = React.useCallback(() => {
         if (copy && !isWeb && !onPress) {
             longPressTimer.current = setTimeout(() => {
+                hapticsLight();
                 handleCopy();
             }, 500); // 500ms delay for long press
         }
     }, [copy, isWeb, onPress, handleCopy]);
+
+    const handleLongPress = React.useCallback(() => {
+        if (!onLongPress) return;
+        if (!isWeb) hapticsLight();
+        onLongPress();
+    }, [onLongPress, isWeb]);
     
     const handlePressOut = React.useCallback(() => {
         if (longPressTimer.current) {
@@ -289,7 +297,7 @@ export const Item = React.memo<ItemProps>((props) => {
         return (
             <Pressable
                 onPress={handlePress}
-                onLongPress={onLongPress}
+                onLongPress={onLongPress ? handleLongPress : undefined}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
                 disabled={disabled || loading}
