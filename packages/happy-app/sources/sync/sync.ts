@@ -2274,9 +2274,13 @@ class Sync {
                 // 仅当 screenshotVersion 较上次变大时触发，避免每次 update 全量重拉
                 // （hasRemoteId 去重已能兜底重复，但版本判断更省）。落盘+入库是 fire-and-forget，
                 // 不阻塞 metadata 应用；失败逐张吞掉不影响会话。screenshotSync 动态 import 以隔离其依赖。
+                // 跟随 expImageUpload 实验开关：UI（按钮/抽屉/红点）都 gated 在此开关，
+                // 懒拉取也必须 gate，否则开关关闭时仍会下载+落盘 PNG 却无 UI 可见，静默占盘。
+                // sync 是非组件类，用 storage.getState() 同步读取 setting（非 hook）。
+                const expImageUpload = storage.getState().settings.expImageUpload;
                 const prevScreenshotVersion = session.metadata?.screenshotVersion ?? 0;
                 const nextScreenshotVersion = metadata?.screenshotVersion ?? 0;
-                if (metadata?.screenshotRefs && nextScreenshotVersion > prevScreenshotVersion) {
+                if (expImageUpload && metadata?.screenshotRefs && nextScreenshotVersion > prevScreenshotVersion) {
                     const refs = metadata.screenshotRefs;
                     const sessionId = updateData.body.id;
                     import('@/sync/screenshotSync').then(({ syncScreenshotsForSession }) => {
