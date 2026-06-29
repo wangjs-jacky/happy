@@ -113,7 +113,6 @@ export const SidebarNavigator = React.memo(() => {
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.surface }}>
             <Drawer
-                id="root"
                 screenOptions={drawerNavigationOptions}
                 drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
             />

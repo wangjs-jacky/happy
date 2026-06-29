@@ -2,12 +2,12 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { DrawerGestureContext } from 'react-native-drawer-layout';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { getMascotImage, MASCOT_IDS, resolveMascotId } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
-import { useDisableRootDrawerSwipeWhileFocused } from '@/hooks/useDisableRootDrawerSwipeWhileFocused';
 
 //
 // 设置页头部「土拨鼠 logo」滑动切换器
@@ -15,12 +15,16 @@ import { useDisableRootDrawerSwipeWhileFocused } from '@/hooks/useDisableRootDra
 // 在吉祥物图上左右滑动即可切换形象（6 套，两端循环），切换时轻震动反馈。
 // 下方一排小圆点指示当前是第几个。拖拽过程图片跟手平移 + 轻微淡出，松手回弹。
 //
-// 流畅的关键：手机端 Drawer 声明了整屏横滑开合手势，会和这里的横滑争抢。本组件
-// 挂载（即设置页展示土拨鼠）期间，用 useDisableRootDrawerSwipeWhileFocused 临时关掉
-// Drawer 横滑，冲突源头消失，左右滑切换才丝滑；离开设置页自动恢复。
+// 与抽屉手势的争抢——照搬上游表格横滑（HorizontalScrollView，commit #64）的「裁判 Pan」方案：
+// 手机端 Drawer 把 swipeEdgeWidth 设为整屏宽，且其 pan 是「对称激活」
+// （activeOffsetX([-5,5])），左右滑都会被它早早吞掉，普通 Pan 抢不过、发涩。
+// 解法：用 manualActivation 的裁判 Pan，在手指移动满 DECIDE_OFFSET(6px) 时按方向
+// 一次性判定归属——纵向→state.fail() 让位列表滚动；横向→state.activate() 抢占并
+// blocksExternalGesture 压住 Drawer。判定一次定终身（RNGH 不能中途转移已激活手势）。
 //
 
 const SWIPE_THRESHOLD = 36;   // 横向位移超过该值才算一次有效切换
+const DECIDE_OFFSET = 6;      // 手指移动多少 px 后一次性判定手势归属
 const MASCOT_SIZE = 110;
 
 export const MascotSwitcher = React.memo(function MascotSwitcher() {
@@ -28,11 +32,14 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const currentId = resolveMascotId(mascot);
     const currentIndex = MASCOT_IDS.indexOf(currentId);
 
-    // 设置页聚焦期间关掉根 Drawer 的整屏横滑，避免和本组件横滑争抢
-    useDisableRootDrawerSwipeWhileFocused();
+    const drawerPan = React.useContext(DrawerGestureContext);
 
+    // 在手势 worklet（UI 线程）里读写的共享值
     const translateX = useSharedValue(0);
     const opacity = useSharedValue(1);
+    const startX = useSharedValue(0);
+    const startY = useSharedValue(0);
+    const decided = useSharedValue(false);
 
     // 切到相邻吉祥物（dir: +1 下一个 / -1 上一个），两端循环 + 轻震动
     const cycleMascot = React.useCallback((dir: number) => {
@@ -42,8 +49,32 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     }, [currentIndex, setMascot]);
 
     const pan = React.useMemo(() => {
-        return Gesture.Pan()
-            .activeOffsetX([-10, 10])   // 横向超过 10px 才激活；不设 failOffsetY，斜滑也稳
+        const g = Gesture.Pan()
+            .manualActivation(true)
+            .onTouchesDown((e) => {
+                'worklet';
+                const t = e.allTouches[0];
+                if (!t) return;
+                startX.value = t.x;
+                startY.value = t.y;
+                decided.value = false;
+            })
+            .onTouchesMove((e, state) => {
+                'worklet';
+                if (decided.value) return;
+                const t = e.allTouches[0];
+                if (!t) return;
+                const dx = t.x - startX.value;
+                const dy = t.y - startY.value;
+                const adx = Math.abs(dx);
+                const ady = Math.abs(dy);
+                if (adx < DECIDE_OFFSET && ady < DECIDE_OFFSET) return;
+                decided.value = true;
+                // 纵向 → 让位给列表滚动（Drawer 自身靠 failOffsetY 失败）
+                if (ady > adx) { state.fail(); return; }
+                // 横向 → 抢占本手势（onUpdate 起效），并压住 Drawer
+                state.activate();
+            })
             .onUpdate((e) => {
                 translateX.value = e.translationX * 0.55;
                 opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
@@ -55,7 +86,11 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
                 translateX.value = withTiming(0, { duration: 260 });
                 opacity.value = withTiming(1, { duration: 260 });
             });
-    }, [cycleMascot, translateX, opacity]);
+        if (drawerPan) {
+            g.blocksExternalGesture(drawerPan);
+        }
+        return g;
+    }, [cycleMascot, drawerPan, translateX, opacity, startX, startY, decided]);
 
     const animStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }],
