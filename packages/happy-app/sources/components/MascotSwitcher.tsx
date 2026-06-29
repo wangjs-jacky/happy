@@ -1,29 +1,23 @@
 import * as React from 'react';
-import { View } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { DrawerGestureContext } from 'react-native-drawer-layout';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { getMascotImage, MASCOT_IDS, resolveMascotId } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
 
 //
-// 设置页头部「土拨鼠 logo」滑动切换器
+// 设置页头部「土拨鼠 logo」点击切换器
 // ------------------------------------------------------------------
-// 在吉祥物图上左右滑动即可切换形象（6 套，两端循环），切换时轻震动反馈。
+// 点一下土拨鼠就切到下一套形象（6 套，两端循环），切换时轻震动 + 弹一下。
 // 下方一排小圆点指示当前是第几个。
-// - 用 Pan 手势的 activeOffsetX / failOffsetY 限定为横向手势，避免抢占
-//   外层设置列表的纵向滚动。
-// - 拖拽过程中图片跟手平移 + 轻微淡出，松手回弹（reanimated）。
-// - ⚠️ 手机端 Drawer（SidebarNavigator）把 swipeEdgeWidth 设成整屏宽度，
-//   全屏横滑都会被它的 pan 吞掉。这里复用 HorizontalScrollView 的同款解法：
-//   从 DrawerGestureContext 取 Drawer 的 pan，用 blocksExternalGesture 让本组件
-//   的横滑压过 Drawer（Drawer 之外渲染时 drawerPan 为 undefined，不做处理）。
+//
+// 为什么用点击而非滑动：手机端 Drawer（SidebarNavigator）声明了整屏横滑开合
+// 手势，自定义横滑 Pan 与之争抢只能缓解、做不到丝滑（见 git 历史 #55~#57）。
+// 点击不与任何 pan 手势冲突，最稳。
 //
 
-const SWIPE_THRESHOLD = 36;   // 横向位移超过该值才算一次有效切换
 const MASCOT_SIZE = 110;
 
 export const MascotSwitcher = React.memo(function MascotSwitcher() {
@@ -31,53 +25,24 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const currentId = resolveMascotId(mascot);
     const currentIndex = MASCOT_IDS.indexOf(currentId);
 
-    const translateX = useSharedValue(0);
-    const opacity = useSharedValue(1);
+    const scale = useSharedValue(1);
 
-    // Drawer 的 pan（react-native-drawer-layout 引擎）；不在 Drawer 内时为 undefined
-    const drawerPan = React.useContext(DrawerGestureContext);
-
-    // 切到相邻吉祥物（dir: +1 下一个 / -1 上一个），两端循环 + 轻震动
-    const cycleMascot = React.useCallback((dir: number) => {
+    // 点击切到下一个吉祥物（两端循环）+ 轻震动 + 弹一下反馈
+    const cycleMascot = React.useCallback(() => {
         const n = MASCOT_IDS.length;
-        const next = MASCOT_IDS[(currentIndex + dir + n) % n];
-        setMascot(next);
+        setMascot(MASCOT_IDS[(currentIndex + 1) % n]);
         hapticsLight();
-    }, [currentIndex, setMascot]);
+        scale.value = withSequence(
+            withTiming(0.88, { duration: 90 }),
+            withTiming(1, { duration: 170 }),
+        );
+    }, [currentIndex, setMascot, scale]);
 
-    const pan = React.useMemo(() => {
-        const g = Gesture.Pan()
-            .activeOffsetX([-10, 10])   // 横向超过 10px 才激活手势
-            // 不设 failOffsetY：若纵向先超阈值就让手势 fail，blocksExternalGesture 会
-            // 立即放行 Drawer 把侧边栏弹出（土拨鼠很小，斜向滑几乎必带纵向漂移）。
-            // 去掉后横滑/斜滑都能稳稳激活并全程压住 Drawer；纯纵向拖动时本手势不达
-            // activeOffsetX、不激活，列表照常滚动。
-            .onUpdate((e) => {
-                translateX.value = e.translationX * 0.55;
-                opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
-            })
-            .onEnd((e) => {
-                if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
-                    runOnJS(cycleMascot)(e.translationX < 0 ? 1 : -1);   // 左滑下一个，右滑上一个
-                }
-                translateX.value = withTiming(0, { duration: 260 });
-                opacity.value = withTiming(1, { duration: 260 });
-            });
-        // 在 Drawer 内时，让本组件横滑压过 Drawer 的全屏开合手势
-        if (drawerPan) {
-            g.blocksExternalGesture(drawerPan);
-        }
-        return g;
-    }, [cycleMascot, drawerPan, translateX, opacity]);
-
-    const animStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: translateX.value }],
-        opacity: opacity.value,
-    }));
+    const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
     return (
         <View style={styles.container}>
-            <GestureDetector gesture={pan}>
+            <Pressable onPress={cycleMascot} hitSlop={8}>
                 <Animated.View style={animStyle}>
                     <Image
                         source={getMascotImage(currentId)}
@@ -85,7 +50,7 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
                         style={{ width: MASCOT_SIZE, height: MASCOT_SIZE }}
                     />
                 </Animated.View>
-            </GestureDetector>
+            </Pressable>
             <View style={styles.dots}>
                 {MASCOT_IDS.map((id, i) => (
                     <View key={id} style={[styles.dot, i === currentIndex ? styles.dotActive : null]} />
