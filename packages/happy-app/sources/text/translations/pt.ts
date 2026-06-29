@@ -1044,6 +1044,11 @@ export const pt: TranslationStructure = {
         clearOverrides: "Limpar substituições",
         clearOverridesSubtitle: "Retornar todos os agentes aos padrões do código",
         useCodeDefault: "Usar padrão do código",
+        none: "Nenhum",
+        defaultValue: ({ value }: { value: string }) => `Padrão (${value})`,
+        fieldPermission: "Permissões",
+        fieldModel: "Modelo",
+        fieldEffort: "Esforço",
     },
 
     featuresInterface: {

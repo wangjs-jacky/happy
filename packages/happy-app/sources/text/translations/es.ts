@@ -1046,6 +1046,11 @@ export const es: TranslationStructure = {
         clearOverrides: "Borrar anulaciones",
         clearOverridesSubtitle: "Devolver cada agente a los valores predeterminados del código",
         useCodeDefault: "Usar valor predeterminado del código",
+        none: "Ninguno",
+        defaultValue: ({ value }: { value: string }) => `Predeterminado (${value})`,
+        fieldPermission: "Permisos",
+        fieldModel: "Modelo",
+        fieldEffort: "Esfuerzo",
     },
 
     featuresInterface: {

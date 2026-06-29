@@ -1046,6 +1046,11 @@ export const zhHans: TranslationStructure = {
         clearOverrides: "清除覆盖项",
         clearOverridesSubtitle: "将每个智能体恢复为代码默认值",
         useCodeDefault: "使用代码默认值",
+        none: "无",
+        defaultValue: ({ value }: { value: string }) => `默认（${value}）`,
+        fieldPermission: "权限",
+        fieldModel: "模型",
+        fieldEffort: "推理强度",
     },
 
     featuresInterface: {

@@ -1045,6 +1045,11 @@ export const ca: TranslationStructure = {
         clearOverrides: "Esborra les substitucions",
         clearOverridesSubtitle: "Torna cada agent als valors predeterminats del codi",
         useCodeDefault: "Usa el valor predeterminat del codi",
+        none: "Cap",
+        defaultValue: ({ value }: { value: string }) => `Per defecte (${value})`,
+        fieldPermission: "Permisos",
+        fieldModel: "Model",
+        fieldEffort: "Esforç",
     },
 
     featuresInterface: {

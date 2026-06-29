@@ -1074,6 +1074,11 @@ export const ru: TranslationStructure = {
         clearOverrides: "Сбросить переопределения",
         clearOverridesSubtitle: "Вернуть все агенты к значениям по умолчанию из кода",
         useCodeDefault: "Использовать значение по умолчанию из кода",
+        none: "Нет",
+        defaultValue: ({ value }: { value: string }) => `По умолчанию (${value})`,
+        fieldPermission: "Разрешения",
+        fieldModel: "Модель",
+        fieldEffort: "Усилие",
     },
 
     featuresInterface: {

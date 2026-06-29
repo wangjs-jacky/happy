@@ -1045,6 +1045,11 @@ export const zhHant: TranslationStructure = {
         clearOverrides: "清除覆寫項",
         clearOverridesSubtitle: "將每個代理還原為程式碼預設值",
         useCodeDefault: "使用程式碼預設值",
+        none: "無",
+        defaultValue: ({ value }: { value: string }) => `預設（${value}）`,
+        fieldPermission: "權限",
+        fieldModel: "模型",
+        fieldEffort: "推理強度",
     },
 
     featuresInterface: {

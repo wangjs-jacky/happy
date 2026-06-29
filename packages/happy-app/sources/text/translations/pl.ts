@@ -1075,6 +1075,11 @@ export const pl: TranslationStructure = {
         clearOverrides: "Wyczyść nadpisania",
         clearOverridesSubtitle: "Przywróć każdego agenta do domyślnych ustawień z kodu",
         useCodeDefault: "Użyj domyślnych z kodu",
+        none: "Brak",
+        defaultValue: ({ value }: { value: string }) => `Domyślnie (${value})`,
+        fieldPermission: "Uprawnienia",
+        fieldModel: "Model",
+        fieldEffort: "Wysiłek",
     },
 
     featuresInterface: {

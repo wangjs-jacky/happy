@@ -1047,6 +1047,11 @@ export const ja: TranslationStructure = {
         clearOverrides: "上書き設定をクリア",
         clearOverridesSubtitle: "すべてのエージェントをコードの既定値に戻す",
         useCodeDefault: "コードの既定値を使用",
+        none: "なし",
+        defaultValue: ({ value }: { value: string }) => `デフォルト（${value}）`,
+        fieldPermission: "権限",
+        fieldModel: "モデル",
+        fieldEffort: "労力",
     },
 
     featuresInterface: {

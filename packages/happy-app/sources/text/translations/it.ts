@@ -1044,6 +1044,11 @@ export const it: TranslationStructure = {
         clearOverrides: "Cancella override",
         clearOverridesSubtitle: "Riporta ogni agente ai valori predefiniti del codice",
         useCodeDefault: "Usa valore predefinito del codice",
+        none: "Nessuno",
+        defaultValue: ({ value }: { value: string }) => `Predefinito (${value})`,
+        fieldPermission: "Autorizzazioni",
+        fieldModel: "Modello",
+        fieldEffort: "Impegno",
     },
 
     featuresInterface: {

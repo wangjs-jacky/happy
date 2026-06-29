@@ -1060,6 +1060,11 @@ export const en: TranslationStructure = {
         clearOverrides: "Clear Overrides",
         clearOverridesSubtitle: "Return every agent to code defaults",
         useCodeDefault: "Use code default",
+        none: "None",
+        defaultValue: ({ value }: { value: string }) => `Default (${value})`,
+        fieldPermission: "Permission",
+        fieldModel: "Model",
+        fieldEffort: "Effort",
     },
 
     featuresInterface: {
