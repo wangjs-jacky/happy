@@ -47,8 +47,11 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
 
     const pan = React.useMemo(() => {
         const g = Gesture.Pan()
-            .activeOffsetX([-12, 12])   // 横向超过 12px 才激活手势
-            .failOffsetY([-16, 16])     // 纵向先动则放弃，交还给列表滚动
+            .activeOffsetX([-10, 10])   // 横向超过 10px 才激活手势
+            // 不设 failOffsetY：若纵向先超阈值就让手势 fail，blocksExternalGesture 会
+            // 立即放行 Drawer 把侧边栏弹出（土拨鼠很小，斜向滑几乎必带纵向漂移）。
+            // 去掉后横滑/斜滑都能稳稳激活并全程压住 Drawer；纯纵向拖动时本手势不达
+            // activeOffsetX、不激活，列表照常滚动。
             .onUpdate((e) => {
                 translateX.value = e.translationX * 0.55;
                 opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
