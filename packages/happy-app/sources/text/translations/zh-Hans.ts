@@ -160,6 +160,16 @@ export const zhHans: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: '吉祥物',
+        mascotDescription: '选择主屏迎接你的土拨鼠形象',
+        mascotOptions: {
+            hoodie: '极客',
+            explorer: '探险家',
+            astro: '宇航员',
+            barista: '咖啡师',
+            ninja: '忍者',
+            scientist: '科学家',
+        },
         // Appearance settings screen
         theme: '主题',
         themeDescription: '选择您喜欢的配色方案',
