@@ -186,12 +186,12 @@ export type SpawnSessionResult =
  */
 export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string, screenshotStore?: ScreenshotStore) {
 
-    // 手动截屏 handler（注册名为 'screenshot' 的 RPC，App 截屏按钮走这里）
-    registerScreenshotHandler(rpcHandlerManager);
-
-    // 按 id 懒拉取 AI 截图字节（与 MCP take 工具共享同一个 ScreenshotStore）。
-    // 仅会话级（ApiSessionClient）有 store；机器级（apiMachine）无带外图库，跳过。
+    // 截图相关 handler 只在会话级注册：机器级（apiMachine）调用本函数时不传
+    // screenshotStore，没有带外图库，注册了也永不会被调用，故统一 gate 在此条件下。
+    // - 'screenshot'：手动截屏（App 截屏按钮走这里，自身不依赖 store）
+    // - 'getScreenshotById'：按 id 懒拉取 AI 截图字节（与 MCP take 工具共享同一 store）
     if (screenshotStore) {
+        registerScreenshotHandler(rpcHandlerManager);
         registerGetScreenshotByIdHandler(rpcHandlerManager, screenshotStore);
     }
 
