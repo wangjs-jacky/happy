@@ -2,6 +2,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { DrawerGestureContext } from 'react-native-drawer-layout';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
@@ -16,6 +17,10 @@ import { hapticsLight } from '@/components/haptics';
 // - 用 Pan 手势的 activeOffsetX / failOffsetY 限定为横向手势，避免抢占
 //   外层设置列表的纵向滚动。
 // - 拖拽过程中图片跟手平移 + 轻微淡出，松手回弹（reanimated）。
+// - ⚠️ 手机端 Drawer（SidebarNavigator）把 swipeEdgeWidth 设成整屏宽度，
+//   全屏横滑都会被它的 pan 吞掉。这里复用 HorizontalScrollView 的同款解法：
+//   从 DrawerGestureContext 取 Drawer 的 pan，用 blocksExternalGesture 让本组件
+//   的横滑压过 Drawer（Drawer 之外渲染时 drawerPan 为 undefined，不做处理）。
 //
 
 const SWIPE_THRESHOLD = 36;   // 横向位移超过该值才算一次有效切换
@@ -29,6 +34,9 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const translateX = useSharedValue(0);
     const opacity = useSharedValue(1);
 
+    // Drawer 的 pan（react-native-drawer-layout 引擎）；不在 Drawer 内时为 undefined
+    const drawerPan = React.useContext(DrawerGestureContext);
+
     // 切到相邻吉祥物（dir: +1 下一个 / -1 上一个），两端循环 + 轻震动
     const cycleMascot = React.useCallback((dir: number) => {
         const n = MASCOT_IDS.length;
@@ -37,20 +45,27 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
         hapticsLight();
     }, [currentIndex, setMascot]);
 
-    const pan = Gesture.Pan()
-        .activeOffsetX([-12, 12])   // 横向超过 12px 才激活手势
-        .failOffsetY([-16, 16])     // 纵向先动则放弃，交还给列表滚动
-        .onUpdate((e) => {
-            translateX.value = e.translationX * 0.55;
-            opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
-        })
-        .onEnd((e) => {
-            if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
-                runOnJS(cycleMascot)(e.translationX < 0 ? 1 : -1);   // 左滑下一个，右滑上一个
-            }
-            translateX.value = withTiming(0, { duration: 260 });
-            opacity.value = withTiming(1, { duration: 260 });
-        });
+    const pan = React.useMemo(() => {
+        const g = Gesture.Pan()
+            .activeOffsetX([-12, 12])   // 横向超过 12px 才激活手势
+            .failOffsetY([-16, 16])     // 纵向先动则放弃，交还给列表滚动
+            .onUpdate((e) => {
+                translateX.value = e.translationX * 0.55;
+                opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
+            })
+            .onEnd((e) => {
+                if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
+                    runOnJS(cycleMascot)(e.translationX < 0 ? 1 : -1);   // 左滑下一个，右滑上一个
+                }
+                translateX.value = withTiming(0, { duration: 260 });
+                opacity.value = withTiming(1, { duration: 260 });
+            });
+        // 在 Drawer 内时，让本组件横滑压过 Drawer 的全屏开合手势
+        if (drawerPan) {
+            g.blocksExternalGesture(drawerPan);
+        }
+        return g;
+    }, [cycleMascot, drawerPan, translateX, opacity]);
 
     const animStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }],
