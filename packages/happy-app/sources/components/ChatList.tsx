@@ -468,10 +468,9 @@ function isCollapsibleDisplayItem(item: DisplayItem): item is ToolGroupItem | Ex
 const styles = StyleSheet.create((theme) => ({
     scrollButtonContainer: {
         position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 12,
-        alignItems: 'center',
+        right: 16,
+        bottom: 16,
+        alignItems: 'flex-end',
         justifyContent: 'center',
         pointerEvents: 'box-none',
     },
@@ -499,10 +498,11 @@ const styles = StyleSheet.create((theme) => ({
     },
     anchorPillContainer: {
         position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 56,
-        alignItems: 'center',
+        right: 16,
+        // Sits just above the scroll-to-bottom button (16 + 32 height + 12 gap)
+        // so the two stack neatly in the bottom-right corner.
+        bottom: 60,
+        alignItems: 'flex-end',
         justifyContent: 'center',
         pointerEvents: 'box-none',
     },
