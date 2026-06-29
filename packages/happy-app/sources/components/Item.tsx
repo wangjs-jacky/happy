@@ -181,9 +181,9 @@ export const Item = React.memo<ItemProps>((props) => {
 
     const handleLongPress = React.useCallback(() => {
         if (!onLongPress) return;
-        if (!isWeb) hapticsLight();
+        hapticsLight();
         onLongPress();
-    }, [onLongPress, isWeb]);
+    }, [onLongPress]);
     
     const handlePressOut = React.useCallback(() => {
         if (longPressTimer.current) {
