@@ -29,7 +29,8 @@ import { disconnectService } from '@/sync/apiServices';
 import { useProfile } from '@/sync/storage';
 import { getDisplayName, getAvatarUrl, getBio } from '@/sync/profile';
 import { Avatar } from '@/components/Avatar';
-import { t } from '@/text';
+import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
+import * as Localization from 'expo-localization';
 
 type BuildConfig = {
     buildCommitSha?: unknown;
@@ -86,6 +87,29 @@ export const SettingsView = React.memo(function SettingsView() {
     const versionSubtitle = formatBuildSubtitle(getBuildConfig());
     const auth = useAuth();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
+    // 「通用」分组：主题/语言入口右侧展示的当前值（响应式，改完返回即更新）
+    const [themePreference] = useLocalSettingMutable('themePreference');
+    const preferredLanguage = useSetting('preferredLanguage');
+    const themeDetailText = themePreference === 'light'
+        ? t('settingsAppearance.themeOptions.light')
+        : themePreference === 'dark'
+            ? t('settingsAppearance.themeOptions.dark')
+            : t('settingsAppearance.themeOptions.adaptive');
+    // 语言显示文本：与 settings/appearance.tsx 的 getLanguageDisplayText 逻辑一致
+    const languageDetailText = React.useMemo(() => {
+        if (preferredLanguage === null || preferredLanguage === undefined) {
+            const deviceLocale = Localization.getLocales()?.[0]?.languageTag ?? 'en-US';
+            const deviceLanguage = deviceLocale.split('-')[0].toLowerCase();
+            const detectedLanguageName = deviceLanguage in SUPPORTED_LANGUAGES
+                ? getLanguageNativeName(deviceLanguage as keyof typeof SUPPORTED_LANGUAGES)
+                : getLanguageNativeName('en');
+            return `${t('settingsLanguage.automatic')} (${detectedLanguageName})`;
+        }
+        if (preferredLanguage in SUPPORTED_LANGUAGES) {
+            return getLanguageNativeName(preferredLanguage as keyof typeof SUPPORTED_LANGUAGES);
+        }
+        return t('settingsLanguage.automatic');
+    }, [preferredLanguage]);
     const isPro = __DEV__ || useEntitlement('pro');
     const experiments = useSetting('experiments');
     const isCustomServer = isUsingCustomServer();
@@ -285,6 +309,22 @@ export const SettingsView = React.memo(function SettingsView() {
                 </ItemGroup>
             )}
 
+            {/* General — 主题/语言入口（照图3，列表行 + 右侧当前值） */}
+            <ItemGroup title={t('settings.general')}>
+                <Item
+                    title={t('settings.theme')}
+                    icon={<Ionicons name="contrast-outline" size={29} color={theme.colors.status.connecting} />}
+                    detail={themeDetailText}
+                    onPress={() => router.push('/settings/appearance')}
+                />
+                <Item
+                    title={t('settings.language')}
+                    icon={<Ionicons name="language-outline" size={29} color={theme.colors.accent} />}
+                    detail={languageDetailText}
+                    onPress={() => router.push('/settings/language')}
+                />
+            </ItemGroup>
+
             <ItemGroup title={t('settings.connectedAccounts')}>
                 <Item
                     title="Claude Code"
@@ -393,12 +433,6 @@ export const SettingsView = React.memo(function SettingsView() {
                     subtitle={t('settings.accountSubtitle')}
                     icon={<Ionicons name="person-circle-outline" size={29} color={theme.colors.accent} />}
                     onPress={() => router.push('/settings/account')}
-                />
-                <Item
-                    title={t('settings.appearance')}
-                    subtitle={t('settings.appearanceSubtitle')}
-                    icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
-                    onPress={() => router.push('/settings/appearance')}
                 />
                 <Item
                     title={t('settings.voiceAssistant')}
