@@ -34,6 +34,7 @@ export default function AppearanceSettingsScreen() {
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [themePack, setThemePack] = useLocalSettingMutable('themePack');
     const [mascot, setMascot] = useLocalSettingMutable('mascot');
+    const [hapticFeedbackEnabled, setHapticFeedbackEnabled] = useLocalSettingMutable('hapticFeedbackEnabled');
 
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
@@ -167,6 +168,17 @@ export default function AppearanceSettingsScreen() {
                         <Switch
                             value={expandTodos}
                             onValueChange={setExpandTodos}
+                        />
+                    }
+                />
+                <Item
+                    title={t('settingsAppearance.hapticFeedback')}
+                    subtitle={t('settingsAppearance.hapticFeedbackDescription')}
+                    icon={<Ionicons name="phone-portrait-outline" size={29} color="#5856D6" />}
+                    rightElement={
+                        <Switch
+                            value={hapticFeedbackEnabled}
+                            onValueChange={setHapticFeedbackEnabled}
                         />
                     }
                 />

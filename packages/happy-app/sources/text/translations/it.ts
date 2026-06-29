@@ -207,6 +207,8 @@ export const it: TranslationStructure = {
         inlineToolCallsDescription: 'Mostra le chiamate agli strumenti direttamente nei messaggi di chat',
         expandTodoLists: 'Espandi liste di attività',
         expandTodoListsDescription: 'Mostra tutte le attività invece dei soli cambiamenti',
+        hapticFeedback: 'Haptic Feedback',
+        hapticFeedbackDescription: 'Vibrate on swipes, long-press and toggles',
         showLineNumbersInDiffs: 'Mostra numeri di riga nelle differenze',
         showLineNumbersInDiffsDescription: 'Mostra i numeri di riga nei diff del codice',
         showLineNumbersInToolViews: 'Mostra numeri di riga nelle viste strumenti',

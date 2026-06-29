@@ -209,6 +209,8 @@ export const zhHant: TranslationStructure = {
         inlineToolCallsDescription: '在聊天訊息中直接顯示工具呼叫',
         expandTodoLists: '展開待辦清單',
         expandTodoListsDescription: '顯示所有待辦事項而不僅僅是變更',
+        hapticFeedback: 'Haptic Feedback',
+        hapticFeedbackDescription: 'Vibrate on swipes, long-press and toggles',
         showLineNumbersInDiffs: '在差異中顯示行號',
         showLineNumbersInDiffsDescription: '在程式碼差異中顯示行號',
         showLineNumbersInToolViews: '在工具檢視中顯示行號',

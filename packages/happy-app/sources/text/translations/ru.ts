@@ -195,6 +195,8 @@ export const ru: TranslationStructure = {
         inlineToolCallsDescription: 'Отображать вызовы инструментов прямо в сообщениях чата',
         expandTodoLists: 'Развернуть списки задач',
         expandTodoListsDescription: 'Показывать все задачи вместо только изменений',
+        hapticFeedback: 'Haptic Feedback',
+        hapticFeedbackDescription: 'Vibrate on swipes, long-press and toggles',
         showLineNumbersInDiffs: 'Показывать номера строк в различиях',
         showLineNumbersInDiffsDescription: 'Отображать номера строк в различиях кода',
         showLineNumbersInToolViews: 'Показывать номера строк в представлениях инструментов',

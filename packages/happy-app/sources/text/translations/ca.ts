@@ -209,6 +209,8 @@ export const ca: TranslationStructure = {
         inlineToolCallsDescription: 'Mostra les crides d\'eines directament als missatges de xat',
         expandTodoLists: 'Expandeix les llistes de tasques',
         expandTodoListsDescription: 'Mostra totes les tasques en lloc de només els canvis',
+        hapticFeedback: 'Haptic Feedback',
+        hapticFeedbackDescription: 'Vibrate on swipes, long-press and toggles',
         showLineNumbersInDiffs: 'Mostra els números de línia a les diferències',
         showLineNumbersInDiffsDescription: 'Mostra els números de línia a les diferències de codi',
         showLineNumbersInToolViews: 'Mostra els números de línia a les vistes d\'eines',
