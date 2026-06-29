@@ -13,7 +13,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
+import { useProfile, useAllMachines } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -73,11 +73,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         worktreeKey: s.worktreeKey,
     })));
 
-    // Inline image attachments (claude-only, behind the expImageUpload flag) — same
-    // gating and picker as /new, so the home can attach without bouncing to the
-    // full composer. The compact horizontal strip keeps the footprint to one row.
-    const expImageUpload = useSetting('expImageUpload');
-    const canAttach = expImageUpload && agentType === 'claude';
+    // Inline image attachments (claude-only). 图片上传已转正：Claude 会话默认显示图片按钮，
+    // 不再依赖实验开关。compact horizontal strip keeps the footprint to one row.
+    const canAttach = agentType === 'claude';
     const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
 
