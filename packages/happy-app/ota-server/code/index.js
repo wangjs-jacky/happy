@@ -3,24 +3,12 @@
 // 收到 App 的检查请求 → 从 OSS 读 manifest → 按 multipart/mixed 协议回应。
 
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 
 // ============ 配置区 ============
 const OSS_PUBLIC_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
 const BOUNDARY = 'expoupdatesboundaryhappyota20260626'; // 任意唯一串
 const PORT = process.env.FC_SERVER_PORT || 9000;
 // ===============================
-
-// 版本浏览站 HTML（与 ota-server/site/index.html 同源，部署时一并打进 code/）。
-// 由 FC 直接内联吐出 —— 阿里云 OSS 标准域名对 HTML 强制下载（反钓鱼，改不了），
-// 而 FC 完全掌控响应头，可正常渲染；且 fcapp.run 域名国内可访问、App 已在用。
-let SITE_HTML = '';
-try {
-  SITE_HTML = fs.readFileSync(path.join(__dirname, 'site.html'), 'utf8');
-} catch (e) {
-  SITE_HTML = '<!doctype html><meta charset="utf-8"><title>OTA</title><p>site.html 未打包</p>';
-}
 
 // 组装 multipart/mixed 回应体（行尾必须 \r\n）
 function buildMultipart(partName, jsonObj) {
@@ -63,21 +51,10 @@ const server = http.createServer(async (req, res) => {
     const h = req.headers; // FC/Node 里请求头都是小写
     const runtimeVersion = h['expo-runtime-version'] || '';
 
-    // 没有 expo-runtime-version → 不是 expo-updates 客户端，按「浏览器访问」处理：
-    //   - /health → 纯文本健康检查（保留旧排查入口）
-    //   - 其余（含 /）→ 内联渲染版本浏览站 HTML
+    // 没有 expo-runtime-version → 视为健康检查 / 浏览器直访，回 200 便于排查
     if (!runtimeVersion) {
-      const url = req.url || '/';
-      if (url.startsWith('/health')) {
-        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('happy-ota-server ok');
-        return;
-      }
-      res.writeHead(200, {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-cache',
-      });
-      res.end(SITE_HTML);
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('happy-ota-server ok');
       return;
     }
 
