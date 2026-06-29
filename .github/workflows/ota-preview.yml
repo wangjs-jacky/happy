@@ -1,0 +1,155 @@
+name: Self-hosted OTA preview (per PR)
+
+# 给开发预览用的 OTA：PR 一开/更新就把这次改动以 OTA 形式发到「preview 频道」，
+# 装了 preview 包的开发者冷启动即可在真机上看效果；确认没问题再合并 PR。
+# 生产用户走 production 频道，完全不受影响。
+#
+# 触发与安全：
+# - 只在「同仓库分支」的 PR 上运行（协作者把分支推到本仓库）。来自 fork 的 PR 拿不到
+#   仓库 secret，会自动跳过（见各 job 的 if 守卫），避免泄露阿里云 AccessKey。
+# - 需要在仓库 Settings → Secrets 配置：
+#     ALIYUN_OSS_ACCESS_KEY_ID      —— 仅对 OSS 桶 happy-app-ota-jacky 有读写权限的子账号 AK
+#     ALIYUN_OSS_ACCESS_KEY_SECRET  —— 对应 SK
+#   强烈建议用「只授权该桶」的 RAM 子账号，最小权限。
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+        branches:
+            - jacky-main
+        paths:
+            - 'packages/happy-app/**'
+            - '.github/workflows/ota-preview.yml'
+    workflow_dispatch:
+        inputs:
+            channel:
+                description: '发布到哪个频道'
+                required: true
+                default: 'preview'
+
+# 同一个 PR 后续推送会取消上一次未完成的预览发布，避免抢跑覆盖
+concurrency:
+    group: ota-preview-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    publish-preview:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        # fork PR（head 仓库 != 本仓库）没有 secret，跳过；手动触发恒运行
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            github.event.pull_request.head.repo.full_name == github.repository
+        env:
+            CHANNEL: ${{ github.event.inputs.channel || 'preview' }}
+            # aliyun CLI 统一凭证链识别的环境变量（无需再写 ~/.aliyun/config.json）
+            ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+            ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+            ALIBABA_CLOUD_REGION_ID: cn-hangzhou
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Guard - secrets present
+              run: |
+                  if [ -z "${ALIBABA_CLOUD_ACCESS_KEY_ID}" ] || [ -z "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" ]; then
+                    echo "::error::缺少 ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET secret，无法发布 OTA 预览。"
+                    exit 1
+                  fi
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install aliyun CLI (含 ossutil 子命令)
+              run: |
+                  set -e
+                  # 阿里云官方 CDN 的 latest 稳定直链，免 GitHub API、无限流
+                  curl -fsSL -o /tmp/aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+                  tar -xzf /tmp/aliyun-cli.tgz -C /tmp
+                  sudo mv /tmp/aliyun /usr/local/bin/aliyun
+                  aliyun version
+                  # 自检 ossutil 子命令存在（发布脚本依赖 `aliyun ossutil`）
+                  aliyun ossutil --help >/dev/null 2>&1 || { echo "::error::此 aliyun CLI 不含 ossutil 子命令"; exit 1; }
+                  # 写一份默认 profile，作为 env 凭证之外的兜底
+                  aliyun configure set --profile default --mode AK \
+                    --access-key-id "$ALIBABA_CLOUD_ACCESS_KEY_ID" \
+                    --access-key-secret "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" \
+                    --region cn-hangzhou
+
+            - name: Expo export (Android JS bundle)
+              working-directory: packages/happy-app
+              env:
+                  APP_ENV: preview
+                  NODE_ENV: production
+              run: pnpm exec expo export --platform android
+
+            - name: Publish OTA to preview channel
+              id: publish
+              working-directory: packages/happy-app
+              run: node scripts/publish-ota.js --channel "${CHANNEL}" --platform android
+
+            - name: Comment preview result on PR
+              if: ${{ github.event_name == 'pull_request' && success() }}
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const id = `${{ steps.publish.outputs.ota_id }}`;
+                      const channel = `${{ steps.publish.outputs.ota_channel }}`;
+                      const runtime = `${{ steps.publish.outputs.ota_runtime }}`;
+                      const commit = `${{ steps.publish.outputs.ota_commit }}`;
+                      const body = [
+                        '### 📲 预览 OTA 已发布',
+                        '',
+                        '这次改动已发到自建 OTA 的 **`' + channel + '`** 频道。装了 **preview 包**的设备：',
+                        '',
+                        '1. 完全杀掉 App 再冷启动（必要时连开两次）',
+                        '2. 等「有可用更新」横幅 → 点它重载，即可在真机上预览本次改动',
+                        '',
+                        '| 字段 | 值 |',
+                        '| --- | --- |',
+                        '| Update ID | `' + id + '` |',
+                        '| 频道 | `' + channel + '` |',
+                        '| runtimeVersion | `' + runtime + '`（须与装机 APK 一致） |',
+                        '| 对应 commit | `' + (commit || 'n/a') + '` |',
+                        '',
+                        '> 验证方法：设置 → 连点版本号解锁开发者模式 → /dev → Expo Constants，确认 Update ID 一致。',
+                        '> 预览没问题后即可合并本 PR；生产用户走 `production` 频道，不受影响。',
+                      ].join('\n');
+
+                      // 复用同一条评论（避免每次 push 刷屏）：找带标记的旧评论就更新，否则新建
+                      const marker = '<!-- ota-preview-bot -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body && c.body.includes(marker));
+                      const fullBody = marker + '\n' + body;
+                      if (existing) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existing.id,
+                          body: fullBody,
+                        });
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: fullBody,
+                        });
+                      }

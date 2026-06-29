@@ -181,29 +181,38 @@ gh release create "$TAG" --repo wangjs-jacky/happy \
 
 - 自建 OTA 把 `expo export` 的产物上传到**阿里云 OSS 桶 `happy-app-ota-jacky`**（`oss-cn-hangzhou`），脚本 `scripts/publish-ota.js`。
 - 当前只发 **Android、`runtimeVersion: 21`**（见 `app.config.js`）。**runtimeVersion 必须和装机 APK 完全一致**，否则该机器永远跳过这次更新。
-- App 端 `updates.url` 指向 FC 服务 `happy-oa-server-...fcapp.run`（`expo-channel-name: production`），它读 OSS 的 `latest.json` 下发；改这个 url 必须重新构建装机才生效。
+- **频道（channel）分流**：App 端 `updates.url` 指向 FC 服务 `happy-oa-server-...fcapp.run`，请求头 `expo-channel-name` **按构建变体注入**（`app.config.js` 的 `otaChannel` 映射）：
+  - **dev / preview 包 → `preview` 频道**（给开发在真机预览 PR）
+  - **production 包 → `production` 频道**（线上正式用户）
+  - FC 服务按该频道头取 `manifests/<platform>/<runtime>/<channel>/latest.json`；production 频道在新路径未命中时回退到旧的无 channel 路径（存量用户无感）。改 url / 频道映射都必须重新构建装机才生效。
 - 凭证复用本机 `aliyun configure` 的默认 profile（`~/.aliyun/config.json`），脚本用 `aliyun ossutil` 上传，无需环境变量里写 AccessKey。
 
 ### 发布
 
 ```bash
 cd packages/happy-app
-pnpm ota:selfhost   # = expo export --platform android && node scripts/publish-ota.js
+pnpm ota:selfhost            # 发到 production 频道（= node scripts/publish-ota.js，缺省 production）
+pnpm ota:selfhost:preview    # 发到 preview 频道（= ... --channel preview，仅 preview 包能拉到）
+# 也可手动指定：node scripts/publish-ota.js --channel <channel> --platform <android|ios>
 ```
 
+- **PR 预览自动化**：协作者把分支推到本仓库并对 `jacky-main` 提 PR 后，`.github/workflows/ota-preview.yml`
+  会自动 `expo export` + 发到 `preview` 频道，并在 PR 上评论 Update ID 与验证步骤。开发用 preview 包真机预览，
+  确认无误再合并。需在仓库 Secrets 配 `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET`（建议用只授权该桶的 RAM 子账号）。fork 来的 PR 因拿不到 secret 会自动跳过。
 - 建议**先在功能分支提交一次再发**，让发出去的包对得上一个明确 commit。
-- 发布成功会打印「新版本 id」（UUID）与 manifest 地址。OSS 上版本结构：
-  - `manifests/android/21/latest.json` —— 当前线上指针（每次覆盖）
-  - `manifests/android/21/<毫秒时间戳>.json` —— 每次发布留的历史备份（JS 包从不删，故任意历史版本可回滚）
+- 发布成功会打印「频道 / 新版本 id（UUID）/ manifest 地址」。OSS 上版本结构（按频道分层）：
+  - `manifests/android/21/<channel>/latest.json` —— 该频道当前线上指针（每次覆盖）
+  - `manifests/android/21/<channel>/<毫秒时间戳>.json` —— 每次发布留的历史备份（JS 包从不删，故任意历史版本可回滚）
 
 ### 列出全部 OTA 版本 / 看当前线上
 
 ```bash
-aliyun ossutil ls oss://happy-app-ota-jacky/manifests/android/21/ | grep -E '\.json'
+# 注意带上频道段（production / preview）
+aliyun ossutil ls oss://happy-app-ota-jacky/manifests/android/21/production/ | grep -E '\.json'
 ```
 
 - `latest.json` 与某个 `<时间戳>.json` 的 **ETag 相同** → 那个时间戳就是当前线上版本。
-- 或直接 `pnpm ota:rollback`：它会列出所有历史版本并标注「← 当前线上」，选序号即把该版本覆盖回 `latest.json` 完成回滚。
+- 或直接 `pnpm ota:rollback`（生产频道）/ `pnpm ota:rollback:preview`（预览频道）：列出该频道所有历史版本并标注「← 当前线上」，选序号即把该版本覆盖回 `latest.json` 完成回滚。
 
 ### 真机验证「是否已拉到本次 OTA」
 

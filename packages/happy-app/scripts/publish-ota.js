@@ -1,6 +1,8 @@
 // scripts/publish-ota.js
 // 作用：把 `expo export` 的产物上传到阿里云 OSS，并生成 Expo Updates 协议要求的 manifest 清单。
-// 用法：node scripts/publish-ota.js   （或 npm run ota:android）
+// 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>]
+//   --channel  发布到哪个频道，缺省 production；预览发 preview（仅装了 preview 包的设备会拉到）
+//   --platform 平台，缺省 android
 //
 // 凭证来源：本脚本通过 `aliyun ossutil` 上传，复用 aliyun CLI 已配置的默认 profile 凭证
 //（~/.aliyun/config.json），因此无需在环境变量里再写 AccessKey。
@@ -12,11 +14,26 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
+// ---- 解析命令行参数（--channel / --platform） ----
+function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--channel') out.channel = argv[++i];
+    else if (a === '--platform') out.platform = argv[++i];
+    else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
+    else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
+  }
+  return out;
+}
+const ARGS = parseArgs(process.argv.slice(2));
+
 // ============ 配置区：按你自己的情况修改 ============
 const BUCKET = 'happy-app-ota-jacky';          // OSS 桶名
 const REGION = 'oss-cn-hangzhou';              // OSS 地域
 const RUNTIME_VERSION = '21';                  // 必须和 app.config.js 的 runtimeVersion 一致
-const PLATFORM = 'android';                    // 平台
+const PLATFORM = ARGS.platform || 'android';   // 平台（--platform 覆盖）
+const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖），缺省 production 保持旧行为
 const DIST_DIR = path.join(__dirname, '..', 'dist'); // expo export 输出目录
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun'; // aliyun CLI 可执行名/路径
 // OSS 公开访问域名（https）
@@ -164,28 +181,45 @@ async function main() {
     extra: { git },
   };
 
-  // 6) 上传 manifest 到固定位置 latest.json（每次覆盖）。先写临时文件再传。
+  // 6) 上传 manifest 到频道下的 latest.json（每次覆盖）。先写临时文件再传。
+  //    路径含 channel 段：manifests/<platform>/<runtime>/<channel>/latest.json
   const tmpManifest = path.join(os.tmpdir(), `ota-manifest-${stamp}.json`);
   fs.writeFileSync(tmpManifest, JSON.stringify(manifest, null, 2));
-  const manifestKey = `manifests/${PLATFORM}/${RUNTIME_VERSION}/latest.json`;
+  const channelPrefix = `manifests/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}`;
+  const manifestKey = `${channelPrefix}/latest.json`;
   ossUpload(tmpManifest, manifestKey, 'application/json');
   // 同时按时间戳留一份备份，方便回滚
-  ossUpload(tmpManifest, `manifests/${PLATFORM}/${RUNTIME_VERSION}/${stamp}.json`, 'application/json');
+  ossUpload(tmpManifest, `${channelPrefix}/${stamp}.json`, 'application/json');
   fs.unlinkSync(tmpManifest);
 
   // 7) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git。
   //    回退脚本读这个小文件即可展示「这是哪个 commit」，无需下载体积较大的整份 manifest。
-  const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, git };
+  const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, channel: CHANNEL, git };
   const tmpMeta = path.join(os.tmpdir(), `ota-meta-${stamp}.json`);
   fs.writeFileSync(tmpMeta, JSON.stringify(meta, null, 2));
-  ossUpload(tmpMeta, `meta/${PLATFORM}/${RUNTIME_VERSION}/${stamp}.json`, 'application/json');
+  ossUpload(tmpMeta, `meta/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}/${stamp}.json`, 'application/json');
   fs.unlinkSync(tmpMeta);
 
   console.log('\n✅ 发布完成！');
+  console.log('频道:', CHANNEL, '· 平台:', PLATFORM, '· runtimeVersion:', RUNTIME_VERSION);
   console.log('manifest 地址:', `${OSS_PUBLIC_BASE}/${manifestKey}`);
   console.log('新版本 id:', manifest.id);
   if (git.sha) {
     console.log('对应 commit:', `${git.sha}${git.dirty ? '*' : ''} ${git.subject}`);
+  }
+
+  // 8) CI 集成：若在 GitHub Actions 中（设置了 GITHUB_OUTPUT），把版本信息写入 step output，
+  //    供后续步骤在 PR 上评论「预览已发布」。本地运行时该变量不存在，自动跳过。
+  if (process.env.GITHUB_OUTPUT) {
+    const lines = [
+      `ota_id=${manifest.id}`,
+      `ota_channel=${CHANNEL}`,
+      `ota_platform=${PLATFORM}`,
+      `ota_runtime=${RUNTIME_VERSION}`,
+      `ota_manifest_url=${OSS_PUBLIC_BASE}/${manifestKey}`,
+      `ota_commit=${git.sha || ''}`,
+    ];
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join('\n') + '\n');
   }
 }
 
