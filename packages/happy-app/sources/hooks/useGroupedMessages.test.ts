@@ -91,6 +91,57 @@ describe('useGroupedMessages', () => {
         expect((items[0] as any).messages).toHaveLength(1);
     });
 
+    it('still collapses image attachments into a gallery when tool grouping is OFF (default)', () => {
+        // Regression: groupToolCalls defaults to false. The thumbnail gallery
+        // must NOT depend on that setting, otherwise images render full-width.
+        const messages: Message[] = [
+            fileMessage('img-2', 3),
+            fileMessage('img-1', 2),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 1,
+                text: 'look at these',
+            },
+        ];
+
+        const items = groupMessagesForDisplay(messages, false);
+
+        expect(items.filter((item) => item.type === 'image-group')).toHaveLength(1);
+        const gallery = items.find((item) => item.type === 'image-group');
+        expect((gallery as any).messages.map((m: Message) => m.id)).toEqual(['img-1', 'img-2']);
+        // The user text message still passes through untouched.
+        expect(items.some((item) => item.type === 'message' && item.id === 'user')).toBe(true);
+        // Crucially, no attachment leaks through as a raw full-width message.
+        expect(items.some((item) => item.type === 'message' && (item.id === 'img-1' || item.id === 'img-2'))).toBe(false);
+    });
+
+    it('leaves non-attachment messages untouched when tool grouping is OFF', () => {
+        const messages: Message[] = [
+            toolMessage('tool-a', 3),
+            {
+                kind: 'agent-text',
+                id: 'agent',
+                localId: null,
+                createdAt: 2,
+                text: 'hi',
+            },
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 1,
+                text: 'hello',
+            },
+        ];
+
+        const items = groupMessagesForDisplay(messages, false);
+
+        expect(items.map((item) => item.type)).toEqual(['message', 'message', 'message']);
+        expect(items.map((item) => item.id)).toEqual(['tool-a', 'agent', 'user']);
+    });
+
     it('stores grouped tools in chronological render order', () => {
         const messages: Message[] = [
             {

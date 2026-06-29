@@ -15,7 +15,8 @@ import { useImageViewerStore } from '@/sync/imageViewer';
 
 export function ImageViewerHost() {
     const visible = useImageViewerStore((s) => s.visible);
-    const source = useImageViewerStore((s) => s.source);
+    const sources = useImageViewerStore((s) => s.sources);
+    const index = useImageViewerStore((s) => s.index);
     const close = useImageViewerStore((s) => s.close);
 
     return (
@@ -28,7 +29,9 @@ export function ImageViewerHost() {
         >
             <StatusBar backgroundColor="#000" barStyle="light-content" />
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-                {source && <ImageViewer source={source} onClose={close} />}
+                {sources.length > 0 && (
+                    <ImageViewer sources={sources} initialIndex={index} onClose={close} />
+                )}
             </GestureHandlerRootView>
         </Modal>
     );
