@@ -12,7 +12,7 @@
  * zoomable viewer on tap.
  */
 import * as React from 'react';
-import { ScrollView, View, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -21,6 +21,7 @@ import { Message } from '@/sync/typesMessage';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
+import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 
 const THUMB_SIZE = 100;
 const BORDER_RADIUS = 10;
@@ -97,8 +98,12 @@ export const AttachmentGalleryView = React.memo<{
     if (images.length === 0) return null;
 
     return (
-        <ScrollView
-            horizontal
+        // HorizontalScrollView (not a plain ScrollView): on mobile the drawer's
+        // open gesture spans the full screen width and activates symmetrically,
+        // so it would swallow this strip's horizontal swipes. The arbiter Pan in
+        // HorizontalScrollView claims horizontal drags (and yields at the left
+        // edge so the drawer can still open). See HorizontalScrollView.tsx.
+        <HorizontalScrollView
             showsHorizontalScrollIndicator={false}
             style={styles.strip}
             contentContainerStyle={styles.stripContent}
@@ -112,7 +117,7 @@ export const AttachmentGalleryView = React.memo<{
                     onOpen={handleOpen}
                 />
             ))}
-        </ScrollView>
+        </HorizontalScrollView>
     );
 });
 
