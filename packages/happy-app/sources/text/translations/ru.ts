@@ -145,6 +145,16 @@ export const ru: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'Маскот',
+        mascotDescription: 'Выберите сурка, который встречает вас на главном экране',
+        mascotOptions: {
+            hoodie: 'Хакер',
+            explorer: 'Исследователь',
+            astro: 'Космонавт',
+            barista: 'Бариста',
+            ninja: 'Ниндзя',
+            scientist: 'Учёный',
+        },
         // Appearance settings screen
         theme: 'Тема',
         themeDescription: 'Выберите предпочтительную цветовую схему',

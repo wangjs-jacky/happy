@@ -159,6 +159,16 @@ export const zhHant: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: '吉祥物',
+        mascotDescription: '選擇主畫面迎接你的土撥鼠形象',
+        mascotOptions: {
+            hoodie: '極客',
+            explorer: '探險家',
+            astro: '太空人',
+            barista: '咖啡師',
+            ninja: '忍者',
+            scientist: '科學家',
+        },
         // Appearance settings screen
         theme: '主題',
         themeDescription: '選擇您喜歡的配色方案',

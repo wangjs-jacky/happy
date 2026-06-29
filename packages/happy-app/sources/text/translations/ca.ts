@@ -159,6 +159,16 @@ export const ca: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'Mascota',
+        mascotDescription: 'Tria la marmota que et rep a la pantalla d\'inici',
+        mascotOptions: {
+            hoodie: 'Hacker',
+            explorer: 'Explorador',
+            astro: 'Astronauta',
+            barista: 'Barista',
+            ninja: 'Ninja',
+            scientist: 'Científic',
+        },
         // Appearance settings screen
         theme: 'Tema',
         themeDescription: 'Tria el teu esquema de colors preferit',

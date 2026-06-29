@@ -176,6 +176,16 @@ export const pl: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'Maskotka',
+        mascotDescription: 'Wybierz świstaka, który wita Cię na ekranie głównym',
+        mascotOptions: {
+            hoodie: 'Haker',
+            explorer: 'Odkrywca',
+            astro: 'Astronauta',
+            barista: 'Barista',
+            ninja: 'Ninja',
+            scientist: 'Naukowiec',
+        },
         // Appearance settings screen
         theme: 'Motyw',
         themeDescription: 'Wybierz preferowaną kolorystykę',

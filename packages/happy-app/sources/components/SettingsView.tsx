@@ -29,6 +29,7 @@ import { disconnectService } from '@/sync/apiServices';
 import { useProfile } from '@/sync/storage';
 import { getDisplayName, getAvatarUrl, getBio } from '@/sync/profile';
 import { Avatar } from '@/components/Avatar';
+import { getMascotImage } from '@/components/mascots';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 import * as Localization from 'expo-localization';
 
@@ -87,6 +88,8 @@ export const SettingsView = React.memo(function SettingsView() {
     const versionSubtitle = formatBuildSubtitle(getBuildConfig());
     const auth = useAuth();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
+    // 选中的吉祥物 —— 设置页头部（无个人资料时的 logo 区）展示
+    const [mascot] = useLocalSettingMutable('mascot');
     // 「通用」分组：主题/语言入口右侧展示的当前值（响应式，改完返回即更新）
     const [themePreference] = useLocalSettingMutable('themePreference');
     const preferredLanguage = useSetting('preferredLanguage');
@@ -266,12 +269,12 @@ export const SettingsView = React.memo(function SettingsView() {
                             )}
                         </>
                     ) : (
-                        // Logo view: Original logo + version
+                        // Logo view: 选中的吉祥物 + version
                         <>
                             <Image
-                                source={require('@/assets/images/icon.png')}
+                                source={getMascotImage(mascot)}
                                 contentFit="contain"
-                                style={{ width: 96, height: 96, borderRadius: 22, marginBottom: 12 }}
+                                style={{ width: 110, height: 110, marginBottom: 12 }}
                             />
                         </>
                     )}

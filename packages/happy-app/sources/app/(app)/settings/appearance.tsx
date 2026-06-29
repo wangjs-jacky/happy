@@ -9,6 +9,8 @@ import { applyTheme } from '@/unistyles';
 import { ACCENTS } from '@/themePacks';
 import { Typography } from '@/constants/Typography';
 import { Pressable, View, Text } from 'react-native';
+import { Image } from 'expo-image';
+import { MASCOT_IDS, getMascotImage, getMascotName } from '@/components/mascots';
 import { t } from '@/text';
 
 // Define known avatar styles for this version of the app
@@ -31,6 +33,7 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [themePack, setThemePack] = useLocalSettingMutable('themePack');
+    const [mascot, setMascot] = useLocalSettingMutable('mascot');
 
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
@@ -77,6 +80,45 @@ export default function AppearanceSettingsScreen() {
                                 </View>
                                 <Text style={[styles.swatchLabel, { color: selected ? theme.colors.text : theme.colors.textSecondary }]}>
                                     {acc.id.charAt(0).toUpperCase() + acc.id.slice(1)}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            </ItemGroup>
+
+            {/* 吉祥物选择器 — 一排土拨鼠形象，点选即切换，空状态页/设置头部实时跟随 */}
+            <ItemGroup title={t('settingsAppearance.mascot')} footer={t('settingsAppearance.mascotDescription')}>
+                <View style={styles.mascotRow}>
+                    {MASCOT_IDS.map((id) => {
+                        const selected = id === mascot;
+                        return (
+                            <Pressable
+                                key={id}
+                                style={styles.mascotItem}
+                                onPress={() => setMascot(id)}
+                            >
+                                <View style={[
+                                    styles.mascotCard,
+                                    { backgroundColor: theme.colors.surfaceHigh },
+                                    selected && { borderColor: theme.colors.text, borderWidth: 2 },
+                                ]}>
+                                    <Image
+                                        source={getMascotImage(id)}
+                                        style={{ width: 56, height: 56 }}
+                                        contentFit="contain"
+                                    />
+                                    {selected && (
+                                        <View style={[styles.mascotCheck, { backgroundColor: theme.colors.text }]}>
+                                            <Ionicons name="checkmark" size={12} color={theme.colors.surface} />
+                                        </View>
+                                    )}
+                                </View>
+                                <Text
+                                    numberOfLines={1}
+                                    style={[styles.mascotLabel, { color: selected ? theme.colors.text : theme.colors.textSecondary }]}
+                                >
+                                    {getMascotName(id)}
                                 </Text>
                             </Pressable>
                         );
@@ -269,5 +311,42 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default(),
         fontSize: 11,
         marginTop: 6,
+    },
+    mascotRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 14,
+        paddingHorizontal: 18,
+        paddingVertical: 16,
+        backgroundColor: theme.colors.surface,
+    },
+    mascotItem: {
+        alignItems: 'center',
+        width: 72,
+    },
+    mascotCard: {
+        width: 68,
+        height: 68,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderColor: 'transparent',
+        borderWidth: 0,
+    },
+    mascotCheck: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    mascotLabel: {
+        ...Typography.default(),
+        fontSize: 11,
+        marginTop: 6,
+        textAlign: 'center',
     },
 }));

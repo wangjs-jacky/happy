@@ -160,6 +160,16 @@ export const ja: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'マスコット',
+        mascotDescription: 'ホーム画面で迎えるマーモットを選びましょう',
+        mascotOptions: {
+            hoodie: 'ハッカー',
+            explorer: '探検家',
+            astro: '宇宙飛行士',
+            barista: 'バリスタ',
+            ninja: '忍者',
+            scientist: '科学者',
+        },
         // Appearance settings screen
         theme: 'テーマ',
         themeDescription: 'お好みの配色を選択',

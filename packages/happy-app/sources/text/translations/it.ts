@@ -157,6 +157,16 @@ export const it: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'Mascotte',
+        mascotDescription: 'Scegli la marmotta che ti accoglie nella schermata iniziale',
+        mascotOptions: {
+            hoodie: 'Hacker',
+            explorer: 'Esploratore',
+            astro: 'Astronauta',
+            barista: 'Barista',
+            ninja: 'Ninja',
+            scientist: 'Scienziato',
+        },
         // Appearance settings screen
         theme: 'Tema',
         themeDescription: 'Scegli lo schema di colori preferito',

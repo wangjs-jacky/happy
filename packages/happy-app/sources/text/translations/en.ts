@@ -173,6 +173,16 @@ export const en: TranslationStructure = {
     },
 
     settingsAppearance: {
+        mascot: 'Mascot',
+        mascotDescription: 'Pick the groundhog that greets you on the home screen',
+        mascotOptions: {
+            hoodie: 'Hacker',
+            explorer: 'Explorer',
+            astro: 'Astronaut',
+            barista: 'Barista',
+            ninja: 'Ninja',
+            scientist: 'Scientist',
+        },
         // Appearance settings screen
         theme: 'Theme',
         themeDescription: 'Choose your preferred color scheme',
