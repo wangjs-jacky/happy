@@ -447,6 +447,10 @@ export const ru: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: 'Переход',
+        anchorsTitle: 'Ваши сообщения',
+        anchorsSubtitle: ({ count }: { count: number }) => `Сообщений: ${count}`,
+        anchorsEmpty: 'Пока некуда переходить.',
         inputPlaceholder: 'Введите сообщение...',
         inactiveArchived: 'Эта сессия неактивна.',
         resumeFromTerminal: 'Чтобы возобновить её из терминала:',

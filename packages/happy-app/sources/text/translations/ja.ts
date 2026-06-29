@@ -334,6 +334,10 @@ export const ja: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: 'ジャンプ',
+        anchorsTitle: 'あなたのメッセージ',
+        anchorsSubtitle: ({ count }: { count: number }) => `${count} 件`,
+        anchorsEmpty: 'ジャンプできるメッセージはまだありません。',
         inputPlaceholder: 'メッセージを入力...',
         inactiveArchived: 'このセッションは非アクティブです。',
         resumeFromTerminal: 'ターミナルから再開するには:',

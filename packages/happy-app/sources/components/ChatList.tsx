@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useSession, useSessionMessages, useSetting } from "@/sync/storage";
 import { sync } from '@/sync/sync';
-import { ActivityIndicator, AppState, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, Text, View } from 'react-native';
 import { useCallback } from 'react';
 import { useHeaderHeight } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,11 +14,17 @@ import { ChatFooter } from './ChatFooter';
 import { Message } from '@/sync/typesMessage';
 import { DisplayItem, ToolGroupItem, useGroupedMessages } from '@/hooks/useGroupedMessages';
 import { Octicons } from '@expo/vector-icons';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Modal } from '@/modal';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
+import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
+import { AnchorListSheet } from './AnchorListSheet';
+import { t } from '@/text';
 
 const SCROLL_THRESHOLD = 300;
+// How long the anchor pill lingers after the user stops scrolling.
+const ANCHOR_PILL_LINGER_MS = 1600;
 
 export const ChatList = React.memo((props: { session: Session }) => {
     const { messages, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
@@ -74,6 +80,15 @@ const ChatListInternal = React.memo((props: {
     // on every scroll frame (60Hz). Without this guard, the entire list
     // parent re-renders on every wheel tick.
     const showScrollButtonRef = React.useRef(false);
+
+    // Anchor pill: surfaces a jump-to-my-messages affordance only while the
+    // user is actively scrolling, then fades it back out so it never sits in
+    // the way during normal reading. Same ref-guard pattern as the scroll
+    // button to avoid a setState on every scroll frame.
+    const [showAnchorPill, setShowAnchorPill] = React.useState(false);
+    const anchorPillVisibleRef = React.useRef(false);
+    const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const session = useSession(props.sessionId);
 
     // Collapse agent work between a user prompt and the final answer.
@@ -88,6 +103,12 @@ const ChatListInternal = React.memo((props: {
         [collapseCurrentTurn],
     );
     const displayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
+
+    // The user's own messages are the chat's natural chapters — surface them
+    // as jump anchors. `displayIndex` indexes back into `displayItems`.
+    const anchors = useUserMessageAnchors(displayItems);
+    const anchorsRef = React.useRef(anchors);
+    anchorsRef.current = anchors;
 
     // Tracks which groups are explicitly collapsed. Groups start collapsed;
     // pending approval groups are the only ones we auto-expand.
@@ -279,11 +300,70 @@ const ChatListInternal = React.memo((props: {
             showScrollButtonRef.current = next;
             setShowScrollButton(next);
         }
+
+        // Reveal the anchor pill while scrolling, then schedule it to fade
+        // out once scrolling settles. Only meaningful when anchors exist.
+        if (anchorsRef.current.length > 0) {
+            if (!anchorPillVisibleRef.current) {
+                anchorPillVisibleRef.current = true;
+                setShowAnchorPill(true);
+            }
+            if (anchorPillTimerRef.current) {
+                clearTimeout(anchorPillTimerRef.current);
+            }
+            anchorPillTimerRef.current = setTimeout(() => {
+                anchorPillVisibleRef.current = false;
+                setShowAnchorPill(false);
+            }, ANCHOR_PILL_LINGER_MS);
+        }
+    }, []);
+
+    React.useEffect(() => {
+        return () => {
+            if (anchorPillTimerRef.current) {
+                clearTimeout(anchorPillTimerRef.current);
+            }
+        };
     }, []);
 
     const scrollToBottom = useCallback(() => {
         flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, []);
+
+    // Jump to a user message by its index in the inverted list. viewPosition
+    // 0.5 lands it mid-screen. Newly-loaded items may not be measured yet, so
+    // onScrollToIndexFailed approximates an offset and retries.
+    const scrollToAnchor = useCallback((anchor: UserMessageAnchor) => {
+        flatListRef.current?.scrollToIndex({
+            index: anchor.displayIndex,
+            animated: true,
+            viewPosition: 0.5,
+        });
+    }, []);
+
+    const handleScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
+        flatListRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: false,
+        });
+        setTimeout(() => {
+            flatListRef.current?.scrollToIndex({
+                index: info.index,
+                animated: true,
+                viewPosition: 0.5,
+            });
+        }, 120);
+    }, []);
+
+    const openAnchorSheet = useCallback(() => {
+        Modal.show({
+            component: AnchorListSheet,
+            props: {
+                anchors: anchorsRef.current,
+                onSelect: scrollToAnchor,
+            },
+        } as any);
+    }, [scrollToAnchor]);
 
     // In an inverted FlatList, `onEndReached` fires when the user scrolls
     // past the visual top — i.e. when they want to see older history.
@@ -342,7 +422,28 @@ const ChatListInternal = React.memo((props: {
                 ListFooterComponent={<ListHeader isLoadingOlder={props.isLoadingOlder} />}
                 onEndReached={handleLoadOlder}
                 onEndReachedThreshold={0.5}
+                onScrollToIndexFailed={handleScrollToIndexFailed}
             />
+            {showAnchorPill && anchors.length > 0 && (
+                <Animated.View
+                    entering={FadeIn.duration(180)}
+                    exiting={FadeOut.duration(260)}
+                    style={styles.anchorPillContainer}
+                    pointerEvents="box-none"
+                >
+                    <Pressable
+                        onPress={openAnchorSheet}
+                        style={({ pressed }) => [
+                            styles.anchorPill,
+                            pressed && styles.anchorPillPressed,
+                        ]}
+                    >
+                        <Octicons name="list-unordered" size={14} color={theme.colors.text} />
+                        <Text style={styles.anchorPillLabel}>{t('session.anchorsButton')}</Text>
+                        <Text style={styles.anchorPillCount}>{anchors.length}</Text>
+                    </Pressable>
+                </Animated.View>
+            )}
             {showScrollButton && (
                 <View style={styles.scrollButtonContainer}>
                     <Pressable
@@ -395,5 +496,44 @@ const styles = StyleSheet.create((theme) => ({
     scrollButtonPressed: {
         backgroundColor: theme.colors.surface,
         opacity: 0.7,
+    },
+    anchorPillContainer: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 56,
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'box-none',
+    },
+    anchorPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingLeft: 12,
+        paddingRight: 14,
+        height: 34,
+        borderRadius: 17,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+        shadowColor: theme.colors.shadow.color,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 6,
+        shadowOpacity: theme.colors.shadow.opacity,
+        elevation: 3,
+    },
+    anchorPillPressed: {
+        opacity: 0.7,
+    },
+    anchorPillLabel: {
+        fontSize: 13,
+        fontWeight: '600' as const,
+        color: theme.colors.text,
+    },
+    anchorPillCount: {
+        fontSize: 11,
+        fontWeight: '700' as const,
+        color: theme.colors.textSecondary,
     },
 }));
