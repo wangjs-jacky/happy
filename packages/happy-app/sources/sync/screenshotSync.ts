@@ -41,13 +41,18 @@ export function diffPendingScreenshots<T extends { id: string }>(
  */
 export async function syncScreenshotsForSession(sessionId: string, refs: ScreenshotRef[]): Promise<void> {
     const { apiSocket } = await import('@/sync/apiSocket');
-    const { addScreenshotEntry, hasRemoteId, saveBase64Png } = await import('@/sync/screenshotGallery');
+    const { addScreenshotEntry, loadGallery, saveBase64Png } = await import('@/sync/screenshotGallery');
 
-    for (const ref of refs) {
-        // 去重兜底：即便版本判断漏了，hasRemoteId 也能避免重复落盘。
-        if (hasRemoteId(sessionId, ref.id)) {
-            continue;
-        }
+    // 去重单一来源：从本地图库读出已有 remoteId 集合，用纯函数 diffPendingScreenshots
+    // 算出真正待拉取的引用。loadGallery 是命令式读取，函数开头读一次即可。
+    const localRemoteIds = new Set(
+        loadGallery(sessionId)
+            .map((e) => e.remoteId)
+            .filter((id): id is string => typeof id === 'string'),
+    );
+    const pending = diffPendingScreenshots(refs, localRemoteIds);
+
+    for (const ref of pending) {
         try {
             const res = await apiSocket.sessionRPC<GetScreenshotByIdResponse, { id: string }>(
                 sessionId,
