@@ -189,6 +189,7 @@ export const ca: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Científic',
+            florist: 'Florista',
         },
         // Appearance settings screen
         theme: 'Tema',

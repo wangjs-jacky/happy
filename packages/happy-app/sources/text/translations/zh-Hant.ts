@@ -189,6 +189,7 @@ export const zhHant: TranslationStructure = {
             barista: '咖啡師',
             ninja: '忍者',
             scientist: '科學家',
+            florist: '花藝師',
         },
         // Appearance settings screen
         theme: '主題',

@@ -206,6 +206,7 @@ export const pl: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Naukowiec',
+            florist: 'Florystka',
         },
         // Appearance settings screen
         theme: 'Motyw',

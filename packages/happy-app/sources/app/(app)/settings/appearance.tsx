@@ -10,7 +10,7 @@ import { ACCENTS } from '@/themePacks';
 import { Typography } from '@/constants/Typography';
 import { Pressable, View, Text } from 'react-native';
 import { Image } from 'expo-image';
-import { MASCOT_IDS, getMascotImage, getMascotName } from '@/components/mascots';
+import { MASCOT_IDS, getMascotImage, getMascotName, getMascotTheme } from '@/components/mascots';
 import { t } from '@/text';
 
 // Define known avatar styles for this version of the app
@@ -97,7 +97,13 @@ export default function AppearanceSettingsScreen() {
                             <Pressable
                                 key={id}
                                 style={styles.mascotItem}
-                                onPress={() => setMascot(id)}
+                                onPress={() => {
+                                    // 选吉祥物即联动切换它绑定的主题配色（色板仍保留，可单独微调）
+                                    setMascot(id);
+                                    const pack = getMascotTheme(id);
+                                    setThemePack(pack as typeof themePack);
+                                    applyTheme(pack as typeof themePack, themePreference);
+                                }}
                             >
                                 <View style={[
                                     styles.mascotCard,
