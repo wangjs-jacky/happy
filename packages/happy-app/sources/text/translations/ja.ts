@@ -42,6 +42,7 @@ export const ja: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "不明",
         cancel: 'キャンセル',
         authenticate: '認証',
         save: '保存',
@@ -151,12 +152,32 @@ export const ja: TranslationStructure = {
         exchangingTokens: 'トークンを交換中...',
         usage: '使用状況',
         usageSubtitle: 'API使用量とコストを確認',
+        agentDefaults: "エージェントの既定設定",
+        agentDefaultsSubtitle: "既定のモデル・思考量・権限",
+        customInstructions: "カスタム指示",
+        customInstructionsSubtitle: "各メッセージとともに送信される追加のシステムプロンプト",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `${service}アカウントが接続されました`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name}は${status === 'online' ? 'オンライン' : 'オフライン'}です`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature}を${enabled ? '有効' : '無効'}にしました`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'インストール済みの Skills とトリガーを閲覧',
+        machine: 'マシン',
+        noMachines: 'オンラインのマシンがありません — まず接続してください',
+        searchPlaceholder: '名前またはトリガーで検索…',
+        personalGroup: '個人の Skills',
+        pluginGroup: 'プラグインの Skills',
+        noMatches: '一致する Skills がありません',
+        empty: 'Skills が見つかりません',
+        scanFailed: 'Skills のスキャンに失敗しました',
+        loadFailed: 'ファイルの読み取りに失敗しました',
+        missingPath: 'ファイルパスがありません',
     },
 
     settingsAppearance: {
@@ -1025,5 +1046,84 @@ export const ja: TranslationStructure = {
         friendRequestGeneric: '新しい友達リクエスト',
         friendAccepted: ({ name }: { name: string }) => `${name}さんと友達になりました`,
         friendAcceptedGeneric: '友達リクエストが承認されました',
-    }
+    },
+
+    customInstructions: {
+        intro: "このテキストは、各メッセージとともに送信されるシステムプロンプトに追加され、すべてのセッションとデバイスに適用されます（エンドツーエンドで同期）。何も追加しない場合は空のままにしてください。",
+        label: "指示",
+        placeholder: "カスタムシステムプロンプトを入力…",
+        footer: "変更は即座に保存されます。ここにはあなた自身の設定のみを記入してください。Happy の組み込みルール（例：send_image による画像のインライン送信）はすでにシステムプロンプトに含まれており、繰り返す必要はありません。",
+    },
+
+    agentDefaults: {
+        title: "エージェントの既定設定",
+        clearOverrides: "上書き設定をクリア",
+        clearOverridesSubtitle: "すべてのエージェントをコードの既定値に戻す",
+        useCodeDefault: "コードの既定値を使用",
+        none: "なし",
+        defaultValue: ({ value }: { value: string }) => `デフォルト（${value}）`,
+        fieldPermission: "権限",
+        fieldModel: "モデル",
+        fieldEffort: "労力",
+    },
+
+    featuresInterface: {
+        title: "インターフェース",
+        footer: "任意のパネルとレイアウト要素。",
+        fileDiffsSidebar: "ファイル差分サイドバー",
+        fileDiffsSidebarSubtitle: "デスクトップでチャットの横に git の変更を表示",
+        resumeSession: "セッションを再開",
+        resumeSessionSubtitle: "マシンのデーモンを介して切断された Claude Code と Codex のセッションを再開",
+    },
+
+    connectClaude: {
+        title: "Claude を接続",
+        instruction: "ターミナルで次のコマンドを実行してください：",
+    },
+
+    pushNotifications: {
+        title: "プッシュ通知",
+        footer: "アカウントに登録されているすべてのプッシュトークンを表示します。古いトークンをタップすると削除できます。",
+        permission: "権限",
+        permissionLoading: "読み込み中",
+        permissionUnavailable: "利用不可",
+        permissionAllowed: "許可済み",
+        permissionDenied: "拒否済み",
+        permissionNotRequested: "未リクエスト",
+        subtitleChecking: "このデバイスのプッシュ通知の権限を確認しています。",
+        subtitleUnsupported: "プッシュ通知の権限はモバイルデバイスでのみ管理されます。",
+        subtitleGranted: "このデバイスはプッシュ通知を受信できます。",
+        subtitleCanAskAgain: "システムのプロンプトはアプリから再度表示できます。",
+        subtitleBlocked: "iOS はプロンプトの表示を停止しました。システム設定を開いて通知を再度有効にしてください。",
+        requestAgain: "権限を再リクエスト",
+        requestAgainUnsupported: "プッシュ通知の権限は iPhone と Android でのみ利用できます。",
+        requestAgainCanAsk: "iOS がまだ許可している場合、システムのプロンプトを再度表示します。",
+        requestAgainBlocked: "iOS が再度プロンプトを表示しない場合、システム設定を開きます。",
+        reRegister: "このデバイスを再登録",
+        reRegisterSubtitle: "現在の Expo トークンを取得して再登録します。",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `現在のトークン ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `登録済みトークン (${count})`,
+        registeredTokensFooter: "現在のデバイスのメタデータはこの端末から取得されます。古いトークンはトークンのフィンガープリントとサーバーのタイムスタンプを使用します。",
+        noTokensTitle: "登録されたプッシュトークンはありません",
+        noTokensSubtitle: "このデバイスが登録されると、ここに表示されます。",
+        thisDevice: "このデバイス",
+        otherDevice: "別のデバイスまたは古い登録",
+        registeredAt: ({ time }: { time: string }) => `登録: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `最終確認: ${time}`,
+        serverId: ({ id }: { id: string }) => `サーバー ID: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `トークン: ${fingerprint}`,
+        loadFailed: "プッシュ通知設定の読み込みに失敗しました。",
+        enabledForDevice: "このデバイスのプッシュ通知が有効になりました。",
+        openSettingsTitle: "設定を開く",
+        openSettingsMessage: "システムは権限のプロンプトを再度表示しないため、Paws は代わりに設定を開きました。",
+        permissionNotGranted: "プッシュ通知の権限が許可されませんでした。",
+        requestFailed: "プッシュ通知の権限のリクエストに失敗しました。",
+        notEnabledYet: "このデバイスのプッシュ通知はまだ有効になっていません。",
+        tokenRefreshed: "このデバイスのプッシュトークンを更新しました。",
+        refreshFailed: "このデバイスのプッシュトークンの更新に失敗しました。",
+        deleteTitle: "プッシュトークンを削除",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `${fingerprint} をアカウントから削除しますか？`,
+        deleteFailed: "プッシュトークンの削除に失敗しました。",
+    },
+
 } as const;

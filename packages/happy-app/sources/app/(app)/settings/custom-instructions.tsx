@@ -7,6 +7,7 @@ import { layout } from '@/components/layout';
 import { useSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { t } from '@/text';
 
 export default React.memo(function CustomInstructionsScreen() {
     const { theme } = useUnistyles();
@@ -29,7 +30,7 @@ export default React.memo(function CustomInstructionsScreen() {
             <Stack.Screen
                 options={{
                     headerShown: true,
-                    headerTitle: 'Custom Instructions',
+                    headerTitle: t('settings.customInstructions'),
                 }}
             />
             <View style={styles.container}>
@@ -43,9 +44,9 @@ export default React.memo(function CustomInstructionsScreen() {
                         keyboardShouldPersistTaps="handled"
                     >
                         <Text style={styles.intro}>
-                            这里的内容会被追加到每次发送给 AI 的系统提示词里，对所有会话与设备生效（端到端同步）。留空则不追加。
+                            {t('customInstructions.intro')}
                         </Text>
-                        <Text style={styles.label}>指令内容</Text>
+                        <Text style={styles.label}>{t('customInstructions.label')}</Text>
                         <TextInput
                             style={[
                                 styles.input,
@@ -55,7 +56,7 @@ export default React.memo(function CustomInstructionsScreen() {
                             ]}
                             value={value}
                             onChangeText={setValue}
-                            placeholder="输入自定义系统提示词…"
+                            placeholder={t('customInstructions.placeholder')}
                             placeholderTextColor={theme.colors.input.placeholder}
                             onFocus={() => setFocused(true)}
                             onBlur={() => setFocused(false)}
@@ -65,7 +66,7 @@ export default React.memo(function CustomInstructionsScreen() {
                             autoCorrect={false}
                         />
                         <Text style={styles.footer}>
-                            修改即时保存。这段内容只放你自己的偏好；Happy 的内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。
+                            {t('customInstructions.footer')}
                         </Text>
                     </ScrollView>
                 </KeyboardWrapper>

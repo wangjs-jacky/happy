@@ -39,6 +39,7 @@ export const pt: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "Desconhecido",
         cancel: 'Cancelar',
         authenticate: 'Autenticar',
         save: 'Salvar',
@@ -149,12 +150,32 @@ export const pt: TranslationStructure = {
         exchangingTokens: 'Trocando tokens...',
         usage: 'Uso',
         usageSubtitle: 'Visualizar uso da API e custos',
+        agentDefaults: "Padrões do agente",
+        agentDefaultsSubtitle: "Modelo, esforço e permissões padrão",
+        customInstructions: "Instruções personalizadas",
+        customInstructionsSubtitle: "Prompt de sistema adicional enviado com cada mensagem",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `Conta ${service} conectada`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name} está ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'ativado' : 'desativado'}`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Explore os Skills instalados e seus gatilhos',
+        machine: 'Máquina',
+        noMachines: 'Nenhuma máquina online — conecte uma primeiro',
+        searchPlaceholder: 'Pesquisar por nome ou gatilho…',
+        personalGroup: 'Skills pessoais',
+        pluginGroup: 'Skills de plugins',
+        noMatches: 'Nenhum Skill correspondente',
+        empty: 'Nenhum Skill encontrado',
+        scanFailed: 'Falha ao escanear os Skills',
+        loadFailed: 'Falha ao ler o arquivo',
+        missingPath: 'Caminho do arquivo ausente',
     },
 
     settingsAppearance: {
@@ -1022,7 +1043,86 @@ export const pt: TranslationStructure = {
         friendRequestGeneric: 'Novo pedido de amizade',
         friendAccepted: ({ name }: { name: string }) => `Agora você é amigo de ${name}`,
         friendAcceptedGeneric: 'Pedido de amizade aceito',
-    }
+    },
+
+    customInstructions: {
+        intro: "Este texto é anexado ao prompt de sistema enviado com cada mensagem e se aplica a todas as sessões e dispositivos (sincronizado de ponta a ponta). Deixe vazio para não anexar nada.",
+        label: "Instruções",
+        placeholder: "Digite um prompt de sistema personalizado…",
+        footer: "As alterações são salvas instantaneamente. Coloque aqui apenas suas próprias preferências; as regras integradas do Happy (por exemplo, inserir imagens via send_image) já estão no prompt de sistema e não precisam ser repetidas.",
+    },
+
+    agentDefaults: {
+        title: "Padrões do agente",
+        clearOverrides: "Limpar substituições",
+        clearOverridesSubtitle: "Retornar todos os agentes aos padrões do código",
+        useCodeDefault: "Usar padrão do código",
+        none: "Nenhum",
+        defaultValue: ({ value }: { value: string }) => `Padrão (${value})`,
+        fieldPermission: "Permissões",
+        fieldModel: "Modelo",
+        fieldEffort: "Esforço",
+    },
+
+    featuresInterface: {
+        title: "Interface",
+        footer: "Painéis e elementos de layout opcionais.",
+        fileDiffsSidebar: "Barra lateral de diferenças de arquivos",
+        fileDiffsSidebarSubtitle: "Mostrar alterações do git ao lado do chat no desktop",
+        resumeSession: "Retomar sessão",
+        resumeSessionSubtitle: "Retome sessões desconectadas do Claude Code e do Codex através do daemon da máquina",
+    },
+
+    connectClaude: {
+        title: "Conectar Claude",
+        instruction: "Execute o seguinte comando no seu terminal:",
+    },
+
+    pushNotifications: {
+        title: "Notificações push",
+        footer: "Mostra todos os tokens push registrados na sua conta. Toque em um token antigo para excluí-lo.",
+        permission: "Permissão",
+        permissionLoading: "Carregando",
+        permissionUnavailable: "Indisponível",
+        permissionAllowed: "Permitido",
+        permissionDenied: "Negado",
+        permissionNotRequested: "Não solicitado",
+        subtitleChecking: "Verificando as permissões de notificações push para este dispositivo.",
+        subtitleUnsupported: "As permissões de notificações push só são gerenciadas em dispositivos móveis.",
+        subtitleGranted: "Este dispositivo pode receber notificações push.",
+        subtitleCanAskAgain: "O aviso do sistema ainda pode ser exibido novamente a partir do app.",
+        subtitleBlocked: "O iOS parou de exibir o aviso. Abra as configurações do sistema para ativar as notificações novamente.",
+        requestAgain: "Solicitar permissão novamente",
+        requestAgainUnsupported: "As permissões de notificações push só estão disponíveis no iPhone e no Android.",
+        requestAgainCanAsk: "Exibe o aviso do sistema novamente se o iOS ainda permitir.",
+        requestAgainBlocked: "Abre as configurações do sistema quando o iOS não exibir mais o aviso.",
+        reRegister: "Registrar este dispositivo novamente",
+        reRegisterSubtitle: "Obtém o token Expo atual e o registra novamente.",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `Token atual ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `Tokens registrados (${count})`,
+        registeredTokensFooter: "Os metadados do dispositivo atual vêm deste telefone. Tokens mais antigos usam a impressão digital do token e os carimbos de data/hora do servidor.",
+        noTokensTitle: "Nenhum token push registrado",
+        noTokensSubtitle: "Assim que este dispositivo for registrado, ele aparecerá aqui.",
+        thisDevice: "Este dispositivo",
+        otherDevice: "Outro dispositivo ou registro desatualizado",
+        registeredAt: ({ time }: { time: string }) => `Registrado: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `Visto pela última vez: ${time}`,
+        serverId: ({ id }: { id: string }) => `ID do servidor: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `Token: ${fingerprint}`,
+        loadFailed: "Falha ao carregar as configurações de notificações push.",
+        enabledForDevice: "As notificações push estão ativadas para este dispositivo.",
+        openSettingsTitle: "Abrir configurações",
+        openSettingsMessage: "O sistema não exibirá mais o aviso de permissão, então o Paws abriu as configurações.",
+        permissionNotGranted: "A permissão de notificações push não foi concedida.",
+        requestFailed: "Falha ao solicitar a permissão de notificações push.",
+        notEnabledYet: "As notificações push ainda não estão ativadas para este dispositivo.",
+        tokenRefreshed: "O token push deste dispositivo foi atualizado.",
+        refreshFailed: "Falha ao atualizar o token push deste dispositivo.",
+        deleteTitle: "Excluir token push",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `Remover ${fingerprint} da sua conta?`,
+        deleteFailed: "Falha ao excluir o token push.",
+    },
+
 } as const;
 
 export type TranslationsPt = typeof pt;

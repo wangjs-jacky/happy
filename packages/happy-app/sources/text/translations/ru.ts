@@ -50,6 +50,7 @@ export const ru: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "Неизвестно",
         cancel: 'Отмена',
         authenticate: 'Авторизация',
         save: 'Сохранить',
@@ -136,12 +137,32 @@ export const ru: TranslationStructure = {
         exchangingTokens: 'Обмен токенов...',
         usage: 'Использование',
         usageSubtitle: 'Просмотр использования API и затрат',
+        agentDefaults: "Настройки агентов по умолчанию",
+        agentDefaultsSubtitle: "Модель, усилие и разрешения по умолчанию",
+        customInstructions: "Пользовательские инструкции",
+        customInstructionsSubtitle: "Дополнительный системный промпт для каждого сообщения",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `Аккаунт ${service} подключен`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name} ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'включена' : 'отключена'}`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Просмотр установленных Skills и их триггеров',
+        machine: 'Машина',
+        noMachines: 'Нет машин в сети — сначала подключите одну',
+        searchPlaceholder: 'Поиск по имени или триггеру…',
+        personalGroup: 'Личные Skills',
+        pluginGroup: 'Skills плагинов',
+        noMatches: 'Нет подходящих Skills',
+        empty: 'Skills не найдены',
+        scanFailed: 'Не удалось просканировать Skills',
+        loadFailed: 'Не удалось прочитать файл',
+        missingPath: 'Отсутствует путь к файлу',
     },
 
     settingsAppearance: {
@@ -1052,6 +1073,84 @@ export const ru: TranslationStructure = {
         friendRequestGeneric: 'Новый запрос в друзья',
         friendAccepted: ({ name }: { name: string }) => `Вы теперь друзья с ${name}`,
         friendAcceptedGeneric: 'Запрос в друзья принят',
+    },
+
+    customInstructions: {
+        intro: "Этот текст добавляется к системному промпту, отправляемому с каждым сообщением, и применяется ко всем сессиям и устройствам (синхронизация со сквозным шифрованием). Оставьте пустым, чтобы ничего не добавлять.",
+        label: "Инструкции",
+        placeholder: "Введите пользовательский системный промпт…",
+        footer: "Изменения сохраняются мгновенно. Указывайте здесь только свои собственные предпочтения; встроенные правила Happy (например, вставка изображений через send_image) уже включены в системный промпт и не требуют повторения.",
+    },
+
+    agentDefaults: {
+        title: "Настройки агентов по умолчанию",
+        clearOverrides: "Сбросить переопределения",
+        clearOverridesSubtitle: "Вернуть все агенты к значениям по умолчанию из кода",
+        useCodeDefault: "Использовать значение по умолчанию из кода",
+        none: "Нет",
+        defaultValue: ({ value }: { value: string }) => `По умолчанию (${value})`,
+        fieldPermission: "Разрешения",
+        fieldModel: "Модель",
+        fieldEffort: "Усилие",
+    },
+
+    featuresInterface: {
+        title: "Интерфейс",
+        footer: "Дополнительные панели и элементы макета.",
+        fileDiffsSidebar: "Боковая панель различий файлов",
+        fileDiffsSidebarSubtitle: "Показывать изменения git рядом с чатом на компьютере",
+        resumeSession: "Возобновить сессию",
+        resumeSessionSubtitle: "Возобновляйте отключённые сессии Claude Code и Codex через демон машины",
+    },
+
+    connectClaude: {
+        title: "Подключить Claude",
+        instruction: "Выполните следующую команду в терминале:",
+    },
+
+    pushNotifications: {
+        title: "Push-уведомления",
+        footer: "Показывает все push-токены, зарегистрированные в вашем аккаунте. Нажмите на старый токен, чтобы удалить его.",
+        permission: "Разрешение",
+        permissionLoading: "Загрузка",
+        permissionUnavailable: "Недоступно",
+        permissionAllowed: "Разрешено",
+        permissionDenied: "Запрещено",
+        permissionNotRequested: "Не запрашивалось",
+        subtitleChecking: "Проверка разрешений на push-уведомления для этого устройства.",
+        subtitleUnsupported: "Разрешения на push-уведомления управляются только на мобильных устройствах.",
+        subtitleGranted: "Это устройство может получать push-уведомления.",
+        subtitleCanAskAgain: "Системный запрос всё ещё можно показать снова из приложения.",
+        subtitleBlocked: "iOS прекратила показывать запрос. Откройте системные настройки, чтобы снова включить уведомления.",
+        requestAgain: "Запросить разрешение снова",
+        requestAgainUnsupported: "Разрешения на push-уведомления доступны только на iPhone и Android.",
+        requestAgainCanAsk: "Снова показывает системный запрос, если iOS это позволяет.",
+        requestAgainBlocked: "Открывает системные настройки, когда iOS больше не показывает запрос.",
+        reRegister: "Перерегистрировать это устройство",
+        reRegisterSubtitle: "Получает текущий токен Expo и регистрирует его заново.",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `Текущий токен ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `Зарегистрированные токены (${count})`,
+        registeredTokensFooter: "Метаданные текущего устройства берутся с этого телефона. Для более старых токенов используется отпечаток токена и серверные метки времени.",
+        noTokensTitle: "Нет зарегистрированных push-токенов",
+        noTokensSubtitle: "Как только это устройство будет зарегистрировано, оно появится здесь.",
+        thisDevice: "Это устройство",
+        otherDevice: "Другое устройство или устаревшая регистрация",
+        registeredAt: ({ time }: { time: string }) => `Зарегистрирован: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `Последний раз: ${time}`,
+        serverId: ({ id }: { id: string }) => `ID сервера: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `Токен: ${fingerprint}`,
+        loadFailed: "Не удалось загрузить настройки push-уведомлений.",
+        enabledForDevice: "Push-уведомления включены для этого устройства.",
+        openSettingsTitle: "Открыть настройки",
+        openSettingsMessage: "Система больше не покажет запрос разрешения, поэтому Paws открыл настройки.",
+        permissionNotGranted: "Разрешение на push-уведомления не было предоставлено.",
+        requestFailed: "Не удалось запросить разрешение на push-уведомления.",
+        notEnabledYet: "Push-уведомления пока не включены для этого устройства.",
+        tokenRefreshed: "Push-токен этого устройства обновлён.",
+        refreshFailed: "Не удалось обновить push-токен этого устройства.",
+        deleteTitle: "Удалить push-токен",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `Удалить ${fingerprint} из вашего аккаунта?`,
+        deleteFailed: "Не удалось удалить push-токен.",
     },
 
 } as const;

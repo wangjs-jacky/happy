@@ -46,8 +46,7 @@ export async function createWorktree(
     // Check if it's a git repository
     const gitCheck = await machineBash(
         machineId,
-        'git rev-parse --git-dir',
-        basePath
+        { command: 'git rev-parse --git-dir', cwd: basePath }
     );
 
     if (!gitCheck.success) {
@@ -68,8 +67,7 @@ export async function createWorktree(
     const worktreePath = `${WORKTREE_DIR}/${name}`;
     let result = await machineBash(
         machineId,
-        `git worktree add -b ${name} ${worktreePath}`,
-        basePath
+        { command: `git worktree add -b ${name} ${worktreePath}`, cwd: basePath }
     );
 
     // If worktree exists, try with a different name
@@ -80,8 +78,7 @@ export async function createWorktree(
             const newWorktreePath = `${WORKTREE_DIR}/${newName}`;
             result = await machineBash(
                 machineId,
-                `git worktree add -b ${newName} ${newWorktreePath}`,
-                basePath
+                { command: `git worktree add -b ${newName} ${newWorktreePath}`, cwd: basePath }
             );
 
             if (result.success) {
@@ -123,8 +120,7 @@ export async function listWorktrees(
 ): Promise<WorktreeInfo[]> {
     const result = await machineBash(
         machineId,
-        'git worktree list --porcelain',
-        basePath
+        { command: 'git worktree list --porcelain', cwd: basePath }
     );
     if (!result.success) return [];
 
@@ -163,8 +159,7 @@ export async function removeWorktree(
 
     const result = await machineBash(
         machineId,
-        `git worktree remove ${worktreePath} --force`,
-        basePath
+        { command: `git worktree remove ${worktreePath} --force`, cwd: basePath }
     );
     return {
         success: result.success,

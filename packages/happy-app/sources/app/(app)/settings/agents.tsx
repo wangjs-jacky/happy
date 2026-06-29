@@ -44,7 +44,7 @@ const agentLabels: Record<AgentKey, string> = {
 };
 
 function optionName(options: ModeOption[], key: string | null | undefined): string {
-    if (!key) return 'none';
+    if (!key) return t('agentDefaults.none');
     return options.find((option) => option.key === key)?.name ?? key;
 }
 
@@ -89,7 +89,7 @@ export default function AgentDefaultsSettingsScreen() {
         const isExpanded = expanded?.agent === agent && expanded.field === config.field;
         const detail = hasOverride
             ? optionName(config.options, overrideValue)
-            : `Default (${optionName(config.options, effectiveValue)})`;
+            : t('agentDefaults.defaultValue', { value: optionName(config.options, effectiveValue) });
         const codeDefaultLabel = optionName(config.options, config.codeDefaultKey);
 
         return (
@@ -105,7 +105,7 @@ export default function AgentDefaultsSettingsScreen() {
                         {renderOption(
                             agent,
                             config.field,
-                            'Use code default',
+                            t('agentDefaults.useCodeDefault'),
                             codeDefaultLabel ? codeDefaultLabel : undefined,
                             !hasOverride,
                             null,
@@ -127,11 +127,11 @@ export default function AgentDefaultsSettingsScreen() {
     return (
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup
-                title="Agent Defaults"
+                title={t('agentDefaults.title')}
             >
                 <Item
-                    title="Clear Overrides"
-                    subtitle="Return every agent to code defaults"
+                    title={t('agentDefaults.clearOverrides')}
+                    subtitle={t('agentDefaults.clearOverridesSubtitle')}
                     icon={<Ionicons name="refresh-outline" size={29} color="#FF9500" />}
                     onPress={() => setAgentDefaultOverrides({})}
                     disabled={Object.keys(agentDefaultOverrides).length === 0}
@@ -148,21 +148,21 @@ export default function AgentDefaultsSettingsScreen() {
                 const fields: FieldConfig[] = [
                     {
                         field: 'permissionMode',
-                        title: 'Permission',
+                        title: t('agentDefaults.fieldPermission'),
                         icon: 'shield-checkmark-outline',
                         options: permissionOptions,
                         codeDefaultKey: codeDefaults.permissionMode,
                     },
                     ...(modelOptions.length > 0 ? [{
                         field: 'modelMode' as const,
-                        title: 'Model',
+                        title: t('agentDefaults.fieldModel'),
                         icon: 'hardware-chip-outline' as const,
                         options: modelOptions,
                         codeDefaultKey: codeDefaults.modelMode,
                     }] : []),
                     ...(effortOptions.length > 0 ? [{
                         field: 'effortLevel' as const,
-                        title: 'Effort',
+                        title: t('agentDefaults.fieldEffort'),
                         icon: 'speedometer-outline' as const,
                         options: effortOptions,
                         codeDefaultKey: codeDefaults.effortLevel,

@@ -466,39 +466,19 @@ export async function machineStopDaemon(machineId: string): Promise<{ message: s
 }
 
 /**
- * Execute a bash command on a specific machine
+ * Execute a bash command on a specific machine (machine-level handler, no active session needed).
+ * Accepts a SessionBashRequest so callers can optionally pass cwd / timeout.
  */
-export async function machineBash(
-    machineId: string,
-    command: string,
-    cwd: string
-): Promise<{
-    success: boolean;
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-}> {
+export async function machineBash(machineId: string, request: SessionBashRequest): Promise<SessionBashResponse> {
     try {
-        const result = await apiSocket.machineRPC<{
-            success: boolean;
-            stdout: string;
-            stderr: string;
-            exitCode: number;
-        }, {
-            command: string;
-            cwd: string;
-        }>(
-            machineId,
-            'bash',
-            { command, cwd }
-        );
-        return result;
+        return await apiSocket.machineRPC<SessionBashResponse, SessionBashRequest>(machineId, 'bash', request);
     } catch (error) {
         return {
             success: false,
             stdout: '',
             stderr: error instanceof Error ? error.message : 'Unknown error',
-            exitCode: -1
+            exitCode: -1,
+            error: error instanceof Error ? error.message : 'Unknown error'
         };
     }
 }

@@ -50,6 +50,7 @@ export const pl: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "Nieznane",
         cancel: 'Anuluj',
         authenticate: 'Uwierzytelnij',
         save: 'Zapisz',
@@ -167,12 +168,32 @@ export const pl: TranslationStructure = {
         usage: 'Użycie',
         usageSubtitle: 'Zobacz użycie API i koszty',
 
+        agentDefaults: "Domyślne ustawienia agentów",
+        agentDefaultsSubtitle: "Domyślny model, wysiłek i uprawnienia",
+        customInstructions: "Instrukcje niestandardowe",
+        customInstructionsSubtitle: "Dodatkowy prompt systemowy wysyłany z każdą wiadomością",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `Konto ${service} połączone`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name} jest ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'włączona' : 'wyłączona'}`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Przeglądaj zainstalowane Skills i ich wyzwalacze',
+        machine: 'Maszyna',
+        noMachines: 'Brak maszyn online — najpierw podłącz jedną',
+        searchPlaceholder: 'Szukaj po nazwie lub wyzwalaczu…',
+        personalGroup: 'Osobiste Skills',
+        pluginGroup: 'Skills wtyczek',
+        noMatches: 'Brak pasujących Skills',
+        empty: 'Nie znaleziono Skills',
+        scanFailed: 'Nie udało się przeskanować Skills',
+        loadFailed: 'Nie udało się odczytać pliku',
+        missingPath: 'Brak ścieżki pliku',
     },
 
     settingsAppearance: {
@@ -1053,6 +1074,84 @@ export const pl: TranslationStructure = {
         friendRequestGeneric: 'Nowe zaproszenie do znajomych',
         friendAccepted: ({ name }: { name: string }) => `Jesteś teraz znajomym z ${name}`,
         friendAcceptedGeneric: 'Zaproszenie do znajomych zaakceptowane',
+    },
+
+    customInstructions: {
+        intro: "Ten tekst jest dołączany do promptu systemowego wysyłanego z każdą wiadomością i obowiązuje we wszystkich sesjach i na wszystkich urządzeniach (synchronizacja end-to-end). Pozostaw puste, aby nic nie dołączać.",
+        label: "Instrukcje",
+        placeholder: "Wprowadź niestandardowy prompt systemowy…",
+        footer: "Zmiany zapisują się natychmiast. Umieszczaj tu tylko własne preferencje; wbudowane reguły Happy (np. wstawianie obrazów przez send_image) są już w promptcie systemowym i nie trzeba ich powtarzać.",
+    },
+
+    agentDefaults: {
+        title: "Domyślne ustawienia agentów",
+        clearOverrides: "Wyczyść nadpisania",
+        clearOverridesSubtitle: "Przywróć każdego agenta do domyślnych ustawień z kodu",
+        useCodeDefault: "Użyj domyślnych z kodu",
+        none: "Brak",
+        defaultValue: ({ value }: { value: string }) => `Domyślnie (${value})`,
+        fieldPermission: "Uprawnienia",
+        fieldModel: "Model",
+        fieldEffort: "Wysiłek",
+    },
+
+    featuresInterface: {
+        title: "Interfejs",
+        footer: "Opcjonalne panele i elementy układu.",
+        fileDiffsSidebar: "Pasek różnic plików",
+        fileDiffsSidebarSubtitle: "Pokazuj zmiany git obok czatu na komputerze",
+        resumeSession: "Wznów sesję",
+        resumeSessionSubtitle: "Wznawiaj rozłączone sesje Claude Code i Codex przez demona maszyny",
+    },
+
+    connectClaude: {
+        title: "Połącz Claude",
+        instruction: "Uruchom następujące polecenie w terminalu:",
+    },
+
+    pushNotifications: {
+        title: "Powiadomienia push",
+        footer: "Pokazuje każdy token push zarejestrowany na Twoim koncie. Dotknij stary token, aby go usunąć.",
+        permission: "Uprawnienie",
+        permissionLoading: "Ładowanie",
+        permissionUnavailable: "Niedostępne",
+        permissionAllowed: "Dozwolone",
+        permissionDenied: "Odmówiono",
+        permissionNotRequested: "Nie żądano",
+        subtitleChecking: "Sprawdzanie uprawnień do powiadomień push dla tego urządzenia.",
+        subtitleUnsupported: "Uprawnienia do powiadomień push są zarządzane tylko na urządzeniach mobilnych.",
+        subtitleGranted: "To urządzenie może odbierać powiadomienia push.",
+        subtitleCanAskAgain: "Monit systemowy nadal może zostać ponownie wyświetlony z poziomu aplikacji.",
+        subtitleBlocked: "iOS przestał wyświetlać monit. Otwórz ustawienia systemowe, aby ponownie włączyć powiadomienia.",
+        requestAgain: "Poproś o uprawnienie ponownie",
+        requestAgainUnsupported: "Uprawnienia do powiadomień push są dostępne tylko na iPhone i Androidzie.",
+        requestAgainCanAsk: "Ponownie wyświetla monit systemowy, jeśli iOS nadal na to pozwala.",
+        requestAgainBlocked: "Otwiera ustawienia systemowe, gdy iOS nie wyświetli ponownie monitu.",
+        reRegister: "Zarejestruj ponownie to urządzenie",
+        reRegisterSubtitle: "Pobiera bieżący token Expo i rejestruje go ponownie.",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `Bieżący token ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `Zarejestrowane tokeny (${count})`,
+        registeredTokensFooter: "Metadane bieżącego urządzenia pochodzą z tego telefonu. Starsze tokeny używają odcisku tokena oraz znaczników czasu serwera.",
+        noTokensTitle: "Brak zarejestrowanych tokenów push",
+        noTokensSubtitle: "Gdy to urządzenie zostanie zarejestrowane, pojawi się tutaj.",
+        thisDevice: "To urządzenie",
+        otherDevice: "Inne urządzenie lub nieaktualna rejestracja",
+        registeredAt: ({ time }: { time: string }) => `Zarejestrowano: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `Ostatnio widziano: ${time}`,
+        serverId: ({ id }: { id: string }) => `ID serwera: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `Token: ${fingerprint}`,
+        loadFailed: "Nie udało się załadować ustawień powiadomień push.",
+        enabledForDevice: "Powiadomienia push są włączone dla tego urządzenia.",
+        openSettingsTitle: "Otwórz ustawienia",
+        openSettingsMessage: "System nie pokaże już monitu o uprawnienie, więc Paws otworzył zamiast tego ustawienia.",
+        permissionNotGranted: "Nie przyznano uprawnienia do powiadomień push.",
+        requestFailed: "Nie udało się poprosić o uprawnienie do powiadomień push.",
+        notEnabledYet: "Powiadomienia push nie są jeszcze włączone dla tego urządzenia.",
+        tokenRefreshed: "Token push tego urządzenia został odświeżony.",
+        refreshFailed: "Nie udało się odświeżyć tokena push tego urządzenia.",
+        deleteTitle: "Usuń token push",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `Usunąć ${fingerprint} z Twojego konta?`,
+        deleteFailed: "Nie udało się usunąć tokena push.",
     },
 
 } as const;

@@ -39,6 +39,7 @@ export const ca: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "Desconegut",
         cancel: 'Cancel·la',
         authenticate: 'Autentica',
         save: 'Desa',
@@ -150,12 +151,32 @@ export const ca: TranslationStructure = {
         usage: 'Ús',
         usageSubtitle: "Veure l'ús de l'API i costos",
 
+        agentDefaults: "Valors predeterminats de l'agent",
+        agentDefaultsSubtitle: "Model, esforç i permisos predeterminats",
+        customInstructions: "Instruccions personalitzades",
+        customInstructionsSubtitle: "Prompt de sistema addicional enviat amb cada missatge",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `Compte de ${service} connectat`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name} està ${status === 'online' ? 'en línia' : 'fora de línia'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'activada' : 'desactivada'}`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Explora els Skills instal·lats i els seus activadors',
+        machine: 'Màquina',
+        noMachines: 'No hi ha cap màquina en línia — connecta\'n una primer',
+        searchPlaceholder: 'Cerca per nom o activador…',
+        personalGroup: 'Skills personals',
+        pluginGroup: 'Skills de connectors',
+        noMatches: 'No hi ha cap Skill coincident',
+        empty: 'No s\'ha trobat cap Skill',
+        scanFailed: 'No s\'han pogut escanejar els Skills',
+        loadFailed: 'No s\'ha pogut llegir el fitxer',
+        missingPath: 'Falta la ruta del fitxer',
     },
 
     settingsAppearance: {
@@ -1023,7 +1044,86 @@ export const ca: TranslationStructure = {
         friendRequestGeneric: 'Nova sol·licitud d\'amistat',
         friendAccepted: ({ name }: { name: string }) => `Ara ets amic de ${name}`,
         friendAcceptedGeneric: 'Sol·licitud d\'amistat acceptada',
-    }
+    },
+
+    customInstructions: {
+        intro: "Aquest text s'afegeix al prompt de sistema enviat amb cada missatge i s'aplica a totes les sessions i dispositius (sincronitzat d'extrem a extrem). Deixa-ho buit per no afegir res.",
+        label: "Instruccions",
+        placeholder: "Introdueix un prompt de sistema personalitzat…",
+        footer: "Els canvis es desen a l'instant. Posa aquí només les teves preferències; les regles integrades de Happy (p. ex. inserir imatges amb send_image) ja són al prompt de sistema i no cal repetir-les.",
+    },
+
+    agentDefaults: {
+        title: "Valors predeterminats de l'agent",
+        clearOverrides: "Esborra les substitucions",
+        clearOverridesSubtitle: "Torna cada agent als valors predeterminats del codi",
+        useCodeDefault: "Usa el valor predeterminat del codi",
+        none: "Cap",
+        defaultValue: ({ value }: { value: string }) => `Per defecte (${value})`,
+        fieldPermission: "Permisos",
+        fieldModel: "Model",
+        fieldEffort: "Esforç",
+    },
+
+    featuresInterface: {
+        title: "Interfície",
+        footer: "Plafons i elements de disseny opcionals.",
+        fileDiffsSidebar: "Barra lateral de diferències de fitxers",
+        fileDiffsSidebarSubtitle: "Mostra els canvis de git al costat del xat a l'escriptori",
+        resumeSession: "Reprèn la sessió",
+        resumeSessionSubtitle: "Reprèn les sessions desconnectades de Claude Code i Codex mitjançant el dimoni de la màquina",
+    },
+
+    connectClaude: {
+        title: "Connecta Claude",
+        instruction: "Executa l'ordre següent al teu terminal:",
+    },
+
+    pushNotifications: {
+        title: "Notificacions push",
+        footer: "Mostra tots els tokens push registrats al teu compte. Toca un token antic per eliminar-lo.",
+        permission: "Permís",
+        permissionLoading: "Carregant",
+        permissionUnavailable: "No disponible",
+        permissionAllowed: "Permès",
+        permissionDenied: "Denegat",
+        permissionNotRequested: "No sol·licitat",
+        subtitleChecking: "S'estan comprovant els permisos de notificacions push per a aquest dispositiu.",
+        subtitleUnsupported: "Els permisos de notificacions push només es gestionen en dispositius mòbils.",
+        subtitleGranted: "Aquest dispositiu pot rebre notificacions push.",
+        subtitleCanAskAgain: "L'avís del sistema encara es pot tornar a mostrar des de l'aplicació.",
+        subtitleBlocked: "iOS ha deixat de mostrar l'avís. Obre la configuració del sistema per tornar a activar les notificacions.",
+        requestAgain: "Torna a sol·licitar el permís",
+        requestAgainUnsupported: "Els permisos de notificacions push només estan disponibles a l'iPhone i l'Android.",
+        requestAgainCanAsk: "Torna a mostrar l'avís del sistema si iOS encara ho permet.",
+        requestAgainBlocked: "Obre la configuració del sistema quan iOS no torni a mostrar l'avís.",
+        reRegister: "Torna a registrar aquest dispositiu",
+        reRegisterSubtitle: "Obté el token actual d'Expo i el torna a registrar.",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `Token actual ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `Tokens registrats (${count})`,
+        registeredTokensFooter: "Les metadades del dispositiu actual provenen d'aquest telèfon. Els tokens més antics utilitzen l'empremta del token i les marques de temps del servidor.",
+        noTokensTitle: "No hi ha tokens push registrats",
+        noTokensSubtitle: "Un cop aquest dispositiu estigui registrat, apareixerà aquí.",
+        thisDevice: "Aquest dispositiu",
+        otherDevice: "Un altre dispositiu o registre obsolet",
+        registeredAt: ({ time }: { time: string }) => `Registrat: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `Vist per última vegada: ${time}`,
+        serverId: ({ id }: { id: string }) => `ID del servidor: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `Token: ${fingerprint}`,
+        loadFailed: "No s'han pogut carregar els paràmetres de les notificacions push.",
+        enabledForDevice: "Les notificacions push estan activades per a aquest dispositiu.",
+        openSettingsTitle: "Obre la configuració",
+        openSettingsMessage: "El sistema no tornarà a mostrar l'avís de permís, així que Paws ha obert la configuració.",
+        permissionNotGranted: "No s'ha concedit el permís de notificacions push.",
+        requestFailed: "No s'ha pogut sol·licitar el permís de notificacions push.",
+        notEnabledYet: "Les notificacions push encara no estan activades per a aquest dispositiu.",
+        tokenRefreshed: "S'ha actualitzat el token push d'aquest dispositiu.",
+        refreshFailed: "No s'ha pogut actualitzar el token push d'aquest dispositiu.",
+        deleteTitle: "Elimina el token push",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `Voleu eliminar ${fingerprint} del vostre compte?`,
+        deleteFailed: "No s'ha pogut eliminar el token push.",
+    },
+
 } as const;
 
 export type TranslationsCa = typeof ca;

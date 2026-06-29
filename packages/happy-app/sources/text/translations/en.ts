@@ -54,6 +54,7 @@ export const en: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "Unknown",
         cancel: 'Cancel',
         authenticate: 'Authenticate',
         save: 'Save',
@@ -164,12 +165,32 @@ export const en: TranslationStructure = {
         exchangingTokens: 'Exchanging tokens...',
         usage: 'Usage',
         usageSubtitle: 'View your API usage and costs',
+        agentDefaults: "Agent Defaults",
+        agentDefaultsSubtitle: "Default model, effort, and permissions",
+        customInstructions: "Custom Instructions",
+        customInstructionsSubtitle: "Extra system prompt sent with every message",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `${service} account connected`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
             `${name} is ${status}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'enabled' : 'disabled'}`,
+    },
+
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Browse installed skills and their triggers',
+        machine: 'Machine',
+        noMachines: 'No machine online — connect one first',
+        searchPlaceholder: 'Search by name or trigger…',
+        personalGroup: 'Personal Skills',
+        pluginGroup: 'Plugin Skills',
+        noMatches: 'No matching skills',
+        empty: 'No skills found',
+        scanFailed: 'Failed to scan skills',
+        loadFailed: 'Failed to read file',
+        missingPath: 'Missing file path',
     },
 
     settingsAppearance: {
@@ -1038,6 +1059,84 @@ export const en: TranslationStructure = {
         friendRequestGeneric: 'New friend request',
         friendAccepted: ({ name }: { name: string }) => `You are now friends with ${name}`,
         friendAcceptedGeneric: 'Friend request accepted',
+    },
+
+    customInstructions: {
+        intro: "This text is appended to the system prompt sent with every message, applying to all sessions and devices (end-to-end synced). Leave empty to append nothing.",
+        label: "Instructions",
+        placeholder: "Enter custom system prompt…",
+        footer: "Changes save instantly. Put only your own preferences here; Happy's built-in rules (e.g. inlining images via send_image) are already in the system prompt and don't need repeating.",
+    },
+
+    agentDefaults: {
+        title: "Agent Defaults",
+        clearOverrides: "Clear Overrides",
+        clearOverridesSubtitle: "Return every agent to code defaults",
+        useCodeDefault: "Use code default",
+        none: "None",
+        defaultValue: ({ value }: { value: string }) => `Default (${value})`,
+        fieldPermission: "Permission",
+        fieldModel: "Model",
+        fieldEffort: "Effort",
+    },
+
+    featuresInterface: {
+        title: "Interface",
+        footer: "Optional panels and layout elements.",
+        fileDiffsSidebar: "File Diffs Sidebar",
+        fileDiffsSidebarSubtitle: "Show git changes next to the chat on desktop",
+        resumeSession: "Resume Session",
+        resumeSessionSubtitle: "Resume disconnected Claude Code and Codex sessions via the machine daemon",
+    },
+
+    connectClaude: {
+        title: "Connect Claude",
+        instruction: "Run the following command in your terminal:",
+    },
+
+    pushNotifications: {
+        title: "Push Notifications",
+        footer: "Shows every push token registered on your account. Tap an old token to delete it.",
+        permission: "Permission",
+        permissionLoading: "Loading",
+        permissionUnavailable: "Unavailable",
+        permissionAllowed: "Allowed",
+        permissionDenied: "Denied",
+        permissionNotRequested: "Not requested",
+        subtitleChecking: "Checking push notification permissions for this device.",
+        subtitleUnsupported: "Push notification permissions are only managed on mobile devices.",
+        subtitleGranted: "This device can receive push notifications.",
+        subtitleCanAskAgain: "The system prompt can still be shown again from the app.",
+        subtitleBlocked: "iOS has stopped prompting. Open system settings to enable notifications again.",
+        requestAgain: "Request Permission Again",
+        requestAgainUnsupported: "Push notification permissions are only available on iPhone and Android.",
+        requestAgainCanAsk: "Shows the system prompt again if iOS still allows it.",
+        requestAgainBlocked: "Opens system settings when iOS will not prompt again.",
+        reRegister: "Re-register This Device",
+        reRegisterSubtitle: "Fetches the current Expo token and registers it again.",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `Current token ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `Registered Tokens (${count})`,
+        registeredTokensFooter: "Current-device metadata comes from this phone. Older tokens use their token fingerprint plus server timestamps.",
+        noTokensTitle: "No registered push tokens",
+        noTokensSubtitle: "Once this device is registered, it will appear here.",
+        thisDevice: "This device",
+        otherDevice: "Other device or stale registration",
+        registeredAt: ({ time }: { time: string }) => `Registered: ${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `Last seen: ${time}`,
+        serverId: ({ id }: { id: string }) => `Server ID: ${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `Token: ${fingerprint}`,
+        loadFailed: "Failed to load push notification settings.",
+        enabledForDevice: "Push notifications are enabled for this device.",
+        openSettingsTitle: "Open Settings",
+        openSettingsMessage: "The system will not show the permission prompt again, so Paws opened Settings instead.",
+        permissionNotGranted: "Push notification permission was not granted.",
+        requestFailed: "Failed to request push notification permission.",
+        notEnabledYet: "Push notifications are not enabled for this device yet.",
+        tokenRefreshed: "This device push token was refreshed.",
+        refreshFailed: "Failed to refresh this device push token.",
+        deleteTitle: "Delete Push Token",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `Remove ${fingerprint} from your account?`,
+        deleteFailed: "Failed to delete push token.",
     },
 
 } as const;
