@@ -205,6 +205,16 @@ export default function DevScreen() {
                 />
             </ItemGroup>
 
+            {/* OTA */}
+            <ItemGroup title="OTA" footer="查看本机当前跑哪个 OTA 版本，并在 preview 频道历史版本间定向切换（仅本设备生效）。">
+                <Item
+                    title="OTA Versions"
+                    subtitle="查看当前版本 / 切换 preview 历史版本"
+                    icon={<Ionicons name="cube-outline" size={28} color={theme.colors.accent} />}
+                    onPress={() => router.push('/dev/ota-versions')}
+                />
+            </ItemGroup>
+
             {/* Component Demos */}
             <ItemGroup title="Component Demos">
                 <Item

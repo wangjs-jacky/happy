@@ -257,6 +257,18 @@ export default function RootLayout() {
                     headerTitle: 'Developer Tools',
                 }}
             />
+            <Stack.Screen
+                name="dev/ota-versions"
+                options={{
+                    headerTitle: 'OTA Versions',
+                }}
+            />
+            <Stack.Screen
+                name="ota-switch"
+                options={{
+                    headerTitle: 'Switch OTA Version',
+                }}
+            />
 
             <Stack.Screen
                 name="dev/list-demo"

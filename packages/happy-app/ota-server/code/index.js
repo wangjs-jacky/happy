@@ -23,6 +23,22 @@ function buildMultipart(partName, jsonObj) {
   );
 }
 
+// 从 expo-extra-params 头里解析出 App 设置的 ota-target-stamp（定向版本锁定）。
+//
+// expo-updates 客户端把 `Updates.setExtraParamAsync(key, value)` 设的参数，
+// 以 RFC 8941 structured-field dictionary 形式塞进 `Expo-Extra-Params` 请求头，
+// 形如：`ota-target-stamp="1782729144216", foo="bar"`。
+// 这里只关心 ota-target-stamp，且严格白名单：必须是纯数字串（毫秒时间戳），
+// 既防路径穿越（拼进 OSS key），也排除任何非法取值。解析失败一律返回 null（= 不锁定）。
+function parseTargetStamp(extraParamsHeader) {
+  if (!extraParamsHeader) return null;
+  // 兼容带引号 ota-target-stamp="123" 与裸 token ota-target-stamp=123 两种写法
+  const m = /ota-target-stamp\s*=\s*"?(\d+)"?/.exec(extraParamsHeader);
+  if (!m) return null;
+  const stamp = m[1];
+  return /^\d+$/.test(stamp) ? stamp : null;
+}
+
 const updatesHeaders = {
   'content-type': `multipart/mixed; boundary=${BOUNDARY}`,
   'expo-protocol-version': '1',
@@ -48,10 +64,22 @@ const server = http.createServer(async (req, res) => {
     // 缺省 production，兼容未带该头的老客户端。
     const channel = h['expo-channel-name'] || 'production';
 
-    // 从 OSS 取对应清单（按频道分流）：manifests/<platform>/<runtime>/<channel>/latest.json
-    const manifestUrl =
-      `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/${channel}/latest.json`;
-    let r = await fetch(manifestUrl);
+    // 定向版本锁定（仅 preview 频道生效）：
+    // App 在「OTA 版本」选择器里锁定某个历史版本时，会 setExtraParamAsync('ota-target-stamp', <stamp>)，
+    // 该值随 expo-extra-params 头传到这里。命中后取该 stamp 的历史 manifest 而非 latest。
+    // production 频道一律忽略（永远跟随 latest），防止误把线上用户锁到旧包。
+    const targetStamp = channel === 'preview' ? parseTargetStamp(h['expo-extra-params']) : null;
+    const channelBase = `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/${channel}`;
+
+    let r;
+    // 锁定了具体版本 → 先取该历史 manifest；取不到（已被清理/拼错）则静默回退到 latest，
+    // 符合「never show loading error，always retry」——宁可给最新也不报错。
+    if (targetStamp) {
+      r = await fetch(`${channelBase}/${targetStamp}.json`);
+    }
+    if (!r || !r.ok) {
+      r = await fetch(`${channelBase}/latest.json`);
+    }
 
     // 兼容旧布局：production 频道在引入频道维度前发到的是
     // manifests/<platform>/<runtime>/latest.json（无 channel 段）。
