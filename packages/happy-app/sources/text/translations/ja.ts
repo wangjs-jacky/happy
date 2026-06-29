@@ -210,6 +210,8 @@ export const ja: TranslationStructure = {
         inlineToolCallsDescription: 'チャットメッセージ内にツール呼び出しを直接表示',
         expandTodoLists: 'Todoリストを展開',
         expandTodoListsDescription: '変更点だけでなくすべてのTodoを表示',
+        hapticFeedback: 'Haptic Feedback',
+        hapticFeedbackDescription: 'Vibrate on swipes, long-press and toggles',
         showLineNumbersInDiffs: '差分に行番号を表示',
         showLineNumbersInDiffsDescription: 'コード差分に行番号を表示',
         showLineNumbersInToolViews: 'ツールビューに行番号を表示',

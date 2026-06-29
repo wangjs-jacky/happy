@@ -12,6 +12,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
+import { useDrawerHaptics } from './useDrawerHaptics';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -107,6 +108,7 @@ const stylesheet = StyleSheet.create((theme) => ({
 }));
 
 export const SidebarView = React.memo(() => {
+    useDrawerHaptics();
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const router = useRouter();

@@ -19,6 +19,7 @@ import { MermaidRenderer } from './MermaidRenderer';
 import { t } from '@/text';
 import { isHttpMarkdownLink } from './linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { hapticsLight } from '../haptics';
 
 // Option type for callback
 export type Option = {
@@ -103,6 +104,7 @@ export const MarkdownView = React.memo((props: {
     const longPressGesture = Gesture.LongPress()
         .minDuration(500)
         .onStart(() => {
+            hapticsLight();
             handleLongPress();
         })
         .runOnJS(true);
