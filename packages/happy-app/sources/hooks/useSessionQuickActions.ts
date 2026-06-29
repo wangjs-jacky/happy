@@ -17,6 +17,7 @@ import { getSessionForkSource } from '@/utils/sessionFork';
 import { useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
+import { hapticsSuccess } from '@/components/haptics';
 
 export interface SessionActionItem {
     id: string;
@@ -232,6 +233,7 @@ export function useSessionQuickActions(
         if (result.type !== 'success') {
             throw new HappyError(result.type === 'error' ? result.errorMessage : t('session.forkErrorGeneric'), false);
         }
+        hapticsSuccess();
         navigateToSession(result.sessionId);
     });
 

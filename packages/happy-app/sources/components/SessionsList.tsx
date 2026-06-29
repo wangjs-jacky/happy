@@ -19,6 +19,7 @@ import { layout } from './layout';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
 import { useSettingMutable } from '@/sync/storage';
+import { hapticsLight } from './haptics';
 import { t } from '@/text';
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -389,6 +390,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
     // Native long-press: anchor the context menu at the touch point instead of
     // showing a centered alert. pageX/pageY come from the gesture responder event.
     const handleLongPress = React.useCallback((event: any) => {
+        hapticsLight();
         setActionsAnchor({
             type: 'point',
             x: event.nativeEvent.pageX ?? 0,

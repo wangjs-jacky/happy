@@ -13,6 +13,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPopover';
+import { hapticsLight } from './haptics';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
@@ -294,6 +295,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     // Native long-press: anchor the context menu at the touch point instead of
     // showing a centered alert. pageX/pageY come from the gesture responder event.
     const handleLongPress = React.useCallback((event: any) => {
+        hapticsLight();
         setActionsAnchor({
             type: 'point',
             x: event.nativeEvent.pageX ?? 0,
