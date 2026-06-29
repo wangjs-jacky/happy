@@ -33,10 +33,12 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
             contentContainerStyle={styles.stripContent}
             keyboardShouldPersistTaps="always"
         >
-            {images.map((img) => (
+            {images.map((img, index) => (
                 <AttachmentThumbnail
                     key={img.id}
                     image={img}
+                    index={index}
+                    images={images}
                     onRemove={onRemove}
                     theme={theme}
                 />
@@ -47,10 +49,14 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
 
 function AttachmentThumbnail({
     image,
+    index,
+    images,
     onRemove,
     theme,
 }: {
     image: AttachmentPreview;
+    index: number;
+    images: AttachmentPreview[];
     onRemove: (id: string) => void;
     theme: any;
 }) {
@@ -63,9 +69,12 @@ function AttachmentThumbnail({
 
     return (
         <View style={styles.thumbContainer}>
-            {/* Tap the image to open the fullscreen zoomable viewer. */}
+            {/* Tap the image to open the fullscreen swipeable viewer at this one. */}
             <Pressable
-                onPress={() => imageViewer.open({ uri: image.uri, width: image.width, height: image.height })}
+                onPress={() => imageViewer.open(
+                    images.map((it) => ({ uri: it.uri, width: it.width, height: it.height })),
+                    index,
+                )}
                 style={[styles.thumbPressable, { borderColor: theme.colors.divider }]}
             >
                 <Image

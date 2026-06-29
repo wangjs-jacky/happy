@@ -67,7 +67,32 @@ export function groupMessagesForDisplay(
     options: { collapseCurrentTurn?: boolean } = {},
 ): DisplayItem[] {
     if (!enabled) {
-        return messages.map((msg) => ({ type: 'message', id: msg.id, message: msg } as TextItem));
+        // Tool-call grouping is off, but user image attachments must STILL
+        // collapse into a horizontal Kimi-style gallery — the thumbnail UI is
+        // independent of the "Group Tool Calls" setting. Without this, images
+        // fall back to full-width FileView rows whenever groupToolCalls is
+        // false (which is the default), silently undoing the gallery feature.
+        const attachmentRuns = collectToolRuns(messages, (msg) => isUserAttachment(msg));
+        const result: DisplayItem[] = [];
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            if (isUserAttachment(msg)) {
+                const run = attachmentRuns.get(i);
+                // Emit the whole run once, at its oldest member, so visual order
+                // (newest-first array → oldest pushed first) stays correct.
+                if (run && i === run.oldestIdx) {
+                    const chronological = [...run.msgs].reverse();
+                    result.push({
+                        type: 'image-group',
+                        id: `images-${chronological[0].id}`,
+                        messages: chronological,
+                    });
+                }
+                continue;
+            }
+            result.push({ type: 'message', id: msg.id, message: msg });
+        }
+        return result;
     }
 
     const collapseCurrentTurn = options.collapseCurrentTurn ?? true;

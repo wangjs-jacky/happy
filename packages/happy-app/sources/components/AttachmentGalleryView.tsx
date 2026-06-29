@@ -72,6 +72,28 @@ export const AttachmentGalleryView = React.memo<{
 }>(({ messages, sessionId }) => {
     const images = React.useMemo(() => toGalleryImages(messages), [messages]);
 
+    // Decrypted URIs resolve lazily inside each thumbnail. We collect them here
+    // (in a ref, so resolution doesn't re-render the strip) so that tapping any
+    // thumbnail can open the *whole* run as a swipeable gallery, not just one.
+    const resolvedRef = React.useRef<Map<string, string>>(new Map());
+    const handleResolved = React.useCallback((id: string, uri: string | null) => {
+        if (uri) resolvedRef.current.set(id, uri);
+        else resolvedRef.current.delete(id);
+    }, []);
+
+    const handleOpen = React.useCallback((tappedId: string) => {
+        // Build the gallery in display order from whatever has resolved so far.
+        const ordered = images
+            .map((img) => ({ img, uri: resolvedRef.current.get(img.id) }))
+            .filter((x): x is { img: GalleryImage; uri: string } => !!x.uri);
+        const index = ordered.findIndex((x) => x.img.id === tappedId);
+        if (index < 0) return;
+        imageViewer.open(
+            ordered.map((x) => ({ uri: x.uri, width: x.img.width, height: x.img.height })),
+            index,
+        );
+    }, [images]);
+
     if (images.length === 0) return null;
 
     return (
@@ -82,7 +104,13 @@ export const AttachmentGalleryView = React.memo<{
             contentContainerStyle={styles.stripContent}
         >
             {images.map((img) => (
-                <GalleryThumbnail key={img.id} image={img} sessionId={sessionId} />
+                <GalleryThumbnail
+                    key={img.id}
+                    image={img}
+                    sessionId={sessionId}
+                    onResolved={handleResolved}
+                    onOpen={handleOpen}
+                />
             ))}
         </ScrollView>
     );
@@ -91,7 +119,9 @@ export const AttachmentGalleryView = React.memo<{
 const GalleryThumbnail = React.memo<{
     image: GalleryImage;
     sessionId: string;
-}>(({ image, sessionId }) => {
+    onResolved: (id: string, uri: string | null) => void;
+    onOpen: (id: string) => void;
+}>(({ image, sessionId, onResolved, onOpen }) => {
     const { theme } = useUnistyles();
 
     const placeholder = React.useMemo(() => {
@@ -102,9 +132,14 @@ const GalleryThumbnail = React.memo<{
 
     const { uri, error } = useAttachmentImage(sessionId, sessionId ? image.ref : undefined);
 
+    // Report this image's resolved URI up so the parent can open the full run.
+    React.useEffect(() => {
+        onResolved(image.id, uri ?? null);
+    }, [image.id, uri, onResolved]);
+
     return (
         <Pressable
-            onPress={uri ? () => imageViewer.open({ uri, width: image.width, height: image.height }) : undefined}
+            onPress={uri ? () => onOpen(image.id) : undefined}
             disabled={!uri}
             style={[styles.thumbWrapper, { borderColor: theme.colors.divider }]}
         >
