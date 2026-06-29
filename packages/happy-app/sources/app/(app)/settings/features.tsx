@@ -19,7 +19,6 @@ export default function FeaturesSettingsScreen() {
     const [expResumeSession, setExpResumeSession] = useSettingMutable('expResumeSession');
     const [fileDiffsSidebar, setFileDiffsSidebar] = useSettingMutable('fileDiffsSidebar');
     const [groupToolCalls, setGroupToolCalls] = useSettingMutable('groupToolCalls');
-    const [expImageUpload, setExpImageUpload] = useSettingMutable('expImageUpload');
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
@@ -107,19 +106,7 @@ export default function FeaturesSettingsScreen() {
                     }
                     showChevron={false}
                 />
-                <Item
-                    title={t('settingsFeatures.imageUpload')}
-                    subtitle={t('settingsFeatures.imageUploadSubtitle')}
-                    icon={<Ionicons name="image-outline" size={29} color="#FF2D55" />}
-                    rightElement={
-                        <Switch
-                            value={expImageUpload}
-                            onValueChange={setExpImageUpload}
-                        />
-                    }
-                    showChevron={false}
-                />
-                {/* image upload re-enabled — local PUT path */}
+                {/* 图片上传已转正为默认功能，不再作为实验开关展示 */}
             </ItemGroup>
 
             {/* Privacy */}
