@@ -33,6 +33,7 @@ export interface OtaVersionsState {
     versions: OtaVersion[];
     loading: boolean;
     error: string | null;
+    debug: string; // 诊断信息（HTTP 状态 / 字节数 / 解析结果），排查「拿不到版本」用
     refresh: () => Promise<void>;
 }
 
@@ -51,6 +52,7 @@ export function useOtaVersions(channel: string = 'preview', platform: string = '
     const [versions, setVersions] = React.useState<OtaVersion[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
+    const [debug, setDebug] = React.useState<string>('');
 
     const refresh = React.useCallback(async () => {
         setLoading(true);
@@ -59,16 +61,19 @@ export function useOtaVersions(channel: string = 'preview', platform: string = '
             const prefix = `meta/${platform}/${runtime}/${channel}/`;
             const listUrl = `${OSS_PUBLIC_BASE}/?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
             const listRes = await fetch(listUrl);
-            if (!listRes.ok) {
-                throw new Error(`ListObjects failed: HTTP ${listRes.status}`);
-            }
             const xml = await listRes.text();
-            const stamps = extractKeys(xml)
+            const allKeys = extractKeys(xml);
+            const stamps = allKeys
                 .filter((k) => k.endsWith('.json'))
                 .map((k) => k.slice(prefix.length).replace(/\.json$/, ''))
                 .filter((s) => /^\d+$/.test(s))
                 .sort((a, b) => Number(b) - Number(a)) // 最新在前
                 .slice(0, MAX_VERSIONS);
+            // 诊断：HTTP 状态 / 响应字节 / 解析出的 key 数 / stamp 数 + 响应头几个字符
+            setDebug(`HTTP ${listRes.status} · ${xml.length}B · keys ${allKeys.length} · stamps ${stamps.length} · head「${xml.slice(0, 40).replace(/\s+/g, ' ')}」`);
+            if (!listRes.ok) {
+                throw new Error(`ListObjects HTTP ${listRes.status}: ${xml.slice(0, 120)}`);
+            }
 
             const metas = await Promise.all(
                 stamps.map(async (stamp) => {
@@ -88,9 +93,13 @@ export function useOtaVersions(channel: string = 'preview', platform: string = '
                     }
                 }),
             );
-            setVersions(metas.filter((v): v is OtaVersion => v !== null));
+            const ok = metas.filter((v): v is OtaVersion => v !== null);
+            setVersions(ok);
+            setDebug((d) => `${d} · metaOk ${ok.length}`);
         } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
+            const msg = e instanceof Error ? e.message : String(e);
+            setError(msg);
+            setDebug((d) => `${d || ''} · ERR ${msg}`.slice(0, 300));
         } finally {
             setLoading(false);
         }
@@ -100,5 +109,5 @@ export function useOtaVersions(channel: string = 'preview', platform: string = '
         refresh();
     }, [refresh]);
 
-    return { versions, loading, error, refresh };
+    return { versions, loading, error, debug, refresh };
 }

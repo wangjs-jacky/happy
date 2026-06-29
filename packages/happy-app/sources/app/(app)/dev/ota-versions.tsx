@@ -27,7 +27,7 @@ function shortLine(v: OtaVersion): { title: string; subtitle: string } {
 
 export default function OtaVersionsScreen() {
     const { theme } = useUnistyles();
-    const { versions, loading: listLoading, error, refresh } = useOtaVersions('preview');
+    const { versions, loading: listLoading, error, debug, refresh } = useOtaVersions('preview');
     const { lockedStamp, currentUpdateId, channel, loading: targetLoading, lockTo, unlock } = useOtaTarget();
 
     const handleLock = React.useCallback((v: OtaVersion) => {
@@ -133,12 +133,18 @@ export default function OtaVersionsScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup>
+            <ItemGroup title="诊断" footer={debug || '（点刷新后显示请求诊断）'}>
                 <Item
                     title="刷新版本列表"
                     loading={listLoading}
                     icon={<Ionicons name="reload-outline" size={29} color={theme.colors.text} />}
                     onPress={() => refresh()}
+                />
+                <Item
+                    title="复制诊断信息"
+                    detail={versions.length ? `${versions.length} 版本` : '空'}
+                    copy={debug || 'no-debug'}
+                    icon={<Ionicons name="bug-outline" size={29} color={theme.colors.textSecondary} />}
                 />
             </ItemGroup>
         </ItemList>

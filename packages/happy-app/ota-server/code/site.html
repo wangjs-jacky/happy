@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Happy OTA · preview 版本浏览站</title>
+<!--
+  自建 OTA「版本浏览站」—— OSS 同桶静态托管（单文件）。
+  纯前端：对桶做 ListObjectsV2 拿 meta/ 下全部版本，逐个 fetch meta json 渲染，
+  每行生成一个二维码，内容 paws://ota-switch?channel=preview&stamp=<stamp>，手机扫码即把本机锁定到该版本。
+  依赖桶对 meta/ 前缀开匿名 ListObjects + GetObject。
+-->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+<style>
+    :root {
+        --bg: #0a0a0b;
+        --bg-elevated: #131316;
+        --text: #e5e5e7;
+        --text-muted: #6b6b76;
+        --border: rgba(255, 255, 255, 0.06);
+        --primary: #00ff88;
+        --primary-dim: rgba(0, 255, 136, 0.12);
+        --amber: #ffb800;
+        --blue: #00d4ff;
+        --glass-bg: rgba(255, 255, 255, 0.02);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { background: var(--bg); }
+    body {
+        font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+        background:
+            radial-gradient(900px 500px at 100% -10%, rgba(0, 255, 136, 0.06), transparent 60%),
+            radial-gradient(700px 500px at -10% 110%, rgba(0, 212, 255, 0.05), transparent 60%),
+            var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 32px 16px 80px;
+        line-height: 1.5;
+    }
+    /* 扫描线氛围 */
+    body::before {
+        content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+        background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.015) 0 1px, transparent 1px 3px);
+        mix-blend-mode: overlay;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; position: relative; z-index: 1; }
+    header { margin-bottom: 28px; }
+    .tag {
+        display: inline-block; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+        color: var(--primary); border: 1px solid var(--primary-dim); background: var(--primary-dim);
+        padding: 3px 10px; border-radius: 4px; margin-bottom: 14px;
+    }
+    h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
+    h1 .accent { color: var(--primary); text-shadow: 0 0 22px rgba(0, 255, 136, 0.45); }
+    .sub { color: var(--text-muted); font-size: 13px; margin-top: 8px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin: 20px 0 18px; flex-wrap: wrap; }
+    .count { color: var(--text-muted); font-size: 12px; }
+    button.refresh {
+        font-family: inherit; font-size: 12px; color: var(--primary); cursor: pointer;
+        background: var(--glass-bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
+        transition: border-color .15s, background .15s;
+    }
+    button.refresh:hover { border-color: var(--primary); background: var(--primary-dim); }
+
+    .list { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+        display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center;
+        background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+        position: relative; overflow: hidden;
+    }
+    .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--border); }
+    .card.latest::before { background: var(--primary); box-shadow: 0 0 14px var(--primary); }
+    .meta { min-width: 0; }
+    .subject { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 7px; word-break: break-word; }
+    .row2 { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; color: var(--text-muted); }
+    .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; }
+    .chip.sha { color: var(--amber); }
+    .chip.branch { color: var(--blue); }
+    .chip.latest { color: var(--primary); border-color: var(--primary-dim); background: var(--primary-dim); }
+    .chip.dirty { color: #ff4757; }
+    .stamp { color: var(--text-muted); }
+    .qr { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .qr canvas, .qr img { background: #fff; padding: 7px; border-radius: 8px; width: 104px; height: 104px; }
+    .link {
+        font-size: 10px; color: var(--text-muted); cursor: pointer; background: none; border: none;
+        font-family: inherit; text-decoration: underline dotted; transition: color .15s;
+    }
+    .link:hover { color: var(--primary); }
+    .state { text-align: center; color: var(--text-muted); padding: 48px 0; font-size: 13px; }
+    .state .err { color: #ff4757; }
+    footer { margin-top: 40px; text-align: center; color: var(--text-muted); font-size: 11px; line-height: 1.8; }
+    @media (max-width: 560px) {
+        .card { grid-template-columns: 1fr; }
+        .qr { flex-direction: row; justify-content: flex-start; }
+    }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <span class="tag">self-host ota · preview</span>
+        <h1>Happy <span class="accent">OTA</span> 版本浏览站</h1>
+        <p class="sub">扫码即把手机锁定到对应版本 — 仅 preview 频道，仅扫码的那台设备生效。</p>
+    </header>
+
+    <div class="toolbar">
+        <button class="refresh" onclick="load()">↻ 刷新</button>
+        <span class="count" id="count"></span>
+    </div>
+
+    <div class="list" id="list"></div>
+    <div class="state" id="state">正在加载版本…</div>
+
+    <footer>
+        runtime 21 · platform android · channel preview<br />
+        二维码内容 <code>paws://ota-switch?channel=preview&amp;stamp=&lt;stamp&gt;</code> · 绿条 = 当前最新
+    </footer>
+</div>
+
+<script>
+    const OSS_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
+    const PREFIX = 'meta/android/21/preview/';
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    // ListObjectsV2 → 解析 XML 拿全部 key → 过滤出 stamp
+    async function listStamps() {
+        const url = `${OSS_BASE}/?list-type=2&prefix=${encodeURIComponent(PREFIX)}&max-keys=1000`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`ListObjects HTTP ${res.status}（桶可能未开匿名 list 权限）`);
+        const xml = new DOMParser().parseFromString(await res.text(), 'text/xml');
+        return [...xml.getElementsByTagName('Key')]
+            .map(n => n.textContent)
+            .filter(k => k && k.endsWith('.json'))
+            .map(k => k.slice(PREFIX.length).replace(/\.json$/, ''))
+            .filter(s => /^\d+$/.test(s))
+            .sort((a, b) => Number(b) - Number(a));
+    }
+
+    async function fetchMeta(stamp) {
+        try {
+            const res = await fetch(`${OSS_BASE}/${PREFIX}${stamp}.json`);
+            if (!res.ok) return null;
+            const m = await res.json();
+            return { stamp, id: m.id || '', createdAt: m.createdAt || '', git: m.git || {} };
+        } catch { return null; }
+    }
+
+    function renderCard(v, isLatest) {
+        const g = v.git || {};
+        const deepLink = `paws://ota-switch?channel=preview&stamp=${v.stamp}`;
+        const when = v.createdAt ? new Date(v.createdAt).toLocaleString() : v.stamp;
+        const card = document.createElement('div');
+        card.className = 'card' + (isLatest ? ' latest' : '');
+        card.innerHTML = `
+            <div class="meta">
+                <div class="subject">${esc(g.subject || '(无 commit 信息)')}</div>
+                <div class="row2">
+                    ${g.sha ? `<span class="chip sha">⎇ ${esc(g.sha)}${g.dirty ? '' : ''}</span>` : ''}
+                    ${g.dirty ? `<span class="chip dirty">dirty</span>` : ''}
+                    ${g.branch ? `<span class="chip branch">${esc(g.branch)}</span>` : ''}
+                    ${isLatest ? `<span class="chip latest">latest</span>` : ''}
+                    <span class="chip stamp">${esc(when)}</span>
+                </div>
+            </div>
+            <div class="qr">
+                <canvas></canvas>
+                <button class="link">复制链接</button>
+            </div>`;
+        const canvas = card.querySelector('canvas');
+        QRCode.toCanvas(canvas, deepLink, { width: 104, margin: 0, color: { dark: '#0a0a0b', light: '#ffffff' } }, () => {});
+        card.querySelector('.link').onclick = () => {
+            navigator.clipboard?.writeText(deepLink);
+            const b = card.querySelector('.link'); b.textContent = '已复制 ✓'; setTimeout(() => b.textContent = '复制链接', 1400);
+        };
+        return card;
+    }
+
+    async function load() {
+        const listEl = document.getElementById('list');
+        const stateEl = document.getElementById('state');
+        const countEl = document.getElementById('count');
+        listEl.innerHTML = ''; countEl.textContent = '';
+        stateEl.style.display = 'block'; stateEl.innerHTML = '正在加载版本…';
+        try {
+            const stamps = await listStamps();
+            if (!stamps.length) { stateEl.innerHTML = '该频道还没有发布过 OTA 版本。'; return; }
+            const metas = (await Promise.all(stamps.map(fetchMeta))).filter(Boolean);
+            stateEl.style.display = 'none';
+            metas.forEach((v, i) => listEl.appendChild(renderCard(v, i === 0)));
+            countEl.textContent = `${metas.length} 个版本`;
+        } catch (e) {
+            stateEl.innerHTML = `<span class="err">加载失败：${esc(e.message)}</span>`;
+        }
+    }
+
+    load();
+</script>
+</body>
+</html>
