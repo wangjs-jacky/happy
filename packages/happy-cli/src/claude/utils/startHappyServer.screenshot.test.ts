@@ -14,7 +14,9 @@ describe('createScreenshotTools', () => {
             now: () => 123,
         });
         const out = await tools.take({ target: 'browser', note: '登录页' });
-        expect(out).toMatch(/#1/);
+        // id 现在带进程级 nonce 前缀，不再是裸 "1"。断言返回文本含实际 id 即可。
+        const takenId = store.list()[0].id;
+        expect(out).toContain(`#${takenId}`);
         expect(out).toMatch(/get_screenshot/);
         expect(out).not.toMatch(/BYTES/); // 字节不进返回（不进上下文）
         expect(signals).toHaveLength(1); // 触发了向 App 的信号
@@ -36,7 +38,7 @@ describe('createScreenshotTools', () => {
 
     it('get：返回图像 base64 + image/png', async () => {
         const store = new ScreenshotStore();
-        store.add({ filePath: '/tmp/x.png', target: 'desktop', takenAt: 1 });
+        const ref = store.add({ filePath: '/tmp/x.png', target: 'desktop', takenAt: 1 });
         const tools = createScreenshotTools({
             store,
             capture: async () => '',
@@ -44,7 +46,7 @@ describe('createScreenshotTools', () => {
             signalNewScreenshot: () => {},
             now: () => 1,
         });
-        const out = await tools.get({ id: '1' });
+        const out = await tools.get({ id: ref.id });
         expect(out.base64).toBe('BYTES');
         expect(out.mimeType).toBe('image/png');
     });

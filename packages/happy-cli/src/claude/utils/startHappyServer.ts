@@ -214,7 +214,10 @@ export async function startHappyServer(client: ApiSessionClient) {
         client.updateMetadata((prev) => ({
             ...prev,
             screenshotRefs: refs,
-            screenshotVersion: refs.length, // 计数即版本号，便于 App 检测变化
+            // 版本号在上次值基础上 +1，不依赖 refs.length。prev 来自服务端当前
+            // metadata，天然跨进程单调——CLI 重启/续接同一 session 时不会回退，
+            // 避免 App 误判「版本没变大」而永不拉新图。
+            screenshotVersion: (prev.screenshotVersion ?? 0) + 1,
         }));
     };
     const screenshotTools = createScreenshotTools({
