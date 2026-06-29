@@ -4,6 +4,7 @@ import { Image, Pressable, View, Platform, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import type { GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '../StyledText';
 import { Typography } from '@/constants/Typography';
@@ -58,6 +59,18 @@ export const MarkdownView = React.memo((props: {
             Modal.alert('Error', 'Failed to open text selection. Please try again.');
         }
     }, [props.markdown, router]);
+
+    const longPressGesture = React.useMemo(() => Gesture.LongPress()
+        .minDuration(500)
+        .onStart(() => {
+            handleLongPress();
+        })
+        .runOnJS(true), [handleLongPress]);
+
+    const blockExternalGestures = React.useMemo(() => (
+        Platform.OS !== 'web' && markdownCopyV2 ? [longPressGesture] : undefined
+    ), [longPressGesture, markdownCopyV2]);
+
     const renderContent = () => {
         return (
             <View style={{ width: '100%' }}>
@@ -73,7 +86,7 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'numbered-list') {
                         return <RenderNumberedListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'code-block') {
-                        return <RenderCodeBlock content={block.content} language={block.language} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} />;
+                        return <RenderCodeBlock content={block.content} language={block.language} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} blockExternalGestures={blockExternalGestures} />;
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
                     } else if (block.type === 'options') {
@@ -98,15 +111,6 @@ export const MarkdownView = React.memo((props: {
         return renderContent();
     }
     
-    // Use GestureDetector with LongPress gesture - it doesn't block pan gestures
-    // so horizontal scrolling in code blocks and tables still works
-    const longPressGesture = Gesture.LongPress()
-        .minDuration(500)
-        .onStart(() => {
-            handleLongPress();
-        })
-        .runOnJS(true);
-
     return (
         <GestureDetector gesture={longPressGesture}>
             <View style={{ width: '100%' }}>
@@ -163,7 +167,7 @@ function RenderNumberedListBlock(props: { items: { number: number, depth: number
     );
 }
 
-function RenderCodeBlock(props: { content: string, language: string | null, first: boolean, last: boolean, selectable: boolean }) {
+function RenderCodeBlock(props: { content: string, language: string | null, first: boolean, last: boolean, selectable: boolean, blockExternalGestures?: GestureType[] }) {
     const [isHovered, setIsHovered] = React.useState(false);
 
     const copyCode = React.useCallback(async () => {
@@ -186,6 +190,8 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
         >
             {props.language && <Text selectable={props.selectable} style={style.codeLanguage}>{props.language}</Text>}
             <HorizontalScrollView
+                style={{ flexGrow: 0 }}
+                blockExternalGestures={props.blockExternalGestures}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16 }}
             >
                 <SimpleSyntaxHighlighter

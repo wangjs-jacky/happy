@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Platform, ScrollView, ScrollViewProps, LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import type { GestureType } from 'react-native-gesture-handler';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
 
 // Gesture-locked horizontal wheel scroll.
@@ -69,7 +70,15 @@ function useHorizontalWheelScroll() {
     return ref;
 }
 
-type Props = Omit<ScrollViewProps, 'horizontal'>;
+type Props = Omit<ScrollViewProps, 'horizontal'> & {
+    /**
+     * Native-only: horizontal scroll regions embedded inside other gestures can
+     * ask their own native scroll recognizer to block those external gestures
+     * while the content actually overflows. This keeps code blocks from handing
+     * a horizontal drag to the markdown/page gesture around them.
+     */
+    blockExternalGestures?: GestureType[];
+};
 
 // Web: trackpad / mouse-wheel horizontal scroll with axis lock + boundary
 // passthrough (the wheel handler above). Touch gestures don't exist here.
@@ -77,6 +86,7 @@ function WebHorizontalScrollView(props: Props) {
     const {
         showsHorizontalScrollIndicator = true,
         nestedScrollEnabled = true,
+        blockExternalGestures: _blockExternalGestures,
         ...rest
     } = props;
     const ref = useHorizontalWheelScroll();
@@ -111,6 +121,7 @@ function NativeHorizontalScrollView(props: Props) {
     const {
         showsHorizontalScrollIndicator = true,
         nestedScrollEnabled = true,
+        blockExternalGestures,
         onLayout,
         onContentSizeChange,
         ...rest
@@ -141,17 +152,20 @@ function NativeHorizontalScrollView(props: Props) {
         onContentSizeChange?.(w, h);
     }, [onContentSizeChange, recomputeOverflow]);
 
-    // Gesture.Native() represents the ScrollView's own scroll recognizer; we
-    // only attach the blocking relation while overflowing + inside a drawer.
-    // Changing the gesture object doesn't remount the ScrollView, so scroll
-    // position survives an overflow toggle.
+    // Gesture.Native() represents the ScrollView's own scroll recognizer. Only
+    // attach blocking relations while overflowing, so non-scrollable content
+    // leaves surrounding gestures untouched.
     const scrollGesture = React.useMemo(() => {
         const g = Gesture.Native();
-        if (drawerPan && hasOverflow) {
-            g.blocksExternalGesture(drawerPan);
+        const externalGestures = [
+            ...(drawerPan ? [drawerPan] : []),
+            ...(blockExternalGestures ?? []),
+        ];
+        if (externalGestures.length > 0 && hasOverflow) {
+            g.blocksExternalGesture(...externalGestures);
         }
         return g;
-    }, [drawerPan, hasOverflow]);
+    }, [blockExternalGestures, drawerPan, hasOverflow]);
 
     return (
         <GestureDetector gesture={scrollGesture}>

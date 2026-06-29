@@ -61,4 +61,20 @@ describe('parseMarkdown', () => {
             { styles: [], text: ' for more.', url: null },
         ]);
     });
+
+    it('parses txt fenced blocks as code blocks with their language preserved', () => {
+        const blocks = parseMarkdown([
+            '```txt',
+            'spawn happy claude/codex/gemini/openclaw with a very long line',
+            '```',
+        ].join('\n'));
+
+        expect(blocks).toEqual([
+            {
+                type: 'code-block',
+                language: 'txt',
+                content: 'spawn happy claude/codex/gemini/openclaw with a very long line',
+            },
+        ]);
+    });
 });
