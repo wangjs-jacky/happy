@@ -134,13 +134,13 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/skills"
                 options={{
-                    headerTitle: 'Skills 预览',
+                    headerTitle: t('settingsSkills.title'),
                 }}
             />
             <Stack.Screen
                 name="settings/skill"
                 options={{
-                    headerTitle: 'Skill',
+                    headerTitle: t('settingsSkills.detailTitle'),
                 }}
             />
             <Stack.Screen

@@ -154,6 +154,22 @@ export const pt: TranslationStructure = {
             `${feature} ${enabled ? 'ativado' : 'desativado'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Explore os Skills instalados e seus gatilhos',
+        machine: 'Máquina',
+        noMachines: 'Nenhuma máquina online — conecte uma primeiro',
+        searchPlaceholder: 'Pesquisar por nome ou gatilho…',
+        personalGroup: 'Skills pessoais',
+        pluginGroup: 'Skills de plugins',
+        noMatches: 'Nenhum Skill correspondente',
+        empty: 'Nenhum Skill encontrado',
+        scanFailed: 'Falha ao escanear os Skills',
+        loadFailed: 'Falha ao ler o arquivo',
+        missingPath: 'Caminho do arquivo ausente',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Tema',

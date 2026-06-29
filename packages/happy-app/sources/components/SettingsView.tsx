@@ -419,8 +419,8 @@ export const SettingsView = React.memo(function SettingsView() {
                     onPress={() => router.push('/settings/custom-instructions' as any)}
                 />
                 <Item
-                    title="Skills 预览"
-                    subtitle="浏览本机已安装的 Skills 及触发词"
+                    title={t('settingsSkills.title')}
+                    subtitle={t('settingsSkills.entrySubtitle')}
                     icon={<Ionicons name="cube-outline" size={29} color="#34C759" />}
                     onPress={() => router.push('/settings/skills' as any)}
                 />

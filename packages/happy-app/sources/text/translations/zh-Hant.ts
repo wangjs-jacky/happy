@@ -155,6 +155,22 @@ export const zhHant: TranslationStructure = {
             `${feature} 已${enabled ? '啟用' : '停用'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills 預覽',
+        detailTitle: 'Skill',
+        entrySubtitle: '瀏覽本機已安裝的 Skills 及觸發詞',
+        machine: '機器',
+        noMachines: '無在線機器，請先連接一台機器',
+        searchPlaceholder: '搜尋名稱或觸發詞…',
+        personalGroup: '個人 Skills',
+        pluginGroup: '外掛 Skills',
+        noMatches: '無相符的 Skills',
+        empty: '未發現 Skills',
+        scanFailed: '掃描失敗',
+        loadFailed: '讀取檔案失敗',
+        missingPath: '缺少檔案路徑',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: '主題',

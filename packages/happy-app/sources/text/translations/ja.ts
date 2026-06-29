@@ -156,6 +156,22 @@ export const ja: TranslationStructure = {
             `${feature}を${enabled ? '有効' : '無効'}にしました`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'インストール済みの Skills とトリガーを閲覧',
+        machine: 'マシン',
+        noMachines: 'オンラインのマシンがありません — まず接続してください',
+        searchPlaceholder: '名前またはトリガーで検索…',
+        personalGroup: '個人の Skills',
+        pluginGroup: 'プラグインの Skills',
+        noMatches: '一致する Skills がありません',
+        empty: 'Skills が見つかりません',
+        scanFailed: 'Skills のスキャンに失敗しました',
+        loadFailed: 'ファイルの読み取りに失敗しました',
+        missingPath: 'ファイルパスがありません',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'テーマ',

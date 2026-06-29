@@ -9,6 +9,7 @@ import { layout } from '@/components/layout';
 import { readSkillFileBase64 } from '@/sync/skills';
 import { decodeBase64 } from '@/encryption/base64';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { t } from '@/text';
 
 export default React.memo(function SkillDetailScreen() {
     const { theme } = useUnistyles();
@@ -24,7 +25,7 @@ export default React.memo(function SkillDetailScreen() {
     React.useEffect(() => {
         if (!path || !machineId) {
             setLoading(false);
-            setError('缺少文件路径');
+            setError(t('settingsSkills.missingPath'));
             return;
         }
         let cancelled = false;
@@ -38,7 +39,7 @@ export default React.memo(function SkillDetailScreen() {
                 setText(decoded);
             } catch (e) {
                 if (cancelled) return;
-                setError(e instanceof Error ? e.message : '读取文件失败');
+                setError(e instanceof Error ? e.message : t('settingsSkills.loadFailed'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -50,23 +51,23 @@ export default React.memo(function SkillDetailScreen() {
 
     return (
         <>
-            <Stack.Screen options={{ headerTitle: name || 'Skill' }} />
+            <Stack.Screen options={{ headerTitle: name || t('settingsSkills.detailTitle') }} />
             {loading ? (
                 <View style={styles.centered}>
                     <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                 </View>
             ) : error ? (
                 <ScrollView style={styles.container} contentContainerStyle={styles.errorContent}>
-                    <ItemGroup title="出错了" footer={error}>
+                    <ItemGroup title={t('common.error')} footer={error}>
                         <Item
-                            title="读取失败"
+                            title={t('settingsSkills.loadFailed')}
                             subtitle={error}
                             subtitleLines={3}
                             icon={<Ionicons name="alert-circle-outline" size={29} color="#FF3B30" />}
                             showChevron={false}
                         />
                         <Item
-                            title="重试"
+                            title={t('common.retry')}
                             icon={<Ionicons name="refresh" size={29} color={theme.colors.button.primary.background} />}
                             onPress={() => setReloadToken((t) => t + 1)}
                             showChevron={false}

@@ -9,6 +9,7 @@ import { useAllMachines } from '@/sync/storage';
 import { scanSkills, type SkillEntry } from '@/sync/skills';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
+import { t } from '@/text';
 
 export default React.memo(function SkillsScreen() {
     const { theme } = useUnistyles();
@@ -55,7 +56,7 @@ export default React.memo(function SkillsScreen() {
                 setSkills(result);
             } catch (e) {
                 if (cancelled) return;
-                setError(e instanceof Error ? e.message : '扫描失败');
+                setError(e instanceof Error ? e.message : t('settingsSkills.scanFailed'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -101,7 +102,7 @@ export default React.memo(function SkillsScreen() {
             <ItemList>
                 <ItemGroup>
                     <Item
-                        title="无在线机器，请先连接一台机器"
+                        title={t('settingsSkills.noMachines')}
                         icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />}
                         showChevron={false}
                     />
@@ -114,7 +115,7 @@ export default React.memo(function SkillsScreen() {
         <ItemList>
             {/* Machine switcher (only when there is more than one) */}
             {machines.length > 1 && (
-                <ItemGroup title="机器">
+                <ItemGroup title={t('settingsSkills.machine')}>
                     {machines.map((m) => {
                         const name = m.metadata?.displayName || m.metadata?.host || m.id;
                         const isSelected = m.id === selectedMachineId;
@@ -146,7 +147,7 @@ export default React.memo(function SkillsScreen() {
                         ]}
                         value={query}
                         onChangeText={setQuery}
-                        placeholder="搜索名称或触发词…"
+                        placeholder={t('settingsSkills.searchPlaceholder')}
                         placeholderTextColor={theme.colors.input.placeholder}
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -163,16 +164,16 @@ export default React.memo(function SkillsScreen() {
 
             {/* Error — never a dead end, always offer retry */}
             {!loading && error && (
-                <ItemGroup title="出错了" footer={error}>
+                <ItemGroup title={t('common.error')} footer={error}>
                     <Item
-                        title="扫描失败"
+                        title={t('settingsSkills.scanFailed')}
                         subtitle={error}
                         subtitleLines={3}
                         icon={<Ionicons name="alert-circle-outline" size={29} color="#FF3B30" />}
                         showChevron={false}
                     />
                     <Item
-                        title="重试"
+                        title={t('common.retry')}
                         icon={<Ionicons name="refresh" size={29} color={theme.colors.button.primary.background} />}
                         onPress={() => setReloadToken((t) => t + 1)}
                         showChevron={false}
@@ -186,19 +187,19 @@ export default React.memo(function SkillsScreen() {
                     {personal.length === 0 && plugin.length === 0 && (
                         <ItemGroup>
                             <Item
-                                title={query.trim() ? '无匹配的 Skills' : '未发现 Skills'}
+                                title={query.trim() ? t('settingsSkills.noMatches') : t('settingsSkills.empty')}
                                 icon={<Ionicons name="cube-outline" size={29} color={theme.colors.textSecondary} />}
                                 showChevron={false}
                             />
                         </ItemGroup>
                     )}
                     {personal.length > 0 && (
-                        <ItemGroup title="个人 Skills">
+                        <ItemGroup title={t('settingsSkills.personalGroup')}>
                             {personal.map(renderSkill)}
                         </ItemGroup>
                     )}
                     {plugin.length > 0 && (
-                        <ItemGroup title="插件 Skills">
+                        <ItemGroup title={t('settingsSkills.pluginGroup')}>
                             {plugin.map(renderSkill)}
                         </ItemGroup>
                     )}

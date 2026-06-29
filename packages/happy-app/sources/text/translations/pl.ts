@@ -172,6 +172,22 @@ export const pl: TranslationStructure = {
             `${feature} ${enabled ? 'włączona' : 'wyłączona'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Przeglądaj zainstalowane Skills i ich wyzwalacze',
+        machine: 'Maszyna',
+        noMachines: 'Brak maszyn online — najpierw podłącz jedną',
+        searchPlaceholder: 'Szukaj po nazwie lub wyzwalaczu…',
+        personalGroup: 'Osobiste Skills',
+        pluginGroup: 'Skills wtyczek',
+        noMatches: 'Brak pasujących Skills',
+        empty: 'Nie znaleziono Skills',
+        scanFailed: 'Nie udało się przeskanować Skills',
+        loadFailed: 'Nie udało się odczytać pliku',
+        missingPath: 'Brak ścieżki pliku',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Motyw',

@@ -141,6 +141,22 @@ export const ru: TranslationStructure = {
             `${feature} ${enabled ? 'включена' : 'отключена'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Просмотр установленных Skills и их триггеров',
+        machine: 'Машина',
+        noMachines: 'Нет машин в сети — сначала подключите одну',
+        searchPlaceholder: 'Поиск по имени или триггеру…',
+        personalGroup: 'Личные Skills',
+        pluginGroup: 'Skills плагинов',
+        noMatches: 'Нет подходящих Skills',
+        empty: 'Skills не найдены',
+        scanFailed: 'Не удалось просканировать Skills',
+        loadFailed: 'Не удалось прочитать файл',
+        missingPath: 'Отсутствует путь к файлу',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Тема',

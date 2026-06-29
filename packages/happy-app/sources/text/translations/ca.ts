@@ -155,6 +155,22 @@ export const ca: TranslationStructure = {
             `${feature} ${enabled ? 'activada' : 'desactivada'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Explora els Skills instal·lats i els seus activadors',
+        machine: 'Màquina',
+        noMachines: 'No hi ha cap màquina en línia — connecta\'n una primer',
+        searchPlaceholder: 'Cerca per nom o activador…',
+        personalGroup: 'Skills personals',
+        pluginGroup: 'Skills de connectors',
+        noMatches: 'No hi ha cap Skill coincident',
+        empty: 'No s\'ha trobat cap Skill',
+        scanFailed: 'No s\'han pogut escanejar els Skills',
+        loadFailed: 'No s\'ha pogut llegir el fitxer',
+        missingPath: 'Falta la ruta del fitxer',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Tema',

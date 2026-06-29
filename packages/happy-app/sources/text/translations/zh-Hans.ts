@@ -156,6 +156,22 @@ export const zhHans: TranslationStructure = {
             `${feature} 已${enabled ? '启用' : '禁用'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills 预览',
+        detailTitle: 'Skill',
+        entrySubtitle: '浏览本机已安装的 Skills 及触发词',
+        machine: '机器',
+        noMachines: '无在线机器，请先连接一台机器',
+        searchPlaceholder: '搜索名称或触发词…',
+        personalGroup: '个人 Skills',
+        pluginGroup: '插件 Skills',
+        noMatches: '无匹配的 Skills',
+        empty: '未发现 Skills',
+        scanFailed: '扫描失败',
+        loadFailed: '读取文件失败',
+        missingPath: '缺少文件路径',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: '主题',

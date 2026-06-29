@@ -169,6 +169,22 @@ export const en: TranslationStructure = {
             `${feature} ${enabled ? 'enabled' : 'disabled'}`,
     },
 
+    settingsSkills: {
+        title: 'Skills',
+        detailTitle: 'Skill',
+        entrySubtitle: 'Browse installed skills and their triggers',
+        machine: 'Machine',
+        noMachines: 'No machine online — connect one first',
+        searchPlaceholder: 'Search by name or trigger…',
+        personalGroup: 'Personal Skills',
+        pluginGroup: 'Plugin Skills',
+        noMatches: 'No matching skills',
+        empty: 'No skills found',
+        scanFailed: 'Failed to scan skills',
+        loadFailed: 'Failed to read file',
+        missingPath: 'Missing file path',
+    },
+
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Theme',
