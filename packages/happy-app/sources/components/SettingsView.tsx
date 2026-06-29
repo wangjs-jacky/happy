@@ -337,7 +337,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <ItemGroup title={t('settings.machines')}>
                     {visibleMachines.map((machine) => {
                         const isOnline = isMachineOnline(machine);
-                        const host = machine.metadata?.host || 'Unknown';
+                        const host = machine.metadata?.host || t('common.unknown');
                         const displayName = machine.metadata?.displayName;
                         const platform = machine.metadata?.platform || '';
 
@@ -407,14 +407,14 @@ export const SettingsView = React.memo(function SettingsView() {
                     onPress={() => router.push('/settings/voice')}
                 />
                 <Item
-                    title="Agent Defaults"
-                    subtitle="Default model, effort, and permissions"
+                    title={t('settings.agentDefaults')}
+                    subtitle={t('settings.agentDefaultsSubtitle')}
                     icon={<Ionicons name="options-outline" size={29} color="#5AC8FA" />}
                     onPress={() => router.push('/settings/agents' as any)}
                 />
                 <Item
-                    title="Custom Instructions"
-                    subtitle="Extra system prompt sent with every message"
+                    title={t('settings.customInstructions')}
+                    subtitle={t('settings.customInstructionsSubtitle')}
                     icon={<Ionicons name="document-text-outline" size={29} color="#FF2D55" />}
                     onPress={() => router.push('/settings/custom-instructions' as any)}
                 />

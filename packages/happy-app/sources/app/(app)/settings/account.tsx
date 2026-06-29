@@ -35,34 +35,34 @@ import {
 
 function formatPushPermissionLabel(permission: PushPermissionInfo | null): string {
     if (!permission) {
-        return 'Loading';
+        return t('pushNotifications.permissionLoading');
     }
     if (permission.status === 'unsupported') {
-        return 'Unavailable';
+        return t('pushNotifications.permissionUnavailable');
     }
     if (permission.granted) {
-        return 'Allowed';
+        return t('pushNotifications.permissionAllowed');
     }
     if (permission.status === 'denied') {
-        return 'Denied';
+        return t('pushNotifications.permissionDenied');
     }
-    return 'Not requested';
+    return t('pushNotifications.permissionNotRequested');
 }
 
 function formatPushPermissionSubtitle(permission: PushPermissionInfo | null): string {
     if (!permission) {
-        return 'Checking push notification permissions for this device.';
+        return t('pushNotifications.subtitleChecking');
     }
     if (permission.status === 'unsupported') {
-        return 'Push notification permissions are only managed on mobile devices.';
+        return t('pushNotifications.subtitleUnsupported');
     }
     if (permission.granted) {
-        return 'This device can receive push notifications.';
+        return t('pushNotifications.subtitleGranted');
     }
     if (permission.canAskAgain) {
-        return 'The system prompt can still be shown again from the app.';
+        return t('pushNotifications.subtitleCanAskAgain');
     }
-    return 'iOS has stopped prompting. Open system settings to enable notifications again.';
+    return t('pushNotifications.subtitleBlocked');
 }
 
 function formatPushTokenFingerprint(token: string): string {
@@ -90,13 +90,13 @@ function buildPushTokenSubtitle(pushToken: PushToken, options: {
             lines.push(options.currentAppLabel);
         }
     } else {
-        lines.push('Other device or stale registration');
+        lines.push(t('pushNotifications.otherDevice'));
     }
 
-    lines.push(`Registered: ${formatPushTimestamp(pushToken.createdAt)}`);
-    lines.push(`Last seen: ${formatPushTimestamp(pushToken.updatedAt)}`);
-    lines.push(`Server ID: ${pushToken.id}`);
-    lines.push(`Token: ${formatPushTokenFingerprint(pushToken.token)}`);
+    lines.push(t('pushNotifications.registeredAt', { time: formatPushTimestamp(pushToken.createdAt) }));
+    lines.push(t('pushNotifications.lastSeenAt', { time: formatPushTimestamp(pushToken.updatedAt) }));
+    lines.push(t('pushNotifications.serverId', { id: pushToken.id }));
+    lines.push(t('pushNotifications.tokenLine', { fingerprint: formatPushTokenFingerprint(pushToken.token) }));
     return lines.join('\n');
 }
 
@@ -146,7 +146,7 @@ export default React.memo(() => {
         } catch (error) {
             console.error('Failed to load push notification settings:', error);
             if (showError) {
-                Modal.alert(t('common.error'), 'Failed to load push notification settings.');
+                Modal.alert(t('common.error'), t('pushNotifications.loadFailed'));
             }
         } finally {
             setLoadingPushSettings(false);
@@ -236,21 +236,21 @@ export default React.memo(() => {
             if (result.granted) {
                 await syncCurrentPushToken(auth.credentials);
                 await loadPushSettings();
-                Modal.alert(t('common.success'), 'Push notifications are enabled for this device.');
+                Modal.alert(t('common.success'), t('pushNotifications.enabledForDevice'));
                 return;
             }
 
             await loadPushSettings();
 
             if (result.openedSettings) {
-                Modal.alert('Open Settings', 'The system will not show the permission prompt again, so Paws opened Settings instead.');
+                Modal.alert(t('pushNotifications.openSettingsTitle'), t('pushNotifications.openSettingsMessage'));
                 return;
             }
 
-            Modal.alert(t('common.error'), 'Push notification permission was not granted.');
+            Modal.alert(t('common.error'), t('pushNotifications.permissionNotGranted'));
         } catch (error) {
             console.error('Failed to request push permission:', error);
-            Modal.alert(t('common.error'), 'Failed to request push notification permission.');
+            Modal.alert(t('common.error'), t('pushNotifications.requestFailed'));
         } finally {
             setRequestingPushPermission(false);
         }
@@ -268,14 +268,14 @@ export default React.memo(() => {
             await loadPushSettings();
 
             if (!result.permission.granted) {
-                Modal.alert(t('common.error'), 'Push notifications are not enabled for this device yet.');
+                Modal.alert(t('common.error'), t('pushNotifications.notEnabledYet'));
                 return;
             }
 
-            Modal.alert(t('common.success'), 'This device push token was refreshed.');
+            Modal.alert(t('common.success'), t('pushNotifications.tokenRefreshed'));
         } catch (error) {
             console.error('Failed to refresh push token:', error);
-            Modal.alert(t('common.error'), 'Failed to refresh this device push token.');
+            Modal.alert(t('common.error'), t('pushNotifications.refreshFailed'));
         } finally {
             setRefreshingPushToken(false);
         }
@@ -287,8 +287,8 @@ export default React.memo(() => {
         }
 
         const confirmed = await Modal.confirm(
-            'Delete Push Token',
-            `Remove ${formatPushTokenFingerprint(pushToken.token)} from your account?`,
+            t('pushNotifications.deleteTitle'),
+            t('pushNotifications.deleteMessage', { fingerprint: formatPushTokenFingerprint(pushToken.token) }),
             { confirmText: t('common.delete'), destructive: true }
         );
 
@@ -302,7 +302,7 @@ export default React.memo(() => {
             await loadPushSettings();
         } catch (error) {
             console.error('Failed to delete push token:', error);
-            Modal.alert(t('common.error'), 'Failed to delete push token.');
+            Modal.alert(t('common.error'), t('pushNotifications.deleteFailed'));
         } finally {
             setDeletingPushToken(null);
         }
@@ -503,11 +503,11 @@ export default React.memo(() => {
                 </ItemGroup>
 
                 <ItemGroup
-                    title="Push Notifications"
-                    footer="Shows every push token registered on your account. Tap an old token to delete it."
+                    title={t('pushNotifications.title')}
+                    footer={t('pushNotifications.footer')}
                 >
                     <Item
-                        title="Permission"
+                        title={t('pushNotifications.permission')}
                         detail={formatPushPermissionLabel(pushPermission)}
                         subtitle={formatPushPermissionSubtitle(pushPermission)}
                         icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.accent} />}
@@ -515,12 +515,12 @@ export default React.memo(() => {
                         showChevron={false}
                     />
                     <Item
-                        title="Request Permission Again"
+                        title={t('pushNotifications.requestAgain')}
                         subtitle={pushPermission?.status === 'unsupported'
-                            ? 'Push notification permissions are only available on iPhone and Android.'
+                            ? t('pushNotifications.requestAgainUnsupported')
                             : pushPermission?.canAskAgain
-                            ? 'Shows the system prompt again if iOS still allows it.'
-                            : 'Opens system settings when iOS will not prompt again.'}
+                            ? t('pushNotifications.requestAgainCanAsk')
+                            : t('pushNotifications.requestAgainBlocked')}
                         icon={<Ionicons name="shield-checkmark-outline" size={29} color="#34C759" />}
                         onPress={handlePushPermissionRequest}
                         loading={requestingPushPermission}
@@ -528,10 +528,10 @@ export default React.memo(() => {
                         showChevron={false}
                     />
                     <Item
-                        title="Re-register This Device"
+                        title={t('pushNotifications.reRegister')}
                         subtitle={currentPushToken
-                            ? `Current token ${formatPushTokenFingerprint(currentPushToken)}`
-                            : 'Fetches the current Expo token and registers it again.'}
+                            ? t('pushNotifications.currentToken', { fingerprint: formatPushTokenFingerprint(currentPushToken) })
+                            : t('pushNotifications.reRegisterSubtitle')}
                         icon={<Ionicons name="refresh-outline" size={29} color="#FF9500" />}
                         onPress={handleRefreshCurrentPushToken}
                         loading={refreshingPushToken}
@@ -541,13 +541,13 @@ export default React.memo(() => {
                 </ItemGroup>
 
                 <ItemGroup
-                    title={`Registered Tokens (${pushTokens.length})`}
-                    footer="Current-device metadata comes from this phone. Older tokens use their token fingerprint plus server timestamps."
+                    title={t('pushNotifications.registeredTokensTitle', { count: pushTokens.length })}
+                    footer={t('pushNotifications.registeredTokensFooter')}
                 >
                     {pushTokens.length === 0 ? (
                         <Item
-                            title="No registered push tokens"
-                            subtitle="Once this device is registered, it will appear here."
+                            title={t('pushNotifications.noTokensTitle')}
+                            subtitle={t('pushNotifications.noTokensSubtitle')}
                             showChevron={false}
                         />
                     ) : (
@@ -558,7 +558,7 @@ export default React.memo(() => {
                                     <Item
                                         key={pushToken.id}
                                         title={formatPushTokenFingerprint(pushToken.token)}
-                                        detail={isCurrentDevice ? 'This device' : undefined}
+                                        detail={isCurrentDevice ? t('pushNotifications.thisDevice') : undefined}
                                         subtitle={buildPushTokenSubtitle(pushToken, {
                                             isCurrentDevice,
                                             currentDeviceLabel: currentPushDevice.deviceLabel,

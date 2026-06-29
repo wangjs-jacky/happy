@@ -41,6 +41,7 @@ export const zhHans: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "未知",
         cancel: '取消',
         authenticate: '认证',
         save: '保存',
@@ -148,6 +149,10 @@ export const zhHans: TranslationStructure = {
         exchangingTokens: '正在交换令牌...',
         usage: '使用情况',
         usageSubtitle: '查看 API 使用情况和费用',
+        agentDefaults: "智能体默认设置",
+        agentDefaultsSubtitle: "默认模型、思考强度和权限",
+        customInstructions: "自定义指令",
+        customInstructionsSubtitle: "随每条消息发送的额外系统提示词",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `已连接 ${service} 账户`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
@@ -1027,5 +1032,79 @@ export const zhHans: TranslationStructure = {
         friendRequestGeneric: '新的好友请求',
         friendAccepted: ({ name }: { name: string }) => `您现在与 ${name} 成为了好友`,
         friendAcceptedGeneric: '好友请求已接受',
-    }
+    },
+
+    customInstructions: {
+        intro: "这里的内容会被追加到每次发送给 AI 的系统提示词里，对所有会话与设备生效（端到端同步）。留空则不追加。",
+        label: "指令内容",
+        placeholder: "输入自定义系统提示词…",
+        footer: "修改即时保存。这段内容只放你自己的偏好；Happy 的内置规则（如图片用 send_image 内联发送）已写在系统提示词里，无需在此重复。",
+    },
+
+    agentDefaults: {
+        title: "智能体默认设置",
+        clearOverrides: "清除覆盖项",
+        clearOverridesSubtitle: "将每个智能体恢复为代码默认值",
+        useCodeDefault: "使用代码默认值",
+    },
+
+    featuresInterface: {
+        title: "界面",
+        footer: "可选的面板与布局元素。",
+        fileDiffsSidebar: "文件差异侧边栏",
+        fileDiffsSidebarSubtitle: "在桌面端的对话旁显示 git 变更",
+        resumeSession: "恢复会话",
+        resumeSessionSubtitle: "通过机器守护进程恢复已断开的 Claude Code 与 Codex 会话",
+    },
+
+    connectClaude: {
+        title: "连接 Claude",
+        instruction: "在终端中运行以下命令：",
+    },
+
+    pushNotifications: {
+        title: "推送通知",
+        footer: "显示账户上注册的所有推送令牌。点击旧令牌即可删除。",
+        permission: "权限",
+        permissionLoading: "加载中",
+        permissionUnavailable: "不可用",
+        permissionAllowed: "已允许",
+        permissionDenied: "已拒绝",
+        permissionNotRequested: "尚未请求",
+        subtitleChecking: "正在检查此设备的推送通知权限。",
+        subtitleUnsupported: "推送通知权限仅在移动设备上管理。",
+        subtitleGranted: "此设备可以接收推送通知。",
+        subtitleCanAskAgain: "仍可从应用中再次弹出系统授权提示。",
+        subtitleBlocked: "iOS 已停止弹出提示。请打开系统设置以重新启用通知。",
+        requestAgain: "重新请求权限",
+        requestAgainUnsupported: "推送通知权限仅在 iPhone 和 Android 上可用。",
+        requestAgainCanAsk: "如果 iOS 仍允许，会再次弹出系统提示。",
+        requestAgainBlocked: "当 iOS 不再弹出提示时，打开系统设置。",
+        reRegister: "重新注册此设备",
+        reRegisterSubtitle: "获取当前的 Expo 令牌并重新注册。",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `当前令牌 ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `已注册的令牌 (${count})`,
+        registeredTokensFooter: "当前设备的元数据来自本机。较旧的令牌使用其令牌指纹加上服务器时间戳。",
+        noTokensTitle: "没有已注册的推送令牌",
+        noTokensSubtitle: "此设备注册后将显示在这里。",
+        thisDevice: "此设备",
+        otherDevice: "其他设备或过期的注册",
+        registeredAt: ({ time }: { time: string }) => `注册时间：${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `最近一次：${time}`,
+        serverId: ({ id }: { id: string }) => `服务器 ID：${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `令牌：${fingerprint}`,
+        loadFailed: "加载推送通知设置失败。",
+        enabledForDevice: "此设备的推送通知已启用。",
+        openSettingsTitle: "打开设置",
+        openSettingsMessage: "系统将不再弹出权限提示，因此 Paws 改为打开了设置。",
+        permissionNotGranted: "未授予推送通知权限。",
+        requestFailed: "请求推送通知权限失败。",
+        notEnabledYet: "此设备的推送通知尚未启用。",
+        tokenRefreshed: "此设备的推送令牌已刷新。",
+        refreshFailed: "刷新此设备的推送令牌失败。",
+        deleteTitle: "删除推送令牌",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `从你的账户中移除 ${fingerprint}？`,
+        deleteFailed: "删除推送令牌失败。",
+    },
+
 } as const;

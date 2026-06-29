@@ -25,12 +25,12 @@ export default function FeaturesSettingsScreen() {
         <ItemList style={{ paddingTop: 0 }}>
             {/* Interface */}
             <ItemGroup
-                title="Interface"
-                footer="Optional panels and layout elements."
+                title={t('featuresInterface.title')}
+                footer={t('featuresInterface.footer')}
             >
                 <Item
-                    title="File Diffs Sidebar"
-                    subtitle="Show git changes next to the chat on desktop"
+                    title={t('featuresInterface.fileDiffsSidebar')}
+                    subtitle={t('featuresInterface.fileDiffsSidebarSubtitle')}
                     icon={<Ionicons name="git-branch-outline" size={29} color="#5AC8FA" />}
                     rightElement={
                         <Switch
@@ -96,8 +96,8 @@ export default function FeaturesSettingsScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="Resume Session"
-                    subtitle="Resume disconnected Claude Code and Codex sessions via the machine daemon"
+                    title={t('featuresInterface.resumeSession')}
+                    subtitle={t('featuresInterface.resumeSessionSubtitle')}
                     icon={<Ionicons name="play-circle-outline" size={29} color="#30D158" />}
                     rightElement={
                         <Switch

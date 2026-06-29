@@ -105,7 +105,7 @@ export default function AgentDefaultsSettingsScreen() {
                         {renderOption(
                             agent,
                             config.field,
-                            'Use code default',
+                            t('agentDefaults.useCodeDefault'),
                             codeDefaultLabel ? codeDefaultLabel : undefined,
                             !hasOverride,
                             null,
@@ -127,11 +127,11 @@ export default function AgentDefaultsSettingsScreen() {
     return (
         <ItemList style={{ paddingTop: 0 }}>
             <ItemGroup
-                title="Agent Defaults"
+                title={t('agentDefaults.title')}
             >
                 <Item
-                    title="Clear Overrides"
-                    subtitle="Return every agent to code defaults"
+                    title={t('agentDefaults.clearOverrides')}
+                    subtitle={t('agentDefaults.clearOverridesSubtitle')}
                     icon={<Ionicons name="refresh-outline" size={29} color="#FF9500" />}
                     onPress={() => setAgentDefaultOverrides({})}
                     disabled={Object.keys(agentDefaultOverrides).length === 0}

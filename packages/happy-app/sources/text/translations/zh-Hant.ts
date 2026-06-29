@@ -41,6 +41,7 @@ export const zhHant: TranslationStructure = {
 
     common: {
         // Simple string constants
+        unknown: "未知",
         cancel: '取消',
         authenticate: '驗證',
         save: '儲存',
@@ -147,6 +148,10 @@ export const zhHant: TranslationStructure = {
         exchangingTokens: '正在交換權杖...',
         usage: '使用情況',
         usageSubtitle: '查看 API 使用情況和費用',
+        agentDefaults: "智慧代理預設設定",
+        agentDefaultsSubtitle: "預設模型、思考強度與權限",
+        customInstructions: "自訂指令",
+        customInstructionsSubtitle: "隨每則訊息傳送的額外系統提示詞",
         // Dynamic settings messages
         accountConnected: ({ service }: { service: string }) => `已連結 ${service} 帳戶`,
         machineStatus: ({ name, status }: { name: string; status: 'online' | 'offline' }) =>
@@ -1027,4 +1032,78 @@ export const zhHant: TranslationStructure = {
         friendAccepted: ({ name }: { name: string }) => `您現在與 ${name} 成為了好友`,
         friendAcceptedGeneric: '好友請求已接受',
     },
+
+    customInstructions: {
+        intro: "這裡的內容會被追加到每次傳送給 AI 的系統提示詞裡，對所有工作階段與裝置生效（端到端同步）。留空則不追加。",
+        label: "指令內容",
+        placeholder: "輸入自訂系統提示詞…",
+        footer: "修改即時儲存。這段內容只放你自己的偏好；Happy 的內建規則（如圖片用 send_image 內聯傳送）已寫在系統提示詞裡，無需在此重複。",
+    },
+
+    agentDefaults: {
+        title: "智慧代理預設設定",
+        clearOverrides: "清除覆寫項",
+        clearOverridesSubtitle: "將每個代理還原為程式碼預設值",
+        useCodeDefault: "使用程式碼預設值",
+    },
+
+    featuresInterface: {
+        title: "介面",
+        footer: "可選的面板與版面元素。",
+        fileDiffsSidebar: "檔案差異側邊欄",
+        fileDiffsSidebarSubtitle: "在桌面端的對話旁顯示 git 變更",
+        resumeSession: "恢復工作階段",
+        resumeSessionSubtitle: "透過機器守護程序恢復已中斷的 Claude Code 與 Codex 工作階段",
+    },
+
+    connectClaude: {
+        title: "連接 Claude",
+        instruction: "在終端機中執行以下指令：",
+    },
+
+    pushNotifications: {
+        title: "推播通知",
+        footer: "顯示帳戶上註冊的所有推播權杖。點擊舊權杖即可刪除。",
+        permission: "權限",
+        permissionLoading: "載入中",
+        permissionUnavailable: "不可用",
+        permissionAllowed: "已允許",
+        permissionDenied: "已拒絕",
+        permissionNotRequested: "尚未請求",
+        subtitleChecking: "正在檢查此裝置的推播通知權限。",
+        subtitleUnsupported: "推播通知權限僅在行動裝置上管理。",
+        subtitleGranted: "此裝置可以接收推播通知。",
+        subtitleCanAskAgain: "仍可從應用程式中再次彈出系統授權提示。",
+        subtitleBlocked: "iOS 已停止彈出提示。請開啟系統設定以重新啟用通知。",
+        requestAgain: "重新請求權限",
+        requestAgainUnsupported: "推播通知權限僅在 iPhone 和 Android 上可用。",
+        requestAgainCanAsk: "如果 iOS 仍允許，會再次彈出系統提示。",
+        requestAgainBlocked: "當 iOS 不再彈出提示時，開啟系統設定。",
+        reRegister: "重新註冊此裝置",
+        reRegisterSubtitle: "取得目前的 Expo 權杖並重新註冊。",
+        currentToken: ({ fingerprint }: { fingerprint: string }) => `目前權杖 ${fingerprint}`,
+        registeredTokensTitle: ({ count }: { count: number }) => `已註冊的權杖 (${count})`,
+        registeredTokensFooter: "目前裝置的中繼資料來自本機。較舊的權杖使用其權杖指紋加上伺服器時間戳記。",
+        noTokensTitle: "沒有已註冊的推播權杖",
+        noTokensSubtitle: "此裝置註冊後將顯示在這裡。",
+        thisDevice: "此裝置",
+        otherDevice: "其他裝置或過期的註冊",
+        registeredAt: ({ time }: { time: string }) => `註冊時間：${time}`,
+        lastSeenAt: ({ time }: { time: string }) => `最近一次：${time}`,
+        serverId: ({ id }: { id: string }) => `伺服器 ID：${id}`,
+        tokenLine: ({ fingerprint }: { fingerprint: string }) => `權杖：${fingerprint}`,
+        loadFailed: "載入推播通知設定失敗。",
+        enabledForDevice: "此裝置的推播通知已啟用。",
+        openSettingsTitle: "開啟設定",
+        openSettingsMessage: "系統將不再彈出權限提示，因此 Paws 改為開啟了設定。",
+        permissionNotGranted: "未授予推播通知權限。",
+        requestFailed: "請求推播通知權限失敗。",
+        notEnabledYet: "此裝置的推播通知尚未啟用。",
+        tokenRefreshed: "此裝置的推播權杖已重新整理。",
+        refreshFailed: "重新整理此裝置的推播權杖失敗。",
+        deleteTitle: "刪除推播權杖",
+        deleteMessage: ({ fingerprint }: { fingerprint: string }) => `從你的帳戶中移除 ${fingerprint}？`,
+        deleteFailed: "刪除推播權杖失敗。",
+    },
+
 } as const;

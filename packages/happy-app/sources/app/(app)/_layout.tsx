@@ -116,7 +116,7 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/agents"
                 options={{
-                    headerTitle: 'Agent Defaults',
+                    headerTitle: t('settings.agentDefaults'),
                 }}
             />
             <Stack.Screen
@@ -128,7 +128,7 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/custom-instructions"
                 options={{
-                    headerTitle: 'Custom Instructions',
+                    headerTitle: t('settings.customInstructions'),
                 }}
             />
             <Stack.Screen
@@ -318,7 +318,7 @@ export default function RootLayout() {
                 name="settings/connect/claude"
                 options={{
                     headerShown: true,
-                    headerTitle: 'Connect to Claude',
+                    headerTitle: t('connectClaude.title'),
                     headerBackTitle: t('common.back'),
                     // headerStyle: {
                     //     backgroundColor: Platform.OS === 'web' ? theme.colors.header.background : '#1F1E1C',
