@@ -346,6 +346,10 @@ export const en = {
     },
 
     session: {
+        anchorsButton: 'Jump',
+        anchorsTitle: 'Your messages',
+        anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? '1 message' : `${count} messages`,
+        anchorsEmpty: 'No messages to jump to yet.',
         inputPlaceholder: 'Type a message ...',
         inactiveArchived: 'This session is inactive.',
         resumeFromTerminal: 'To resume it from the terminal:',

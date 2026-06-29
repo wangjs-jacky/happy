@@ -331,6 +331,10 @@ export const it: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: 'Vai a',
+        anchorsTitle: 'I tuoi messaggi',
+        anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? "1 messaggio" : `${count} messaggi`,
+        anchorsEmpty: 'Nessun messaggio a cui saltare.',
         inputPlaceholder: 'Scrivi un messaggio ...',
         inactiveArchived: 'Questa sessione è inattiva.',
         resumeFromTerminal: 'Per riprenderla dal terminale:',

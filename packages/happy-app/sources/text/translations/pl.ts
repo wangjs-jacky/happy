@@ -350,6 +350,10 @@ export const pl: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: 'Skok',
+        anchorsTitle: 'Twoje wiadomości',
+        anchorsSubtitle: ({ count }: { count: number }) => `Wiadomości: ${count}`,
+        anchorsEmpty: 'Brak wiadomości do przejścia.',
         inputPlaceholder: 'Wpisz wiadomość...',
         inactiveArchived: 'Ta sesja jest nieaktywna.',
         resumeFromTerminal: 'Aby wznowić ją z terminala:',

@@ -334,6 +334,10 @@ export const zhHans: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: '锚点',
+        anchorsTitle: '我的提问',
+        anchorsSubtitle: ({ count }: { count: number }) => `${count} 条提问`,
+        anchorsEmpty: '还没有可跳转的提问。',
         inputPlaceholder: '输入消息...',
         inactiveArchived: '此会话处于非活动状态。',
         resumeFromTerminal: '要从终端恢复它：',

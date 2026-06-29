@@ -333,6 +333,10 @@ export const zhHant: TranslationStructure = {
     },
 
     session: {
+        anchorsButton: '錨點',
+        anchorsTitle: '我的提問',
+        anchorsSubtitle: ({ count }: { count: number }) => `${count} 則提問`,
+        anchorsEmpty: '還沒有可跳轉的提問。',
         inputPlaceholder: '輸入訊息...',
         inactiveArchived: '此會話處於非活動狀態。',
         resumeFromTerminal: '若要從終端恢復它：',
