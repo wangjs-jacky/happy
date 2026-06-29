@@ -1,23 +1,26 @@
 import * as React from 'react';
-import { View, Pressable } from 'react-native';
+import { View } from 'react-native';
 import { Image } from 'expo-image';
-import Animated, { useSharedValue, useAnimatedStyle, withSequence, withTiming } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { getMascotImage, MASCOT_IDS, resolveMascotId } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
+import { useDisableRootDrawerSwipeWhileFocused } from '@/hooks/useDisableRootDrawerSwipeWhileFocused';
 
 //
-// 设置页头部「土拨鼠 logo」点击切换器
+// 设置页头部「土拨鼠 logo」滑动切换器
 // ------------------------------------------------------------------
-// 点一下土拨鼠就切到下一套形象（6 套，两端循环），切换时轻震动 + 弹一下。
-// 下方一排小圆点指示当前是第几个。
+// 在吉祥物图上左右滑动即可切换形象（6 套，两端循环），切换时轻震动反馈。
+// 下方一排小圆点指示当前是第几个。拖拽过程图片跟手平移 + 轻微淡出，松手回弹。
 //
-// 为什么用点击而非滑动：手机端 Drawer（SidebarNavigator）声明了整屏横滑开合
-// 手势，自定义横滑 Pan 与之争抢只能缓解、做不到丝滑（见 git 历史 #55~#57）。
-// 点击不与任何 pan 手势冲突，最稳。
+// 流畅的关键：手机端 Drawer 声明了整屏横滑开合手势，会和这里的横滑争抢。本组件
+// 挂载（即设置页展示土拨鼠）期间，用 useDisableRootDrawerSwipeWhileFocused 临时关掉
+// Drawer 横滑，冲突源头消失，左右滑切换才丝滑；离开设置页自动恢复。
 //
 
+const SWIPE_THRESHOLD = 36;   // 横向位移超过该值才算一次有效切换
 const MASCOT_SIZE = 110;
 
 export const MascotSwitcher = React.memo(function MascotSwitcher() {
@@ -25,24 +28,43 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const currentId = resolveMascotId(mascot);
     const currentIndex = MASCOT_IDS.indexOf(currentId);
 
-    const scale = useSharedValue(1);
+    // 设置页聚焦期间关掉根 Drawer 的整屏横滑，避免和本组件横滑争抢
+    useDisableRootDrawerSwipeWhileFocused();
 
-    // 点击切到下一个吉祥物（两端循环）+ 轻震动 + 弹一下反馈
-    const cycleMascot = React.useCallback(() => {
+    const translateX = useSharedValue(0);
+    const opacity = useSharedValue(1);
+
+    // 切到相邻吉祥物（dir: +1 下一个 / -1 上一个），两端循环 + 轻震动
+    const cycleMascot = React.useCallback((dir: number) => {
         const n = MASCOT_IDS.length;
-        setMascot(MASCOT_IDS[(currentIndex + 1) % n]);
+        setMascot(MASCOT_IDS[(currentIndex + dir + n) % n]);
         hapticsLight();
-        scale.value = withSequence(
-            withTiming(0.88, { duration: 90 }),
-            withTiming(1, { duration: 170 }),
-        );
-    }, [currentIndex, setMascot, scale]);
+    }, [currentIndex, setMascot]);
 
-    const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+    const pan = React.useMemo(() => {
+        return Gesture.Pan()
+            .activeOffsetX([-10, 10])   // 横向超过 10px 才激活；不设 failOffsetY，斜滑也稳
+            .onUpdate((e) => {
+                translateX.value = e.translationX * 0.55;
+                opacity.value = 1 - Math.min(Math.abs(e.translationX) / 300, 0.4);
+            })
+            .onEnd((e) => {
+                if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
+                    runOnJS(cycleMascot)(e.translationX < 0 ? 1 : -1);   // 左滑下一个，右滑上一个
+                }
+                translateX.value = withTiming(0, { duration: 260 });
+                opacity.value = withTiming(1, { duration: 260 });
+            });
+    }, [cycleMascot, translateX, opacity]);
+
+    const animStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: translateX.value }],
+        opacity: opacity.value,
+    }));
 
     return (
         <View style={styles.container}>
-            <Pressable onPress={cycleMascot} hitSlop={8}>
+            <GestureDetector gesture={pan}>
                 <Animated.View style={animStyle}>
                     <Image
                         source={getMascotImage(currentId)}
@@ -50,7 +72,7 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
                         style={{ width: MASCOT_SIZE, height: MASCOT_SIZE }}
                     />
                 </Animated.View>
-            </Pressable>
+            </GestureDetector>
             <View style={styles.dots}>
                 {MASCOT_IDS.map((id, i) => (
                     <View key={id} style={[styles.dot, i === currentIndex ? styles.dotActive : null]} />
