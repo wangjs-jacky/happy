@@ -46,7 +46,13 @@ export default React.memo(function AgentEditScreen() {
     const [name, setName] = React.useState(existing?.name ?? '');
     const [machineId, setMachineId] = React.useState<string | null>(existing?.machineId ?? null);
     const [path, setPath] = React.useState(existing?.path ?? '~');
-    const [presets, setPresets] = React.useState<AgentPreset[]>(existing?.presets ?? []);
+    // 编辑态预设：在持久化的 {label, prompt} 之外，为每行附加一个本地临时 _key（不落库），
+    // 作为 React 列表的稳定 key——避免用数组下标做 key 时，删除非末行导致受控
+    // TextInput 的光标/输入法状态串到错误的行上。保存时会剥离 _key。
+    type PresetRow = { _key: string; label: string; prompt: string };
+    const [presets, setPresets] = React.useState<PresetRow[]>(
+        () => (existing?.presets ?? []).map((p) => ({ _key: randomUUID(), label: p.label, prompt: p.prompt })),
+    );
 
     // Save 需要非空名称 + 已选机器；否则禁用保存按钮（路径为空时落库回退 '~'）。
     const canSave = name.trim().length > 0 && !!machineId;
@@ -58,20 +64,16 @@ export default React.memo(function AgentEditScreen() {
         setPresets((prev) => prev.filter((_, i) => i !== index));
     }, []);
     const addPreset = React.useCallback(() => {
-        setPresets((prev) => [...prev, { label: '', prompt: '' }]);
+        setPresets((prev) => [...prev, { _key: randomUUID(), label: '', prompt: '' }]);
     }, []);
 
     const handleSave = React.useCallback(() => {
         const trimmedName = name.trim();
-        if (!trimmedName) {
-            Modal.alert(t('agents.editTitle'), t('agents.nameRequired'), [{ text: t('common.ok'), style: 'cancel' }]);
+        // Save 按钮在 !canSave 时已 disabled，这里仅作防御性提前返回（无需弹窗提示）。
+        if (!trimmedName || !machineId) {
             return;
         }
-        if (!machineId) {
-            Modal.alert(t('agents.editTitle'), t('agents.machineRequired'), [{ text: t('common.ok'), style: 'cancel' }]);
-            return;
-        }
-        // Drop preset rows that are entirely blank.
+        // Drop preset rows that are entirely blank. 落库前剥离临时 _key，保持 {label, prompt} 形状。
         const cleanedPresets = presets
             .map((p) => ({ label: p.label.trim(), prompt: p.prompt.trim() }))
             .filter((p) => p.label.length > 0 || p.prompt.length > 0);
@@ -184,7 +186,7 @@ export default React.memo(function AgentEditScreen() {
                 {/* 预设指令 */}
                 <ItemGroup title={t('agents.presets')}>
                     {presets.map((preset, index) => (
-                        <View key={index} style={styles.presetRow}>
+                        <View key={preset._key} style={styles.presetRow}>
                             <View style={styles.presetInputs}>
                                 <TextInput
                                     style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
@@ -209,6 +211,8 @@ export default React.memo(function AgentEditScreen() {
                             <Pressable
                                 onPress={() => removePreset(index)}
                                 hitSlop={8}
+                                accessibilityRole="button"
+                                accessibilityLabel={t('agents.delete')}
                                 style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
                             >
                                 <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textDestructive} />
