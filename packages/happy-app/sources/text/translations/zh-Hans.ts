@@ -1139,4 +1139,12 @@ export const zhHans: TranslationStructure = {
         deleteFailed: "删除推送令牌失败。",
     },
 
+    agents: {
+        cardTitle: '我的 Agent',
+        manage: '管理',
+        machineOffline: '机器离线',
+        machineMissing: '机器不存在',
+        empty: '还没有 Agent，点击添加',
+    },
+
 } as const;

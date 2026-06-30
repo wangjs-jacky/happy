@@ -1167,6 +1167,14 @@ export const ru: TranslationStructure = {
         deleteFailed: "Не удалось удалить push-токен.",
     },
 
+    agents: {
+        cardTitle: 'My Agents',
+        manage: 'Manage',
+        machineOffline: 'Machine offline',
+        machineMissing: 'Machine not found',
+        empty: 'No agents yet. Tap to add one.',
+    },
+
 } as const;
 
 export type TranslationsRu = typeof ru;

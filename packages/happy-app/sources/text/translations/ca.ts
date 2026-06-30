@@ -1138,6 +1138,14 @@ export const ca: TranslationStructure = {
         deleteFailed: "No s'ha pogut eliminar el token push.",
     },
 
+    agents: {
+        cardTitle: 'My Agents',
+        manage: 'Manage',
+        machineOffline: 'Machine offline',
+        machineMissing: 'Machine not found',
+        empty: 'No agents yet. Tap to add one.',
+    },
+
 } as const;
 
 export type TranslationsCa = typeof ca;

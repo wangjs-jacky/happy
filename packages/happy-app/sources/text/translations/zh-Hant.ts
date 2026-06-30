@@ -1138,4 +1138,12 @@ export const zhHant: TranslationStructure = {
         deleteFailed: "刪除推播權杖失敗。",
     },
 
+    agents: {
+        cardTitle: '我的 Agent',
+        manage: '管理',
+        machineOffline: '機器離線',
+        machineMissing: '機器不存在',
+        empty: '還沒有 Agent，點擊新增',
+    },
+
 } as const;

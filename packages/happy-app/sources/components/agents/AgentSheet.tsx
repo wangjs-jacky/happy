@@ -1,0 +1,261 @@
+import * as React from 'react';
+import { Text, View, Pressable, Modal, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { StyleSheet } from 'react-native-unistyles';
+import { Ionicons } from '@expo/vector-icons';
+import { useSetting, useAllMachines } from '@/sync/storage';
+import { isMachineOnline } from '@/utils/machineUtils';
+import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
+import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
+import { launchAgent, type AgentLauncher } from './launchAgent';
+
+/**
+ * 底部抽屉，列出用户配置的「我的 Agent」。
+ * 点击在线 Agent → 预填新建会话 draft 并导航；离线 / 机器缺失的 Agent 置灰不可点。
+ * 复用 RN 原生 Modal（transparent + slide）+ 半透明 scrim，沿用侧栏卡片视觉语言。
+ */
+export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
+    const styles = stylesheet;
+    const safeArea = useSafeAreaInsets();
+    const router = useRouter();
+    const agents = useSetting('agents') as AgentLauncher[];
+    const machines = useAllMachines();
+    const draft = useNewSessionDraft();
+
+    const goManage = React.useCallback(() => {
+        onClose();
+        router.navigate('/settings/agents');
+    }, [onClose, router]);
+
+    const onPickAgent = React.useCallback((agent: AgentLauncher) => {
+        onClose();
+        launchAgent(agent, draft, (p) => router.navigate(p as any));
+    }, [onClose, draft, router]);
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <Pressable style={styles.scrim} onPress={onClose} />
+            <View style={[styles.sheet, { paddingBottom: safeArea.bottom + 12 }]}>
+                {/* Grab handle */}
+                <View style={styles.handle} />
+
+                {/* Header */}
+                <View style={styles.header}>
+                    <Text style={styles.title} numberOfLines={1}>{t('agents.cardTitle')}</Text>
+                    <Pressable
+                        onPress={goManage}
+                        style={({ pressed }) => [styles.manageBtn, pressed && styles.pressed]}
+                        hitSlop={8}
+                    >
+                        <Text style={styles.manageText}>{t('agents.manage')}</Text>
+                    </Pressable>
+                </View>
+
+                {agents.length === 0 ? (
+                    <Pressable
+                        onPress={goManage}
+                        style={({ pressed }) => [styles.empty, pressed && styles.pressed]}
+                    >
+                        <Text style={styles.emptyText}>{t('agents.empty')}</Text>
+                    </Pressable>
+                ) : (
+                    <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+                        {agents.map((agent) => {
+                            const machine = machines.find((m) => m.id === agent.machineId);
+                            const online = !!machine && isMachineOnline(machine);
+                            const missing = !machine;
+                            const subtitleHost = machine?.metadata?.displayName ?? machine?.metadata?.host ?? agent.machineId;
+
+                            return (
+                                <Pressable
+                                    key={agent.id}
+                                    disabled={!online}
+                                    onPress={() => onPickAgent(agent)}
+                                    style={({ pressed }) => [
+                                        styles.row,
+                                        !online && styles.rowDisabled,
+                                        online && pressed && styles.pressed,
+                                    ]}
+                                >
+                                    {/* Avatar with status dot */}
+                                    <View style={styles.avatarWrap}>
+                                        <View style={[styles.avatar, { backgroundColor: agent.color }]}>
+                                            <Text style={styles.avatarGlyph}>{agent.glyph}</Text>
+                                        </View>
+                                        <View
+                                            style={[
+                                                styles.dot,
+                                                { backgroundColor: online ? styles.dotOnline.color : styles.dotOffline.color },
+                                            ]}
+                                        />
+                                    </View>
+
+                                    {/* Text block */}
+                                    <View style={styles.rowText}>
+                                        <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
+                                        <Text style={styles.subtitle} numberOfLines={1}>
+                                            {subtitleHost}
+                                            {' · '}
+                                            <Text style={styles.path}>{agent.path}</Text>
+                                        </Text>
+                                        {!online && (
+                                            <Text style={styles.statusLabel} numberOfLines={1}>
+                                                {missing ? t('agents.machineMissing') : t('agents.machineOffline')}
+                                            </Text>
+                                        )}
+                                    </View>
+
+                                    {online && (
+                                        <Ionicons name="chevron-forward" size={18} color={styles.chevron.color} />
+                                    )}
+                                </Pressable>
+                            );
+                        })}
+                    </ScrollView>
+                )}
+            </View>
+        </Modal>
+    );
+});
+
+const stylesheet = StyleSheet.create((theme) => ({
+    scrim: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    },
+    sheet: {
+        backgroundColor: theme.colors.groupped.background,
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        paddingTop: 8,
+        paddingHorizontal: 16,
+        maxHeight: '80%',
+    },
+    handle: {
+        alignSelf: 'center',
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: theme.colors.divider,
+        marginBottom: 12,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    title: {
+        flex: 1,
+        fontSize: 17,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    manageBtn: {
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+    },
+    manageText: {
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
+    },
+    pressed: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    list: {
+        flexGrow: 0,
+    },
+    listContent: {
+        paddingVertical: 4,
+        gap: 8,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        gap: 12,
+    },
+    rowDisabled: {
+        opacity: 0.5,
+    },
+    avatarWrap: {
+        width: 40,
+        height: 40,
+    },
+    avatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarGlyph: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        ...Typography.default('semiBold'),
+    },
+    dot: {
+        position: 'absolute',
+        right: -2,
+        bottom: -2,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: theme.colors.surface,
+    },
+    dotOnline: {
+        color: theme.colors.status.connected,
+    },
+    dotOffline: {
+        color: theme.colors.status.disconnected,
+    },
+    rowText: {
+        flex: 1,
+    },
+    name: {
+        fontSize: 15,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    subtitle: {
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+        ...Typography.default(),
+    },
+    path: {
+        color: theme.colors.textSecondary,
+        ...Typography.mono(),
+    },
+    statusLabel: {
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+        ...Typography.default(),
+    },
+    chevron: {
+        color: theme.colors.textSecondary,
+    },
+    empty: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 32,
+    },
+    emptyText: {
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+        ...Typography.default(),
+    },
+}));

@@ -1138,6 +1138,14 @@ export const en = {
         deleteFailed: "Failed to delete push token.",
     },
 
+    agents: {
+        cardTitle: 'My Agents',
+        manage: 'Manage',
+        machineOffline: 'Machine offline',
+        machineMissing: 'Machine not found',
+        empty: 'No agents yet. Tap to add one.',
+    },
+
 } as const;
 
 export type Translations = typeof en;

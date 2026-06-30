@@ -1139,6 +1139,14 @@ export const es: TranslationStructure = {
         deleteFailed: "No se pudo eliminar el token push.",
     },
 
+    agents: {
+        cardTitle: 'My Agents',
+        manage: 'Manage',
+        machineOffline: 'Machine offline',
+        machineMissing: 'Machine not found',
+        empty: 'No agents yet. Tap to add one.',
+    },
+
 } as const;
 
 export type TranslationsEs = typeof es;
