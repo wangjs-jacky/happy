@@ -542,6 +542,14 @@ export const ja: TranslationStructure = {
         showArchived: 'アーカイブを表示',
         hideArchived: 'アーカイブを非表示',
         newSession: '新しいセッション',
+
+        searchSessions: 'セッションを検索',
+    },
+    sessionSearch: {
+        title: 'セッションを検索',
+        placeholder: 'タイトル・パス・マシンで検索',
+        empty: 'キーワードを入力してセッションを検索',
+        noResults: ({ query }: { query: string }) => `${query} に一致するセッションはありません`,
     },
 
     zen: {

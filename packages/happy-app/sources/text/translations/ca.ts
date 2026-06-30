@@ -541,6 +541,14 @@ export const ca: TranslationStructure = {
         showArchived: 'Mostra arxivades',
         hideArchived: 'Amaga arxivades',
         newSession: 'Nova sessió',
+
+        searchSessions: 'Cerca sessions',
+    },
+    sessionSearch: {
+        title: 'Cerca sessions',
+        placeholder: 'Cerca per títol, ruta o màquina',
+        empty: 'Escriu per cercar les teves sessions',
+        noResults: ({ query }: { query: string }) => `No hi ha sessions que coincideixin amb ${query}`,
     },
 
     zen: {

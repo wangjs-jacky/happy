@@ -540,6 +540,14 @@ export const pt: TranslationStructure = {
         showArchived: 'Mostrar arquivadas',
         hideArchived: 'Ocultar arquivadas',
         newSession: 'Nova sessão',
+
+        searchSessions: 'Buscar sessões',
+    },
+    sessionSearch: {
+        title: 'Buscar sessões',
+        placeholder: 'Buscar por título, caminho ou máquina',
+        empty: 'Digite para buscar suas sessões',
+        noResults: ({ query }: { query: string }) => `Nenhuma sessão corresponde a ${query}`,
     },
 
     zen: {

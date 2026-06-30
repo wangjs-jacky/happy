@@ -541,6 +541,14 @@ export const zhHant: TranslationStructure = {
         showArchived: '顯示已封存',
         hideArchived: '隱藏已封存',
         newSession: '新建對話',
+
+        searchSessions: '搜尋歷史對話',
+    },
+    sessionSearch: {
+        title: '搜尋對話',
+        placeholder: '依標題、路徑或機器搜尋',
+        empty: '輸入關鍵字搜尋歷史對話',
+        noResults: ({ query }: { query: string }) => `沒有符合 ${query} 的對話`,
     },
 
     zen: {

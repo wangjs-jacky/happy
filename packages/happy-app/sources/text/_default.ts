@@ -555,6 +555,13 @@ export const en = {
         showArchived: 'Show archived',
         hideArchived: 'Hide archived',
         newSession: 'New session',
+        searchSessions: 'Search sessions',
+    },
+    sessionSearch: {
+        title: 'Search sessions',
+        placeholder: 'Search by title, path or machine',
+        empty: 'Type to search your sessions',
+        noResults: ({ query }: { query: string }) => `No sessions match ${query}`,
     },
 
     zen: {

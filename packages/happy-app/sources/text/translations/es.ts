@@ -541,6 +541,14 @@ export const es: TranslationStructure = {
         showArchived: 'Mostrar archivadas',
         hideArchived: 'Ocultar archivadas',
         newSession: 'Nueva sesión',
+
+        searchSessions: 'Buscar sesiones',
+    },
+    sessionSearch: {
+        title: 'Buscar sesiones',
+        placeholder: 'Buscar por título, ruta o máquina',
+        empty: 'Escribe para buscar tus sesiones',
+        noResults: ({ query }: { query: string }) => `No hay sesiones que coincidan con ${query}`,
     },
 
     zen: {
