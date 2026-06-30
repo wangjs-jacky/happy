@@ -9,6 +9,7 @@ import { useLocalSettingMutable } from '@/sync/storage';
 import { getMascotImage, MASCOT_IDS, resolveMascotId, getMascotTheme } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
 import { applyTheme } from '@/unistyles';
+import { runThemeTransition } from '@/components/ThemeTransition';
 
 //
 // 设置页头部「土拨鼠 logo」滑动切换器
@@ -49,11 +50,14 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const cycleMascot = React.useCallback((dir: number) => {
         const n = MASCOT_IDS.length;
         const next = MASCOT_IDS[(currentIndex + dir + n) % n];
-        setMascot(next);
-        const pack = getMascotTheme(next);
-        setThemePack(pack as 'caramel');
-        applyTheme(pack as 'caramel', themePreference);
         hapticsLight();
+        // 带 crossfade 过渡：切吉祥物 + 联动主题色
+        runThemeTransition(() => {
+            setMascot(next);
+            const pack = getMascotTheme(next);
+            setThemePack(pack as 'caramel');
+            applyTheme(pack as 'caramel', themePreference);
+        });
     }, [currentIndex, setMascot, setThemePack, themePreference]);
 
     const pan = React.useMemo(() => {
