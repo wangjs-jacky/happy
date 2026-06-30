@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -105,6 +105,7 @@ export function useSessionQuickActions(
 ) {
     const {
         onAfterArchive,
+        onAfterDelete,
         onAfterCopySessionMetadata,
     } = options;
     const router = useRouter();
@@ -215,6 +216,39 @@ export function useSessionQuickActions(
         performArchive();
     }, [performArchive]);
 
+    // Permanently delete an already-inactive session. Server requires the
+    // session to be inactive before deletion, so this action is only surfaced
+    // for sessions whose CLI process has ended (session.active === false).
+    const [deletingSession, performDelete] = useHappyAction(async () => {
+        await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
+
+        // Best-effort kill in case the session reactivated between render and tap.
+        if (sessionStatus.isConnected || session.active) {
+            await sessionKill(session.id).catch(() => {});
+        }
+
+        const result = await sessionDelete(session.id);
+        if (!result.success) {
+            throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
+        }
+        onAfterDelete?.();
+    });
+
+    const deleteSession = React.useCallback(() => {
+        Modal.alert(
+            t('sessionInfo.deleteSession'),
+            t('sessionInfo.deleteSessionWarning'),
+            [
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                    text: t('sessionInfo.deleteSession'),
+                    style: 'destructive',
+                    onPress: performDelete,
+                },
+            ],
+        );
+    }, [performDelete]);
+
     const resumeSession = React.useCallback(() => {
         performResume();
     }, [performResume]);
@@ -270,7 +304,14 @@ export function useSessionQuickActions(
             items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' & Client Logs', onPress: copySessionMetadataAndLogs });
         }
 
-        items.push({ id: 'archive', icon: 'archive-outline', label: 'Archive', onPress: archiveSession, destructive: true });
+        // Archive only makes sense for a live session — it kills the CLI and
+        // deactivates it. An already-inactive session is effectively archived,
+        // so we offer permanent deletion instead.
+        if (session.active) {
+            items.push({ id: 'archive', icon: 'archive-outline', label: t('sessionInfo.archiveSession'), onPress: archiveSession, destructive: true });
+        } else {
+            items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSession, destructive: true });
+        }
 
         return items;
     }, [
@@ -279,12 +320,14 @@ export function useSessionQuickActions(
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
+        deleteSession,
         forkSource,
         forkSession,
         openDetails,
         openDuplicateSheet,
         resumeAvailability.canShowResume,
         resumeSession,
+        session.active,
     ]);
 
     const showActionAlert = React.useCallback(() => {
@@ -302,7 +345,10 @@ export function useSessionQuickActions(
         showActionAlert,
         archiveSession,
         archivingSession,
-        canArchive: true,
+        canArchive: session.active,
+        canDelete: !session.active,
+        deleteSession,
+        deletingSession,
         canCopySessionMetadata,
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,

@@ -20,6 +20,8 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
+        canDelete,
+        deleteSession,
         canCopySessionMetadata,
         canShowResume,
         copySessionMetadata,
@@ -38,7 +40,12 @@ export function SessionActionsNativeMenu({
                 </DropdownMenuItem>
                 {canArchive && (
                     <DropdownMenuItem onClick={archiveSession}>
-                        <DropdownMenuItem.Text>Archive</DropdownMenuItem.Text>
+                        <DropdownMenuItem.Text>{t('sessionInfo.archiveSession')}</DropdownMenuItem.Text>
+                    </DropdownMenuItem>
+                )}
+                {canDelete && (
+                    <DropdownMenuItem onClick={deleteSession}>
+                        <DropdownMenuItem.Text>{t('sessionInfo.deleteSession')}</DropdownMenuItem.Text>
                     </DropdownMenuItem>
                 )}
                 {canShowResume && (
