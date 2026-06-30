@@ -20,7 +20,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
-    const agents = useSetting('agents') as AgentLauncher[];
+    const agents = useSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
 

@@ -9,7 +9,6 @@ import { ItemList } from '@/components/ItemList';
 import { useSetting, useAllMachines } from '@/sync/storage';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import type { AgentLauncher } from '@/components/agents/launchAgent';
 
 /**
  * 「我的 Agent」配置列表页：展示已配置的 Agent，点击行进入编辑，顶部入口新建。
@@ -19,7 +18,7 @@ export default React.memo(function MyAgentsSettingsScreen() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const router = useRouter();
-    const agents = useSetting('agents') as AgentLauncher[];
+    const agents = useSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
 
     const machineName = React.useCallback((machineId: string): string => {

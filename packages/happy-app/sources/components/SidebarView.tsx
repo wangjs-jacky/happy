@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useDrawerHaptics } from './useDrawerHaptics';
 import { AgentSheet } from './agents/AgentSheet';
-import { type AgentLauncher } from './agents/launchAgent';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -182,7 +181,7 @@ export const SidebarView = React.memo(() => {
     const realtimeStatus = useRealtimeStatus();
     const friendRequests = useFriendRequests();
     const profile = useProfile();
-    const agents = useSetting('agents') as AgentLauncher[];
+    const agents = useSetting('agents');
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const displayName = getDisplayName(profile) ?? t('settings.title');
 

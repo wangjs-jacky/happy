@@ -14,7 +14,6 @@ import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
-import type { AgentLauncher } from './agents/launchAgent';
 import type { MultiTextInputHandle } from './MultiTextInput';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
@@ -74,7 +73,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
     const { agentId } = useLocalSearchParams<{ agentId?: string }>();
-    const agents = useSetting('agents') as AgentLauncher[];
+    const agents = useSetting('agents');
     const activeAgent = React.useMemo(
         () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
         [agentId, agents],
