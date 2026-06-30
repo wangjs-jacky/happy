@@ -239,7 +239,7 @@ export const SidebarView = React.memo(() => {
 
             {/* My Agents card — tap body to open the AgentSheet (or jump to config when empty) */}
             <Pressable
-                onPress={() => (agents.length > 0 ? setSheetOpen(true) : go('/settings/agents'))}
+                onPress={() => (agents.length > 0 ? setSheetOpen(true) : go('/settings/my-agents'))}
                 style={({ pressed }) => [
                     styles.agentsCard,
                     pressed && styles.agentsCardPressed,
@@ -248,7 +248,7 @@ export const SidebarView = React.memo(() => {
                 <View style={styles.agentsHeader}>
                     <Text style={styles.agentsTitle} numberOfLines={1}>{t('agents.cardTitle')}</Text>
                     <Pressable
-                        onPress={(e) => { e.stopPropagation(); go('/settings/agents'); }}
+                        onPress={(e) => { e.stopPropagation(); go('/settings/my-agents'); }}
                         hitSlop={8}
                         style={({ pressed }) => [styles.agentsAdd, pressed && styles.agentsAddPressed]}
                     >

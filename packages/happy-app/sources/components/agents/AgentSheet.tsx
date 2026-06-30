@@ -26,7 +26,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
 
     const goManage = React.useCallback(() => {
         onClose();
-        router.navigate('/settings/agents');
+        router.navigate('/settings/my-agents');
     }, [onClose, router]);
 
     const onPickAgent = React.useCallback((agent: AgentLauncher) => {

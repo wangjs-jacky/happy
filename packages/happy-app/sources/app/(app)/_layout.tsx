@@ -128,6 +128,18 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/my-agents"
+                options={{
+                    headerTitle: t('agents.title'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/my-agent-edit"
+                options={{
+                    headerTitle: t('agents.editTitle'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/features"
                 options={{
                     headerTitle: t('settings.features'),
