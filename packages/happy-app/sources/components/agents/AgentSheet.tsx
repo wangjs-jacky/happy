@@ -21,7 +21,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
     const agents = useSetting('agents') as AgentLauncher[];
-    const machines = useAllMachines();
+    const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
 
     const goManage = React.useCallback(() => {
@@ -66,7 +66,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                             const machine = machines.find((m) => m.id === agent.machineId);
                             const online = !!machine && isMachineOnline(machine);
                             const missing = !machine;
-                            const subtitleHost = machine?.metadata?.displayName ?? machine?.metadata?.host ?? agent.machineId;
+                            const subtitleHost = machine?.metadata?.displayName ?? machine?.metadata?.host ?? (missing ? t('agents.machineMissing') : agent.machineId);
 
                             return (
                                 <Pressable
