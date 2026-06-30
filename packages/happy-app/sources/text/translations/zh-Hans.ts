@@ -1141,6 +1141,7 @@ export const zhHans: TranslationStructure = {
 
     agents: {
         cardTitle: '我的 Agent',
+        add: '添加',
         manage: '管理',
         machineOffline: '机器离线',
         machineMissing: '机器不存在',

@@ -1170,6 +1170,7 @@ export const pl: TranslationStructure = {
 
     agents: {
         cardTitle: 'My Agents',
+        add: 'Add',
         manage: 'Manage',
         machineOffline: 'Machine offline',
         machineMissing: 'Machine not found',

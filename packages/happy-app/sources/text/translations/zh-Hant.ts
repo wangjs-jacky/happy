@@ -1140,6 +1140,7 @@ export const zhHant: TranslationStructure = {
 
     agents: {
         cardTitle: '我的 Agent',
+        add: '新增',
         manage: '管理',
         machineOffline: '機器離線',
         machineMissing: '機器不存在',
