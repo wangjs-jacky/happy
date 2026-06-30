@@ -24,6 +24,7 @@ import { Avatar } from './Avatar';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
+import { hapticsLight } from './haptics';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -84,6 +85,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // setTextAndSelection 才会真正改写原生输入框，并回调 onChangeText 同步父级 text
     // 与发送按钮的 hasText 状态。随后 focus 让光标落到末尾，但不自动发送。
     const fillPreset = React.useCallback((prompt: string) => {
+        hapticsLight();
         const len = prompt.length;
         composerInputRef.current?.setTextAndSelection(prompt, { start: len, end: len });
         composerInputRef.current?.focus();
