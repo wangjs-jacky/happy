@@ -29,6 +29,7 @@ export const pl: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `Cześć ${name}, co dziś zrobimy?`,
         greetingNoName: 'Co dziś zrobimy?',
+        greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Pytaj o cokolwiek, też ze zdjęciami',
         byline: 'Wygenerowane przez AI · szyfrowanie end-to-end',
         createDirectoryTitle: 'Utworzyć katalog?',

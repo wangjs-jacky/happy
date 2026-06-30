@@ -18,6 +18,7 @@ export const ca: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hola ${name}, què fem avui?`,
         greetingNoName: 'Què fem avui?',
+        greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Pregunta el que sigui, també amb imatges',
         byline: 'Generat per IA · xifratge d\'extrem a extrem',
         createDirectoryTitle: 'Crear carpeta?',

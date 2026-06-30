@@ -29,6 +29,7 @@ export const ru: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `Привет, ${name}! Чем займёмся сегодня?`,
         greetingNoName: 'Чем займёмся сегодня?',
+        greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Спрашивайте что угодно, можно с фото',
         byline: 'Сгенерировано ИИ · сквозное шифрование',
         createDirectoryTitle: 'Создать папку?',

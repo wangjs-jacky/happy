@@ -20,6 +20,7 @@ export const zhHans: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做点什么`,
         greetingNoName: '今天和 Paws 做点什么',
+        greetingAgent: ({ name }: { name: string }) => `进入 ${name}，今天想做点什么？`,
         placeholder: '尽管问，带图也行',
         byline: '内容由 AI 生成 · 端到端加密',
         createDirectoryTitle: '创建目录？',

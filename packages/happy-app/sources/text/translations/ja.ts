@@ -21,6 +21,7 @@ export const ja: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,
         greetingNoName: '今日は何をしますか？',
+        greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: '何でも聞いてください、画像もOK',
         byline: 'AI生成 · エンドツーエンド暗号化',
         createDirectoryTitle: 'フォルダを作成しますか？',

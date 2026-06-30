@@ -18,6 +18,7 @@ export const it: TranslationStructure = {
     composeHome: {
         greeting: ({ name }: { name: string }) => `Ciao ${name}, cosa facciamo oggi?`,
         greetingNoName: 'Cosa facciamo oggi?',
+        greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Chiedi qualsiasi cosa, anche con immagini',
         byline: 'Generato dall\'IA · crittografia end-to-end',
         createDirectoryTitle: 'Creare la cartella?',
