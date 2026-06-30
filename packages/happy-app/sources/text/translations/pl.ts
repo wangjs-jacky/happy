@@ -557,6 +557,14 @@ export const pl: TranslationStructure = {
         showArchived: 'Pokaż zarchiwizowane',
         hideArchived: 'Ukryj zarchiwizowane',
         newSession: 'Nowa sesja',
+
+        searchSessions: 'Szukaj sesji',
+    },
+    sessionSearch: {
+        title: 'Szukaj sesji',
+        placeholder: 'Szukaj po nazwie, ścieżce lub maszynie',
+        empty: 'Wpisz, aby wyszukać sesje',
+        noResults: ({ query }: { query: string }) => `Brak sesji pasujących do ${query}`,
     },
 
     zen: {

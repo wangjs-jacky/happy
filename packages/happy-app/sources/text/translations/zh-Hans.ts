@@ -542,6 +542,14 @@ export const zhHans: TranslationStructure = {
         showArchived: '显示已归档',
         hideArchived: '隐藏已归档',
         newSession: '新建会话',
+
+        searchSessions: '搜索历史会话',
+    },
+    sessionSearch: {
+        title: '搜索会话',
+        placeholder: '按标题、路径或机器搜索',
+        empty: '输入关键词搜索历史会话',
+        noResults: ({ query }: { query: string }) => `没有匹配 ${query} 的会话`,
     },
 
     zen: {

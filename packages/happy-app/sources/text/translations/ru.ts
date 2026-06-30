@@ -557,6 +557,14 @@ export const ru: TranslationStructure = {
         showArchived: 'Показать архив',
         hideArchived: 'Скрыть архив',
         newSession: 'Новая сессия',
+
+        searchSessions: 'Поиск сессий',
+    },
+    sessionSearch: {
+        title: 'Поиск сессий',
+        placeholder: 'Поиск по названию, пути или машине',
+        empty: 'Введите запрос для поиска сессий',
+        noResults: ({ query }: { query: string }) => `Нет сессий по запросу ${query}`,
     },
 
     zen: {

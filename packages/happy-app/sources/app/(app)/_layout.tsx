@@ -70,6 +70,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="session/search"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('sessionSearch.title'),
+                    headerBackTitle: t('common.home')
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]/message/[messageId]"
                 options={{
                     headerShown: true,
