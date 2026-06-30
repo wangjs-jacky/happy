@@ -1164,8 +1164,6 @@ export const en = {
         presetPromptPlaceholder: 'Prompt',
         save: 'Save',
         delete: 'Delete',
-        nameRequired: 'Please enter a name',
-        machineRequired: 'Please select a machine',
     },
 
 } as const;

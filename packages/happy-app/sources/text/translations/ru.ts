@@ -1193,8 +1193,6 @@ export const ru: TranslationStructure = {
         presetPromptPlaceholder: 'Промпт',
         save: 'Сохранить',
         delete: 'Удалить',
-        nameRequired: 'Введите имя',
-        machineRequired: 'Выберите машину',
     },
 
 } as const;

@@ -1164,8 +1164,6 @@ export const ca: TranslationStructure = {
         presetPromptPlaceholder: 'Prompt',
         save: 'Desa',
         delete: 'Elimina',
-        nameRequired: 'Introdueix un nom',
-        machineRequired: 'Selecciona una màquina',
     },
 
 } as const;

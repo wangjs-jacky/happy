@@ -1165,8 +1165,6 @@ export const zhHans: TranslationStructure = {
         presetPromptPlaceholder: '指令内容',
         save: '保存',
         delete: '删除',
-        nameRequired: '请填写名称',
-        machineRequired: '请选择机器',
     },
 
 } as const;

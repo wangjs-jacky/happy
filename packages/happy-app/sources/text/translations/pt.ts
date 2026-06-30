@@ -1163,8 +1163,6 @@ export const pt: TranslationStructure = {
         presetPromptPlaceholder: 'Prompt',
         save: 'Salvar',
         delete: 'Excluir',
-        nameRequired: 'Digite um nome',
-        machineRequired: 'Selecione uma máquina',
     },
 
 } as const;

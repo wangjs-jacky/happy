@@ -1166,8 +1166,6 @@ export const ja: TranslationStructure = {
         presetPromptPlaceholder: 'プロンプト',
         save: '保存',
         delete: '削除',
-        nameRequired: '名前を入力してください',
-        machineRequired: 'マシンを選択してください',
     },
 
 } as const;

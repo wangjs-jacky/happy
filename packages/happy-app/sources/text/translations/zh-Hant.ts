@@ -1164,8 +1164,6 @@ export const zhHant: TranslationStructure = {
         presetPromptPlaceholder: '指令內容',
         save: '儲存',
         delete: '刪除',
-        nameRequired: '請填寫名稱',
-        machineRequired: '請選擇機器',
     },
 
 } as const;
