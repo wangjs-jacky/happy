@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
+import { storage } from '@/sync/storage';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -16,6 +17,8 @@ export interface SpawnSessionArgs {
     /** Working directory on the machine; null/empty falls back to the home dir (~). */
     path: string | null;
     agent: NewSessionAgentType;
+    permissionMode?: string | null;
+    modelMode?: string | null;
     /** Existing worktree absolute path, or null/'__none__' for no worktree. */
     worktreeKey: string | null;
     /** Initial prompt to send into the freshly spawned session. */
@@ -44,7 +47,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, prompt, images } = args;
+        const { machineId, machine, path, agent, permissionMode, modelMode, worktreeKey, prompt, images } = args;
         if (!isMachineOnline(machine)) {
             Modal.alert(t('common.error'), t('newSession.machineOffline'));
             return false;
@@ -71,6 +74,12 @@ export function useSpawnSession() {
             switch (result.type) {
                 case 'success':
                     await sync.refreshSessions();
+                    if (permissionMode) {
+                        storage.getState().updateSessionPermissionMode(result.sessionId, permissionMode);
+                    }
+                    if (modelMode) {
+                        storage.getState().updateSessionModelMode(result.sessionId, modelMode);
+                    }
                     const attachments = images && images.length > 0 ? images : undefined;
                     if (prompt || attachments) {
                         await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', attachments });

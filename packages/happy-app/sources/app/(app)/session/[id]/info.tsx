@@ -442,7 +442,9 @@ function SessionInfoContent({ session }: { session: Session }) {
                                 if (flavor === 'claude') return 'Claude';
                                 if (flavor === 'gpt' || flavor === 'openai') return 'Codex';
                                 if (flavor === 'gemini') return 'Gemini';
+                                if (flavor === 'opencode') return 'OpenCode';
                                 if (flavor === 'openclaw') return 'OpenClaw';
+                                if (flavor === 'deepcode') return 'DeepCode';
                                 return flavor;
                             })()}
                             icon={<Ionicons name="sparkles-outline" size={29} color="#5856D6" />}

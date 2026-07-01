@@ -52,13 +52,17 @@ export const SettingsSchema = z.object({
             claude: z.boolean().optional(),
             codex: z.boolean().optional(),
             gemini: z.boolean().optional(),
+            opencode: z.boolean().optional(),
             openclaw: z.boolean().optional(),
+            deepcode: z.boolean().optional(),
         })).default({}),
         global: z.object({
             claude: z.boolean().optional(),
             codex: z.boolean().optional(),
             gemini: z.boolean().optional(),
+            opencode: z.boolean().optional(),
             openclaw: z.boolean().optional(),
+            deepcode: z.boolean().optional(),
         }).default({}),
     }).default({ perMachine: {}, global: {} }).describe('Tracks which CLI installation warnings user has dismissed (per-machine or globally)'),
 });

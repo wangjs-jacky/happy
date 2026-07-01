@@ -45,8 +45,10 @@ import { useUnistyles } from 'react-native-unistyles';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
+    deepcode: 'deepcode',
 };
 
 export const SessionView = React.memo((props: { id: string }) => {

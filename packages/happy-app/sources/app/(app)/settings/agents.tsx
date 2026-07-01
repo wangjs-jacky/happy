@@ -40,7 +40,9 @@ const agentLabels: Record<AgentKey, string> = {
     claude: 'Claude Code',
     codex: 'Codex',
     gemini: 'Gemini',
+    opencode: 'OpenCode',
     openclaw: 'OpenClaw',
+    deepcode: 'DeepCode',
 };
 
 function optionName(options: ModeOption[], key: string | null | undefined): string {

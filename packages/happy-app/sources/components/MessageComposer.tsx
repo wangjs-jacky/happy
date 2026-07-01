@@ -48,6 +48,8 @@ interface MessageComposerProps {
             claude: boolean | null;
             codex: boolean | null;
             gemini?: boolean | null;
+            opencode?: boolean | null;
+            deepcode?: boolean | null;
         };
     };
     autocompletePrefixes?: string[];
@@ -61,7 +63,7 @@ interface MessageComposerProps {
     };
     alwaysShowContextSize?: boolean;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw';
+    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'deepcode';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;
@@ -272,6 +274,42 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                                             ...Typography.default()
                                         }}>
                                             gemini
+                                        </Text>
+                                    </View>
+                                )}
+                                {p.connectionStatus.cliStatus.opencode !== undefined && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.opencode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            {p.connectionStatus.cliStatus.opencode ? '✓' : '✗'}
+                                        </Text>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.opencode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            opencode
+                                        </Text>
+                                    </View>
+                                )}
+                                {p.connectionStatus.cliStatus.deepcode !== undefined && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.deepcode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            {p.connectionStatus.cliStatus.deepcode ? '✓' : '✗'}
+                                        </Text>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.deepcode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            deepcode
                                         </Text>
                                     </View>
                                 )}
@@ -756,7 +794,17 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             fontWeight: '600',
                                             ...Typography.default('semiBold'),
                                         }}>
-                                            {props.agentType === 'claude' ? t('agentInput.agent.claude') : props.agentType === 'codex' ? t('agentInput.agent.codex') : props.agentType === 'openclaw' ? t('agentInput.agent.openclaw') : t('agentInput.agent.gemini')}
+                                            {props.agentType === 'claude'
+                                                ? t('agentInput.agent.claude')
+                                                : props.agentType === 'codex'
+                                                    ? t('agentInput.agent.codex')
+                                                    : props.agentType === 'opencode'
+                                                        ? 'OpenCode'
+                                                    : props.agentType === 'openclaw'
+                                                        ? t('agentInput.agent.openclaw')
+                                                        : props.agentType === 'deepcode'
+                                                            ? 'DeepCode'
+                                                            : t('agentInput.agent.gemini')}
                                         </Text>
                                     </Pressable>
                                 )}

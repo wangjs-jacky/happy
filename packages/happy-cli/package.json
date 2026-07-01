@@ -12,6 +12,8 @@
     "url": "https://github.com/wangjs-jacky/paws"
   },
   "bin": {
+    "happy": "./bin/happy.mjs",
+    "happy-mcp": "./bin/happy-mcp.mjs",
     "paws": "./bin/happy.mjs",
     "paws-mcp": "./bin/happy-mcp.mjs"
   },
