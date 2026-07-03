@@ -52,6 +52,10 @@ function isSessionActive(session: { active: boolean; activeAt: number }): boolea
     return session.active;
 }
 
+function isWarmPrecreatedSession(session: Pick<Session, 'metadata'>): boolean {
+    return session.metadata?.lifecycleState === 'warming';
+}
+
 // Known entitlement IDs
 export type KnownEntitlements = 'pro';
 
@@ -240,6 +244,7 @@ function buildSessionListViewData(
     const inactiveSessions: Session[] = [];
 
     Object.values(sessions).forEach(session => {
+        if (isWarmPrecreatedSession(session)) return;
         if (isSessionActive(session)) {
             activeSessions.push(session);
         } else {
@@ -441,6 +446,7 @@ export const storage = create<StorageState>()((set, get) => {
             // Build active set from all sessions (including existing ones)
             const activeSet = new Set<string>();
             Object.values(mergedSessions).forEach(session => {
+                if (isWarmPrecreatedSession(session)) return;
                 if (isSessionActive(session)) {
                     activeSet.add(session.id);
                 }
@@ -452,6 +458,7 @@ export const storage = create<StorageState>()((set, get) => {
 
             // Process all sessions from merged set
             Object.values(mergedSessions).forEach(session => {
+                if (isWarmPrecreatedSession(session)) return;
                 if (activeSet.has(session.id)) {
                     activeSessions.push(session);
                 } else {
@@ -1493,7 +1500,9 @@ export function useSessionListViewData(): SessionListViewItem[] | null {
 export function useAllSessions(): Session[] {
     return storage(useShallow((state) => {
         if (!state.isDataReady) return [];
-        return Object.values(state.sessions).sort((a, b) => b.updatedAt - a.updatedAt);
+        return Object.values(state.sessions)
+            .filter(session => !isWarmPrecreatedSession(session))
+            .sort((a, b) => b.updatedAt - a.updatedAt);
     }));
 }
 
