@@ -86,6 +86,25 @@ function isAppServerAvailable(): boolean {
     }
 }
 
+function buildCodexProcessEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (typeof value === 'string') env[key] = value;
+    }
+
+    const codexProxy = env.HAPPY_CODEX_PROXY_URL || env.CODEX_PROXY_URL;
+    if (codexProxy) {
+        env.HTTP_PROXY = codexProxy;
+        env.HTTPS_PROXY = codexProxy;
+        env.ALL_PROXY = codexProxy;
+        env.http_proxy = codexProxy;
+        env.https_proxy = codexProxy;
+        env.all_proxy = codexProxy;
+    }
+
+    return env;
+}
+
 function normalizeRawFileChangeList(changes: unknown): LegacyPatchChanges | undefined {
     if (!Array.isArray(changes)) {
         return undefined;
@@ -463,11 +482,7 @@ export class CodexAppServerClient {
             }
         }
 
-        // Build env — same filtering as the old MCP client
-        const env: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-            if (typeof value === 'string') env[key] = value;
-        }
+        const env = buildCodexProcessEnv();
         // Mute noisy rollout list logging
         const filter = 'codex_core::rollout::list=off';
         if (!env.RUST_LOG) {
