@@ -20,6 +20,7 @@ import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
+import { RightSwipePanelHost } from './RightSwipePanelHost';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
@@ -171,7 +172,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
 
     return (
-        <View style={styles.container}>
+        <RightSwipePanelHost>
+            <View style={styles.container}>
             <Header
                 title={modelChip}
                 headerShadowVisible={false}
@@ -244,7 +246,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     </View>
                 </>
             )}
-        </View>
+            </View>
+        </RightSwipePanelHost>
     );
 });
 
