@@ -17,25 +17,6 @@ type ResumeThreadMessageBuffer = {
     addMessage: (message: string, type: 'status') => void;
 };
 
-function explainResumeFailure(threadId: string, reason: string): string {
-    const lowerReason = reason.toLowerCase();
-    const hasMissingRollout = lowerReason.includes('missing rollout path')
-        || lowerReason.includes('rollout path')
-        || lowerReason.includes('rollout at');
-    const hasEmptyRollout = lowerReason.includes(' is empty')
-        || lowerReason.includes('empty rollout');
-
-    if (hasMissingRollout || hasEmptyRollout) {
-        return [
-            `Cannot resume Codex thread ${threadId}.`,
-            'The local Codex session history is missing or empty, so Happy can show the chat record but Codex cannot restore the execution context.',
-            'Start a new session from this chat instead.',
-        ].join(' ');
-    }
-
-    return `Cannot resume Codex thread ${threadId}: ${reason}`;
-}
-
 export async function resumeExistingThread(opts: {
     client: ResumeThreadClient;
     session: ResumeThreadSession;
@@ -64,12 +45,6 @@ export async function resumeExistingThread(opts: {
         return resumedThread;
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        const message = explainResumeFailure(opts.threadId, reason);
-        opts.messageBuffer.addMessage(message, 'status');
-        opts.session.sendSessionEvent({
-            type: 'message',
-            message,
-        });
         throw new Error(`Failed to resume Codex thread ${opts.threadId}: ${reason}`);
     }
 }

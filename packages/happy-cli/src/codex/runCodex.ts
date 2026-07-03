@@ -23,7 +23,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
-import { notifyDaemonCodexWarmReady, notifyDaemonSessionStarted } from "@/daemon/controlClient";
+import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import type { Session as ApiSession } from '@/api/types';
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
@@ -61,39 +61,9 @@ function describeCodexFailure(msg: any): string | null {
     return 'Unknown error';
 }
 
-function isRecoverableCodexBackendFailure(message: string): boolean {
-    const lowerMessage = message.toLowerCase();
-    return lowerMessage.includes('stream disconnected before completion')
-        || lowerMessage.includes('codex process exited')
-        || lowerMessage.includes('process disconnected')
-        || lowerMessage.includes('connection closed')
-        || lowerMessage.includes('connection reset')
-        || lowerMessage.includes('connection refused')
-        || lowerMessage.includes('transport closed')
-        || lowerMessage.includes('transport disconnected')
-        || lowerMessage.includes('broken pipe');
-}
-
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
-const DEFAULT_CODEX_EFFORT: ReasoningEffort =
-    process.env.HAPPY_CODEX_DEFAULT_EFFORT === 'minimal' ||
-    process.env.HAPPY_CODEX_DEFAULT_EFFORT === 'low' ||
-    process.env.HAPPY_CODEX_DEFAULT_EFFORT === 'medium' ||
-    process.env.HAPPY_CODEX_DEFAULT_EFFORT === 'high'
-        ? process.env.HAPPY_CODEX_DEFAULT_EFFORT
-        : 'medium';
+const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
-const CODEX_WARM_PRECREATE_THREAD =
-    process.env.HAPPY_CODEX_WARM_PRECREATE_THREAD === '1' ||
-    process.env.HAPPY_CODEX_WARM_BOOTSTRAP === '1';
-const CODEX_WARM_MCP_READY_TIMEOUT_MS = Math.max(
-    0,
-    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_TIMEOUT_MS || '30000', 10) || 30000,
-);
-const CODEX_WARM_MCP_READY_QUIET_MS = Math.max(
-    50,
-    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_QUIET_MS || '300', 10) || 300,
-);
 
 /**
  * Main entry point for the codex command with ink UI
@@ -127,8 +97,6 @@ export async function runCodex(opts: {
     //
 
     const sessionTag = randomUUID();
-    const isWarmPrecreateSession =
-        CODEX_WARM_PRECREATE_THREAD && !opts.resumeThreadId && !process.env.HAPPY_RECONNECT_SESSION_ID;
 
     // Set backend for offline warnings (before any API calls)
     connectionState.setBackend('Codex');
@@ -173,10 +141,6 @@ export async function runCodex(opts: {
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
     });
-    if (isWarmPrecreateSession) {
-        metadata.lifecycleState = 'warming';
-        metadata.lifecycleStateSince = Date.now();
-    }
 
     // Check for session reconnection env vars (set by daemon for resume-in-place)
     const reconnectSessionId = process.env.HAPPY_RECONNECT_SESSION_ID;
@@ -226,7 +190,6 @@ export async function runCodex(opts: {
         }
     });
     session = initialSession;
-    let warmPrecreateActivated = !isWarmPrecreateSession;
 
     // On reconnect, un-archive the session and skip replaying old messages.
     if (reconnectSessionId) {
@@ -617,8 +580,6 @@ export async function runCodex(opts: {
             session.sendSessionProtocolMessage(envelope);
         }
     });
-    let lastCodexTurnFailure: string | null = null;
-    let suppressCodexSessionOutput = false;
 
     // Approval handler: routes server → client approval requests to our permission handler
     client.setApprovalHandler(async (params) => {
@@ -647,14 +608,6 @@ export async function runCodex(opts: {
     client.setEventHandler((msg) => {
         logger.debug(`[Codex] Event: ${JSON.stringify(msg)}`);
 
-        if (suppressCodexSessionOutput) {
-            const failure = describeCodexFailure(msg);
-            if (failure) {
-                lastCodexTurnFailure = failure;
-            }
-            return;
-        }
-
         // Add messages to the ink UI buffer based on message type
         if (msg.type === 'agent_message') {
             messageBuffer.addMessage((msg as any).message, 'assistant');
@@ -678,7 +631,6 @@ export async function runCodex(opts: {
             // after the queue is actually drained.
             const failure = describeCodexFailure(msg);
             if (failure) {
-                lastCodexTurnFailure = failure;
                 messageBuffer.addMessage(`Task failed: ${failure}`, 'status');
                 session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
             } else {
@@ -687,7 +639,6 @@ export async function runCodex(opts: {
         } else if (msg.type === 'turn_aborted') {
             const failure = describeCodexFailure(msg);
             if (failure) {
-                lastCodexTurnFailure = failure;
                 messageBuffer.addMessage(`Turn aborted: ${failure}`, 'status');
                 session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
             } else {
@@ -782,48 +733,6 @@ export async function runCodex(opts: {
         await client.connect();
         logger.debug('[codex]: client.connect done');
 
-        if (CODEX_WARM_PRECREATE_THREAD && !opts.resumeThreadId && !reconnectSessionId) {
-            logger.debug('[CodexWarm] Starting clean Codex thread warmup');
-            const executionPolicy = resolveCodexExecutionPolicy(
-                DEFAULT_CODEX_PERMISSION_MODE,
-                client.sandboxEnabled,
-            );
-
-            try {
-                const startedThread = await client.startThread({
-                    model: currentModel,
-                    cwd: process.cwd(),
-                    approvalPolicy: executionPolicy.approvalPolicy,
-                    sandbox: executionPolicy.sandbox,
-                    mcpServers,
-                });
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexThreadId: startedThread.threadId,
-                }));
-                const mcpSettled = await client.waitForMcpStartupSettled({
-                    timeoutMs: CODEX_WARM_MCP_READY_TIMEOUT_MS,
-                    quietMs: CODEX_WARM_MCP_READY_QUIET_MS,
-                });
-                if (!mcpSettled) {
-                    logger.debug(`[CodexWarm] MCP startup did not fully settle before ready timeout (${CODEX_WARM_MCP_READY_TIMEOUT_MS}ms)`);
-                }
-
-                const notifyResult = await notifyDaemonCodexWarmReady({
-                    sessionId: session.sessionId,
-                    pid: process.pid,
-                    threadId: startedThread.threadId,
-                });
-                if (notifyResult?.error) {
-                    throw new Error(notifyResult.error);
-                }
-                logger.debug(`[CodexWarm] Clean Codex thread warmup ready: threadId=${startedThread.threadId}`);
-            } catch (error) {
-                logger.warn('[CodexWarm] Clean Codex thread warmup failed:', error);
-                process.exit(1);
-            }
-        }
-
         if (opts.resumeThreadId) {
             await resumeExistingThread({
                 client,
@@ -883,17 +792,6 @@ export async function runCodex(opts: {
             // Defensive check for TS narrowing
             if (!message) {
                 break;
-            }
-
-            if (!warmPrecreateActivated) {
-                warmPrecreateActivated = true;
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    lifecycleState: 'running',
-                    lifecycleStateSince: Date.now(),
-                    archivedBy: undefined,
-                    archiveReason: undefined,
-                }));
             }
 
             if (isCodexClearText(message.message)) {
@@ -972,7 +870,6 @@ export async function runCodex(opts: {
                     logger.debug(`[Codex] Attaching ${turnImages.length} image(s) to turn`);
                 }
 
-                lastCodexTurnFailure = null;
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
@@ -985,16 +882,6 @@ export async function runCodex(opts: {
                     appendSystemPromptInjected = true;
                 }
 
-                if (lastCodexTurnFailure && isRecoverableCodexBackendFailure(lastCodexTurnFailure)) {
-                    const resumedThread = await client.reconnectAndResumeThread();
-                    const recoveryMessage = resumedThread
-                        ? 'Codex backend connection was interrupted. Happy restarted it and resumed the previous thread.'
-                        : 'Codex backend connection was interrupted. Happy could not resume the previous thread; start a new session from this chat if context is missing.';
-                    logger.debug(`[Codex] Recoverable backend failure handled; resumedThread=${resumedThread}`);
-                    messageBuffer.addMessage(recoveryMessage, 'status');
-                    session.sendSessionEvent({ type: 'message', message: recoveryMessage });
-                }
-
                 if (result.aborted) {
                     // Turn was aborted (user abort or permission cancel).
                     // UI handling already done by the event handler (turn_aborted).
@@ -1003,18 +890,8 @@ export async function runCodex(opts: {
             } catch (error) {
                 // Only actual errors reach here (process crash, connection failure, etc.)
                 logger.warn('Error in codex session:', error);
-                const hadThread = client.threadId !== null;
-                const resumedThread = hadThread
-                    ? await client.reconnectAndResumeThread().catch((resumeError) => {
-                        logger.warn('[Codex] Failed to reconnect after session error', resumeError);
-                        return false;
-                    })
-                    : false;
-                const statusMessage = resumedThread
-                    ? 'Process exited unexpectedly. Happy restarted Codex and resumed the previous thread.'
-                    : 'Process exited unexpectedly. Happy could not resume the previous thread; start a new session from this chat if context is missing.';
-                messageBuffer.addMessage(statusMessage, 'status');
-                session.sendSessionEvent({ type: 'message', message: statusMessage });
+                messageBuffer.addMessage('Process exited unexpectedly', 'status');
+                session.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
             } finally {
                 // Reset permission handler, reasoning processor, and diff processor
                 permissionHandler.reset();

@@ -20,7 +20,7 @@ import type { PersistedSession } from '@/persistence';
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
 import { statSync } from 'fs';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { projectPath } from '@/projectPath';
 import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTmuxSessionIdentifier } from '@/utils/tmux';
 import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
@@ -32,42 +32,6 @@ import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
     return "'" + s.replace(/'/g, "'\\''") + "'";
-}
-
-type DaemonSpawnSessionOptions = SpawnSessionOptions & {
-  warmPoolPrewarm?: boolean;
-};
-
-type WarmPoolEntry = {
-  key: string;
-  directory: string;
-  state: 'warming' | 'ready' | 'assigned' | 'failed';
-  pid?: number;
-  sessionId?: string;
-  startedAt: number;
-  lastError?: string;
-};
-
-const CODEX_WARM_POOL_DISABLED = process.env.HAPPY_CODEX_WARM_POOL === '0';
-const CODEX_WARM_POOL_SIZE = Math.max(0, parseInt(process.env.HAPPY_CODEX_WARM_POOL_SIZE || '1', 10) || 0);
-const CODEX_WARM_POOL_DEFAULT_DIRECTORY = process.env.HAPPY_CODEX_WARM_DIRECTORY || os.homedir();
-const CODEX_WARM_POOL_REFRESH_DELAY_MS = Math.max(250, parseInt(process.env.HAPPY_CODEX_WARM_POOL_REFRESH_DELAY_MS || '1000', 10) || 1000);
-
-function makeWarmPoolKey(directory: string): string {
-  return `codex:${resolve(directory)}`;
-}
-
-function shouldUseCodexWarmPool(options: SpawnSessionOptions): boolean {
-  if (CODEX_WARM_POOL_DISABLED || CODEX_WARM_POOL_SIZE <= 0) {
-    return false;
-  }
-  if (options.agent !== 'codex') {
-    return false;
-  }
-  if (options.token || options.resumeClaudeSessionId || options.resumeCodexThreadId || options.parentSessionId || options.forkedFromMessageId) {
-    return false;
-  }
-  return !options.environmentVariables || Object.keys(options.environmentVariables).length === 0;
 }
 
 // Prepare initial metadata
@@ -218,47 +182,9 @@ export async function startDaemon(): Promise<void> {
 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
-    const warmPool = new Map<string, WarmPoolEntry[]>();
-    let ensureCodexWarmPoolForDirectory: (directory: string) => void = () => {};
 
     // Helper functions
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
-
-    const claimWarmCodexSession = (directory: string): SpawnSessionResult | null => {
-      const key = makeWarmPoolKey(directory);
-      const entries = warmPool.get(key) ?? [];
-      const entry = entries.find(item => item.state === 'ready' && item.sessionId && item.pid);
-      if (!entry || !entry.sessionId || !entry.pid) {
-        return null;
-      }
-
-      entry.state = 'assigned';
-      const tracked = pidToTrackedSession.get(entry.pid);
-      if (tracked) {
-        tracked.assignedFromWarmPool = true;
-        tracked.warmPoolKey = undefined;
-      }
-      warmPool.set(key, entries.filter(item => item !== entry));
-      logger.debug(`[DAEMON RUN] Claimed warm Codex session: key=${key}, sessionId=${entry.sessionId}, pid=${entry.pid}`);
-
-      setTimeout(() => ensureCodexWarmPoolForDirectory(directory), CODEX_WARM_POOL_REFRESH_DELAY_MS);
-      return {
-        type: 'success',
-        sessionId: entry.sessionId,
-      };
-    };
-
-    const removeWarmPoolEntryForPid = (pid: number) => {
-      for (const [key, entries] of warmPool.entries()) {
-        const removedEntry = entries.find(entry => entry.pid === pid);
-        const nextEntries = entries.filter(entry => entry.pid !== pid);
-        if (nextEntries.length !== entries.length) {
-          warmPool.set(key, nextEntries);
-          logger.debug(`[DAEMON RUN] Removed warm pool entry for PID ${pid}, key=${key}`);
-          setTimeout(() => ensureCodexWarmPoolForDirectory(removedEntry?.directory ?? CODEX_WARM_POOL_DEFAULT_DIRECTORY), CODEX_WARM_POOL_REFRESH_DELAY_MS);
-        }
-      }
-    };
 
     // Handle webhook from happy session reporting itself
     const onHappySessionWebhook = (sessionId: string, sessionMetadata: Metadata, encryption?: SessionEncryptionData) => {
@@ -296,15 +222,6 @@ export async function startDaemon(): Promise<void> {
         existingSession.encryption = encryption;
         logger.debug(`[DAEMON RUN] Updated daemon-spawned session ${sessionId} with metadata`);
 
-        if (existingSession.warmPoolKey && !existingSession.assignedFromWarmPool) {
-          const entries = warmPool.get(existingSession.warmPoolKey) ?? [];
-          const warmEntry = entries.find(entry => entry.pid === pid);
-          if (warmEntry && warmEntry.state === 'warming') {
-            warmEntry.sessionId = sessionId;
-            logger.debug(`[DAEMON RUN] Warm Codex session registered; waiting for clean Codex thread warmup: key=${existingSession.warmPoolKey}, sessionId=${sessionId}, pid=${pid}`);
-          }
-        }
-
         // Resolve any awaiter for this PID
         const awaiter = pidToAwaiter.get(pid);
         if (awaiter) {
@@ -326,41 +243,9 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const onCodexWarmReady = ({ sessionId, pid, threadId }: { sessionId: string; pid?: number; threadId?: string }) => {
-      const tracked = pid
-        ? pidToTrackedSession.get(pid)
-        : Array.from(pidToTrackedSession.values()).find(session => session.happySessionId === sessionId);
-      if (!tracked?.warmPoolKey || tracked.assignedFromWarmPool) {
-        logger.debug(`[DAEMON RUN] Ignoring Codex warm ready for non-warm session: sessionId=${sessionId}, pid=${pid ?? 'unknown'}`);
-        return;
-      }
-
-      const entries = warmPool.get(tracked.warmPoolKey) ?? [];
-      const warmEntry = entries.find(entry => entry.pid === tracked.pid || entry.sessionId === sessionId);
-      if (!warmEntry || warmEntry.state !== 'warming') {
-        logger.debug(`[DAEMON RUN] Ignoring Codex warm ready without warming entry: key=${tracked.warmPoolKey}, sessionId=${sessionId}, pid=${tracked.pid}`);
-        return;
-      }
-
-      warmEntry.state = 'ready';
-      warmEntry.sessionId = sessionId;
-      logger.debug(`[DAEMON RUN] Warm Codex thread ready: key=${tracked.warmPoolKey}, sessionId=${sessionId}, pid=${tracked.pid}, threadId=${threadId ?? 'unknown'}`);
-    };
-
     // Spawn a new session (sessionId reserved for future --resume functionality)
-    const spawnSession = async (inputOptions: SpawnSessionOptions): Promise<SpawnSessionResult> => {
-      const daemonOptions = inputOptions as DaemonSpawnSessionOptions;
-      const options = inputOptions;
+    const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
       logger.debugLargeJson('[DAEMON RUN] Spawning session', options);
-
-      if (!daemonOptions.warmPoolPrewarm && shouldUseCodexWarmPool(options)) {
-        const claimed = claimWarmCodexSession(options.directory);
-        if (claimed) {
-          return claimed;
-        }
-        logger.debug(`[DAEMON RUN] No ready warm Codex session for ${options.directory}; spawning normally`);
-        ensureCodexWarmPoolForDirectory(options.directory);
-      }
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
@@ -451,9 +336,6 @@ export async function startDaemon(): Promise<void> {
         if (options.resumeCodexThreadId) {
           extraEnv.HAPPY_FORK_CODEX_THREAD_ID = options.resumeCodexThreadId;
         }
-        if (daemonOptions.warmPoolPrewarm && options.agent === 'codex') {
-          extraEnv.HAPPY_CODEX_WARM_PRECREATE_THREAD = '1';
-        }
         logger.debug(`[DAEMON RUN] Environment variable keys (before expansion) (${Object.keys(extraEnv).length}): ${Object.keys(extraEnv).join(', ')}`);
 
         // Expand ${VAR} references from daemon's process.env
@@ -503,10 +385,7 @@ export async function startDaemon(): Promise<void> {
 
         // If tmux is not available or session name is explicitly undefined, fall back to regular spawning
         // Note: Empty string is valid (means use current/most recent tmux session)
-        if (daemonOptions.warmPoolPrewarm) {
-          useTmux = false;
-          logger.debug('[DAEMON RUN] Warm Codex prewarm uses regular process spawning, skipping tmux');
-        } else if (!tmuxAvailable || tmuxSessionName === undefined) {
+        if (!tmuxAvailable || tmuxSessionName === undefined) {
           useTmux = false;
           if (tmuxSessionName !== undefined) {
             logger.debug(`[DAEMON RUN] tmux session name specified but tmux not available, falling back to regular spawning`);
@@ -660,7 +539,6 @@ export async function startDaemon(): Promise<void> {
             },
             directoryCreated,
             message: directoryCreated ? `The path '${directory}' did not exist. We created a new folder and spawned a new session there.` : undefined,
-            warmPoolKey: daemonOptions.warmPoolPrewarm ? makeWarmPoolKey(directory) : undefined,
           });
         }
 
@@ -685,14 +563,12 @@ export async function startDaemon(): Promise<void> {
       env,
       directoryCreated = false,
       message,
-      warmPoolKey,
     }: {
       args: string[];
       cwd: string;
       env: NodeJS.ProcessEnv;
       directoryCreated?: boolean;
       message?: string;
-      warmPoolKey?: string;
     }): Promise<SpawnSessionResult> => {
       const happyProcess = spawnHappyCLI(args, {
         cwd,
@@ -717,23 +593,9 @@ export async function startDaemon(): Promise<void> {
         childProcess: happyProcess,
         directoryCreated,
         message,
-        warmPoolKey,
       };
 
       pidToTrackedSession.set(happyProcess.pid, trackedSession);
-
-      if (warmPoolKey) {
-        const entries = warmPool.get(warmPoolKey) ?? [];
-        entries.push({
-          key: warmPoolKey,
-          directory: cwd,
-          state: 'warming',
-          pid: happyProcess.pid,
-          startedAt: Date.now(),
-        });
-        warmPool.set(warmPoolKey, entries);
-        logger.debug(`[DAEMON RUN] Warm Codex session warming: key=${warmPoolKey}, pid=${happyProcess.pid}`);
-      }
 
       happyProcess.on('exit', (code, signal) => {
         logger.debug(`[DAEMON RUN] Child PID ${happyProcess.pid} exited with code ${code}, signal ${signal}`);
@@ -755,9 +617,6 @@ export async function startDaemon(): Promise<void> {
         const timeout = setTimeout(() => {
           pidToAwaiter.delete(happyProcess.pid!);
           logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${happyProcess.pid}`);
-          if (warmPoolKey) {
-            removeWarmPoolEntryForPid(happyProcess.pid!);
-          }
           resolve({
             type: 'error',
             errorMessage: `Session webhook timeout for PID ${happyProcess.pid}`
@@ -773,40 +632,6 @@ export async function startDaemon(): Promise<void> {
           });
         });
       });
-    };
-
-    ensureCodexWarmPoolForDirectory = (directory: string) => {
-      if (CODEX_WARM_POOL_DISABLED || CODEX_WARM_POOL_SIZE <= 0) {
-        return;
-      }
-
-      const resolvedDirectory = resolve(directory);
-      const key = makeWarmPoolKey(resolvedDirectory);
-      const entries = warmPool.get(key) ?? [];
-      const liveEntries = entries.filter(entry => entry.state === 'warming' || entry.state === 'ready');
-      if (liveEntries.length !== entries.length) {
-        warmPool.set(key, liveEntries);
-      }
-      if (liveEntries.length >= CODEX_WARM_POOL_SIZE) {
-        return;
-      }
-
-      const needed = CODEX_WARM_POOL_SIZE - liveEntries.length;
-      for (let i = 0; i < needed; i += 1) {
-        logger.debug(`[DAEMON RUN] Starting warm Codex prewarm: key=${key}`);
-        void spawnSession({
-          directory: resolvedDirectory,
-          agent: 'codex',
-          approvedNewDirectoryCreation: false,
-          warmPoolPrewarm: true,
-        } as DaemonSpawnSessionOptions).then(result => {
-          if (result.type === 'error') {
-            logger.debug(`[DAEMON RUN] Warm Codex prewarm failed for ${key}: ${result.errorMessage}`);
-          }
-        }).catch(error => {
-          logger.debug(`[DAEMON RUN] Warm Codex prewarm crashed for ${key}:`, error);
-        });
-      }
     };
 
     const findTrackedSessionById = (happySessionId: string): TrackedSession | undefined => {
@@ -944,7 +769,6 @@ export async function startDaemon(): Promise<void> {
             }
           }
 
-          removeWarmPoolEntryForPid(pid);
           pidToTrackedSession.delete(pid);
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from tracking`);
           return true;
@@ -958,7 +782,6 @@ export async function startDaemon(): Promise<void> {
     // Handle child process exit — preserve session data for resume
     const onChildExited = (pid: number) => {
       const session = pidToTrackedSession.get(pid);
-      removeWarmPoolEntryForPid(pid);
       if (session?.happySessionId && session.encryption) {
         sessionIdToFinishedSession.set(session.happySessionId, session);
         logger.debug(`[DAEMON RUN] Process PID ${pid} exited, preserved session ${session.happySessionId} for resume`);
@@ -974,8 +797,7 @@ export async function startDaemon(): Promise<void> {
       stopSession,
       spawnSession,
       requestShutdown: () => requestShutdown('happy-cli'),
-      onHappySessionWebhook,
-      onCodexWarmReady,
+      onHappySessionWebhook
     });
 
     // Write initial daemon state (no lock needed for state file)
@@ -1037,7 +859,6 @@ export async function startDaemon(): Promise<void> {
 
     // Connect to server
     apiMachine.connect();
-    ensureCodexWarmPoolForDirectory(CODEX_WARM_POOL_DEFAULT_DIRECTORY);
 
     // Every 60 seconds:
     // 1. Prune stale sessions
@@ -1064,7 +885,6 @@ export async function startDaemon(): Promise<void> {
         } catch (error) {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
-          removeWarmPoolEntryForPid(pid);
           pidToTrackedSession.delete(pid);
         }
       }

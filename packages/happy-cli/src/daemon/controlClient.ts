@@ -90,14 +90,6 @@ export async function notifyDaemonSessionStarted(
   }
 }
 
-export async function notifyDaemonCodexWarmReady(params: {
-  sessionId: string;
-  pid?: number;
-  threadId?: string;
-}): Promise<{ error?: string } | any> {
-  return daemonPost('/codex-warm-ready', params);
-}
-
 export async function listDaemonSessions(): Promise<any[]> {
   const result = await daemonPost('/list');
   return result.children || [];

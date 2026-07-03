@@ -71,50 +71,5 @@ describe('resumeExistingThread', () => {
                 mcpServers: {},
             }),
         ).rejects.toThrow('Failed to resume Codex thread thread-404: thread not found');
-        expect(messageBuffer.addMessage).toHaveBeenCalledWith(
-            'Cannot resume Codex thread thread-404: thread not found',
-            'status',
-        );
-        expect(session.sendSessionEvent).toHaveBeenCalledWith({
-            type: 'message',
-            message: 'Cannot resume Codex thread thread-404: thread not found',
-        });
-    });
-
-    it('explains empty rollout files as unrecoverable local history', async () => {
-        const client = {
-            resumeThread: vi.fn().mockRejectedValue(
-                new Error('thread/resume: rollout at /tmp/rollout.jsonl is empty (code=-32603)'),
-            ),
-        };
-        const session = {
-            updateMetadata: vi.fn(),
-            sendSessionEvent: vi.fn(),
-        };
-        const messageBuffer = {
-            addMessage: vi.fn(),
-        };
-
-        await expect(
-            resumeExistingThread({
-                client,
-                session,
-                messageBuffer,
-                threadId: '019f239e-929d-7c30-9386-aa7e0db538c4',
-                cwd: '/tmp/project',
-                mcpServers: {},
-            }),
-        ).rejects.toThrow('Failed to resume Codex thread 019f239e-929d-7c30-9386-aa7e0db538c4');
-
-        const expectedMessage = [
-            'Cannot resume Codex thread 019f239e-929d-7c30-9386-aa7e0db538c4.',
-            'The local Codex session history is missing or empty, so Happy can show the chat record but Codex cannot restore the execution context.',
-            'Start a new session from this chat instead.',
-        ].join(' ');
-        expect(messageBuffer.addMessage).toHaveBeenCalledWith(expectedMessage, 'status');
-        expect(session.sendSessionEvent).toHaveBeenCalledWith({
-            type: 'message',
-            message: expectedMessage,
-        });
     });
 });
