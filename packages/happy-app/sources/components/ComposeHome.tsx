@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { MessageComposer } from './MessageComposer';
+import type { MultiTextInputHandle } from './MultiTextInput';
 import { SessionConfigPanel } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
@@ -66,6 +67,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const machines = useAllMachines();
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
+    const composerInputRef = React.useRef<MultiTextInputHandle>(null);
 
     const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
@@ -145,6 +147,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             images,
         }).then((ok) => {
             if (ok) {
+                composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
                 setText('');
                 clearImages();
             }
@@ -211,6 +214,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
                     <MessageComposer
+                        ref={composerInputRef}
                         mode="home"
                         placeholder={t('composeHome.placeholder')}
                         initialValue={text}
