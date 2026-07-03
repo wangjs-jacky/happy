@@ -88,7 +88,7 @@ const CODEX_WARM_PRECREATE_THREAD =
     process.env.HAPPY_CODEX_WARM_BOOTSTRAP === '1';
 const CODEX_WARM_MCP_READY_TIMEOUT_MS = Math.max(
     0,
-    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_TIMEOUT_MS || '5000', 10) || 5000,
+    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_TIMEOUT_MS || '30000', 10) || 30000,
 );
 const CODEX_WARM_MCP_READY_QUIET_MS = Math.max(
     50,
