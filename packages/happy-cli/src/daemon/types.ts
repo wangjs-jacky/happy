@@ -28,8 +28,4 @@ export interface TrackedSession {
   message?: string;
   /** tmux session identifier (format: session:window) */
   tmuxSessionId?: string;
-  /** 预热池 key：表示这个 daemon 启动的 session 仍保留给未来的手机端新建请求。 */
-  warmPoolKey?: string;
-  /** 预热 session 被真实的新建请求领取后置为 true。 */
-  assignedFromWarmPool?: boolean;
 }

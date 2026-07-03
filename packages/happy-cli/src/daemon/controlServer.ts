@@ -17,15 +17,13 @@ export function startDaemonControlServer({
   stopSession,
   spawnSession,
   requestShutdown,
-  onHappySessionWebhook,
-  onCodexWarmReady,
+  onHappySessionWebhook
 }: {
   getChildren: () => TrackedSession[];
   stopSession: (sessionId: string) => boolean;
   spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
   requestShutdown: () => void;
   onHappySessionWebhook: (sessionId: string, metadata: Metadata, encryption?: SessionEncryptionData) => void;
-  onCodexWarmReady?: (params: { sessionId: string; pid?: number; threadId?: string }) => void;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
   return new Promise((resolve) => {
     const app = fastify({
@@ -36,26 +34,6 @@ export function startDaemonControlServer({
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     const typed = app.withTypeProvider<ZodTypeProvider>();
-
-    // Codex 预热 worker 只有在干净 thread 创建完成后才会上报 ready。
-    typed.post('/codex-warm-ready', {
-      schema: {
-        body: z.object({
-          sessionId: z.string(),
-          pid: z.number().optional(),
-          threadId: z.string().optional(),
-        }),
-        response: {
-          200: z.object({
-            status: z.literal('ok')
-          })
-        }
-      }
-    }, async (request) => {
-      logger.debug(`[CONTROL SERVER] Codex warm ready: session=${request.body.sessionId}, pid=${request.body.pid ?? 'unknown'}, thread=${request.body.threadId ?? 'unknown'}`);
-      onCodexWarmReady?.(request.body);
-      return { status: 'ok' as const };
-    });
 
     // Session reports itself after creation
     typed.post('/session-started', {
