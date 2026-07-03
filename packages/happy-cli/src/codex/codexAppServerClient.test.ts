@@ -114,10 +114,35 @@ const sandboxConfig: SandboxConfig = {
 
 describe('CodexAppServerClient sandbox integration', () => {
     const originalRustLog = process.env.RUST_LOG;
+    const proxyEnvKeys = [
+        'HTTP_PROXY',
+        'HTTPS_PROXY',
+        'ALL_PROXY',
+        'http_proxy',
+        'https_proxy',
+        'all_proxy',
+        'HAPPY_CODEX_PROXY_URL',
+        'CODEX_PROXY_URL',
+    ] as const;
+    const originalProxyEnv = Object.fromEntries(
+        proxyEnvKeys.map((key) => [key, process.env[key]]),
+    ) as Record<(typeof proxyEnvKeys)[number], string | undefined>;
+
+    function restoreProxyEnv() {
+        for (const key of proxyEnvKeys) {
+            const value = originalProxyEnv[key];
+            if (typeof value === 'string') {
+                process.env[key] = value;
+            } else {
+                delete process.env[key];
+            }
+        }
+    }
 
     beforeEach(() => {
         vi.clearAllMocks();
         process.env.RUST_LOG = originalRustLog;
+        restoreProxyEnv();
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
@@ -126,6 +151,7 @@ describe('CodexAppServerClient sandbox integration', () => {
 
     afterAll(() => {
         process.env.RUST_LOG = originalRustLog;
+        restoreProxyEnv();
     });
 
     it('wraps transport when sandbox is enabled', async () => {
@@ -198,6 +224,36 @@ describe('CodexAppServerClient sandbox integration', () => {
             expect.objectContaining({
                 env: expect.objectContaining({
                     RUST_LOG: 'info,codex_core=warn,codex_core::rollout::list=off',
+                }),
+            }),
+        );
+
+        await client.disconnect();
+    });
+
+    it('overrides inherited ReClaude proxy with the Codex-specific proxy for app-server', async () => {
+        process.env.HTTP_PROXY = 'http://127.0.0.1:52722';
+        process.env.HTTPS_PROXY = 'http://127.0.0.1:52722';
+        process.env.http_proxy = 'http://127.0.0.1:52722';
+        process.env.https_proxy = 'http://127.0.0.1:52722';
+        process.env.HAPPY_CODEX_PROXY_URL = 'http://127.0.0.1:10802';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+            'codex',
+            ['app-server', '--listen', 'stdio://'],
+            expect.objectContaining({
+                env: expect.objectContaining({
+                    HTTP_PROXY: 'http://127.0.0.1:10802',
+                    HTTPS_PROXY: 'http://127.0.0.1:10802',
+                    ALL_PROXY: 'http://127.0.0.1:10802',
+                    http_proxy: 'http://127.0.0.1:10802',
+                    https_proxy: 'http://127.0.0.1:10802',
+                    all_proxy: 'http://127.0.0.1:10802',
+                    HAPPY_CODEX_PROXY_URL: 'http://127.0.0.1:10802',
                 }),
             }),
         );
