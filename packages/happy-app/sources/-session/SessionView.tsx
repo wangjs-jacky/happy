@@ -29,6 +29,7 @@ import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
+import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
@@ -48,6 +49,8 @@ const AGENT_LABELS: Record<string, string> = {
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
+
+const CAN_COPY_SESSION_ID = Application.applicationId === 'build.paws.preview';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -301,6 +304,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     machineName={machineName}
                     online={sessionOnline}
                     top={safeArea.top + headerHeight}
+                    canCopySessionId={CAN_COPY_SESSION_ID}
                     onClose={() => setInfoPanelOpen(false)}
                     onViewDetails={() => {
                         setInfoPanelOpen(false);

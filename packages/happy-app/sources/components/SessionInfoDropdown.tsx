@@ -14,6 +14,8 @@ import {
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
 import { storage, useSetting } from '@/sync/storage';
 import { t } from '@/text';
+import { Modal } from '@/modal';
+import * as Clipboard from 'expo-clipboard';
 
 // Agent icon assets — mirrors SessionConfigPanel so the panel reads identically.
 const agentIcons = {
@@ -73,11 +75,12 @@ interface SessionInfoDropdownProps {
     online: boolean;
     /** Y offset where the panel/backdrop begin (header bottom = safeArea.top + headerHeight). */
     top: number;
+    canCopySessionId?: boolean;
     onClose: () => void;
     onViewDetails: () => void;
 }
 
-export const SessionInfoDropdown = React.memo(({ session, machineName, online, top, onClose, onViewDetails }: SessionInfoDropdownProps) => {
+export const SessionInfoDropdown = React.memo(({ session, machineName, online, top, canCopySessionId = false, onClose, onViewDetails }: SessionInfoDropdownProps) => {
     const { theme } = useUnistyles();
     const metadata = session.metadata;
     const flavor = metadata?.flavor ?? undefined;
@@ -146,6 +149,11 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
         animateNext();
         setExpanded(null);
     }, [session.id, animateNext]);
+    const copySessionId = React.useCallback(async () => {
+        await Clipboard.setStringAsync(`Happy sessionId: ${session.id}`);
+        onClose();
+        Modal.alert(t('common.copied'), 'Session ID copied to clipboard');
+    }, [session.id, onClose]);
 
     // Inline option list shown under an expanded editable row.
     const renderOptions = (
@@ -285,6 +293,17 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
 
                     {/* Divider + entry into the full info screen (the one tappable row). */}
                     <View style={styles.divider} />
+                    {canCopySessionId ? (
+                        <Pressable
+                            style={(p) => [styles.configRow, p.pressed && styles.rowPressed]}
+                            onPress={copySessionId}
+                        >
+                            <Ionicons name="copy-outline" size={15} color={theme.colors.text} />
+                            <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                                Copy Session ID
+                            </Text>
+                        </Pressable>
+                    ) : null}
                     <Pressable
                         style={(p) => [styles.configRow, p.pressed && styles.rowPressed]}
                         onPress={onViewDetails}
