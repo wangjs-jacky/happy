@@ -216,6 +216,8 @@ export class CodexAppServerClient {
     private notificationProtocol: 'unknown' | 'legacy' | 'raw' = 'unknown';
     private completedTurnIds = new Set<string>();
     private rawFileChangesByItemId = new Map<string, LegacyPatchChanges>();
+    private mcpStartupStatuses = new Map<string, string>();
+    private mcpStartupGeneration = 0;
 
     // Handlers set by the consumer (runCodex.ts)
     private eventHandler: ((msg: EventMsg) => void) | null = null;
@@ -249,6 +251,54 @@ export class CodexAppServerClient {
     private extractTurnStatus(params: any): string | null {
         const status = params?.turn?.status ?? params?.status ?? null;
         return typeof status === 'string' && status.length > 0 ? status : null;
+    }
+
+    private rememberMcpStartupStatus(params: any): void {
+        const rawName = params?.serverName ?? params?.name ?? params?.server?.name ?? params?.mcpServer?.name;
+        const rawStatus = params?.status?.type ?? params?.status ?? params?.server?.status ?? params?.startupStatus;
+        const name = typeof rawName === 'string' && rawName.length > 0 ? rawName : 'unknown';
+        const status = typeof rawStatus === 'string' && rawStatus.length > 0 ? rawStatus : 'unknown';
+        this.mcpStartupStatuses.set(name, status);
+        this.mcpStartupGeneration += 1;
+    }
+
+    private hasMcpStartupInProgress(): boolean {
+        for (const status of this.mcpStartupStatuses.values()) {
+            const normalized = status.toLowerCase();
+            if (
+                normalized === 'starting'
+                || normalized === 'initializing'
+                || normalized === 'pending'
+                || normalized === 'loading'
+                || normalized === 'in_progress'
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async waitForMcpStartupSettled(opts?: { timeoutMs?: number; quietMs?: number }): Promise<boolean> {
+        const timeoutMs = opts?.timeoutMs ?? 5_000;
+        const quietMs = opts?.quietMs ?? 300;
+        const startedAt = Date.now();
+        let lastObservedGeneration = this.mcpStartupGeneration;
+        let lastChangedAt = Date.now();
+
+        while (Date.now() - startedAt < timeoutMs) {
+            if (this.mcpStartupGeneration !== lastObservedGeneration) {
+                lastObservedGeneration = this.mcpStartupGeneration;
+                lastChangedAt = Date.now();
+            }
+
+            if (!this.hasMcpStartupInProgress() && Date.now() - lastChangedAt >= quietMs) {
+                return true;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        return !this.hasMcpStartupInProgress();
     }
 
     private shouldHandleRawNotification(method: string): boolean {
@@ -591,6 +641,8 @@ export class CodexAppServerClient {
         this._turnId = null;
         this.notificationProtocol = 'unknown';
         this.completedTurnIds.clear();
+        this.mcpStartupStatuses.clear();
+        this.mcpStartupGeneration += 1;
         if (!opts?.preserveThreadState) {
             this._threadId = null;
             this.threadDefaults = null;
@@ -1363,6 +1415,7 @@ export class CodexAppServerClient {
         // MCP server lifecycle: log payload so we can diagnose failed launches
         // (e.g. happy-mcp bridge failing on Windows due to shebang execution).
         if (method === 'mcpServer/startupStatus/updated') {
+            this.rememberMcpStartupStatus(params);
             logger.debug(`[CodexAppServer] mcpServer startup status:`, params);
             return;
         }

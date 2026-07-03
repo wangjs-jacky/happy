@@ -66,8 +66,12 @@ function isRecoverableCodexBackendFailure(message: string): boolean {
     return lowerMessage.includes('stream disconnected before completion')
         || lowerMessage.includes('codex process exited')
         || lowerMessage.includes('process disconnected')
-        || lowerMessage.includes('connection')
-        || lowerMessage.includes('transport');
+        || lowerMessage.includes('connection closed')
+        || lowerMessage.includes('connection reset')
+        || lowerMessage.includes('connection refused')
+        || lowerMessage.includes('transport closed')
+        || lowerMessage.includes('transport disconnected')
+        || lowerMessage.includes('broken pipe');
 }
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.5';
@@ -82,6 +86,14 @@ const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 const CODEX_WARM_PRECREATE_THREAD =
     process.env.HAPPY_CODEX_WARM_PRECREATE_THREAD === '1' ||
     process.env.HAPPY_CODEX_WARM_BOOTSTRAP === '1';
+const CODEX_WARM_MCP_READY_TIMEOUT_MS = Math.max(
+    0,
+    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_TIMEOUT_MS || '5000', 10) || 5000,
+);
+const CODEX_WARM_MCP_READY_QUIET_MS = Math.max(
+    50,
+    parseInt(process.env.HAPPY_CODEX_WARM_MCP_READY_QUIET_MS || '300', 10) || 300,
+);
 
 /**
  * Main entry point for the codex command with ink UI
@@ -115,6 +127,8 @@ export async function runCodex(opts: {
     //
 
     const sessionTag = randomUUID();
+    const isWarmPrecreateSession =
+        CODEX_WARM_PRECREATE_THREAD && !opts.resumeThreadId && !process.env.HAPPY_RECONNECT_SESSION_ID;
 
     // Set backend for offline warnings (before any API calls)
     connectionState.setBackend('Codex');
@@ -159,6 +173,10 @@ export async function runCodex(opts: {
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
     });
+    if (isWarmPrecreateSession) {
+        metadata.lifecycleState = 'warming';
+        metadata.lifecycleStateSince = Date.now();
+    }
 
     // Check for session reconnection env vars (set by daemon for resume-in-place)
     const reconnectSessionId = process.env.HAPPY_RECONNECT_SESSION_ID;
@@ -208,6 +226,7 @@ export async function runCodex(opts: {
         }
     });
     session = initialSession;
+    let warmPrecreateActivated = !isWarmPrecreateSession;
 
     // On reconnect, un-archive the session and skip replaying old messages.
     if (reconnectSessionId) {
@@ -782,6 +801,13 @@ export async function runCodex(opts: {
                     ...currentMetadata,
                     codexThreadId: startedThread.threadId,
                 }));
+                const mcpSettled = await client.waitForMcpStartupSettled({
+                    timeoutMs: CODEX_WARM_MCP_READY_TIMEOUT_MS,
+                    quietMs: CODEX_WARM_MCP_READY_QUIET_MS,
+                });
+                if (!mcpSettled) {
+                    logger.debug(`[CodexWarm] MCP startup did not fully settle before ready timeout (${CODEX_WARM_MCP_READY_TIMEOUT_MS}ms)`);
+                }
 
                 const notifyResult = await notifyDaemonCodexWarmReady({
                     sessionId: session.sessionId,
@@ -857,6 +883,17 @@ export async function runCodex(opts: {
             // Defensive check for TS narrowing
             if (!message) {
                 break;
+            }
+
+            if (!warmPrecreateActivated) {
+                warmPrecreateActivated = true;
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    lifecycleState: 'running',
+                    lifecycleStateSince: Date.now(),
+                    archivedBy: undefined,
+                    archiveReason: undefined,
+                }));
             }
 
             if (isCodexClearText(message.message)) {
