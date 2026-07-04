@@ -18,13 +18,8 @@ export function SessionActionsNativeMenu({
     session,
 }: SessionActionsNativeMenuProps) {
     const {
-        archiveSession,
-        canArchive,
-        canDelete,
         deleteSession,
-        canCopySessionMetadata,
         canShowResume,
-        copySessionMetadata,
         openDetails,
         resumeSession,
     } = useSessionQuickActions(session, {
@@ -38,24 +33,12 @@ export function SessionActionsNativeMenu({
                 <DropdownMenuItem onClick={openDetails}>
                     <DropdownMenuItem.Text>Details</DropdownMenuItem.Text>
                 </DropdownMenuItem>
-                {canArchive && (
-                    <DropdownMenuItem onClick={archiveSession}>
-                        <DropdownMenuItem.Text>{t('sessionInfo.archiveSession')}</DropdownMenuItem.Text>
-                    </DropdownMenuItem>
-                )}
-                {canDelete && (
-                    <DropdownMenuItem onClick={deleteSession}>
-                        <DropdownMenuItem.Text>{t('sessionInfo.deleteSession')}</DropdownMenuItem.Text>
-                    </DropdownMenuItem>
-                )}
+                <DropdownMenuItem onClick={deleteSession}>
+                    <DropdownMenuItem.Text>{t('sessionInfo.deleteSession')}</DropdownMenuItem.Text>
+                </DropdownMenuItem>
                 {canShowResume && (
                     <DropdownMenuItem onClick={resumeSession}>
                         <DropdownMenuItem.Text>Resume</DropdownMenuItem.Text>
-                    </DropdownMenuItem>
-                )}
-                {canCopySessionMetadata && (
-                    <DropdownMenuItem onClick={copySessionMetadata}>
-                        <DropdownMenuItem.Text>{t('sessionInfo.copyMetadata')}</DropdownMenuItem.Text>
                     </DropdownMenuItem>
                 )}
             </DropdownMenu.Items>
