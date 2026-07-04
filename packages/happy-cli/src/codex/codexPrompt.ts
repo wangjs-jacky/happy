@@ -24,7 +24,7 @@ export function hashCodexEnhancedMode(mode: CodexEnhancedMode): string {
 
 export function buildCodexTurnPrompt(opts: {
     message: string;
-    mode: Pick<CodexEnhancedMode, 'appendSystemPrompt'>;
+    mode: Pick<CodexEnhancedMode, 'appendSystemPrompt' | 'model' | 'effort'>;
     includeAppendSystemPrompt: boolean;
     includeTitleInstruction: boolean;
 }): string {
@@ -32,6 +32,16 @@ export function buildCodexTurnPrompt(opts: {
 
     if (opts.includeAppendSystemPrompt && opts.mode.appendSystemPrompt) {
         parts.push(opts.mode.appendSystemPrompt);
+    }
+
+    const modeStatus: string[] = [];
+    if (opts.mode.model) modeStatus.push(`model=${opts.mode.model}`);
+    if (opts.mode.effort) modeStatus.push(`reasoning_effort=${opts.mode.effort}`);
+    if (modeStatus.length > 0) {
+        parts.push(
+            `Happy has already applied these Codex runtime settings for this turn: ${modeStatus.join(', ')}. ` +
+            `If the user asks to switch to one of these settings, acknowledge that it is already active; do not look for a tool or API to change it.`
+        );
     }
 
     parts.push(opts.message);

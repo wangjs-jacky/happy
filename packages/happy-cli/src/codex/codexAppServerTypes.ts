@@ -139,6 +139,43 @@ export type InjectItemsParams = {
 
 export type InjectItemsResponse = Record<string, never>;
 
+export type ModelListParams = {
+    cursor?: string | null;
+    includeHidden?: boolean | null;
+    limit?: number | null;
+};
+
+export type ReasoningEffortOption = {
+    reasoningEffort: ReasoningEffort;
+    description: string;
+};
+
+export type Model = {
+    id: string;
+    model: string;
+    displayName: string;
+    description: string;
+    hidden: boolean;
+    supportedReasoningEfforts: ReasoningEffortOption[];
+    defaultReasoningEffort: ReasoningEffort;
+    isDefault: boolean;
+};
+
+export type ModelListResponse = {
+    data: Model[];
+    nextCursor?: string | null;
+};
+
+export type ThreadSettings = {
+    model: string;
+    effort?: ReasoningEffort | null;
+};
+
+export type ThreadSettingsUpdatedNotification = {
+    threadId: ThreadId;
+    threadSettings: ThreadSettings;
+};
+
 // --- Turn lifecycle ---
 
 export type SendUserTurnParams = {

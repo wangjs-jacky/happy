@@ -103,22 +103,26 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
 
     const permissionMode = React.useMemo(() => resolveCurrentOption(availableModes, [
         session.permissionMode,
-        effectiveAgentDefaults.permissionMode,
         metadata?.currentOperatingModeCode,
+        effectiveAgentDefaults.permissionMode,
     ]), [availableModes, session.permissionMode, effectiveAgentDefaults.permissionMode, metadata?.currentOperatingModeCode]);
 
     const modelMode = React.useMemo(() => resolveCurrentOption(availableModels, [
         session.modelMode,
-        effectiveAgentDefaults.modelMode,
         metadata?.currentModelCode,
+        effectiveAgentDefaults.modelMode,
     ]), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, metadata?.currentModelCode]);
 
     const modelKey = modelMode?.key ?? 'default';
-    const availableEffortLevels = React.useMemo(() => getEffortLevelsForModel(flavor, modelKey), [flavor, modelKey]);
+    const availableEffortLevels = React.useMemo(
+        () => getEffortLevelsForModel(flavor, modelKey, metadata),
+        [flavor, modelKey, metadata],
+    );
     const effortLevel = React.useMemo(() => resolveCurrentOption(availableEffortLevels, [
         session.effortLevel,
+        metadata?.currentThoughtLevelCode,
         effectiveAgentDefaults.effortLevel,
-    ]), [availableEffortLevels, session.effortLevel, effectiveAgentDefaults.effortLevel]);
+    ]), [availableEffortLevels, session.effortLevel, metadata?.currentThoughtLevelCode, effectiveAgentDefaults.effortLevel]);
 
     // Only the rows with a real choice (>1 option) become tappable; otherwise
     // there's nothing to switch to and they stay read-only.
