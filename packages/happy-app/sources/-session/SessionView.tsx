@@ -401,6 +401,11 @@ const SIDEBAR_MIN_WINDOW_WIDTH = 1100;
 
 // Hoisted so MessageComposer's React.memo doesn't see a new array ref on every keystroke
 const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
+const CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/', '$'];
+
+function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
+    return flavor === 'codex' || flavor === 'openai' || flavor === 'gpt';
+}
 
 // Imperative handle exposed by ChatComposer so SessionViewLoaded can read /
 // clear the message text without subscribing to it (which would re-render
@@ -548,8 +553,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     }, [router, sessionId]);
 
     const handleAutocompleteSuggestions = React.useCallback((query: string) => (
-        getSuggestions(sessionId, query)
-    ), [sessionId]);
+        getSuggestions(sessionId, query, { flavor: session.metadata?.flavor ?? null })
+    ), [sessionId, session.metadata?.flavor]);
+
+    const autocompletePrefixes = React.useMemo(
+        () => (isCodexSessionFlavor(session.metadata?.flavor) ? CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES : AGENT_INPUT_AUTOCOMPLETE_PREFIXES),
+        [session.metadata?.flavor],
+    );
 
     const connectionStatus = React.useMemo(() => ({
         text: sessionStatus.statusText,
@@ -626,7 +636,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
+            autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
             alwaysShowContextSize={alwaysShowContextSize}

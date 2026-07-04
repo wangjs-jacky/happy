@@ -59,8 +59,6 @@ const DEFAULT_COMMANDS: CommandItem[] = [
     { command: 'skills', description: 'Show available skills' },
 ];
 
-const SKILL_DESCRIPTION = 'Run installed skill';
-
 // Command descriptions for known tools/commands
 const COMMAND_DESCRIPTIONS: Record<string, string> = {
     // Default commands
@@ -91,7 +89,6 @@ function getCommandsFromSession(sessionId: string): CommandItem[] {
     const commands: CommandItem[] = [...DEFAULT_COMMANDS];
 
     appendCommands(commands, session.metadata.slashCommands, (cmd) => COMMAND_DESCRIPTIONS[cmd]);
-    appendCommands(commands, session.metadata.skills, () => SKILL_DESCRIPTION);
 
     return commands;
 }

@@ -20,6 +20,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSetting } from '@/sync/storage';
 import { Theme } from '@/theme';
 import { t } from '@/text';
+import type { ComposerAutocompleteSuggestion } from './autocomplete/types';
 
 interface MessageComposerProps {
     // Drives layout differences between the home compose box and the in-session
@@ -52,7 +53,7 @@ interface MessageComposerProps {
         };
     };
     autocompletePrefixes?: string[];
-    autocompleteSuggestions?: (query: string) => Promise<{ key: string, text: string, component: React.ElementType }[]>;
+    autocompleteSuggestions?: (query: string) => Promise<ComposerAutocompleteSuggestion[]>;
     usageData?: {
         inputTokens: number;
         outputTokens: number;
@@ -545,7 +546,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
         const result = applySuggestion(
             inputState.text,
             inputState.selection,
-            suggestion.text,
+            suggestion.insertText ?? suggestion.text,
             autocompletePrefixes,
             true // add space after
         );

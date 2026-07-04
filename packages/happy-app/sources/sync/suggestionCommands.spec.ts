@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('suggestionCommands', () => {
-    it('merges default commands, slash commands, and skills', () => {
+    it('merges default commands and slash commands', () => {
         storage.setState({
             sessions: {
                 'session-1': {
@@ -35,7 +35,6 @@ describe('suggestionCommands', () => {
                         path: '/tmp',
                         host: 'localhost',
                         slashCommands: ['compact', 'debug'],
-                        skills: ['using-superpowers', 'brainstorming'],
                     },
                     metadataVersion: 1,
                     agentState: null,
@@ -53,12 +52,10 @@ describe('suggestionCommands', () => {
             { command: 'mcp', description: 'Show connected MCP servers' },
             { command: 'skills', description: 'Show available skills' },
             { command: 'debug', description: 'Show debug information' },
-            { command: 'using-superpowers', description: 'Run installed skill' },
-            { command: 'brainstorming', description: 'Run installed skill' },
         ]);
     });
 
-    it('dedupes repeated command names across slash commands and skills', () => {
+    it('dedupes repeated command names across slash commands and defaults', () => {
         storage.setState({
             sessions: {
                 'session-2': {
@@ -71,8 +68,7 @@ describe('suggestionCommands', () => {
                     metadata: {
                         path: '/tmp',
                         host: 'localhost',
-                        slashCommands: ['skills', 'brainstorming'],
-                        skills: ['brainstorming'],
+                        slashCommands: ['skills', 'clear', 'brainstorming'],
                     },
                     metadataVersion: 1,
                     agentState: null,
@@ -83,12 +79,11 @@ describe('suggestionCommands', () => {
                 },
             },
         } as any);
-
-        expect(getAllCommands('session-2').filter((entry) => entry.command === 'brainstorming')).toHaveLength(1);
         expect(getAllCommands('session-2').filter((entry) => entry.command === 'skills')).toHaveLength(1);
+        expect(getAllCommands('session-2').filter((entry) => entry.command === 'clear')).toHaveLength(1);
     });
 
-    it('searches discovered skills by name', async () => {
+    it('searches discovered slash commands by name', async () => {
         storage.setState({
             sessions: {
                 'session-3': {
@@ -101,7 +96,7 @@ describe('suggestionCommands', () => {
                     metadata: {
                         path: '/tmp',
                         host: 'localhost',
-                        skills: ['using-superpowers'],
+                        slashCommands: ['using-superpowers'],
                     },
                     metadataVersion: 1,
                     agentState: null,
