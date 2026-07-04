@@ -29,7 +29,7 @@ export function resolveMessageModeMeta(
 
     const effort = session.effortLevel ?? agentOverrides.effortLevel;
     if (effort !== undefined) {
-        meta.effort = effort;
+        meta.effort = effort === 'default' ? null : effort;
     }
 
     return meta;

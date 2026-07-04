@@ -232,6 +232,7 @@ export function getClaudeEffortLevels(): EffortLevel[] {
 
 export function getCodexEffortLevels(): EffortLevel[] {
     return [
+        { key: 'default', name: 'default effort' },
         { key: 'minimal', name: 'minimal' },
         { key: 'low', name: 'low' },
         { key: 'medium', name: 'medium' },
@@ -262,7 +263,10 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, 
     if (flavor === 'codex') {
         const metadataEfforts = mapMetadataOptions(metadata?.thoughtLevels);
         if (metadataEfforts.length > 0) {
-            return metadataEfforts;
+            return [
+                { key: 'default', name: 'default effort', description: null },
+                ...metadataEfforts.filter((level) => level.key !== 'default'),
+            ];
         }
         return getCodexEffortLevels();
     }
@@ -273,7 +277,7 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, 
 export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: string): string | null {
     const levels = getEffortLevelsForModel(flavor, modelKey);
     if (levels.length === 0) return null;
-    return getCodeAgentDefaults(flavor).effortLevel ?? levels[levels.length - 1].key;
+    return getCodeAgentDefaults(flavor).effortLevel ?? levels[0].key;
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {

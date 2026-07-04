@@ -62,9 +62,7 @@ function describeCodexFailure(msg: any): string | null {
     return 'Unknown error';
 }
 
-const DEFAULT_CODEX_MODEL = 'gpt-5.5';
-const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
-const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
+const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'default';
 
 /**
  * Main entry point for the codex command with ink UI
@@ -230,8 +228,8 @@ export async function runCodex(opts: {
 
     // Track current overrides to apply per message
     // Use shared PermissionMode type from api/types for cross-agent compatibility
-    let baselineModel: string | undefined = opts.model ?? DEFAULT_CODEX_MODEL;
-    let baselineEffort: ReasoningEffort | undefined = opts.effort ?? DEFAULT_CODEX_EFFORT;
+    let baselineModel: string | undefined = opts.model;
+    let baselineEffort: ReasoningEffort | undefined = opts.effort;
     let currentPermissionMode: PermissionMode | undefined = initialPermissionMode;
     let currentModel: string | undefined = baselineModel;
     let currentEffort: ReasoningEffort | undefined = baselineEffort;
