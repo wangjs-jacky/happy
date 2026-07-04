@@ -10,6 +10,7 @@ import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Modal } from '@/modal';
+import { t } from '@/text';
 
 export default function PurchasesDevScreen() {
     const { theme } = useUnistyles();
@@ -29,7 +30,7 @@ export default function PurchasesDevScreen() {
 
     const handlePurchase = async () => {
         if (!productId.trim()) {
-            Modal.alert('Error', 'Please enter a product ID');
+            Modal.alert(t('common.error'), t('devTools.productIdRequired'));
             return;
         }
 
@@ -37,10 +38,10 @@ export default function PurchasesDevScreen() {
         try {
             const result = await sync.purchaseProduct(productId.trim());
             if (result.success) {
-                Modal.alert('Success', 'Purchase completed successfully');
+                Modal.alert(t('common.success'), t('devTools.purchaseCompleted'));
                 setProductId('');
             } else {
-                Modal.alert('Purchase Failed', result.error || 'Unknown error');
+                Modal.alert(t('devTools.purchaseFailed'), result.error || t('common.unknown'));
             }
         } catch (e) {
             console.error('Error purchasing product', e);
@@ -75,7 +76,7 @@ export default function PurchasesDevScreen() {
                 console.log('\nFull JSON:', JSON.stringify(result.offerings, null, 2));
                 console.log('===========================');
             } else {
-                Modal.alert('Error', result.error || 'Failed to fetch offerings');
+                Modal.alert(t('common.error'), result.error || t('devTools.failedToFetchOfferings'));
             }
         } finally {
             setLoadingOfferings(false);
@@ -86,7 +87,7 @@ export default function PurchasesDevScreen() {
         <>
             <Stack.Screen
                 options={{
-                    title: 'Purchases',
+                    title: t('devTools.purchases'),
                     headerShown: true
                 }}
             />
@@ -94,8 +95,8 @@ export default function PurchasesDevScreen() {
             <ItemList>
                 {/* Active Subscriptions */}
                 <ItemGroup
-                    title="Active Subscriptions"
-                    footer={purchases.activeSubscriptions.length === 0 ? "No active subscriptions" : undefined}
+                    title={t('devTools.activeSubscriptions')}
+                    footer={purchases.activeSubscriptions.length === 0 ? t('devTools.noActiveSubscriptions') : undefined}
                 >
                     {purchases.activeSubscriptions.length > 0 ? (
                         purchases.activeSubscriptions.map((productId, index) => (
@@ -111,8 +112,8 @@ export default function PurchasesDevScreen() {
 
                 {/* Entitlements */}
                 <ItemGroup
-                    title="Entitlements"
-                    footer={sortedEntitlements.length === 0 ? "No entitlements found" : "Green = active, Gray = inactive"}
+                    title={t('devTools.entitlements')}
+                    footer={sortedEntitlements.length === 0 ? t('devTools.noEntitlementsFound') : t('devTools.entitlementLegend')}
                 >
                     {sortedEntitlements.length > 0 ? (
                         sortedEntitlements.map(([id, isActive]) => (
@@ -126,7 +127,7 @@ export default function PurchasesDevScreen() {
                                         color={isActive ? "#34C759" : "#8E8E93"}
                                     />
                                 }
-                                detail={isActive ? "Active" : "Inactive"}
+                                detail={isActive ? t('devTools.active') : t('devTools.inactive')}
                                 showChevron={false}
                             />
                         ))
@@ -134,7 +135,7 @@ export default function PurchasesDevScreen() {
                 </ItemGroup>
 
                 {/* Purchase Product */}
-                <ItemGroup title="Purchase Product" footer="Enter a product ID to purchase">
+                <ItemGroup title={t('devTools.purchaseProduct')} footer={t('devTools.enterProductIdToPurchase')}>
                     <View style={{
                         backgroundColor: '#fff',
                         paddingHorizontal: 16,
@@ -143,7 +144,7 @@ export default function PurchasesDevScreen() {
                         <TextInput
                             value={productId}
                             onChangeText={setProductId}
-                            placeholder="Enter product ID"
+                            placeholder={t('devTools.enterProductId')}
                             style={{
                                 fontSize: 17,
                                 paddingVertical: 8,
@@ -158,7 +159,7 @@ export default function PurchasesDevScreen() {
                             autoCorrect={false}
                         />
                         <Item
-                            title={isPurchasing ? "Purchasing..." : "Purchase"}
+                            title={isPurchasing ? t('devTools.purchasing') : t('devTools.purchase')}
                             icon={isPurchasing ?
                                 <ActivityIndicator size="small" color={theme.colors.accent} /> :
                                 <Ionicons name="card-outline" size={29} color={theme.colors.accent} />
@@ -171,14 +172,14 @@ export default function PurchasesDevScreen() {
                 </ItemGroup>
 
                 {/* Actions */}
-                <ItemGroup title="Actions">
+                <ItemGroup title={t('devTools.actions')}>
                     <Item
-                        title="Refresh Purchases"
+                        title={t('devTools.refreshPurchases')}
                         icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.accent} />}
                         onPress={() => sync.refreshPurchases()}
                     />
                     <Item
-                        title={loadingOfferings ? "Loading Offerings..." : "Log Offerings"}
+                        title={loadingOfferings ? t('devTools.loadingOfferings') : t('devTools.logOfferings')}
                         icon={loadingOfferings ?
                             <ActivityIndicator size="small" color={theme.colors.accent} /> :
                             <Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />
@@ -190,20 +191,20 @@ export default function PurchasesDevScreen() {
 
                 {/* Offerings Info */}
                 {offerings && (
-                    <ItemGroup title="Offerings" footer="Check console logs for full details">
+                    <ItemGroup title={t('devTools.offerings')} footer={t('devTools.checkConsoleLogs')}>
                         <Item
-                            title="Current Offering"
-                            detail={offerings.current?.identifier || "None"}
+                            title={t('devTools.currentOffering')}
+                            detail={offerings.current?.identifier || t('devTools.none')}
                             showChevron={false}
                         />
                         <Item
-                            title="Total Offerings"
+                            title={t('devTools.totalOfferings')}
                             detail={Object.keys(offerings.all || {}).length.toString()}
                             showChevron={false}
                         />
                         {offerings.current && (
                             <Item
-                                title="Available Packages"
+                                title={t('devTools.availablePackages')}
                                 detail={Object.keys(offerings.current.availablePackages || {}).length.toString()}
                                 showChevron={false}
                             />
@@ -212,15 +213,15 @@ export default function PurchasesDevScreen() {
                 )}
 
                 {/* Debug Info */}
-                <ItemGroup title="Debug Info">
+                <ItemGroup title={t('devTools.debugInfo')}>
                     <Item
-                        title="RevenueCat Status"
-                        detail={sync.revenueCatInitialized ? "Initialized" : "Not Initialized"}
+                        title={t('devTools.revenueCatStatus')}
+                        detail={sync.revenueCatInitialized ? t('devTools.initialized') : t('devTools.notInitialized')}
                         showChevron={false}
                     />
                     <Item
-                        title="User ID"
-                        detail={sync.serverID || "Not available"}
+                        title={t('devTools.userId')}
+                        detail={sync.serverID || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                 </ItemGroup>

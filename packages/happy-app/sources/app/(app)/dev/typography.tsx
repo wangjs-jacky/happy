@@ -3,8 +3,9 @@ import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
+import { t } from '@/text';
 
-const TextSample = ({ title, style, text = "The quick brown fox jumps over the lazy dog" }: { title: string; style: any; text?: string }) => (
+const TextSample = ({ title, style, text = t('devTools.quickBrownFox') }: { title: string; style: any; text?: string }) => (
     <View style={styles.sampleContainer}>
         <Text style={styles.sampleTitle}>{title}</Text>
         <Text style={[{ fontSize: 16 }, style]}>{text}</Text>
@@ -26,20 +27,20 @@ export default function TypographyScreen() {
             <View style={styles.content}>
                 {/* IBM Plex Sans (Default) */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>IBM Plex Sans (Default)</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.ibmPlexSansDefault')}</Text>
                     
                     <TextSample 
-                        title="Regular (400)" 
+                        title={t('devTools.regular400')}
                         style={Typography.default()}
                     />
                     
                     <TextSample 
-                        title="Italic" 
+                        title={t('devTools.italic')}
                         style={Typography.default('italic')}
                     />
                     
                     <TextSample 
-                        title="Semi-Bold (600)" 
+                        title={t('devTools.semiBold600')}
                         style={Typography.default('semiBold')}
                     />
                 </View>
@@ -49,43 +50,43 @@ export default function TypographyScreen() {
                     <Text style={styles.sectionTitle}>IBM Plex Mono</Text>
                     
                     <CodeSample 
-                        title="Regular (400)" 
+                        title={t('devTools.regular400')}
                         style={Typography.mono()}
                     />
                     
                     <CodeSample 
-                        title="Italic" 
+                        title={t('devTools.italic')}
                         style={Typography.mono('italic')}
                     />
                     
                     <CodeSample 
-                        title="Semi-Bold (600)" 
+                        title={t('devTools.semiBold600')}
                         style={Typography.mono('semiBold')}
                     />
                 </View>
 
                 {/* Bricolage Grotesque (Logo) */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Bricolage Grotesque (Logo)</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.bricolageLogo')}</Text>
                     
                     <TextSample 
-                        title="Bold (700) - Logo Only" 
+                        title={t('devTools.boldLogoOnly')}
                         style={{ fontSize: 28, ...Typography.logo() }}
                         text="Paws"
                     />
                     <Text style={styles.note}>
-                        Note: This font should only be used for the app logo and branding
+                        {t('devTools.logoFontNote')}
                     </Text>
                 </View>
 
                 {/* Font Sizes */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Font Size Scale</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.fontSizeScale')}</Text>
                     
                     {[12, 14, 16, 18, 20, 24, 28, 32, 36].map(size => (
                         <View key={size} style={styles.fontSizeItem}>
                             <Text style={{ fontSize: size, ...Typography.default() }}>
-                                {size}px - The quick brown fox
+                                {t('devTools.fontSizeSample', { size })}
                             </Text>
                         </View>
                     ))}
@@ -93,21 +94,21 @@ export default function TypographyScreen() {
 
                 {/* Text in Components */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Typography in Components</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.typographyInComponents')}</Text>
                     
-                    <ItemGroup title="List Item Typography">
+                    <ItemGroup title={t('devTools.listItemTypography')}>
                         <Item 
-                            title="Default Title (17px regular)"
-                            subtitle="Default Subtitle (15px regular, #8E8E93)"
-                            detail="Detail"
+                            title={t('devTools.defaultTitleSample')}
+                            subtitle={t('devTools.defaultSubtitleSample')}
+                            detail={t('devTools.detail')}
                         />
                         <Item 
-                            title="With Custom Title Style"
+                            title={t('devTools.customTitleStyle')}
                             titleStyle={{ ...Typography.default('semiBold') }}
-                            subtitle="Using semi-bold for title"
+                            subtitle={t('devTools.semiBoldSubtitle')}
                         />
                         <Item 
-                            title="Monospace Detail"
+                            title={t('devTools.monospaceDetail')}
                             detail="v1.0.0"
                             detailStyle={{ ...Typography.mono() }}
                         />
@@ -116,7 +117,7 @@ export default function TypographyScreen() {
 
                 {/* Usage Examples */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Usage Examples</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.usageExamples')}</Text>
                     
                     <View style={styles.codeBlock}>
                         <Text style={{ ...Typography.mono(), fontSize: 12 }}>

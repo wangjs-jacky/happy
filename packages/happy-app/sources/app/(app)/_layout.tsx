@@ -262,68 +262,134 @@ export default function RootLayout() {
             <Stack.Screen
                 name="dev/index"
                 options={{
-                    headerTitle: 'Developer Tools',
+                    headerTitle: t('settings.developerTools'),
                 }}
             />
             <Stack.Screen
                 name="dev/ota-versions"
                 options={{
-                    headerTitle: 'OTA Versions',
+                    headerTitle: t('devTools.otaVersions'),
                 }}
             />
             <Stack.Screen
                 name="ota-switch"
                 options={{
-                    headerTitle: 'Switch OTA Version',
+                    headerTitle: t('devTools.switchOtaVersion'),
                 }}
             />
 
             <Stack.Screen
                 name="dev/list-demo"
                 options={{
-                    headerTitle: 'List Components Demo',
+                    headerTitle: t('devTools.listComponents'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/device-info"
+                options={{
+                    headerTitle: t('devTools.deviceInfo'),
                 }}
             />
             <Stack.Screen
                 name="dev/typography"
                 options={{
-                    headerTitle: 'Typography',
+                    headerTitle: t('devTools.typography'),
                 }}
             />
             <Stack.Screen
                 name="dev/colors"
                 options={{
-                    headerTitle: 'Colors',
+                    headerTitle: t('devTools.colors'),
                 }}
             />
             <Stack.Screen
                 name="dev/tools2"
                 options={{
-                    headerTitle: 'Tool Views Demo',
+                    headerTitle: t('devTools.toolViews'),
                 }}
             />
             <Stack.Screen
                 name="dev/masked-progress"
                 options={{
-                    headerTitle: 'Masked Progress',
+                    headerTitle: t('devTools.maskedProgress'),
                 }}
             />
             <Stack.Screen
                 name="dev/shimmer-demo"
                 options={{
-                    headerTitle: 'Shimmer View Demo',
+                    headerTitle: t('devTools.shimmerView'),
                 }}
             />
             <Stack.Screen
                 name="dev/multi-text-input"
                 options={{
-                    headerTitle: 'Multi Text Input',
+                    headerTitle: t('devTools.multiTextInput'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/input-styles"
+                options={{
+                    headerTitle: t('devTools.inputStyles'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/messages-demo"
+                options={{
+                    headerTitle: t('devTools.messageDemos'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/modal-demo"
+                options={{
+                    headerTitle: t('devTools.modalSystem'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/tests"
+                options={{
+                    headerTitle: t('devTools.unitTests'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/unistyles-demo"
+                options={{
+                    headerTitle: t('devTools.unistylesDemo'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/qr-test"
+                options={{
+                    headerTitle: t('devTools.qrCodeTest'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/logs"
+                options={{
+                    headerTitle: t('devTools.viewLogs'),
                 }}
             />
             <Stack.Screen
                 name="dev/session-composer"
                 options={{
-                    headerTitle: 'Session Composer',
+                    headerTitle: t('devTools.sessionComposer'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/purchases"
+                options={{
+                    headerTitle: t('devTools.purchases'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/expo-constants"
+                options={{
+                    headerTitle: t('devTools.expoConstants'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/inverted-list"
+                options={{
+                    headerTitle: t('devTools.invertedListTest'),
                 }}
             />
             <Stack.Screen

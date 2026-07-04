@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Russian plural helper function
@@ -765,6 +765,8 @@ export const ru: TranslationStructure = {
         authenticateWithUrlPaste: 'Авторизация терминала через URL',
         pasteAuthUrl: 'Вставьте авторизационный URL из терминала',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Доступно обновление',

@@ -244,7 +244,7 @@ function PickerContent({
                 <TextInput
                     value={search}
                     onChangeText={setSearch}
-                    placeholder={searchPlaceholder ?? 'search...'}
+                    placeholder={searchPlaceholder ?? t('devTools.searchPlaceholder')}
                     placeholderTextColor={theme.colors.textSecondary}
                     style={[pickerStyles.searchInput, { color: theme.colors.text }]}
                     autoCapitalize="none"
@@ -260,7 +260,7 @@ function PickerContent({
                 {filtered.map(renderOption)}
                 {filtered.length === 0 && search.length > 0 && (
                     <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
-                        no results
+                        {t('devTools.noResults')}
                     </Text>
                 )}
             </ScrollView>
@@ -391,20 +391,20 @@ function SessionComposerDemo() {
     const machineName = SAMPLE_MACHINES.find(m => m.key === selectedMachine)?.label ?? '';
     const pathName = SAMPLE_PATHS.find(p => p.key === selectedPath)?.label ?? '';
     const worktreeLabel = worktreeKey === '__none__'
-        ? 'no worktree'
+        ? t('devTools.noWorktree')
         : worktreeKey === '__new__'
-            ? 'new worktree'
+            ? t('devTools.newWorktree')
             : worktreeKey;
 
     // Picker data derived from active picker type
     const pickerData = React.useMemo(() => {
         switch (activePicker) {
             case 'machine':
-                return { title: 'Machine', items: SAMPLE_MACHINES, selectedKey: selectedMachine, searchPlaceholder: 'search machines...' };
+                return { title: t('devTools.machine'), items: SAMPLE_MACHINES, selectedKey: selectedMachine, searchPlaceholder: t('devTools.searchMachines') };
             case 'path':
-                return { title: 'Project', items: SAMPLE_PATHS, selectedKey: selectedPath, searchPlaceholder: 'search projects...' };
+                return { title: t('devTools.project'), items: SAMPLE_PATHS, selectedKey: selectedPath, searchPlaceholder: t('devTools.searchProjects') };
             case 'worktree':
-                return { title: 'Worktree', fixedItems: WORKTREE_FIXED_ITEMS, items: SAMPLE_WORKTREES, selectedKey: worktreeKey, searchPlaceholder: 'search worktrees...' };
+                return { title: t('devTools.worktree'), fixedItems: WORKTREE_FIXED_ITEMS, items: SAMPLE_WORKTREES, selectedKey: worktreeKey, searchPlaceholder: t('devTools.searchWorktrees') };
             default:
                 return null;
         }
@@ -572,7 +572,7 @@ function SessionComposerDemo() {
                                 <MultiTextInput
                                     value={prompt}
                                     onChangeText={setPrompt}
-                                    placeholder="What would you like to work on?"
+                                    placeholder={t('devTools.sessionComposerPrompt')}
                                     lineHeight={MULTI_TEXT_INPUT_LINE_HEIGHT}
                                     paddingTop={COMPOSER_INPUT_VERTICAL_PADDING}
                                     paddingBottom={COMPOSER_INPUT_VERTICAL_PADDING}

@@ -8,6 +8,7 @@ import { Modal } from '@/modal';
 import { useUnistyles } from 'react-native-unistyles';
 import { useOtaVersions, OtaVersion } from '@/hooks/useOtaVersions';
 import { useOtaTarget } from '@/hooks/useOtaTarget';
+import { t } from '@/text';
 
 // OTA 版本选择器（dev 页，preview 频道专用）。
 // 解决「回归验收时不知道真机当前跑哪个 commit 的 OTA」：列出 preview 频道全部历史版本，
@@ -46,9 +47,9 @@ export default function OtaVersionsScreen() {
             const line = shortLine(v);
             const message = previewMessage(line.message);
             const confirmed = await Modal.confirm(
-                '切换到此版本？',
-                `${line.title}\n${line.subtitle}${message ? `\n\n${message}` : ''}\n\n本设备将锁定到该 OTA 版本并立即重载。其他设备不受影响。`,
-                { confirmText: '切换并重载', cancelText: '取消' },
+                t('devTools.switchToThisVersion'),
+                t('devTools.lockToVersionMessage', { title: line.title, subtitle: line.subtitle, message }),
+                { confirmText: t('devTools.switchAndReload'), cancelText: t('common.cancel') },
             );
             if (confirmed) {
                 await lockTo(v.stamp); // 内部会 reloadAsync，调用后 App 重启
@@ -59,9 +60,9 @@ export default function OtaVersionsScreen() {
     const handleUnlock = React.useCallback(() => {
         (async () => {
             const confirmed = await Modal.confirm(
-                '解除版本锁定？',
-                '解除后本设备回到「跟随最新」，重载即拉取 preview 频道最新版本。',
-                { confirmText: '解除并重载', cancelText: '取消' },
+                t('devTools.unlockVersion'),
+                t('devTools.unlockVersionMessage'),
+                { confirmText: t('devTools.unlockAndReload'), cancelText: t('common.cancel') },
             );
             if (confirmed) {
                 await unlock();
@@ -73,28 +74,28 @@ export default function OtaVersionsScreen() {
         <ItemList>
             {/* 当前状态：直接回答「我在看哪个版本」 */}
             <ItemGroup
-                title="当前状态"
-                footer={channel !== 'preview' ? '注意：当前不是 preview 包，定向锁定对本包无效（production 永远跟随最新）。' : undefined}
+                title={t('devTools.currentStatus')}
+                footer={channel !== 'preview' ? t('devTools.notPreviewWarning') : undefined}
             >
                 <Item
-                    title="频道"
-                    detail={channel || '未知'}
+                    title={t('devTools.channel')}
+                    detail={channel || t('common.unknown')}
                     icon={<Ionicons name="git-branch-outline" size={29} color={theme.colors.status?.connecting ?? theme.colors.text} />}
                 />
                 <Item
-                    title="当前运行 Update ID"
-                    detail={currentUpdateId ? currentUpdateId.slice(0, 8) : '内置包'}
+                    title={t('devTools.currentRunningUpdateId')}
+                    detail={currentUpdateId ? currentUpdateId.slice(0, 8) : t('devTools.embeddedBundle')}
                     copy={currentUpdateId || undefined}
                     icon={<Ionicons name="cube-outline" size={29} color={theme.colors.text} />}
                 />
                 <Item
-                    title="锁定状态"
-                    detail={lockedStamp ? '已锁定' : '跟随最新'}
+                    title={t('devTools.lockStatus')}
+                    detail={lockedStamp ? t('devTools.locked') : t('devTools.followLatest')}
                     icon={<Ionicons name={lockedStamp ? 'lock-closed-outline' : 'lock-open-outline'} size={29} color={lockedStamp ? theme.colors.text : theme.colors.textSecondary} />}
                 />
                 {lockedStamp ? (
                     <Item
-                        title="解除锁定，回到最新"
+                        title={t('devTools.unlockToLatest')}
                         destructive
                         loading={targetLoading}
                         icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.textDestructive ?? '#FF3B30'} />}
@@ -104,20 +105,20 @@ export default function OtaVersionsScreen() {
             </ItemGroup>
 
             {/* 版本列表 */}
-            <ItemGroup title="preview 频道历史版本" footer="点选某版本即把本设备锁定到它并重载。绿点 = 当前运行，钩 = 当前锁定。">
+            <ItemGroup title={t('devTools.previewHistoryTitle')} footer={t('devTools.previewHistoryFooter')}>
                 {listLoading ? (
                     <View style={{ padding: theme.margins.lg, alignItems: 'center' }}>
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                     </View>
                 ) : error ? (
                     <Item
-                        title="加载失败，点此重试"
+                        title={t('devTools.loadFailedRetry')}
                         subtitle={error}
                         icon={<Ionicons name="alert-circle-outline" size={29} color={theme.colors.textDestructive ?? '#FF3B30'} />}
                         onPress={() => refresh()}
                     />
                 ) : versions.length === 0 ? (
-                    <Item title="暂无版本" subtitle="该频道还没有发布过 OTA" />
+                    <Item title={t('devTools.noVersions')} subtitle={t('devTools.noVersionsSubtitle')} />
                 ) : (
                     versions.map((v) => {
                         const line = shortLine(v);
@@ -145,16 +146,16 @@ export default function OtaVersionsScreen() {
                 )}
             </ItemGroup>
 
-            <ItemGroup title="诊断" footer={debug || '（点刷新后显示请求诊断）'}>
+            <ItemGroup title={t('devTools.diagnostics')} footer={debug || t('devTools.diagnosticsFooter')}>
                 <Item
-                    title="刷新版本列表"
+                    title={t('devTools.refreshVersionList')}
                     loading={listLoading}
                     icon={<Ionicons name="reload-outline" size={29} color={theme.colors.text} />}
                     onPress={() => refresh()}
                 />
                 <Item
-                    title="复制诊断信息"
-                    detail={versions.length ? `${versions.length} 版本` : '空'}
+                    title={t('devTools.copyDiagnostics')}
+                    detail={versions.length ? t('devTools.versionsCount', { count: versions.length }) : t('devTools.empty')}
                     copy={debug || 'no-debug'}
                     icon={<Ionicons name="bug-outline" size={29} color={theme.colors.textSecondary} />}
                 />

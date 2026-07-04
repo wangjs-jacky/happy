@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Catalan plural helper function
@@ -761,6 +761,8 @@ export const ca: TranslationStructure = {
         authenticateWithUrlPaste: 'Autentica el terminal amb enganxat d\'URL',
         pasteAuthUrl: 'Enganxa l\'URL d\'autenticació del teu terminal',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Actualització disponible',
