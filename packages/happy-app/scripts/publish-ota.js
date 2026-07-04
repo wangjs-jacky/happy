@@ -39,7 +39,7 @@ const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖）�
 const DIST_DIR = path.join(__dirname, '..', 'dist'); // expo export 输出目录
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun'; // aliyun CLI 可执行名/路径
 const OSS_UPLOAD_ENDPOINT = process.env.OSS_UPLOAD_ENDPOINT || `https://${REGION}.aliyuncs.com`;
-const OSS_ADDRESSING_STYLE = process.env.OSS_ADDRESSING_STYLE || 'path';
+const OSS_ADDRESSING_STYLE = process.env.OSS_ADDRESSING_STYLE || 'virtual';
 // OSS 公开访问域名（https）
 const OSS_PUBLIC_BASE = `https://${BUCKET}.${REGION}.aliyuncs.com`;
 // ===================================================
