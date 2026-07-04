@@ -46,6 +46,8 @@ import {
     type CodexEnhancedMode,
 } from './codexPrompt';
 import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
+import { parseSpecialCommand } from '@/parsers/specialCommands';
+import { listCodexSkillNames } from './codexSkills';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -129,6 +131,12 @@ export async function runCodex(opts: {
     //
 
     const initialPermissionMode = opts.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE;
+    let discoveredSkills: string[] = [];
+    try {
+        discoveredSkills = listCodexSkillNames({ cwd: process.cwd() });
+    } catch (error) {
+        logger.debug('[codex] Failed to discover local skills', error);
+    }
     // Lineage from the daemon's spawn RPC (set by app-side fork / duplicate).
     const forkedFromSessionId = process.env.HAPPY_FORKED_FROM_SESSION_ID;
     const forkedFromMessageId = process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
@@ -139,6 +147,7 @@ export async function runCodex(opts: {
         startedBy: opts.startedBy,
         sandbox: sandboxConfig,
         dangerouslySkipPermissions: initialPermissionMode === 'yolo' || initialPermissionMode === 'bypassPermissions',
+        skills: discoveredSkills,
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
     });
@@ -385,8 +394,8 @@ export async function runCodex(opts: {
             attachments: attachmentsForThisMessage,
             queue: messageQueue,
         });
-        if (enqueueResult === 'clear') {
-            logger.debug('[Codex] /clear command pushed to isolated queue');
+        if (enqueueResult !== 'queued') {
+            logger.debug(`[Codex] /${enqueueResult} command pushed to isolated queue`);
         }
     });
     let thinking = false;
@@ -872,7 +881,29 @@ export async function runCodex(opts: {
                 break;
             }
 
-            if (isCodexClearText(message.message)) {
+            const specialCommand = parseSpecialCommand(message.message);
+
+            if (specialCommand.type === 'skills') {
+                const skills = session.getMetadata()?.skills ?? [];
+                const responseText = skills.length > 0
+                    ? '**Available Skills**\n\n' + skills.map((skill) => `- /${skill}`).join('\n')
+                    : 'No skills available. Try again after the session finishes initializing.';
+
+                messageBuffer.addMessage(responseText, 'assistant');
+                session.sendAgentMessage('codex', {
+                    type: 'message',
+                    message: responseText,
+                });
+                emitReadyIfIdle({
+                    pending,
+                    queueSize: () => messageQueue.size(),
+                    shouldExit,
+                    sendReady,
+                });
+                continue;
+            }
+
+            if (specialCommand.type === 'clear') {
                 logger.debug('[Codex] Handling /clear command - resetting Codex thread state');
                 client.clearThreadState();
                 currentTurnId = null;

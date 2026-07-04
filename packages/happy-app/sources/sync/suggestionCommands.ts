@@ -87,24 +87,29 @@ function getCommandsFromSession(sessionId: string): CommandItem[] {
     }
 
     const commands: CommandItem[] = [...DEFAULT_COMMANDS];
-    
-    // Add commands from metadata.slashCommands (filter with ignore list)
-    if (session.metadata.slashCommands) {
-        for (const cmd of session.metadata.slashCommands) {
-            // Skip if in ignore list
-            if (IGNORED_COMMANDS.includes(cmd)) continue;
-            
-            // Check if it's already in default commands
-            if (!commands.find(c => c.command === cmd)) {
-                commands.push({
-                    command: cmd,
-                    description: COMMAND_DESCRIPTIONS[cmd]  // Optional description
-                });
-            }
-        }
-    }
-    
+
+    appendCommands(commands, session.metadata.slashCommands, (cmd) => COMMAND_DESCRIPTIONS[cmd]);
+
     return commands;
+}
+
+function appendCommands(
+    commands: CommandItem[],
+    incoming: string[] | undefined,
+    getDescription: (command: string) => string | undefined,
+): void {
+    if (!incoming) {
+        return;
+    }
+
+    for (const cmd of incoming) {
+        if (IGNORED_COMMANDS.includes(cmd)) continue;
+        if (commands.find((entry) => entry.command === cmd)) continue;
+        commands.push({
+            command: cmd,
+            description: getDescription(cmd),
+        });
+    }
 }
 
 // Main export: search commands with fuzzy matching
