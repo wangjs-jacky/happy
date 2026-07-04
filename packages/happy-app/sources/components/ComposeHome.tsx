@@ -145,6 +145,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             agent: draft.agentType,
             worktreeKey: draft.worktreeKey,
             prompt: trimmed,
+            permissionMode: draft.permissionMode,
+            modelMode: draft.modelMode,
+            effortLevel: draft.effortLevel,
             images,
         }).then((ok) => {
             if (ok) {

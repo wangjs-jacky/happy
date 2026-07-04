@@ -413,14 +413,14 @@ export async function codexListRewindPoints(
     }
 }
 
-export async function machineResumeSession(options: ResumeSessionOptions & { model?: string; permissionMode?: string }): Promise<SpawnSessionResult> {
-    const { machineId, sessionId, model, permissionMode } = options;
+export async function machineResumeSession(options: ResumeSessionOptions & { model?: string; permissionMode?: string; effort?: string | null }): Promise<SpawnSessionResult> {
+    const { machineId, sessionId, model, permissionMode, effort } = options;
 
     try {
-        const result = await apiSocket.machineRPC<SpawnSessionResult, { sessionId: string; model?: string; permissionMode?: string }>(
+        const result = await apiSocket.machineRPC<SpawnSessionResult, { sessionId: string; model?: string; permissionMode?: string; effort?: string | null }>(
             machineId,
             'resume-happy-session',
-            { sessionId, model, permissionMode },
+            { sessionId, model, permissionMode, effort },
         );
         return result;
     } catch (error) {

@@ -19,6 +19,31 @@ describe('codex fork ops', () => {
         refreshSessions.mockReset();
     });
 
+    it('forwards effort when resuming a Happy session', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
+
+        const { machineResumeSession } = await import('./ops');
+        const result = await machineResumeSession({
+            machineId: 'machine-1',
+            sessionId: 'happy-source',
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            effort: 'xhigh',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'resume-happy-session',
+            {
+                sessionId: 'happy-source',
+                model: 'gpt-5.5',
+                permissionMode: 'yolo',
+                effort: 'xhigh',
+            },
+        );
+    });
+
     it('forks a full Codex thread and spawns a Codex session resumed to the new thread', async () => {
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {

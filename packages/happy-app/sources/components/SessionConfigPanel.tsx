@@ -649,8 +649,8 @@ export interface SessionConfigPanelProps {
  * permission / worktree, plus the pickers that drive them. Extracted from the
  * /new screen so both /new and the compose-first home can render the same panel.
  * It reads and writes the shared `useNewSessionDraft` store for the persisted
- * fields (machine/path/agent/permission/model/worktree) and keeps effort + the
- * model/permission *indices* as local state, exposed via the imperative handle.
+ * fields (machine/path/agent/permission/model/effort/worktree) and keeps the
+ * current picker indices as local state, exposed via the imperative handle.
  */
 export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, SessionConfigPanelProps>(
     function SessionConfigPanel({ layout = 'inline', collapsible = true, onPickerOpenChange }, ref) {
@@ -671,6 +671,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             setAgentType: s.setAgentType,
             setPermissionMode: s.setPermissionMode,
             setModelMode: s.setModelMode,
+            setEffortLevel: s.setEffortLevel,
+            effortLevel: s.effortLevel,
             sessionType: s.sessionType,
             setSessionType: s.setSessionType,
             worktreeKey: s.worktreeKey,
@@ -691,7 +693,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             draft.setWorktreeKey(worktreeKey === '__none__' || worktreeKey === '__new__' ? null : worktreeKey);
         }, [worktreeKey]);
 
-        // Local-only UI state (not persisted)
+        // Picker indices are local UI state; selected values that affect sends
+        // are persisted through the shared new-session draft store.
         const [permissionIndex, setPermissionIndex] = React.useState(0);
         const [modelIndex, setModelIndex] = React.useState(0);
         const [effortIndex, setEffortIndex] = React.useState(0);
@@ -866,14 +869,16 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
 
         // Reset effort when model changes
         React.useEffect(() => {
-            const defaultEffort = effectiveAgentDefaults.effortLevel;
+            const defaultEffort = draft.effortLevel ?? effectiveAgentDefaults.effortLevel;
             if (defaultEffort && effortLevels.length > 0) {
                 const idx = effortLevels.findIndex(e => e.key === defaultEffort);
                 setEffortIndex(idx >= 0 ? idx : effortLevels.length - 1);
+                draft.setEffortLevel(idx >= 0 ? defaultEffort : effortLevels[effortLevels.length - 1]?.key ?? null);
             } else {
                 setEffortIndex(0);
+                draft.setEffortLevel(effortLevels[0]?.key ?? null);
             }
-        }, [effectiveAgentDefaults.effortLevel, currentModelKey, effortLevels]);
+        }, [draft.effortLevel, draft.setEffortLevel, effectiveAgentDefaults.effortLevel, currentModelKey, effortLevels]);
 
         // Auto collapse config once when user starts typing (mobile only, collapsible).
         // On desktop (web / Mac Catalyst) the panel stays expanded. Also skip on
@@ -993,6 +998,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                     const next = effortLevels.findIndex((level) => level.key === key);
                     if (next >= 0) {
                         setEffortIndex(next);
+                        draft.setEffortLevel(effortLevels[next]?.key ?? null);
                     }
                     break;
                 }
@@ -1011,6 +1017,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             availableAgents,
             dismissPicker,
             draft.setModelMode,
+            draft.setEffortLevel,
             draft.setPermissionMode,
             effortLevels,
             modelModes,

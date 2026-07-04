@@ -91,6 +91,33 @@ describe('ApiMachineClient Codex fork RPCs', () => {
         }));
     });
 
+    it('forwards effort through the resume RPC', async () => {
+        const resumeSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
+
+        const { ApiMachineClient } = await import('./apiMachine');
+        const client = new ApiMachineClient('token', machineClient());
+        client.setRPCHandlers({
+            spawnSession: vi.fn(),
+            resumeSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const result = await handlersFrom(client).get('machine-1:resume-happy-session')?.({
+            sessionId: 'happy-source',
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            effort: 'xhigh',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
+        expect(resumeSession).toHaveBeenCalledWith('happy-source', {
+            model: 'gpt-5.5',
+            permissionMode: 'yolo',
+            effort: 'xhigh',
+        });
+    });
+
     it('lists Codex rewind points from thread/read', async () => {
         codexClientMethods.readThread.mockResolvedValue({
             thread: {

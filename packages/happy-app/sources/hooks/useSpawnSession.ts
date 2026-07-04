@@ -3,6 +3,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
 import { machineSpawnNewSession } from '@/sync/ops';
+import { storage } from '@/sync/storage';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -20,6 +21,9 @@ export interface SpawnSessionArgs {
     worktreeKey: string | null;
     /** Initial prompt to send into the freshly spawned session. */
     prompt: string;
+    permissionMode?: string | null;
+    modelMode?: string | null;
+    effortLevel?: string | null;
     /** Image attachments to send with the initial message (claude-only). */
     images?: AttachmentPreview[];
 }
@@ -29,7 +33,6 @@ export interface SpawnSessionArgs {
  * send without first opening /new. It mirrors the core of /new's `handleSend`
  * (resolve path → spawn → send initial message → navigate, with the
  * directory-creation approval round-trip), but intentionally omits:
- *   - per-session permission/model/effort overrides (left at agent defaults), and
  *   - worktree *creation* (the '__new__' case).
  * For those, the caller routes to the full composer (/new) instead. The home only
  * calls this for the straightforward "machine online, no new worktree" path.
@@ -44,7 +47,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, prompt, images } = args;
+        const { machineId, machine, path, agent, worktreeKey, prompt, permissionMode, modelMode, effortLevel, images } = args;
         if (!isMachineOnline(machine)) {
             Modal.alert(t('common.error'), t('newSession.machineOffline'));
             return false;
@@ -71,6 +74,15 @@ export function useSpawnSession() {
             switch (result.type) {
                 case 'success':
                     await sync.refreshSessions();
+                    if (permissionMode) {
+                        storage.getState().updateSessionPermissionMode(result.sessionId, permissionMode);
+                    }
+                    if (modelMode) {
+                        storage.getState().updateSessionModelMode(result.sessionId, modelMode);
+                    }
+                    if (effortLevel) {
+                        storage.getState().updateSessionEffortLevel(result.sessionId, effortLevel);
+                    }
                     const attachments = images && images.length > 0 ? images : undefined;
                     if (prompt || attachments) {
                         await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', attachments });

@@ -658,7 +658,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string }): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -716,6 +716,9 @@ export async function startDaemon(): Promise<void> {
         }
         if (options?.permissionMode) {
           launch.args.push('--permission-mode', options.permissionMode);
+        }
+        if (options?.effort) {
+          launch.args.push('--effort', options.effort);
         }
 
         await fs.access(launch.cwd);
