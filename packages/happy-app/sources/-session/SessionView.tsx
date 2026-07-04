@@ -24,6 +24,7 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
+import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -319,7 +320,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
     if (!canShowSidebar) {
         return (
-            <RightSwipePanelHost>
+            <RightSwipePanelHost panelContent={<SessionCapabilityHub sessionId={sessionId} />}>
                 {mainContent}
             </RightSwipePanelHost>
         );

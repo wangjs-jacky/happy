@@ -21,6 +21,7 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
 import { RightSwipePanelHost } from './RightSwipePanelHost';
+import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
@@ -178,7 +179,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
 
     return (
-        <RightSwipePanelHost>
+        <RightSwipePanelHost panelContent={<SessionCapabilityHub />}>
             <View style={styles.container}>
             <Header
                 title={modelChip}

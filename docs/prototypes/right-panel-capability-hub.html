@@ -1,0 +1,1753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happy Capability Hub Right Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --page: #faf6ef;
+            --surface: #fffdfa;
+            --surface-soft: #f5edde;
+            --surface-strong: #ede2cf;
+            --line: #e7dccb;
+            --ink: #3e2f24;
+            --muted: #8b7c6c;
+            --caramel: #c68649;
+            --caramel-soft: rgba(198, 134, 73, 0.14);
+            --sage: #88aa72;
+            --sage-soft: rgba(136, 170, 114, 0.16);
+            --blue: #7391b2;
+            --blue-soft: rgba(115, 145, 178, 0.14);
+            --rose: #c1888b;
+            --rose-soft: rgba(193, 136, 139, 0.14);
+            --shadow: 0 24px 60px rgba(51, 38, 28, 0.12);
+            --shadow-soft: 0 10px 24px rgba(51, 38, 28, 0.08);
+            --radius-shell: 36px;
+            --radius-screen: 28px;
+            --radius-xl: 22px;
+            --radius-lg: 18px;
+            --radius-md: 14px;
+            --radius-sm: 11px;
+            --transition: 180ms ease;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top left, rgba(136, 170, 114, 0.12), transparent 28%),
+                radial-gradient(circle at 92% 12%, rgba(198, 134, 73, 0.12), transparent 20%),
+                linear-gradient(180deg, #fffdf8 0%, var(--page) 100%);
+            color: var(--ink);
+            font-family: "IBM Plex Sans", sans-serif;
+        }
+
+        body {
+            padding: 26px 18px 42px;
+        }
+
+        button {
+            font: inherit;
+        }
+
+        .page {
+            width: min(1320px, 100%);
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+
+        .hero {
+            display: grid;
+            gap: 10px;
+            justify-items: center;
+            text-align: center;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(231, 220, 203, 0.92);
+            background: rgba(255, 253, 250, 0.88);
+            color: var(--muted);
+            font: 500 12px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--sage);
+        }
+
+        h1 {
+            margin: 0;
+            font: 600 clamp(30px, 4vw, 50px)/1.02 "Fredoka", sans-serif;
+            letter-spacing: -0.04em;
+            text-wrap: pretty;
+        }
+
+        .lead {
+            margin: 0;
+            max-width: 960px;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.6;
+            text-wrap: pretty;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(320px, 420px);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .stage {
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            background: linear-gradient(180deg, rgba(255, 253, 250, 0.96), rgba(244, 236, 224, 0.9));
+            box-shadow: var(--shadow);
+        }
+
+        .phone-shell {
+            position: relative;
+            width: min(100%, 430px);
+            margin: 0 auto;
+            aspect-ratio: 9 / 19.4;
+            padding: 14px;
+            border-radius: var(--radius-shell);
+            background: linear-gradient(180deg, #2d251f 0%, #17120e 100%);
+            box-shadow:
+                0 30px 72px rgba(29, 22, 17, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .phone-screen {
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            border-radius: var(--radius-screen);
+            background: linear-gradient(180deg, #fbf6ee 0%, #f3eadb 100%);
+        }
+
+        .notch {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 124px;
+            height: 28px;
+            border-radius: 999px;
+            background: #17120e;
+            z-index: 3;
+        }
+
+        .conversation-strip {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 40%;
+            padding: 74px 14px 18px 18px;
+            background:
+                linear-gradient(180deg, rgba(72, 62, 53, 0.24), rgba(72, 62, 53, 0.3)),
+                radial-gradient(circle at top left, rgba(136, 170, 114, 0.08), transparent 24%);
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #d6e4cf, #a4bd84);
+            margin-bottom: 22px;
+        }
+
+        .ghost-card {
+            border-radius: 30px;
+            background: rgba(255, 252, 246, 0.84);
+            box-shadow: inset 0 0 0 1px rgba(84, 69, 54, 0.08);
+            padding: 16px 0;
+            min-height: 286px;
+        }
+
+        .ghost-line {
+            height: 18px;
+            margin: 22px 18px;
+            border-radius: 999px;
+            background: rgba(85, 72, 58, 0.12);
+        }
+
+        .ghost-line.short {
+            width: 58%;
+        }
+
+        .hub-panel {
+            position: absolute;
+            inset: 0 0 0 auto;
+            width: 66%;
+            padding: 74px 14px 18px;
+            background: rgba(255, 253, 250, 0.97);
+            border-left: 1px solid rgba(231, 220, 203, 0.92);
+            box-shadow: -12px 0 30px rgba(46, 34, 24, 0.08);
+            overflow: hidden;
+        }
+
+        .hub-scroll {
+            position: relative;
+            height: 100%;
+            overflow: auto;
+            padding-right: 2px;
+            scrollbar-width: none;
+        }
+
+        .hub-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .hub-kicker {
+            color: var(--muted);
+            font: 500 11px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .hub-title {
+            margin: 4px 0 0;
+            font: 600 28px/1.02 "Fredoka", sans-serif;
+            letter-spacing: -0.03em;
+        }
+
+        .section-stack {
+            display: grid;
+            gap: 12px;
+            margin-top: 8px;
+            padding-bottom: 10px;
+        }
+
+        .section {
+            display: grid;
+            gap: 8px;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .section-label {
+            color: var(--muted);
+            font: 500 10px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .section-action,
+        .mode-button,
+        .tone-button,
+        .toolbar-button,
+        .ghost-button {
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: rgba(255, 253, 250, 0.9);
+            color: var(--muted);
+            cursor: pointer;
+            transition:
+                transform var(--transition),
+                border-color var(--transition),
+                background-color var(--transition),
+                color var(--transition);
+        }
+
+        .section-action:hover,
+        .mode-button:hover,
+        .tone-button:hover,
+        .toolbar-button:hover,
+        .ghost-button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(198, 134, 73, 0.36);
+            color: var(--ink);
+        }
+
+        .section-action {
+            padding: 7px 10px;
+            font: 500 11px/1 "IBM Plex Mono", monospace;
+        }
+
+        .capability-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .capability-card {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255, 253, 250, 0.97), rgba(245, 237, 223, 0.96));
+            box-shadow: var(--shadow-soft);
+            text-align: left;
+            cursor: pointer;
+            transition:
+                transform var(--transition),
+                box-shadow var(--transition),
+                border-color var(--transition);
+        }
+
+        .capability-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 28px rgba(51, 38, 28, 0.08);
+        }
+
+        .capability-card.is-open {
+            border-color: rgba(198, 134, 73, 0.44);
+            box-shadow:
+                0 14px 28px rgba(51, 38, 28, 0.08),
+                0 0 0 3px rgba(198, 134, 73, 0.08);
+        }
+
+        .capability-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .capability-left {
+            display: flex;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .capability-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            display: grid;
+            place-items: center;
+            font: 600 18px/1 "Fredoka", sans-serif;
+            flex: none;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.56);
+        }
+
+        .capability-icon.sage {
+            background: linear-gradient(180deg, rgba(136, 170, 114, 0.22), rgba(136, 170, 114, 0.12));
+            color: #5c7850;
+        }
+
+        .capability-icon.blue {
+            background: linear-gradient(180deg, rgba(115, 145, 178, 0.22), rgba(115, 145, 178, 0.12));
+            color: #567292;
+        }
+
+        .capability-icon.caramel {
+            background: linear-gradient(180deg, rgba(198, 134, 73, 0.24), rgba(198, 134, 73, 0.12));
+            color: #9a5e2f;
+        }
+
+        .capability-icon.rose {
+            background: linear-gradient(180deg, rgba(193, 136, 139, 0.22), rgba(193, 136, 139, 0.12));
+            color: #96666b;
+        }
+
+        .capability-copy {
+            min-width: 0;
+        }
+
+        .capability-title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .capability-desc {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            text-wrap: pretty;
+        }
+
+        .count-pill {
+            flex: none;
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(255, 253, 250, 0.92);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font: 500 11px/1 "IBM Plex Mono", monospace;
+        }
+
+        .preview-lines {
+            display: grid;
+            gap: 6px;
+            margin-top: 12px;
+        }
+
+        .preview-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 30px;
+            padding: 0 10px;
+            border-radius: 12px;
+            background: rgba(255, 253, 250, 0.72);
+            color: var(--ink);
+            font-size: 12px;
+            box-shadow: inset 0 0 0 1px rgba(231, 220, 203, 0.74);
+        }
+
+        .preview-line::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--caramel);
+        }
+
+        .inline-detail {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed rgba(198, 134, 73, 0.26);
+        }
+
+        .detail-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .detail-item {
+            width: 100%;
+            display: grid;
+            gap: 4px;
+            padding: 11px 12px;
+            border-radius: 15px;
+            border: 1px solid rgba(231, 220, 203, 0.92);
+            background: rgba(255, 253, 250, 0.86);
+            text-align: left;
+            cursor: pointer;
+            transition:
+                transform var(--transition),
+                border-color var(--transition);
+        }
+
+        .detail-item:hover {
+            transform: translateY(-1px);
+            border-color: rgba(198, 134, 73, 0.36);
+        }
+
+        .detail-item strong {
+            font-size: 13px;
+        }
+
+        .detail-item span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+            text-wrap: pretty;
+        }
+
+        .resource-carousel {
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: linear-gradient(180deg, rgba(255, 253, 250, 0.97), rgba(245, 237, 223, 0.96));
+            box-shadow: var(--shadow-soft);
+            padding: 12px;
+        }
+
+        .resource-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .resource-count {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .toolbar-button {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            font: 500 12px/1 "IBM Plex Mono", monospace;
+        }
+
+        .resource-viewport {
+            overflow: hidden;
+        }
+
+        .resource-track {
+            display: flex;
+            gap: 10px;
+            transition: transform var(--transition);
+            will-change: transform;
+        }
+
+        .resource-card {
+            flex: 0 0 calc(100% - 2px);
+            min-width: 0;
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 18px;
+            border: 1px solid rgba(231, 220, 203, 0.92);
+            background: rgba(255, 253, 250, 0.9);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .resource-art {
+            height: 112px;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            background: var(--surface-soft);
+            box-shadow: inset 0 0 0 1px rgba(231, 220, 203, 0.9);
+        }
+
+        .resource-art.image {
+            background:
+                radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.38), transparent 18%),
+                linear-gradient(135deg, rgba(136, 170, 114, 0.78), rgba(198, 134, 73, 0.64));
+        }
+
+        .resource-art.html {
+            background:
+                linear-gradient(180deg, rgba(115, 145, 178, 0.18), rgba(115, 145, 178, 0.1)),
+                linear-gradient(180deg, #f7f0e3, #f2e7d3);
+        }
+
+        .resource-art.doc {
+            background:
+                linear-gradient(180deg, rgba(193, 136, 139, 0.18), rgba(193, 136, 139, 0.1)),
+                linear-gradient(180deg, #faf3e7, #f3e7d7);
+        }
+
+        .resource-art.file {
+            background:
+                linear-gradient(180deg, rgba(136, 170, 114, 0.12), rgba(136, 170, 114, 0.06)),
+                linear-gradient(180deg, #f8f2e7, #f1e7d9);
+        }
+
+        .resource-art.action {
+            background:
+                linear-gradient(180deg, rgba(198, 134, 73, 0.18), rgba(198, 134, 73, 0.08)),
+                linear-gradient(180deg, #faf3e7, #f2e9da);
+        }
+
+        .resource-art-lines {
+            position: absolute;
+            inset: 18px;
+            display: grid;
+            align-content: start;
+            gap: 8px;
+        }
+
+        .resource-art-lines span {
+            display: block;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(62, 47, 36, 0.1);
+        }
+
+        .resource-art-lines span:nth-child(2) {
+            width: 74%;
+        }
+
+        .resource-art-lines span:nth-child(3) {
+            width: 58%;
+        }
+
+        .resource-meta {
+            display: grid;
+            gap: 4px;
+        }
+
+        .resource-label {
+            color: var(--muted);
+            font: 500 10px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .resource-meta strong {
+            font-size: 14px;
+        }
+
+        .resource-meta span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .resource-dots {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+
+        .resource-dots button {
+            width: 8px;
+            height: 8px;
+            padding: 0;
+            border-radius: 50%;
+            border: 0;
+            background: rgba(139, 124, 108, 0.28);
+            cursor: pointer;
+        }
+
+        .resource-dots button.is-active {
+            background: var(--caramel);
+        }
+
+        .detail-overlay,
+        .resource-preview,
+        .toast {
+            position: absolute;
+            z-index: 8;
+            transition:
+                opacity var(--transition),
+                transform var(--transition);
+        }
+
+        .detail-overlay,
+        .resource-preview {
+            inset: 74px 12px 18px;
+            display: none;
+            padding: 14px;
+            border-radius: 22px;
+            border: 1px solid rgba(231, 220, 203, 0.96);
+            background: rgba(255, 253, 250, 0.98);
+            box-shadow: 0 24px 60px rgba(46, 34, 24, 0.16);
+            overflow: hidden;
+        }
+
+        .detail-overlay.is-visible,
+        .resource-preview.is-visible {
+            display: grid;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .overlay-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .overlay-title {
+            display: grid;
+            gap: 4px;
+        }
+
+        .overlay-title strong {
+            font-size: 18px;
+            letter-spacing: -0.02em;
+        }
+
+        .overlay-title span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .ghost-button {
+            min-width: 34px;
+            height: 34px;
+            padding: 0 12px;
+            font: 500 12px/1 "IBM Plex Mono", monospace;
+        }
+
+        .overlay-body {
+            overflow: auto;
+            display: grid;
+            gap: 10px;
+            padding-right: 2px;
+        }
+
+        .preview-art-large {
+            height: 188px;
+            border-radius: 20px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(231, 220, 203, 0.92);
+            background: var(--surface-soft);
+        }
+
+        .preview-summary {
+            display: grid;
+            gap: 10px;
+        }
+
+        .preview-summary strong {
+            font-size: 16px;
+        }
+
+        .preview-summary p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .preview-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .preview-tags span {
+            min-height: 28px;
+            display: inline-flex;
+            align-items: center;
+            padding: 0 10px;
+            border-radius: 999px;
+            background: rgba(255, 253, 250, 0.94);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font: 500 11px/1 "IBM Plex Mono", monospace;
+        }
+
+        .control-panel {
+            display: grid;
+            gap: 14px;
+        }
+
+        .control-card {
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: rgba(255, 253, 250, 0.9);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .control-card h2 {
+            margin: 0 0 6px;
+            font: 600 22px/1.05 "Fredoka", sans-serif;
+            letter-spacing: -0.03em;
+        }
+
+        .control-card p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+            text-wrap: pretty;
+        }
+
+        .mode-grid {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .mode-grid.two {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .mode-grid.three {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .mode-button,
+        .tone-button {
+            min-height: 54px;
+            padding: 10px 12px;
+            border-radius: 16px;
+            text-align: left;
+        }
+
+        .mode-button.is-active,
+        .tone-button.is-active {
+            border-color: rgba(198, 134, 73, 0.44);
+            background: linear-gradient(180deg, rgba(255, 253, 250, 0.96), rgba(245, 237, 223, 0.96));
+            color: var(--ink);
+            box-shadow: 0 0 0 3px rgba(198, 134, 73, 0.08);
+        }
+
+        .mode-button strong,
+        .tone-button strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        .mode-button span,
+        .tone-button span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.35;
+            text-wrap: pretty;
+        }
+
+        .mode-button.is-active span,
+        .tone-button.is-active span {
+            color: var(--muted);
+        }
+
+        .injection-bar {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .injection-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .legend {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .legend-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-top: 6px;
+            background: var(--caramel);
+            flex: none;
+        }
+
+        .legend-row strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 3px;
+        }
+
+        .legend-row span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            text-wrap: pretty;
+        }
+
+        .toast {
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+            min-width: 220px;
+            max-width: calc(100% - 32px);
+            padding: 12px 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(231, 220, 203, 0.96);
+            background: rgba(255, 253, 250, 0.98);
+            box-shadow: 0 18px 40px rgba(46, 34, 24, 0.16);
+            text-align: center;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .toast.is-visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .toast strong {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 2px;
+        }
+
+        .toast span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 1040px) {
+            .workspace {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .stage {
+                order: 1;
+            }
+
+            .control-panel {
+                order: 2;
+            }
+        }
+
+        @media (max-width: 560px) {
+            body {
+                padding: 16px 10px 28px;
+            }
+
+            .stage {
+                padding: 10px;
+            }
+
+            .phone-shell {
+                width: min(100%, 390px);
+            }
+
+            .hub-panel {
+                width: 67%;
+                padding: 72px 10px 14px;
+            }
+
+            .hub-title {
+                font-size: 25px;
+            }
+
+            .mode-grid.two,
+            .mode-grid.three,
+            .injection-row {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="eyebrow">Capability Hub Draft</div>
+            <h1>Right panel as a live capability hub</h1>
+            <p class="lead">This draft stops treating Skills as a standalone page. The right panel becomes a session-level capability hub: clickable blocks first, richer detail second, and a recent-resources convergence area that catches images, HTML prototypes, notes, and touched files from the current AI flow.</p>
+        </section>
+
+        <section class="workspace">
+            <section class="stage">
+                <div class="phone-shell">
+                    <div class="phone-screen">
+                        <div class="notch" aria-hidden="true"></div>
+
+                        <section class="conversation-strip" aria-hidden="true">
+                            <div class="avatar"></div>
+                            <div class="ghost-card">
+                                <div class="ghost-line"></div>
+                                <div class="ghost-line short"></div>
+                                <div class="ghost-line"></div>
+                                <div class="ghost-line short"></div>
+                                <div class="ghost-line"></div>
+                            </div>
+                        </section>
+
+                        <aside class="hub-panel" aria-label="Capability hub panel">
+                            <div class="hub-scroll" id="hub-scroll"></div>
+                            <div class="detail-overlay" id="detail-overlay"></div>
+                            <div class="resource-preview" id="resource-preview"></div>
+                            <div class="toast" id="toast"></div>
+                        </aside>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="control-panel">
+                <section class="control-card">
+                    <h2>Layout Recipe</h2>
+                    <p>Same capability-hub idea, three different first-screen emphases. Every button here is live and updates the phone preview immediately.</p>
+                    <div class="mode-grid three" id="recipe-controls"></div>
+                </section>
+
+                <section class="control-card">
+                    <h2>Detail Interaction</h2>
+                    <p>Clicking a capability block can open richer content in three real ways: overlay, inline expand, or replace-the-panel.</p>
+                    <div class="mode-grid three" id="detail-controls"></div>
+                </section>
+
+                <section class="control-card">
+                    <h2>Inject Demo Resources</h2>
+                    <p>Simulate the hub receiving new AI results. This shows whether the recent-resources convergence area still feels useful once the panel becomes busy.</p>
+                    <div class="injection-bar">
+                        <div class="injection-row">
+                            <button class="tone-button" type="button" data-inject="image">
+                                <strong>New image</strong>
+                                <span>Add a fresh AI-generated image result.</span>
+                            </button>
+                            <button class="tone-button" type="button" data-inject="artifact">
+                                <strong>New artifact</strong>
+                                <span>Add a new HTML or note-style deliverable.</span>
+                            </button>
+                        </div>
+                        <div class="injection-row">
+                            <button class="tone-button" type="button" data-inject="file">
+                                <strong>New file</strong>
+                                <span>Add a new touched file into the recent feed.</span>
+                            </button>
+                            <button class="tone-button" type="button" data-reset-demo="true">
+                                <strong>Reset demo</strong>
+                                <span>Return to the original module and resource state.</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="control-card">
+                    <h2>Interaction Notes</h2>
+                    <div class="legend">
+                        <div class="legend-row">
+                            <div class="legend-dot"></div>
+                            <div>
+                                <strong>Capability blocks are the first layer</strong>
+                                <span>The first thing you see is not a list page. It is a set of useful blocks like Skills History, Generated Images, Artifacts, and Touched Files.</span>
+                            </div>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-dot"></div>
+                            <div>
+                                <strong>Recent resources are the convergence layer</strong>
+                                <span>Images, files, HTML prototypes, and notes all end up in one place so the user can quickly revisit what the AI just produced.</span>
+                            </div>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-dot"></div>
+                            <div>
+                                <strong>Settings stays separate</strong>
+                                <span>Installed Skills remains in Settings. This hub is about current-session capability and output, not machine inventory.</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        const recipes = [
+            {
+                id: "blocks-first",
+                title: "Blocks First",
+                subtitle: "Capability blocks lead",
+                note: "Skills, images, files, and artifacts appear first. Recent resources sit below as a catch basin."
+            },
+            {
+                id: "balanced",
+                title: "Balanced",
+                subtitle: "Blocks plus convergence",
+                note: "Capability blocks still lead, but the recent-resources strip moves into the middle of the panel."
+            },
+            {
+                id: "projection-first",
+                title: "Projection First",
+                subtitle: "Recent output leads",
+                note: "The newest AI results appear first, followed by the capability blocks that produced them."
+            }
+        ];
+
+        const detailModes = [
+            {
+                id: "overlay",
+                title: "Overlay",
+                subtitle: "Lightweight pop-up"
+            },
+            {
+                id: "expand",
+                title: "Expand",
+                subtitle: "Inline under the tile"
+            },
+            {
+                id: "replace",
+                title: "Replace",
+                subtitle: "Swap to full detail"
+            }
+        ];
+
+        const initialCapabilities = {
+            skills: {
+                id: "skills",
+                icon: "S",
+                accent: "sage",
+                title: "Skills History",
+                description: "The skills that actually shaped this chat.",
+                summaryLabel: "used",
+                items: [
+                    { id: "skill-1", type: "skill", title: "using-superpowers", meta: "Session preflight and skill routing." },
+                    { id: "skill-2", type: "skill", title: "codex-harness", meta: "Local experience and repo quality guard." },
+                    { id: "skill-3", type: "skill", title: "using-git-worktrees", meta: "Clean sibling worktree protocol." },
+                    { id: "skill-4", type: "skill", title: "web-design-engineer", meta: "Interactive visual prototype shaping." }
+                ]
+            },
+            images: {
+                id: "images",
+                icon: "I",
+                accent: "blue",
+                title: "Generated Images",
+                description: "Recent AI-created images and visual edits.",
+                summaryLabel: "recent",
+                items: [
+                    { id: "img-1", type: "image", title: "Warm doodle retouch", meta: "png / soft illustration pass" },
+                    { id: "img-2", type: "image", title: "Panel compare board", meta: "png / capability layout compare" },
+                    { id: "img-3", type: "image", title: "Badge icon sheet", meta: "png / UI tokens and icon direction" }
+                ]
+            },
+            artifacts: {
+                id: "artifacts",
+                icon: "A",
+                accent: "caramel",
+                title: "Artifacts",
+                description: "HTML drafts, notes, summaries, and handoff text.",
+                summaryLabel: "drafts",
+                items: [
+                    { id: "art-1", type: "html", title: "Capability Hub Prototype", meta: "html / online rough draft" },
+                    { id: "art-2", type: "doc", title: "Session panel note", meta: "md / direction summary" },
+                    { id: "art-3", type: "doc", title: "PR message draft", meta: "txt / pending real implementation" }
+                ]
+            },
+            files: {
+                id: "files",
+                icon: "F",
+                accent: "rose",
+                title: "Touched Files",
+                description: "Files the AI referenced or edited during the flow.",
+                summaryLabel: "files",
+                items: [
+                    { id: "file-1", type: "file", title: "RightSwipePanelHost.tsx", meta: "Swipe shell and panel width." },
+                    { id: "file-2", type: "file", title: "settings/skills.tsx", meta: "Installed-skills browser stays separate." },
+                    { id: "file-3", type: "file", title: "right-panel-capability-hub.html", meta: "Interactive draft prototype." }
+                ]
+            },
+            actions: {
+                id: "actions",
+                icon: "Q",
+                accent: "sage",
+                title: "Quick Actions",
+                description: "Useful follow-up actions from the current state.",
+                summaryLabel: "ready",
+                items: [
+                    { id: "action-1", type: "action", title: "Open latest prototype", meta: "Jump to the newest interactive HTML draft." },
+                    { id: "action-2", type: "action", title: "Compare open modes", meta: "Cycle overlay, expand, and replace quickly." },
+                    { id: "action-3", type: "action", title: "Prepare OTA handoff", meta: "Queue the implementation-to-preview path." }
+                ]
+            }
+        };
+
+        const initialRecent = [
+            { id: "recent-1", from: "artifacts", type: "html", title: "Capability Hub Prototype", meta: "html / just updated", note: "Latest interactive rough HTML for the right panel." },
+            { id: "recent-2", from: "images", type: "image", title: "Panel compare board", meta: "png / design compare", note: "Visual board comparing panel directions." },
+            { id: "recent-3", from: "files", type: "file", title: "RightSwipePanelHost.tsx", meta: "tsx / referenced", note: "Current mobile right-swipe shell and width constraint." },
+            { id: "recent-4", from: "skills", type: "doc", title: "Skills flow summary", meta: "session / inline summary", note: "What skills were used and where they belong." },
+            { id: "recent-5", from: "artifacts", type: "doc", title: "Session panel note", meta: "md / direction note", note: "Explains the capability hub split." },
+            { id: "recent-6", from: "images", type: "image", title: "Warm doodle retouch", meta: "png / output", note: "Recent generated image from the same chat flow." }
+        ];
+
+        function cloneState() {
+            return {
+                recipe: "balanced",
+                detailMode: "overlay",
+                expandedCapabilityId: null,
+                replacedCapabilityId: null,
+                overlayCapabilityId: null,
+                previewResourceId: null,
+                resourceIndex: 0,
+                toast: null,
+                capabilities: JSON.parse(JSON.stringify(initialCapabilities)),
+                recentResources: JSON.parse(JSON.stringify(initialRecent))
+            };
+        }
+
+        const state = cloneState();
+
+        const hubScroll = document.getElementById("hub-scroll");
+        const detailOverlay = document.getElementById("detail-overlay");
+        const resourcePreview = document.getElementById("resource-preview");
+        const toastEl = document.getElementById("toast");
+        const recipeControls = document.getElementById("recipe-controls");
+        const detailControls = document.getElementById("detail-controls");
+
+        const capabilityOrder = ["skills", "images", "artifacts", "files", "actions"];
+
+        function getCapability(id) {
+            return state.capabilities[id];
+        }
+
+        function summaryCount(capability) {
+            return capability.items.length + " " + capability.summaryLabel;
+        }
+
+        function renderModeControls() {
+            recipeControls.innerHTML = recipes.map((recipe) => `
+                <button
+                    class="mode-button ${state.recipe === recipe.id ? "is-active" : ""}"
+                    type="button"
+                    data-set-recipe="${recipe.id}"
+                >
+                    <strong>${recipe.title}</strong>
+                    <span>${recipe.subtitle}</span>
+                </button>
+            `).join("");
+
+            detailControls.innerHTML = detailModes.map((mode) => `
+                <button
+                    class="mode-button ${state.detailMode === mode.id ? "is-active" : ""}"
+                    type="button"
+                    data-set-detail="${mode.id}"
+                >
+                    <strong>${mode.title}</strong>
+                    <span>${mode.subtitle}</span>
+                </button>
+            `).join("");
+        }
+
+        function renderHome() {
+            const recipe = recipes.find((entry) => entry.id === state.recipe);
+            const orderedCapabilities = capabilityOrder.map((id) => getCapability(id));
+
+            let blocks = "";
+            let recent = renderRecentResources();
+
+            if (state.recipe === "blocks-first") {
+                blocks = renderCapabilitySection(orderedCapabilities);
+                return `
+                    ${renderHubHead()}
+                    <div class="section-stack">
+                        ${blocks}
+                        ${recent}
+                    </div>
+                `;
+            }
+
+            if (state.recipe === "projection-first") {
+                blocks = renderCapabilitySection(orderedCapabilities);
+                return `
+                    ${renderHubHead()}
+                    <div class="section-stack">
+                        ${recent}
+                        ${blocks}
+                    </div>
+                `;
+            }
+
+            const firstHalf = renderCapabilitySection(orderedCapabilities.slice(0, 2));
+            const secondHalf = renderCapabilitySection(orderedCapabilities.slice(2));
+            return `
+                ${renderHubHead()}
+                <div class="section-stack">
+                    ${firstHalf}
+                    ${recent}
+                    ${secondHalf}
+                </div>
+            `;
+        }
+
+        function renderHubHead() {
+            return `
+                <div class="hub-kicker">This session</div>
+                <h2 class="hub-title">Capability Hub</h2>
+            `;
+        }
+
+        function renderCapabilitySection(capabilities) {
+            return `
+                <section class="section">
+                    <div class="section-head">
+                        <div class="section-label">Capability Blocks</div>
+                        <button class="section-action" type="button" data-show-toast="Blocks are the first layer|Click a block to open richer detail.">Why blocks?</button>
+                    </div>
+                    <div class="capability-list">
+                        ${capabilities.map(renderCapabilityCard).join("")}
+                    </div>
+                </section>
+            `;
+        }
+
+        function renderCapabilityCard(capability) {
+            const isExpanded = state.detailMode === "expand" && state.expandedCapabilityId === capability.id;
+            return `
+                <button
+                    class="capability-card ${isExpanded ? "is-open" : ""}"
+                    type="button"
+                    data-open-capability="${capability.id}"
+                >
+                    <div class="capability-top">
+                        <div class="capability-left">
+                            <div class="capability-icon ${capability.accent}">${capability.icon}</div>
+                            <div class="capability-copy">
+                                <p class="capability-title">${capability.title}</p>
+                                <p class="capability-desc">${capability.description}</p>
+                            </div>
+                        </div>
+                        <div class="count-pill">${summaryCount(capability)}</div>
+                    </div>
+                    <div class="preview-lines">
+                        ${capability.items.slice(0, 2).map((item) => `<div class="preview-line">${item.title}</div>`).join("")}
+                    </div>
+                    ${isExpanded ? renderInlineDetail(capability) : ""}
+                </button>
+            `;
+        }
+
+        function renderInlineDetail(capability) {
+            return `
+                <div class="inline-detail">
+                    <div class="section-head">
+                        <div class="section-label">Inline Detail</div>
+                        <button class="section-action" type="button" data-close-inline="${capability.id}">Collapse</button>
+                    </div>
+                    <div class="detail-list">
+                        ${capability.items.map((item) => renderDetailItem(item, capability.id)).join("")}
+                    </div>
+                    ${capability.id === "skills" ? `
+                        <button class="section-action" type="button" data-show-toast="Installed Skills stays in Settings|This block is only about what this chat used.">Installed Skills stays in Settings</button>
+                    ` : ""}
+                </div>
+            `;
+        }
+
+        function renderDetailItem(item, capabilityId) {
+            const previewId = mapItemToPreviewResource(item, capabilityId);
+            return `
+                <button class="detail-item" type="button" data-open-resource="${previewId}">
+                    <strong>${item.title}</strong>
+                    <span>${item.meta}</span>
+                </button>
+            `;
+        }
+
+        function renderRecentResources() {
+            const recent = state.recentResources;
+            const activeIndex = Math.max(0, Math.min(state.resourceIndex, recent.length - 1));
+            const cards = recent.map((resource) => renderResourceCard(resource)).join("");
+            const dots = recent.map((resource, index) => `
+                <button
+                    class="${index === activeIndex ? "is-active" : ""}"
+                    type="button"
+                    aria-label="Go to resource ${index + 1}"
+                    data-resource-index="${index}"
+                ></button>
+            `).join("");
+
+            return `
+                <section class="section">
+                    <div class="section-head">
+                        <div class="section-label">Recent Resources</div>
+                        <button class="section-action" type="button" data-show-toast="Recent Resources is the convergence layer|Images, files, docs, and HTML all collect here.">Why this strip?</button>
+                    </div>
+                    <div class="resource-carousel">
+                        <div class="resource-toolbar">
+                            <div class="resource-count">${recent.length} aggregated outputs</div>
+                            <div class="toolbar-group">
+                                <button class="toolbar-button" type="button" data-prev-resource="true">&#x2039;</button>
+                                <button class="toolbar-button" type="button" data-next-resource="true">&#x203A;</button>
+                            </div>
+                        </div>
+                        <div class="resource-viewport">
+                            <div class="resource-track" style="transform: translateX(calc(${activeIndex} * -100% - ${activeIndex} * 10px));">
+                                ${cards}
+                            </div>
+                        </div>
+                        <div class="resource-dots">${dots}</div>
+                    </div>
+                </section>
+            `;
+        }
+
+        function renderResourceCard(resource) {
+            return `
+                <button class="resource-card" type="button" data-open-resource="${resource.id}">
+                    <div class="resource-art ${resource.type}">
+                        <div class="resource-art-lines">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                    <div class="resource-meta">
+                        <div class="resource-label">${resource.from}</div>
+                        <strong>${resource.title}</strong>
+                        <span>${resource.meta}</span>
+                    </div>
+                </button>
+            `;
+        }
+
+        function renderReplaceView(capability) {
+            return `
+                <div class="hub-kicker">Capability detail</div>
+                <div class="overlay-head" style="margin-top: 4px;">
+                    <div class="overlay-title">
+                        <strong>${capability.title}</strong>
+                        <span>${capability.description}</span>
+                    </div>
+                    <button class="ghost-button" type="button" data-back-home="true">Back</button>
+                </div>
+                <div class="section-stack">
+                    <section class="section">
+                        <div class="section-head">
+                            <div class="section-label">Items</div>
+                            <button class="section-action" type="button" data-show-toast="${capability.title}|This is the full replace mode view.">View mode</button>
+                        </div>
+                        <div class="detail-list">
+                            ${capability.items.map((item) => renderDetailItem(item, capability.id)).join("")}
+                        </div>
+                    </section>
+                    <section class="section">
+                        <div class="section-head">
+                            <div class="section-label">Boundary</div>
+                        </div>
+                        <div class="detail-list">
+                            <button class="detail-item" type="button" data-show-toast="Capability Hub boundary|Blocks live in the panel. Installed inventories stay in Settings.">
+                                <strong>Capability Hub boundary</strong>
+                                <span>Used in session here; installed on machine in Settings.</span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            `;
+        }
+
+        function renderOverlayCapability(capability) {
+            if (!capability) {
+                detailOverlay.className = "detail-overlay";
+                detailOverlay.innerHTML = "";
+                return;
+            }
+
+            detailOverlay.className = "detail-overlay is-visible";
+            detailOverlay.innerHTML = `
+                <div class="overlay-head">
+                    <div class="overlay-title">
+                        <strong>${capability.title}</strong>
+                        <span>${capability.description}</span>
+                    </div>
+                    <button class="ghost-button" type="button" data-close-overlay="true">Close</button>
+                </div>
+                <div class="overlay-body">
+                    <div class="detail-list">
+                        ${capability.items.map((item) => renderDetailItem(item, capability.id)).join("")}
+                    </div>
+                    ${capability.id === "skills" ? `
+                        <button class="section-action" type="button" data-show-toast="Installed Skills stays in Settings|This overlay only reflects what happened in the current chat.">Installed Skills stays in Settings</button>
+                    ` : ""}
+                </div>
+            `;
+        }
+
+        function renderResourcePreview(resource) {
+            if (!resource) {
+                resourcePreview.className = "resource-preview";
+                resourcePreview.innerHTML = "";
+                return;
+            }
+
+            resourcePreview.className = "resource-preview is-visible";
+            resourcePreview.innerHTML = `
+                <div class="overlay-head">
+                    <div class="overlay-title">
+                        <strong>${resource.title}</strong>
+                        <span>${resource.meta}</span>
+                    </div>
+                    <button class="ghost-button" type="button" data-close-preview="true">Close</button>
+                </div>
+                <div class="overlay-body">
+                    <div class="preview-art-large ${resource.type}">
+                        <div class="resource-art-lines" style="inset: 22px;">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                    <div class="preview-summary">
+                        <strong>${resource.title}</strong>
+                        <p>${resource.note}</p>
+                        <div class="preview-tags">
+                            <span>${resource.from}</span>
+                            <span>${resource.type}</span>
+                            <span>${resource.meta}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderToast() {
+            if (!state.toast) {
+                toastEl.className = "toast";
+                toastEl.innerHTML = "";
+                return;
+            }
+            toastEl.className = "toast is-visible";
+            toastEl.innerHTML = `
+                <strong>${state.toast.title}</strong>
+                <span>${state.toast.body}</span>
+            `;
+        }
+
+        function mapItemToPreviewResource(item, capabilityId) {
+            const direct = state.recentResources.find((resource) => resource.title === item.title);
+            if (direct) return direct.id;
+
+            const syntheticId = `synthetic-${capabilityId}-${item.id}`;
+            const synthetic = {
+                id: syntheticId,
+                from: capabilityId,
+                type: item.type === "skill" ? "doc" : item.type,
+                title: item.title,
+                meta: item.meta,
+                note: item.meta
+            };
+            state.recentResources.unshift(synthetic);
+            state.resourceIndex = 0;
+            trimRecentResources();
+            return syntheticId;
+        }
+
+        function trimRecentResources() {
+            state.recentResources = state.recentResources.slice(0, 10);
+        }
+
+        function getOpenOverlayCapability() {
+            return state.overlayCapabilityId ? getCapability(state.overlayCapabilityId) : null;
+        }
+
+        function getPreviewResource() {
+            return state.previewResourceId ? state.recentResources.find((resource) => resource.id === state.previewResourceId) : null;
+        }
+
+        function showToast(title, body) {
+            state.toast = { title, body };
+            renderToast();
+            clearTimeout(showToast._timer);
+            showToast._timer = setTimeout(() => {
+                state.toast = null;
+                renderToast();
+            }, 2200);
+        }
+
+        function openCapability(capabilityId) {
+            state.previewResourceId = null;
+            if (state.detailMode === "expand") {
+                state.expandedCapabilityId = state.expandedCapabilityId === capabilityId ? null : capabilityId;
+                state.overlayCapabilityId = null;
+                state.replacedCapabilityId = null;
+                render();
+                return;
+            }
+
+            if (state.detailMode === "replace") {
+                state.replacedCapabilityId = capabilityId;
+                state.overlayCapabilityId = null;
+                state.expandedCapabilityId = null;
+                render();
+                return;
+            }
+
+            state.overlayCapabilityId = capabilityId;
+            state.expandedCapabilityId = null;
+            state.replacedCapabilityId = null;
+            render();
+        }
+
+        function openResource(resourceId) {
+            state.previewResourceId = resourceId;
+            renderResourcePreview(getPreviewResource());
+        }
+
+        function closePreview() {
+            state.previewResourceId = null;
+            renderResourcePreview(null);
+        }
+
+        function injectResource(kind) {
+            const stamp = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            if (kind === "image") {
+                const item = {
+                    id: "img-live-" + Date.now(),
+                    type: "image",
+                    title: "New panel render " + stamp,
+                    meta: "png / fresh AI output"
+                };
+                state.capabilities.images.items.unshift(item);
+                state.recentResources.unshift({
+                    id: "recent-live-img-" + Date.now(),
+                    from: "images",
+                    type: "image",
+                    title: item.title,
+                    meta: "png / " + stamp,
+                    note: "Simulated fresh generated image added into the convergence strip."
+                });
+                showToast("Injected image", "Recent Resources now captures a new AI image result.");
+            } else if (kind === "artifact") {
+                const item = {
+                    id: "art-live-" + Date.now(),
+                    type: "html",
+                    title: "Hub v0 draft " + stamp,
+                    meta: "html / new rough deliverable"
+                };
+                state.capabilities.artifacts.items.unshift(item);
+                state.recentResources.unshift({
+                    id: "recent-live-art-" + Date.now(),
+                    from: "artifacts",
+                    type: "html",
+                    title: item.title,
+                    meta: "html / " + stamp,
+                    note: "Simulated new draft artifact pushed from the current chat."
+                });
+                showToast("Injected artifact", "A new prototype artifact has been added into the hub.");
+            } else {
+                const item = {
+                    id: "file-live-" + Date.now(),
+                    type: "file",
+                    title: "GeneratedImagesPanel.tsx",
+                    meta: "tsx / touched " + stamp
+                };
+                state.capabilities.files.items.unshift(item);
+                state.recentResources.unshift({
+                    id: "recent-live-file-" + Date.now(),
+                    from: "files",
+                    type: "file",
+                    title: item.title,
+                    meta: "tsx / " + stamp,
+                    note: "Simulated touched file pushed into the recent convergence area."
+                });
+                showToast("Injected file", "A new touched file now appears in the capability hub.");
+            }
+
+            trimRecentResources();
+            state.resourceIndex = 0;
+            render();
+        }
+
+        function resetDemo() {
+            const fresh = cloneState();
+            Object.assign(state, fresh);
+            render();
+            showToast("Demo reset", "Returned to the original capability and resource state.");
+        }
+
+        function render() {
+            renderModeControls();
+
+            if (state.replacedCapabilityId) {
+                hubScroll.innerHTML = renderReplaceView(getCapability(state.replacedCapabilityId));
+            } else {
+                hubScroll.innerHTML = renderHome();
+            }
+
+            renderOverlayCapability(getOpenOverlayCapability());
+            renderResourcePreview(getPreviewResource());
+            renderToast();
+        }
+
+        document.addEventListener("click", (event) => {
+            const target = event.target.closest("[data-set-recipe], [data-set-detail], [data-open-capability], [data-open-resource], [data-close-overlay], [data-close-preview], [data-back-home], [data-close-inline], [data-prev-resource], [data-next-resource], [data-resource-index], [data-inject], [data-reset-demo], [data-show-toast]");
+            if (!target) return;
+
+            if (target.dataset.setRecipe) {
+                state.recipe = target.dataset.setRecipe;
+                state.resourceIndex = 0;
+                render();
+                return;
+            }
+
+            if (target.dataset.setDetail) {
+                state.detailMode = target.dataset.setDetail;
+                state.expandedCapabilityId = null;
+                state.overlayCapabilityId = null;
+                state.replacedCapabilityId = null;
+                render();
+                return;
+            }
+
+            if (target.dataset.openCapability) {
+                openCapability(target.dataset.openCapability);
+                return;
+            }
+
+            if (target.dataset.openResource) {
+                openResource(target.dataset.openResource);
+                return;
+            }
+
+            if (target.dataset.closeOverlay) {
+                state.overlayCapabilityId = null;
+                renderOverlayCapability(null);
+                return;
+            }
+
+            if (target.dataset.closePreview) {
+                closePreview();
+                return;
+            }
+
+            if (target.dataset.backHome) {
+                state.replacedCapabilityId = null;
+                render();
+                return;
+            }
+
+            if (target.dataset.closeInline) {
+                state.expandedCapabilityId = null;
+                render();
+                return;
+            }
+
+            if (target.dataset.prevResource) {
+                state.resourceIndex = Math.max(0, state.resourceIndex - 1);
+                render();
+                return;
+            }
+
+            if (target.dataset.nextResource) {
+                state.resourceIndex = Math.min(state.recentResources.length - 1, state.resourceIndex + 1);
+                render();
+                return;
+            }
+
+            if (target.dataset.resourceIndex) {
+                state.resourceIndex = Number(target.dataset.resourceIndex);
+                render();
+                return;
+            }
+
+            if (target.dataset.inject) {
+                injectResource(target.dataset.inject);
+                return;
+            }
+
+            if (target.dataset.resetDemo) {
+                resetDemo();
+                return;
+            }
+
+            if (target.dataset.showToast) {
+                const [title, body] = target.dataset.showToast.split("|");
+                showToast(title, body);
+            }
+        });
+
+        render();
+    </script>
+</body>
+</html>

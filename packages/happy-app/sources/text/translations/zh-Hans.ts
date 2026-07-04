@@ -180,6 +180,31 @@ export const zhHans: TranslationStructure = {
         missingPath: '缺少文件路径',
     },
 
+    rightPanelCapabilityHub: {
+        title: '能力中心',
+        emptyHomeDescription: '打开一个会话后，这里会集中展示本次会话的 skills、文件、图片和 artifacts。',
+        recentTitle: '最近资源',
+        noRecent: '还没有最近资源',
+        back: '返回',
+        blocks: {
+            skills: 'Skills',
+            images: '图片',
+            artifacts: 'Artifacts',
+            files: '文件',
+        },
+        empty: {
+            skills: '当前会话还没有可用的 skills',
+            images: '当前会话还没有图片',
+            artifacts: '当前会话还没有关联 artifacts',
+            files: '当前会话还没有触达文件',
+        },
+        meta: {
+            available: '当前会话可用',
+            image: '图片附件',
+            artifact: '关联 Artifact',
+        },
+    },
+
     settingsAppearance: {
         mascot: '吉祥物',
         mascotDescription: '选择主屏迎接你的土拨鼠形象',

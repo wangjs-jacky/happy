@@ -196,6 +196,31 @@ export const pl: TranslationStructure = {
         missingPath: 'Brak ścieżki pliku',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see skills, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            skills: 'Skills',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            skills: 'No skills available for this session',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Maskotka',
         mascotDescription: 'Wybierz świstaka, który wita Cię na ekranie głównym',

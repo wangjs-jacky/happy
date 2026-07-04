@@ -15,6 +15,7 @@ import { hapticsLight } from './haptics';
 
 type Props = {
     children: React.ReactNode;
+    panelContent?: React.ReactNode;
 };
 
 const DECIDE_OFFSET = 3;
@@ -26,7 +27,7 @@ const SPRING_CONFIG = {
     mass: 0.9,
 };
 
-export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ children }: Props) {
+export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ children, panelContent }: Props) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const { width: windowWidth } = useWindowDimensions();
@@ -181,6 +182,9 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
                                 opacity: 0.9,
                             }}
                         />
+                        <View style={{ flex: 1, minHeight: 0 }}>
+                            {panelContent}
+                        </View>
                     </View>
                 </Animated.View>
                 {open && (
