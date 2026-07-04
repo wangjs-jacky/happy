@@ -180,6 +180,7 @@ export function useSessionQuickActions(
             sessionId: session.id,
             model: modeMeta.model ?? undefined,
             permissionMode: modeMeta.permissionMode,
+            effort: modeMeta.effort,
         });
 
         switch (result.type) {
@@ -193,6 +194,9 @@ export function useSessionQuickActions(
                 }
                 if (session.modelMode) {
                     storage.getState().updateSessionModelMode(result.sessionId, session.modelMode);
+                }
+                if (session.effortLevel !== undefined) {
+                    storage.getState().updateSessionEffortLevel(result.sessionId, session.effortLevel);
                 }
 
                 navigateToSession(result.sessionId);

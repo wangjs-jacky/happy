@@ -64,6 +64,24 @@ describe('buildCodexTurnPrompt', () => {
             'start fresh',
         );
     });
+
+    it('tells Codex when Happy has already applied model and effort settings', () => {
+        const prompt = buildCodexTurnPrompt({
+            message: '切换 xhigh 模式',
+            mode: {
+                model: 'gpt-5.4',
+                effort: 'xhigh',
+            },
+            includeAppendSystemPrompt: false,
+            includeTitleInstruction: false,
+        });
+
+        expect(prompt).toBe(
+            'Happy has already applied these Codex runtime settings for this turn: model=gpt-5.4, reasoning_effort=xhigh. ' +
+            'If the user asks to switch to one of these settings, acknowledge that it is already active; do not look for a tool or API to change it.\n\n' +
+            '切换 xhigh 模式',
+        );
+    });
 });
 
 describe('hashCodexEnhancedMode', () => {

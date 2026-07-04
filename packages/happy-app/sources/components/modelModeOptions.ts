@@ -88,11 +88,8 @@ export function getCodexModelModes(): ModelMode[] {
         { key: 'default', name: 'default model', description: null },
         { key: 'gpt-5.5', name: 'gpt-5.5', description: null },
         { key: 'gpt-5.4', name: 'gpt-5.4', description: null },
-        { key: 'gpt-5.3-codex', name: 'gpt-5.3-codex', description: null },
-        { key: 'gpt-5.2-codex', name: 'gpt-5.2-codex', description: null },
-        { key: 'gpt-5.1-codex-max', name: 'gpt-5.1-codex-max', description: null },
-        { key: 'gpt-5.2', name: 'gpt-5.2', description: null },
-        { key: 'gpt-5.1-codex-mini', name: 'gpt-5.1-codex-mini', description: null },
+        { key: 'gpt-5.4-mini', name: 'gpt-5.4-mini', description: null },
+        { key: 'gpt-5.3-codex-spark', name: 'gpt-5.3-codex-spark', description: null },
     ];
 }
 
@@ -235,6 +232,7 @@ export function getClaudeEffortLevels(): EffortLevel[] {
 
 export function getCodexEffortLevels(): EffortLevel[] {
     return [
+        { key: 'minimal', name: 'minimal' },
         { key: 'low', name: 'low' },
         { key: 'medium', name: 'medium' },
         { key: 'high', name: 'high' },
@@ -253,7 +251,7 @@ export function getDefaultEffortKey(flavor: AgentFlavor): string | null {
 }
 
 // Per-model effort: returns effort levels for a specific model, or empty if the model has no effort
-export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string): EffortLevel[] {
+export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, metadata?: Metadata | null): EffortLevel[] {
     // Claude and Codex expose effort/thought levels regardless of which
     // specific model is picked — the same low/medium/high/max scale applies
     // to the whole flavor (mirrors how Codex already worked, which the user
@@ -262,6 +260,10 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string):
         return getClaudeEffortLevels();
     }
     if (flavor === 'codex') {
+        const metadataEfforts = mapMetadataOptions(metadata?.thoughtLevels);
+        if (metadataEfforts.length > 0) {
+            return metadataEfforts;
+        }
         return getCodexEffortLevels();
     }
     return [];

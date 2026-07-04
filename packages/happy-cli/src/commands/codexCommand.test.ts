@@ -58,6 +58,8 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: undefined,
+      model: undefined,
+      effort: undefined,
     })
     expect(
       mocks.mockEnsureDaemonRunning.mock.invocationCallOrder[0],
@@ -82,6 +84,8 @@ describe('handleCodexCommand', () => {
       noSandbox: true,
       resumeThreadId: 'thread-123',
       permissionMode: undefined,
+      model: undefined,
+      effort: undefined,
     })
   })
 
@@ -94,6 +98,36 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
+    })
+  })
+
+  it('passes model through to runCodex', async () => {
+    await handleCodexCommand(['--model', 'gpt-5.4'])
+
+    expect(mocks.mockRunCodex).toHaveBeenCalledWith({
+      credentials: { token: 'token' },
+      startedBy: undefined,
+      noSandbox: false,
+      resumeThreadId: undefined,
+      permissionMode: undefined,
+      model: 'gpt-5.4',
+      effort: undefined,
+    })
+  })
+
+  it('passes effort through to runCodex', async () => {
+    await handleCodexCommand(['--effort', 'xhigh'])
+
+    expect(mocks.mockRunCodex).toHaveBeenCalledWith({
+      credentials: { token: 'token' },
+      startedBy: undefined,
+      noSandbox: false,
+      resumeThreadId: undefined,
+      permissionMode: undefined,
+      model: undefined,
+      effort: 'xhigh',
     })
   })
 
@@ -106,6 +140,8 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
     })
   })
 })
