@@ -3,7 +3,7 @@ import * as React from 'react';
 // useOtaVersions —— 拉取自建 OSS 上某频道的全部 OTA 历史版本，供「OTA 版本」选择器展示。
 //
 // 数据来源：发布脚本 publish-ota.js 每次发布都会在 OSS 写一份轻量元信息
-//   meta/<platform>/<runtime>/<channel>/<stamp>.json = { stamp, createdAt, id, channel, git }
+//   meta/<platform>/<runtime>/<channel>/<stamp>.json = { stamp, createdAt, id, channel, git, display }
 // 这里分两步：
 //   1) 对桶做 ListObjectsV2（GET ?list-type=2&prefix=meta/.../<channel>/）拿到全部 key；
 //      OSS 返回 XML，用正则提取 <Key> 即可（受控格式，无需引 XML 解析库）。
@@ -21,12 +21,23 @@ export interface OtaGitInfo {
     dirty?: boolean;
 }
 
+export interface OtaDisplayInfo {
+    title?: string;
+    message?: string;
+    source?: {
+        type?: string;
+        number?: string;
+        url?: string;
+    };
+}
+
 export interface OtaVersion {
     stamp: string;        // 毫秒时间戳，定向锁定的 key
     id: string;           // manifest UUID（= 运行时 Update ID）
     createdAt: string;    // ISO 时间
     channel: string;
     git: OtaGitInfo;
+    display?: OtaDisplayInfo;
 }
 
 export interface OtaVersionsState {
@@ -87,6 +98,7 @@ export function useOtaVersions(channel: string = 'preview', platform: string = '
                             createdAt: meta.createdAt ?? '',
                             channel: meta.channel ?? channel,
                             git: meta.git ?? {},
+                            display: meta.display ?? undefined,
                         } as OtaVersion;
                     } catch {
                         return null;

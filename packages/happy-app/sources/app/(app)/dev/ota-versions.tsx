@@ -14,15 +14,26 @@ import { useOtaTarget } from '@/hooks/useOtaTarget';
 // 高亮当前运行 / 当前锁定项，点选即把本设备锁定到该版本（reload 生效），可一键解除锁定回到最新。
 // production 包拉的是 production 频道，FC 忽略锁定参数，故此页只对 preview 包有意义。
 
-// 把一个版本渲染成一行的文案：标题用 commit subject，副标题给 sha + 分支 + 时间。
-function shortLine(v: OtaVersion): { title: string; subtitle: string } {
+// 把一个版本渲染成一行的文案：PR 预览 OTA 优先展示发布时记录的中文标题，
+// 没有 display 元数据的历史版本继续退回 commit subject。
+function shortLine(v: OtaVersion): { title: string; subtitle: string; message?: string } {
     const sha = v.git?.sha ? `${v.git.sha}${v.git.dirty ? '*' : ''}` : v.id.slice(0, 8);
     const when = v.createdAt ? new Date(v.createdAt).toLocaleString() : v.stamp;
     const branch = v.git?.branch ? ` · ${v.git.branch}` : '';
+    const title = v.display?.title || v.git?.subject || `(无 commit 信息) ${v.id.slice(0, 8)}`;
+    const source = v.display?.source?.number ? `PR #${v.display.source.number} · ` : '';
+    const commitSubject = v.display?.title && v.git?.subject ? `${v.git.subject} · ` : '';
     return {
-        title: v.git?.subject || `(无 commit 信息) ${v.id.slice(0, 8)}`,
-        subtitle: `${sha}${branch} · ${when}`,
+        title,
+        subtitle: `${source}${commitSubject}${sha}${branch} · ${when}`,
+        message: v.display?.message,
     };
+}
+
+function previewMessage(message: string | undefined): string {
+    if (!message) return '';
+    const compact = message.replace(/\n{3,}/g, '\n\n').trim();
+    return compact.length > 500 ? `${compact.slice(0, 500)}...` : compact;
 }
 
 export default function OtaVersionsScreen() {
@@ -33,9 +44,10 @@ export default function OtaVersionsScreen() {
     const handleLock = React.useCallback((v: OtaVersion) => {
         (async () => {
             const line = shortLine(v);
+            const message = previewMessage(line.message);
             const confirmed = await Modal.confirm(
                 '切换到此版本？',
-                `${line.title}\n${line.subtitle}\n\n本设备将锁定到该 OTA 版本并立即重载。其他设备不受影响。`,
+                `${line.title}\n${line.subtitle}${message ? `\n\n${message}` : ''}\n\n本设备将锁定到该 OTA 版本并立即重载。其他设备不受影响。`,
                 { confirmText: '切换并重载', cancelText: '取消' },
             );
             if (confirmed) {
