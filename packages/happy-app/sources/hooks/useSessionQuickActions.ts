@@ -2,9 +2,9 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionDelete, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
-import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
+import { storage, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
@@ -112,7 +112,6 @@ export function useSessionQuickActions(
     const sessionStatus = useSessionStatus(session);
     const machineId = session.metadata?.machineId ?? '';
     const machine = useMachine(machineId);
-    const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
@@ -219,6 +218,36 @@ export function useSessionQuickActions(
         performArchive();
     }, [performArchive]);
 
+    const [deletingSession, performDelete] = useHappyAction(async () => {
+        await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
+
+        if (sessionStatus.isConnected || session.active) {
+            await sessionKill(session.id).catch(() => {});
+        }
+
+        const result = await sessionDelete(session.id);
+        if (!result.success) {
+            throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
+        }
+
+        options.onAfterDelete?.();
+    });
+
+    const deleteSessionAction = React.useCallback(() => {
+        Modal.alert(
+            t('sessionInfo.deleteSession'),
+            t('sessionInfo.deleteSessionWarning'),
+            [
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                    text: t('sessionInfo.deleteSession'),
+                    style: 'destructive',
+                    onPress: performDelete,
+                },
+            ],
+        );
+    }, [performDelete]);
+
     const resumeSession = React.useCallback(() => {
         performResume();
     }, [performResume]);
@@ -253,7 +282,7 @@ export function useSessionQuickActions(
         } as any);
     }, [canFork, session.id]);
 
-    const canCopySessionMetadata = __DEV__ || devModeEnabled;
+    const canCopySessionMetadata = false;
 
     const actionItems = React.useMemo<SessionActionItem[]>(() => {
         const items: SessionActionItem[] = [
@@ -269,17 +298,14 @@ export function useSessionQuickActions(
             items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
         }
 
-        if (canCopySessionMetadata) {
-            items.push({ id: 'copy-metadata', icon: 'bug-outline', label: t('sessionInfo.copyMetadata'), onPress: copySessionMetadata });
-            items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' & Client Logs', onPress: copySessionMetadataAndLogs });
-        }
-
-        items.push({ id: 'archive', icon: 'archive-outline', label: 'Archive', onPress: archiveSession, destructive: true });
+        items.push({ id: 'archive', icon: 'archive-outline', label: 'Archive', onPress: archiveSession });
+        items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSessionAction, destructive: true });
 
         return items;
     }, [
         archiveSession,
         canCopySessionMetadata,
+        deleteSessionAction,
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
@@ -313,6 +339,8 @@ export function useSessionQuickActions(
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
+        deleteSession: deleteSessionAction,
+        deletingSession,
         forkSession,
         forking,
         openDetails,

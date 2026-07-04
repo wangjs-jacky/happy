@@ -25,6 +25,7 @@ interface SessionActionsPopoverProps {
     onAfterArchive?: () => void;
     onAfterDelete?: () => void;
     onClose: () => void;
+    onSelectSession?: () => void;
     sessionId: string;
     visible: boolean;
 }
@@ -90,6 +91,7 @@ export function SessionActionsPopover({
     onAfterArchive,
     onAfterDelete,
     onClose,
+    onSelectSession,
     sessionId,
     visible,
 }: SessionActionsPopoverProps) {
@@ -97,10 +99,26 @@ export function SessionActionsPopover({
     const { theme } = useUnistyles();
     const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const session = useSession(sessionId);
-    const { actionItems: actions } = useSessionQuickActions(session!, {
+    const { actionItems } = useSessionQuickActions(session!, {
         onAfterArchive,
         onAfterDelete,
     });
+    const actions = React.useMemo<SessionActionItem[]>(() => {
+        const filteredItems = actionItems.filter((item) => item.id !== 'copy-metadata' && item.id !== 'copy-metadata-and-logs');
+        if (!onSelectSession) {
+            return filteredItems;
+        }
+
+        return [
+            {
+                id: 'select',
+                icon: 'checkmark-circle-outline',
+                label: '选择',
+                onPress: onSelectSession,
+            },
+            ...filteredItems,
+        ];
+    }, [actionItems, onSelectSession]);
 
     const position = React.useMemo(() => {
         if (!anchor) {

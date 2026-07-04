@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
 import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
-import { useWindowDimensions, View, Pressable, Platform } from 'react-native';
+import { useWindowDimensions, View, Pressable, Platform, BackHandler } from 'react-native';
 import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,6 +16,7 @@ import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { DEFAULT_APP_ZOOM } from '@/hooks/useTauriZoom';
 import { canRouteForward, canUseRouteBack, getNavigatorCanGoBack } from '@/navigation/browserNavigation';
 import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
+import { useSessionSelection } from '@/hooks/useSessionSelection';
 
 const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 
@@ -24,6 +25,8 @@ export const SidebarNavigator = React.memo(() => {
     const isTablet = useIsTablet();
     const { theme } = useUnistyles();
     const zenMode = useLocalSetting('zenMode');
+    const selectionMode = useSessionSelection((s) => s.active);
+    const clearSelection = useSessionSelection((s) => s.clearSelection);
     const isDesktopLayout = auth.isAuthenticated && isTablet;
     const showSidebar = isDesktopLayout && !zenMode;
     const { width: windowWidth } = useWindowDimensions();
@@ -34,6 +37,19 @@ export const SidebarNavigator = React.memo(() => {
         return Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
     }, [windowWidth, isDesktopLayout]);
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;
+
+    React.useEffect(() => {
+        if (!selectionMode) {
+            return;
+        }
+
+        const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+            clearSelection();
+            return true;
+        });
+
+        return () => subscription.remove();
+    }, [clearSelection, selectionMode]);
 
     const drawerNavigationOptions = React.useMemo(() => {
         if (!isDesktopLayout) {
@@ -64,7 +80,7 @@ export const SidebarNavigator = React.memo(() => {
                 // look. Web keeps 'front' because its drawer progress is a 0/1 binary
                 // jump (no per-frame value), so the scale would flicker.
                 drawerType: (Platform.OS === 'web' ? 'front' : 'slide') as 'front' | 'slide',
-                swipeEnabled: true,
+                swipeEnabled: !selectionMode,
                 // Full-screen open gesture: a right-swipe started anywhere on the screen
                 // pulls the sidebar in (not just the left edge / left third). May contend
                 // with in-page horizontal scroll — the drawer wins; narrow this back if
@@ -103,7 +119,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, theme.colors.surface]);
+    }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, selectionMode, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
         () => <SidebarView />,

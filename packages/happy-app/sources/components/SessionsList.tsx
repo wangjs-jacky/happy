@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Pressable, FlatList, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
-import { usePathname } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { SessionListViewItem, SessionRowData } from '@/sync/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { type SessionState, formatLastSeen, vibingMessages } from '@/utils/sessionUtils';
@@ -21,6 +21,12 @@ import { SessionActionsAnchor, SessionActionsPopover } from './SessionActionsPop
 import { useSettingMutable } from '@/sync/storage';
 import { hapticsLight } from './haptics';
 import { t } from '@/text';
+import { useSessionSelection } from '@/hooks/useSessionSelection';
+import { useHappyAction } from '@/hooks/useHappyAction';
+import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
+import { sessionArchive, sessionDelete, sessionKill } from '@/sync/ops';
+import { HappyError } from '@/utils/errors';
+import { Modal } from '@/modal';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -194,6 +200,74 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 12,
         ...Typography.default('semiBold'),
     },
+    selectionToolbarWrap: {
+        position: 'absolute',
+        left: 16,
+        right: 16,
+        bottom: 16,
+    },
+    selectionToolbar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderRadius: 20,
+        backgroundColor: theme.colors.surface,
+        shadowColor: theme.colors.shadow.color,
+        shadowOpacity: theme.colors.shadow.opacity,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 10,
+    },
+    selectionSummary: {
+        minWidth: 72,
+    },
+    selectionSummaryText: {
+        fontSize: 14,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    selectionAction: {
+        flex: 1,
+        minHeight: 52,
+        borderRadius: 26,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    selectionActionDestructive: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    selectionActionText: {
+        fontSize: 15,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    selectionActionTextDestructive: {
+        color: theme.colors.status.error,
+    },
+    selectionCloseAction: {
+        width: 52,
+        minHeight: 52,
+        borderRadius: 26,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    selectionCheckbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: theme.colors.textSecondary,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    selectionCheckboxSelected: {
+        borderColor: theme.colors.radio.active,
+        backgroundColor: theme.colors.radio.active,
+    },
 }));
 
 export function SessionsList() {
@@ -201,8 +275,15 @@ export function SessionsList() {
     const safeArea = useSafeAreaInsets();
     const data = useVisibleSessionListViewData();
     const pathname = usePathname();
+    const router = useRouter();
     const isTablet = useIsTablet();
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
+    const selectionMode = useSessionSelection((s) => s.active);
+    const selectedSessionIds = useSessionSelection((s) => s.selectedIds);
+    const enterSelection = useSessionSelection((s) => s.enterSelection);
+    const toggleSelection = useSessionSelection((s) => s.toggleSelection);
+    const replaceSelectedIds = useSessionSelection((s) => s.replaceSelectedIds);
+    const clearSelection = useSessionSelection((s) => s.clearSelection);
     const toggleArchived = React.useCallback(() => {
         setHideInactiveSessions(!hideInactiveSessions);
     }, [hideInactiveSessions, setHideInactiveSessions]);
@@ -223,12 +304,114 @@ export function SessionsList() {
         }
     }, [data && data.length > 0]);
 
+    const allVisibleSessions = React.useMemo(() => {
+        if (!data) {
+            return [];
+        }
+
+        return data.flatMap((item) => {
+            if (item.type === 'session') {
+                return [item.session];
+            }
+            if (item.type === 'active-sessions') {
+                return item.sessions;
+            }
+            return [];
+        });
+    }, [data]);
+
+    const visibleSessionIds = React.useMemo(
+        () => new Set(allVisibleSessions.map((session) => session.id)),
+        [allVisibleSessions],
+    );
+
+    const visibleSessionsById = React.useMemo(
+        () => new Map(allVisibleSessions.map((session) => [session.id, session])),
+        [allVisibleSessions],
+    );
+
+    React.useEffect(() => {
+        if (!selectionMode) {
+            return;
+        }
+
+        const nextSelectedIds = Array.from(selectedSessionIds).filter((sessionId) => visibleSessionIds.has(sessionId));
+        if (nextSelectedIds.length !== selectedSessionIds.size) {
+            if (nextSelectedIds.length === 0) {
+                clearSelection();
+                return;
+            }
+            replaceSelectedIds(nextSelectedIds);
+        }
+    }, [clearSelection, replaceSelectedIds, selectedSessionIds, selectionMode, visibleSessionIds]);
+
     // Early return if no data yet
     if (!data) {
         return (
             <View style={styles.container} />
         );
     }
+
+    const selectedCount = selectedSessionIds.size;
+
+    const clearSelectionAndMaybeRouteHome = React.useCallback((removedSessionIds: Iterable<string>) => {
+        const removedSet = new Set(removedSessionIds);
+        if (selectedSessionId && removedSet.has(selectedSessionId)) {
+            router.replace('/');
+        }
+        clearSelection();
+    }, [clearSelection, router, selectedSessionId]);
+
+    const [archivingSelection, performArchiveSelection] = useHappyAction(async () => {
+        const sessionIds = Array.from(selectedSessionIds);
+        for (const sessionId of sessionIds) {
+            const session = visibleSessionsById.get(sessionId);
+            if (!session) continue;
+
+            await maybeCleanupWorktree(session.id, session.path ?? undefined, session.machineId ?? undefined);
+            const killResult = await sessionKill(session.id);
+            if (!killResult.success) {
+                const archiveResult = await sessionArchive(session.id);
+                if (!archiveResult.success) {
+                    throw new HappyError(archiveResult.message || t('sessionInfo.failedToArchiveSession'), false);
+                }
+            }
+        }
+
+        clearSelectionAndMaybeRouteHome(sessionIds);
+    });
+
+    const [deletingSelection, performDeleteSelection] = useHappyAction(async () => {
+        const sessionIds = Array.from(selectedSessionIds);
+        for (const sessionId of sessionIds) {
+            const session = visibleSessionsById.get(sessionId);
+            if (!session) continue;
+
+            await maybeCleanupWorktree(session.id, session.path ?? undefined, session.machineId ?? undefined);
+            await sessionKill(session.id).catch(() => {});
+            const result = await sessionDelete(session.id);
+            if (!result.success) {
+                throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
+            }
+        }
+
+        clearSelectionAndMaybeRouteHome(sessionIds);
+    });
+
+    const handleDeleteSelection = React.useCallback(() => {
+        Modal.alert(
+            t('sessionInfo.deleteSession'),
+            t('sessionInfo.deleteSessionWarning'),
+            [
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                    text: t('common.delete'),
+                    style: 'destructive',
+                    onPress: performDeleteSelection,
+                },
+            ],
+        );
+    }, [performDeleteSelection]);
 
     const keyExtractor = React.useCallback((item: SessionListViewItem, index: number) => {
         switch (item.type) {
@@ -267,6 +450,10 @@ export function SessionsList() {
                     <ActiveSessionsGroupCompact
                         sessions={item.sessions}
                         selectedSessionId={selectedSessionId}
+                        selectionMode={selectionMode}
+                        selectedSessionIds={selectedSessionIds}
+                        onSelectSession={enterSelection}
+                        onToggleSelection={toggleSelection}
                     />
                 );
 
@@ -290,19 +477,22 @@ export function SessionsList() {
                 const isFirst = prevItem?.type === 'header';
                 const isLast = nextItem?.type === 'header' || nextItem == null || nextItem?.type === 'active-sessions';
                 const isSingle = isFirst && isLast;
-                const selected = item.session.id === selectedSessionId;
+                const selected = (selectionMode && selectedSessionIds.has(item.session.id)) || item.session.id === selectedSessionId;
 
                 return (
                     <SessionItem
                         session={item.session}
                         selected={selected}
+                        selectionMode={selectionMode}
                         isFirst={isFirst}
                         isLast={isLast}
                         isSingle={isSingle}
+                        onSelectSession={enterSelection}
+                        onToggleSelection={toggleSelection}
                     />
                 );
         }
-    }, [selectedSessionId, data, toggleArchived]);
+    }, [selectedSessionId, data, enterSelection, selectedSessionIds, selectionMode, toggleArchived, toggleSelection]);
 
 
     // Remove this section as we'll use FlatList for all items now
@@ -323,7 +513,7 @@ export function SessionsList() {
                     data={data}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
-                    extraData={selectedSessionId}
+                    extraData={`${selectedSessionId ?? ''}:${selectionMode}:${Array.from(selectedSessionIds).join(',')}`}
                     contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}
@@ -331,6 +521,32 @@ export function SessionsList() {
                     initialNumToRender={12}
                 />
             </View>
+            {selectionMode && (
+                <View style={[styles.selectionToolbarWrap, { paddingBottom: safeArea.bottom }]}>
+                    <View style={styles.selectionToolbar}>
+                        <View style={styles.selectionSummary}>
+                            <Text style={styles.selectionSummaryText}>{`已选择\n${selectedCount} 个`}</Text>
+                        </View>
+                        <Pressable
+                            disabled={selectedCount === 0 || archivingSelection || deletingSelection}
+                            onPress={performArchiveSelection}
+                            style={styles.selectionAction}
+                        >
+                            <Text style={styles.selectionActionText}>归档</Text>
+                        </Pressable>
+                        <Pressable
+                            disabled={selectedCount === 0 || archivingSelection || deletingSelection}
+                            onPress={handleDeleteSelection}
+                            style={[styles.selectionAction, styles.selectionActionDestructive]}
+                        >
+                            <Text style={[styles.selectionActionText, styles.selectionActionTextDestructive]}>删除</Text>
+                        </Pressable>
+                        <Pressable onPress={clearSelection} style={styles.selectionCloseAction}>
+                            <Ionicons name="close" size={24} color={styles.selectionActionText.color} />
+                        </Pressable>
+                    </View>
+                </View>
+            )}
         </View>
     );
 }
@@ -342,12 +558,24 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
     permission_required: { color: '#FF9500', dotColor: '#FF9500', isPulsing: true, isConnected: true },
 };
 
-const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }: {
+const SessionItem = React.memo(({
+    session,
+    selected,
+    isFirst,
+    isLast,
+    isSingle,
+    selectionMode,
+    onSelectSession,
+    onToggleSelection,
+}: {
     session: SessionRowData;
     selected?: boolean;
     isFirst?: boolean;
     isLast?: boolean;
     isSingle?: boolean;
+    selectionMode?: boolean;
+    onSelectSession?: (sessionId: string) => void;
+    onToggleSelection?: (sessionId: string) => void;
 }) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
@@ -374,8 +602,12 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
                     : t('status.online');
 
     const handlePress = React.useCallback(() => {
+        if (selectionMode && onToggleSelection) {
+            onToggleSelection(session.id);
+            return;
+        }
         navigateToSession(session.id);
-    }, [navigateToSession, session.id]);
+    }, [navigateToSession, onToggleSelection, selectionMode, session.id]);
 
     const handleContextMenu = React.useCallback((event: any) => {
         event.preventDefault?.();
@@ -390,13 +622,17 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
     // Native long-press: anchor the context menu at the touch point instead of
     // showing a centered alert. pageX/pageY come from the gesture responder event.
     const handleLongPress = React.useCallback((event: any) => {
+        if (selectionMode && onToggleSelection) {
+            onToggleSelection(session.id);
+            return;
+        }
         hapticsLight();
         setActionsAnchor({
             type: 'point',
             x: event.nativeEvent.pageX ?? 0,
             y: event.nativeEvent.pageY ?? 0,
         });
-    }, []);
+    }, [onToggleSelection, selectionMode, session.id]);
 
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
@@ -423,8 +659,20 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
             {...menuProps}
         >
             <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
-                {session.hasDraft && (
+                {selectionMode ? (
+                    <View style={[styles.selectionCheckbox, selected && styles.selectionCheckboxSelected]}>
+                        {selected ? (
+                            <Ionicons
+                                name="checkmark"
+                                size={14}
+                                color="#FFFFFF"
+                            />
+                        ) : null}
+                    </View>
+                ) : (
+                    <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
+                )}
+                {!selectionMode && session.hasDraft && (
                     <View style={styles.draftIconContainer}>
                         <Ionicons
                             name="create-outline"
@@ -472,6 +720,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
         <SessionActionsPopover
             anchor={actionsAnchor}
             onClose={() => setActionsAnchor(null)}
+            onSelectSession={onSelectSession ? () => onSelectSession(session.id) : undefined}
             sessionId={session.id}
             visible={!!actionsAnchor}
         />
