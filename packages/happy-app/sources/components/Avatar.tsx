@@ -24,7 +24,6 @@ const flavorIcons = {
     gemini: require('@/assets/images/icon-gemini.png'),
     opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
-    deepcode: require('@/assets/images/icon-gpt.png'),
 };
 
 const styles = StyleSheet.create((theme) => ({

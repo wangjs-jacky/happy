@@ -107,12 +107,6 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
-export function getDeepCodePermissionModes(translate: Translate): PermissionMode[] {
-    return [
-        { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
-    ];
-}
-
 export function getOpenCodePermissionModes(translate: Translate): PermissionMode[] {
     return [
         { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
@@ -132,19 +126,10 @@ export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Tran
     if (flavor === 'openclaw') {
         return getOpenClawPermissionModes(translate);
     }
-    if (flavor === 'deepcode') {
-        return getDeepCodePermissionModes(translate);
-    }
     return getClaudePermissionModes(translate);
 }
 
 export function getOpenClawModelModes(): ModelMode[] {
-    return [
-        { key: 'default', name: 'default model', description: null },
-    ];
-}
-
-export function getDeepCodeModelModes(): ModelMode[] {
     return [
         { key: 'default', name: 'default model', description: null },
     ];
@@ -173,9 +158,6 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     if (flavor === 'openclaw') {
         return getOpenClawModelModes();
     }
-    if (flavor === 'deepcode') {
-        return getDeepCodeModelModes();
-    }
     return getClaudeModelModes();
 }
 
@@ -199,7 +181,7 @@ export function getAvailablePermissionModes(
     metadata: Metadata | null | undefined,
     translate: Translate,
 ): PermissionMode[] {
-    if (flavor === 'claude' || flavor === 'codex' || flavor === 'opencode' || flavor === 'openclaw' || flavor === 'deepcode') {
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'opencode' || flavor === 'openclaw') {
         return hackModes(getHardcodedPermissionModes(flavor, translate));
     }
 

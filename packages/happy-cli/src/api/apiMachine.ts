@@ -528,8 +528,7 @@ export class ApiMachineClient {
                 || prev.codex !== newAvailability.codex
                 || prev.gemini !== newAvailability.gemini
                 || prev.opencode !== newAvailability.opencode
-                || prev.openclaw !== newAvailability.openclaw
-                || prev.deepcode !== newAvailability.deepcode;
+                || prev.openclaw !== newAvailability.openclaw;
             const resumeSupportChanged = !prevResume
                 || prevResume.rpcAvailable !== newResumeSupport.rpcAvailable
                 || prevResume.happyAgentAuthenticated !== newResumeSupport.happyAgentAuthenticated;

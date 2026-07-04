@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeAcpPermissionRequest } from './AcpBackend';
 
 describe('normalizeAcpPermissionRequest', () => {
-  it('reads standard ACP toolCallId and rawInput fields used by DeepCode', () => {
+  it('reads standard ACP toolCallId and rawInput fields', () => {
     const normalized = normalizeAcpPermissionRequest({
       sessionId: 'session-1',
       toolCall: {

@@ -49,7 +49,6 @@ interface MessageComposerProps {
             codex: boolean | null;
             gemini?: boolean | null;
             opencode?: boolean | null;
-            deepcode?: boolean | null;
         };
     };
     autocompletePrefixes?: string[];
@@ -63,7 +62,7 @@ interface MessageComposerProps {
     };
     alwaysShowContextSize?: boolean;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'deepcode';
+    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;
@@ -292,24 +291,6 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                                             ...Typography.default()
                                         }}>
                                             opencode
-                                        </Text>
-                                    </View>
-                                )}
-                                {p.connectionStatus.cliStatus.deepcode !== undefined && (
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                        <Text style={{
-                                            fontSize: 11,
-                                            color: p.connectionStatus.cliStatus.deepcode ? theme.colors.success : theme.colors.textDestructive,
-                                            ...Typography.default()
-                                        }}>
-                                            {p.connectionStatus.cliStatus.deepcode ? '✓' : '✗'}
-                                        </Text>
-                                        <Text style={{
-                                            fontSize: 11,
-                                            color: p.connectionStatus.cliStatus.deepcode ? theme.colors.success : theme.colors.textDestructive,
-                                            ...Typography.default()
-                                        }}>
-                                            deepcode
                                         </Text>
                                     </View>
                                 )}
@@ -802,9 +783,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                         ? 'OpenCode'
                                                     : props.agentType === 'openclaw'
                                                         ? t('agentInput.agent.openclaw')
-                                                        : props.agentType === 'deepcode'
-                                                            ? 'DeepCode'
-                                                            : t('agentInput.agent.gemini')}
+                                                        : t('agentInput.agent.gemini')}
                                         </Text>
                                     </Pressable>
                                 )}

@@ -42,17 +42,15 @@ const agentIcons = {
     opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
-    deepcode: require('@/assets/images/icon-gpt.png'),
 };
 
-type AgentKey = 'claude' | 'codex' | 'opencode' | 'openclaw' | 'gemini' | 'deepcode';
+type AgentKey = 'claude' | 'codex' | 'opencode' | 'openclaw' | 'gemini';
 const AGENTS: { key: AgentKey; label: string }[] = [
     { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },
     { key: 'openclaw', label: 'openclaw' },
     { key: 'gemini', label: 'gemini' },
-    { key: 'deepcode', label: 'deepcode' },
 ];
 
 // Sample data for pickers

@@ -48,7 +48,6 @@ const AGENT_LABELS: Record<string, string> = {
     opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
-    deepcode: 'deepcode',
 };
 
 export const SessionView = React.memo((props: { id: string }) => {

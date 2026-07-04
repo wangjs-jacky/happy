@@ -1,6 +1,6 @@
 import * as z from 'zod';
 
-export const agentKeys = ['claude', 'codex', 'gemini', 'opencode', 'openclaw', 'deepcode'] as const;
+export const agentKeys = ['claude', 'codex', 'gemini', 'opencode', 'openclaw'] as const;
 export type AgentKey = typeof agentKeys[number];
 
 export const AgentDefaultOverrideSchema = z.object({
@@ -15,7 +15,6 @@ export const AgentDefaultOverridesSchema = z.object({
     gemini: AgentDefaultOverrideSchema.optional(),
     opencode: AgentDefaultOverrideSchema.optional(),
     openclaw: AgentDefaultOverrideSchema.optional(),
-    deepcode: AgentDefaultOverrideSchema.optional(),
 }).passthrough().default({});
 
 export type AgentDefaultOverride = z.infer<typeof AgentDefaultOverrideSchema>;
@@ -36,11 +35,10 @@ const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
     opencode: { permissionMode: 'default', modelMode: 'deepseek/deepseek-v4-pro', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
-    deepcode: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
 };
 
 export function normalizeAgentKey(flavor: string | null | undefined): AgentKey {
-    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'opencode' || flavor === 'openclaw' || flavor === 'deepcode') {
+    if (flavor === 'codex' || flavor === 'gemini' || flavor === 'opencode' || flavor === 'openclaw') {
         return flavor;
     }
     return 'claude';

@@ -419,7 +419,7 @@ export async function startDaemon(): Promise<void> {
           // Construct command for the CLI
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
           const agent = options.agent ?? 'opencode';
-          if (!['claude', 'codex', 'gemini', 'opencode', 'openclaw', 'deepcode'].includes(agent)) {
+          if (!['claude', 'codex', 'gemini', 'opencode', 'openclaw'].includes(agent)) {
             return {
               type: 'error',
               errorMessage: `Unsupported agent type: '${options.agent}'. Please update your CLI to the latest version.`
@@ -541,10 +541,6 @@ export async function startDaemon(): Promise<void> {
               break;
             case 'openclaw':
               agentCommand = 'openclaw';
-              args = [agentCommand];
-              break;
-            case 'deepcode':
-              agentCommand = 'deepcode';
               args = [agentCommand];
               break;
             default:

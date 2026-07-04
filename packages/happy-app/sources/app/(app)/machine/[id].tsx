@@ -564,15 +564,6 @@ export default function MachineDetailScreen() {
                             }
                         />
                         <Item
-                            title="DeepCode"
-                            showChevron={false}
-                            rightElement={
-                                <Text style={{ color: metadata.cliAvailability.deepcode ? '#34C759' : theme.colors.textSecondary, fontSize: 14 }}>
-                                    {metadata.cliAvailability.deepcode ? t('machine.cliInstalled') : t('machine.cliNotFound')}
-                                </Text>
-                            }
-                        />
-                        <Item
                             title={t('machine.lastDetected')}
                             subtitle={new Date(metadata.cliAvailability.detectedAt).toLocaleString()}
                             showChevron={false}

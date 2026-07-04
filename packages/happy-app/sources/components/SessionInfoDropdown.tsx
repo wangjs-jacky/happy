@@ -22,7 +22,6 @@ const agentIcons = {
     opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
-    deepcode: require('@/assets/images/icon-gpt.png'),
 } as const;
 
 const AGENT_LABELS: Record<string, string> = {
@@ -31,7 +30,6 @@ const AGENT_LABELS: Record<string, string> = {
     opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
-    deepcode: 'deepcode',
 };
 
 type AgentKey = keyof typeof agentIcons;
