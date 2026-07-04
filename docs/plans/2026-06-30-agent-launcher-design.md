@@ -1,6 +1,7 @@
 # 我的 Agent — 侧栏快捷 Agent 入口 设计文档
 
 > 2026-06-30 · 分支 `agent-launcher`
+> 恢复的原始参考图：`docs/plans/assets/2026-06-30-agent-launcher-reference.jpg`
 
 ## 一、要解决的问题
 
