@@ -721,7 +721,11 @@ export const ca: TranslationStructure = {
         linkNewDevice: 'Enllaça un nou dispositiu',
         linkNewDeviceSubtitle: 'Escaneja el codi QR per enllaçar el dispositiu',
         profile: 'Perfil',
+        editProfile: 'Edit Profile',
         name: 'Nom',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Toca per desconnectar',
         server: 'Servidor',
@@ -1051,6 +1055,11 @@ export const ca: TranslationStructure = {
             : `No s'han pogut pujar ${count} imatges i no s'han enviat.`,
         notSupportedTitle: 'Imatges no compatibles',
         notSupportedMessage: 'Aquest agent no admet imatges adjuntes. Només s\'ha enviat el text.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

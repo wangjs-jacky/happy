@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { getServerUrl } from './serverConfig';
 
 //
 // Schema
@@ -82,7 +83,7 @@ export function getDisplayName(profile: Profile): string | null {
 
 export function getAvatarUrl(profile: Profile): string | null {
     if (profile.avatar?.url) {
-        return profile.avatar.url;
+        return rewriteLoopbackUrl(profile.avatar.url);
     }
     if (profile.github?.avatar_url) {
         return profile.github.avatar_url;
@@ -92,4 +93,25 @@ export function getAvatarUrl(profile: Profile): string | null {
 
 export function getBio(profile: Profile): string | null {
     return profile.github?.bio || null;
+}
+
+function rewriteLoopbackUrl(url: string): string {
+    try {
+        const target = new URL(url);
+        const isLoopback = target.hostname === 'localhost'
+            || target.hostname === '127.0.0.1'
+            || target.hostname === '::1'
+            || target.hostname === '0.0.0.0';
+
+        if (!isLoopback) {
+            return url;
+        }
+
+        const server = new URL(getServerUrl());
+        target.protocol = server.protocol;
+        target.host = server.host;
+        return target.toString();
+    } catch {
+        return url;
+    }
 }

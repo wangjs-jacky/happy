@@ -20,6 +20,9 @@ export interface ImageViewerSource {
     /** Optional intrinsic size; lets the viewer fit the image before it loads. */
     width?: number;
     height?: number;
+    /** Optional contextual action shown in the fullscreen viewer. */
+    actionLabel?: string;
+    onAction?: () => void;
 }
 
 interface ImageViewerState {

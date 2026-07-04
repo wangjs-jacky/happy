@@ -278,6 +278,11 @@ export const en = {
             : `${count} images could not be uploaded and were not sent.`,
         notSupportedTitle: 'Images Not Supported',
         notSupportedMessage: 'This agent does not support image attachments. Only the text was sent.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     errors: {
@@ -735,7 +740,11 @@ export const en = {
         linkNewDevice: 'Link New Device',
         linkNewDeviceSubtitle: 'Scan QR code to link device',
         profile: 'Profile',
+        editProfile: 'Edit Profile',
         name: 'Name',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Tap to disconnect',
         server: 'Server',
