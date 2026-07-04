@@ -731,7 +731,11 @@ export const zhHant: TranslationStructure = {
         linkNewDevice: '連結新裝置',
         linkNewDeviceSubtitle: '掃描 QR Code 來連結裝置',
         profile: '個人資料',
+        editProfile: '編輯資料',
         name: '姓名',
+        namePlaceholder: '請輸入你的名字',
+        nameRequired: '請輸入名字。',
+        profileSaveFailed: '無法儲存個人資料。',
         github: 'GitHub',
         tapToDisconnect: '點擊中斷連線',
         server: '伺服器',
@@ -1157,6 +1161,11 @@ export const zhHant: TranslationStructure = {
             : `${count} 張圖片上傳失敗，未傳送。`,
         notSupportedTitle: '不支援圖片',
         notSupportedMessage: '此代理不支援圖片附件。僅傳送了文字。',
+        viewAvatar: '查看頭像',
+        changeAvatar: '更換頭像',
+        avatarPermissionMessage: '允許存取您的照片圖庫以選擇頭像。',
+        avatarUploadFailedTitle: '頭像上傳失敗',
+        avatarUploadFailedMessage: '無法更新您的頭像。',
     },
 
     feed: {

@@ -732,7 +732,11 @@ export const zhHans: TranslationStructure = {
         linkNewDevice: '链接新设备',
         linkNewDeviceSubtitle: '扫描二维码来链接设备',
         profile: '个人资料',
+        editProfile: '编辑资料',
         name: '姓名',
+        namePlaceholder: '请输入你的名字',
+        nameRequired: '请输入名字。',
+        profileSaveFailed: '无法保存个人资料。',
         github: 'GitHub',
         tapToDisconnect: '点击断开连接',
         server: '服务器',
@@ -1626,6 +1630,11 @@ export const zhHans: TranslationStructure = {
             : `${count} 张图片上传失败，未发送。`,
         notSupportedTitle: '不支持图片',
         notSupportedMessage: '该代理不支持图片附件。仅发送了文本。',
+        viewAvatar: '查看头像',
+        changeAvatar: '更换头像',
+        avatarPermissionMessage: '允许访问您的照片库以选择头像。',
+        avatarUploadFailedTitle: '头像上传失败',
+        avatarUploadFailedMessage: '无法更新您的头像。',
     },
 
     feed: {

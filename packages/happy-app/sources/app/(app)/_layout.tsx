@@ -116,6 +116,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/profile"
+                options={{
+                    headerTitle: t('settingsAccount.editProfile'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),

@@ -732,7 +732,11 @@ export const ja: TranslationStructure = {
         linkNewDevice: '新しいデバイスをリンク',
         linkNewDeviceSubtitle: 'QRコードをスキャンしてデバイスをリンク',
         profile: 'プロフィール',
+        editProfile: 'Edit Profile',
         name: '名前',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'タップして切断',
         server: 'サーバー',
@@ -1065,6 +1069,11 @@ export const ja: TranslationStructure = {
             : `${count}枚の画像をアップロードできず、送信されませんでした。`,
         notSupportedTitle: '画像はサポートされていません',
         notSupportedMessage: 'このエージェントは画像の添付に対応していません。テキストのみが送信されました。',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

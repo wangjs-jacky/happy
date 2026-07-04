@@ -2,11 +2,13 @@ import { eventRouter, buildUpdateAccountUpdate } from "@/app/events/eventRouter"
 import { db } from "@/storage/db";
 import { Fastify } from "../types";
 import { getPublicUrl } from "@/storage/files";
+import { uploadImage } from "@/storage/uploadImage";
 import { z } from "zod";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { allocateUserSeq } from "@/storage/seq";
 import { log } from "@/utils/log";
 import { AccountProfile } from "@/types";
+import { separateName } from "@/utils/separateName";
 
 export function accountRoutes(app: Fastify) {
     app.get('/v1/account/profile', {
@@ -34,6 +36,137 @@ export function accountRoutes(app: Fastify) {
             github: user.githubUser ? user.githubUser.profile : null,
             connectedServices: Array.from(connectedVendors)
         });
+    });
+
+    app.patch('/v1/account/profile', {
+        preHandler: app.authenticate,
+        schema: {
+            body: z.object({
+                name: z.string().trim().min(1).max(80)
+            }),
+            response: {
+                200: z.object({
+                    success: z.literal(true),
+                    firstName: z.string().nullable(),
+                    lastName: z.string().nullable()
+                }),
+                400: z.object({
+                    error: z.string()
+                }),
+                500: z.object({
+                    error: z.literal('Failed to update profile')
+                })
+            }
+        }
+    }, async (request, reply) => {
+        const userId = request.userId;
+        const { name } = request.body;
+        const { firstName, lastName } = separateName(name);
+
+        if (!firstName) {
+            return reply.code(400).send({ error: 'Name is required' });
+        }
+
+        try {
+            await db.account.update({
+                where: { id: userId },
+                data: {
+                    firstName,
+                    lastName,
+                    updatedAt: new Date()
+                }
+            });
+
+            const updSeq = await allocateUserSeq(userId);
+            const updatePayload = buildUpdateAccountUpdate(userId, { firstName, lastName }, updSeq, randomKeyNaked(12));
+            eventRouter.emitUpdate({
+                userId,
+                payload: updatePayload,
+                recipientFilter: { type: 'user-scoped-only' }
+            });
+
+            return reply.send({
+                success: true,
+                firstName,
+                lastName
+            });
+        } catch (error) {
+            log({ module: 'api', level: 'error' }, `Failed to update profile: ${error}`);
+            return reply.code(500).send({ error: 'Failed to update profile' });
+        }
+    });
+
+    app.post('/v1/account/avatar', {
+        preHandler: app.authenticate,
+        schema: {
+            response: {
+                200: z.object({
+                    avatar: z.object({
+                        width: z.number(),
+                        height: z.number(),
+                        thumbhash: z.string(),
+                        path: z.string(),
+                        url: z.string()
+                    })
+                }),
+                400: z.object({
+                    error: z.string()
+                }),
+                500: z.object({
+                    error: z.literal('Failed to update avatar')
+                })
+            }
+        }
+    }, async (request, reply) => {
+        const userId = request.userId;
+        const body = request.body;
+        const image = Buffer.isBuffer(body)
+            ? body
+            : body instanceof ArrayBuffer
+                ? Buffer.from(body)
+                : ArrayBuffer.isView(body)
+                    ? Buffer.from(body.buffer, body.byteOffset, body.byteLength)
+                    : null;
+
+        if (!image || image.length === 0) {
+            return reply.code(400).send({ error: 'Missing image body' });
+        }
+        if (image.length > 10 * 1024 * 1024) {
+            return reply.code(400).send({ error: 'Avatar image is too large' });
+        }
+
+        try {
+            const avatar = await uploadImage(
+                userId,
+                'avatars',
+                'custom',
+                `custom:${userId}:${Date.now()}:${randomKeyNaked(8)}`,
+                image
+            );
+
+            await db.account.update({
+                where: { id: userId },
+                data: {
+                    avatar,
+                    updatedAt: new Date()
+                }
+            });
+
+            const updSeq = await allocateUserSeq(userId);
+            const updatePayload = buildUpdateAccountUpdate(userId, { avatar }, updSeq, randomKeyNaked(12));
+            eventRouter.emitUpdate({
+                userId,
+                payload: updatePayload,
+                recipientFilter: { type: 'user-scoped-only' }
+            });
+
+            return reply.send({
+                avatar: { ...avatar, url: getPublicUrl(avatar.path) }
+            });
+        } catch (error) {
+            log({ module: 'api', level: 'error' }, `Failed to update avatar: ${error}`);
+            return reply.code(500).send({ error: 'Failed to update avatar' });
+        }
     });
 
     // Get Account Settings API
