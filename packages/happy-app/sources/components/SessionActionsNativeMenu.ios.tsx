@@ -26,6 +26,7 @@ export function SessionActionsNativeMenu({
         deleteSession,
         canShowResume,
         openDetails,
+        renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
         onAfterArchive,
@@ -37,6 +38,7 @@ export function SessionActionsNativeMenu({
             <ContextMenu>
                 <ContextMenu.Items>
                     <Button onPress={openDetails} systemImage={iosSymbol('info.circle')} label="Details" />
+                    <Button onPress={renameSession} systemImage={iosSymbol('pencil')} label={t('sessionInfo.renameSession')} />
                     {canArchive && (
                         <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label={t('sessionInfo.archiveSession')} />
                     )}

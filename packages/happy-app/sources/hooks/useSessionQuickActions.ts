@@ -2,14 +2,15 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, sessionUpdateMetadata, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
-import { storage, useMachine, useSetting } from '@/sync/storage';
+import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 import { t } from '@/text';
 import { HappyError } from '@/utils/errors';
+import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard } from '@/utils/copySessionMetadataToClipboard';
 import { useSessionStatus } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { getSessionForkSource } from '@/utils/sessionFork';
@@ -17,6 +18,8 @@ import { useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
 import { hapticsSuccess } from '@/components/haptics';
+import { getSessionName } from '@/utils/sessionUtils';
+import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 
 export interface SessionActionItem {
     id: string;
@@ -29,6 +32,8 @@ export interface SessionActionItem {
 interface UseSessionQuickActionsOptions {
     onAfterArchive?: () => void;
     onAfterDelete?: () => void;
+    onAfterCopySessionMetadata?: () => void;
+    onSelectSession?: () => void;
 }
 
 type ResumeAvailability = {
@@ -104,12 +109,15 @@ export function useSessionQuickActions(
     const {
         onAfterArchive,
         onAfterDelete,
+        onAfterCopySessionMetadata,
+        onSelectSession,
     } = options;
     const router = useRouter();
     const navigateToSession = useNavigateToSession();
     const sessionStatus = useSessionStatus(session);
     const machineId = session.metadata?.machineId ?? '';
     const machine = useMachine(machineId);
+    const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
@@ -138,6 +146,24 @@ export function useSessionQuickActions(
     const openDetails = React.useCallback(() => {
         router.push(`/session/${session.id}/info`);
     }, [router, session.id]);
+
+    const copySessionMetadata = React.useCallback(() => {
+        void (async () => {
+            const copied = await copySessionMetadataToClipboard(session);
+            if (copied) {
+                onAfterCopySessionMetadata?.();
+            }
+        })();
+    }, [onAfterCopySessionMetadata, session]);
+
+    const copySessionMetadataAndLogs = React.useCallback(() => {
+        void (async () => {
+            const copied = await copySessionMetadataAndLogsToClipboard(session);
+            if (copied) {
+                onAfterCopySessionMetadata?.();
+            }
+        })();
+    }, [onAfterCopySessionMetadata, session]);
 
     const [resumingSession, performResume] = useHappyAction(async () => {
         if (!resumeAvailability.canResume) {
@@ -194,8 +220,52 @@ export function useSessionQuickActions(
         performArchive();
     }, [performArchive]);
 
-    // Permanently delete a session. If it is still active, stop the CLI process
-    // first so the server accepts the delete.
+    const [renamingSession, performRename] = useHappyAction(async () => {
+        if (!session.metadata) {
+            throw new HappyError(t('sessionInfo.renameSessionMissingMetadata'), false);
+        }
+
+        const currentTitle = getSessionName(session);
+        const nextTitle = await Modal.prompt(
+            t('sessionInfo.renameSession'),
+            t('sessionInfo.renameSessionPrompt'),
+            {
+                defaultValue: currentTitle === t('session.newChat') ? '' : currentTitle,
+                placeholder: t('sessionInfo.renameSessionPlaceholder'),
+                cancelText: t('common.cancel'),
+                confirmText: t('common.rename'),
+            },
+        );
+
+        if (nextTitle === null) {
+            return;
+        }
+
+        const trimmedTitle = nextTitle.trim();
+        if (!trimmedTitle) {
+            return;
+        }
+
+        await sessionUpdateMetadata(
+            session.id,
+            session.metadata,
+            session.metadataVersion,
+            metadata => ({
+                ...metadata,
+                summary: {
+                    text: trimmedTitle,
+                    updatedAt: Date.now(),
+                },
+            }),
+        );
+    });
+
+    const renameSession = React.useCallback(() => {
+        performRename();
+    }, [performRename]);
+
+    // Permanently delete a session. If it is still active, first try to stop
+    // the CLI process so the server accepts the delete.
     const [deletingSession, performDelete] = useHappyAction(async () => {
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
@@ -260,33 +330,52 @@ export function useSessionQuickActions(
         } as any);
     }, [canFork, session.id]);
 
+    const canCopySessionMetadata = __DEV__ || devModeEnabled;
+
     const actionItems = React.useMemo<SessionActionItem[]>(() => {
-        const items: SessionActionItem[] = [
-            { id: 'details', icon: 'information-circle-outline', label: t('profile.details'), onPress: openDetails },
-        ];
-
-        if (resumeAvailability.canShowResume) {
-            items.push({ id: 'resume', icon: 'play-circle-outline', label: t('sessionInfo.resumeSession'), onPress: resumeSession });
-        }
-
-        if (canFork) {
-            items.push({ id: 'fork', icon: 'git-branch-outline', label: t('session.forkAction'), onPress: forkSession });
-            items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
-        }
-
-        if (session.active) {
-            items.push({ id: 'archive', icon: 'archive-outline', label: t('sessionInfo.archiveSession'), onPress: archiveSession, destructive: true });
-        }
-        items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSession, destructive: true });
-
-        return items;
+        return buildSessionQuickActionItems({
+            labels: {
+                details: t('profile.details'),
+                resume: t('sessionInfo.resumeSession'),
+                rename: t('sessionInfo.renameSession'),
+                fork: t('session.forkAction'),
+                duplicate: t('session.duplicateAction'),
+                copyMetadata: t('sessionInfo.copyMetadata'),
+                copyMetadataAndLogs: t('sessionInfo.copyMetadata') + ' & Client Logs',
+                archive: t('sessionInfo.archiveSession'),
+                delete: t('sessionInfo.deleteSession'),
+                select: t('sessionInfo.selectSession'),
+            },
+            callbacks: {
+                openDetails,
+                resumeSession,
+                renameSession,
+                forkSession,
+                openDuplicateSheet,
+                copySessionMetadata,
+                copySessionMetadataAndLogs,
+                archiveSession,
+                deleteSession,
+                selectSession: onSelectSession,
+            },
+            canShowResume: resumeAvailability.canShowResume,
+            canFork,
+            canCopySessionMetadata,
+            sessionActive: session.active,
+            canSelect: Boolean(onSelectSession),
+        });
     }, [
         archiveSession,
+        canCopySessionMetadata,
         canFork,
+        copySessionMetadata,
+        copySessionMetadataAndLogs,
         deleteSession,
         forkSession,
         openDetails,
         openDuplicateSheet,
+        onSelectSession,
+        renameSession,
         resumeAvailability.canShowResume,
         resumeSession,
         session.active,
@@ -311,13 +400,18 @@ export function useSessionQuickActions(
         canDelete: true,
         deleteSession,
         deletingSession,
+        canCopySessionMetadata,
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,
         canFork,
+        copySessionMetadata,
+        copySessionMetadataAndLogs,
         forkSession,
         forking,
         openDetails,
         openDuplicateSheet,
+        renameSession,
+        renamingSession,
         resumeSession,
         resumeSessionSubtitle: resumeAvailability.subtitle,
         resumingSession,
