@@ -23,11 +23,8 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
-        canDelete,
         deleteSession,
-        canCopySessionMetadata,
         canShowResume,
-        copySessionMetadata,
         openDetails,
         resumeSession,
     } = useSessionQuickActions(session, {
@@ -43,14 +40,9 @@ export function SessionActionsNativeMenu({
                     {canArchive && (
                         <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label={t('sessionInfo.archiveSession')} />
                     )}
-                    {canDelete && (
-                        <Button onPress={deleteSession} systemImage={iosSymbol('trash')} role="destructive" label={t('sessionInfo.deleteSession')} />
-                    )}
+                    <Button onPress={deleteSession} systemImage={iosSymbol('trash')} role="destructive" label={t('sessionInfo.deleteSession')} />
                     {canShowResume && (
                         <Button onPress={resumeSession} systemImage={iosSymbol('play.circle')} label="Resume" />
-                    )}
-                    {canCopySessionMetadata && (
-                        <Button onPress={copySessionMetadata} systemImage={iosSymbol('ladybug')} label={t('sessionInfo.copyMetadata')} />
                     )}
                 </ContextMenu.Items>
                 <ContextMenu.Trigger>{children}</ContextMenu.Trigger>

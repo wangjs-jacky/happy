@@ -4,13 +4,12 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
 import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
-import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
+import { storage, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
 import { t } from '@/text';
 import { HappyError } from '@/utils/errors';
-import { copySessionMetadataToClipboard, copySessionMetadataAndLogsToClipboard } from '@/utils/copySessionMetadataToClipboard';
 import { useSessionStatus } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { getSessionForkSource } from '@/utils/sessionFork';
@@ -30,7 +29,6 @@ export interface SessionActionItem {
 interface UseSessionQuickActionsOptions {
     onAfterArchive?: () => void;
     onAfterDelete?: () => void;
-    onAfterCopySessionMetadata?: () => void;
 }
 
 type ResumeAvailability = {
@@ -106,14 +104,12 @@ export function useSessionQuickActions(
     const {
         onAfterArchive,
         onAfterDelete,
-        onAfterCopySessionMetadata,
     } = options;
     const router = useRouter();
     const navigateToSession = useNavigateToSession();
     const sessionStatus = useSessionStatus(session);
     const machineId = session.metadata?.machineId ?? '';
     const machine = useMachine(machineId);
-    const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
@@ -142,24 +138,6 @@ export function useSessionQuickActions(
     const openDetails = React.useCallback(() => {
         router.push(`/session/${session.id}/info`);
     }, [router, session.id]);
-
-    const copySessionMetadata = React.useCallback(() => {
-        void (async () => {
-            const copied = await copySessionMetadataToClipboard(session);
-            if (copied) {
-                onAfterCopySessionMetadata?.();
-            }
-        })();
-    }, [onAfterCopySessionMetadata, session]);
-
-    const copySessionMetadataAndLogs = React.useCallback(() => {
-        void (async () => {
-            const copied = await copySessionMetadataAndLogsToClipboard(session);
-            if (copied) {
-                onAfterCopySessionMetadata?.();
-            }
-        })();
-    }, [onAfterCopySessionMetadata, session]);
 
     const [resumingSession, performResume] = useHappyAction(async () => {
         if (!resumeAvailability.canResume) {
@@ -216,9 +194,8 @@ export function useSessionQuickActions(
         performArchive();
     }, [performArchive]);
 
-    // Permanently delete an already-inactive session. Server requires the
-    // session to be inactive before deletion, so this action is only surfaced
-    // for sessions whose CLI process has ended (session.active === false).
+    // Permanently delete a session. If it is still active, stop the CLI process
+    // first so the server accepts the delete.
     const [deletingSession, performDelete] = useHappyAction(async () => {
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
@@ -283,8 +260,6 @@ export function useSessionQuickActions(
         } as any);
     }, [canFork, session.id]);
 
-    const canCopySessionMetadata = __DEV__ || devModeEnabled;
-
     const actionItems = React.useMemo<SessionActionItem[]>(() => {
         const items: SessionActionItem[] = [
             { id: 'details', icon: 'information-circle-outline', label: t('profile.details'), onPress: openDetails },
@@ -299,29 +274,16 @@ export function useSessionQuickActions(
             items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
         }
 
-        if (canCopySessionMetadata) {
-            items.push({ id: 'copy-metadata', icon: 'bug-outline', label: t('sessionInfo.copyMetadata'), onPress: copySessionMetadata });
-            items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' & Client Logs', onPress: copySessionMetadataAndLogs });
-        }
-
-        // Archive only makes sense for a live session — it kills the CLI and
-        // deactivates it. An already-inactive session is effectively archived,
-        // so we offer permanent deletion instead.
         if (session.active) {
             items.push({ id: 'archive', icon: 'archive-outline', label: t('sessionInfo.archiveSession'), onPress: archiveSession, destructive: true });
-        } else {
-            items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSession, destructive: true });
         }
+        items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSession, destructive: true });
 
         return items;
     }, [
         archiveSession,
-        canCopySessionMetadata,
         canFork,
-        copySessionMetadata,
-        copySessionMetadataAndLogs,
         deleteSession,
-        forkSource,
         forkSession,
         openDetails,
         openDuplicateSheet,
@@ -346,15 +308,12 @@ export function useSessionQuickActions(
         archiveSession,
         archivingSession,
         canArchive: session.active,
-        canDelete: !session.active,
+        canDelete: true,
         deleteSession,
         deletingSession,
-        canCopySessionMetadata,
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,
         canFork,
-        copySessionMetadata,
-        copySessionMetadataAndLogs,
         forkSession,
         forking,
         openDetails,
