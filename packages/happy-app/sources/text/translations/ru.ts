@@ -175,6 +175,7 @@ export const ru: TranslationStructure = {
             barista: 'Бариста',
             ninja: 'Ниндзя',
             scientist: 'Учёный',
+            florist: 'Флорист',
         },
         // Appearance settings screen
         theme: 'Тема',

@@ -190,6 +190,7 @@ export const ja: TranslationStructure = {
             barista: 'バリスタ',
             ninja: '忍者',
             scientist: '科学者',
+            florist: 'フローリスト',
         },
         // Appearance settings screen
         theme: 'テーマ',

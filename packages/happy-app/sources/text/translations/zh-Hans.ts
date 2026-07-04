@@ -190,6 +190,7 @@ export const zhHans: TranslationStructure = {
             barista: '咖啡师',
             ninja: '忍者',
             scientist: '科学家',
+            florist: '花艺师',
         },
         // Appearance settings screen
         theme: '主题',

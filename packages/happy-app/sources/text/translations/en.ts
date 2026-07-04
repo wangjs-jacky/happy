@@ -203,6 +203,7 @@ export const en: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Scientist',
+            florist: 'Florist',
         },
         // Appearance settings screen
         theme: 'Theme',
