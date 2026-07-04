@@ -23,6 +23,7 @@ import { hapticsLight } from './haptics';
 import { t } from '@/text';
 import { Modal } from '@/modal';
 import { bulkArchiveSessions, bulkDeleteSessions } from '@/hooks/bulkSessionActions';
+import { useSessionSelection } from '@/hooks/useSessionSelection';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -160,6 +161,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         position: 'relative',
         width: 48,
         height: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     draftIconContainer: {
         position: 'absolute',
@@ -244,6 +247,19 @@ const stylesheet = StyleSheet.create((theme) => ({
     bulkToolbarDangerText: {
         color: theme.colors.status.error,
     },
+    selectionCheckbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: theme.colors.textSecondary,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    selectionCheckboxSelected: {
+        borderColor: theme.colors.radio.active,
+        backgroundColor: theme.colors.radio.active,
+    },
 }));
 
 export function SessionsList() {
@@ -254,8 +270,11 @@ export function SessionsList() {
     const pathname = usePathname();
     const isTablet = useIsTablet();
     const [hideInactiveSessions, setHideInactiveSessions] = useSettingMutable('hideInactiveSessions');
-    const [selectionMode, setSelectionMode] = React.useState(false);
-    const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+    const selectionMode = useSessionSelection((s) => s.active);
+    const selectedIds = useSessionSelection((s) => s.selectedIds);
+    const startSelection = useSessionSelection((s) => s.enterSelection);
+    const toggleSelection = useSessionSelection((s) => s.toggleSelection);
+    const clearSelection = useSessionSelection((s) => s.clearSelection);
     const [bulkProcessing, setBulkProcessing] = React.useState<'archive' | 'delete' | null>(null);
     const toggleArchived = React.useCallback(() => {
         setHideInactiveSessions(!hideInactiveSessions);
@@ -271,31 +290,6 @@ export function SessionsList() {
     }, [isTablet, pathname]);
 
     const selectedCount = selectedIds.size;
-
-    const startSelection = React.useCallback((sessionId: string) => {
-        setSelectionMode(true);
-        setSelectedIds(new Set([sessionId]));
-    }, []);
-
-    const toggleSelection = React.useCallback((sessionId: string) => {
-        setSelectedIds((current) => {
-            const next = new Set(current);
-            if (next.has(sessionId)) {
-                next.delete(sessionId);
-            } else {
-                next.add(sessionId);
-            }
-            if (next.size === 0) {
-                setSelectionMode(false);
-            }
-            return next;
-        });
-    }, []);
-
-    const clearSelection = React.useCallback(() => {
-        setSelectionMode(false);
-        setSelectedIds(new Set());
-    }, []);
 
     const getSelectedSessions = React.useCallback(() => {
         const sessions = storage.getState().sessions;
@@ -471,7 +465,7 @@ export function SessionsList() {
                     data={data}
                     renderItem={renderItem}
                     keyExtractor={keyExtractor}
-                    extraData={selectedSessionId}
+                    extraData={`${selectedSessionId ?? ''}:${selectionMode}:${Array.from(selectedIds).join(',')}`}
                     contentContainerStyle={{ paddingBottom: safeArea.bottom + 128, maxWidth: layout.maxWidth }}
                     ListHeaderComponent={HeaderComponent}
                     windowSize={5}
@@ -618,8 +612,20 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle, 
             {...menuProps}
         >
             <View style={styles.avatarContainer}>
-                <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
-                {session.hasDraft && (
+                {selectionMode ? (
+                    <View style={[styles.selectionCheckbox, bulkSelected && styles.selectionCheckboxSelected]}>
+                        {bulkSelected ? (
+                            <Ionicons
+                                name="checkmark"
+                                size={14}
+                                color="#FFFFFF"
+                            />
+                        ) : null}
+                    </View>
+                ) : (
+                    <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} />
+                )}
+                {!selectionMode && session.hasDraft && (
                     <View style={styles.draftIconContainer}>
                         <Ionicons
                             name="create-outline"
@@ -631,13 +637,6 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle, 
             </View>
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
-                    {selectionMode && (
-                        <Ionicons
-                            name={bulkSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                            size={18}
-                            color={bulkSelected ? theme.colors.accent : theme.colors.textSecondary}
-                        />
-                    )}
                     <Text style={[
                         styles.sessionTitle,
                         status.isConnected ? styles.sessionTitleConnected : styles.sessionTitleDisconnected
