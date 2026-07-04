@@ -18,6 +18,8 @@ export function SessionActionsNativeMenu({
     session,
 }: SessionActionsNativeMenuProps) {
     const {
+        archiveSession,
+        canArchive,
         deleteSession,
         canShowResume,
         openDetails,
@@ -33,6 +35,11 @@ export function SessionActionsNativeMenu({
                 <DropdownMenuItem onClick={openDetails}>
                     <DropdownMenuItem.Text>Details</DropdownMenuItem.Text>
                 </DropdownMenuItem>
+                {canArchive && (
+                    <DropdownMenuItem onClick={archiveSession}>
+                        <DropdownMenuItem.Text>{t('sessionInfo.archiveSession')}</DropdownMenuItem.Text>
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={deleteSession}>
                     <DropdownMenuItem.Text>{t('sessionInfo.deleteSession')}</DropdownMenuItem.Text>
                 </DropdownMenuItem>

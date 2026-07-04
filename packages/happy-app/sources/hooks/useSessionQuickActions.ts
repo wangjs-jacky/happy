@@ -274,10 +274,14 @@ export function useSessionQuickActions(
             items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
         }
 
+        if (session.active) {
+            items.push({ id: 'archive', icon: 'archive-outline', label: t('sessionInfo.archiveSession'), onPress: archiveSession, destructive: true });
+        }
         items.push({ id: 'delete', icon: 'trash-outline', label: t('sessionInfo.deleteSession'), onPress: deleteSession, destructive: true });
 
         return items;
     }, [
+        archiveSession,
         canFork,
         deleteSession,
         forkSession,
@@ -285,6 +289,7 @@ export function useSessionQuickActions(
         openDuplicateSheet,
         resumeAvailability.canShowResume,
         resumeSession,
+        session.active,
     ]);
 
     const showActionAlert = React.useCallback(() => {
