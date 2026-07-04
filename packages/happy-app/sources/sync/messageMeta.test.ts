@@ -84,4 +84,15 @@ describe('resolveMessageModeMeta', () => {
 
         expect(meta).toEqual({ model: null });
     });
+
+    it('treats an explicit default effort as a reset override', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: 'default',
+            metadata: { flavor: 'codex' },
+        } as any);
+
+        expect(meta).toEqual({ effort: null });
+    });
 });

@@ -617,8 +617,8 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
  * read back from the draft store.
  */
 export interface SessionConfigSelection {
-    permissionKey: string;
-    modelKey: string;
+    permissionKey?: string;
+    modelKey?: string;
     effortKey: string | null;
     /** '__none__' | '__new__' | <existing worktree absolute path>. */
     worktreeKey: string;
@@ -1030,13 +1030,13 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         // Expose the live selection + a way to dismiss pickers to the host.
         React.useImperativeHandle(ref, () => ({
             getSelection: () => ({
-                permissionKey: currentPermission?.key ?? 'default',
-                modelKey: currentModelKey,
-                effortKey: currentEffort?.key ?? null,
+                permissionKey: currentPermission?.key === 'default' ? undefined : currentPermission?.key,
+                modelKey: currentModelKey === 'default' ? undefined : currentModelKey,
+                effortKey: draft.effortLevel ?? effectiveAgentDefaults.effortLevel ?? null,
                 worktreeKey,
             }),
             closePickers: dismissPicker,
-        }), [currentPermission?.key, currentModelKey, currentEffort?.key, worktreeKey, dismissPicker]);
+        }), [currentPermission?.key, currentModelKey, draft.effortLevel, effectiveAgentDefaults.effortLevel, worktreeKey, dismissPicker]);
 
         // Render the active picker inline directly under its row. Web (non-sidebar)
         // shows it as a dropdown popover; sidebar and native render it embedded as a

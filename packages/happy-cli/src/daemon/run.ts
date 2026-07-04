@@ -28,6 +28,7 @@ import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
+import { inheritCodexHomeConfiguration } from '@/codex/codexHomeInheritance';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -322,6 +323,10 @@ export async function startDaemon(): Promise<void> {
 
             // Create a temporary directory for Codex
             const codexHomeDir = tmp.dirSync();
+
+            await inheritCodexHomeConfiguration(codexHomeDir.name, {
+              onDebug: (message, error) => logger.debug(`[DAEMON RUN] ${message}`, error),
+            });
 
             // Write the token to the temporary directory
             await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
