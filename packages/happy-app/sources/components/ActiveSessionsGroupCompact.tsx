@@ -339,7 +339,19 @@ const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selecti
     const renderLeadingIndicator = () => {
         let indicator: React.ReactNode = null;
 
-        if (session.hasUnread) {
+        if (selectionMode) {
+            indicator = (
+                <View style={[styles.selectionCheckbox, bulkSelected && styles.selectionCheckboxSelected]}>
+                    {bulkSelected ? (
+                        <Ionicons
+                            name="checkmark"
+                            size={14}
+                            color="#FFFFFF"
+                        />
+                    ) : null}
+                </View>
+            );
+        } else if (session.hasUnread) {
             indicator = <StatusDot color={status.dotColor} isPulsing={false} />;
         } else if (session.state === 'waiting' && session.hasDraft) {
             indicator = (
@@ -375,13 +387,6 @@ const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selecti
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
                     {renderLeadingIndicator()}
-                    {selectionMode && (
-                        <Ionicons
-                            name={bulkSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                            size={18}
-                            color={bulkSelected ? theme.colors.accent : theme.colors.textSecondary}
-                        />
-                    )}
 
                     <Text
                         style={[
@@ -547,8 +552,21 @@ const stylesheet = StyleSheet.create((theme) => ({
     leadingIndicatorSlot: {
         alignItems: 'center',
         justifyContent: 'center',
-        width: 16,
-        height: 16,
+        width: 20,
+        height: 20,
         marginRight: 8,
+    },
+    selectionCheckbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: theme.colors.textSecondary,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    selectionCheckboxSelected: {
+        borderColor: theme.colors.radio.active,
+        backgroundColor: theme.colors.radio.active,
     },
 }));
