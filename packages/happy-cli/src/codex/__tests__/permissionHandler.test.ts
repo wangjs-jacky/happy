@@ -64,6 +64,51 @@ describe('CodexPermissionHandler', () => {
         await expect(pending).resolves.toEqual({ decision: 'abort' });
     });
 
+    it('auto-approves all tools in yolo mode', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+        handler.setPermissionMode('yolo');
+
+        const result = await handler.handleToolCall(
+            'call_patch_123',
+            'CodexPatch',
+            { changes: [{ path: 'file.ts', diff: '...' }] },
+        );
+
+        expect(result).toEqual({ decision: 'approved_for_session' });
+        expect(getState().completedRequests.call_patch_123).toMatchObject({
+            tool: 'CodexPatch',
+            status: 'approved',
+            decision: 'approved_for_session',
+        });
+        expect(getState().requests).toBeUndefined();
+    });
+
+    it('approves an already-pending request when switching into yolo mode', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_patch_pending',
+            'CodexPatch',
+            { changes: [{ path: 'file.ts', diff: '...' }] },
+        );
+
+        expect(getState().requests.call_patch_pending).toMatchObject({
+            tool: 'CodexPatch',
+        });
+
+        handler.setPermissionMode('yolo');
+
+        await expect(pending).resolves.toEqual({ decision: 'approved_for_session' });
+        expect(getState().requests).toEqual({});
+        expect(getState().completedRequests.call_patch_pending).toMatchObject({
+            tool: 'CodexPatch',
+            status: 'approved',
+            decision: 'approved_for_session',
+        });
+    });
+
     it('does NOT auto-approve a crafted tool name containing change_title as substring', async () => {
         const { session } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);

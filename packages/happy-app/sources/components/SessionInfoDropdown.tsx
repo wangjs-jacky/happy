@@ -12,6 +12,7 @@ import {
     resolveCurrentOption,
 } from '@/components/modelModeOptions';
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
+import { sessionSetPermissionMode } from '@/sync/ops';
 import { storage, useSetting } from '@/sync/storage';
 import { t } from '@/text';
 import { Modal } from '@/modal';
@@ -59,12 +60,14 @@ function permissionIcon(key: string | undefined): 'play-forward' | 'pause' | 'sh
  * reflects the *running* session's metadata.
  *
  * Editability splits by what the running CLI process can actually change mid-
- * session: permission / model / effort are per-turn meta (happy-cli re-reads
- * them from each outgoing message), so those rows are tappable and expand an
- * inline option list — the pick takes effect on the *next* turn. machine /
- * folder / agent are baked into the spawned process and can't change without a
- * new session, so they stay read-only. Each editable row only becomes tappable
- * when it actually has more than one option to choose from.
+ * session: model / effort are per-turn meta (happy-cli re-reads them from each
+ * outgoing message), so those rows are tappable and expand an inline option
+ * list — the pick takes effect on the *next* turn. Permission mode also
+ * persists onto future turns, and Codex can hot-apply it to the current turn
+ * through a session RPC. machine / folder / agent are baked into the spawned
+ * process and can't change without a new session, so they stay read-only. Each
+ * editable row only becomes tappable when it actually has more than one option
+ * to choose from.
  *
  * A "Session details" row at the bottom links into the full info screen.
  * Renders its own full-screen backdrop so a tap anywhere outside collapses it.
@@ -132,13 +135,19 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
         setExpanded((cur) => (cur === row ? null : row));
     }, [animateNext]);
 
-    // Apply a pick to the running session. happy-cli attaches the updated value
-    // to the next outgoing message's meta, so the change lands on the next turn.
+    // Apply a pick to the running session. The value is always persisted for
+    // future turns via message meta; Codex also receives an immediate RPC update
+    // so a turn already blocked on permissions can continue.
     const applyPermission = React.useCallback((key: string) => {
         storage.getState().updateSessionPermissionMode(session.id, key);
+        if (flavor === 'codex') {
+            void sessionSetPermissionMode(session.id, key).catch((error) => {
+                console.error('Failed to push permission mode to running Codex session:', error);
+            });
+        }
         animateNext();
         setExpanded(null);
-    }, [session.id, animateNext]);
+    }, [session.id, animateNext, flavor]);
     const applyModel = React.useCallback((key: string) => {
         storage.getState().updateSessionModelMode(session.id, key);
         animateNext();

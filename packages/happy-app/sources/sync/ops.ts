@@ -25,6 +25,10 @@ interface SessionModeChangeRequest {
     to: 'remote' | 'local';
 }
 
+interface SessionPermissionModeUpdateRequest {
+    mode: string;
+}
+
 // Bash operation types
 interface SessionBashRequest {
     command: string;
@@ -584,6 +588,19 @@ export async function sessionSwitch(sessionId: string, to: 'remote' | 'local'): 
         request,
     );
     return response;
+}
+
+/**
+ * Push a permission-mode change to the running session immediately.
+ * Future turns still carry the same mode via normal message meta.
+ */
+export async function sessionSetPermissionMode(sessionId: string, mode: string): Promise<boolean> {
+    const request: SessionPermissionModeUpdateRequest = { mode };
+    return await apiSocket.sessionRPC<boolean, SessionPermissionModeUpdateRequest>(
+        sessionId,
+        'setPermissionMode',
+        request,
+    );
 }
 
 /**

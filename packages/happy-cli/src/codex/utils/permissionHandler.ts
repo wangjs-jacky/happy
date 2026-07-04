@@ -8,6 +8,7 @@
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import type { AgentState } from "@/api/types";
+import type { PermissionMode } from '@/api/types';
 import {
     BasePermissionHandler,
     PermissionResult,
@@ -21,6 +22,8 @@ export type { PermissionResult, PendingRequest };
  * Codex-specific permission handler.
  */
 export class CodexPermissionHandler extends BasePermissionHandler {
+    private currentPermissionMode: PermissionMode = 'default';
+
     // Exact tool names that should always be auto-approved. Include the bare
     // form (used by Codex elicitation messages like `tool "change_title"`)
     // and the MCP-qualified form for defense in depth.
@@ -45,7 +48,21 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         return '[Codex]';
     }
 
+    setPermissionMode(mode: PermissionMode): void {
+        const previousMode = this.currentPermissionMode;
+        this.currentPermissionMode = mode;
+        logger.debug(`${this.getLogPrefix()} Permission mode set to: ${mode}`);
+
+        if (mode === 'yolo' && previousMode !== 'yolo') {
+            this.approveAllPending('approved_for_session');
+        }
+    }
+
     private shouldAutoApprove(toolName: string, toolCallId: string): boolean {
+        if (this.currentPermissionMode === 'yolo') {
+            return true;
+        }
+
         if (CodexPermissionHandler.ALWAYS_AUTO_APPROVE_NAMES.has(toolName)) {
             return true;
         }
@@ -72,7 +89,8 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         input: unknown
     ): Promise<PermissionResult> {
         if (this.shouldAutoApprove(toolName, toolCallId)) {
-            logger.debug(`${this.getLogPrefix()} Auto-approving tool ${toolName} (${toolCallId})`);
+            const decision = this.currentPermissionMode === 'yolo' ? 'approved_for_session' : 'approved';
+            logger.debug(`${this.getLogPrefix()} Auto-approving tool ${toolName} (${toolCallId}) in ${this.currentPermissionMode} mode`);
 
             this.session.updateAgentState((currentState) => ({
                 ...currentState,
@@ -84,12 +102,12 @@ export class CodexPermissionHandler extends BasePermissionHandler {
                         createdAt: Date.now(),
                         completedAt: Date.now(),
                         status: 'approved',
-                        decision: 'approved',
+                        decision,
                     },
                 },
             } satisfies AgentState));
 
-            return { decision: 'approved' };
+            return { decision };
         }
 
         return new Promise<PermissionResult>((resolve, reject) => {
