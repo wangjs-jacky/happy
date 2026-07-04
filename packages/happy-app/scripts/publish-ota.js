@@ -3,6 +3,8 @@
 // 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>]
 //   --channel  发布到哪个频道，缺省 production；预览发 preview（仅装了 preview 包的设备会拉到）
 //   --platform 平台，缺省 android
+//   人类可读展示信息可通过环境变量传入，或在 GitHub Actions 中从 GITHUB_EVENT_PATH 自动读取：
+//     OTA_DISPLAY_TITLE / OTA_DISPLAY_MESSAGE / OTA_SOURCE_TYPE / OTA_SOURCE_NUMBER / OTA_SOURCE_URL
 //
 // 凭证来源：本脚本通过 `aliyun ossutil` 上传，复用 aliyun CLI 已配置的默认 profile 凭证
 //（~/.aliyun/config.json），因此无需在环境变量里再写 AccessKey。
@@ -90,6 +92,49 @@ function gitInfo() {
   };
 }
 
+function githubEventDisplayInfo() {
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath) return {};
+  try {
+    const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+    const pr = event.pull_request;
+    if (!pr) return {};
+    return {
+      title: pr.title,
+      message: pr.body,
+      sourceType: 'pull_request',
+      sourceNumber: pr.number,
+      sourceUrl: pr.html_url,
+    };
+  } catch (e) {
+    return {};
+  }
+}
+
+// 读取 CI/本地注入的人类可读展示信息。PR 预览 OTA 用它记录中文标题和说明，
+// 避免列表只能看到自动 merge commit。
+function displayInfo() {
+  const eventDisplay = githubEventDisplayInfo();
+  const clean = (value, maxLength) => {
+    if (!value) return '';
+    return String(value).replace(/\r\n/g, '\n').trim().slice(0, maxLength);
+  };
+  const title = clean(process.env.OTA_DISPLAY_TITLE || eventDisplay.title, 160);
+  const message = clean(process.env.OTA_DISPLAY_MESSAGE || eventDisplay.message, 2000);
+  const sourceType = clean(process.env.OTA_SOURCE_TYPE || eventDisplay.sourceType, 40);
+  const sourceNumber = clean(process.env.OTA_SOURCE_NUMBER || eventDisplay.sourceNumber, 40);
+  const sourceUrl = clean(process.env.OTA_SOURCE_URL || eventDisplay.sourceUrl, 400);
+  const source = {};
+  if (sourceType) source.type = sourceType;
+  if (sourceNumber) source.number = sourceNumber;
+  if (sourceUrl) source.url = sourceUrl;
+  const out = {};
+  if (title) out.title = title;
+  if (message) out.message = message;
+  if (Object.keys(source).length > 0) out.source = source;
+  return out;
+}
+
 // 用 aliyun ossutil 上传一个本地文件到 OSS 指定 key
 function ossUpload(localPath, ossKey, contentType) {
   execFileSync(
@@ -171,6 +216,7 @@ async function main() {
 
   // 5) 组装 manifest（extra.git 记录本次发布对应的 commit，回退时据此辨认是哪个版本）
   const git = gitInfo();
+  const display = displayInfo();
   const manifest = {
     id: toUUID(crypto.createHash('sha256').update(bundleBuf.toString('hex') + stamp).digest('hex')),
     createdAt: new Date(Number(stamp)).toISOString(),
@@ -178,7 +224,7 @@ async function main() {
     launchAsset,
     assets,
     metadata: {},
-    extra: { git },
+    extra: { git, display },
   };
 
   // 6) 上传 manifest 到频道下的 latest.json（每次覆盖）。先写临时文件再传。
@@ -192,9 +238,9 @@ async function main() {
   ossUpload(tmpManifest, `${channelPrefix}/${stamp}.json`, 'application/json');
   fs.unlinkSync(tmpManifest);
 
-  // 7) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git。
+  // 7) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git + display。
   //    回退脚本读这个小文件即可展示「这是哪个 commit」，无需下载体积较大的整份 manifest。
-  const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, channel: CHANNEL, git };
+  const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, channel: CHANNEL, git, display };
   const tmpMeta = path.join(os.tmpdir(), `ota-meta-${stamp}.json`);
   fs.writeFileSync(tmpMeta, JSON.stringify(meta, null, 2));
   ossUpload(tmpMeta, `meta/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}/${stamp}.json`, 'application/json');
@@ -206,6 +252,9 @@ async function main() {
   console.log('新版本 id:', manifest.id);
   if (git.sha) {
     console.log('对应 commit:', `${git.sha}${git.dirty ? '*' : ''} ${git.subject}`);
+  }
+  if (display.title) {
+    console.log('展示标题:', display.title);
   }
 
   // 8) CI 集成：若在 GitHub Actions 中（设置了 GITHUB_OUTPUT），把版本信息写入 step output，

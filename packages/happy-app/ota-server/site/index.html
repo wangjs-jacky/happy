@@ -144,26 +144,31 @@
             const res = await fetch(`${OSS_BASE}/${PREFIX}${stamp}.json`);
             if (!res.ok) return null;
             const m = await res.json();
-            return { stamp, id: m.id || '', createdAt: m.createdAt || '', git: m.git || {} };
+            return { stamp, id: m.id || '', createdAt: m.createdAt || '', git: m.git || {}, display: m.display || {} };
         } catch { return null; }
     }
 
     function renderCard(v, isLatest) {
         const g = v.git || {};
+        const d = v.display || {};
         const deepLink = `paws://ota-switch?channel=preview&stamp=${v.stamp}`;
         const when = v.createdAt ? new Date(v.createdAt).toLocaleString() : v.stamp;
+        const title = d.title || g.subject || '(无 commit 信息)';
+        const source = d.source && d.source.number ? `<span class="chip latest">PR #${esc(d.source.number)}</span>` : '';
         const card = document.createElement('div');
         card.className = 'card' + (isLatest ? ' latest' : '');
         card.innerHTML = `
             <div class="meta">
-                <div class="subject">${esc(g.subject || '(无 commit 信息)')}</div>
+                <div class="subject">${esc(title)}</div>
                 <div class="row2">
+                    ${source}
                     ${g.sha ? `<span class="chip sha">⎇ ${esc(g.sha)}${g.dirty ? '' : ''}</span>` : ''}
                     ${g.dirty ? `<span class="chip dirty">dirty</span>` : ''}
                     ${g.branch ? `<span class="chip branch">${esc(g.branch)}</span>` : ''}
                     ${isLatest ? `<span class="chip latest">latest</span>` : ''}
                     <span class="chip stamp">${esc(when)}</span>
                 </div>
+                ${d.title && g.subject ? `<div class="row2" style="margin-top:7px">${esc(g.subject)}</div>` : ''}
             </div>
             <div class="qr">
                 <canvas></canvas>
