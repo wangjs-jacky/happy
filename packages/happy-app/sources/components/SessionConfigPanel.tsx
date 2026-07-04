@@ -44,12 +44,14 @@ import { isRunningOnMac } from '@/utils/platform';
 const agentIcons = {
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
+    opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
 };
 
 type AgentKey = NewSessionAgentType;
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
+    { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },
     { key: 'openclaw', label: 'openclaw' },
@@ -649,7 +651,7 @@ export interface SessionConfigPanelProps {
  * permission / worktree, plus the pickers that drive them. Extracted from the
  * /new screen so both /new and the compose-first home can render the same panel.
  * It reads and writes the shared `useNewSessionDraft` store for the persisted
- * fields (machine/path/agent/permission/model/worktree) and keeps effort + the
+ * fields (machine/path/permission/model/worktree) and keeps effort + the
  * model/permission *indices* as local state, exposed via the imperative handle.
  */
 export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, SessionConfigPanelProps>(

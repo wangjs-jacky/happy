@@ -27,6 +27,7 @@ import { useShallow } from 'zustand/react/shallow';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
@@ -140,6 +141,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             machine: machine!,
             path: draft.selectedPath,
             agent: draft.agentType,
+            permissionMode: draft.permissionMode,
+            modelMode: draft.modelMode,
             worktreeKey: draft.worktreeKey,
             prompt: trimmed,
             images,
