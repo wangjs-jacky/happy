@@ -5,7 +5,7 @@
  * - Functions with typed object parameters for dynamic text
  */
 
-import { TranslationStructure } from "../_default";
+import { en, TranslationStructure } from "../_default";
 
 /**
  * Japanese plural helper function
@@ -762,6 +762,8 @@ export const ja: TranslationStructure = {
         authenticateWithUrlPaste: 'URLペーストでターミナルを認証',
         pasteAuthUrl: 'ターミナルから認証URLを貼り付け',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'アップデートが利用可能',

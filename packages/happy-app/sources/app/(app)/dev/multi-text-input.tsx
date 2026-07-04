@@ -2,10 +2,11 @@ import * as React from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { MultiTextInput, KeyPressEvent } from '@/components/MultiTextInput';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 export default function MultiTextInputDemo() {
     const [text1, setText1] = React.useState('');
-    const [text2, setText2] = React.useState('This is some initial text that demonstrates how the component handles existing content.');
+    const [text2, setText2] = React.useState(() => t('devTools.initialValueText'));
     const [text3, setText3] = React.useState('');
     const [text4, setText4] = React.useState('');
     const [text5, setText5] = React.useState('');
@@ -20,7 +21,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 8,
                         ...Typography.default('semiBold')
                     }}>
-                        Basic Usage
+                        {t('devTools.basicUsage')}
                     </Text>
                     <Text style={{ 
                         fontSize: 14, 
@@ -28,7 +29,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 12,
                         ...Typography.default()
                     }}>
-                        Standard multi-line text input with default max height (120px)
+                        {t('devTools.basicUsageSubtitle')}
                     </Text>
                     <View style={{
                         backgroundColor: '#f5f5f5',
@@ -38,7 +39,7 @@ export default function MultiTextInputDemo() {
                         <MultiTextInput
                             value={text1}
                             onChangeText={setText1}
-                            placeholder="Type something here..."
+                            placeholder={t('devTools.typeSomethingHere')}
                         />
                     </View>
                     <Text style={{ 
@@ -47,7 +48,7 @@ export default function MultiTextInputDemo() {
                         marginTop: 4,
                         ...Typography.default()
                     }}>
-                        Characters: {text1.length}
+                        {t('devTools.charactersCount', { count: text1.length })}
                     </Text>
                 </View>
 
@@ -57,7 +58,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 8,
                         ...Typography.default('semiBold')
                     }}>
-                        With Initial Value
+                        {t('devTools.withInitialValue')}
                     </Text>
                     <Text style={{ 
                         fontSize: 14, 
@@ -65,7 +66,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 12,
                         ...Typography.default()
                     }}>
-                        Pre-populated with text
+                        {t('devTools.prePopulatedWithText')}
                     </Text>
                     <View style={{
                         backgroundColor: '#f0f7ff',
@@ -75,7 +76,7 @@ export default function MultiTextInputDemo() {
                         <MultiTextInput
                             value={text2}
                             onChangeText={setText2}
-                            placeholder="This won't show because there's already text"
+                            placeholder={t('devTools.initialValuePlaceholder')}
                         />
                     </View>
                     <Text style={{ 
@@ -84,7 +85,7 @@ export default function MultiTextInputDemo() {
                         marginTop: 4,
                         ...Typography.default()
                     }}>
-                        Characters: {text2.length}
+                        {t('devTools.charactersCount', { count: text2.length })}
                     </Text>
                 </View>
 
@@ -94,7 +95,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 8,
                         ...Typography.default('semiBold')
                     }}>
-                        Limited Height (60px)
+                        {t('devTools.limitedHeight')}
                     </Text>
                     <Text style={{ 
                         fontSize: 14, 
@@ -102,7 +103,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 12,
                         ...Typography.default()
                     }}>
-                        This input has a lower max height, so it will scroll sooner
+                        {t('devTools.limitedHeightSubtitle')}
                     </Text>
                     <View style={{
                         backgroundColor: '#fff5f5',
@@ -112,7 +113,7 @@ export default function MultiTextInputDemo() {
                         <MultiTextInput
                             value={text3}
                             onChangeText={setText3}
-                            placeholder="Type multiple lines to see scrolling..."
+                            placeholder={t('devTools.multipleLinesPlaceholder')}
                             maxHeight={60}
                         />
                     </View>
@@ -122,7 +123,7 @@ export default function MultiTextInputDemo() {
                         marginTop: 4,
                         ...Typography.default()
                     }}>
-                        Characters: {text3.length} | Max height: 60px
+                        {t('devTools.maxHeightSummary', { count: text3.length, max: 60 })}
                     </Text>
                 </View>
 
@@ -132,7 +133,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 8,
                         ...Typography.default('semiBold')
                     }}>
-                    Larger Height (200px)
+                    {t('devTools.largerHeight')}
                     </Text>
                     <Text style={{ 
                         fontSize: 14, 
@@ -140,7 +141,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 12,
                         ...Typography.default()
                     }}>
-                        This input can grow much taller before scrolling
+                        {t('devTools.largerHeightSubtitle')}
                     </Text>
                     <View style={{
                         backgroundColor: '#f5fff5',
@@ -150,7 +151,7 @@ export default function MultiTextInputDemo() {
                         <MultiTextInput
                             value={text4}
                             onChangeText={setText4}
-                            placeholder="You can write a lot more here before it starts scrolling..."
+                            placeholder={t('devTools.largerHeightPlaceholder')}
                             maxHeight={200}
                         />
                     </View>
@@ -160,7 +161,7 @@ export default function MultiTextInputDemo() {
                         marginTop: 4,
                         ...Typography.default()
                     }}>
-                        Characters: {text4.length} | Max height: 200px
+                        {t('devTools.maxHeightSummary', { count: text4.length, max: 200 })}
                     </Text>
                 </View>
 
@@ -170,7 +171,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 8,
                         ...Typography.default('semiBold')
                     }}>
-                        With Keyboard Handling
+                        {t('devTools.keyboardHandling')}
                     </Text>
                     <Text style={{ 
                         fontSize: 14, 
@@ -178,7 +179,7 @@ export default function MultiTextInputDemo() {
                         marginBottom: 12,
                         ...Typography.default()
                     }}>
-                        Press Enter to submit (clears the field), Escape to clear, or use arrow keys
+                        {t('devTools.keyboardHandlingSubtitle')}
                     </Text>
                     <View style={{
                         backgroundColor: '#fff0f5',
@@ -188,7 +189,7 @@ export default function MultiTextInputDemo() {
                         <MultiTextInput
                             value={text5}
                             onChangeText={setText5}
-                            placeholder="Try pressing Enter, Escape, or arrow keys..."
+                            placeholder={t('devTools.keyboardPlaceholder')}
                             onKeyPress={(event: KeyPressEvent): boolean => {
                                 setLastKey(`${event.key}${event.shiftKey ? ' + Shift' : ''}`);
                                 
@@ -213,7 +214,7 @@ export default function MultiTextInputDemo() {
                         marginTop: 4,
                         ...Typography.default()
                     }}>
-                        Last key pressed: {lastKey || 'None'} | Characters: {text5.length}
+                        {t('devTools.lastKeySummary', { key: lastKey || t('devTools.none'), count: text5.length })}
                     </Text>
                 </View>
 

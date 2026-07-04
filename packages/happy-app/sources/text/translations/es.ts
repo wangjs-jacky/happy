@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Spanish plural helper function
@@ -761,6 +761,8 @@ export const es: TranslationStructure = {
         authenticateWithUrlPaste: 'Autenticar terminal con pegado de URL',
         pasteAuthUrl: 'Pega la URL de autenticación de tu terminal',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Actualización disponible',

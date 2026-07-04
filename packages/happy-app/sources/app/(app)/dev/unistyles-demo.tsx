@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, Switch, Dimensions } from 'react-native';
 import { StyleSheet, UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
+import { t } from '@/text';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -169,6 +170,8 @@ export default function UnistylesDemo() {
     const { theme, rt } = useUnistyles();
     const styles = stylesheet;
     const [showRuntimeInfo, setShowRuntimeInfo] = useState(true);
+    const runtimeThemeName = rt.themeName ?? t('common.unknown');
+    const runtimeBreakpoint = rt.breakpoint ?? t('common.unknown');
 
     const switchTheme = (mode: 'light' | 'dark') => {
         // 主题名已改为「主题包 + 明暗」结构，dev 演示用默认焦糖包
@@ -185,13 +188,13 @@ export default function UnistylesDemo() {
             <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
                 {/* Theme Demo */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>🎨 Theme System</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.themeSystem')}</Text>
                     <View style={styles.themeCard}>
                         <Text style={styles.themeText}>
-                            Current Theme: {rt.themeName}
+                            {t('devTools.currentTheme', { theme: runtimeThemeName })}
                         </Text>
                         <Text style={[styles.themeText, { fontSize: 14, opacity: 0.8 }]}>
-                            Primary: {theme.colors.surface}  // TODO: change to primary
+                            {t('devTools.primaryColor', { color: theme.colors.surface })}
                         </Text>
                     </View>
 
@@ -200,46 +203,46 @@ export default function UnistylesDemo() {
                             style={styles.themeButton}
                             onPress={() => switchTheme('light')}
                         >
-                            <Text style={styles.themeButtonText}>Light</Text>
+                            <Text style={styles.themeButtonText}>{t('devTools.light')}</Text>
                         </Pressable>
                         <Pressable
                             style={styles.themeButton}
                             onPress={() => switchTheme('dark')}
                         >
-                            <Text style={styles.themeButtonText}>Dark</Text>
+                            <Text style={styles.themeButtonText}>{t('devTools.dark')}</Text>
                         </Pressable>
                     </View>
                 </View>
 
                 {/* Breakpoints Demo */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>📱 Responsive Breakpoints</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.responsiveBreakpoints')}</Text>
                     <Text style={{ marginBottom: 12, color: '#666' }}>
-                        Current: {rt.breakpoint} ({screenWidth}px)
+                        {t('devTools.currentBreakpoint', { breakpoint: runtimeBreakpoint, width: screenWidth })}
                     </Text>
 
                     <View style={styles.breakpointBox}>
                         <Text style={styles.breakpointText}>
-                            Active Breakpoint: {rt.breakpoint}
+                            {t('devTools.activeBreakpoint', { breakpoint: runtimeBreakpoint })}
                         </Text>
                         <Text style={[styles.breakpointText, { fontSize: 12, opacity: 0.8 }]}>
-                            Screen width: {rt.screen.width}px
+                            {t('devTools.screenWidthValue', { width: rt.screen.width })}
                         </Text>
                     </View>
 
                     <View style={styles.responsiveContainer}>
                         <View style={styles.responsiveBox}>
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>Box 1</Text>
+                            <Text style={{ color: 'white', fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 1 })}</Text>
                         </View>
                         <View style={styles.responsiveBox}>
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>Box 2</Text>
+                            <Text style={{ color: 'white', fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 2 })}</Text>
                         </View>
                     </View>
                 </View>
 
                 {/* Orientation Demo */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>🔄 Orientation Styles</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.orientationStyles')}</Text>
                     <View style={styles.orientationBox}>
                         <Ionicons
                             name={rt.isPortrait ? 'phone-portrait' : 'phone-landscape'}
@@ -247,22 +250,22 @@ export default function UnistylesDemo() {
                             color="white"
                         />
                         <Text style={styles.orientationText}>
-                            {rt.isPortrait ? 'Portrait' : 'Landscape'}
+                            {rt.isPortrait ? t('devTools.portrait') : t('devTools.landscape')}
                         </Text>
                     </View>
                 </View>
 
                 {/* Adaptive Components */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>🎯 Adaptive Components</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.adaptiveComponents')}</Text>
                     <Text style={{ marginBottom: 12, color: '#666' }}>
-                        Padding and border radius adapt to screen size
+                        {t('devTools.adaptiveComponentsDescription')}
                     </Text>
 
-                    {['Tiny', 'Small', 'Medium', 'Large', 'Extra Large'].map((size, index) => (
+                    {[t('devTools.tiny'), t('devTools.small'), t('devTools.medium'), t('devTools.large'), t('devTools.extraLarge')].map((size, index) => (
                         <View key={size} style={styles.adaptiveBox}>
                             <Text style={styles.adaptiveText}>
-                                {size} - Adapts to {rt.breakpoint}
+                                {t('devTools.adaptiveSize', { size, breakpoint: runtimeBreakpoint })}
                             </Text>
                         </View>
                     ))}
@@ -270,10 +273,10 @@ export default function UnistylesDemo() {
 
                 {/* Runtime Information */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>⚙️ Runtime Information</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.runtimeInformation')}</Text>
 
                     <View style={styles.switchContainer}>
-                        <Text style={{ fontSize: 16, color: '#333' }}>Show Runtime Details</Text>
+                        <Text style={{ fontSize: 16, color: '#333' }}>{t('devTools.showRuntimeDetails')}</Text>
                         <Switch
                             value={showRuntimeInfo}
                             onValueChange={setShowRuntimeInfo}
@@ -284,42 +287,42 @@ export default function UnistylesDemo() {
                         <>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Theme: {rt.themeName}
+                                    {t('devTools.themeValue', { theme: runtimeThemeName })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Breakpoint: {rt.breakpoint}
+                                    {t('devTools.breakpointValue', { breakpoint: runtimeBreakpoint })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Screen: {rt.screen.width} × {rt.screen.height}
+                                    {t('devTools.screenValue', { width: rt.screen.width, height: rt.screen.height })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Orientation: {rt.isPortrait ? 'Portrait' : 'Landscape'}
+                                    {t('devTools.orientationValue', { orientation: rt.isPortrait ? t('devTools.portrait') : t('devTools.landscape') })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Color Scheme: {rt.colorScheme}
+                                    {t('devTools.colorSchemeValue', { scheme: rt.colorScheme })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Content Size: {rt.contentSizeCategory}
+                                    {t('devTools.contentSizeValue', { size: rt.contentSizeCategory })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Has Dynamic Island: {rt.insets.top > 50 ? 'Yes' : 'No'}
+                                    {t('devTools.hasDynamicIslandValue', { value: rt.insets.top > 50 ? t('common.yes') : t('common.no') })}
                                 </Text>
                             </View>
                             <View style={styles.runtimeBox}>
                                 <Text style={styles.runtimeText}>
-                                    Safe Insets: T:{rt.insets.top} B:{rt.insets.bottom} L:{rt.insets.left} R:{rt.insets.right}
+                                    {t('devTools.safeInsetsValue', { top: rt.insets.top, bottom: rt.insets.bottom, left: rt.insets.left, right: rt.insets.right })}
                                 </Text>
                             </View>
                         </>
@@ -330,14 +333,14 @@ export default function UnistylesDemo() {
                         onPress={toggleColorScheme}
                     >
                         <Text style={styles.themeButtonText}>
-                            Toggle Color Scheme ({rt.colorScheme})
+                            {t('devTools.toggleColorScheme', { scheme: rt.colorScheme })}
                         </Text>
                     </Pressable>
                 </View>
 
                 {/* Color Scheme Demo */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>🌙 Color Scheme</Text>
+                    <Text style={styles.sectionTitle}>{t('devTools.colorScheme')}</Text>
                     <View style={{
                         backgroundColor: rt.colorScheme === 'dark' ? '#2C3E50' : '#ECF0F1',
                         padding: 16,
@@ -349,7 +352,7 @@ export default function UnistylesDemo() {
                             fontSize: 16,
                             fontWeight: '600'
                         }}>
-                            Current color scheme: {rt.colorScheme}
+                            {t('devTools.currentColorScheme', { scheme: rt.colorScheme })}
                         </Text>
                         <Text style={{
                             color: rt.colorScheme === 'dark' ? '#BDC3C7' : '#7F8C8D',
@@ -357,18 +360,16 @@ export default function UnistylesDemo() {
                             fontSize: 14,
                             marginTop: 4
                         }}>
-                            This box adapts to system color scheme
+                            {t('devTools.colorSchemeAdapts')}
                         </Text>
                     </View>
                 </View>
 
                 {/* Performance Note */}
                 <View style={[styles.section, { backgroundColor: '#FFF3CD', borderColor: '#FFEAA7', borderWidth: 1 }]}>
-                    <Text style={[styles.sectionTitle, { color: '#856404' }]}>⚡ Performance Note</Text>
+                    <Text style={[styles.sectionTitle, { color: '#856404' }]}>{t('devTools.performanceNote')}</Text>
                     <Text style={{ color: '#856404', lineHeight: 20 }}>
-                        Unistyles compiles styles at build time and provides runtime optimizations.
-                        All the responsive features you see here work without performance penalties
-                        thanks to the native bridge integration.
+                        {t('devTools.performanceNoteBody')}
                     </Text>
                 </View>
             </ScrollView>

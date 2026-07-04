@@ -7,6 +7,7 @@ import { testRunner, TestSuite, TestResult } from '@/dev/testRunner';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 // Import all test files here
 import '@/encryption/hmac_sha512.appspec';
@@ -76,7 +77,7 @@ export default function TestsScreen() {
                                 {totalTests}
                             </Text>
                             <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
-                                Total Tests
+                                {t('devTools.totalTests')}
                             </Text>
                         </View>
                         <View style={{ flex: 1 }}>
@@ -84,7 +85,7 @@ export default function TestsScreen() {
                                 {passedTests}
                             </Text>
                             <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
-                                Passed
+                                {t('devTools.passed')}
                             </Text>
                         </View>
                         <View style={{ flex: 1 }}>
@@ -92,7 +93,7 @@ export default function TestsScreen() {
                                 {failedTests}
                             </Text>
                             <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
-                                Failed
+                                {t('devTools.failed')}
                             </Text>
                         </View>
                     </View>
@@ -100,10 +101,10 @@ export default function TestsScreen() {
             )}
 
             {/* Run All Tests */}
-            <ItemGroup title="Actions">
+            <ItemGroup title={t('devTools.actions')}>
                 <Item
-                    title="Run All Tests"
-                    subtitle={`${suites.length} test suites available`}
+                    title={t('devTools.runAllTests')}
+                    subtitle={t('devTools.testSuitesAvailable', { count: suites.length })}
                     icon={<Ionicons name="play-circle-outline" size={28} color="#34C759" />}
                     onPress={runAllTests}
                     loading={state.running}
@@ -112,7 +113,7 @@ export default function TestsScreen() {
             </ItemGroup>
 
             {/* Test Suites */}
-            <ItemGroup title="Test Suites">
+            <ItemGroup title={t('devTools.testSuites')}>
                 {suites.map(suiteName => {
                     const result = state.results.find(r => r.name === suiteName);
                     const hasRun = !!result;
@@ -124,7 +125,7 @@ export default function TestsScreen() {
                         <Item
                             key={suiteName}
                             title={suiteName}
-                            subtitle={hasRun ? `${passedCount}/${testCount} tests passed` : 'Not run'}
+                            subtitle={hasRun ? t('devTools.testsPassed', { passed: passedCount, total: testCount }) : t('devTools.notRun')}
                             icon={
                                 hasRun ? (
                                     <Ionicons 
@@ -145,7 +146,7 @@ export default function TestsScreen() {
 
             {/* Test Results */}
             {state.results.map(suite => (
-                <ItemGroup key={suite.name} title={`${suite.name} Results`}>
+                <ItemGroup key={suite.name} title={t('devTools.suiteResults', { suite: suite.name })}>
                     {suite.tests.map((test, index) => (
                         <View key={index} style={{ backgroundColor: 'white' }}>
                             <View style={{ 
@@ -196,7 +197,7 @@ export default function TestsScreen() {
                 <View style={{ padding: 32, alignItems: 'center' }}>
                     <ActivityIndicator size="large" color={theme.colors.accent} />
                     <Text style={{ ...Typography.default(), fontSize: 16, color: '#8E8E93', marginTop: 16 }}>
-                        Running tests...
+                        {t('devTools.runningTests')}
                     </Text>
                 </View>
             )}

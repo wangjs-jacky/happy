@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Polish plural helper function
@@ -777,6 +777,8 @@ export const pl: TranslationStructure = {
         authenticateWithUrlPaste: 'Uwierzytelnij terminal poprzez wklejenie URL',
         pasteAuthUrl: 'Wklej URL uwierzytelnienia z terminala',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Dostępna aktualizacja',
