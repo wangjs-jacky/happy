@@ -26,6 +26,7 @@ export function SessionActionsNativeMenu({
         canShowResume,
         copySessionMetadata,
         openDetails,
+        renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
         onAfterArchive,
@@ -37,6 +38,9 @@ export function SessionActionsNativeMenu({
             <DropdownMenu.Items>
                 <DropdownMenuItem onClick={openDetails}>
                     <DropdownMenuItem.Text>Details</DropdownMenuItem.Text>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={renameSession}>
+                    <DropdownMenuItem.Text>{t('sessionInfo.renameSession')}</DropdownMenuItem.Text>
                 </DropdownMenuItem>
                 {canArchive && (
                     <DropdownMenuItem onClick={archiveSession}>
