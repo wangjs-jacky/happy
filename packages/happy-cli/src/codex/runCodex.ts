@@ -232,29 +232,37 @@ export async function runCodex(opts: {
     let currentEffort: ReasoningEffort | undefined = DEFAULT_CODEX_EFFORT;
     let currentAppendSystemPrompt: string | undefined = undefined;
 
-    const resetCurrentModeDefaults = () => {
-        currentPermissionMode = DEFAULT_CODEX_PERMISSION_MODE;
-        currentModel = DEFAULT_CODEX_MODEL;
-        currentEffort = DEFAULT_CODEX_EFFORT;
-        currentAppendSystemPrompt = undefined;
-        logger.debug('[Codex] Reset current mode defaults after abort');
-    };
-
-    // Valid Codex permission modes from remote messages. Matches the modes
-    // the mobile UI exposes for Codex sessions (see modelModeOptions.ts:
-    // getCodexPermissionModes) and mirrors the Gemini validation pattern at
-    // runGemini.ts:222. Anything outside this set is silently ignored — the
-    // previous code blindly cast `message.meta.permissionMode as PermissionMode`
-    // at runtime, meaning a crafted value like `'totally_unsafe'` would be
-    // accepted and then fall through to the `default` branch in
-    // resolveCodexExecutionPolicy() — or worse, an attacker-chosen valid value
-    // could escalate sandbox scope (issue #1092).
+    // Valid Codex permission modes from remote messages and live RPC updates.
+    // Matches the mobile UI modes (modelModeOptions.ts:getCodexPermissionModes).
     const VALID_REMOTE_PERMISSION_MODES: readonly PermissionMode[] = [
         'default',
         'read-only',
         'safe-yolo',
         'yolo',
     ];
+
+    const applyPermissionMode = (mode: PermissionMode, source: string) => {
+        currentPermissionMode = mode;
+        permissionHandler?.setPermissionMode(mode);
+        session.updateMetadata((currentMetadata) => {
+            if (currentMetadata.currentOperatingModeCode === mode) {
+                return currentMetadata;
+            }
+            return {
+                ...currentMetadata,
+                currentOperatingModeCode: mode,
+            };
+        });
+        logger.debug(`[Codex] Permission mode updated from ${source} to: ${mode}`);
+    };
+
+    const resetCurrentModeDefaults = () => {
+        applyPermissionMode(DEFAULT_CODEX_PERMISSION_MODE, 'abort reset');
+        currentModel = DEFAULT_CODEX_MODEL;
+        currentEffort = DEFAULT_CODEX_EFFORT;
+        currentAppendSystemPrompt = undefined;
+        logger.debug('[Codex] Reset current mode defaults after abort');
+    };
 
     const VALID_REMOTE_EFFORTS: readonly ReasoningEffort[] = [
         'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
@@ -295,8 +303,7 @@ export async function runCodex(opts: {
             const incoming = message.meta.permissionMode as PermissionMode;
             if (VALID_REMOTE_PERMISSION_MODES.includes(incoming)) {
                 messagePermissionMode = incoming;
-                currentPermissionMode = messagePermissionMode;
-                logger.debug(`[Codex] Permission mode updated from user message to: ${currentPermissionMode}`);
+                applyPermissionMode(messagePermissionMode, 'user message');
             } else {
                 logger.debug(`[Codex] Ignoring invalid permission mode from user message: ${String(message.meta.permissionMode)}`);
             }
@@ -564,10 +571,20 @@ export async function runCodex(opts: {
     client = new CodexAppServerClient(sandboxConfig);
 
     permissionHandler = new CodexPermissionHandler(session);
+    applyPermissionMode(currentPermissionMode ?? 'default', 'session init');
     // Drop any permission requests left in agent state from a previous CLI
     // process that died while a tool prompt was open — see the matching
     // call in claudeRemoteLauncher for the full rationale.
     permissionHandler.reset('Previous CLI process exited before responding');
+    session.rpcHandlerManager.registerHandler<{ mode: string }, boolean>('setPermissionMode', async (request) => {
+        const incoming = request?.mode;
+        if (!incoming || !VALID_REMOTE_PERMISSION_MODES.includes(incoming as PermissionMode)) {
+            logger.debug(`[Codex] Ignoring invalid RPC permission mode: ${String(incoming)}`);
+            return false;
+        }
+        applyPermissionMode(incoming as PermissionMode, 'session rpc');
+        return true;
+    });
     reasoningProcessor = new ReasoningProcessor((message) => {
         const envelopes = mapCodexProcessorMessageToSessionEnvelopes(message, { currentTurnId });
         for (const envelope of envelopes) {
