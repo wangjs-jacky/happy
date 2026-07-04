@@ -36,8 +36,6 @@ const PLATFORM = ARGS.platform || 'android';   // 平台（--platform 覆盖）
 const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖），缺省 production 保持旧行为
 const DIST_DIR = path.join(__dirname, '..', 'dist'); // expo export 输出目录
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun'; // aliyun CLI 可执行名/路径
-const OSS_UPLOAD_ENDPOINT = process.env.OSS_UPLOAD_ENDPOINT || `https://${REGION}.aliyuncs.com`;
-const OSS_ADDRESSING_STYLE = process.env.OSS_ADDRESSING_STYLE || 'path';
 // OSS 公开访问域名（https）
 const OSS_PUBLIC_BASE = `https://${BUCKET}.${REGION}.aliyuncs.com`;
 // ===================================================
@@ -97,9 +95,7 @@ function ossUpload(localPath, ossKey, contentType) {
   execFileSync(
     ALIYUN_BIN,
     ['ossutil', 'cp', localPath, `oss://${BUCKET}/${ossKey}`,
-      '--force', '--content-type', contentType,
-      '--endpoint', OSS_UPLOAD_ENDPOINT,
-      '--addressing-style', OSS_ADDRESSING_STYLE],
+      '--force', '--content-type', contentType],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   console.log('  已上传:', ossKey);
@@ -110,9 +106,7 @@ function ossUploadDir(localDir, ossPrefix) {
   execFileSync(
     ALIYUN_BIN,
     ['ossutil', 'cp', localDir.replace(/\/?$/, '/'), `oss://${BUCKET}/${ossPrefix}`,
-      '-r', '--force',
-      '--endpoint', OSS_UPLOAD_ENDPOINT,
-      '--addressing-style', OSS_ADDRESSING_STYLE],
+      '-r', '--force'],
     { stdio: ['ignore', 'inherit', 'inherit'] }
   );
 }
@@ -144,7 +138,6 @@ async function main() {
   const stamp = String(Date.now());
   const baseKey = `updates/${PLATFORM}/${RUNTIME_VERSION}/${stamp}`;
   console.log('本次发布目录:', baseKey);
-  console.log('上传端点:', OSS_UPLOAD_ENDPOINT, '· addressing:', OSS_ADDRESSING_STYLE);
 
   // 3) JS 主包（launchAsset）
   const bundleRelPath = fileMeta.bundle;
