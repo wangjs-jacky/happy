@@ -179,6 +179,31 @@ export const zhHant: TranslationStructure = {
         missingPath: '缺少檔案路徑',
     },
 
+    rightPanelCapabilityHub: {
+        title: '能力中心',
+        emptyHomeDescription: '打開一個會話後，這裡會集中展示本次會話的 skills、檔案、圖片和 artifacts。',
+        recentTitle: '最近資源',
+        noRecent: '目前還沒有最近資源',
+        back: '返回',
+        blocks: {
+            skills: 'Skills',
+            images: '圖片',
+            artifacts: 'Artifacts',
+            files: '檔案',
+        },
+        empty: {
+            skills: '目前會話還沒有可用的 skills',
+            images: '目前會話還沒有圖片',
+            artifacts: '目前會話還沒有關聯 artifacts',
+            files: '目前會話還沒有觸達檔案',
+        },
+        meta: {
+            available: '目前會話可用',
+            image: '圖片附件',
+            artifact: '關聯 Artifact',
+        },
+    },
+
     settingsAppearance: {
         mascot: '吉祥物',
         mascotDescription: '選擇主畫面迎接你的土撥鼠形象',
