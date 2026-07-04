@@ -3,6 +3,26 @@
 > 本仓库是 [slopus/happy](https://github.com/slopus/happy) 的个人二开 fork。
 > 本文件规定**分支模型**与 **worktree 开发流程**，所有在本仓库工作的 Claude 会话都必须遵守。
 
+## 零、最高优先级规则：根仓库永远保持干净
+
+- **根仓库工作区 `~/jacky-github/happy` 只保留给 `jacky-main`。**
+- **根仓库必须始终与 `origin/jacky-main` 完全一致。** 不允许在这个工作区留下任何已跟踪改动、未跟踪文件、临时实验或功能分支。
+- **所有实际开发一律在 sibling worktree 中进行**，目录形如 `../happy--<topic>`。
+- 如果发现根仓库变脏，**第一优先级不是继续开发，而是先把改动迁移到 sibling worktree，并把根仓库恢复为干净的 `jacky-main`。**
+
+根仓库的日常自检命令：
+
+```bash
+cd ~/jacky-github/happy
+git status --short
+git rev-parse HEAD
+git rev-parse origin/jacky-main
+```
+
+- `git status --short` 必须为空。
+- `HEAD` 必须等于 `origin/jacky-main`。
+- 如果任一条件不满足，先修复根仓库状态，再继续其他任务。
+
 ## 一、远端与仓库
 
 | 远端 | 地址 | 用途 |
@@ -32,20 +52,25 @@ upstream/main (slopus)         ← 上游基线，只读，永不直接改
 ## 三、日常开发流程
 
 ```bash
-# 1. 确保 jacky-main 最新
-git switch jacky-main && git pull origin jacky-main
+# 1. 先把根仓库恢复到干净的 jacky-main
+git switch jacky-main
+git fetch origin
+git reset --hard origin/jacky-main
+git clean -fd
 
-# 2. 切功能分支（推荐用 worktree，见第四节）
-git switch -c feat/<topic> jacky-main
+# 2. 从根仓库创建 sibling worktree（不要在根仓库直接开发）
+git worktree add ../happy--<topic> -b <branch-name> jacky-main
 
-# 3. 开发、提交（提交信息见第六节）
+# 3. 进入 worktree 开发、提交（提交信息见第六节）
+cd ../happy--<topic>
+pnpm install
 git add -p && git commit
 
 # 4. 推送到 fork
-git push -u origin feat/<topic>
+git push -u origin <branch-name>
 
 # 5. 提 PR 到 jacky-main
-gh pr create --repo wangjs-jacky/happy --base jacky-main --head feat/<topic>
+gh pr create --repo wangjs-jacky/happy --base jacky-main --head <branch-name>
 ```
 
 ## 四、Worktree 开发流程（隔离开发，推荐）
@@ -57,11 +82,19 @@ gh pr create --repo wangjs-jacky/happy --base jacky-main --head feat/<topic>
 | **位置** | 仓库**同级目录（sibling）**：`../happy--<topic>`。**不要**放在仓库内部或 `.claude/worktrees/` 等工具默认路径 |
 | **命名** | 目录 `happy--<topic>`；分支名直接用 `<topic>` slug，**不加 `worktree-` 前缀** |
 | **基分支** | 一律从 `jacky-main` 切 |
+| **根仓库** | `~/jacky-github/happy` 永远停留在干净的 `jacky-main`，不承载开发改动 |
 
 ### 创建
 
 ```bash
-# 从 jacky-main 切出隔离 worktree + 同名分支
+# 先确保根仓库是最新的 jacky-main
+cd ~/jacky-github/happy
+git switch jacky-main
+git fetch origin
+git reset --hard origin/jacky-main
+git clean -fd
+
+# 再从 jacky-main 切出隔离 worktree + 同名分支
 git worktree add ../happy--<topic> -b <topic> jacky-main
 ```
 
@@ -86,6 +119,11 @@ gh pr create --repo wangjs-jacky/happy --base jacky-main --head <topic>
 # 合并后清理 worktree 与分支
 git worktree remove ../happy--<topic>
 git branch -d <topic>
+
+# 最后确认根仓库仍然是干净的 jacky-main
+git -C ~/jacky-github/happy status --short
+git -C ~/jacky-github/happy rev-parse HEAD
+git -C ~/jacky-github/happy rev-parse origin/jacky-main
 ```
 
 ## 五、同步上游更新

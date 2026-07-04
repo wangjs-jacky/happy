@@ -2,6 +2,27 @@
 
 This file is the Codex-facing entry point for this repository. Keep project rules centralized in `CLAUDE.md` to avoid drift between Claude and Codex instructions.
 
+## Critical Root Workspace Rule
+
+Before doing any repo work, assume this invariant unless the user explicitly says otherwise:
+
+- The root workspace `~/jacky-github/happy` is reserved for a **clean `jacky-main` only**.
+- It must stay **exactly aligned with `origin/jacky-main`**.
+- Do **not** develop, experiment, or leave tracked/untracked changes in the root workspace.
+- All implementation work must happen in a sibling git worktree such as `../happy--<topic>`.
+- If the root workspace is dirty, **first migrate or stash that work into a sibling worktree and restore the root workspace to clean `jacky-main`**, then continue.
+
+Quick check:
+
+```bash
+cd ~/jacky-github/happy
+git status --short
+git rev-parse HEAD
+git rev-parse origin/jacky-main
+```
+
+If `git status --short` is non-empty, or `HEAD` differs from `origin/jacky-main`, fix that first.
+
 ## Required Project Instructions
 
 Before making project changes, read and follow the root `CLAUDE.md`.
@@ -12,6 +33,7 @@ Before making project changes, read and follow the root `CLAUDE.md`.
 - worktree location, naming, and dependency setup
 - build, test, and local development commands
 - commit, PR, Android APK, OTA, and upstream sync rules
+- the "root workspace stays clean jacky-main" invariant
 
 If this file conflicts with `CLAUDE.md`, prefer `CLAUDE.md` unless the section below explicitly matches the user's wording.
 
