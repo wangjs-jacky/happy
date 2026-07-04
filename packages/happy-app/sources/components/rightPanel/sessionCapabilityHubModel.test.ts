@@ -183,4 +183,36 @@ describe('sessionCapabilityHubModel', () => {
         expect(items.map((item) => item.title)).toEqual(['using-superpowers', 'codex-harness']);
         expect(items.every((item) => item.meta === 'available')).toBe(true);
     });
+
+    it('does not cap skill count at the detail preview size', () => {
+        const skillNames = Array.from({ length: 30 }, (_, index) => `skill-${index + 1}`);
+        const model = buildSessionCapabilityHubModel({
+            session: createSession(),
+            messages: [],
+            artifacts: [],
+            skillNames,
+        });
+
+        expect(model.blocks.find((block) => block.key === 'skills')?.count).toBe(30);
+        expect(model.details.skills).toHaveLength(30);
+    });
+
+    it('prefers scanned skill names over incomplete session metadata', () => {
+        const session = createSession({
+            metadata: {
+                path: '/Users/jacky/project',
+                host: 'macbook',
+                skills: ['metadata-only'],
+            },
+        });
+
+        const items = getCapabilityDetailItems('skills', {
+            session,
+            messages: [],
+            artifacts: [],
+            skillNames: ['agent-browser', 'codex-harness', 'using-superpowers'],
+        });
+
+        expect(items.map((item) => item.title)).toEqual(['agent-browser', 'codex-harness', 'using-superpowers']);
+    });
 });

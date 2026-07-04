@@ -81,6 +81,7 @@ type BuildArgs = {
     session: Session | null;
     messages: Message[];
     artifacts: DecryptedArtifact[];
+    skillNames?: string[] | null;
     limits?: {
         details?: number;
         recentResources?: number;
@@ -88,7 +89,7 @@ type BuildArgs = {
 };
 
 const DETAIL_KEYS: CapabilityKey[] = ['skills', 'images', 'artifacts', 'files'];
-const DEFAULT_DETAIL_LIMIT = 12;
+const DEFAULT_DETAIL_LIMIT = Number.POSITIVE_INFINITY;
 const DEFAULT_RECENT_LIMIT = 8;
 const EDIT_TOOL_NAMES = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const PATCH_TOOL_NAMES = new Set(['CodexPatch', 'GeminiPatch']);
@@ -262,8 +263,9 @@ function getFileItems(messages: Message[], limit: number): FileCapabilityItem[] 
     return items;
 }
 
-function getSkillItems(session: Session | null, limit: number): SkillCapabilityItem[] {
-    return getMetadataSkills(session)
+function getSkillItems(session: Session | null, skillNames: string[] | null | undefined, limit: number): SkillCapabilityItem[] {
+    const skills = skillNames && skillNames.length > 0 ? skillNames : getMetadataSkills(session);
+    return skills
         .slice(0, limit)
         .map((skill) => ({
             id: skill,
@@ -283,7 +285,7 @@ export function getCapabilityDetailItems<K extends CapabilityKey>(key: K, args: 
 
     switch (key) {
         case 'skills':
-            return getSkillItems(args.session, limit) as CapabilityItemsByKey[K][];
+            return getSkillItems(args.session, args.skillNames, limit) as CapabilityItemsByKey[K][];
         case 'images':
             return getImageItems(args.messages, limit) as CapabilityItemsByKey[K][];
         case 'artifacts':
