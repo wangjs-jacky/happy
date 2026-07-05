@@ -5,7 +5,7 @@
  * - Functions with typed object parameters for dynamic text
  */
 
-import { TranslationStructure } from "../_default";
+import { en, TranslationStructure } from "../_default";
 
 /**
  * Japanese plural helper function
@@ -180,6 +180,45 @@ export const ja: TranslationStructure = {
         missingPath: 'ファイルパスがありません',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'マスコット',
         mascotDescription: 'ホーム画面で迎えるマーモットを選びましょう',
@@ -190,6 +229,7 @@ export const ja: TranslationStructure = {
             barista: 'バリスタ',
             ninja: '忍者',
             scientist: '科学者',
+            florist: 'フローリスト',
         },
         // Appearance settings screen
         theme: 'テーマ',
@@ -421,6 +461,22 @@ export const ja: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'セッションを即座に終了',
         archiveSessionSubtitle: 'このセッションをアーカイブして停止',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'メタデータ',
         host: 'ホスト',
         path: 'パス',
@@ -481,6 +537,7 @@ export const ja: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -543,13 +600,58 @@ export const ja: TranslationStructure = {
         hideArchived: 'アーカイブを非表示',
         newSession: '新しいセッション',
 
-        searchSessions: 'セッションを検索',
+        searchSessions: 'セッション管理',
     },
     sessionSearch: {
-        title: 'セッションを検索',
+        title: 'セッション管理',
         placeholder: 'タイトル・パス・マシンで検索',
-        empty: 'キーワードを入力してセッションを検索',
+        empty: '管理するセッションはまだありません',
         noResults: ({ query }: { query: string }) => `${query} に一致するセッションはありません`,
+        filters: {
+            all: 'すべて',
+            needs: '要対応',
+            running: '実行中',
+            pinned: 'ピン留め',
+            drafts: '下書き',
+        },
+        sections: {
+            active: '現在のセッション',
+            pinned: 'ピン留め',
+            needs: '要対応',
+            running: '実行中',
+            recent: '最近',
+        },
+        sort: '並べ替え',
+        sorting: '並べ替え中',
+        done: '完了',
+        view: '表示',
+        sortHintTitle: 'キューの並べ替え',
+        sortHintBody: 'ピン留めと要対応のセッションをドラッグするか、矢印ボタンで並べ替えます。最近のセッションは時刻順のままです。',
+        footerNeeds: ({ count }: { count: number }) => `${count}件のセッションに対応が必要です`,
+        footerNeedsSubtitle: '権限、未読結果、下書き、未完了Todoを優先して確認',
+        footerSortTitle: 'ピン留めと要対応キューを並べ替え',
+        footerSortSubtitle: '最近のセッションは時刻順のままです',
+        status: {
+            permission: '承認待ち',
+            running: '実行中',
+            unread: '新しい結果',
+            draft: '下書き',
+            todo: 'Todo',
+            manual: 'マーク済み',
+            recent: '最近',
+        },
+        actions: {
+            pin: 'ピン留め',
+            unpin: 'ピン解除',
+            markNeeds: '要対応にする',
+            clearNeeds: 'マーク解除',
+            moveToTop: '先頭へ',
+            moveUp: '上へ',
+            moveDown: '下へ',
+            moveToPinned: 'ピン留め',
+            moveToNeeds: '要対応',
+            more: 'その他の操作',
+        },
     },
 
     zen: {
@@ -765,6 +867,8 @@ export const ja: TranslationStructure = {
         authenticateWithUrlPaste: 'URLペーストでターミナルを認証',
         pasteAuthUrl: 'ターミナルから認証URLを貼り付け',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'アップデートが利用可能',

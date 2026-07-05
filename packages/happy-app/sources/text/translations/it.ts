@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Italian plural helper function
@@ -177,6 +177,45 @@ export const it: TranslationStructure = {
         missingPath: 'Percorso del file mancante',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Mascotte',
         mascotDescription: 'Scegli la marmotta che ti accoglie nella schermata iniziale',
@@ -187,6 +226,7 @@ export const it: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Scienziato',
+            florist: 'Fioraio',
         },
         // Appearance settings screen
         theme: 'Tema',
@@ -418,6 +458,22 @@ export const it: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'Termina immediatamente la sessione',
         archiveSessionSubtitle: 'Archivia questa sessione e fermala',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'Metadati',
         host: 'Host',
         path: 'Percorso',
@@ -478,6 +534,7 @@ export const it: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -540,13 +597,58 @@ export const it: TranslationStructure = {
         hideArchived: 'Nascondi archiviate',
         newSession: 'Nuova sessione',
 
-        searchSessions: 'Cerca sessioni',
+        searchSessions: 'Gestisci sessioni',
     },
     sessionSearch: {
-        title: 'Cerca sessioni',
+        title: 'Gestione sessioni',
         placeholder: 'Cerca per titolo, percorso o macchina',
-        empty: 'Digita per cercare le tue sessioni',
+        empty: 'Nessuna sessione da gestire',
         noResults: ({ query }: { query: string }) => `Nessuna sessione corrisponde a ${query}`,
+        filters: {
+            all: 'Tutte',
+            needs: 'Richiede azione',
+            running: 'In esecuzione',
+            pinned: 'Fissate',
+            drafts: 'Bozze',
+        },
+        sections: {
+            active: 'Sessioni correnti',
+            pinned: 'Fissate',
+            needs: 'Richiede azione',
+            running: 'In esecuzione',
+            recent: 'Recenti',
+        },
+        sort: 'Ordina',
+        sorting: 'Ordinamento',
+        done: 'Fine',
+        view: 'Vedi',
+        sortHintTitle: 'Ordinamento code',
+        sortHintBody: 'Trascina le sessioni fissate e da seguire o usa i pulsanti freccia. Le sessioni recenti restano ordinate per tempo.',
+        footerNeeds: ({ count }: { count: number }) => count === 1 ? '1 sessione richiede attenzione' : `${count} sessioni richiedono attenzione`,
+        footerNeedsSubtitle: 'Controlla prima permessi, risultati non letti, bozze e todo aperti',
+        footerSortTitle: 'Riordina code fissate e da seguire',
+        footerSortSubtitle: 'Le sessioni recenti mantengono l\'ordine temporale',
+        status: {
+            permission: 'Richiede approvazione',
+            running: 'In esecuzione',
+            unread: 'Nuovo risultato',
+            draft: 'Bozza',
+            todo: 'Todo',
+            manual: 'Contrassegnata',
+            recent: 'Recente',
+        },
+        actions: {
+            pin: 'Fissa',
+            unpin: 'Rimuovi',
+            markNeeds: 'Segna',
+            clearNeeds: 'Cancella segno',
+            moveToTop: 'In cima',
+            moveUp: 'Su',
+            moveDown: 'Giù',
+            moveToPinned: 'Fissa',
+            moveToNeeds: 'Necessaria',
+            more: 'Altre azioni',
+        },
     },
 
     zen: {
@@ -762,6 +864,8 @@ export const it: TranslationStructure = {
         authenticateWithUrlPaste: 'Autentica terminale incollando URL',
         pasteAuthUrl: 'Incolla l\'URL di autenticazione dal terminale',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Aggiornamento disponibile',

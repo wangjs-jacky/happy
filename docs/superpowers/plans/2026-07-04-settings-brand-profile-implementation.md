@@ -4,7 +4,7 @@
 
 **Goal:** Restore the mascot as the settings brand entry while removing membership UI and keeping profile editing separate.
 
-**Architecture:** This is a focused React Native UI cleanup. `SettingsView` owns the settings landing page structure, `SidebarView` owns the drawer user card, and translation files define only the visible strings still used by the product.
+**Architecture:** This is a focused React Native UI cleanup. `SettingsView` owns the settings landing page structure, `SidebarView` owns the drawer user card, and translation files define only the visible strings still used by the product. The mascot entry must reuse the existing `MascotSwitcher` behavior from `jacky-main`, including the mascot-to-theme-pack coupling through `getMascotTheme`, `themePack`, and `applyTheme`.
 
 **Tech Stack:** React Native, Expo Router, react-native-unistyles, existing Happy/Paws settings components.
 
@@ -21,6 +21,7 @@
 - [x] Re-import `layout` and `MascotSwitcher`.
 - [x] Add a top standalone brand header before the first `ItemGroup`.
 - [x] Keep the header limited to `MascotSwitcher`; do not show profile avatar/name/bio.
+- [x] Preserve `MascotSwitcher` as-is so swipe switching still updates the bound theme pack.
 
 ### Task 2: Remove Membership UI
 
@@ -40,6 +41,7 @@
 - Check only.
 
 - [x] Run `pnpm --filter happy-app run typecheck`.
+- [x] Confirm `MascotSwitcher`, `mascots.ts`, and `settings/appearance.tsx` are not forked or decoupled.
 - [x] Run `rg -n "Andante|membershipPlan|会员计划|Membership Plan" packages/happy-app/sources`.
 - [x] Confirm remaining matches, if any, are not product UI.
-- [x] Publish preview OTA with `pnpm ota:selfhost:preview`.
+- [x] Publish preview OTA from this isolated worktree after commit.

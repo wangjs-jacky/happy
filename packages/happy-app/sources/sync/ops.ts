@@ -5,7 +5,7 @@
 
 import { apiSocket } from './apiSocket';
 import { sync } from './sync';
-import type { MachineMetadata } from './storageTypes';
+import type { MachineMetadata, Metadata } from './storageTypes';
 
 // Strict type definitions for all operations
 
@@ -23,6 +23,10 @@ interface SessionPermissionRequest {
 // Mode change operation types
 interface SessionModeChangeRequest {
     to: 'remote' | 'local';
+}
+
+interface SessionPermissionModeUpdateRequest {
+    mode: string;
 }
 
 // Bash operation types
@@ -147,6 +151,18 @@ interface SessionKillResponse {
     message: string;
 }
 
+interface SessionRegenerateTitleRequest {
+    transcript: string;
+    currentTitle?: string | null;
+    projectPath?: string | null;
+    model?: string | null;
+    effort?: string | null;
+}
+
+export type SessionRegenerateTitleResponse =
+    | { success: true; title: string }
+    | { success: false; message: string };
+
 // Response types for spawn session
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
@@ -159,7 +175,7 @@ export interface SpawnSessionOptions {
     directory: string;
     approvedNewDirectoryCreation?: boolean;
     token?: string;
-    agent?: 'codex' | 'claude' | 'gemini' | 'openclaw';
+    agent?: 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw';
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
      * Happy session attaches to a pre-existing on-disk Claude conversation
@@ -242,7 +258,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             directory: string
             approvedNewDirectoryCreation?: boolean,
             token?: string,
-            agent?: 'codex' | 'claude' | 'gemini' | 'openclaw',
+            agent?: 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw',
             resumeClaudeSessionId?: string,
             resumeCodexThreadId?: string,
             parentSessionId?: string,
@@ -550,6 +566,58 @@ export async function machineUpdateMetadata(
     throw new Error('Unexpected error in machineUpdateMetadata');
 }
 
+export async function sessionUpdateMetadata(
+    sessionId: string,
+    metadata: Metadata,
+    expectedVersion: number,
+    update: (metadata: Metadata) => Metadata,
+    maxRetries: number = 3,
+): Promise<{ version: number; metadata: Metadata }> {
+    let currentVersion = expectedVersion;
+    let currentMetadata = { ...metadata };
+
+    const sessionEncryption = sync.encryption.getSessionEncryption(sessionId);
+    if (!sessionEncryption) {
+        throw new Error(`Session encryption not found for ${sessionId}`);
+    }
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const nextMetadata = update(currentMetadata);
+        const encryptedMetadata = await sessionEncryption.encryptRaw(nextMetadata);
+
+        const result = await apiSocket.emitWithAck<{
+            result: 'success' | 'version-mismatch' | 'error';
+            version?: number;
+            metadata?: string;
+            message?: string;
+        }>('update-metadata', {
+            sid: sessionId,
+            expectedVersion: currentVersion,
+            metadata: encryptedMetadata,
+        });
+
+        if (result.result === 'success') {
+            return {
+                version: result.version!,
+                metadata: await sessionEncryption.decryptRaw(result.metadata!) as Metadata,
+            };
+        }
+
+        if (result.result === 'version-mismatch') {
+            if (typeof result.version !== 'number' || typeof result.metadata !== 'string') {
+                throw new Error('Session metadata version mismatch');
+            }
+            currentVersion = result.version;
+            currentMetadata = await sessionEncryption.decryptRaw(result.metadata) as Metadata;
+            continue;
+        }
+
+        throw new Error(result.message || 'Failed to update session metadata');
+    }
+
+    throw new Error(`Failed to update session metadata after ${maxRetries} retries due to version conflicts`);
+}
+
 /**
  * Abort the current session operation
  */
@@ -586,6 +654,19 @@ export async function sessionSwitch(sessionId: string, to: 'remote' | 'local'): 
         request,
     );
     return response;
+}
+
+/**
+ * Push a permission-mode change to the running session immediately.
+ * Future turns still carry the same mode via normal message meta.
+ */
+export async function sessionSetPermissionMode(sessionId: string, mode: string): Promise<boolean> {
+    const request: SessionPermissionModeUpdateRequest = { mode };
+    return await apiSocket.sessionRPC<boolean, SessionPermissionModeUpdateRequest>(
+        sessionId,
+        'setPermissionMode',
+        request,
+    );
 }
 
 /**
@@ -765,6 +846,24 @@ export async function sessionKill(sessionId: string): Promise<SessionKillRespons
         return {
             success: false,
             message: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
+
+export async function sessionRegenerateTitle(
+    sessionId: string,
+    request: SessionRegenerateTitleRequest,
+): Promise<SessionRegenerateTitleResponse> {
+    try {
+        return await apiSocket.sessionRPC<SessionRegenerateTitleResponse, SessionRegenerateTitleRequest>(
+            sessionId,
+            'regenerateTitle',
+            request,
+        );
+    } catch (error) {
+        return {
+            success: false,
+            message: error instanceof Error ? error.message : 'Unknown error',
         };
     }
 }

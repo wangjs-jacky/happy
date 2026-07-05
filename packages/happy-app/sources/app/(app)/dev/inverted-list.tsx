@@ -6,6 +6,7 @@ import { useKeyboardHandler, useKeyboardState, useReanimatedKeyboardAnimation } 
 import Animated, { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { FlashList } from '@shopify/flash-list';
 import { LegendList } from '@legendapp/list';
+import { t } from '@/text';
 
 type ListType = 'flash' | 'flat' | 'legend';
 type PaddingType = 'animated' | 'non-animated' | 'header-footer';
@@ -57,14 +58,14 @@ export default function InvertedListTest() {
         <>
             <Stack.Screen
                 options={{
-                    headerTitle: 'Inverted List Test',
+                    headerTitle: t('devTools.invertedListTest'),
                 }}
             />
 
             <Animated.View style={[styles.container, { transform: [{ translateY: height }] }]}>
                 <View style={styles.controlsContainer}>
                     <View>
-                        <Text style={styles.controlLabel}>List Implementation:</Text>
+                        <Text style={styles.controlLabel}>{t('devTools.listImplementation')}</Text>
                         <View style={styles.buttonRow}>
                             <TouchableOpacity
                                 onPress={() => setListType('flash')}
@@ -87,26 +88,26 @@ export default function InvertedListTest() {
                         </View>
                     </View>
                     <View>
-                        <Text style={styles.controlLabel}>Padding Method:</Text>
+                        <Text style={styles.controlLabel}>{t('devTools.paddingMethod')}</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                             <View style={styles.buttonRow}>
                                 <TouchableOpacity
                                     onPress={() => setPaddingType('animated')}
                                     style={[styles.button, paddingType === 'animated' ? styles.buttonActive : styles.buttonInactive]}
                                 >
-                                    <Text style={[styles.buttonText, paddingType === 'animated' ? styles.buttonTextActive : styles.buttonTextInactive]}>Animated</Text>
+                                    <Text style={[styles.buttonText, paddingType === 'animated' ? styles.buttonTextActive : styles.buttonTextInactive]}>{t('devTools.animated')}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setPaddingType('non-animated')}
                                     style={[styles.button, paddingType === 'non-animated' ? styles.buttonActive : styles.buttonInactive]}
                                 >
-                                    <Text style={[styles.buttonText, paddingType === 'non-animated' ? styles.buttonTextActive : styles.buttonTextInactive]}>Non-Animated</Text>
+                                    <Text style={[styles.buttonText, paddingType === 'non-animated' ? styles.buttonTextActive : styles.buttonTextInactive]}>{t('devTools.nonAnimated')}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={() => setPaddingType('header-footer')}
                                     style={[styles.button, paddingType === 'header-footer' ? styles.buttonActive : styles.buttonInactive]}
                                 >
-                                    <Text style={[styles.buttonText, paddingType === 'header-footer' ? styles.buttonTextActive : styles.buttonTextInactive]}>Header/Footer</Text>
+                                    <Text style={[styles.buttonText, paddingType === 'header-footer' ? styles.buttonTextActive : styles.buttonTextInactive]}>{t('devTools.headerFooter')}</Text>
                                 </TouchableOpacity>
                             </View>
                         </ScrollView>
@@ -117,7 +118,7 @@ export default function InvertedListTest() {
                     const ListEmptyComponent = (
                         <View style={styles.emptyState}>
                             <Text style={styles.emptyStateText}>
-                                No messages yet. Type something below!
+                                {t('devTools.noMessagesYet')}
                             </Text>
                         </View>
                     );
@@ -187,7 +188,7 @@ export default function InvertedListTest() {
                     <View style={styles.inputRow}>
                         <TextInput
                             style={styles.textInput}
-                            placeholder="Type a message..."
+                            placeholder={t('devTools.typeMessage')}
                             value={inputText}
                             onChangeText={setInputText}
                             onSubmitEditing={addMessage}
@@ -197,7 +198,7 @@ export default function InvertedListTest() {
                             onPress={addMessage}
                             style={styles.sendButton}
                         >
-                            <Text style={styles.sendButtonText}>Send</Text>
+                            <Text style={styles.sendButtonText}>{t('devTools.send')}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

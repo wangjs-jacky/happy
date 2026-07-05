@@ -5,6 +5,8 @@ import {
     type OtaVersion,
 } from '@/utils/otaVersions';
 
+export type { OtaVersion };
+
 // useOtaVersions —— 拉取自建 OSS 上某频道的全部 OTA 历史版本，供「OTA 版本」选择器展示。
 //
 // 数据来源：发布脚本 publish-ota.js 每次发布都会在 OSS 写一份轻量元信息

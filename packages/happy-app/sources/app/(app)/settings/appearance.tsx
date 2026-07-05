@@ -6,11 +6,13 @@ import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
 import { applyTheme } from '@/unistyles';
+import { runThemeTransition } from '@/components/ThemeTransition';
+import { GradientIcon } from '@/components/GradientIcon';
 import { ACCENTS } from '@/themePacks';
 import { Typography } from '@/constants/Typography';
 import { Pressable, View, Text } from 'react-native';
 import { Image } from 'expo-image';
-import { MASCOT_IDS, getMascotImage, getMascotName } from '@/components/mascots';
+import { MASCOT_IDS, getMascotImage, getMascotName, getMascotTheme } from '@/components/mascots';
 import { t } from '@/text';
 
 // Define known avatar styles for this version of the app
@@ -54,9 +56,11 @@ export default function AppearanceSettingsScreen() {
                         const nextIndex = (currentIndex + 1) % 3;
                         const nextTheme = nextIndex === 0 ? 'adaptive' : nextIndex === 1 ? 'light' : 'dark';
                         
-                        // Update the setting and apply immediately (含主题包)
-                        setThemePreference(nextTheme);
-                        applyTheme(themePack, nextTheme);
+                        // 带 crossfade 过渡切换明暗
+                        runThemeTransition(() => {
+                            setThemePreference(nextTheme);
+                            applyTheme(themePack, nextTheme);
+                        });
                     }}
                 />
                 {/* 主题配色包选择器 — 一排色板，点选即切换 */}
@@ -67,10 +71,10 @@ export default function AppearanceSettingsScreen() {
                             <Pressable
                                 key={acc.id}
                                 style={styles.swatchItem}
-                                onPress={() => {
+                                onPress={() => runThemeTransition(() => {
                                     setThemePack(acc.id as typeof themePack);
                                     applyTheme(acc.id as typeof themePack, themePreference);
-                                }}
+                                })}
                             >
                                 <View style={[
                                     styles.swatchCircle,
@@ -97,7 +101,13 @@ export default function AppearanceSettingsScreen() {
                             <Pressable
                                 key={id}
                                 style={styles.mascotItem}
-                                onPress={() => setMascot(id)}
+                                onPress={() => runThemeTransition(() => {
+                                    // 选吉祥物即联动切换它绑定的主题配色（带 crossfade 过渡；色板仍保留可微调）
+                                    setMascot(id);
+                                    const pack = getMascotTheme(id);
+                                    setThemePack(pack as typeof themePack);
+                                    applyTheme(pack as typeof themePack, themePreference);
+                                })}
                             >
                                 <View style={[
                                     styles.mascotCard,
@@ -152,7 +162,7 @@ export default function AppearanceSettingsScreen() {
                 <Item
                     title={t('settingsAppearance.inlineToolCalls')}
                     subtitle={t('settingsAppearance.inlineToolCallsDescription')}
-                    icon={<Ionicons name="code-slash-outline" size={29} color="#5856D6" />}
+                    icon={<GradientIcon name="code-slash" colors={['#7B8CFF', '#5856D6']} />}
                     rightElement={
                         <Switch
                             value={viewInline}

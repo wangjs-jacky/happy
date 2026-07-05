@@ -35,6 +35,8 @@ export interface CreateSessionMetadataOptions {
     sandbox?: SandboxConfig;
     /** Whether the backend runs with "dangerously skip permissions" behavior */
     dangerouslySkipPermissions?: boolean;
+    /** Discovered local skill names available to the backend. */
+    skills?: string[];
     /** Happy session id this session was forked from. */
     parentSessionId?: string;
     /** Happy message id used as the fork rewind point. */
@@ -92,8 +94,12 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: opts.flavor,
+        capabilities: {
+            regenerateTitle: opts.flavor === 'claude' || opts.flavor === 'codex',
+        },
         sandbox: opts.sandbox?.enabled ? opts.sandbox : null,
         dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? null,
+        ...(opts.skills && opts.skills.length > 0 ? { skills: opts.skills } : {}),
         ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
         ...(opts.forkedFromMessageId ? { forkedFromMessageId: opts.forkedFromMessageId } : {}),
     };

@@ -83,4 +83,20 @@ describe('createSessionMetadata', () => {
         expect(metadata.parentSessionId).toBe('happy-source');
         expect(metadata.forkedFromMessageId).toBe('message-2');
     });
+
+    it('preserves discovered skills when provided', () => {
+        const { metadata } = createSessionMetadata({
+            flavor: 'codex',
+            machineId: 'machine-7',
+            skills: ['brainstorming', 'supabase:supabase'],
+        });
+
+        expect(metadata.skills).toEqual(['brainstorming', 'supabase:supabase']);
+    });
+
+    it('marks title regeneration support for Claude and Codex sessions only', () => {
+        expect(createSessionMetadata({ flavor: 'claude', machineId: 'machine-8' }).metadata.capabilities?.regenerateTitle).toBe(true);
+        expect(createSessionMetadata({ flavor: 'codex', machineId: 'machine-9' }).metadata.capabilities?.regenerateTitle).toBe(true);
+        expect(createSessionMetadata({ flavor: 'gemini', machineId: 'machine-10' }).metadata.capabilities?.regenerateTitle).toBe(false);
+    });
 });

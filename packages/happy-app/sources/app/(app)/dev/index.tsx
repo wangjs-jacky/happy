@@ -14,6 +14,7 @@ import { getServerUrl, setServerUrl, validateServerUrl, getLogServerUrl, setLogS
 import { Switch } from '@/components/Switch';
 import { useUnistyles } from 'react-native-unistyles';
 import { setLastViewedTitle } from '@/changelog';
+import { t } from '@/text';
 
 export default function DevScreen() {
     const router = useRouter();
@@ -28,11 +29,11 @@ export default function DevScreen() {
         const currentUrl = getServerUrl();
 
         const newUrl = await Modal.prompt(
-            'Edit API Endpoint',
-            'Enter the server URL:',
+            t('devTools.editApiEndpoint'),
+            t('devTools.enterServerUrl'),
             {
                 defaultValue: currentUrl,
-                confirmText: 'Save'
+                confirmText: t('common.save')
             }
         );
 
@@ -40,9 +41,9 @@ export default function DevScreen() {
             const validation = validateServerUrl(newUrl);
             if (validation.valid) {
                 setServerUrl(newUrl);
-                Modal.alert('Success', 'Server URL updated. Please restart the app for changes to take effect.');
+                Modal.alert(t('common.success'), t('devTools.serverUrlUpdated'));
             } else {
-                Modal.alert('Invalid URL', validation.error || 'Please enter a valid URL');
+                Modal.alert(t('devTools.invalidUrl'), validation.error || t('devTools.enterValidUrl'));
             }
         }
     };
@@ -51,25 +52,25 @@ export default function DevScreen() {
         const currentUrl = getLogServerUrl() || '';
 
         const newUrl = await Modal.prompt(
-            'Remote Log Server',
-            'Sends ALL console output as unencrypted plaintext over HTTP to this URL. Use your Mac\'s local IP (e.g. http://192.168.1.5:8787). Run "yarn app-logs" on your Mac to receive. Clear to disable.',
+            t('devTools.remoteLogServer'),
+            t('devTools.remoteLogServerMessage'),
             {
                 defaultValue: currentUrl,
-                confirmText: 'Save'
+                confirmText: t('common.save')
             }
         );
 
         if (newUrl !== undefined && newUrl !== currentUrl) {
             if (!newUrl || !newUrl.trim()) {
                 setLogServerUrl(null);
-                Modal.alert('Success', 'Remote logging disabled. Restart app for changes to take effect.');
+                Modal.alert(t('common.success'), t('devTools.remoteLoggingDisabled'));
             } else {
                 const validation = validateServerUrl(newUrl);
                 if (validation.valid) {
                     setLogServerUrl(newUrl);
-                    Modal.alert('Success', 'Log server URL updated. Restart app for changes to take effect.');
+                    Modal.alert(t('common.success'), t('devTools.logServerUpdated'));
                 } else {
-                    Modal.alert('Invalid URL', validation.error || 'Please enter a valid URL');
+                    Modal.alert(t('devTools.invalidUrl'), validation.error || t('devTools.enterValidUrl'));
                 }
             }
         }
@@ -77,13 +78,13 @@ export default function DevScreen() {
 
     const handleClearCache = async () => {
         const confirmed = await Modal.confirm(
-            'Clear Cache',
-            'Are you sure you want to clear all cached data?',
-            { confirmText: 'Clear', destructive: true }
+            t('devTools.clearCache'),
+            t('devTools.clearCacheConfirmMessage'),
+            { confirmText: t('devTools.clearAction'), destructive: true }
         );
         if (confirmed) {
             console.log('Cache cleared');
-            Modal.alert('Success', 'Cache has been cleared');
+            Modal.alert(t('common.success'), t('devTools.cacheCleared'));
         }
     };
 
@@ -98,11 +99,11 @@ export default function DevScreen() {
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
 
-        if (seconds < 10) return 'Just now';
-        if (seconds < 60) return `${seconds}s ago`;
-        if (minutes < 60) return `${minutes}m ago`;
-        if (hours < 24) return `${hours}h ago`;
-        if (days < 7) return `${days}d ago`;
+        if (seconds < 10) return t('time.justNow');
+        if (seconds < 60) return t('devTools.secondsAgo', { count: seconds });
+        if (minutes < 60) return t('time.minutesAgo', { count: minutes });
+        if (hours < 24) return t('time.hoursAgo', { count: hours });
+        if (days < 7) return t('time.daysAgo', { count: days });
 
         return new Date(timestamp).toLocaleDateString();
     };
@@ -112,14 +113,29 @@ export default function DevScreen() {
         const { status, lastConnectedAt, lastDisconnectedAt } = socketStatus;
 
         if (status === 'connected' && lastConnectedAt) {
-            return `Connected ${formatTimeAgo(lastConnectedAt)}`;
+            return t('devTools.socketConnected', { time: formatTimeAgo(lastConnectedAt) });
         } else if ((status === 'disconnected' || status === 'error') && lastDisconnectedAt) {
-            return `Last connected ${formatTimeAgo(lastDisconnectedAt)}`;
+            return t('devTools.socketLastConnected', { time: formatTimeAgo(lastDisconnectedAt) });
         } else if (status === 'connecting') {
-            return 'Connecting to server...';
+            return t('devTools.socketConnecting');
         }
 
-        return 'No connection info';
+        return t('devTools.noConnectionInfo');
+    };
+
+    const getSocketStatusLabel = (): string => {
+        switch (socketStatus.status) {
+            case 'connected':
+                return t('status.connected');
+            case 'connecting':
+                return t('status.connecting');
+            case 'error':
+                return t('status.error');
+            case 'disconnected':
+                return t('status.disconnected');
+            default:
+                return t('status.unknown');
+        }
     };
 
     // Socket status indicator component
@@ -140,34 +156,32 @@ export default function DevScreen() {
 
     return (
         <ItemList>
-            {/* App Information */}
-            <ItemGroup title="App Information">
+            <ItemGroup title={t('devTools.appInformation')}>
                 <Item
-                    title="Version"
+                    title={t('common.version')}
                     detail={Constants.expoConfig?.version || '1.0.0'}
                 />
                 <Item
-                    title="Build Number"
+                    title={t('devTools.buildNumber')}
                     detail={Application.nativeBuildVersion || 'N/A'}
                 />
                 <Item
-                    title="SDK Version"
-                    detail={Constants.expoConfig?.sdkVersion || 'Unknown'}
+                    title={t('devTools.sdkVersion')}
+                    detail={Constants.expoConfig?.sdkVersion || t('common.unknown')}
                 />
                 <Item
-                    title="Platform"
+                    title={t('machine.platform')}
                     detail={`${Constants.platform?.ios ? 'iOS' : 'Android'} ${Constants.systemVersion || ''}`}
                 />
                 <Item
-                    title="Anonymous ID"
+                    title={t('settingsAccount.anonymousId')}
                     detail={anonymousId}
                 />
             </ItemGroup>
 
-            {/* Debug Options */}
-            <ItemGroup title="Debug Options">
+            <ItemGroup title={t('devTools.debugOptions')}>
                 <Item
-                    title="Debug Mode"
+                    title={t('devTools.debugMode')}
                     rightElement={
                         <Switch
                             value={debugMode}
@@ -177,8 +191,8 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="Console Output"
-                    subtitle="Enable console output in production builds"
+                    title={t('devTools.consoleOutput')}
+                    subtitle={t('devTools.consoleOutputSubtitle')}
                     rightElement={
                         <Switch
                             value={consoleLoggingEnabled}
@@ -188,8 +202,8 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="Verbose Logging"
-                    subtitle="Log all network requests and responses"
+                    title={t('devTools.verboseLogging')}
+                    subtitle={t('devTools.verboseLoggingSubtitle')}
                     rightElement={
                         <Switch
                             value={verboseLogging}
@@ -199,165 +213,162 @@ export default function DevScreen() {
                     showChevron={false}
                 />
                 <Item
-                    title="View Logs"
+                    title={t('devTools.viewLogs')}
                     icon={<Ionicons name="document-text-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/logs')}
                 />
             </ItemGroup>
 
-            {/* OTA */}
-            <ItemGroup title="OTA" footer="查看本机当前跑哪个 OTA 版本，并在 preview 频道历史版本间定向切换（仅本设备生效）。">
+            <ItemGroup title={t('devTools.ota')} footer={t('devTools.otaFooter')}>
                 <Item
-                    title="OTA Versions"
-                    subtitle="查看当前版本 / 切换 preview 历史版本"
+                    title={t('devTools.otaVersions')}
+                    subtitle={t('devTools.otaVersionsSubtitle')}
                     icon={<Ionicons name="cube-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/ota-versions' as any)}
                 />
             </ItemGroup>
 
-            {/* Component Demos */}
-            <ItemGroup title="Component Demos">
+            <ItemGroup title={t('devTools.componentDemos')}>
                 <Item
-                    title="Device Info"
-                    subtitle="Safe area insets and device parameters"
+                    title={t('devTools.deviceInfo')}
+                    subtitle={t('devTools.deviceInfoSubtitle')}
                     icon={<Ionicons name="phone-portrait-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/device-info')}
                 />
                 <Item
-                    title="List Components"
-                    subtitle="Demo of Item, ItemGroup, and ItemList"
+                    title={t('devTools.listComponents')}
+                    subtitle={t('devTools.listComponentsSubtitle')}
                     icon={<Ionicons name="list-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/list-demo')}
                 />
                 <Item
-                    title="Typography"
-                    subtitle="All typography styles"
+                    title={t('devTools.typography')}
+                    subtitle={t('devTools.typographySubtitle')}
                     icon={<Ionicons name="text-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/typography')}
                 />
                 <Item
-                    title="Colors"
-                    subtitle="Color palette and themes"
+                    title={t('devTools.colors')}
+                    subtitle={t('devTools.colorsSubtitle')}
                     icon={<Ionicons name="color-palette-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/colors')}
                 />
                 <Item
-                    title="Message Demos"
-                    subtitle="Various message types and components"
+                    title={t('devTools.messageDemos')}
+                    subtitle={t('devTools.messageDemosSubtitle')}
                     icon={<Ionicons name="chatbubbles-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/messages-demo')}
                 />
                 <Item
-                    title="Inverted List Test"
-                    subtitle="Test inverted FlatList with keyboard"
+                    title={t('devTools.invertedListTest')}
+                    subtitle={t('devTools.invertedListTestSubtitle')}
                     icon={<Ionicons name="swap-vertical-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/inverted-list')}
                 />
                 <Item
-                    title="Tool Views"
-                    subtitle="Tool call visualization components"
+                    title={t('devTools.toolViews')}
+                    subtitle={t('devTools.toolViewsSubtitle')}
                     icon={<Ionicons name="construct-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/tools2')}
                 />
                 <Item
-                    title="Shimmer View"
-                    subtitle="Shimmer loading effects with masks"
+                    title={t('devTools.shimmerView')}
+                    subtitle={t('devTools.shimmerViewSubtitle')}
                     icon={<Ionicons name="sparkles-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/shimmer-demo')}
                 />
                 <Item
-                    title="Multi Text Input"
-                    subtitle="Auto-growing multiline text input"
+                    title={t('devTools.multiTextInput')}
+                    subtitle={t('devTools.multiTextInputSubtitle')}
                     icon={<Ionicons name="create-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/multi-text-input')}
                 />
                 <Item
-                    title="Input Styles"
-                    subtitle="10+ different input field style variants"
+                    title={t('devTools.inputStyles')}
+                    subtitle={t('devTools.inputStylesSubtitle')}
                     icon={<Ionicons name="color-palette-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/input-styles')}
                 />
                 <Item
-                    title="Modal System"
-                    subtitle="Alert, confirm, and custom modals"
+                    title={t('devTools.modalSystem')}
+                    subtitle={t('devTools.modalSystemSubtitle')}
                     icon={<Ionicons name="albums-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/modal-demo')}
                 />
                 <Item
-                    title="Unit Tests"
-                    subtitle="Run tests in the app environment"
+                    title={t('devTools.unitTests')}
+                    subtitle={t('devTools.unitTestsSubtitle')}
                     icon={<Ionicons name="flask-outline" size={28} color="#34C759" />}
                     onPress={() => router.push('/dev/tests')}
                 />
                 <Item
-                    title="Unistyles Demo"
-                    subtitle="React Native Unistyles features and capabilities"
+                    title={t('devTools.unistylesDemo')}
+                    subtitle={t('devTools.unistylesDemoSubtitle')}
                     icon={<Ionicons name="brush-outline" size={28} color="#FF6B6B" />}
                     onPress={() => router.push('/dev/unistyles-demo')}
                 />
                 <Item
-                    title="QR Code Test"
-                    subtitle="Test QR code generation with different parameters"
+                    title={t('devTools.qrCodeTest')}
+                    subtitle={t('devTools.qrCodeTestSubtitle')}
                     icon={<Ionicons name="qr-code-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/qr-test')}
                 />
                 <Item
-                    title="Session Composer"
-                    subtitle="New session creation screen layout"
+                    title={t('devTools.sessionComposer')}
+                    subtitle={t('devTools.sessionComposerSubtitle')}
                     icon={<Ionicons name="add-circle-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/session-composer' as any)}
                 />
             </ItemGroup>
 
-            {/* Test Features */}
-            <ItemGroup title="Test Features" footer="These actions may affect app stability">
+            <ItemGroup title={t('devTools.testFeatures')} footer={t('devTools.testFeaturesFooter')}>
                 <Item
-                    title="Claude OAuth Test"
-                    subtitle="Test Claude authentication flow"
+                    title={t('devTools.claudeOauthTest')}
+                    subtitle={t('devTools.claudeOauthTestSubtitle')}
                     icon={<Ionicons name="key-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/settings/connect/claude')}
                 />
                 <Item
-                    title="Test Crash"
-                    subtitle="Trigger a test crash"
+                    title={t('devTools.testCrash')}
+                    subtitle={t('devTools.testCrashSubtitle')}
                     destructive={true}
                     icon={<Ionicons name="warning-outline" size={28} color="#FF3B30" />}
                     onPress={async () => {
                         const confirmed = await Modal.confirm(
-                            'Test Crash',
-                            'This will crash the app. Continue?',
-                            { confirmText: 'Crash', destructive: true }
+                            t('devTools.testCrash'),
+                            t('devTools.testCrashConfirmMessage'),
+                            { confirmText: t('devTools.crashAction'), destructive: true }
                         );
                         if (confirmed) {
-                            throw new Error('Test crash triggered from dev menu');
+                            throw new Error(t('devTools.testCrashError'));
                         }
                     }}
                 />
                 <Item
-                    title="Clear Cache"
-                    subtitle="Remove all cached data"
+                    title={t('devTools.clearCache')}
+                    subtitle={t('devTools.clearCacheSubtitle')}
                     icon={<Ionicons name="trash-outline" size={28} color="#FF9500" />}
                     onPress={handleClearCache}
                 />
                 <Item
-                    title="Reset Changelog"
-                    subtitle="Show 'What's New' banner again"
+                    title={t('devTools.resetChangelog')}
+                    subtitle={t('devTools.resetChangelogSubtitle')}
                     icon={<Ionicons name="sparkles-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => {
                         setLastViewedTitle('');
-                        Modal.alert('Done', 'Changelog reset. Restart app to see the banner.');
+                        Modal.alert(t('common.success'), t('devTools.changelogReset'));
                     }}
                 />
                 <Item
-                    title="Reset App State"
-                    subtitle="Clear all user data and preferences"
+                    title={t('devTools.resetAppState')}
+                    subtitle={t('devTools.resetAppStateSubtitle')}
                     destructive={true}
                     icon={<Ionicons name="refresh-outline" size={28} color="#FF3B30" />}
                     onPress={async () => {
                         const confirmed = await Modal.confirm(
-                            'Reset App',
-                            'This will delete all data. Are you sure?',
-                            { confirmText: 'Reset', destructive: true }
+                            t('devTools.resetAppState'),
+                            t('devTools.resetAppConfirmMessage'),
+                            { confirmText: t('common.reset'), destructive: true }
                         );
                         if (confirmed) {
                             console.log('App state reset');
@@ -366,41 +377,39 @@ export default function DevScreen() {
                 />
             </ItemGroup>
 
-            {/* System */}
-            <ItemGroup title="System">
+            <ItemGroup title={t('devTools.system')}>
                 <Item
-                    title="Purchases"
-                    subtitle="View subscriptions and entitlements"
+                    title={t('devTools.purchases')}
+                    subtitle={t('devTools.purchasesSubtitle')}
                     icon={<Ionicons name="card-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/purchases')}
                 />
                 <Item
-                    title="Expo Constants"
-                    subtitle="View expoConfig, manifests, and system constants"
+                    title={t('devTools.expoConstants')}
+                    subtitle={t('devTools.expoConstantsSubtitle')}
                     icon={<Ionicons name="information-circle-outline" size={28} color={theme.colors.accent} />}
                     onPress={() => router.push('/dev/expo-constants')}
                 />
             </ItemGroup>
 
-            {/* Network */}
-            <ItemGroup title="Network">
+            <ItemGroup title={t('devTools.network')}>
                 <Item
-                    title="API Endpoint"
+                    title={t('devTools.apiEndpoint')}
                     detail={getServerUrl()}
                     onPress={handleEditServerUrl}
                     detailStyle={{ flex: 1, textAlign: 'right', minWidth: '70%' }}
                 />
                 <Item
-                    title="Log Server"
-                    subtitle="Sends unencrypted console logs over HTTP"
-                    detail={getLogServerUrl() || 'Off'}
+                    title={t('devTools.logServer')}
+                    subtitle={t('devTools.logServerSubtitle')}
+                    detail={getLogServerUrl() || t('devTools.off')}
                     onPress={handleEditLogServerUrl}
                     detailStyle={{ flex: 1, textAlign: 'right', minWidth: '50%' }}
                 />
                 <Item
-                    title="Socket.IO Status"
+                    title={t('devTools.socketStatus')}
                     subtitle={getSocketStatusSubtitle()}
-                    detail={socketStatus.status}
+                    detail={getSocketStatusLabel()}
                     rightElement={<SocketStatusIndicator />}
                     showChevron={false}
                 />

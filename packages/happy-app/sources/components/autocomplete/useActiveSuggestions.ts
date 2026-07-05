@@ -1,5 +1,6 @@
 import { ValueSync } from '@/utils/sync';
 import * as React from 'react';
+import type { ComposerAutocompleteSuggestion } from './types';
 
 interface SuggestionOptions {
     clampSelection?: boolean;  // If true, clamp instead of preserving exact position
@@ -9,11 +10,7 @@ interface SuggestionOptions {
 
 export function useActiveSuggestions(
     query: string | null, 
-    handler: (query: string) => Promise<{
-        key: string,
-        text: string,
-        component: React.ElementType
-    }[]>,
+    handler: (query: string) => Promise<ComposerAutocompleteSuggestion[]>,
     options: SuggestionOptions = {}
 ) {
     const { 
@@ -24,7 +21,7 @@ export function useActiveSuggestions(
 
     // State for suggestions
     const [state, setState] = React.useState<{
-        suggestions: { key: string, text: string, component: React.ElementType }[];
+        suggestions: ComposerAutocompleteSuggestion[];
         selected: number,
     }>({
         suggestions: [],

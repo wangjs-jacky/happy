@@ -114,11 +114,14 @@ import {
 type ExtendedRequestPermissionRequest = RequestPermissionRequest & {
   toolCall?: {
     id?: string;
+    toolCallId?: string;
     kind?: string;
     toolName?: string;
+    title?: string;
     input?: Record<string, unknown>;
     arguments?: Record<string, unknown>;
     content?: Record<string, unknown>;
+    rawInput?: Record<string, unknown>;
   };
   kind?: string;
   input?: Record<string, unknown>;
@@ -130,6 +133,36 @@ type ExtendedRequestPermissionRequest = RequestPermissionRequest & {
     kind?: string;
   }>;
 };
+
+export function normalizeAcpPermissionRequest(
+  params: RequestPermissionRequest,
+  createFallbackId: () => string = randomUUID,
+): {
+  extendedParams: ExtendedRequestPermissionRequest;
+  toolName: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+  options: NonNullable<ExtendedRequestPermissionRequest['options']>;
+} {
+  const extendedParams = params as ExtendedRequestPermissionRequest;
+  const toolCall = extendedParams.toolCall;
+  const toolName = toolCall?.kind || toolCall?.toolName || toolCall?.title || extendedParams.kind || 'Unknown tool';
+  const toolCallId = toolCall?.id || toolCall?.toolCallId || createFallbackId();
+  let input: Record<string, unknown> = {};
+  if (toolCall) {
+    input = toolCall.input || toolCall.arguments || toolCall.content || toolCall.rawInput || {};
+  } else {
+    input = extendedParams.input || extendedParams.arguments || extendedParams.content || {};
+  }
+
+  return {
+    extendedParams,
+    toolName,
+    toolCallId,
+    input,
+    options: extendedParams.options || [],
+  };
+}
 
 /**
  * Extended SessionNotification with additional fields
@@ -566,22 +599,13 @@ export class AcpBackend implements AgentBackend {
         },
         requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
           
-          const extendedParams = params as ExtendedRequestPermissionRequest;
+          const normalized = normalizeAcpPermissionRequest(params);
+          const extendedParams = normalized.extendedParams;
           const toolCall = extendedParams.toolCall;
-          let toolName = toolCall?.kind || toolCall?.toolName || extendedParams.kind || 'Unknown tool';
-          // Use toolCallId as the single source of truth for permission ID
-          // This ensures mobile app sends back the same ID that we use to store pending requests
-          const toolCallId = toolCall?.id || randomUUID();
+          let toolName = normalized.toolName;
+          const toolCallId = normalized.toolCallId;
           const permissionId = toolCallId; // Use same ID for consistency!
-          
-          // Extract input/arguments from various possible locations FIRST (before checking toolName)
-          let input: Record<string, unknown> = {};
-          if (toolCall) {
-            input = toolCall.input || toolCall.arguments || toolCall.content || {};
-          } else {
-            // If no toolCall, try to extract from params directly
-            input = extendedParams.input || extendedParams.arguments || extendedParams.content || {};
-          }
+          const input = normalized.input;
           
           // If toolName is "other" or "Unknown tool", try to determine real tool name
           const context: ToolNameContext = {
@@ -597,14 +621,14 @@ export class AcpBackend implements AgentBackend {
           // Increment tool call counter for context tracking
           this.toolCallCountSincePrompt++;
           
-          const options = extendedParams.options || [];
+          const options = normalized.options;
           
           // Log permission request for debugging (include full params to understand structure)
           logger.debug(`[AcpBackend] Permission request: tool=${toolName}, toolCallId=${toolCallId}, input=`, JSON.stringify(input));
           logger.debug(`[AcpBackend] Permission request params structure:`, JSON.stringify({
             hasToolCall: !!toolCall,
             toolCallKind: toolCall?.kind,
-            toolCallId: toolCall?.id,
+            toolCallId: toolCall?.id || toolCall?.toolCallId,
             paramsKind: extendedParams.kind,
             paramsKeys: Object.keys(params),
           }, null, 2));

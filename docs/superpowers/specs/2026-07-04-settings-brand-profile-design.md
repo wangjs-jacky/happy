@@ -9,9 +9,12 @@ The settings screen recently changed to follow a reference layout for profile ed
 
 The product has no membership plan. Any copied `Membership Plan` or `Andante` UI from the reference product should be removed from Happy/Paws.
 
+The current `jacky-main` mascot behavior intentionally links each mascot to a theme pack: choosing a mascot also writes the bound `themePack` and applies it with the current light/dark/adaptive preference. This design must preserve that coupling instead of replacing `MascotSwitcher` with a mascot-only image switcher.
+
 ## Goals
 
 - Restore the groundhog mascot as a brand display entry in settings.
+- Preserve the existing mascot-to-theme-pack coupling from `jacky-main`.
 - Keep mascot, profile avatar, and account/security concepts visually and behaviorally separate.
 - Preserve the new profile editing flow: avatar and display name are edited from the Personal Profile page.
 - Remove membership-plan UI from the settings page and sidebar.
@@ -22,6 +25,7 @@ The product has no membership plan. Any copied `Membership Plan` or `Andante` UI
 - Do not add a membership plan, subscription badge, or `Andante` label.
 - Do not move avatar editing back onto the settings landing page.
 - Do not change the avatar upload endpoint or display-name save endpoint.
+- Do not decouple mascot switching from theme-pack switching.
 - Do not redesign the full Appearance screen.
 
 ## Settings Page Structure
@@ -29,7 +33,7 @@ The product has no membership plan. Any copied `Membership Plan` or `Andante` UI
 The settings landing page should start with a standalone brand header:
 
 - Top: `MascotSwitcher`, centered in a restrained surface area.
-- Purpose: brand presentation and quick mascot switching.
+- Purpose: brand presentation and quick mascot switching, including the same mascot-bound theme-pack transition used on `jacky-main`.
 - It must not show the user's avatar, name, bio, account status, or edit controls.
 
 Immediately below the brand header, the first settings group should contain:
@@ -83,6 +87,8 @@ The avatar interaction remains unchanged:
 
 - Swipe left/right cycles through mascot variants.
 - The selected mascot is stored in the existing `mascot` local setting.
+- The bound theme pack is stored in the existing `themePack` local setting via `getMascotTheme`.
+- `applyTheme` is called with the selected mascot's theme pack and the current `themePreference`.
 - The empty home screen continues to read the same setting and display the selected mascot.
 
 The Appearance screen may continue to provide the full mascot picker grid. That is acceptable because it is a settings-oriented selector, while the settings landing page header is a brand display entry.
@@ -91,9 +97,10 @@ The Appearance screen may continue to provide the full mascot picker grid. That 
 
 Mascot:
 
-- `MascotSwitcher` reads and writes `useLocalSettingMutable('mascot')`.
+- `MascotSwitcher` reads and writes `useLocalSettingMutable('mascot')`, `useLocalSettingMutable('themePack')`, and the current `themePreference`.
+- `MascotSwitcher` uses the existing `getMascotTheme` mapping so the settings header and Appearance mascot picker stay consistent.
 - `EmptyMainScreen` reads the same setting through existing code.
-- No server calls are required.
+- No server calls are required; mascot and theme-pack changes are local settings only.
 
 Profile:
 
@@ -126,6 +133,7 @@ Manual checks:
 
 - Settings top shows the mascot switcher.
 - Swiping the mascot changes the selected mascot.
+- Swiping the mascot applies the bound theme pack, and Appearance shows the matching selected mascot/theme pack.
 - Home empty state reflects the selected mascot.
 - First settings group contains exactly `个人资料` and `账号`.
 - There is no `会员计划`, `Membership Plan`, or `Andante` in settings or the sidebar.
@@ -142,6 +150,7 @@ Automated checks:
 Expected focused changes:
 
 - Re-import and render `MascotSwitcher` in `SettingsView`.
+- Reuse `MascotSwitcher` as-is from `jacky-main`; do not fork it or remove its theme-pack side effect.
 - Restore only the brand header part of the old settings header, not the previous avatar/name/bio header.
 - Remove membership-plan row from `SettingsView`.
 - Remove membership badge styles and render output from `SidebarView`.

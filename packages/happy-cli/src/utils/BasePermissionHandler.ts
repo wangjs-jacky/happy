@@ -138,6 +138,47 @@ export abstract class BasePermissionHandler {
     }
 
     /**
+     * Approve every currently pending request.
+     * Used when a running session switches into a no-prompt mode mid-turn.
+     */
+    protected approveAllPending(decision: 'approved' | 'approved_for_session'): void {
+        const pendingSnapshot = Array.from(this.pendingRequests.entries());
+        if (pendingSnapshot.length === 0) return;
+
+        this.pendingRequests.clear();
+
+        for (const [id, pending] of pendingSnapshot) {
+            try {
+                pending.resolve({ decision });
+            } catch (err) {
+                logger.debug(`${this.getLogPrefix()} Error resolving approved request ${id}:`, err);
+            }
+        }
+
+        this.session.updateAgentState((currentState) => {
+            const pendingRequests = currentState.requests || {};
+            const completedRequests = { ...currentState.completedRequests };
+
+            for (const [id, request] of Object.entries(pendingRequests)) {
+                completedRequests[id] = {
+                    ...request,
+                    completedAt: Date.now(),
+                    status: 'approved',
+                    decision,
+                };
+            }
+
+            return {
+                ...currentState,
+                requests: {},
+                completedRequests,
+            } satisfies AgentState;
+        });
+
+        logger.debug(`${this.getLogPrefix()} Auto-approved ${pendingSnapshot.length} pending permission(s)`);
+    }
+
+    /**
      * Abort all pending permission requests.
      * Unlike reset(), this resolves (not rejects) pending promises with { decision: 'abort' },
      * causing the approval response to send 'cancel' to the provider. This is used when the

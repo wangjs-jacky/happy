@@ -62,6 +62,12 @@ describe('parseSpecialCommand', () => {
         expect(result.originalMessage).toBeUndefined();
     });
 
+    it('should detect skills command', () => {
+        const result = parseSpecialCommand('/skills');
+        expect(result.type).toBe('skills');
+        expect(result.originalMessage).toBeUndefined();
+    });
+
     it('should return null for regular messages', () => {
         const result = parseSpecialCommand('hello world');
         expect(result.type).toBeNull();

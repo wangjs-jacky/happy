@@ -14,6 +14,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SidebarNavigator } from '@/components/SidebarNavigator';
+import { ThemeCaptureRoot } from '@/components/ThemeTransition';
 import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState } from 'react-native';
 import { ModalProvider } from '@/modal';
@@ -406,22 +407,24 @@ export default function RootLayout() {
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
             <KeyboardProvider preload={false}>
                 <GestureHandlerRootView style={{ flex: 1 }}>
-                    <AuthProvider initialCredentials={initState.credentials}>
-                        <ThemeProvider value={navigationTheme}>
-                            <StatusBarProvider />
-                            <ModalProvider>
-                                <BrowserNavigationShortcuts />
-                                <CommandPaletteProvider>
-                                    <RealtimeProvider>
-                                        <HorizontalSafeAreaWrapper>
-                                            <SidebarNavigator />
-                                        </HorizontalSafeAreaWrapper>
-                                    </RealtimeProvider>
-                                </CommandPaletteProvider>
-                                <ImageViewerHost />
-                            </ModalProvider>
-                        </ThemeProvider>
-                    </AuthProvider>
+                    <ThemeCaptureRoot>
+                        <AuthProvider initialCredentials={initState.credentials}>
+                            <ThemeProvider value={navigationTheme}>
+                                <StatusBarProvider />
+                                <ModalProvider>
+                                    <BrowserNavigationShortcuts />
+                                    <CommandPaletteProvider>
+                                        <RealtimeProvider>
+                                            <HorizontalSafeAreaWrapper>
+                                                <SidebarNavigator />
+                                            </HorizontalSafeAreaWrapper>
+                                        </RealtimeProvider>
+                                    </CommandPaletteProvider>
+                                    <ImageViewerHost />
+                                </ModalProvider>
+                            </ThemeProvider>
+                        </AuthProvider>
+                    </ThemeCaptureRoot>
                 </GestureHandlerRootView>
             </KeyboardProvider>
         </SafeAreaProvider>

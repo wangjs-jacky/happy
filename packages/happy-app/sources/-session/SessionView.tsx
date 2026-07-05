@@ -6,6 +6,7 @@ import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { SessionHeaderChip } from '@/components/SessionHeaderChip';
 import { SessionInfoDropdown } from '@/components/SessionInfoDropdown';
+import { RightSwipePanelHost } from '@/components/RightSwipePanelHost';
 import { ChatList } from '@/components/ChatList';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
@@ -23,6 +24,7 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
+import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -30,6 +32,7 @@ import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSes
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import { extractSessionOtaPreviews } from '@/utils/sessionOtaPreviews';
+import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
@@ -46,9 +49,12 @@ import { useUnistyles } from 'react-native-unistyles';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
+
+const CAN_COPY_SESSION_ID = Application.applicationId === 'build.paws.preview';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -324,6 +330,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     machineName={machineName}
                     online={sessionOnline}
                     top={safeArea.top + headerHeight}
+                    canCopySessionId={CAN_COPY_SESSION_ID}
                     onClose={() => setInfoPanelOpen(false)}
                     onViewDetails={() => {
                         setInfoPanelOpen(false);
@@ -335,7 +342,11 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        return mainContent;
+        return (
+            <RightSwipePanelHost panelContent={<SessionCapabilityHub sessionId={sessionId} />}>
+                {mainContent}
+            </RightSwipePanelHost>
+        );
     }
 
     // Desktop layout: chat + animated sidebar at the same level (full height).
@@ -415,6 +426,11 @@ const SIDEBAR_MIN_WINDOW_WIDTH = 1100;
 
 // Hoisted so MessageComposer's React.memo doesn't see a new array ref on every keystroke
 const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
+const CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/', '$'];
+
+function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
+    return flavor === 'codex' || flavor === 'openai' || flavor === 'gpt';
+}
 
 // Imperative handle exposed by ChatComposer so SessionViewLoaded can read /
 // clear the message text without subscribing to it (which would re-render
@@ -562,8 +578,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     }, [router, sessionId]);
 
     const handleAutocompleteSuggestions = React.useCallback((query: string) => (
-        getSuggestions(sessionId, query)
-    ), [sessionId]);
+        getSuggestions(sessionId, query, { flavor: session.metadata?.flavor ?? null })
+    ), [sessionId, session.metadata?.flavor]);
+
+    const autocompletePrefixes = React.useMemo(
+        () => (isCodexSessionFlavor(session.metadata?.flavor) ? CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES : AGENT_INPUT_AUTOCOMPLETE_PREFIXES),
+        [session.metadata?.flavor],
+    );
 
     const connectionStatus = React.useMemo(() => ({
         text: sessionStatus.statusText,
@@ -640,7 +661,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
+            autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
             alwaysShowContextSize={alwaysShowContextSize}

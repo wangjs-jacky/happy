@@ -3,7 +3,7 @@ import type { ApprovalPolicy, SandboxMode } from './codexAppServerTypes';
 export function resolveCodexExecutionPolicy(
     permissionMode: import('@/api/types').PermissionMode,
     sandboxManagedByHappy: boolean,
-): { approvalPolicy: ApprovalPolicy; sandbox: SandboxMode } {
+): { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode } {
     if (sandboxManagedByHappy) {
         return {
             approvalPolicy: 'never',
@@ -11,10 +11,13 @@ export function resolveCodexExecutionPolicy(
         };
     }
 
+    if (permissionMode === 'default') {
+        return {};
+    }
+
     const approvalPolicy: ApprovalPolicy = (() => {
         switch (permissionMode) {
             // Codex native modes
-            case 'default': return 'untrusted';                    // Ask for non-trusted commands
             case 'read-only': return 'never';                      // Never ask, read-only enforced by sandbox
             case 'safe-yolo': return 'on-failure';                 // Auto-run, ask only on failure
             case 'yolo': return 'never';                           // Full YOLO: never interrupt for approvals
@@ -29,7 +32,6 @@ export function resolveCodexExecutionPolicy(
     const sandbox: SandboxMode = (() => {
         switch (permissionMode) {
             // Codex native modes
-            case 'default': return 'workspace-write';              // Can write in workspace
             case 'read-only': return 'read-only';                  // Read-only filesystem
             case 'safe-yolo': return 'workspace-write';            // Can write in workspace
             case 'yolo': return 'danger-full-access';              // Full system access
