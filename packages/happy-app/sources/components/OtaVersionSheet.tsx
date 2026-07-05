@@ -262,7 +262,7 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
 
                                     {props.appChannel === 'preview' ? (
                                         <ActionButton
-                                            label={props.busy ? '正在切换…' : (isLocked ? '回到最新版本' : '切到这个版本')}
+                                            label={props.busy ? '正在拉取…' : (isLocked ? '拉取最新' : '拉取并切换')}
                                             tone={isLocked ? 'danger' : 'primary'}
                                             disabled={props.busy}
                                             onPress={handlePrimaryAction}
