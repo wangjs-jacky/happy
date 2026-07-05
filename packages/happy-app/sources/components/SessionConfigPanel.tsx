@@ -37,7 +37,7 @@ import {
     type EffortLevel,
 } from '@/components/modelModeOptions';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
-import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
+import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import { isRunningOnMac } from '@/utils/platform';
 
 // Agent icon assets
@@ -687,7 +687,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             setPath: s.setPath,
             agentType: s.agentType,
             setAgentType: s.setAgentType,
+            permissionMode: s.permissionMode,
             setPermissionMode: s.setPermissionMode,
+            modelMode: s.modelMode,
             setModelMode: s.setModelMode,
             effortLevel: s.effortLevel,
             setEffortLevel: s.setEffortLevel,
@@ -865,9 +867,15 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getEffortLevelsForModel(selectedAgent, currentModelKey),
             [selectedAgent, currentModelKey],
         );
-        const effectiveAgentDefaults = React.useMemo(() => (
-            resolveAgentDefaultConfig(agentDefaultOverrides, selectedAgent)
-        ), [agentDefaultOverrides, selectedAgent]);
+        const resolvedModeSelection = React.useMemo(() => (
+            resolveNewSessionModeSelection({
+                agent: selectedAgent,
+                permissionMode: draft.permissionMode,
+                modelMode: draft.modelMode,
+                effortLevel: draft.effortLevel,
+                agentDefaultOverrides,
+            })
+        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, selectedAgent]);
 
         const supportsWorktree = getSupportsWorktree(selectedAgent);
         const showModel = modelModes.length > 1;
@@ -876,18 +884,18 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
 
         // Reset indices when agent/default settings change.
         React.useEffect(() => {
-            const defaultPermIdx = permissionModes.findIndex(m => m.key === effectiveAgentDefaults.permissionMode);
+            const defaultPermIdx = permissionModes.findIndex(m => m.key === resolvedModeSelection.permissionMode);
             setPermissionIndex(defaultPermIdx >= 0 ? defaultPermIdx : 0);
 
-            const defaultModelIdx = modelModes.findIndex(m => m.key === effectiveAgentDefaults.modelMode);
+            const defaultModelIdx = modelModes.findIndex(m => m.key === resolvedModeSelection.modelMode);
             setModelIndex(defaultModelIdx >= 0 ? defaultModelIdx : 0);
 
             if (!supportsWorktree) setWorktreeKey('__none__');
-        }, [permissionModes, modelModes, supportsWorktree, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode]);
+        }, [permissionModes, modelModes, supportsWorktree, resolvedModeSelection.permissionMode, resolvedModeSelection.modelMode]);
 
         // Reset effort when model changes
         React.useEffect(() => {
-            const defaultEffort = draft.effortLevel ?? effectiveAgentDefaults.effortLevel;
+            const defaultEffort = resolvedModeSelection.effortLevel;
             if (defaultEffort && effortLevels.length > 0) {
                 const idx = effortLevels.findIndex(e => e.key === defaultEffort);
                 setEffortIndex(idx >= 0 ? idx : effortLevels.length - 1);
@@ -896,7 +904,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 setEffortIndex(0);
                 draft.setEffortLevel(effortLevels[0]?.key ?? null);
             }
-        }, [draft.effortLevel, draft.setEffortLevel, effectiveAgentDefaults.effortLevel, currentModelKey, effortLevels]);
+        }, [draft.setEffortLevel, resolvedModeSelection.effortLevel, currentModelKey, effortLevels]);
 
         // Auto collapse config once when user starts typing (mobile only, collapsible).
         // On desktop (web / Mac Catalyst) the panel stays expanded. Also skip on
@@ -1036,7 +1044,6 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             dismissPicker,
             draft.setEffortLevel,
             draft.setModelMode,
-            draft.setEffortLevel,
             draft.setPermissionMode,
             effortLevels,
             modelModes,
@@ -1051,11 +1058,11 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             getSelection: () => ({
                 permissionKey: currentPermission?.key === 'default' ? undefined : currentPermission?.key,
                 modelKey: currentModelKey === 'default' ? undefined : currentModelKey,
-                effortKey: draft.effortLevel ?? effectiveAgentDefaults.effortLevel ?? null,
+                effortKey: draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null,
                 worktreeKey,
             }),
             closePickers: dismissPicker,
-        }), [currentPermission?.key, currentModelKey, draft.effortLevel, effectiveAgentDefaults.effortLevel, worktreeKey, dismissPicker]);
+        }), [currentPermission?.key, currentModelKey, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, dismissPicker]);
 
         // Render the active picker inline directly under its row. Web (non-sidebar)
         // shows it as a dropdown popover; sidebar and native render it embedded as a
@@ -1302,6 +1309,26 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     />
                                 </Pressable>
 
+                                {showModel && (
+                                    <Pressable
+                                        onPress={() => togglePicker('model')}
+                                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    >
+                                        <Ionicons name="hardware-chip-outline" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                )}
+
+                                {showEffort && (
+                                    <Pressable
+                                        onPress={() => togglePicker('effort')}
+                                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    >
+                                        <Ionicons name="speedometer-outline" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                )}
+
                                 {showPermission && (
                                     <Pressable
                                         onPress={() => togglePicker('permission')}
@@ -1328,6 +1355,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             </View>
                             {renderActivePickerPopover('machine')}
                             {renderActivePickerPopover('agent')}
+                            {renderActivePickerPopover('model')}
+                            {renderActivePickerPopover('effort')}
                             {renderActivePickerPopover('permission')}
                             {renderActivePickerPopover('worktree')}
 

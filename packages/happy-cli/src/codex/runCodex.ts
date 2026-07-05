@@ -72,7 +72,7 @@ function describeCodexFailure(msg: any): string | null {
     return 'Unknown error';
 }
 
-const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'default';
+const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
 function formatCodexGoal(goal: ThreadGoal): string {
     const budget = goal.tokenBudget === null

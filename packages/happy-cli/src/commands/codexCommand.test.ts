@@ -48,7 +48,7 @@ describe('handleCodexCommand', () => {
     mocks.mockRunCodex.mockResolvedValue(undefined)
   })
 
-  it('ensures the daemon is running before starting a codex session', async () => {
+  it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {
     await handleCodexCommand(['--started-by', 'terminal'])
 
     expect(mocks.mockEnsureDaemonRunning).toHaveBeenCalledTimes(1)
@@ -57,7 +57,7 @@ describe('handleCodexCommand', () => {
       startedBy: 'terminal',
       noSandbox: false,
       resumeThreadId: undefined,
-      permissionMode: undefined,
+      permissionMode: 'yolo',
       model: undefined,
       effort: undefined,
     })
@@ -83,7 +83,7 @@ describe('handleCodexCommand', () => {
       startedBy: 'daemon',
       noSandbox: true,
       resumeThreadId: 'thread-123',
-      permissionMode: undefined,
+      permissionMode: 'yolo',
       model: undefined,
       effort: undefined,
     })
@@ -111,7 +111,7 @@ describe('handleCodexCommand', () => {
       startedBy: undefined,
       noSandbox: false,
       resumeThreadId: undefined,
-      permissionMode: undefined,
+      permissionMode: 'yolo',
       model: 'gpt-5.4',
       effort: undefined,
     })
@@ -125,7 +125,7 @@ describe('handleCodexCommand', () => {
       startedBy: undefined,
       noSandbox: false,
       resumeThreadId: undefined,
-      permissionMode: undefined,
+      permissionMode: 'yolo',
       model: undefined,
       effort: 'xhigh',
     })

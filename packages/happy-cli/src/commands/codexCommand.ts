@@ -41,7 +41,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
   }
 
   let startedBy: 'daemon' | 'terminal' | undefined = undefined
-  let permissionMode: PermissionMode | undefined = undefined
+  let permissionMode: PermissionMode | undefined = 'yolo'
   let model: string | undefined = undefined
   let effort: ReasoningEffort | undefined = undefined
   const sandboxArgs = extractNoSandboxFlag(args)

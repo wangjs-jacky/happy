@@ -56,6 +56,36 @@ describe('resolveNewSessionModeSelection', () => {
         });
     });
 
+    it('resolves Codex default permission sentinel to YOLO', () => {
+        expect(resolveNewSessionModeSelection({
+            agent: 'codex',
+            permissionMode: 'default',
+            modelMode: 'default',
+            effortLevel: null,
+            agentDefaultOverrides: {},
+        })).toEqual({
+            permissionMode: 'yolo',
+            modelMode: 'default',
+            effortLevel: 'default',
+        });
+    });
+
+    it('ignores stale Codex settings overrides that selected CLI defaults', () => {
+        expect(resolveNewSessionModeSelection({
+            agent: 'codex',
+            permissionMode: 'default',
+            modelMode: 'default',
+            effortLevel: null,
+            agentDefaultOverrides: {
+                codex: {
+                    permissionMode: 'default',
+                },
+            },
+        })).toMatchObject({
+            permissionMode: 'yolo',
+        });
+    });
+
     it('keeps explicit non-default draft picks', () => {
         expect(resolveNewSessionModeSelection({
             agent: 'codex',
