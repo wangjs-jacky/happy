@@ -2076,6 +2076,7 @@ class Sync {
                 registered: result.registered,
                 hasToken: !!result.token,
                 permission: result.permission.status,
+                error: result.error,
             }));
             if (!result.permission.granted) {
                 console.log('Failed to get push token for push notification!');
