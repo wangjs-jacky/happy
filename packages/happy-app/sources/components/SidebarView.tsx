@@ -5,9 +5,9 @@ import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useFriendRequests, useProfile, useSetting } from '@/sync/storage';
-import { getDisplayName, getAvatarUrl } from '@/sync/profile';
+import { getDisplayName } from '@/sync/profile';
 import { MainView } from './MainView';
-import { Avatar } from './Avatar';
+import { ProfileAvatarControl } from './ProfileAvatarControl';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
@@ -98,6 +98,16 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     userCardPressed: {
         backgroundColor: theme.colors.surfacePressed,
+    },
+    userInfoButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        minHeight: 40,
+    },
+    userInfoButtonPressed: {
+        opacity: 0.7,
     },
     userName: {
         flex: 1,
@@ -195,23 +205,20 @@ export const SidebarView = React.memo(() => {
 
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>
-            {/* User card — tap to open settings (replaces the old gear row) */}
-            <Pressable
-                onPress={() => go('/settings')}
-                style={({ pressed }) => [
-                    styles.userCard,
-                    pressed && styles.userCardPressed,
-                ]}
-            >
-                <Avatar
-                    id={profile.id}
-                    size={40}
-                    imageUrl={getAvatarUrl(profile)}
-                    thumbhash={profile.avatar?.thumbhash}
-                />
-                <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
-                <Ionicons name="settings-outline" size={18} color={stylesheet.userName.color} />
-            </Pressable>
+            {/* User card — avatar opens the photo, camera changes it, the rest opens settings. */}
+            <View style={styles.userCard}>
+                <ProfileAvatarControl profile={profile} size={40} />
+                <Pressable
+                    onPress={() => go('/settings')}
+                    style={({ pressed }) => [
+                        styles.userInfoButton,
+                        pressed && styles.userInfoButtonPressed,
+                    ]}
+                >
+                    <Text style={styles.userName} numberOfLines={1}>{displayName}</Text>
+                    <Ionicons name="settings-outline" size={18} color={stylesheet.userName.color} />
+                </Pressable>
+            </View>
 
             {/* Messages / friends (formerly the Inbox tab) */}
             <Pressable onPress={() => go('/inbox')} style={styles.messagesRow}>

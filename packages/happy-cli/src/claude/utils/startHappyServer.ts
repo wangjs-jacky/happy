@@ -14,10 +14,16 @@ import { z } from "zod";
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
+import { fetchFinanceChart } from "@/finance/financeChart";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+    financeChart: (input: {
+        query: string;
+        range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
+        interval?: '1d';
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 };
 
 function createMcpServer(handlers: HappyMcpHandlers): McpServer {
@@ -92,6 +98,45 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         }
     });
 
+    mcp.registerTool('finance_chart', {
+        description: 'Fetch real market OHLC chart data for a stock, index, ETF, or crypto symbol and return a Happy finance chart block for chat rendering.',
+        title: 'Fetch Finance Chart',
+        inputSchema: {
+            query: z.string().describe('Stock/index query or symbol, such as 上证指数, 000001.SS, AAPL, or 0700.HK'),
+            range: z.enum(['5d', '1mo', '3mo', '6mo', '1y']).optional().describe('Chart range. Defaults to 1mo.'),
+            interval: z.enum(['1d']).optional().describe('Chart interval. Defaults to 1d.'),
+        },
+    }, async (args) => {
+        const response = await handlers.financeChart({
+            query: args.query,
+            ...(args.range ? { range: args.range } : {}),
+            ...(args.interval ? { interval: args.interval } : {}),
+        });
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify(response.data, null, 2),
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to fetch finance chart: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     return mcp;
 }
 
@@ -120,6 +165,15 @@ export async function startHappyServer(client: ApiSessionClient) {
                 return { success: true };
             } catch (error) {
                 return { success: false, error: String(error) };
+            }
+        },
+        financeChart: async (input) => {
+            logger.debug('[happyMCP] Fetching finance chart:', input);
+            try {
+                const data = await fetchFinanceChart(input);
+                return { success: true, data };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
             }
         },
     };
@@ -156,7 +210,7 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title', 'send_image'],
+        toolNames: ['change_title', 'send_image', 'finance_chart'],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
             server.close();

@@ -9,6 +9,9 @@ export interface AppConfig {
     elevenLabsAgentId?: string;
     consoleLoggingDefault?: boolean;
     serverUrl?: string;
+    otaChannel?: string;
+    repositoryUrl?: string;
+    repositoryIssuesUrl?: string;
     buildCommitSha?: string;
     buildCommitTimestamp?: string;
 }

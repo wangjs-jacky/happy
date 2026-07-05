@@ -30,7 +30,10 @@ export interface SyncCurrentPushTokenResult {
     registered: boolean;
     token: string | null;
     permission: PushPermissionInfo;
+    error?: string;
 }
+
+const BUNDLED_EXPO_PROJECT_ID = '4558dd3d-cd5a-47cd-bad9-e591a241cc06';
 
 function normalizePushPermission(result: {
     status: string;
@@ -49,8 +52,24 @@ function normalizePushPermission(result: {
     };
 }
 
-function getExpoProjectId(): string | null {
-    return Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId ?? null;
+function getExpoProjectId(): string {
+    return Constants?.expoConfig?.extra?.eas?.projectId
+        ?? Constants?.easConfig?.projectId
+        ?? BUNDLED_EXPO_PROJECT_ID;
+}
+
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    if (typeof error === 'string') {
+        return error;
+    }
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return 'Unknown error';
+    }
 }
 
 export async function getPushPermissionInfo(): Promise<PushPermissionInfo> {
@@ -123,13 +142,8 @@ export async function getCurrentExpoPushToken(): Promise<string | null> {
         return loadRegisteredPushToken();
     }
 
-    const projectId = getExpoProjectId();
-    if (!projectId) {
-        return loadRegisteredPushToken();
-    }
-
     try {
-        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: getExpoProjectId() });
         return tokenData.data ?? loadRegisteredPushToken();
     } catch (error) {
         console.log('Failed to get Expo push token:', error);
@@ -170,35 +184,45 @@ export async function syncCurrentPushToken(credentials: AuthCredentials): Promis
         }
     }
 
-    const projectId = getExpoProjectId();
-    if (!projectId) {
+    try {
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: getExpoProjectId() });
+        const currentToken = tokenData.data;
+        const previousToken = loadRegisteredPushToken();
+
+        if (!currentToken) {
+            return {
+                registered: false,
+                token: previousToken,
+                permission,
+                error: 'Expo returned an empty push token.',
+            };
+        }
+
+        await registerPushToken(credentials, currentToken);
+        saveRegisteredPushToken(currentToken);
+
+        if (previousToken && previousToken !== currentToken) {
+            try {
+                await unregisterPushToken(credentials, previousToken);
+            } catch (error) {
+                console.log('Failed to unregister previous push token:', error);
+            }
+        }
+
+        return {
+            registered: true,
+            token: currentToken,
+            permission,
+        };
+    } catch (error) {
+        console.log('Failed to sync Expo push token:', error);
         return {
             registered: false,
             token: loadRegisteredPushToken(),
             permission,
+            error: getErrorMessage(error),
         };
     }
-
-    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-    const currentToken = tokenData.data;
-    const previousToken = loadRegisteredPushToken();
-
-    await registerPushToken(credentials, currentToken);
-    saveRegisteredPushToken(currentToken);
-
-    if (previousToken && previousToken !== currentToken) {
-        try {
-            await unregisterPushToken(credentials, previousToken);
-        } catch (error) {
-            console.log('Failed to unregister previous push token:', error);
-        }
-    }
-
-    return {
-        registered: true,
-        token: currentToken,
-        permission,
-    };
 }
 
 export async function removePushToken(credentials: AuthCredentials, token: string): Promise<void> {

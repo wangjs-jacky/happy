@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en as baseEn, type TranslationStructure } from '../_default';
 
 /**
  * English plural helper function
@@ -194,6 +194,47 @@ export const en: TranslationStructure = {
         missingPath: 'Missing file path',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            sessionActions: 'Session Actions',
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            sessionActions: 'No actions available for this session',
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut, or leave it blank to use the first prompt line.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'Tap a card to place this text in the input; tap Send to send it immediately.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Mascot',
         mascotDescription: 'Pick the groundhog that greets you on the home screen',
@@ -204,6 +245,7 @@ export const en: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Scientist',
+            florist: 'Florist',
         },
         // Appearance settings screen
         theme: 'Theme',
@@ -435,6 +477,22 @@ export const en: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'Immediately terminate the session',
         archiveSessionSubtitle: 'Archive this session and stop it',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'Metadata',
         host: 'Host',
         path: 'Path',
@@ -495,6 +553,7 @@ export const en: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -557,13 +616,58 @@ export const en: TranslationStructure = {
         hideArchived: 'Hide archived',
         newSession: 'New session',
 
-        searchSessions: 'Search sessions',
+        searchSessions: 'Manage sessions',
     },
     sessionSearch: {
-        title: 'Search sessions',
+        title: 'Session Management',
         placeholder: 'Search by title, path or machine',
-        empty: 'Type to search your sessions',
+        empty: 'No sessions to manage yet',
         noResults: ({ query }: { query: string }) => `No sessions match ${query}`,
+        filters: {
+            all: 'All',
+            needs: 'Needs action',
+            running: 'Running',
+            pinned: 'Pinned',
+            drafts: 'Drafts',
+        },
+        sections: {
+            active: 'Current sessions',
+            pinned: 'Pinned',
+            needs: 'Needs action',
+            running: 'Running',
+            recent: 'Recent',
+        },
+        sort: 'Sort',
+        sorting: 'Sorting',
+        done: 'Done',
+        view: 'View',
+        sortHintTitle: 'Queue sorting',
+        sortHintBody: 'Drag pinned and needs-action sessions, or use the arrow buttons. Recent sessions stay sorted by time.',
+        footerNeeds: ({ count }: { count: number }) => count === 1 ? '1 session needs attention' : `${count} sessions need attention`,
+        footerNeedsSubtitle: 'Review permissions, unread results, drafts, and open todos first',
+        footerSortTitle: 'Reorder pinned and needs-action queues',
+        footerSortSubtitle: 'Recent sessions keep time order',
+        status: {
+            permission: 'Needs approval',
+            running: 'Running',
+            unread: 'New result',
+            draft: 'Draft',
+            todo: 'Todo',
+            manual: 'Marked',
+            recent: 'Recent',
+        },
+        actions: {
+            pin: 'Pin',
+            unpin: 'Unpin',
+            markNeeds: 'Mark needed',
+            clearNeeds: 'Clear mark',
+            moveToTop: 'Move top',
+            moveUp: 'Move up',
+            moveDown: 'Move down',
+            moveToPinned: 'Pin',
+            moveToNeeds: 'Need',
+            more: 'More actions',
+        },
     },
 
     zen: {
@@ -735,7 +839,11 @@ export const en: TranslationStructure = {
         linkNewDevice: 'Link New Device',
         linkNewDeviceSubtitle: 'Scan QR code to link device',
         profile: 'Profile',
+        editProfile: 'Edit Profile',
         name: 'Name',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Tap to disconnect',
         server: 'Server',
@@ -775,6 +883,8 @@ export const en: TranslationStructure = {
         authenticateWithUrlPaste: 'Authenticate Terminal with URL paste',
         pasteAuthUrl: 'Paste the auth URL from your terminal',
     },
+
+    devTools: baseEn.devTools,
 
     updateBanner: {
         updateAvailable: 'Update available',
@@ -1066,6 +1176,11 @@ export const en: TranslationStructure = {
             : `${count} images could not be uploaded and were not sent.`,
         notSupportedTitle: 'Images Not Supported',
         notSupportedMessage: 'This agent does not support image attachments. Only the text was sent.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

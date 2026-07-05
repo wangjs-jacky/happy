@@ -13,6 +13,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { config } from '@/config';
+import { t } from '@/text';
 
 interface JsonViewerProps {
     title: string;
@@ -27,9 +28,9 @@ function JsonViewer({ title, data, defaultExpanded = false }: JsonViewerProps) {
     const handleCopy = async () => {
         try {
             await Clipboard.setStringAsync(JSON.stringify(data, null, 2));
-            Modal.alert('Copied', 'JSON data copied to clipboard');
+            Modal.alert(t('common.copied'), t('devTools.jsonCopied'));
         } catch (error) {
-            Modal.alert('Error', 'Failed to copy to clipboard');
+            Modal.alert(t('common.error'), t('devTools.failedToCopyClipboard'));
         }
     };
     
@@ -37,7 +38,7 @@ function JsonViewer({ title, data, defaultExpanded = false }: JsonViewerProps) {
         return (
             <Item
                 title={title}
-                detail="Not available"
+                detail={t('devTools.notAvailable')}
                 showChevron={false}
             />
         );
@@ -187,20 +188,20 @@ export default function ExpoConstantsScreen() {
         <>
             <Stack.Screen
                 options={{
-                    title: 'Expo Constants',
+                    title: t('devTools.expoConstants'),
                     headerLargeTitle: false,
                 }}
             />
             <ItemList>
                 {/* Main Configuration */}
-                <ItemGroup title="Configuration from Constants API">
+                <ItemGroup title={t('devTools.constantsConfiguration')}>
                     <JsonViewer
-                        title="expoConfig (Current)"
+                        title={t('devTools.currentExpoConfig')}
                         data={expoConfig}
                         defaultExpanded={true}
                     />
                     <JsonViewer
-                        title="manifest (Legacy)"
+                        title={t('devTools.legacyManifest')}
                         data={manifest}
                     />
                     <JsonViewer
@@ -209,28 +210,28 @@ export default function ExpoConstantsScreen() {
                     />
                     {updatesManifest && (
                         <JsonViewer
-                            title="Updates.manifest"
+                            title={t('devTools.updatesManifest')}
                             data={updatesManifest}
                         />
                     )}
                 </ItemGroup>
                 
                 {/* Raw Native Module Manifests */}
-                <ItemGroup title="Raw Native Module Manifests">
+                <ItemGroup title={t('devTools.rawNativeModuleManifests')}>
                     <Item
-                        title="Is Embedded Launch"
-                        detail={isEmbedded !== undefined ? (isEmbedded ? 'Yes' : 'No') : 'Not available'}
+                        title={t('devTools.embeddedLaunch')}
+                        detail={isEmbedded !== undefined ? (isEmbedded ? t('common.yes') : t('common.no')) : t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     {parsedExponentManifest && (
                         <JsonViewer
-                            title="ExponentConstants.manifest (Embedded)"
+                            title={t('devTools.exponentEmbeddedManifest')}
                             data={parsedExponentManifest}
                         />
                     )}
                     {parsedUpdatesManifest && (
                         <JsonViewer
-                            title="ExpoUpdates.manifest (OTA)"
+                            title={t('devTools.expoUpdatesOtaManifest')}
                             data={parsedUpdatesManifest}
                         />
                     )}
@@ -243,130 +244,130 @@ export default function ExpoConstantsScreen() {
                 </ItemGroup>
                 
                 {/* Raw String Manifests (for debugging) */}
-                <ItemGroup title="Raw Manifest Strings">
+                <ItemGroup title={t('devTools.rawManifestStrings')}>
                     {typeof rawExponentManifest === 'string' && (
                         <JsonViewer
-                            title="ExponentConstants.manifest (raw string)"
+                            title={t('devTools.exponentRawManifest')}
                             data={{ raw: rawExponentManifest }}
                         />
                     )}
                     {typeof rawUpdatesManifest === 'string' && (
                         <JsonViewer
-                            title="ExpoUpdates.manifestString (raw)"
+                            title={t('devTools.expoUpdatesRawManifest')}
                             data={{ raw: rawUpdatesManifest }}
                         />
                     )}
                     {rawDevLauncherManifest && (
                         <JsonViewer
-                            title="DevLauncher.manifestString (raw)"
+                            title={t('devTools.devLauncherRawManifest')}
                             data={{ raw: rawDevLauncherManifest }}
                         />
                     )}
                 </ItemGroup>
                 
                 {/* Resolved App Config */}
-                <ItemGroup title="Resolved App Config">
+                <ItemGroup title={t('devTools.resolvedAppConfig')}>
                     <JsonViewer
-                        title="Loaded App Config (from @/config)"
+                        title={t('devTools.loadedAppConfig')}
                         data={config}
                         defaultExpanded={true}
                     />
                 </ItemGroup>
                 
                 {/* System Constants */}
-                <ItemGroup title="System Constants">
+                <ItemGroup title={t('devTools.systemConstants')}>
                     <Item
-                        title="Device ID"
-                        detail={Constants.deviceId || 'Not available'}
+                        title={t('devTools.deviceId')}
+                        detail={Constants.deviceId || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
-                        title="Session ID"
+                        title={t('devTools.sessionId')}
                         detail={Constants.sessionId}
                         showChevron={false}
                     />
                     <Item
-                        title="Installation ID"
+                        title={t('devTools.installationId')}
                         detail={Constants.installationId}
                         showChevron={false}
                     />
                     <Item
-                        title="Is Device"
-                        detail={Constants.isDevice ? 'Yes' : 'No'}
+                        title={t('devTools.isDevice')}
+                        detail={Constants.isDevice ? t('common.yes') : t('common.no')}
                         showChevron={false}
                     />
                     <Item
-                        title="Debug Mode"
-                        detail={Constants.debugMode ? 'Yes' : 'No'}
+                        title={t('devTools.debugMode')}
+                        detail={Constants.debugMode ? t('common.yes') : t('common.no')}
                         showChevron={false}
                     />
                     <Item
-                        title="App Ownership"
-                        detail={Constants.appOwnership || 'N/A'}
+                        title={t('devTools.appOwnership')}
+                        detail={Constants.appOwnership || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
-                        title="Execution Environment"
-                        detail={Constants.executionEnvironment || 'N/A'}
+                        title={t('devTools.executionEnvironment')}
+                        detail={Constants.executionEnvironment || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                 </ItemGroup>
                 
                 {/* Updates Information */}
-                <ItemGroup title="Updates Information">
+                <ItemGroup title={t('devTools.updatesInformation')}>
                     <Item
-                        title="Update ID"
-                        detail={updateId || 'Not available'}
+                        title={t('devTools.updateId')}
+                        detail={updateId || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
-                        title="Release Channel"
-                        detail={releaseChannel || 'Not available'}
+                        title={t('devTools.releaseChannel')}
+                        detail={releaseChannel || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
-                        title="Channel"
-                        detail={channel || 'Not available'}
+                        title={t('devTools.channel')}
+                        detail={channel || t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
-                        title="Is Embedded Launch"
-                        detail={isEmbeddedLaunch !== undefined ? (isEmbeddedLaunch ? 'Yes' : 'No') : 'Not available'}
+                        title={t('devTools.embeddedLaunch')}
+                        detail={isEmbeddedLaunch !== undefined ? (isEmbeddedLaunch ? t('common.yes') : t('common.no')) : t('devTools.notAvailable')}
                         showChevron={false}
                     />
                 </ItemGroup>
                 
                 {/* Platform Info */}
-                <ItemGroup title="Platform Constants">
+                <ItemGroup title={t('devTools.platformConstants')}>
                     <JsonViewer
-                        title="Platform Constants"
+                        title={t('devTools.platformConstants')}
                         data={Constants.platform}
                     />
                 </ItemGroup>
                 
                 {/* System Fonts */}
-                <ItemGroup title="System Fonts">
+                <ItemGroup title={t('devTools.systemFonts')}>
                     <JsonViewer
-                        title="Available Fonts"
+                        title={t('devTools.availableFonts')}
                         data={Constants.systemFonts}
                     />
                 </ItemGroup>
                 
                 {/* Native Modules Info */}
-                <ItemGroup title="Native Modules">
+                <ItemGroup title={t('devTools.nativeModules')}>
                     <Item
                         title="ExponentConstants"
-                        detail={ExponentConstants ? 'Available' : 'Not available'}
+                        detail={ExponentConstants ? t('devTools.available') : t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
                         title="ExpoUpdates"
-                        detail={ExpoUpdates ? 'Available' : 'Not available'}
+                        detail={ExpoUpdates ? t('devTools.available') : t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     <Item
                         title="EXDevLauncher"
-                        detail={NativeModules.EXDevLauncher ? 'Available' : 'Not available'}
+                        detail={NativeModules.EXDevLauncher ? t('devTools.available') : t('devTools.notAvailable')}
                         showChevron={false}
                     />
                     {ExponentConstants && (
@@ -384,9 +385,9 @@ export default function ExpoConstantsScreen() {
                 </ItemGroup>
                 
                 {/* Raw Constants Object */}
-                <ItemGroup title="All Constants (Debug)">
+                <ItemGroup title={t('devTools.allConstantsDebug')}>
                     <JsonViewer
-                        title="Full Constants Object"
+                        title={t('devTools.fullConstantsObject')}
                         data={Constants}
                     />
                 </ItemGroup>

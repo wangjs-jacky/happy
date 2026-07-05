@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Portuguese plural helper function
@@ -179,6 +179,47 @@ export const pt: TranslationStructure = {
         missingPath: 'Caminho do arquivo ausente',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            sessionActions: 'Session Actions',
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            sessionActions: 'No actions available for this session',
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Mascote',
         mascotDescription: 'Escolha a marmota que te recebe na tela inicial',
@@ -189,6 +230,7 @@ export const pt: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Cientista',
+            florist: 'Florista',
         },
         // Appearance settings screen
         theme: 'Tema',
@@ -420,6 +462,22 @@ export const pt: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'Encerrar imediatamente a sessão',
         archiveSessionSubtitle: 'Arquivar esta sessão e pará-la',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'Metadados',
         host: 'Host',
         path: 'Caminho',
@@ -480,6 +538,7 @@ export const pt: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -542,13 +601,58 @@ export const pt: TranslationStructure = {
         hideArchived: 'Ocultar arquivadas',
         newSession: 'Nova sessão',
 
-        searchSessions: 'Buscar sessões',
+        searchSessions: 'Gerenciar sessões',
     },
     sessionSearch: {
-        title: 'Buscar sessões',
+        title: 'Gerenciamento de sessões',
         placeholder: 'Buscar por título, caminho ou máquina',
-        empty: 'Digite para buscar suas sessões',
+        empty: 'Ainda não há sessões para gerenciar',
         noResults: ({ query }: { query: string }) => `Nenhuma sessão corresponde a ${query}`,
+        filters: {
+            all: 'Tudo',
+            needs: 'Precisa de ação',
+            running: 'Em execução',
+            pinned: 'Fixadas',
+            drafts: 'Rascunhos',
+        },
+        sections: {
+            active: 'Sessões atuais',
+            pinned: 'Fixadas',
+            needs: 'Precisa de ação',
+            running: 'Em execução',
+            recent: 'Recentes',
+        },
+        sort: 'Ordenar',
+        sorting: 'Ordenando',
+        done: 'Pronto',
+        view: 'Ver',
+        sortHintTitle: 'Ordenação de filas',
+        sortHintBody: 'Arraste sessões fixadas e de ação ou use os botões de seta. Sessões recentes continuam por horário.',
+        footerNeeds: ({ count }: { count: number }) => count === 1 ? '1 sessão precisa de atenção' : `${count} sessões precisam de atenção`,
+        footerNeedsSubtitle: 'Revise primeiro permissões, resultados não lidos, rascunhos e todo abertos',
+        footerSortTitle: 'Reordene filas fixadas e de ação',
+        footerSortSubtitle: 'Sessões recentes mantêm ordem por horário',
+        status: {
+            permission: 'Precisa de aprovação',
+            running: 'Em execução',
+            unread: 'Novo resultado',
+            draft: 'Rascunho',
+            todo: 'Todo',
+            manual: 'Marcada',
+            recent: 'Recente',
+        },
+        actions: {
+            pin: 'Fixar',
+            unpin: 'Desfixar',
+            markNeeds: 'Marcar',
+            clearNeeds: 'Limpar marca',
+            moveToTop: 'Ao topo',
+            moveUp: 'Subir',
+            moveDown: 'Descer',
+            moveToPinned: 'Fixar',
+            moveToNeeds: 'Ação',
+            more: 'Mais ações',
+        },
     },
 
     zen: {
@@ -720,7 +824,11 @@ export const pt: TranslationStructure = {
         linkNewDevice: 'Vincular novo dispositivo',
         linkNewDeviceSubtitle: 'Escanear código QR para vincular dispositivo',
         profile: 'Perfil',
+        editProfile: 'Edit Profile',
         name: 'Nome',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Toque para desconectar',
         server: 'Servidor',
@@ -760,6 +868,8 @@ export const pt: TranslationStructure = {
         authenticateWithUrlPaste: 'Autenticar terminal com colagem de URL',
         pasteAuthUrl: 'Cole a URL de autenticação do seu terminal',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Atualização disponível',
@@ -1050,6 +1160,11 @@ export const pt: TranslationStructure = {
             : `Não foi possível enviar ${count} imagens e não foram enviadas.`,
         notSupportedTitle: 'Imagens não suportadas',
         notSupportedMessage: 'Este agente não suporta anexos de imagem. Apenas o texto foi enviado.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

@@ -101,4 +101,29 @@ describe('codex fork ops', () => {
             }),
         );
     });
+
+    it('forwards effort through the resume session RPC', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
+
+        const { machineResumeSession } = await import('./ops');
+        const result = await machineResumeSession({
+            machineId: 'machine-1',
+            sessionId: 'happy-source',
+            model: 'gpt-5.4',
+            permissionMode: 'yolo',
+            effort: 'xhigh',
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-resumed' });
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'resume-happy-session',
+            {
+                sessionId: 'happy-source',
+                model: 'gpt-5.4',
+                permissionMode: 'yolo',
+                effort: 'xhigh',
+            },
+        );
+    });
 });

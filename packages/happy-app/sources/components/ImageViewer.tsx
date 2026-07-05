@@ -75,6 +75,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
 
     const single = sources.length === 1;
+    const currentSource = sources[currentIndex];
 
     return (
         <View style={styles.root}>
@@ -119,6 +120,17 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
             >
                 <Ionicons name="close" size={24} color="#fff" />
             </Pressable>
+
+            {currentSource?.onAction && currentSource.actionLabel && (
+                <Pressable
+                    onPress={currentSource.onAction}
+                    hitSlop={8}
+                    style={[styles.actionButton, { bottom: Math.max(insets.bottom + 22, 34) }]}
+                >
+                    <Ionicons name="camera-outline" size={18} color="#fff" />
+                    <Text style={styles.actionText}>{currentSource.actionLabel}</Text>
+                </Pressable>
+            )}
         </View>
     );
 }
@@ -324,5 +336,24 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.4)',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    actionButton: {
+        position: 'absolute',
+        alignSelf: 'center',
+        minHeight: 44,
+        paddingHorizontal: 18,
+        borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'rgba(255,255,255,0.32)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    actionText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '600',
     },
 });

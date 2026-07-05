@@ -6,8 +6,10 @@ import { DrawerGestureContext } from 'react-native-drawer-layout';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
-import { getMascotImage, MASCOT_IDS, resolveMascotId } from '@/components/mascots';
+import { getMascotImage, MASCOT_IDS, resolveMascotId, getMascotTheme } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
+import { applyTheme } from '@/unistyles';
+import { runThemeTransition } from '@/components/ThemeTransition';
 
 //
 // 设置页头部「土拨鼠 logo」滑动切换器
@@ -29,6 +31,8 @@ const MASCOT_SIZE = 110;
 
 export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const [mascot, setMascot] = useLocalSettingMutable('mascot');
+    const [, setThemePack] = useLocalSettingMutable('themePack');
+    const [themePreference] = useLocalSettingMutable('themePreference');
     const currentId = resolveMascotId(mascot);
     const currentIndex = MASCOT_IDS.indexOf(currentId);
 
@@ -42,11 +46,19 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const decided = useSharedValue(false);
 
     // 切到相邻吉祥物（dir: +1 下一个 / -1 上一个），两端循环 + 轻震动
+    // 切吉祥物即联动套用它绑定的主题配色
     const cycleMascot = React.useCallback((dir: number) => {
         const n = MASCOT_IDS.length;
-        setMascot(MASCOT_IDS[(currentIndex + dir + n) % n]);
+        const next = MASCOT_IDS[(currentIndex + dir + n) % n];
         hapticsLight();
-    }, [currentIndex, setMascot]);
+        // 带 crossfade 过渡：切吉祥物 + 联动主题色
+        runThemeTransition(() => {
+            setMascot(next);
+            const pack = getMascotTheme(next);
+            setThemePack(pack as 'caramel');
+            applyTheme(pack as 'caramel', themePreference);
+        });
+    }, [currentIndex, setMascot, setThemePack, themePreference]);
 
     const pan = React.useMemo(() => {
         const g = Gesture.Pan()

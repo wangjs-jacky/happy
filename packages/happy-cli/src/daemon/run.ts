@@ -1,6 +1,5 @@
 import fs from 'fs/promises';
 import os from 'os';
-import * as tmp from 'tmp';
 import axios from 'axios';
 
 import { ApiClient } from '@/api/api';
@@ -28,10 +27,28 @@ import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
+import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
     return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+function applyCodexNetworkEnv<T extends Record<string, string | undefined>>(env: T): T {
+  const proxyUrl = env.HAPPY_CODEX_PROXY_URL || env.CODEX_PROXY_URL;
+  if (!proxyUrl) {
+    return env;
+  }
+
+  // Codex 访问 chatgpt.com；当 daemon 为 Claude 注入 ReClaude 代理时，
+  // 这里需要把 Codex 子进程切到通用网络代理，避免流式响应被 ReClaude 中断。
+  return {
+    ...env,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+  } as T;
 }
 
 // Prepare initial metadata
@@ -302,15 +319,7 @@ export async function startDaemon(): Promise<void> {
         const authEnv: Record<string, string> = {};
         if (options.token) {
           if (options.agent === 'codex') {
-
-            // Create a temporary directory for Codex
-            const codexHomeDir = tmp.dirSync();
-
-            // Write the token to the temporary directory
-            await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
-
-            // Set the environment variable for Codex
-            authEnv.CODEX_HOME = codexHomeDir.name;
+            authEnv.CODEX_HOME = await prepareCodexHomeWithAuth(options.token);
           } else { // Assuming claude
             authEnv.CLAUDE_CODE_OAUTH_TOKEN = options.token;
           }
@@ -401,15 +410,21 @@ export async function startDaemon(): Promise<void> {
 
           // Construct command for the CLI
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
-          // Determine agent command - support claude, codex, and gemini
-          const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : (options.agent === 'openclaw' ? 'openclaw' : 'claude'));
+          const agent = options.agent ?? 'opencode';
+          if (!['claude', 'codex', 'gemini', 'opencode', 'openclaw'].includes(agent)) {
+            return {
+              type: 'error',
+              errorMessage: `Unsupported agent type: '${options.agent}'. Please update your CLI to the latest version.`
+            };
+          }
           const resumeId = agent === 'claude'
             ? options.resumeClaudeSessionId
             : (agent === 'codex' ? options.resumeCodexThreadId : undefined);
           const resumeFragment = resumeId
             ? ` --resume ${shellescape(resumeId)}`
             : '';
-          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon${resumeFragment}`;
+          const agentCommand = agent === 'opencode' ? 'acp opencode' : agent;
+          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agentCommand} --happy-starting-mode remote --started-by daemon${resumeFragment}`;
 
           // Spawn in tmux with environment variables
           // IMPORTANT: Pass complete environment (process.env + extraEnv) because:
@@ -428,12 +443,16 @@ export async function startDaemon(): Promise<void> {
 
           // Add extra environment variables (these should already be filtered)
           Object.assign(tmuxEnv, extraEnv);
+          const sessionEnv = agent === 'codex' ? applyCodexNetworkEnv(tmuxEnv) : tmuxEnv;
+          if (agent === 'codex' && sessionEnv.HTTP_PROXY) {
+            logger.debug(`[DAEMON RUN] Applied Codex network proxy from HAPPY_CODEX_PROXY_URL/CODEX_PROXY_URL`);
+          }
 
           const tmuxResult = await tmux.spawnInTmux([fullCommand], {
             sessionName: tmuxSessionName,
             windowName: windowName,
             cwd: directory
-          }, tmuxEnv);  // Pass complete environment for tmux session
+          }, sessionEnv);  // Pass complete environment for tmux session
 
           if (tmuxResult.success) {
             logger.debug(`[DAEMON RUN] Successfully spawned in tmux session: ${tmuxResult.sessionId}, PID: ${tmuxResult.pid}`);
@@ -491,21 +510,30 @@ export async function startDaemon(): Promise<void> {
         if (!useTmux) {
           logger.debug(`[DAEMON RUN] Using regular process spawning`);
 
-          // Construct arguments for the CLI - support claude, codex, and gemini
+          // Construct arguments for the CLI.
           let agentCommand: string;
+          let args: string[];
           switch (options.agent) {
             case 'claude':
-            case undefined:
               agentCommand = 'claude';
+              args = [agentCommand];
               break;
             case 'codex':
               agentCommand = 'codex';
+              args = [agentCommand];
               break;
             case 'gemini':
               agentCommand = 'gemini';
+              args = [agentCommand];
+              break;
+            case 'opencode':
+            case undefined:
+              agentCommand = 'opencode';
+              args = ['acp', 'opencode'];
               break;
             case 'openclaw':
               agentCommand = 'openclaw';
+              args = [agentCommand];
               break;
             default:
               return {
@@ -513,11 +541,7 @@ export async function startDaemon(): Promise<void> {
                 errorMessage: `Unsupported agent type: '${options.agent}'. Please update your CLI to the latest version.`
               };
           }
-          const args = [
-            agentCommand,
-            '--happy-starting-mode', 'remote',
-            '--started-by', 'daemon'
-          ];
+          args.push('--happy-starting-mode', 'remote', '--started-by', 'daemon');
 
           // Resume ids attach the new Happy session to a pre-existing provider
           // conversation created by the fork / duplicate RPC.
@@ -533,7 +557,10 @@ export async function startDaemon(): Promise<void> {
           return spawnTrackedHappyProcess({
             args,
             cwd: directory,
-            env: {
+            env: agentCommand === 'codex' ? applyCodexNetworkEnv({
+              ...process.env,
+              ...extraEnv
+            }) : {
               ...process.env,
               ...extraEnv
             },
@@ -658,7 +685,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string }): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -716,6 +743,9 @@ export async function startDaemon(): Promise<void> {
         }
         if (options?.permissionMode) {
           launch.args.push('--permission-mode', options.permissionMode);
+        }
+        if (options?.effort) {
+          launch.args.push('--effort', options.effort);
         }
 
         await fs.access(launch.cwd);

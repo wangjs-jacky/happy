@@ -1,8 +1,7 @@
-import { View, ScrollView, Pressable, Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { Image } from 'expo-image';
 import * as React from 'react';
-import { Text } from '@/components/StyledText';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -13,34 +12,42 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
-import { useEntitlement, useLocalSettingMutable, useSetting } from '@/sync/storage';
+import { useLocalSettingMutable, useSetting } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { isUsingCustomServer } from '@/sync/serverConfig';
-import { trackPaywallButtonClicked, trackWhatsNewClicked } from '@/track';
+import { trackWhatsNewClicked } from '@/track';
 import { Modal } from '@/modal';
 import { useMultiClick } from '@/hooks/useMultiClick';
 import { useAllMachines } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useUnistyles } from 'react-native-unistyles';
-import { layout } from '@/components/layout';
 import { useHappyAction } from '@/hooks/useHappyAction';
+import { layout } from '@/components/layout';
 import { getGitHubOAuthParams, disconnectGitHub } from '@/sync/apiGithub';
 import { disconnectService } from '@/sync/apiServices';
 import { useProfile } from '@/sync/storage';
-import { getDisplayName, getAvatarUrl, getBio } from '@/sync/profile';
-import { Avatar } from '@/components/Avatar';
+import { getDisplayName } from '@/sync/profile';
 import { MascotSwitcher } from '@/components/MascotSwitcher';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 import * as Localization from 'expo-localization';
+import { loadAppConfig } from '@/sync/appConfig';
 
 type BuildConfig = {
+    repositoryUrl?: unknown;
+    repositoryIssuesUrl?: unknown;
     buildCommitSha?: unknown;
     buildCommitTimestamp?: unknown;
 };
 
 function getBuildConfig(): BuildConfig {
-    const appConfig = Constants.expoConfig?.extra?.app;
+    const appConfig = loadAppConfig();
     return appConfig && typeof appConfig === 'object' ? appConfig as BuildConfig : {};
+}
+
+function getGitHubRepoDetail(value: string): string {
+    const normalized = value.replace(/\.git$/, '');
+    const match = normalized.match(/github\.com\/([^/]+\/[^/#?]+)/i);
+    return match ? match[1] : normalized;
 }
 
 function formatUtcTimestamp(value: string): string {
@@ -77,6 +84,7 @@ function formatBuildSubtitle(buildConfig: BuildConfig): string | undefined {
 export const SettingsView = React.memo(function SettingsView() {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const buildConfig = React.useMemo(() => getBuildConfig(), []);
     const appVersion = Constants.expoConfig?.version || '1.0.0';
     const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
         ? Constants.expoConfig.runtimeVersion
@@ -85,7 +93,7 @@ export const SettingsView = React.memo(function SettingsView() {
         appVersion,
         runtimeVersion ? `runtime ${runtimeVersion}` : undefined,
     ].filter(Boolean).join(' / ');
-    const versionSubtitle = formatBuildSubtitle(getBuildConfig());
+    const versionSubtitle = formatBuildSubtitle(buildConfig);
     const auth = useAuth();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
     // 「通用」分组：主题/语言入口右侧展示的当前值（响应式，改完返回即更新）
@@ -111,7 +119,6 @@ export const SettingsView = React.memo(function SettingsView() {
         }
         return t('settingsLanguage.automatic');
     }, [preferredLanguage]);
-    const isPro = __DEV__ || useEntitlement('pro');
     const experiments = useSetting('experiments');
     const isCustomServer = isUsingCustomServer();
     const [showOfflineMachines, setShowOfflineMachines] = React.useState(false);
@@ -128,17 +135,23 @@ export const SettingsView = React.memo(function SettingsView() {
     );
     const profile = useProfile();
     const displayName = getDisplayName(profile);
-    const avatarUrl = getAvatarUrl(profile);
-    const bio = getBio(profile);
 
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
+    const repositoryUrl = typeof buildConfig.repositoryUrl === 'string'
+        ? buildConfig.repositoryUrl
+        : 'https://github.com/wangjs-jacky/happy';
+    const repositoryIssuesUrl = typeof buildConfig.repositoryIssuesUrl === 'string'
+        ? buildConfig.repositoryIssuesUrl
+        : `${repositoryUrl.replace(/\/$/, '')}/issues`;
+    const termsUrl = `${repositoryUrl.replace(/\/$/, '').replace(/\.git$/, '')}/blob/main/packages/happy-app/TERMS.md`;
+    const repositoryDetail = getGitHubRepoDetail(repositoryUrl);
 
     const handleGitHub = async () => {
-        await openExternalUrl('https://github.com/wangjs-jacky/paws');
+        await openExternalUrl(repositoryUrl);
     };
 
     const handleReportIssue = async () => {
-        await openExternalUrl('https://github.com/wangjs-jacky/paws/issues');
+        await openExternalUrl(repositoryIssuesUrl);
     };
 
     // Manual "force update" — a deterministic alternative to the passive update
@@ -174,16 +187,6 @@ export const SettingsView = React.memo(function SettingsView() {
             setCheckingUpdate(false);
         }
     }, [checkingUpdate]);
-
-    const handleSubscribe = async () => {
-        trackPaywallButtonClicked('voluntary_support');
-        const result = await sync.presentPaywall('voluntary_support');
-        if (!result.success) {
-            console.error('Failed to present paywall:', result.error);
-        } else if (result.purchased) {
-            console.log('Purchase successful!');
-        }
-    };
 
     // Use the multi-click hook for version clicks
     const handleVersionClick = useMultiClick(() => {
@@ -243,35 +246,25 @@ export const SettingsView = React.memo(function SettingsView() {
     return (
 
         <ItemList style={{ paddingTop: 0 }}>
-            {/* App Info Header */}
             <View style={{ maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
-                <View style={{ alignItems: 'center', paddingVertical: 24, backgroundColor: theme.colors.surface, marginTop: 16, borderRadius: 12, marginHorizontal: 16 }}>
-                    {profile.firstName ? (
-                        // Profile view: Avatar + name + version
-                        <>
-                            <View style={{ marginBottom: 12 }}>
-                                <Avatar
-                                    id={profile.id}
-                                    size={90}
-                                    imageUrl={avatarUrl}
-                                    thumbhash={profile.avatar?.thumbhash}
-                                />
-                            </View>
-                            <Text style={{ fontSize: 20, fontWeight: '600', color: theme.colors.text, marginBottom: bio ? 4 : 8 }}>
-                                {displayName}
-                            </Text>
-                            {bio && (
-                                <Text style={{ fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 8, paddingHorizontal: 16 }}>
-                                    {bio}
-                                </Text>
-                            )}
-                        </>
-                    ) : (
-                        // Logo view: 可左右滑动切换的吉祥物
-                        <MascotSwitcher />
-                    )}
+                <View style={{ alignItems: 'center', paddingVertical: 18, backgroundColor: theme.colors.surface, marginTop: 16, borderRadius: 12, marginHorizontal: 16 }}>
+                    <MascotSwitcher />
                 </View>
             </View>
+
+            <ItemGroup>
+                <Item
+                    title={t('settingsAccount.profile')}
+                    detail={displayName ?? undefined}
+                    icon={<Ionicons name="person-outline" size={29} color={theme.colors.text} />}
+                    onPress={() => router.push('/settings/profile' as any)}
+                />
+                <Item
+                    title={t('settings.account')}
+                    icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.text} />}
+                    onPress={() => router.push('/settings/account')}
+                />
+            </ItemGroup>
 
             {/* Connect Terminal - Only show on native platforms */}
             {Platform.OS !== 'web' && (
@@ -424,12 +417,6 @@ export const SettingsView = React.memo(function SettingsView() {
             {/* Features */}
             <ItemGroup title={t('settings.features')}>
                 <Item
-                    title={t('settings.account')}
-                    subtitle={t('settings.accountSubtitle')}
-                    icon={<Ionicons name="person-circle-outline" size={29} color={theme.colors.accent} />}
-                    onPress={() => router.push('/settings/account')}
-                />
-                <Item
                     title={t('settings.voiceAssistant')}
                     subtitle={t('settings.voiceAssistantSubtitle')}
                     icon={<Ionicons name="mic-outline" size={29} color="#34C759" />}
@@ -500,7 +487,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.github')}
                     icon={<Ionicons name="logo-github" size={29} color={theme.colors.text} />}
-                    detail="wangjs-jacky/paws"
+                    detail={repositoryDetail}
                     onPress={handleGitHub}
                 />
                 <Item
@@ -516,7 +503,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.termsOfService')}
                     icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />}
-                    onPress={() => openExternalUrl('https://github.com/wangjs-jacky/paws/blob/main/TERMS.md')}
+                    onPress={() => openExternalUrl(termsUrl)}
                 />
                 {Platform.OS === 'ios' && (
                     <Item

@@ -1,8 +1,8 @@
 /**
  * Happy MCP STDIO Bridge
  *
- * Minimal STDIO MCP server exposing a single tool `change_title`.
- * On invocation it forwards the tool call to an existing Happy HTTP MCP server
+ * Minimal STDIO MCP server exposing first-party Happy tools.
+ * On invocation it forwards tool calls to an existing Happy HTTP MCP server
  * using the StreamableHTTPClientTransport.
  *
  * Configure the target HTTP MCP URL via env var `HAPPY_HTTP_MCP_URL` or
@@ -15,7 +15,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { z } from 'zod';
+
+import { registerHappyBridgeTools } from './happyMcpBridgeTools';
 
 function parseArgs(argv: string[]): { url: string | null } {
   let url: string | null = null;
@@ -63,32 +64,7 @@ async function main() {
     version: '1.0.0',
   });
 
-  // Register the single tool and forward to HTTP MCP
-  server.registerTool(
-    'change_title',
-    {
-      description: 'Change the title of the current chat session',
-      title: 'Change Chat Title',
-      inputSchema: {
-        title: z.string().describe('The new title for the chat session'),
-      },
-    },
-    async (args) => {
-      try {
-        const client = await ensureHttpClient();
-        const response = await client.callTool({ name: 'change_title', arguments: args });
-        // Pass-through response from HTTP server
-        return response as any;
-      } catch (error) {
-        return {
-          content: [
-            { type: 'text', text: `Failed to change chat title: ${error instanceof Error ? error.message : String(error)}` },
-          ],
-          isError: true,
-        };
-      }
-    }
-  );
+  registerHappyBridgeTools(server, ensureHttpClient);
 
   // Start STDIO transport
   const stdio = new StdioServerTransport();
@@ -103,4 +79,3 @@ main().catch((err) => {
     process.exit(1);
   }
 });
-

@@ -2,13 +2,13 @@ import * as React from 'react';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Updates from 'expo-updates';
+import { applyOtaTarget } from '@/hooks/useOtaTarget';
 import { Modal } from '@/modal';
 import { Typography } from '@/constants/Typography';
 import { useUnistyles } from 'react-native-unistyles';
 
 // Deep link 处理页：扫「OTA 版本浏览站」上的二维码 → paws://ota-switch?channel=preview&stamp=<stamp>
-// 唤起此页 → 弹确认 → setExtraParamAsync 锁定该版本 → reload。
+// 唤起此页 → 弹确认 → setExtraParamAsync 锁定该版本 → check/fetch → reload。
 // 只接受 preview 频道 + 纯数字 stamp（与 FC 端白名单一致），其余一律提示并返回，不做任何切换。
 
 export default function OtaSwitchScreen() {
@@ -33,15 +33,14 @@ export default function OtaSwitchScreen() {
             }
             const confirmed = await Modal.confirm(
                 '切换 OTA 版本？',
-                `即将把本设备锁定到 preview 频道版本：\nstamp ${stamp}\n\n确认后立即重载，仅影响本设备。`,
-                { confirmText: '切换并重载', cancelText: '取消' },
+                `即将把本设备锁定到 preview 频道版本：\nstamp ${stamp}\n\n确认后会立即拉取目标包并重载，仅影响本设备。`,
+                { confirmText: '拉取并切换', cancelText: '取消' },
             );
             if (!confirmed) {
                 router.back();
                 return;
             }
-            await Updates.setExtraParamAsync('ota-target-stamp', stamp);
-            await Updates.reloadAsync(); // 重载后此页面不再返回
+            await applyOtaTarget(stamp); // 重载后此页面不再返回
         })();
     }, [params.channel, params.stamp, router]);
 

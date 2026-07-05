@@ -132,9 +132,12 @@ function SessionInfoContent({ session }: { session: Session }) {
     const {
         canShowResume,
         canFork,
+        canRegenerateTitle,
         forking,
         forkSession,
         openDuplicateSheet,
+        regenerateTitle,
+        regeneratingTitle,
         resumeSession,
         resumeSessionSubtitle,
     } = useSessionQuickActions(session);
@@ -364,6 +367,15 @@ function SessionInfoContent({ session }: { session: Session }) {
                             onPress={resumeSession}
                         />
                     )}
+                    {canRegenerateTitle && (
+                        <Item
+                            title={t('sessionInfo.regenerateTitle')}
+                            subtitle={t('sessionInfo.regenerateTitleSubtitle')}
+                            icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.accent} />}
+                            onPress={regenerateTitle}
+                            loading={regeneratingTitle}
+                        />
+                    )}
                     {canFork && (
                         <Item
                             title={t('session.forkAction')}
@@ -442,6 +454,7 @@ function SessionInfoContent({ session }: { session: Session }) {
                                 if (flavor === 'claude') return 'Claude';
                                 if (flavor === 'gpt' || flavor === 'openai') return 'Codex';
                                 if (flavor === 'gemini') return 'Gemini';
+                                if (flavor === 'opencode') return 'OpenCode';
                                 if (flavor === 'openclaw') return 'OpenClaw';
                                 return flavor;
                             })()}

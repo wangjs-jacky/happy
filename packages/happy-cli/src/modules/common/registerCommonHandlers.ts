@@ -151,7 +151,7 @@ export interface SpawnSessionOptions {
     directory: string;
     sessionId?: string;
     approvedNewDirectoryCreation?: boolean;
-    agent?: 'claude' | 'codex' | 'gemini' | 'openclaw';
+    agent?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
     environmentVariables?: Record<string, string>;
     token?: string;
     /**

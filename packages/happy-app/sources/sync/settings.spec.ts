@@ -214,6 +214,7 @@ describe('settings', () => {
                 voiceBypassToken: false,
                 preferredLanguage: null,
                 recentMachinePaths: [],
+                quickPrompts: [],
                 lastUsedAgent: null,
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,

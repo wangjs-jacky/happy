@@ -40,8 +40,11 @@ import type {
     ApprovalPolicy,
     SandboxMode,
     InputItem,
+    ModelListParams,
+    ModelListResponse,
     ReasoningEffort,
     McpServerElicitationRequestResponse,
+    ThreadSettings,
 } from './codexAppServerTypes';
 import type { SandboxConfig } from '@/persistence';
 import { initializeSandbox, wrapForMcpTransport } from '@/sandbox/manager';
@@ -257,6 +260,7 @@ export class CodexAppServerClient {
         const isRawNotification = method === 'thread/started'
             || method === 'turn/started'
             || method === 'turn/completed'
+            || method === 'thread/settings/updated'
             || method === 'thread/status/changed'
             || method === 'thread/tokenUsage/updated'
             || method.startsWith('item/');
@@ -337,6 +341,19 @@ export class CodexAppServerClient {
                 params?.turn?.error ?? params?.error,
                 method,
             );
+            return true;
+        }
+
+        if (method === 'thread/settings/updated') {
+            const threadId = typeof params?.threadId === 'string' ? params.threadId : null;
+            const threadSettings = params?.threadSettings as ThreadSettings | undefined;
+            if (threadSettings && typeof threadSettings.model === 'string') {
+                this.eventHandler?.({
+                    type: 'thread_settings_updated',
+                    ...(threadId ? { thread_id: threadId } : {}),
+                    thread_settings: threadSettings,
+                });
+            }
             return true;
         }
 
@@ -642,6 +659,15 @@ export class CodexAppServerClient {
         };
     }
 
+    async listModels(opts?: ModelListParams): Promise<ModelListResponse> {
+        const params: ModelListParams = {
+            cursor: opts?.cursor ?? null,
+            includeHidden: opts?.includeHidden ?? null,
+            limit: opts?.limit ?? null,
+        };
+        return await this.request('model/list', params) as ModelListResponse;
+    }
+
     // ─── Thread management ──────────────────────────────────────
 
     async startThread(opts: {
@@ -650,7 +676,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
-    }): Promise<{ threadId: string; model: string }> {
+    }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
         const params: NewConversationParams = {
             model: opts.model ?? null,
             modelProvider: null,
@@ -670,9 +696,12 @@ export class CodexAppServerClient {
         const result = await this.request('thread/start', params) as NewConversationResponse;
         this._threadId = result.thread.id;
         this._turnId = null;
-        this.rememberThreadDefaults(opts);
+        this.rememberThreadDefaults({
+            ...opts,
+            model: opts.model ?? result.model,
+        });
         logger.debug('[CodexAppServer] Thread started:', this._threadId);
-        return { threadId: result.thread.id, model: result.model };
+        return { threadId: result.thread.id, model: result.model, reasoningEffort: result.reasoningEffort };
     }
 
     async resumeThread(opts?: {
@@ -682,7 +711,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
-    }): Promise<{ threadId: string; model: string }> {
+    }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
         const threadId = opts?.threadId ?? this._threadId;
         if (!threadId) {
             throw new Error('No thread available to resume.');
@@ -706,14 +735,14 @@ export class CodexAppServerClient {
         this._threadId = result.thread.id;
         this._turnId = null;
         this.rememberThreadDefaults({
-            model: opts?.model ?? defaults.model,
+            model: opts?.model ?? defaults.model ?? result.model,
             cwd: opts?.cwd ?? defaults.cwd,
             approvalPolicy: opts?.approvalPolicy ?? defaults.approvalPolicy,
             sandbox: opts?.sandbox ?? defaults.sandbox,
             mcpServers: opts?.mcpServers ?? defaults.mcpServers,
         });
         logger.debug('[CodexAppServer] Thread resumed:', this._threadId);
-        return { threadId: result.thread.id, model: result.model };
+        return { threadId: result.thread.id, model: result.model, reasoningEffort: result.reasoningEffort };
     }
 
     async forkThread(opts: {

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Skills List Right Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f7f2e9;
+            --panel: #fffdfa;
+            --panel-soft: #f4ecde;
+            --line: #e7dccb;
+            --text: #3f3126;
+            --muted: #8f816f;
+            --accent: #c78446;
+            --shadow: 0 24px 60px rgba(46, 34, 24, 0.14);
+            --radius-shell: 36px;
+            --radius-screen: 28px;
+            --radius-row: 16px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top left, rgba(110, 155, 106, 0.12), transparent 34%),
+                radial-gradient(circle at 82% 20%, rgba(199, 132, 70, 0.14), transparent 24%),
+                linear-gradient(180deg, #fffcf7 0%, var(--bg) 100%);
+            color: var(--text);
+            font-family: "IBM Plex Sans", sans-serif;
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+            padding: 28px 16px;
+        }
+
+        .page {
+            width: min(920px, 100%);
+            display: grid;
+            gap: 18px;
+        }
+
+        .title-block {
+            display: grid;
+            gap: 6px;
+            justify-items: center;
+            text-align: center;
+        }
+
+        .eyebrow {
+            padding: 7px 12px;
+            border: 1px solid rgba(231, 220, 203, 0.9);
+            border-radius: 999px;
+            background: rgba(255, 253, 250, 0.92);
+            color: var(--muted);
+            font: 500 12px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font: 600 clamp(24px, 3.3vw, 36px)/1.06 "Fredoka", sans-serif;
+            letter-spacing: -0.03em;
+        }
+
+        .stage {
+            display: grid;
+            place-items: center;
+        }
+
+        .phone-shell {
+            position: relative;
+            width: min(410px, 100%);
+            aspect-ratio: 9 / 19.4;
+            padding: 14px;
+            border-radius: var(--radius-shell);
+            background: linear-gradient(180deg, #2f271f 0%, #19130f 100%);
+            box-shadow:
+                0 30px 72px rgba(29, 22, 17, 0.24),
+                inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        .phone-screen {
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            border-radius: var(--radius-screen);
+            background: linear-gradient(180deg, #fbf7ef 0%, #f5ede0 100%);
+        }
+
+        .notch {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 28px;
+            border-radius: 999px;
+            background: #1b1612;
+            z-index: 3;
+        }
+
+        .conversation {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 42%;
+            padding: 74px 16px 24px 18px;
+            background: rgba(38, 32, 27, 0.34);
+        }
+
+        .avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #d5e0cb, #96ab76);
+            margin-bottom: 22px;
+        }
+
+        .ghost-card {
+            height: 262px;
+            border-radius: 28px;
+            background: rgba(255, 252, 246, 0.82);
+            box-shadow: inset 0 0 0 1px rgba(105, 84, 63, 0.08);
+        }
+
+        .ghost-row {
+            height: 18px;
+            margin: 24px 18px;
+            border-radius: 999px;
+            background: rgba(74, 62, 50, 0.16);
+        }
+
+        .ghost-row.small {
+            width: 56%;
+        }
+
+        .ghost-dots {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 96px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .ghost-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(110, 155, 106, 0.9);
+        }
+
+        .ghost-dots span:last-child {
+            background: rgba(199, 132, 70, 0.9);
+        }
+
+        .panel {
+            position: absolute;
+            inset: 0 0 0 auto;
+            width: 64%;
+            padding: 74px 18px 22px;
+            background: rgba(255, 253, 250, 0.97);
+            border-left: 1px solid rgba(231, 220, 203, 0.9);
+            box-shadow: -12px 0 30px rgba(46, 34, 24, 0.08);
+        }
+
+        .panel-inner {
+            height: 100%;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            gap: 18px;
+        }
+
+        .panel-head {
+            display: grid;
+            gap: 8px;
+        }
+
+        .panel-kicker {
+            color: var(--muted);
+            font: 500 11px/1 "IBM Plex Mono", monospace;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .panel-title {
+            margin: 0;
+            font: 600 28px/1.02 "Fredoka", sans-serif;
+            letter-spacing: -0.03em;
+        }
+
+        .skills-list {
+            align-self: start;
+            display: grid;
+            gap: 10px;
+        }
+
+        .skill-row {
+            display: flex;
+            align-items: center;
+            min-height: 52px;
+            padding: 0 16px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-row);
+            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%);
+            box-shadow: 0 10px 24px rgba(63, 49, 38, 0.05);
+            font: 500 14px/1.3 "IBM Plex Mono", monospace;
+            color: var(--text);
+            text-wrap: pretty;
+        }
+
+        .skill-row:first-child {
+            border-color: rgba(199, 132, 70, 0.4);
+            box-shadow:
+                0 10px 24px rgba(63, 49, 38, 0.05),
+                0 0 0 3px rgba(199, 132, 70, 0.08);
+        }
+
+        @media (max-width: 520px) {
+            body {
+                padding: 16px 10px 24px;
+            }
+
+            .phone-shell {
+                width: min(360px, 100%);
+            }
+
+            .panel {
+                width: 66%;
+                padding: 72px 14px 18px;
+            }
+
+            .panel-title {
+                font-size: 25px;
+            }
+
+            .skill-row {
+                min-height: 48px;
+                padding: 0 12px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="title-block">
+            <div class="eyebrow">Using Superpowers Draft</div>
+            <h1>Right panel with skills names only</h1>
+        </section>
+
+        <section class="stage">
+            <div class="phone-shell">
+                <div class="phone-screen">
+                    <div class="notch" aria-hidden="true"></div>
+
+                    <section class="conversation" aria-hidden="true">
+                        <div class="avatar"></div>
+                        <div class="ghost-card">
+                            <div class="ghost-row"></div>
+                            <div class="ghost-row small"></div>
+                            <div class="ghost-row"></div>
+                            <div class="ghost-row small"></div>
+                        </div>
+                        <div class="ghost-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </section>
+
+                    <aside class="panel" aria-label="Session skills panel">
+                        <div class="panel-inner">
+                            <header class="panel-head">
+                                <div class="panel-kicker">This session</div>
+                                <h2 class="panel-title">Skills</h2>
+                            </header>
+
+                            <section class="skills-list" aria-label="Session skills list">
+                                <div class="skill-row">using-superpowers</div>
+                                <div class="skill-row">codex-harness</div>
+                                <div class="skill-row">using-git-worktrees</div>
+                                <div class="skill-row">web-design-engineer</div>
+                            </section>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

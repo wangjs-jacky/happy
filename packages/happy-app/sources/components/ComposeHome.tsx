@@ -8,18 +8,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { MessageComposer } from './MessageComposer';
-import { SessionConfigPanel } from './SessionConfigPanel';
+import type { MultiTextInputHandle } from './MultiTextInput';
+import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
-import type { MultiTextInputHandle } from './MultiTextInput';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
+import { RightSwipePanelHost } from './RightSwipePanelHost';
+import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
@@ -29,6 +31,7 @@ import { hapticsLight } from './haptics';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
@@ -69,6 +72,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
+    const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
     // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
@@ -145,6 +149,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         if ((!trimmed && !images) || sending) return;
 
         const draft = useNewSessionDraft.getState();
+        const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
 
         // Spawnable only when a machine is selected, online, and we're not asked to
@@ -164,6 +169,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             path: draft.selectedPath,
             agent: draft.agentType,
             worktreeKey: draft.worktreeKey,
+            permissionMode: liveSelection?.permissionKey ?? (draft.permissionMode !== 'default' ? draft.permissionMode : undefined),
+            modelMode: liveSelection?.modelKey ?? (draft.modelMode !== 'default' ? draft.modelMode : undefined),
+            effortLevel: liveSelection ? liveSelection.effortKey : draft.effortLevel,
             prompt: trimmed,
             images,
         }).then((ok) => {
@@ -192,7 +200,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
 
     return (
-        <View style={styles.container}>
+        <RightSwipePanelHost panelContent={<SessionCapabilityHub />}>
+            <View style={styles.container}>
             <Header
                 title={modelChip}
                 headerShadowVisible={false}
@@ -277,11 +286,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onPress={closePanel}
                     />
                     <View style={[styles.panelDropdown, { top: insets.top + headerHeight }]}>
-                        <SessionConfigPanel layout="inline" collapsible={false} />
+                        <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
                     </View>
                 </>
             )}
-        </View>
+            </View>
+        </RightSwipePanelHost>
     );
 });
 

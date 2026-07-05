@@ -36,6 +36,10 @@ describe('parseSkillList', () => {
         const raw = '/Users/x/.claude/plugins/marketplaces/official/plugins/fd/skills/fd/SKILL.md\x1ffd\x1fDesc.';
         expect(parseSkillList(raw)[0].source).toBe('plugin');
     });
+    it('Codex plugin 路径也识别为 plugin', () => {
+        const raw = '/Users/x/.codex/plugins/cache/openai/supabase/skills/supabase/SKILL.md\x1fsupabase\x1fDesc.';
+        expect(parseSkillList(raw)[0].source).toBe('plugin');
+    });
     it('name 为空时回退到父目录名', () => {
         const raw = '/Users/x/.claude/skills/foo/SKILL.md\x1f\x1fBar.';
         expect(parseSkillList(raw)[0].name).toBe('foo');

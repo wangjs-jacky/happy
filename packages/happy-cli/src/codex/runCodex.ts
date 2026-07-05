@@ -2,7 +2,7 @@ import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
 import { CodexAppServerClient } from './codexAppServerClient';
-import type { ReasoningEffort } from './codexAppServerTypes';
+import type { Model, ReasoningEffort } from './codexAppServerTypes';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
@@ -45,6 +45,10 @@ import {
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
 } from './codexPrompt';
+import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
+import { parseSpecialCommand } from '@/parsers/specialCommands';
+import { listCodexSkillNames } from './codexSkills';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -61,9 +65,7 @@ function describeCodexFailure(msg: any): string | null {
     return 'Unknown error';
 }
 
-const DEFAULT_CODEX_MODEL = 'gpt-5.5';
-const DEFAULT_CODEX_EFFORT: ReasoningEffort = 'medium';
-const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
+const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'default';
 
 /**
  * Main entry point for the codex command with ink UI
@@ -74,6 +76,8 @@ export async function runCodex(opts: {
     noSandbox?: boolean;
     resumeThreadId?: string;
     permissionMode?: PermissionMode;
+    model?: string;
+    effort?: ReasoningEffort;
 }): Promise<void> {
     // Early check: ensure Codex CLI is installed before proceeding
     try {
@@ -128,6 +132,12 @@ export async function runCodex(opts: {
     //
 
     const initialPermissionMode = opts.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE;
+    let discoveredSkills: string[] = [];
+    try {
+        discoveredSkills = listCodexSkillNames({ cwd: process.cwd() });
+    } catch (error) {
+        logger.debug('[codex] Failed to discover local skills', error);
+    }
     // Lineage from the daemon's spawn RPC (set by app-side fork / duplicate).
     const forkedFromSessionId = process.env.HAPPY_FORKED_FROM_SESSION_ID;
     const forkedFromMessageId = process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
@@ -138,6 +148,7 @@ export async function runCodex(opts: {
         startedBy: opts.startedBy,
         sandbox: sandboxConfig,
         dangerouslySkipPermissions: initialPermissionMode === 'yolo' || initialPermissionMode === 'bypassPermissions',
+        skills: discoveredSkills,
         ...(forkedFromSessionId ? { parentSessionId: forkedFromSessionId } : {}),
         ...(forkedFromMessageId ? { forkedFromMessageId } : {}),
     });
@@ -227,17 +238,23 @@ export async function runCodex(opts: {
 
     // Track current overrides to apply per message
     // Use shared PermissionMode type from api/types for cross-agent compatibility
+    let baselineModel: string | undefined = opts.model;
+    let baselineEffort: ReasoningEffort | undefined = opts.effort;
     let currentPermissionMode: PermissionMode | undefined = initialPermissionMode;
-    let currentModel: string | undefined = DEFAULT_CODEX_MODEL;
-    let currentEffort: ReasoningEffort | undefined = DEFAULT_CODEX_EFFORT;
+    let currentModel: string | undefined = baselineModel;
+    let currentEffort: ReasoningEffort | undefined = baselineEffort;
     let currentAppendSystemPrompt: string | undefined = undefined;
+    let codexModelCatalog: Model[] | null = null;
 
-    const resetCurrentModeDefaults = () => {
-        currentPermissionMode = DEFAULT_CODEX_PERMISSION_MODE;
-        currentModel = DEFAULT_CODEX_MODEL;
-        currentEffort = DEFAULT_CODEX_EFFORT;
-        currentAppendSystemPrompt = undefined;
-        logger.debug('[Codex] Reset current mode defaults after abort');
+    const syncCodexSessionConfigMetadata = (model: string | undefined, effort: ReasoningEffort | undefined) => {
+        if (!model) {
+            return;
+        }
+        session.updateMetadata((currentMetadata) => mergeCodexSessionConfigIntoMetadata(currentMetadata, {
+            models: codexModelCatalog,
+            currentModel: model,
+            currentEffort: effort ?? null,
+        }));
     };
 
     // Valid Codex permission modes from remote messages. Matches the modes
@@ -255,6 +272,29 @@ export async function runCodex(opts: {
         'safe-yolo',
         'yolo',
     ];
+
+    const applyPermissionMode = (mode: PermissionMode, source: string) => {
+        currentPermissionMode = mode;
+        permissionHandler?.setPermissionMode(mode);
+        session.updateMetadata((currentMetadata) => {
+            if (currentMetadata.currentOperatingModeCode === mode) {
+                return currentMetadata;
+            }
+            return {
+                ...currentMetadata,
+                currentOperatingModeCode: mode,
+            };
+        });
+        logger.debug(`[Codex] Permission mode updated from ${source} to: ${mode}`);
+    };
+
+    const resetCurrentModeDefaults = () => {
+        applyPermissionMode(initialPermissionMode, 'abort reset');
+        currentModel = baselineModel;
+        currentEffort = baselineEffort;
+        currentAppendSystemPrompt = undefined;
+        logger.debug('[Codex] Reset current mode defaults after abort');
+    };
 
     const VALID_REMOTE_EFFORTS: readonly ReasoningEffort[] = [
         'none', 'minimal', 'low', 'medium', 'high', 'xhigh',
@@ -295,8 +335,7 @@ export async function runCodex(opts: {
             const incoming = message.meta.permissionMode as PermissionMode;
             if (VALID_REMOTE_PERMISSION_MODES.includes(incoming)) {
                 messagePermissionMode = incoming;
-                currentPermissionMode = messagePermissionMode;
-                logger.debug(`[Codex] Permission mode updated from user message to: ${currentPermissionMode}`);
+                applyPermissionMode(messagePermissionMode, 'user message');
             } else {
                 logger.debug(`[Codex] Ignoring invalid permission mode from user message: ${String(message.meta.permissionMode)}`);
             }
@@ -356,8 +395,8 @@ export async function runCodex(opts: {
             attachments: attachmentsForThisMessage,
             queue: messageQueue,
         });
-        if (enqueueResult === 'clear') {
-            logger.debug('[Codex] /clear command pushed to isolated queue');
+        if (enqueueResult !== 'queued') {
+            logger.debug(`[Codex] /${enqueueResult} command pushed to isolated queue`);
         }
     });
     let thinking = false;
@@ -522,6 +561,7 @@ export async function runCodex(opts: {
     // Register abort handler
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
 
+    registerSessionTitleWorker(session, 'codex');
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
     //
@@ -563,11 +603,23 @@ export async function runCodex(opts: {
 
     client = new CodexAppServerClient(sandboxConfig);
 
-    permissionHandler = new CodexPermissionHandler(session);
+    permissionHandler = new CodexPermissionHandler(session, (notification) => {
+        api.push().sendSessionNotification(notification);
+    });
+    applyPermissionMode(currentPermissionMode ?? 'default', 'session init');
     // Drop any permission requests left in agent state from a previous CLI
     // process that died while a tool prompt was open — see the matching
     // call in claudeRemoteLauncher for the full rationale.
     permissionHandler.reset('Previous CLI process exited before responding');
+    session.rpcHandlerManager.registerHandler<{ mode: string }, boolean>('setPermissionMode', async (request) => {
+        const incoming = request?.mode;
+        if (!incoming || !VALID_REMOTE_PERMISSION_MODES.includes(incoming as PermissionMode)) {
+            logger.debug(`[Codex] Ignoring invalid RPC permission mode: ${String(incoming)}`);
+            return false;
+        }
+        applyPermissionMode(incoming as PermissionMode, 'session rpc');
+        return true;
+    });
     reasoningProcessor = new ReasoningProcessor((message) => {
         const envelopes = mapCodexProcessorMessageToSessionEnvelopes(message, { currentTurnId });
         for (const envelope of envelopes) {
@@ -626,6 +678,15 @@ export async function runCodex(opts: {
             );
         } else if (msg.type === 'task_started') {
             messageBuffer.addMessage('Starting task...', 'status');
+        } else if (msg.type === 'thread_settings_updated') {
+            const threadSettings = (msg as any).thread_settings;
+            if (threadSettings && typeof threadSettings.model === 'string') {
+                baselineModel = threadSettings.model;
+                currentModel = threadSettings.model;
+                baselineEffort = threadSettings.effort ?? undefined;
+                currentEffort = threadSettings.effort ?? undefined;
+                syncCodexSessionConfigMetadata(currentModel, currentEffort);
+            }
         } else if (msg.type === 'task_complete') {
             // Ready is emitted from the main loop's idle check so pushes only fire once
             // after the queue is actually drained.
@@ -733,8 +794,26 @@ export async function runCodex(opts: {
         await client.connect();
         logger.debug('[codex]: client.connect done');
 
+        try {
+            const models: Model[] = [];
+            let cursor: string | null = null;
+            do {
+                const page = await client.listModels({
+                    cursor,
+                    includeHidden: true,
+                    limit: 100,
+                });
+                models.push(...page.data);
+                cursor = page.nextCursor ?? null;
+            } while (cursor);
+            codexModelCatalog = models;
+            logger.debug(`[Codex] Loaded ${models.length} models from app-server catalog`);
+        } catch (error) {
+            logger.debug('[Codex] Failed to load model catalog from app-server; using fallback metadata', error);
+        }
+
         if (opts.resumeThreadId) {
-            await resumeExistingThread({
+            const resumedThread = await resumeExistingThread({
                 client,
                 session,
                 messageBuffer,
@@ -742,6 +821,18 @@ export async function runCodex(opts: {
                 cwd: process.cwd(),
                 mcpServers,
             });
+            if (!opts.model) {
+                baselineModel = resumedThread.model;
+                currentModel = resumedThread.model;
+            }
+            if (opts.effort === undefined) {
+                baselineEffort = resumedThread.reasoningEffort ?? undefined;
+                currentEffort = resumedThread.reasoningEffort ?? undefined;
+            }
+            syncCodexSessionConfigMetadata(
+                opts.model ?? resumedThread.model,
+                opts.effort ?? resumedThread.reasoningEffort ?? undefined,
+            );
             first = false;
             appendSystemPromptInjected = true;
         }
@@ -794,7 +885,29 @@ export async function runCodex(opts: {
                 break;
             }
 
-            if (isCodexClearText(message.message)) {
+            const specialCommand = parseSpecialCommand(message.message);
+
+            if (specialCommand.type === 'skills') {
+                const skills = session.getMetadata()?.skills ?? [];
+                const responseText = skills.length > 0
+                    ? '**Available Skills**\n\n' + skills.map((skill) => `- /${skill}`).join('\n')
+                    : 'No skills available. Try again after the session finishes initializing.';
+
+                messageBuffer.addMessage(responseText, 'assistant');
+                session.sendAgentMessage('codex', {
+                    type: 'message',
+                    message: responseText,
+                });
+                emitReadyIfIdle({
+                    pending,
+                    queueSize: () => messageQueue.size(),
+                    shouldExit,
+                    sendReady,
+                });
+                continue;
+            }
+
+            if (specialCommand.type === 'clear') {
                 logger.debug('[Codex] Handling /clear command - resetting Codex thread state');
                 client.clearThreadState();
                 currentTurnId = null;
@@ -844,10 +957,22 @@ export async function runCodex(opts: {
                         sandbox: executionPolicy.sandbox,
                         mcpServers,
                     });
+                    if (!message.mode.model) {
+                        baselineModel = startedThread.model;
+                        currentModel = startedThread.model;
+                    }
+                    if (message.mode.effort === undefined) {
+                        baselineEffort = startedThread.reasoningEffort ?? baselineEffort;
+                        currentEffort = startedThread.reasoningEffort ?? currentEffort;
+                    }
                     session.updateMetadata((currentMetadata) => ({
                         ...currentMetadata,
                         codexThreadId: startedThread.threadId,
                     }));
+                    syncCodexSessionConfigMetadata(
+                        message.mode.model ?? startedThread.model,
+                        message.mode.effort ?? startedThread.reasoningEffort ?? undefined,
+                    );
                 }
 
                 const includeAppendSystemPrompt = Boolean(

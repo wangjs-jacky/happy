@@ -11,13 +11,13 @@ import { t } from '@/text';
 export default function ChangelogScreen() {
     const insets = useSafeAreaInsets();
     const entries = getChangelogEntries();
+    const latestTitle = getLatestTitle();
 
     useEffect(() => {
-        const latestTitle = getLatestTitle();
         if (latestTitle) {
             setLastViewedTitle(latestTitle);
         }
-    }, []);
+    }, [latestTitle]);
 
     if (entries.length === 0) {
         return (

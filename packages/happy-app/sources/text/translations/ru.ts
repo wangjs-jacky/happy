@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Russian plural helper function
@@ -166,6 +166,47 @@ export const ru: TranslationStructure = {
         missingPath: 'Отсутствует путь к файлу',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            sessionActions: 'Session Actions',
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            sessionActions: 'No actions available for this session',
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Маскот',
         mascotDescription: 'Выберите сурка, который встречает вас на главном экране',
@@ -176,6 +217,7 @@ export const ru: TranslationStructure = {
             barista: 'Бариста',
             ninja: 'Ниндзя',
             scientist: 'Учёный',
+            florist: 'Флорист',
         },
         // Appearance settings screen
         theme: 'Тема',
@@ -375,6 +417,22 @@ export const ru: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'Немедленно завершить сессию',
         archiveSessionSubtitle: 'Архивировать эту сессию и остановить её',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'Метаданные',
         host: 'Хост',
         path: 'Путь',
@@ -497,6 +555,7 @@ export const ru: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -559,13 +618,58 @@ export const ru: TranslationStructure = {
         hideArchived: 'Скрыть архив',
         newSession: 'Новая сессия',
 
-        searchSessions: 'Поиск сессий',
+        searchSessions: 'Управление сессиями',
     },
     sessionSearch: {
-        title: 'Поиск сессий',
+        title: 'Управление сессиями',
         placeholder: 'Поиск по названию, пути или машине',
-        empty: 'Введите запрос для поиска сессий',
+        empty: 'Нет сессий для управления',
         noResults: ({ query }: { query: string }) => `Нет сессий по запросу ${query}`,
+        filters: {
+            all: 'Все',
+            needs: 'Требуют внимания',
+            running: 'Выполняются',
+            pinned: 'Закрепленные',
+            drafts: 'Черновики',
+        },
+        sections: {
+            active: 'Текущие сессии',
+            pinned: 'Закрепленные',
+            needs: 'Требуют внимания',
+            running: 'Выполняются',
+            recent: 'Недавние',
+        },
+        sort: 'Порядок',
+        sorting: 'Сортировка',
+        done: 'Готово',
+        view: 'Смотреть',
+        sortHintTitle: 'Сортировка очередей',
+        sortHintBody: 'Перетаскивайте закрепленные и требующие внимания сессии или используйте стрелки. Недавние сессии остаются по времени.',
+        footerNeeds: ({ count }: { count: number }) => `${count} ${plural({ count, one: 'сессия требует внимания', few: 'сессии требуют внимания', many: 'сессий требуют внимания' })}`,
+        footerNeedsSubtitle: 'Сначала проверьте разрешения, непрочитанные результаты, черновики и открытые todo',
+        footerSortTitle: 'Изменить порядок закрепленных и требующих внимания',
+        footerSortSubtitle: 'Недавние сессии остаются по времени',
+        status: {
+            permission: 'Требует подтверждения',
+            running: 'Выполняется',
+            unread: 'Новый результат',
+            draft: 'Черновик',
+            todo: 'Todo',
+            manual: 'Отмечено',
+            recent: 'Недавняя',
+        },
+        actions: {
+            pin: 'Закрепить',
+            unpin: 'Открепить',
+            markNeeds: 'Пометить',
+            clearNeeds: 'Снять метку',
+            moveToTop: 'Наверх',
+            moveUp: 'Вверх',
+            moveDown: 'Вниз',
+            moveToPinned: 'Закрепить',
+            moveToNeeds: 'Важно',
+            more: 'Еще действия',
+        },
     },
 
     zen: {
@@ -737,7 +841,11 @@ export const ru: TranslationStructure = {
         linkNewDevice: 'Привязать новое устройство',
         linkNewDeviceSubtitle: 'Отсканируйте QR-код для привязки устройства',
         profile: 'Профиль',
+        editProfile: 'Edit Profile',
         name: 'Имя',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Нажмите для отключения',
         server: 'Сервер',
@@ -765,6 +873,8 @@ export const ru: TranslationStructure = {
         authenticateWithUrlPaste: 'Авторизация терминала через URL',
         pasteAuthUrl: 'Вставьте авторизационный URL из терминала',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Доступно обновление',
@@ -1080,6 +1190,11 @@ export const ru: TranslationStructure = {
             : `${count} изображений не удалось загрузить — они не были отправлены.`,
         notSupportedTitle: 'Изображения не поддерживаются',
         notSupportedMessage: 'Этот агент не поддерживает изображения. Отправлен только текст.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

@@ -43,7 +43,7 @@
  * Since we know exactly what needs to happen (run `dist/index.mjs` with specific 
  * Node.js flags), we can bypass all the wrapper layers and do it directly:
  * 
- * `spawn('node', ['--no-warnings', '--no-deprecation', 'dist/index.mjs', ...args])`
+ * `spawn(process.execPath, ['--no-warnings', '--no-deprecation', 'dist/index.mjs', ...args])`
  * 
  * This works on all platforms and achieves the same result without any of the 
  * middleman steps that were providing workarounds for Windows vs Linux differences.
@@ -101,11 +101,10 @@ export function spawnHappyCLI(args: string[], options: SpawnOptions = {}): Child
     throw new Error(errorMessage);
   }
   
-  const runtime = isBun() ? 'bun' : 'node';
-  // Use cross-spawn so `node` resolves to `node.exe` on Windows.
-  // Since Node's CVE-2024-27980 hardening, child_process.spawn('node', ...)
-  // on Windows no longer falls back to appending `.exe`, producing ENOENT
-  // even when node is on PATH (issue #1082).
+  const runtime = isBun() ? 'bun' : process.execPath;
+  // Use the current Node executable instead of resolving "node" through PATH.
+  // Daemons often run with a broader login PATH than the shell that started Happy,
+  // and resolving a different Node can make spawned sessions behave differently.
   return crossSpawn(runtime, nodeArgs, {
     windowsHide: true,
     ...options,
