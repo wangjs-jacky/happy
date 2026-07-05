@@ -198,6 +198,30 @@ export function applySettings(settings: Settings, delta: Partial<Settings>): Set
     return result;
 }
 
+function hasOwnField(value: unknown, field: string): boolean {
+    return !!value
+        && typeof value === 'object'
+        && !Array.isArray(value)
+        && Object.prototype.hasOwnProperty.call(value, field);
+}
+
+export function mergeServerSettings(
+    currentSettings: Settings,
+    serverSettings: Settings,
+    pendingSettings: Partial<Settings>,
+    rawServerSettings: unknown,
+): Settings {
+    const pendingHasAgents = hasOwnField(pendingSettings, 'agents');
+    const serverHasAgents = hasOwnField(rawServerSettings, 'agents');
+    const baseSettings = !pendingHasAgents && !serverHasAgents && currentSettings.agents.length > 0
+        ? { ...serverSettings, agents: currentSettings.agents }
+        : serverSettings;
+
+    return Object.keys(pendingSettings).length > 0
+        ? applySettings(baseSettings, pendingSettings)
+        : baseSettings;
+}
+
 export function settingsToSyncPayload(settings: Settings): Partial<Settings> {
     const result: Partial<Settings> = { ...settings };
     const compactAgentOverrides = Object.fromEntries(

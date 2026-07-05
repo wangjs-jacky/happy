@@ -16,7 +16,7 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
-import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
+import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
 import {
@@ -732,10 +732,13 @@ class Sync {
     }
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
-    private applyServerSettings = (serverSettings: Settings, version: number) => {
-        const merged = Object.keys(this.pendingSettings).length > 0
-            ? applySettings(serverSettings, this.pendingSettings)
-            : serverSettings;
+    private applyServerSettings = (serverSettings: Settings, version: number, rawServerSettings: unknown) => {
+        const merged = mergeServerSettings(
+            storage.getState().settings,
+            serverSettings,
+            this.pendingSettings,
+            rawServerSettings,
+        );
         storage.getState().applySettings(merged, version);
     }
 
@@ -1573,15 +1576,16 @@ class Sync {
                 }
                 if (data.error === 'version-mismatch') {
                     // Parse server settings
-                    const serverSettings = data.currentSettings
-                        ? settingsParse(await this.encryption.decryptRaw(data.currentSettings))
+                    const rawServerSettings = data.currentSettings
+                        ? await this.encryption.decryptRaw(data.currentSettings)
+                        : null;
+                    const serverSettings = rawServerSettings
+                        ? settingsParse(rawServerSettings)
                         : { ...settingsDefaults };
 
-                    // Merge: server base + our pending changes (our changes win)
-                    const mergedSettings = applySettings(serverSettings, this.pendingSettings);
-
                     // Update local storage with merged result at server's version
-                    this.applyServerSettings(mergedSettings, data.currentVersion);
+                    this.applyServerSettings(serverSettings, data.currentVersion, rawServerSettings);
+                    const mergedSettings = storage.getState().settings;
 
                     // Sync tracking state with merged settings
                     if (tracking) {
@@ -1624,9 +1628,13 @@ class Sync {
         };
 
         // Parse response
+        let rawServerSettings: unknown = null;
         let parsedSettings: Settings;
         if (data.settings) {
-            parsedSettings = settingsParse(await this.encryption.decryptRaw(data.settings));
+            rawServerSettings = await this.encryption.decryptRaw(data.settings);
+            parsedSettings = rawServerSettings
+                ? settingsParse(rawServerSettings)
+                : { ...settingsDefaults };
         } else {
             parsedSettings = { ...settingsDefaults };
         }
@@ -1638,7 +1646,7 @@ class Sync {
         }));
 
         // Apply settings to storage, re-layering any pending local changes on top
-        this.applyServerSettings(parsedSettings, data.settingsVersion);
+        this.applyServerSettings(parsedSettings, data.settingsVersion, rawServerSettings);
 
         // Sync PostHog opt-out state with settings
         if (tracking) {
@@ -2334,7 +2342,9 @@ class Sync {
             if (accountUpdate.settings?.value) {
                 try {
                     const decryptedSettings = await this.encryption.decryptRaw(accountUpdate.settings.value);
-                    const parsedSettings = settingsParse(decryptedSettings);
+                    const parsedSettings = decryptedSettings
+                        ? settingsParse(decryptedSettings)
+                        : { ...settingsDefaults };
 
                     // Version compatibility check
                     const settingsSchemaVersion = parsedSettings.schemaVersion ?? 1;
@@ -2345,7 +2355,7 @@ class Sync {
                         );
                     }
 
-                    this.applyServerSettings(parsedSettings, accountUpdate.settings.version);
+                    this.applyServerSettings(parsedSettings, accountUpdate.settings.version, decryptedSettings);
                     log.log(`📋 Settings synced from server (schema v${settingsSchemaVersion}, version ${accountUpdate.settings.version})`);
                 } catch (error) {
                     console.error('❌ Failed to process settings update:', error);

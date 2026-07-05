@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import { mergeServerSettings, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -257,6 +257,57 @@ describe('settings', () => {
                     codex: { modelMode: 'gpt-5.4' },
                 },
             });
+        });
+    });
+
+    describe('mergeServerSettings', () => {
+        const agent = {
+            id: 'agent-1',
+            name: 'Mac mini',
+            glyph: 'M',
+            color: '#5e5791',
+            machineId: 'machine-1',
+            path: '~/jacky-github/happy',
+            presets: [{ label: 'Plan', prompt: 'Make a plan' }],
+        };
+
+        it('preserves local agents when a server payload predates the agents field', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                agents: [agent],
+            };
+            const serverRaw = {
+                viewInline: true,
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.viewInline).toBe(true);
+            expect(merged.agents).toEqual([agent]);
+        });
+
+        it('accepts an explicit empty agents list from the server', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                agents: [agent],
+            };
+            const serverRaw = {
+                agents: [],
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.agents).toEqual([]);
         });
     });
 
