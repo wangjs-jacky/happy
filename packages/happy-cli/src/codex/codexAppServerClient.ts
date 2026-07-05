@@ -32,6 +32,16 @@ import type {
     InjectItemsParams,
     InjectItemsResponse,
     Thread,
+    ThreadGoalClearResponse,
+    ThreadGoalGetResponse,
+    ThreadGoalSetResponse,
+    ThreadGoalStatus,
+    GetAccountTokenUsageResponse,
+    ListMcpServerStatusParams,
+    ListMcpServerStatusResponse,
+    ReviewStartParams,
+    ReviewStartResponse,
+    ThreadCompactStartResponse,
     InterruptConversationParams,
     ReviewDecision,
     EventMsg,
@@ -465,6 +475,28 @@ export class CodexAppServerClient {
             return true;
         }
 
+        if (method === 'item/completed' && item.type === 'exitedReviewMode') {
+            const review = typeof item.review === 'string' ? item.review : '';
+            if (review.length > 0) {
+                this.eventHandler?.({
+                    type: 'agent_message',
+                    message: review,
+                    item_id: item.id,
+                    phase: 'final_answer',
+                });
+            }
+
+            if (this.pendingTurnCompletion) {
+                this.emitRawTurnCompletion(
+                    this.extractTurnId(params),
+                    'completed',
+                    null,
+                    `${method}:exitedReviewMode`,
+                );
+            }
+            return true;
+        }
+
         return method.startsWith('item/');
     }
 
@@ -815,6 +847,70 @@ export class CodexAppServerClient {
         return await this.request('thread/inject_items', params) as InjectItemsResponse;
     }
 
+    async setThreadGoal(opts: {
+        threadId?: string;
+        objective?: string | null;
+        status?: ThreadGoalStatus | null;
+        tokenBudget?: number | null;
+    }): Promise<ThreadGoalSetResponse> {
+        const threadId = opts.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to set a goal.');
+        }
+
+        const params: Record<string, unknown> = { threadId };
+        if (opts.objective !== undefined) params.objective = opts.objective;
+        if (opts.status !== undefined) params.status = opts.status;
+        if (opts.tokenBudget !== undefined) params.tokenBudget = opts.tokenBudget;
+
+        return await this.request('thread/goal/set', params) as ThreadGoalSetResponse;
+    }
+
+    async getThreadGoal(opts?: { threadId?: string }): Promise<ThreadGoalGetResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to read a goal.');
+        }
+
+        return await this.request('thread/goal/get', { threadId }) as ThreadGoalGetResponse;
+    }
+
+    async clearThreadGoal(opts?: { threadId?: string }): Promise<ThreadGoalClearResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to clear a goal.');
+        }
+
+        return await this.request('thread/goal/clear', { threadId }) as ThreadGoalClearResponse;
+    }
+
+    async readAccountUsage(): Promise<GetAccountTokenUsageResponse> {
+        return await this.request('account/usage/read') as GetAccountTokenUsageResponse;
+    }
+
+    async listMcpServerStatus(opts?: ListMcpServerStatusParams): Promise<ListMcpServerStatusResponse> {
+        const params: ListMcpServerStatusParams = {
+            threadId: opts?.threadId ?? null,
+            detail: opts?.detail ?? null,
+            cursor: opts?.cursor ?? null,
+            limit: opts?.limit ?? null,
+        };
+        return await this.request('mcpServerStatus/list', params) as ListMcpServerStatusResponse;
+    }
+
+    async startCompact(opts?: { threadId?: string }): Promise<ThreadCompactStartResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to compact.');
+        }
+
+        return await this.request('thread/compact/start', { threadId }) as ThreadCompactStartResponse;
+    }
+
+    async startReview(opts: ReviewStartParams): Promise<ReviewStartResponse> {
+        return await this.request('review/start', opts) as ReviewStartResponse;
+    }
+
     async reconnectAndResumeThread(): Promise<boolean> {
         const threadId = this._threadId;
         await this.disconnectInternal({ preserveThreadState: !!threadId });
@@ -1049,6 +1145,70 @@ export class CodexAppServerClient {
         const aborted = await completion;
         if (timer) clearTimeout(timer);
         return { aborted };
+    }
+
+    private async waitForServerStartedTurn(
+        start: () => Promise<{ turn?: { id?: string | null } } | Record<string, unknown>>,
+        timeoutMs: number = CodexAppServerClient.TURN_TIMEOUT_MS,
+    ): Promise<{ aborted: boolean }> {
+        if (this.pendingInterrupt) {
+            await this.pendingInterrupt;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const completion = new Promise<boolean>((resolve) => {
+            this.pendingTurnCompletion = {
+                resolve,
+                turnId: null,
+            };
+
+            timer = setTimeout(() => {
+                if (this.pendingTurnCompletion) {
+                    logger.warn(`[CodexAppServer] Server-started turn timed out after ${timeoutMs}ms — treating as abort`);
+                    this.resolvePendingTurn(true);
+                }
+            }, timeoutMs);
+        });
+
+        try {
+            const result = await start();
+            const turn = (result as { turn?: { id?: string | null } }).turn;
+            const turnId = turn?.id;
+            if (typeof turnId === 'string' && turnId.length > 0) {
+                this._turnId = turnId;
+                if (this.pendingTurnCompletion) {
+                    this.pendingTurnCompletion.turnId = turnId;
+                }
+            }
+        } catch (err) {
+            if (timer) clearTimeout(timer);
+            this.pendingTurnCompletion = null;
+            throw err;
+        }
+
+        const aborted = await completion;
+        if (timer) clearTimeout(timer);
+        return { aborted };
+    }
+
+    async startCompactAndWait(opts?: {
+        threadId?: string;
+        turnTimeoutMs?: number;
+    }): Promise<{ aborted: boolean }> {
+        return this.waitForServerStartedTurn(
+            () => this.startCompact({ threadId: opts?.threadId }),
+            opts?.turnTimeoutMs,
+        );
+    }
+
+    async startReviewAndWait(opts: ReviewStartParams & {
+        turnTimeoutMs?: number;
+    }): Promise<{ aborted: boolean }> {
+        return this.waitForServerStartedTurn(
+            () => this.startReview(opts),
+            opts.turnTimeoutMs,
+        );
     }
 
     async interruptTurn(): Promise<void> {

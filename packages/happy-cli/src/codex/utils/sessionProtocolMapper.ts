@@ -272,6 +272,21 @@ export function mapCodexThreadToSessionEnvelopes(thread: Pick<Thread, 'turns'>):
                     }
                     break;
                 }
+                case 'exitedReviewMode': {
+                    const review = (item as { review?: unknown }).review;
+                    const text = typeof review === 'string'
+                        ? review.trim()
+                        : '';
+                    if (text.length > 0) {
+                        envelopes.push(createEnvelope('agent', { t: 'text', text }, {
+                            id: item.id,
+                            turn: turn.id,
+                            time: completedAt,
+                            codexItemId: item.id,
+                        }));
+                    }
+                    break;
+                }
                 case 'reasoning': {
                     const text = reasoningText(item);
                     if (text) {

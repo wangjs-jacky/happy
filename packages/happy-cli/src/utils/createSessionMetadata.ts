@@ -21,6 +21,21 @@ import packageJson from '../../package.json';
  */
 export type BackendFlavor = 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'acp';
 
+const CODEX_NATIVE_SLASH_COMMANDS = [
+    'clear',
+    'compact',
+    'mcp',
+    'skills',
+    'goal',
+    'usage',
+    'status',
+    'diff',
+    'new',
+    'fork',
+    'review',
+    'plan',
+];
+
 /**
  * Options for creating session metadata.
  */
@@ -99,6 +114,7 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         },
         sandbox: opts.sandbox?.enabled ? opts.sandbox : null,
         dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? null,
+        ...(opts.flavor === 'codex' ? { slashCommands: CODEX_NATIVE_SLASH_COMMANDS } : {}),
         ...(opts.skills && opts.skills.length > 0 ? { skills: opts.skills } : {}),
         ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
         ...(opts.forkedFromMessageId ? { forkedFromMessageId: opts.forkedFromMessageId } : {}),

@@ -547,6 +547,269 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('gets, sets, and clears Codex thread goals through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const goal = {
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            status: 'active',
+            tokenBudget: 200000,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 1776272400,
+            updatedAt: 1776272400,
+        };
+        const proc = createMockProcess({
+            pid: 2551,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+
+                if (msg.method === 'thread/goal/set' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { goal },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'thread/goal/get' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { goal },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'thread/goal/clear' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { cleared: true },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.setThreadGoal({
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            tokenBudget: 200000,
+        })).resolves.toEqual({ goal });
+        await expect(client.getThreadGoal({ threadId: 'thread-goal' })).resolves.toEqual({ goal });
+        await expect(client.clearThreadGoal({ threadId: 'thread-goal' })).resolves.toEqual({ cleared: true });
+
+        expect(requests.find((msg) => msg.method === 'thread/goal/set')?.params).toEqual({
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            tokenBudget: 200000,
+        });
+        expect(requests.find((msg) => msg.method === 'thread/goal/get')?.params).toEqual({
+            threadId: 'thread-goal',
+        });
+        expect(requests.find((msg) => msg.method === 'thread/goal/clear')?.params).toEqual({
+            threadId: 'thread-goal',
+        });
+
+        await client.disconnect();
+    });
+
+    it('reads account token usage through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const usage = {
+            summary: {
+                lifetimeTokens: 1200000,
+                currentStreakDays: 3,
+                longestStreakDays: 8,
+                peakDailyTokens: 450000,
+                longestRunningTurnSec: 3600,
+            },
+            dailyUsageBuckets: [
+                { startDate: '2026-07-04', tokens: 100000 },
+                { startDate: '2026-07-05', tokens: 200000 },
+            ],
+        };
+        const proc = createMockProcess({
+            pid: 2552,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'account/usage/read' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: usage });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.readAccountUsage()).resolves.toEqual(usage);
+        expect(requests.find((msg) => msg.method === 'account/usage/read')?.params).toBeUndefined();
+
+        await client.disconnect();
+    });
+
+    it('lists MCP server status through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const response = {
+            data: [{
+                name: 'happy',
+                authStatus: 'unsupported',
+                tools: {
+                    send_image: { name: 'send_image', inputSchema: {} },
+                    change_title: { name: 'change_title', inputSchema: {} },
+                },
+                resources: [],
+                resourceTemplates: [],
+            }],
+            nextCursor: null,
+        };
+        const proc = createMockProcess({
+            pid: 2553,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'mcpServerStatus/list' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: response });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.listMcpServerStatus({
+            threadId: 'thread-mcp',
+            detail: 'toolsAndAuthOnly',
+            limit: 50,
+        })).resolves.toEqual(response);
+        expect(requests.find((msg) => msg.method === 'mcpServerStatus/list')?.params).toEqual({
+            threadId: 'thread-mcp',
+            detail: 'toolsAndAuthOnly',
+            cursor: null,
+            limit: 50,
+        });
+
+        await client.disconnect();
+    });
+
+    it('starts compact and review turns through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const proc = createMockProcess({
+            pid: 2554,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'thread/compact/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: {} });
+                    }, 0);
+                }
+                if (msg.method === 'review/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-review', status: 'inProgress', items: [], error: null },
+                                reviewThreadId: 'thread-review',
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.startCompact({ threadId: 'thread-compact' })).resolves.toEqual({});
+        await expect(client.startReview({
+            threadId: 'thread-review',
+            target: { type: 'custom', instructions: 'focus on regressions' },
+            delivery: 'inline',
+        })).resolves.toEqual({
+            turn: { id: 'turn-review', status: 'inProgress', items: [], error: null },
+            reviewThreadId: 'thread-review',
+        });
+        expect(requests.find((msg) => msg.method === 'thread/compact/start')?.params).toEqual({
+            threadId: 'thread-compact',
+        });
+        expect(requests.find((msg) => msg.method === 'review/start')?.params).toEqual({
+            threadId: 'thread-review',
+            target: { type: 'custom', instructions: 'focus on regressions' },
+            delivery: 'inline',
+        });
+
+        await client.disconnect();
+    });
+
+    it('emits inline review results from exitedReviewMode items', async () => {
+        const proc = createMockProcess({
+            pid: 2555,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'review/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-review-inline', status: 'inProgress', items: [], error: null },
+                                reviewThreadId: 'thread-review-inline',
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-review-inline',
+                                turnId: 'turn-review-inline',
+                                item: {
+                                    type: 'exitedReviewMode',
+                                    id: 'review-item-1',
+                                    review: 'Findings: none.',
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await expect(client.startReviewAndWait({
+            threadId: 'thread-review-inline',
+            target: { type: 'uncommittedChanges' },
+            delivery: 'inline',
+        })).resolves.toEqual({ aborted: false });
+
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'agent_message', message: 'Findings: none.', item_id: 'review-item-1' }),
+            expect.objectContaining({ type: 'task_complete', turn_id: 'turn-review-inline' }),
+        ]));
+
+        await client.disconnect();
+    });
+
     it('clears active thread state so the next prompt starts a fresh thread', async () => {
         const requests: MockRpcMessage[] = [];
         let nextThreadNumber = 1;

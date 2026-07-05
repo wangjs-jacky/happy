@@ -240,4 +240,34 @@ describe('mapCodexThreadToSessionEnvelopes', () => {
             ev: { t: 'tool-call-end', call: 'cmd-1' },
         });
     });
+
+    it('backfills inline review results from exitedReviewMode items', () => {
+        const envelopes = mapCodexThreadToSessionEnvelopes({
+            turns: [{
+                id: 'turn-review-1',
+                startedAt: 100,
+                completedAt: 105,
+                status: 'completed',
+                items: [
+                    {
+                        id: 'review-item-1',
+                        type: 'exitedReviewMode',
+                        review: 'Findings: none.',
+                    },
+                ],
+            }],
+        });
+
+        expect(envelopes.map((envelope) => envelope.ev.t)).toEqual([
+            'turn-start',
+            'text',
+            'turn-end',
+        ]);
+        expect(envelopes[1]).toMatchObject({
+            role: 'agent',
+            turn: 'turn-review-1',
+            codexItemId: 'review-item-1',
+            ev: { t: 'text', text: 'Findings: none.' },
+        });
+    });
 });

@@ -59,6 +59,22 @@ const DEFAULT_COMMANDS: CommandItem[] = [
     { command: 'skills', description: 'Show available skills' },
 ];
 
+const CODEX_MOBILE_COMMANDS = [
+    'goal',
+    'usage',
+    'status',
+    'diff',
+    'new',
+    'fork',
+    'review',
+    'plan',
+];
+
+const CODEX_MOBILE_COMMAND_SET = new Set([
+    ...DEFAULT_COMMANDS.map((command) => command.command),
+    ...CODEX_MOBILE_COMMANDS,
+]);
+
 // Command descriptions for known tools/commands
 const COMMAND_DESCRIPTIONS: Record<string, string> = {
     // Default commands
@@ -70,10 +86,19 @@ const COMMAND_DESCRIPTIONS: Record<string, string> = {
     reset: 'Reset the session',
     export: 'Export conversation',
     debug: 'Show debug information',
-    status: 'Show connection status',
+    status: 'Show Codex session status',
     stop: 'Stop current operation',
     abort: 'Abort current operation',
     cancel: 'Cancel current operation',
+    goal: 'Manage the Codex thread goal',
+    usage: 'Show Codex account usage',
+    mcp: 'Show connected MCP servers',
+    skills: 'Show available skills',
+    diff: 'Show working tree diff summary',
+    new: 'Start a fresh Codex thread',
+    fork: 'Fork the current Codex thread',
+    review: 'Review current changes',
+    plan: 'Ask Codex to plan before acting',
     
     // Add more descriptions as needed
 };
@@ -88,7 +113,18 @@ function getCommandsFromSession(sessionId: string): CommandItem[] {
 
     const commands: CommandItem[] = [...DEFAULT_COMMANDS];
 
-    appendCommands(commands, session.metadata.slashCommands, (cmd) => COMMAND_DESCRIPTIONS[cmd]);
+    const isCodexSession = session.metadata.flavor === 'codex';
+
+    if (isCodexSession) {
+        appendCommands(commands, CODEX_MOBILE_COMMANDS, (cmd) => COMMAND_DESCRIPTIONS[cmd], (cmd) => CODEX_MOBILE_COMMAND_SET.has(cmd));
+    }
+
+    appendCommands(
+        commands,
+        session.metadata.slashCommands,
+        (cmd) => COMMAND_DESCRIPTIONS[cmd],
+        (cmd) => isCodexSession ? CODEX_MOBILE_COMMAND_SET.has(cmd) : !IGNORED_COMMANDS.includes(cmd),
+    );
 
     return commands;
 }
@@ -97,13 +133,14 @@ function appendCommands(
     commands: CommandItem[],
     incoming: string[] | undefined,
     getDescription: (command: string) => string | undefined,
+    shouldInclude: (command: string) => boolean = (command) => !IGNORED_COMMANDS.includes(command),
 ): void {
     if (!incoming) {
         return;
     }
 
     for (const cmd of incoming) {
-        if (IGNORED_COMMANDS.includes(cmd)) continue;
+        if (!shouldInclude(cmd)) continue;
         if (commands.find((entry) => entry.command === cmd)) continue;
         commands.push({
             command: cmd,
