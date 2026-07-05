@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MMKV } from 'react-native-mmkv';
 import {
     getLastViewedTitle,
     setLastViewedTitle,
     getLatestTitle
 } from '@/changelog';
-import { getOtaChangelogTitle } from '@/changelog/runtime';
-import { loadAppConfig } from '@/sync/appConfig';
-import { useOtaVersions } from './useOtaVersions';
 
 const mmkv = new MMKV();
 
 export function useChangelog() {
-    const appConfig = useMemo(() => loadAppConfig(), []);
-    const changelogChannel = appConfig.otaChannel || 'preview';
-    const { versions, loading } = useOtaVersions(changelogChannel);
-    const fallbackTitle = getLatestTitle();
-    const latestTitle = versions[0] ? getOtaChangelogTitle(versions[0]) : fallbackTitle;
+    const latestTitle = getLatestTitle();
     const [hasUnread, setHasUnread] = useState(false);
 
     useEffect(() => {
-        if (loading || !latestTitle) return;
+        if (!latestTitle) return;
 
         const lastViewed = getLastViewedTitle();
 
@@ -36,7 +29,7 @@ export function useChangelog() {
         }
 
         setHasUnread(latestTitle !== lastViewed);
-    }, [latestTitle, loading]);
+    }, [latestTitle]);
 
     const markAsRead = useCallback(() => {
         if (latestTitle) {
@@ -48,7 +41,7 @@ export function useChangelog() {
     return {
         hasUnread,
         latestTitle,
-        loading,
+        loading: false,
         markAsRead
     };
 }
