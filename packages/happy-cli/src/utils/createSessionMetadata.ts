@@ -94,6 +94,9 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: opts.flavor,
+        capabilities: {
+            regenerateTitle: opts.flavor === 'claude' || opts.flavor === 'codex',
+        },
         sandbox: opts.sandbox?.enabled ? opts.sandbox : null,
         dangerouslySkipPermissions: opts.dangerouslySkipPermissions ?? null,
         ...(opts.skills && opts.skills.length > 0 ? { skills: opts.skills } : {}),

@@ -132,9 +132,12 @@ function SessionInfoContent({ session }: { session: Session }) {
     const {
         canShowResume,
         canFork,
+        canRegenerateTitle,
         forking,
         forkSession,
         openDuplicateSheet,
+        regenerateTitle,
+        regeneratingTitle,
         resumeSession,
         resumeSessionSubtitle,
     } = useSessionQuickActions(session);
@@ -362,6 +365,15 @@ function SessionInfoContent({ session }: { session: Session }) {
                             subtitle={resumeSessionSubtitle}
                             icon={<Ionicons name="play-circle-outline" size={29} color={theme.colors.accent} />}
                             onPress={resumeSession}
+                        />
+                    )}
+                    {canRegenerateTitle && (
+                        <Item
+                            title={t('sessionInfo.regenerateTitle')}
+                            subtitle={t('sessionInfo.regenerateTitleSubtitle')}
+                            icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.accent} />}
+                            onPress={regenerateTitle}
+                            loading={regeneratingTitle}
                         />
                     )}
                     {canFork && (

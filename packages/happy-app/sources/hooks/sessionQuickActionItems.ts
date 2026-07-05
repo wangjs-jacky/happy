@@ -4,6 +4,7 @@ interface SessionQuickActionLabels {
     details: string;
     resume: string;
     rename: string;
+    regenerateTitle: string;
     fork: string;
     duplicate: string;
     copyMetadata: string;
@@ -17,6 +18,7 @@ interface SessionQuickActionCallbacks {
     openDetails: () => void;
     resumeSession: () => void;
     renameSession: () => void;
+    regenerateTitle: () => void;
     forkSession: () => void;
     openDuplicateSheet: () => void;
     copySessionMetadata: () => void;
@@ -30,6 +32,7 @@ interface BuildSessionQuickActionItemsOptions {
     labels: SessionQuickActionLabels;
     callbacks: SessionQuickActionCallbacks;
     canShowResume: boolean;
+    canRegenerateTitle: boolean;
     canFork: boolean;
     canCopySessionMetadata: boolean;
     sessionActive: boolean;
@@ -40,6 +43,7 @@ export function buildSessionQuickActionItems({
     labels,
     callbacks,
     canShowResume,
+    canRegenerateTitle,
     canFork,
     canCopySessionMetadata,
     sessionActive,
@@ -55,6 +59,10 @@ export function buildSessionQuickActionItems({
         { id: 'details', icon: 'information-circle-outline', label: labels.details, onPress: callbacks.openDetails },
         { id: 'rename', icon: 'pencil-outline', label: labels.rename, onPress: callbacks.renameSession },
     );
+
+    if (canRegenerateTitle) {
+        items.push({ id: 'regenerate-title', icon: 'refresh-outline', label: labels.regenerateTitle, onPress: callbacks.regenerateTitle });
+    }
 
     if (canShowResume) {
         items.push({ id: 'resume', icon: 'play-circle-outline', label: labels.resume, onPress: callbacks.resumeSession });

@@ -301,6 +301,9 @@ export type Metadata = {
     text: string,
     updatedAt: number
   },
+  capabilities?: {
+    regenerateTitle?: boolean
+  },
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID

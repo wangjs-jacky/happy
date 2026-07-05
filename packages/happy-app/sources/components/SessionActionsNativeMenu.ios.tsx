@@ -23,9 +23,11 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
+        canRegenerateTitle,
         deleteSession,
         canShowResume,
         openDetails,
+        regenerateTitle,
         renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
@@ -39,6 +41,9 @@ export function SessionActionsNativeMenu({
                 <ContextMenu.Items>
                     <Button onPress={openDetails} systemImage={iosSymbol('info.circle')} label="Details" />
                     <Button onPress={renameSession} systemImage={iosSymbol('pencil')} label={t('sessionInfo.renameSession')} />
+                    {canRegenerateTitle && (
+                        <Button onPress={regenerateTitle} systemImage={iosSymbol('arrow.clockwise')} label={t('sessionInfo.regenerateTitle')} />
+                    )}
                     {canArchive && (
                         <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label={t('sessionInfo.archiveSession')} />
                     )}

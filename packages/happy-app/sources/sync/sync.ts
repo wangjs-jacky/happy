@@ -298,6 +298,10 @@ class Sync {
         }
     }
 
+    ensureMessagesLoaded = async (sessionId: string): Promise<void> => {
+        await this.getMessagesSync(sessionId).invalidateAndAwait();
+    }
+
     private getMessagesSync(sessionId: string): InvalidateSync {
         let sync = this.messagesSync.get(sessionId);
         if (!sync) {
