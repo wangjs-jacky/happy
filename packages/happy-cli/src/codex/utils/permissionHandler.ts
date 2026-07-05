@@ -7,8 +7,7 @@
 
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
-import type { AgentState } from "@/api/types";
-import type { PermissionMode } from '@/api/types';
+import type { AgentState, Metadata, PermissionMode } from '@/api/types';
 import {
     BasePermissionHandler,
     PermissionResult,
@@ -17,6 +16,20 @@ import {
 
 // Re-export types for backwards compatibility
 export type { PermissionResult, PendingRequest };
+
+export type CodexPermissionNotification = {
+    kind: 'permission';
+    metadata: Metadata | null | undefined;
+    data: {
+        sessionId: string;
+        requestId: string;
+        tool: string;
+        type: 'permission_request';
+        provider: 'codex';
+    };
+};
+
+type CodexPermissionNotifier = (notification: CodexPermissionNotification) => void;
 
 /**
  * Codex-specific permission handler.
@@ -42,7 +55,10 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         'change_title',
     ];
 
-    constructor(session: ApiSessionClient) {
+    constructor(
+        session: ApiSessionClient,
+        private readonly notifyPermission?: CodexPermissionNotifier
+    ) {
         super(session);
     }
 
@@ -76,6 +92,28 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         }
 
         return false;
+    }
+
+    private notifyPendingPermission(toolCallId: string, toolName: string): void {
+        if (!this.notifyPermission) {
+            return;
+        }
+
+        try {
+            this.notifyPermission({
+                kind: 'permission',
+                metadata: this.session.getMetadata(),
+                data: {
+                    sessionId: this.session.sessionId,
+                    requestId: toolCallId,
+                    tool: toolName,
+                    type: 'permission_request',
+                    provider: 'codex',
+                },
+            });
+        } catch (error) {
+            logger.debug(`${this.getLogPrefix()} Failed to send permission notification`, error);
+        }
     }
 
     /**
@@ -123,6 +161,7 @@ export class CodexPermissionHandler extends BasePermissionHandler {
 
             // Update agent state with pending request
             this.addPendingRequestToState(toolCallId, toolName, input);
+            this.notifyPendingPermission(toolCallId, toolName);
 
             logger.debug(`${this.getLogPrefix()} Permission request sent for tool: ${toolName} (${toolCallId})`);
         });
