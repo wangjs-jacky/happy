@@ -1,6 +1,7 @@
 /**
  * Happy MCP server
  * Provides Happy CLI specific tools including chat session title management
+ * and current-session lifecycle actions.
  *
  * Uses stateless StreamableHTTP: each request gets a fresh McpServer + transport.
  * This is required by MCP SDK >=1.27 which rejects reuse of an already-connected transport.
@@ -19,6 +20,7 @@ import { fetchFinanceChart } from "@/finance/financeChart";
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+    archiveSession: (reason?: string) => Promise<{ success: boolean; error?: string }>;
     financeChart: (input: {
         query: string;
         range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
@@ -98,6 +100,40 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         }
     });
 
+    mcp.registerTool('archive_session', {
+        description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
+        title: 'Archive Current Chat Session',
+        inputSchema: {
+            reason: z.string().optional().describe('Optional short reason for archiving the session'),
+        },
+    }, async (args) => {
+        const response = await handlers.archiveSession(args.reason);
+
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Archived current chat session',
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to archive chat session: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     mcp.registerTool('finance_chart', {
         description: 'Fetch real market OHLC chart data for a stock, index, ETF, or crypto symbol and return a Happy finance chart block for chat rendering.',
         title: 'Fetch Finance Chart',
@@ -140,7 +176,12 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
     return mcp;
 }
 
-export async function startHappyServer(client: ApiSessionClient) {
+export async function startHappyServer(
+    client: ApiSessionClient,
+    options?: {
+        archiveSession?: (reason?: string) => Promise<{ success: boolean; error?: string }>;
+    },
+) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
 
     const handlers: HappyMcpHandlers = {
@@ -166,6 +207,13 @@ export async function startHappyServer(client: ApiSessionClient) {
             } catch (error) {
                 return { success: false, error: String(error) };
             }
+        },
+        archiveSession: async (reason?: string) => {
+            logger.debug('[happyMCP] Archiving current session:', reason);
+            if (!options?.archiveSession) {
+                return { success: false, error: 'Archive handler is not configured' };
+            }
+            return options.archiveSession(reason);
         },
         financeChart: async (input) => {
             logger.debug('[happyMCP] Fetching finance chart:', input);
@@ -210,7 +258,7 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title', 'send_image', 'finance_chart'],
+        toolNames: ['change_title', 'send_image', 'archive_session', 'finance_chart'],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
             server.close();

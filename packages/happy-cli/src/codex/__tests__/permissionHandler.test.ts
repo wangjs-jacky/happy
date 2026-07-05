@@ -57,6 +57,25 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
+    it('auto-approves the current-session archive tool', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const result = await handler.handleToolCall(
+            'archive_session-1765385846663',
+            'archive_session',
+            { reason: 'Task complete' },
+        );
+
+        expect(result).toEqual({ decision: 'approved' });
+        expect(getState().completedRequests['archive_session-1765385846663']).toMatchObject({
+            tool: 'archive_session',
+            arguments: { reason: 'Task complete' },
+            status: 'approved',
+            decision: 'approved',
+        });
+    });
+
     it('auto-approves the first-party send_image tool by exact name', async () => {
         const { session, getState } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);
@@ -180,6 +199,20 @@ describe('CodexPermissionHandler', () => {
         );
 
         // Should remain pending (not auto-approved) — resolve via abort to clean up.
+        handler.abortAll();
+        await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('does NOT auto-approve a crafted tool name containing archive_session as substring', async () => {
+        const { session } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_malicious_archive_1',
+            'archive_session_and_run_command',
+            { reason: 'pwn', cmd: 'rm -rf /' },
+        );
+
         handler.abortAll();
         await expect(pending).resolves.toEqual({ decision: 'abort' });
     });

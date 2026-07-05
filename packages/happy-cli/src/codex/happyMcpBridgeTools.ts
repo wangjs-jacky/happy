@@ -10,7 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'finance_chart'] as const;
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'archive_session', 'finance_chart'] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -68,6 +68,23 @@ export function registerHappyBridgeTools(
       { path: args.path },
       ensureHttpClient,
       'Failed to send image'
+    )
+  );
+
+  server.registerTool(
+    'archive_session',
+    {
+      description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
+      title: 'Archive Current Chat Session',
+      inputSchema: {
+        reason: z.string().optional().describe('Optional short reason for archiving the session'),
+      },
+    },
+    async (args) => forwardHappyToolCall(
+      'archive_session',
+      args.reason ? { reason: args.reason } : {},
+      ensureHttpClient,
+      'Failed to archive chat session'
     )
   );
 

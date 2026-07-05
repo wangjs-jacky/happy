@@ -20,8 +20,8 @@ export interface SpawnSessionArgs {
     /** Existing worktree absolute path, or null/'__none__' for no worktree. */
     worktreeKey: string | null;
     /** Per-session mode overrides selected before the first message. */
-    permissionMode?: string;
-    modelMode?: string;
+    permissionMode?: string | null;
+    modelMode?: string | null;
     effortLevel?: string | null;
     /** Initial prompt to send into the freshly spawned session. */
     prompt: string;
