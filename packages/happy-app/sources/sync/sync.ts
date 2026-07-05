@@ -50,6 +50,10 @@ import { getFriendsList, getUserProfile } from './apiFriends';
 import { fetchFeed } from './apiFeed';
 import { FeedItem } from './feedTypes';
 import { UserProfile } from './friendTypes';
+import {
+    maybeScheduleSessionEventLocalNotification,
+    shouldEnableSessionEventLocalNotifications,
+} from './sessionEventLocalNotification';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
@@ -132,6 +136,7 @@ class Sync {
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
     private backgroundSendStartedAt: number | null = null;
+    private sessionEventLocalNotificationsEnabled = false;
     revenueCatInitialized = false;
 
     // Generic locking mechanism
@@ -2078,6 +2083,8 @@ class Sync {
                 permission: result.permission.status,
                 error: result.error,
             }));
+            this.sessionEventLocalNotificationsEnabled = shouldEnableSessionEventLocalNotifications(result);
+            log.log('Session-event local notification fallback: ' + (this.sessionEventLocalNotificationsEnabled ? 'enabled' : 'disabled'));
             if (!result.permission.granted) {
                 console.log('Failed to get push token for push notification!');
             }
@@ -2699,6 +2706,9 @@ class Sync {
         // unread counter on these only, ignore the noisy per-message stream.
         if (updateData.type === 'session-event') {
             notifyUnreadMessage();
+            void maybeScheduleSessionEventLocalNotification(updateData, {
+                enabled: this.sessionEventLocalNotificationsEnabled,
+            });
         }
 
         // daemon-status ephemeral updates are deprecated, machine status is handled via machine-activity
