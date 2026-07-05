@@ -1,4 +1,5 @@
 import { parseMarkdownBlock } from "./parseMarkdownBlock"
+import type { SessionOtaPreview } from '@/utils/sessionOtaPreviews';
 
 export type MarkdownBlock = {
     type: 'text'
@@ -33,6 +34,9 @@ export type MarkdownBlock = {
     type: 'image',
     alt: string,
     url: string
+} | {
+    type: 'ota-preview',
+    preview: SessionOtaPreview
 }
 
 export type MarkdownSpan = {

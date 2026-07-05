@@ -12,11 +12,13 @@ import { storage, useSessionGitStatus, useSessionGitStatusFiles, useSessionProje
 import { getGitStatusFiles, GitFileStatus } from '@/sync/gitStatusFiles';
 import { getProjectFiles, ProjectFile } from '@/sync/projectFiles';
 import { FileIcon } from '@/components/FileIcon';
+import { SessionOtaSidebar } from '@/components/SessionOtaSidebar';
 import { Typography } from '@/constants/Typography';
+import type { SessionOtaPreview } from '@/utils/sessionOtaPreviews';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
-export type SidebarMode = 'changes' | 'allFiles';
+export type SidebarMode = 'changes' | 'allFiles' | 'otaPreview';
 
 interface FilesSidebarProps {
     sessionId: string;
@@ -25,6 +27,7 @@ interface FilesSidebarProps {
     mode?: SidebarMode;
     onModeChange?: (mode: SidebarMode) => void;
     onAllFilesFilePress?: (filePath: string) => void;
+    otaPreviews?: SessionOtaPreview[];
 }
 
 type FileNode<T = GitFileStatus> = {
@@ -152,6 +155,7 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
     mode = 'changes',
     onModeChange,
     onAllFilesFilePress,
+    otaPreviews = [],
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
@@ -194,6 +198,7 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
     const effectiveCollapsed = collapsed;
 
     const hasFiles = allFiles.length > 0;
+    const hasOtaPreviews = otaPreviews.length > 0;
 
     const toggleDir = React.useCallback((path: string) => {
         setCollapsed((prev) => {
@@ -238,9 +243,27 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
                                 {t('files.allFiles')}
                             </Text>
                         </Pressable>
+                        {hasOtaPreviews ? (
+                            <Pressable
+                                onPress={() => onModeChange('otaPreview')}
+                                style={[
+                                    styles.tab,
+                                    mode === 'otaPreview' && { backgroundColor: theme.colors.surface },
+                                ]}
+                            >
+                                <Text style={[
+                                    styles.tabText,
+                                    mode === 'otaPreview' && styles.tabTextActive,
+                                ]} numberOfLines={1}>
+                                    OTA
+                                </Text>
+                            </Pressable>
+                        ) : null}
                     </View>
                 ) : (
-                    <Text style={styles.headerTitle} numberOfLines={1}>{t('files.changes')}</Text>
+                    <Text style={styles.headerTitle} numberOfLines={1}>
+                        {mode === 'otaPreview' ? 'OTA' : t('files.changes')}
+                    </Text>
                 )}
                 {mode === 'changes' && hasFiles && gitStatus && (gitStatus.linesAdded > 0 || gitStatus.linesRemoved > 0) ? (
                     <View style={styles.headerLineChanges}>
@@ -280,12 +303,14 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
                         </View>
                     )}
                 </ScrollView>
-            ) : (
+            ) : mode === 'allFiles' ? (
                 <AllFilesTab
                     sessionId={sessionId}
                     selectedPath={selectedPath ?? null}
                     onFilePress={onAllFilesFilePress}
                 />
+            ) : (
+                <SessionOtaSidebar previews={otaPreviews} />
             )}
         </View>
     );
