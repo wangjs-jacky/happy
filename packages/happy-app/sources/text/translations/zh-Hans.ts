@@ -609,6 +609,7 @@ export const zhHans: TranslationStructure = {
             drafts: '草稿',
         },
         sections: {
+            active: '当前会话',
             pinned: '置顶',
             needs: '待处理',
             running: '运行中',

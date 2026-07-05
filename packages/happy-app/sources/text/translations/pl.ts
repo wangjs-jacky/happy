@@ -624,6 +624,7 @@ export const pl: TranslationStructure = {
             drafts: 'Szkice',
         },
         sections: {
+            active: 'Bieżące sesje',
             pinned: 'Przypięte',
             needs: 'Wymaga reakcji',
             running: 'Działa',

@@ -608,6 +608,7 @@ export const es: TranslationStructure = {
             drafts: 'Borradores',
         },
         sections: {
+            active: 'Sesiones actuales',
             pinned: 'Fijadas',
             needs: 'Requiere acción',
             running: 'En ejecución',

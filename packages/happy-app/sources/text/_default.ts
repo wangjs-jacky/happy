@@ -626,6 +626,7 @@ export const en = {
             drafts: 'Drafts',
         },
         sections: {
+            active: 'Current sessions',
             pinned: 'Pinned',
             needs: 'Needs action',
             running: 'Running',

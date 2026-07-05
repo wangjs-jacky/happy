@@ -607,6 +607,7 @@ export const pt: TranslationStructure = {
             drafts: 'Rascunhos',
         },
         sections: {
+            active: 'Sessões atuais',
             pinned: 'Fixadas',
             needs: 'Precisa de ação',
             running: 'Em execução',

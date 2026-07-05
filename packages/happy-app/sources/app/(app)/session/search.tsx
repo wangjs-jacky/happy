@@ -21,13 +21,13 @@ import {
     useSessionManagementPreferences,
     type SessionManagementQueue,
 } from '@/hooks/useSessionManagementPreferences';
-import { useAllMachines, useAllSessions, useUnreadSessionIds } from '@/sync/storage';
+import { useAllMachines, useAllSessions, useSessionListViewData, useUnreadSessionIds } from '@/sync/storage';
 import type { Session } from '@/sync/storageTypes';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { t } from '@/text';
 
 type SessionFilter = 'all' | 'needs' | 'running' | 'pinned' | 'drafts';
-type SessionSection = 'pinned' | 'needs' | 'running' | 'recent';
+type SessionSection = 'active' | 'pinned' | 'needs' | 'running' | 'recent';
 type PrimaryStatus = 'permission' | 'running' | 'unread' | 'draft' | 'todo' | 'manual' | 'recent';
 
 interface ManagedSession {
@@ -58,12 +58,20 @@ export default React.memo(function SessionSearchScreen() {
     const [sortMode, setSortMode] = React.useState(false);
     const [expandedSessionId, setExpandedSessionId] = React.useState<string | null>(null);
     const sessions = useAllSessions();
+    const sessionListViewData = useSessionListViewData();
     const machines = useAllMachines({ includeOffline: true });
     const unreadSessionIds = useUnreadSessionIds();
     const navigateToSession = useNavigateToSession();
 
     const validSessionIds = React.useMemo(() => sessions.map((session) => session.id), [sessions]);
     const management = useSessionManagementPreferences(validSessionIds);
+
+    const activeSessionOrder = React.useMemo(() => {
+        const activeItem = sessionListViewData?.find((item) => item.type === 'active-sessions');
+        return activeItem?.type === 'active-sessions' ? activeItem.sessions.map((session) => session.id) : [];
+    }, [sessionListViewData]);
+
+    const activeSessionIdSet = React.useMemo(() => new Set(activeSessionOrder), [activeSessionOrder]);
 
     const machineNameById = React.useMemo(() => {
         const map = new Map<string, string>();
@@ -137,23 +145,31 @@ export default React.memo(function SessionSearchScreen() {
     }, [filter, managedSessions, query]);
 
     const sections = React.useMemo(() => {
+        const showActiveGroup = filter === 'all' && query.trim().length === 0;
+        const active = showActiveGroup
+            ? sortByQueue(
+                filteredSessions.filter((item) => activeSessionIdSet.has(item.session.id)),
+                activeSessionOrder,
+            )
+            : [];
+        const isReservedActive = (item: ManagedSession) => showActiveGroup && activeSessionIdSet.has(item.session.id);
         const pinned = sortByQueue(
-            filteredSessions.filter((item) => item.pinned),
+            filteredSessions.filter((item) => item.pinned && !isReservedActive(item)),
             management.preferences.pinnedOrder,
         );
         const needs = sortByQueue(
-            filteredSessions.filter((item) => !item.pinned && item.needsAction),
+            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && item.needsAction),
             management.preferences.focusOrder,
         );
         const running = sortByPriority(
-            filteredSessions.filter((item) => !item.pinned && !item.needsAction && item.running),
+            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && !item.needsAction && item.running),
         );
         const recent = sortByPriority(
-            filteredSessions.filter((item) => !item.pinned && !item.needsAction && !item.running),
+            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && !item.needsAction && !item.running),
         );
 
-        return { pinned, needs, running, recent };
-    }, [filteredSessions, management.preferences.focusOrder, management.preferences.pinnedOrder]);
+        return { active, pinned, needs, running, recent };
+    }, [activeSessionIdSet, activeSessionOrder, filter, filteredSessions, management.preferences.focusOrder, management.preferences.pinnedOrder, query]);
 
     const allNeedsCount = managedSessions.filter((item) => item.needsAction).length;
     const hasQuery = query.trim().length > 0;
@@ -239,6 +255,16 @@ export default React.memo(function SessionSearchScreen() {
                 >
                     {hasResults ? (
                         <>
+                            <SessionSectionView
+                                section="active"
+                                title={t('sessionSearch.sections.active')}
+                                items={sections.active}
+                                sortMode={sortMode}
+                                expandedSessionId={expandedSessionId}
+                                management={management}
+                                onPressSession={handleSessionPress}
+                                onToggleExpanded={setExpandedSessionId}
+                            />
                             <SessionSectionView
                                 section="pinned"
                                 title={t('sessionSearch.sections.pinned')}

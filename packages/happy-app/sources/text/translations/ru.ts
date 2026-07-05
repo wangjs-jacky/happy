@@ -624,6 +624,7 @@ export const ru: TranslationStructure = {
             drafts: 'Черновики',
         },
         sections: {
+            active: 'Текущие сессии',
             pinned: 'Закрепленные',
             needs: 'Требуют внимания',
             running: 'Выполняются',

@@ -609,6 +609,7 @@ export const ja: TranslationStructure = {
             drafts: '下書き',
         },
         sections: {
+            active: '現在のセッション',
             pinned: 'ピン留め',
             needs: '要対応',
             running: '実行中',

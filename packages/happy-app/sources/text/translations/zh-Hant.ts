@@ -608,6 +608,7 @@ export const zhHant: TranslationStructure = {
             drafts: '草稿',
         },
         sections: {
+            active: '目前會話',
             pinned: '置頂',
             needs: '待處理',
             running: '執行中',

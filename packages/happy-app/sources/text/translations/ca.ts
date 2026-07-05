@@ -608,6 +608,7 @@ export const ca: TranslationStructure = {
             drafts: 'Esborranys',
         },
         sections: {
+            active: 'Sessions actuals',
             pinned: 'Fixades',
             needs: 'Requereix acció',
             running: 'En execució',
