@@ -11,6 +11,7 @@ const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';
 const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-count';
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
+const SESSION_MANAGEMENT_KEY = 'session-management-v1';
 
 export type NewSessionAgentType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -26,6 +27,11 @@ export interface NewSessionDraft {
     sessionType: NewSessionSessionType;
     worktreeKey: string | null;
     updatedAt: number;
+}
+
+export interface SessionManagementPreferences {
+    pinnedOrder: string[];
+    focusOrder: string[];
 }
 
 export function loadSettings(): { settings: Settings, version: number | null } {
@@ -197,6 +203,34 @@ export function saveNewSessionDraft(draft: NewSessionDraft) {
 
 export function clearNewSessionDraft() {
     mmkv.delete(NEW_SESSION_DRAFT_KEY);
+}
+
+function parseStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+export function loadSessionManagementPreferences(): SessionManagementPreferences {
+    const raw = mmkv.getString(SESSION_MANAGEMENT_KEY);
+    if (!raw) {
+        return { pinnedOrder: [], focusOrder: [] };
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        return {
+            pinnedOrder: parseStringArray(parsed?.pinnedOrder),
+            focusOrder: parseStringArray(parsed?.focusOrder),
+        };
+    } catch (e) {
+        console.error('Failed to parse session management preferences', e);
+        return { pinnedOrder: [], focusOrder: [] };
+    }
+}
+
+export function saveSessionManagementPreferences(preferences: SessionManagementPreferences) {
+    mmkv.set(SESSION_MANAGEMENT_KEY, JSON.stringify(preferences));
 }
 
 export function loadRegisteredPushToken(): string | null {

@@ -1513,6 +1513,10 @@ export function useIsSessionUnread(sessionId: string): boolean {
     return storage((state) => state.unreadSessionIds.has(sessionId));
 }
 
+export function useUnreadSessionIds(): Set<string> {
+    return storage((state) => state.unreadSessionIds);
+}
+
 // Artifact hooks
 export function useArtifacts(): DecryptedArtifact[] {
     return storage(useShallow((state) => {
