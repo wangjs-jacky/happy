@@ -151,6 +151,18 @@ interface SessionKillResponse {
     message: string;
 }
 
+interface SessionRegenerateTitleRequest {
+    transcript: string;
+    currentTitle?: string | null;
+    projectPath?: string | null;
+    model?: string | null;
+    effort?: string | null;
+}
+
+export type SessionRegenerateTitleResponse =
+    | { success: true; title: string }
+    | { success: false; message: string };
+
 // Response types for spawn session
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
@@ -834,6 +846,24 @@ export async function sessionKill(sessionId: string): Promise<SessionKillRespons
         return {
             success: false,
             message: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
+}
+
+export async function sessionRegenerateTitle(
+    sessionId: string,
+    request: SessionRegenerateTitleRequest,
+): Promise<SessionRegenerateTitleResponse> {
+    try {
+        return await apiSocket.sessionRPC<SessionRegenerateTitleResponse, SessionRegenerateTitleRequest>(
+            sessionId,
+            'regenerateTitle',
+            request,
+        );
+    } catch (error) {
+        return {
+            success: false,
+            message: error instanceof Error ? error.message : 'Unknown error',
         };
     }
 }

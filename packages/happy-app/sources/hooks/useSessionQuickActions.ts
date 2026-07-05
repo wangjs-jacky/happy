@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, sessionUpdateMetadata, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, sessionRegenerateTitle, sessionUpdateMetadata, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -19,6 +19,7 @@ import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
 import { hapticsSuccess } from '@/components/haptics';
 import { getSessionName } from '@/utils/sessionUtils';
+import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 
 export interface SessionActionItem {
@@ -42,6 +43,12 @@ type ResumeAvailability = {
     subtitle: string;
     message: string;
 };
+
+function isRegenerateTitleRpcUnavailable(message: string | undefined): boolean {
+    return message === 'RPC call failed'
+        || message === 'RPC method not available'
+        || message === 'Method not found';
+}
 
 function getResumeAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
     if (isConnected) {
@@ -140,6 +147,10 @@ export function useSessionQuickActions(
         && forkSource
         && machine
         && isMachineOnline(machine),
+    );
+    const canRegenerateTitle = Boolean(
+        sessionStatus.isConnected
+        && session.metadata?.capabilities?.regenerateTitle,
     );
 
     const openDetails = React.useCallback(() => {
@@ -267,6 +278,43 @@ export function useSessionQuickActions(
         performRename();
     }, [performRename]);
 
+    const [regeneratingTitle, performRegenerateTitle] = useHappyAction(async () => {
+        if (!session.metadata || !sessionStatus.isConnected) {
+            throw new HappyError(t('sessionInfo.regenerateTitleUnavailable'), false);
+        }
+        if (!canRegenerateTitle) {
+            throw new HappyError(t('sessionInfo.regenerateTitleRequiresUpdatedCli'), false);
+        }
+
+        await sync.ensureMessagesLoaded(session.id);
+        const messages = storage.getState().sessionMessages[session.id]?.messages ?? [];
+        const transcript = buildSessionTitleTranscript(messages);
+        if (!transcript) {
+            throw new HappyError(t('sessionInfo.regenerateTitleNoMessages'), false);
+        }
+
+        const result = await sessionRegenerateTitle(session.id, {
+            transcript,
+            currentTitle: session.metadata.summary?.text ?? null,
+            projectPath: session.metadata.path ?? null,
+            model: session.modelMode ?? session.metadata.currentModelCode ?? null,
+            effort: session.effortLevel ?? session.metadata.currentThoughtLevelCode ?? null,
+        });
+        if (!result.success) {
+            const message = isRegenerateTitleRpcUnavailable(result.message)
+                ? t('sessionInfo.regenerateTitleRequiresUpdatedCli')
+                : result.message || t('sessionInfo.regenerateTitleFailed');
+            throw new HappyError(message, false);
+        }
+
+        await sync.refreshSessions();
+        hapticsSuccess();
+    });
+
+    const regenerateTitle = React.useCallback(() => {
+        performRegenerateTitle();
+    }, [performRegenerateTitle]);
+
     // Permanently delete a session. If it is still active, first try to stop
     // the CLI process so the server accepts the delete.
     const [deletingSession, performDelete] = useHappyAction(async () => {
@@ -341,6 +389,7 @@ export function useSessionQuickActions(
                 details: t('profile.details'),
                 resume: t('sessionInfo.resumeSession'),
                 rename: t('sessionInfo.renameSession'),
+                regenerateTitle: t('sessionInfo.regenerateTitle'),
                 fork: t('session.forkAction'),
                 duplicate: t('session.duplicateAction'),
                 copyMetadata: t('sessionInfo.copyMetadata'),
@@ -353,6 +402,7 @@ export function useSessionQuickActions(
                 openDetails,
                 resumeSession,
                 renameSession,
+                regenerateTitle,
                 forkSession,
                 openDuplicateSheet,
                 copySessionMetadata,
@@ -362,6 +412,7 @@ export function useSessionQuickActions(
                 selectSession: onSelectSession,
             },
             canShowResume: resumeAvailability.canShowResume,
+            canRegenerateTitle,
             canFork,
             canCopySessionMetadata,
             sessionActive: session.active,
@@ -370,6 +421,7 @@ export function useSessionQuickActions(
     }, [
         archiveSession,
         canCopySessionMetadata,
+        canRegenerateTitle,
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
@@ -378,6 +430,7 @@ export function useSessionQuickActions(
         openDetails,
         openDuplicateSheet,
         onSelectSession,
+        regenerateTitle,
         renameSession,
         resumeAvailability.canShowResume,
         resumeSession,
@@ -407,12 +460,15 @@ export function useSessionQuickActions(
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,
         canFork,
+        canRegenerateTitle,
         copySessionMetadata,
         copySessionMetadataAndLogs,
         forkSession,
         forking,
         openDetails,
         openDuplicateSheet,
+        regenerateTitle,
+        regeneratingTitle,
         renameSession,
         renamingSession,
         resumeSession,

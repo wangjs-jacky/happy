@@ -20,9 +20,11 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
+        canRegenerateTitle,
         deleteSession,
         canShowResume,
         openDetails,
+        regenerateTitle,
         renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
@@ -39,6 +41,11 @@ export function SessionActionsNativeMenu({
                 <DropdownMenuItem onClick={renameSession}>
                     <DropdownMenuItem.Text>{t('sessionInfo.renameSession')}</DropdownMenuItem.Text>
                 </DropdownMenuItem>
+                {canRegenerateTitle && (
+                    <DropdownMenuItem onClick={regenerateTitle}>
+                        <DropdownMenuItem.Text>{t('sessionInfo.regenerateTitle')}</DropdownMenuItem.Text>
+                    </DropdownMenuItem>
+                )}
                 {canArchive && (
                     <DropdownMenuItem onClick={archiveSession}>
                         <DropdownMenuItem.Text>{t('sessionInfo.archiveSession')}</DropdownMenuItem.Text>

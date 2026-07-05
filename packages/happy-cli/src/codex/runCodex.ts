@@ -48,6 +48,7 @@ import {
 import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { listCodexSkillNames } from './codexSkills';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -560,6 +561,7 @@ export async function runCodex(opts: {
     // Register abort handler
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
 
+    registerSessionTitleWorker(session, 'codex');
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
     //

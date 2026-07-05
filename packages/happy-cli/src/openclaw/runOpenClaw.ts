@@ -30,6 +30,7 @@ import { connectionState } from '@/utils/serverConnectionErrors';
 import { OpenClawBackend } from './OpenClawBackend';
 import type { OpenClawGatewayConfig } from './openclawTypes';
 import type { AgentMessage } from '@/agent/core';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -301,6 +302,7 @@ export async function runOpenClaw(opts: RunOpenClawOptions): Promise<void> {
   session.rpcHandlerManager.registerHandler('openclaw-retry-pairing', async () => {
     backend.retryConnect();
   });
+  registerSessionTitleWorker(session, 'openclaw');
   registerKillSessionHandler(session.rpcHandlerManager, async () => {
     shouldExit = true;
     messageQueue.close();
