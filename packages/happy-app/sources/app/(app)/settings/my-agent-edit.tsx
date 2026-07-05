@@ -7,14 +7,17 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
+import { PathPickerContent, type PickerItem } from '@/components/SessionConfigPanel';
 import { RoundButton } from '@/components/RoundButton';
-import { useSettingMutable, useAllMachines } from '@/sync/storage';
+import { useSettingMutable, useAllMachines, useSessions } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { entityColor } from '@/components/entityColor';
 import { Modal } from '@/modal';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { AgentLauncher, AgentPreset } from '@/components/agents/launchAgent';
+import { formatPathRelativeToHome } from '@/utils/sessionUtils';
+import type { Session } from '@/sync/storageTypes';
 
 /** 取名称第一个字形（grapheme-safe）作为默认头像字符；空则回退 '?'。 */
 function firstGlyph(name: string): string {
@@ -37,6 +40,7 @@ export default React.memo(function AgentEditScreen() {
 
     const [agents, setAgents] = useSettingMutable('agents');
     const machines = useAllMachines({ includeOffline: true });
+    const sessions = useSessions();
 
     const existing = React.useMemo(
         () => (editingId ? agents.find((a) => a.id === editingId) ?? null : null),
@@ -56,6 +60,31 @@ export default React.memo(function AgentEditScreen() {
 
     // Save 需要非空名称 + 已选机器；否则禁用保存按钮（路径为空时落库回退 '~'）。
     const canSave = name.trim().length > 0 && !!machineId;
+    const selectedMachine = React.useMemo(
+        () => machines.find((m) => m.id === machineId) ?? null,
+        [machines, machineId],
+    );
+    const selectedMachineOnline = selectedMachine ? isMachineOnline(selectedMachine) : false;
+    const pathItems = React.useMemo<PickerItem[]>(() => {
+        if (!machineId || !sessions) {
+            return [];
+        }
+        const paths = new Set<string>();
+        for (const s of sessions) {
+            if (typeof s === 'string') {
+                continue;
+            }
+            const session = s as Session;
+            if (session.metadata?.machineId === machineId && session.metadata?.path) {
+                paths.add(session.metadata.path);
+            }
+        }
+        const homeDir = selectedMachine?.metadata?.homeDir;
+        return Array.from(paths).sort().map((p) => ({
+            key: p,
+            label: formatPathRelativeToHome(p, homeDir),
+        }));
+    }, [machineId, sessions, selectedMachine]);
 
     const updatePreset = React.useCallback((index: number, patch: Partial<AgentPreset>) => {
         setPresets((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
@@ -170,17 +199,17 @@ export default React.memo(function AgentEditScreen() {
 
                 {/* 文件夹路径 */}
                 <ItemGroup title={t('agents.folder')}>
-                    <View style={styles.inputRow}>
-                        <TextInput
-                            style={[styles.input, styles.mono, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
-                            value={path}
-                            onChangeText={setPath}
-                            placeholder={t('agents.folderPlaceholder')}
-                            placeholderTextColor={theme.colors.input.placeholder}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                    </View>
+                    <PathPickerContent
+                        title={t('agents.folder')}
+                        items={pathItems}
+                        value={path}
+                        homeDir={selectedMachine?.metadata?.homeDir}
+                        machineId={machineId}
+                        machineOnline={selectedMachineOnline}
+                        onChangeValue={setPath}
+                        embedded
+                        manualInput={false}
+                    />
                 </ItemGroup>
 
                 {/* 预设指令 */}
