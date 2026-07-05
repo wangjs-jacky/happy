@@ -1,6 +1,6 @@
 import type { Session } from './storageTypes';
 import type { Settings } from './settings';
-import { getAgentDefaultOverride } from './agentDefaults';
+import { getAgentDefaultOverride, getCodeAgentDefaults } from './agentDefaults';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 
 export type MessageModeMeta = {
@@ -20,6 +20,8 @@ export function resolveMessageModeMeta(
         meta.permissionMode = session.permissionMode;
     } else if (agentOverrides.permissionMode !== undefined) {
         meta.permissionMode = agentOverrides.permissionMode;
+    } else if (session.metadata?.flavor === 'codex') {
+        meta.permissionMode = getCodeAgentDefaults('codex').permissionMode;
     }
 
     const modelMode = session.modelMode ?? agentOverrides.modelMode;

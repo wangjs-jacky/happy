@@ -189,4 +189,3 @@ Run:
 
 Working directory: `packages/happy-app`
 Expected: exit 0
-

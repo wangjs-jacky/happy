@@ -133,4 +133,3 @@ For future mirrored features, the default rule is:
 > Historical implementation first, code second.
 
 If two consecutive user reports describe the same class of failure, stop patching symptoms. Re-read the original implementation and rebuild the behavior model before making another change.
-

@@ -5,7 +5,7 @@ import {
     getOtaVersionState,
     getRecommendedOtaVersion,
 } from './otaVersionDisplay';
-import { OtaVersion } from './useOtaVersions';
+import type { OtaVersion } from './useOtaVersions';
 
 const version = (overrides: Partial<OtaVersion>): OtaVersion => ({
     stamp: '1783232002648',

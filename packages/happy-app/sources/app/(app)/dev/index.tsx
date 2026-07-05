@@ -224,7 +224,7 @@ export default function DevScreen() {
                     title={t('devTools.otaVersions')}
                     subtitle={t('devTools.otaVersionsSubtitle')}
                     icon={<Ionicons name="cube-outline" size={28} color={theme.colors.accent} />}
-                    onPress={() => router.push('/dev/ota-versions')}
+                    onPress={() => router.push('/dev/ota-versions' as any)}
                 />
             </ItemGroup>
 

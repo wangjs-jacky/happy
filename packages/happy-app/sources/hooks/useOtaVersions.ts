@@ -1,4 +1,11 @@
 import * as React from 'react';
+import {
+    extractOtaKeys,
+    listOtaStamps,
+    type OtaVersion,
+} from '@/utils/otaVersions';
+
+export type { OtaVersion };
 
 // useOtaVersions —— 拉取自建 OSS 上某频道的全部 OTA 历史版本，供「OTA 版本」选择器展示。
 //
@@ -11,115 +18,201 @@ import * as React from 'react';
 // 需要桶对 meta/ 前缀开匿名 ListObjects + GetObject 权限（见部署文档）。
 
 const OSS_PUBLIC_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
-// 单次最多展示多少个版本（够回归验收用，避免拉太多 meta）
-const MAX_VERSIONS = 50;
-
-export interface OtaGitInfo {
-    sha?: string;
-    branch?: string;
-    subject?: string;
-    dirty?: boolean;
-}
-
-export interface OtaDisplayInfo {
-    title?: string;
-    message?: string;
-    source?: {
-        type?: string;
-        number?: string;
-        url?: string;
-    };
-}
-
-export interface OtaVersion {
-    stamp: string;        // 毫秒时间戳，定向锁定的 key
-    id: string;           // manifest UUID（= 运行时 Update ID）
-    createdAt: string;    // ISO 时间
-    channel: string;
-    git: OtaGitInfo;
-    display?: OtaDisplayInfo;
-}
+const PAGE_SIZE = 20;
 
 export interface OtaVersionsState {
     versions: OtaVersion[];
     loading: boolean;
+    loadingMore: boolean;
+    hasMore: boolean;
+    loadedCount: number;
+    totalCount: number;
     error: string | null;
     debug: string; // 诊断信息（HTTP 状态 / 字节数 / 解析结果），排查「拿不到版本」用
     refresh: () => Promise<void>;
+    loadMore: () => Promise<void>;
 }
 
-// 从 OSS ListObjectsV2 的 XML 响应里提取所有对象 key
-function extractKeys(xml: string): string[] {
-    const keys: string[] = [];
-    const re = /<Key>([^<]+)<\/Key>/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(xml)) !== null) {
-        keys.push(m[1]);
+export interface OtaVersionDetailState {
+    version: OtaVersion | null;
+    loading: boolean;
+    error: string | null;
+    refresh: () => Promise<void>;
+}
+
+async function fetchOtaVersionMeta(channel: string, platform: string, runtime: string, stamp: string): Promise<OtaVersion | null> {
+    try {
+        const prefix = `meta/${platform}/${runtime}/${channel}/`;
+        const res = await fetch(`${OSS_PUBLIC_BASE}/${prefix}${stamp}.json`);
+        if (!res.ok) return null;
+        const meta = await res.json();
+        return {
+            stamp,
+            id: meta.id ?? '',
+            createdAt: meta.createdAt ?? '',
+            channel: meta.channel ?? channel,
+            git: meta.git ?? {},
+            display: meta.display ?? undefined,
+        } as OtaVersion;
+    } catch {
+        return null;
     }
-    return keys;
+}
+
+async function fetchOtaVersionBatch(channel: string, platform: string, runtime: string, stamps: string[]): Promise<OtaVersion[]> {
+    const metas = await Promise.all(stamps.map((stamp) => fetchOtaVersionMeta(channel, platform, runtime, stamp)));
+    return metas.filter((version): version is OtaVersion => version !== null);
+}
+
+export async function fetchOtaVersion(channel: string, stamp: string, platform: string = 'android', runtime: string = '21'): Promise<OtaVersion | null> {
+    return fetchOtaVersionMeta(channel, platform, runtime, stamp);
+}
+
+export function useOtaVersion(stamp: string | null, channel: string = 'preview', platform: string = 'android', runtime: string = '21'): OtaVersionDetailState {
+    const [version, setVersion] = React.useState<OtaVersion | null>(null);
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState<string | null>(null);
+    const requestIdRef = React.useRef(0);
+
+    const refresh = React.useCallback(async () => {
+        const requestId = ++requestIdRef.current;
+        if (!stamp) {
+            setVersion(null);
+            setError('缺少 OTA 版本参数');
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        try {
+            const nextVersion = await fetchOtaVersionMeta(channel, platform, runtime, stamp);
+            if (requestId !== requestIdRef.current) return;
+            if (!nextVersion) {
+                setVersion(null);
+                setError('找不到这个 OTA 版本');
+                return;
+            }
+            setVersion(nextVersion);
+        } catch (e) {
+            if (requestId !== requestIdRef.current) return;
+            setVersion(null);
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            if (requestId === requestIdRef.current) {
+                setLoading(false);
+            }
+        }
+    }, [channel, platform, runtime, stamp]);
+
+    React.useEffect(() => {
+        refresh();
+    }, [refresh]);
+
+    return { version, loading, error, refresh };
 }
 
 export function useOtaVersions(channel: string = 'preview', platform: string = 'android', runtime: string = '21'): OtaVersionsState {
     const [versions, setVersions] = React.useState<OtaVersion[]>([]);
     const [loading, setLoading] = React.useState(true);
+    const [loadingMore, setLoadingMore] = React.useState(false);
+    const [hasMore, setHasMore] = React.useState(false);
+    const [loadedCount, setLoadedCount] = React.useState(0);
+    const [totalCount, setTotalCount] = React.useState(0);
     const [error, setError] = React.useState<string | null>(null);
     const [debug, setDebug] = React.useState<string>('');
+    const requestIdRef = React.useRef(0);
+    const allStampsRef = React.useRef<string[]>([]);
+    const listDebugRef = React.useRef('');
+
+    const updateDebug = React.useCallback((renderedCount: number, message?: string) => {
+        const base = listDebugRef.current;
+        const loadInfo = totalCount > 0 ? ` · loaded ${loadedCount}/${totalCount} · rendered ${renderedCount}` : '';
+        const extra = message ? ` · ${message}` : '';
+        setDebug(`${base}${loadInfo}${extra}`.trim());
+    }, [loadedCount, totalCount]);
 
     const refresh = React.useCallback(async () => {
+        const requestId = ++requestIdRef.current;
         setLoading(true);
+        setLoadingMore(false);
         setError(null);
         try {
             const prefix = `meta/${platform}/${runtime}/${channel}/`;
             const listUrl = `${OSS_PUBLIC_BASE}/?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
             const listRes = await fetch(listUrl);
             const xml = await listRes.text();
-            const allKeys = extractKeys(xml);
-            const stamps = allKeys
-                .filter((k) => k.endsWith('.json'))
-                .map((k) => k.slice(prefix.length).replace(/\.json$/, ''))
-                .filter((s) => /^\d+$/.test(s))
-                .sort((a, b) => Number(b) - Number(a)) // 最新在前
-                .slice(0, MAX_VERSIONS);
-            // 诊断：HTTP 状态 / 响应字节 / 解析出的 key 数 / stamp 数 + 响应头几个字符
-            setDebug(`HTTP ${listRes.status} · ${xml.length}B · keys ${allKeys.length} · stamps ${stamps.length} · head「${xml.slice(0, 40).replace(/\s+/g, ' ')}」`);
+            const allKeys = extractOtaKeys(xml);
+            const stamps = listOtaStamps(allKeys, prefix);
+            const initialStamps = stamps.slice(0, PAGE_SIZE);
+            listDebugRef.current = `HTTP ${listRes.status} · ${xml.length}B · keys ${allKeys.length} · stamps ${stamps.length} · head「${xml.slice(0, 40).replace(/\s+/g, ' ')}」`;
+
             if (!listRes.ok) {
                 throw new Error(`ListObjects HTTP ${listRes.status}: ${xml.slice(0, 120)}`);
             }
 
-            const metas = await Promise.all(
-                stamps.map(async (stamp) => {
-                    try {
-                        const res = await fetch(`${OSS_PUBLIC_BASE}/${prefix}${stamp}.json`);
-                        if (!res.ok) return null;
-                        const meta = await res.json();
-                        return {
-                            stamp,
-                            id: meta.id ?? '',
-                            createdAt: meta.createdAt ?? '',
-                            channel: meta.channel ?? channel,
-                            git: meta.git ?? {},
-                            display: meta.display ?? undefined,
-                        } as OtaVersion;
-                    } catch {
-                        return null;
-                    }
-                }),
-            );
-            const ok = metas.filter((v): v is OtaVersion => v !== null);
+            const ok = await fetchOtaVersionBatch(channel, platform, runtime, initialStamps);
+            if (requestId !== requestIdRef.current) return;
+
+            allStampsRef.current = stamps;
             setVersions(ok);
-            setDebug((d) => `${d} · metaOk ${ok.length}`);
+            setTotalCount(stamps.length);
+            setLoadedCount(initialStamps.length);
+            setHasMore(stamps.length > initialStamps.length);
+            setDebug(`${listDebugRef.current} · loaded ${initialStamps.length}/${stamps.length} · rendered ${ok.length}`.trim());
         } catch (e) {
+            if (requestId !== requestIdRef.current) return;
             const msg = e instanceof Error ? e.message : String(e);
             setError(msg);
             setDebug((d) => `${d || ''} · ERR ${msg}`.slice(0, 300));
+            setVersions([]);
+            setHasMore(false);
+            setLoadedCount(0);
+            setTotalCount(0);
         } finally {
-            setLoading(false);
+            if (requestId === requestIdRef.current) {
+                setLoading(false);
+            }
         }
     }, [channel, platform, runtime]);
+
+    const loadMore = React.useCallback(async () => {
+        if (loading || loadingMore || !hasMore) return;
+
+        const requestId = requestIdRef.current;
+        const start = loadedCount;
+        const nextStamps = allStampsRef.current.slice(start, start + PAGE_SIZE);
+        if (nextStamps.length === 0) {
+            setHasMore(false);
+            return;
+        }
+
+        setLoadingMore(true);
+        setError(null);
+        try {
+            const more = await fetchOtaVersionBatch(channel, platform, runtime, nextStamps);
+            if (requestId !== requestIdRef.current) return;
+
+            const nextLoadedCount = start + nextStamps.length;
+            setVersions((current) => [...current, ...more]);
+            setLoadedCount(nextLoadedCount);
+            setHasMore(allStampsRef.current.length > nextLoadedCount);
+            setDebug(`${listDebugRef.current} · loaded ${nextLoadedCount}/${allStampsRef.current.length} · rendered ${versions.length + more.length}`.trim());
+        } catch (e) {
+            if (requestId !== requestIdRef.current) return;
+            const msg = e instanceof Error ? e.message : String(e);
+            setError(msg);
+            updateDebug(versions.length, `ERR ${msg}`);
+        } finally {
+            if (requestId === requestIdRef.current) {
+                setLoadingMore(false);
+            }
+        }
+    }, [channel, hasMore, loadedCount, loading, loadingMore, platform, runtime, updateDebug, versions.length]);
 
     React.useEffect(() => {
         refresh();
     }, [refresh]);
 
-    return { versions, loading, error, debug, refresh };
+    return { versions, loading, loadingMore, hasMore, loadedCount, totalCount, error, debug, refresh, loadMore };
 }

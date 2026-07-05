@@ -1,4 +1,4 @@
-import { OtaVersion } from './useOtaVersions';
+import type { OtaVersion } from './useOtaVersions';
 
 export interface OtaVersionLine {
     title: string;

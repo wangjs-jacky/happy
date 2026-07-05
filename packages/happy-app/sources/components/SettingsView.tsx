@@ -30,15 +30,24 @@ import { getDisplayName } from '@/sync/profile';
 import { MascotSwitcher } from '@/components/MascotSwitcher';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 import * as Localization from 'expo-localization';
+import { loadAppConfig } from '@/sync/appConfig';
 
 type BuildConfig = {
+    repositoryUrl?: unknown;
+    repositoryIssuesUrl?: unknown;
     buildCommitSha?: unknown;
     buildCommitTimestamp?: unknown;
 };
 
 function getBuildConfig(): BuildConfig {
-    const appConfig = Constants.expoConfig?.extra?.app;
+    const appConfig = loadAppConfig();
     return appConfig && typeof appConfig === 'object' ? appConfig as BuildConfig : {};
+}
+
+function getGitHubRepoDetail(value: string): string {
+    const normalized = value.replace(/\.git$/, '');
+    const match = normalized.match(/github\.com\/([^/]+\/[^/#?]+)/i);
+    return match ? match[1] : normalized;
 }
 
 function formatUtcTimestamp(value: string): string {
@@ -75,6 +84,7 @@ function formatBuildSubtitle(buildConfig: BuildConfig): string | undefined {
 export const SettingsView = React.memo(function SettingsView() {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const buildConfig = React.useMemo(() => getBuildConfig(), []);
     const appVersion = Constants.expoConfig?.version || '1.0.0';
     const runtimeVersion = typeof Constants.expoConfig?.runtimeVersion === 'string'
         ? Constants.expoConfig.runtimeVersion
@@ -83,7 +93,7 @@ export const SettingsView = React.memo(function SettingsView() {
         appVersion,
         runtimeVersion ? `runtime ${runtimeVersion}` : undefined,
     ].filter(Boolean).join(' / ');
-    const versionSubtitle = formatBuildSubtitle(getBuildConfig());
+    const versionSubtitle = formatBuildSubtitle(buildConfig);
     const auth = useAuth();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
     // 「通用」分组：主题/语言入口右侧展示的当前值（响应式，改完返回即更新）
@@ -127,13 +137,21 @@ export const SettingsView = React.memo(function SettingsView() {
     const displayName = getDisplayName(profile);
 
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
+    const repositoryUrl = typeof buildConfig.repositoryUrl === 'string'
+        ? buildConfig.repositoryUrl
+        : 'https://github.com/wangjs-jacky/happy';
+    const repositoryIssuesUrl = typeof buildConfig.repositoryIssuesUrl === 'string'
+        ? buildConfig.repositoryIssuesUrl
+        : `${repositoryUrl.replace(/\/$/, '')}/issues`;
+    const termsUrl = `${repositoryUrl.replace(/\/$/, '').replace(/\.git$/, '')}/blob/main/packages/happy-app/TERMS.md`;
+    const repositoryDetail = getGitHubRepoDetail(repositoryUrl);
 
     const handleGitHub = async () => {
-        await openExternalUrl('https://github.com/wangjs-jacky/paws');
+        await openExternalUrl(repositoryUrl);
     };
 
     const handleReportIssue = async () => {
-        await openExternalUrl('https://github.com/wangjs-jacky/paws/issues');
+        await openExternalUrl(repositoryIssuesUrl);
     };
 
     // Manual "force update" — a deterministic alternative to the passive update
@@ -463,7 +481,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.github')}
                     icon={<Ionicons name="logo-github" size={29} color={theme.colors.text} />}
-                    detail="wangjs-jacky/paws"
+                    detail={repositoryDetail}
                     onPress={handleGitHub}
                 />
                 <Item
@@ -479,7 +497,7 @@ export const SettingsView = React.memo(function SettingsView() {
                 <Item
                     title={t('settings.termsOfService')}
                     icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />}
-                    onPress={() => openExternalUrl('https://github.com/wangjs-jacky/paws/blob/main/TERMS.md')}
+                    onPress={() => openExternalUrl(termsUrl)}
                 />
                 {Platform.OS === 'ios' && (
                     <Item
