@@ -327,6 +327,7 @@ export function useSessionQuickActions(
         if (!result.success) {
             throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
         }
+        storage.getState().deleteSession(session.id);
         onAfterDelete?.();
     });
 
