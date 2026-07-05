@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { ScrollView, View, Text } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,37 +7,17 @@ import { getChangelogEntries, getLatestTitle, setLastViewedTitle } from '@/chang
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { t } from '@/text';
-import { getOtaChangelogEntry, getOtaChangelogTitle } from '@/changelog/runtime';
-import { useOtaVersions } from '@/hooks/useOtaVersions';
-import { loadAppConfig } from '@/sync/appConfig';
 
 export default function ChangelogScreen() {
     const insets = useSafeAreaInsets();
-    const appConfig = useMemo(() => loadAppConfig(), []);
-    const changelogChannel = appConfig.otaChannel || 'preview';
-    const fallbackEntries = getChangelogEntries();
-    const fallbackLatestTitle = getLatestTitle();
-    const { versions, loading } = useOtaVersions(changelogChannel);
-    const entries = versions.length > 0 ? versions.map(getOtaChangelogEntry) : fallbackEntries;
-    const latestTitle = versions[0] ? getOtaChangelogTitle(versions[0]) : fallbackLatestTitle;
+    const entries = getChangelogEntries();
+    const latestTitle = getLatestTitle();
 
     useEffect(() => {
         if (latestTitle) {
             setLastViewedTitle(latestTitle);
         }
     }, [latestTitle]);
-
-    if (loading && entries.length === 0) {
-        return (
-            <View style={styles.container}>
-                <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>
-                        {t('common.loading')}
-                    </Text>
-                </View>
-            </View>
-        );
-    }
 
     if (entries.length === 0) {
         return (
