@@ -153,6 +153,53 @@ export const MachineMetadataSchema = z.object({
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
 
+export const CodexUsageTokenTotalsSchema = z.object({
+  inputTokens: z.number(),
+  cachedInputTokens: z.number(),
+  outputTokens: z.number(),
+  reasoningOutputTokens: z.number(),
+  totalTokens: z.number(),
+})
+
+export const CodexUsageDaySchema = CodexUsageTokenTotalsSchema.extend({
+  date: z.string(),
+  tokenCountEvents: z.number(),
+  sessions: z.number(),
+  totalOnlyTokens: z.number(),
+})
+
+export const CodexUsageSnapshotSchema = z.object({
+  source: z.literal('codex-session-jsonl'),
+  codexHome: z.string(),
+  sessionsDir: z.string(),
+  timeZone: z.string(),
+  scannedAt: z.number(),
+  today: CodexUsageDaySchema.nullable(),
+  yesterday: CodexUsageDaySchema.nullable(),
+  days: z.array(CodexUsageDaySchema),
+  latestEvent: z.object({
+    timestamp: z.string(),
+    localDate: z.string(),
+    lastTokenUsage: CodexUsageTokenTotalsSchema,
+    sessionTotalTokenUsage: CodexUsageTokenTotalsSchema.optional(),
+    rateLimits: z.object({
+      planType: z.string().optional(),
+      primary: z.object({
+        usedPercent: z.number().optional(),
+        windowMinutes: z.number().optional(),
+        resetsAt: z.number().optional(),
+      }).optional(),
+      secondary: z.object({
+        usedPercent: z.number().optional(),
+        windowMinutes: z.number().optional(),
+        resetsAt: z.number().optional(),
+      }).optional(),
+      rateLimitReachedType: z.string().nullable().optional(),
+    }).optional(),
+  }).nullable(),
+  warnings: z.array(z.string()),
+})
+
 /**
  * Daemon state - dynamic runtime information (frequently updated)
  */
@@ -169,7 +216,8 @@ export const DaemonStateSchema = z.object({
     z.union([
       z.enum(['mobile-app', 'cli', 'os-signal', 'unknown']),
       z.string() // Forward compatibility
-    ]).optional()
+    ]).optional(),
+  codexUsage: CodexUsageSnapshotSchema.optional(),
 })
 
 export type DaemonState = z.infer<typeof DaemonStateSchema>

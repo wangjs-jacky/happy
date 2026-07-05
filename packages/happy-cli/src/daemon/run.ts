@@ -28,6 +28,7 @@ import { buildResumeLaunch } from '@/resume/handleResumeCommand';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
+import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -890,6 +891,45 @@ export async function startDaemon(): Promise<void> {
     // Connect to server
     apiMachine.connect();
 
+    let lastCodexUsageScanAt = 0;
+    let lastCodexUsageSignature: string | null = null;
+    const codexUsageRefreshIntervalMs = parseInt(process.env.HAPPY_CODEX_USAGE_REFRESH_INTERVAL || '300000');
+    const syncCodexUsage = async (force: boolean = false): Promise<void> => {
+      const now = Date.now();
+      if (!force && now - lastCodexUsageScanAt < codexUsageRefreshIntervalMs) {
+        return;
+      }
+      if (!apiMachine.isConnected()) {
+        return;
+      }
+
+      lastCodexUsageScanAt = now;
+      try {
+        const codexUsage = await collectCodexUsageSnapshot();
+        const signature = codexUsageSignature(codexUsage);
+        if (!force && signature === lastCodexUsageSignature) {
+          return;
+        }
+        lastCodexUsageSignature = signature;
+        await apiMachine.updateDaemonState((state: DaemonState | null) => ({
+          ...(state || {}),
+          status: state?.status || 'running',
+          pid: process.pid,
+          httpPort: controlPort,
+          startedAt: state?.startedAt || Date.now(),
+          codexUsage,
+        }));
+      } catch (error) {
+        logger.debug('[DAEMON RUN] Failed to sync Codex usage snapshot', error);
+      }
+    };
+
+    const initialCodexUsageTimer = setTimeout(() => {
+      syncCodexUsage(true).catch((error) => {
+        logger.debug('[DAEMON RUN] Initial Codex usage sync failed', error);
+      });
+    }, 5000);
+
     // Every 60 seconds:
     // 1. Prune stale sessions
     // 2. Check if daemon needs update
@@ -987,6 +1027,8 @@ export async function startDaemon(): Promise<void> {
         logger.debug('[DAEMON RUN] Failed to write heartbeat', error);
       }
 
+      await syncCodexUsage(false);
+
       heartbeatRunning = false;
     }, heartbeatIntervalMs); // Every 60 seconds in production
 
@@ -999,6 +1041,7 @@ export async function startDaemon(): Promise<void> {
         clearInterval(restartOnStaleVersionAndHeartbeat);
         logger.debug('[DAEMON RUN] Health check interval cleared');
       }
+      clearTimeout(initialCodexUsageTimer);
 
       // Update daemon state before shutting down
       await apiMachine.updateDaemonState((state: DaemonState | null) => ({
