@@ -527,11 +527,11 @@ export class ApiSessionClient extends EventEmitter {
                 }
             );
 
-            const messages = Array.isArray(response.data.messages) ? response.data.messages : [];
-            const maxSeq = messages.reduce((acc, message) => (
-                message.seq > acc ? message.seq : acc
-            ), this.lastSeq);
-            this.lastSeq = maxSeq;
+            // Do not advance the receive cursor from POST acknowledgements.
+            // Outbound agent messages can receive higher seq values while an
+            // app-sent user message with a lower seq is still in flight on the
+            // socket. Advancing here would make the next catch-up fetch start
+            // after that queued user message, so Codex would never read it.
             this.pendingOutbox.splice(batchStart, batch.length);
         }
     }

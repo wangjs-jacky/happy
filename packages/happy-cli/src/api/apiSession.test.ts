@@ -234,7 +234,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect(payload.messages).toHaveLength(1);
         expect(typeof payload.messages[0].localId).toBe('string');
         expect((client as any).pendingOutbox).toHaveLength(0);
-        expect((client as any).lastSeq).toBe(1);
+        expect((client as any).lastSeq).toBe(0);
 
         const decrypted = decrypt(
             session.encryptionKey,
@@ -298,7 +298,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
         const secondPayload = mockAxiosPost.mock.calls[1][1];
         expect(secondPayload.messages).toHaveLength(2);
         expect((client as any).pendingOutbox).toHaveLength(0);
-        expect((client as any).lastSeq).toBe(3);
+        expect((client as any).lastSeq).toBe(0);
     });
 
     it('retries failed POST and succeeds without dropping queued messages', async () => {
@@ -324,7 +324,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
         const secondPayload = mockAxiosPost.mock.calls[1][1];
         expect(secondPayload).toEqual(firstPayload);
         expect((client as any).pendingOutbox).toHaveLength(0);
-        expect((client as any).lastSeq).toBe(1);
+        expect((client as any).lastSeq).toBe(0);
     });
 
     it('sends claude user text as modern session envelope', async () => {
@@ -820,7 +820,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect(mockAxiosGet.mock.calls[1][1].params.after_seq).toBe(5);
     });
 
-    it('updates lastSeq after successful outbox flush and never moves it backward', async () => {
+    it('keeps the receive cursor unchanged after successful outbox flush', async () => {
         const client = new ApiSessionClient('fake-token', session);
         (client as any).lastSeq = 10;
 
@@ -846,7 +846,37 @@ describe('ApiSessionClient v3 messages API migration', () => {
         await waitForCheck(() => {
             expect(mockAxiosPost).toHaveBeenCalledTimes(2);
         });
-        expect((client as any).lastSeq).toBe(11);
+        expect((client as any).lastSeq).toBe(10);
+    });
+
+    it('does not skip an in-flight user message when outbound messages receive later seqs first', async () => {
+        const client = new ApiSessionClient('fake-token', session);
+        const onUserMessage = vi.fn();
+        client.onUserMessage(onUserMessage);
+        (client as any).lastSeq = 10;
+
+        mockAxiosPost.mockResolvedValueOnce({
+            data: {
+                messages: [{ id: 'msg-12', seq: 12, localId: 'agent-out', createdAt: 12, updatedAt: 12 }]
+            }
+        });
+
+        client.sendCodexMessage({ type: 'agent-output-after-user-message' });
+        await waitForCheck(() => {
+            expect(mockAxiosPost).toHaveBeenCalledTimes(1);
+        });
+
+        const queuedUserMessage = {
+            role: 'user',
+            content: { type: 'text', text: 'queued while codex was running' }
+        };
+
+        emitSocketEvent('update', createNewMessageUpdate(11, encryptContent(session, queuedUserMessage)));
+
+        await waitForCheck(() => {
+            expect(onUserMessage).toHaveBeenCalledTimes(1);
+        });
+        expect(onUserMessage).toHaveBeenCalledWith(queuedUserMessage);
     });
 
     it('flushOutbox tolerates missing response.data.messages and keeps lastSeq unchanged', async () => {
