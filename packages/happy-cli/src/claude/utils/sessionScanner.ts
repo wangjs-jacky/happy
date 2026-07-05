@@ -187,7 +187,7 @@ export async function createSessionScanner(opts: {
             }
             logger.debug(`[SESSION_SCANNER] New session: ${sessionId}`)
             currentSessionId = sessionId;
-            sync.invalidate();
+            await sync.invalidateAndAwait();
         },
     }
 }
