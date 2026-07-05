@@ -5,8 +5,41 @@ import { extractNoSandboxFlag } from '@/utils/sandboxFlags'
 import { ensureDaemonRunning } from '@/daemon/ensureDaemonRunning'
 import type { PermissionMode } from '@/api/types'
 import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
+import { collectCodexUsageSnapshot } from '@/codex/codexUsage'
+
+function formatTokens(value: number | undefined | null): string {
+  return typeof value === 'number' ? value.toLocaleString() : '0'
+}
+
+function printUsageDay(label: string, day: Awaited<ReturnType<typeof collectCodexUsageSnapshot>>['today']): void {
+  if (!day) {
+    console.log(`${label}: no local Codex token events found`)
+    return
+  }
+  console.log(`${label}: ${formatTokens(day.totalTokens)} total tokens`)
+  console.log(`  input: ${formatTokens(day.inputTokens)} (${formatTokens(day.cachedInputTokens)} cached)`)
+  console.log(`  output: ${formatTokens(day.outputTokens)} (${formatTokens(day.reasoningOutputTokens)} reasoning)`)
+  console.log(`  events: ${day.tokenCountEvents.toLocaleString()} across ${day.sessions.toLocaleString()} session(s)`)
+}
 
 export async function handleCodexCommand(args: string[]): Promise<void> {
+  if (args[0] === 'usage') {
+    const snapshot = await collectCodexUsageSnapshot()
+    console.log(`Codex usage source: ${snapshot.sessionsDir}`)
+    console.log(`Time zone: ${snapshot.timeZone}`)
+    printUsageDay('Today', snapshot.today)
+    printUsageDay('Yesterday', snapshot.yesterday)
+    const primary = snapshot.latestEvent?.rateLimits?.primary
+    const secondary = snapshot.latestEvent?.rateLimits?.secondary
+    if (primary || secondary) {
+      console.log(`Rate limits: 5h ${primary?.usedPercent ?? '?'}% / 7d ${secondary?.usedPercent ?? '?'}%`)
+    }
+    for (const warning of snapshot.warnings) {
+      console.log(`Warning: ${warning}`)
+    }
+    return
+  }
+
   let startedBy: 'daemon' | 'terminal' | undefined = undefined
   let permissionMode: PermissionMode | undefined = undefined
   let model: string | undefined = undefined

@@ -548,6 +548,10 @@ export class ApiMachineClient {
         logger.debug('[API MACHINE] Keep-alive started (20s interval)');
     }
 
+    isConnected(): boolean {
+        return this.socket?.connected === true;
+    }
+
     private startSmartReconnect() {
         if (this.reconnectInterval) return;
 

@@ -62,6 +62,83 @@ const styles = StyleSheet.create((theme) => ({
     },
 }));
 
+interface CodexUsageDay {
+    date: string;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+    totalTokens: number;
+    tokenCountEvents: number;
+    sessions: number;
+    totalOnlyTokens?: number;
+}
+
+interface CodexUsageSnapshot {
+    source: 'codex-session-jsonl';
+    scannedAt: number;
+    today: CodexUsageDay | null;
+    yesterday: CodexUsageDay | null;
+    latestEvent?: {
+        rateLimits?: {
+            planType?: string;
+            primary?: { usedPercent?: number; windowMinutes?: number };
+            secondary?: { usedPercent?: number; windowMinutes?: number };
+        };
+    } | null;
+}
+
+function getCodexUsageSnapshot(daemonState: any): CodexUsageSnapshot | null {
+    const snapshot = daemonState?.codexUsage;
+    if (!snapshot || snapshot.source !== 'codex-session-jsonl' || typeof snapshot.scannedAt !== 'number') {
+        return null;
+    }
+    return snapshot as CodexUsageSnapshot;
+}
+
+function formatTokenCount(value: number | undefined | null): string {
+    return typeof value === 'number' ? value.toLocaleString() : '0';
+}
+
+function formatCompactTokenCount(value: number | undefined | null): string {
+    if (typeof value !== 'number') return '0';
+    if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+    return value.toLocaleString();
+}
+
+function formatCodexUsageSubtitle(day: CodexUsageDay): string {
+    return [
+        `${t('machine.codexUsageInput')}: ${formatTokenCount(day.inputTokens)} (${formatTokenCount(day.cachedInputTokens)} ${t('machine.codexUsageCached')})`,
+        `${t('machine.codexUsageOutput')}: ${formatTokenCount(day.outputTokens)} (${formatTokenCount(day.reasoningOutputTokens)} ${t('machine.codexUsageReasoning')})`,
+        `${t('machine.codexUsageEvents')}: ${formatTokenCount(day.tokenCountEvents)} / ${t('machine.codexUsageSessions')}: ${formatTokenCount(day.sessions)}`,
+    ].join('\n');
+}
+
+function formatRateLimitWindow(window: { usedPercent?: number; windowMinutes?: number } | undefined): string | null {
+    if (!window || typeof window.usedPercent !== 'number') {
+        return null;
+    }
+    const label = typeof window.windowMinutes === 'number' && window.windowMinutes % 1440 === 0
+        ? `${window.windowMinutes / 1440}d`
+        : typeof window.windowMinutes === 'number' && window.windowMinutes >= 60
+            ? `${window.windowMinutes / 60}h`
+            : `${window.windowMinutes || 0}m`;
+    return `${label} ${window.usedPercent}%`;
+}
+
+function formatCodexRateLimits(snapshot: CodexUsageSnapshot): string | null {
+    const rateLimits = snapshot.latestEvent?.rateLimits;
+    if (!rateLimits) return null;
+    const parts = [
+        rateLimits.planType,
+        formatRateLimitWindow(rateLimits.primary),
+        formatRateLimitWindow(rateLimits.secondary),
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(' / ') : null;
+}
+
 export default function MachineDetailScreen() {
     const { theme } = useUnistyles();
     const { id: machineId } = useLocalSearchParams<{ id: string }>();
@@ -123,6 +200,8 @@ export default function MachineDetailScreen() {
         // Use machine online status as proxy for daemon status
         return isMachineOnline(machine) ? 'likely alive' : 'stopped';
     }, [machine]);
+    const codexUsage = useMemo(() => getCodexUsageSnapshot(machine?.daemonState), [machine?.daemonState]);
+    const codexRateLimits = useMemo(() => codexUsage ? formatCodexRateLimits(codexUsage) : null, [codexUsage]);
 
     const handleStopDaemon = async () => {
         // Show confirmation modal using alert with buttons
@@ -514,6 +593,53 @@ export default function MachineDetailScreen() {
                             subtitle={String(machine.daemonStateVersion)}
                         />
                 </ItemGroup>
+
+                {codexUsage && (
+                    <ItemGroup title={t('machine.codexUsage')} footer={t('machine.codexUsageFooter')}>
+                        {codexUsage.today ? (
+                            <Item
+                                title={t('machine.codexUsageToday')}
+                                detail={formatCompactTokenCount(codexUsage.today.totalTokens)}
+                                subtitle={formatCodexUsageSubtitle(codexUsage.today)}
+                                subtitleLines={0}
+                                showChevron={false}
+                            />
+                        ) : (
+                            <Item
+                                title={t('machine.codexUsageToday')}
+                                subtitle={t('machine.codexUsageNoData')}
+                                showChevron={false}
+                            />
+                        )}
+                        {codexUsage.yesterday ? (
+                            <Item
+                                title={t('machine.codexUsageYesterday')}
+                                detail={formatCompactTokenCount(codexUsage.yesterday.totalTokens)}
+                                subtitle={formatCodexUsageSubtitle(codexUsage.yesterday)}
+                                subtitleLines={0}
+                                showChevron={false}
+                            />
+                        ) : (
+                            <Item
+                                title={t('machine.codexUsageYesterday')}
+                                subtitle={t('machine.codexUsageNoData')}
+                                showChevron={false}
+                            />
+                        )}
+                        {codexRateLimits && (
+                            <Item
+                                title={t('machine.codexUsageRateLimits')}
+                                subtitle={codexRateLimits}
+                                showChevron={false}
+                            />
+                        )}
+                        <Item
+                            title={t('machine.codexUsageScannedAt')}
+                            subtitle={new Date(codexUsage.scannedAt).toLocaleString()}
+                            showChevron={false}
+                        />
+                    </ItemGroup>
+                )}
 
                 {/* CLI Availability */}
                 {metadata?.cliAvailability && (
