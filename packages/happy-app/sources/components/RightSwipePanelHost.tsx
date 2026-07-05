@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';
 import { hapticsLight } from './haptics';
+import { ExternalHorizontalGestureContext } from './ExternalHorizontalGestureContext';
 
 type Props = {
     children: React.ReactNode;
@@ -175,6 +176,8 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
         return pan;
     }, [closePanel, decided, drawerPan, enabled, open, openPanel, panelWidth, progress, startProgress, startX, startY]);
 
+    const externalHorizontalGestures = React.useMemo(() => [horizontalGesture], [horizontalGesture]);
+
     const scrimStyle = useAnimatedStyle(() => ({
         opacity: progress.value * 0.38,
     }));
@@ -189,74 +192,76 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
 
     return (
         <RightSwipePanelContext.Provider value={contextValue}>
-            <GestureDetector gesture={horizontalGesture}>
-                <View collapsable={false} style={{ flex: 1, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
-                    <Animated.View
-                        style={[
-                            {
-                                flex: 1,
-                                width: windowWidth + panelWidth,
-                                flexDirection: 'row',
-                            },
-                            filmstripStyle,
-                        ]}
-                    >
-                        <View style={{ width: windowWidth }}>
-                            {children}
-                            <Animated.View
-                                pointerEvents="none"
-                                style={[
-                                    {
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        backgroundColor: '#000',
-                                    },
-                                    scrimStyle,
-                                ]}
-                            />
-                        </View>
-                        <View
-                            style={{
-                                width: panelWidth,
-                                paddingTop: safeArea.top + 12,
-                                paddingBottom: safeArea.bottom + 12,
-                                backgroundColor: theme.colors.surface,
-                            }}
+            <ExternalHorizontalGestureContext.Provider value={externalHorizontalGestures}>
+                <GestureDetector gesture={horizontalGesture}>
+                    <View collapsable={false} style={{ flex: 1, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                        <Animated.View
+                            style={[
+                                {
+                                    flex: 1,
+                                    width: windowWidth + panelWidth,
+                                    flexDirection: 'row',
+                                },
+                                filmstripStyle,
+                            ]}
                         >
+                            <View style={{ width: windowWidth }}>
+                                {children}
+                                <Animated.View
+                                    pointerEvents="none"
+                                    style={[
+                                        {
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            bottom: 0,
+                                            backgroundColor: '#000',
+                                        },
+                                        scrimStyle,
+                                    ]}
+                                />
+                            </View>
                             <View
                                 style={{
-                                    alignSelf: 'center',
-                                    width: 36,
-                                    height: 4,
-                                    borderRadius: 2,
-                                    backgroundColor: theme.colors.divider,
-                                    opacity: 0.9,
+                                    width: panelWidth,
+                                    paddingTop: safeArea.top + 12,
+                                    paddingBottom: safeArea.bottom + 12,
+                                    backgroundColor: theme.colors.surface,
                                 }}
-                            />
-                            <View style={{ flex: 1, minHeight: 0 }}>
-                                {panelContent}
+                            >
+                                <View
+                                    style={{
+                                        alignSelf: 'center',
+                                        width: 36,
+                                        height: 4,
+                                        borderRadius: 2,
+                                        backgroundColor: theme.colors.divider,
+                                        opacity: 0.9,
+                                    }}
+                                />
+                                <View style={{ flex: 1, minHeight: 0 }}>
+                                    {panelContent}
+                                </View>
                             </View>
-                        </View>
-                    </Animated.View>
-                    {open && (
-                        <Pressable
-                            onPress={closePanel}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                bottom: 0,
-                                width: windowWidth - panelWidth,
-                            }}
-                        >
-                            <View style={{ flex: 1 }} />
-                        </Pressable>
-                    )}
-                </View>
-            </GestureDetector>
+                        </Animated.View>
+                        {open && (
+                            <Pressable
+                                onPress={closePanel}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    bottom: 0,
+                                    width: windowWidth - panelWidth,
+                                }}
+                            >
+                                <View style={{ flex: 1 }} />
+                            </Pressable>
+                        )}
+                    </View>
+                </GestureDetector>
+            </ExternalHorizontalGestureContext.Provider>
         </RightSwipePanelContext.Provider>
     );
 });

@@ -1,10 +1,14 @@
 import * as React from 'react';
-import { Text, View, type GestureResponderEvent, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { Text, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { DrawerGestureContext } from 'react-native-drawer-layout';
+import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { FinanceChartPoint, SessionFinanceChart } from '@/utils/sessionFinanceCharts';
 import {
+    arbitrateFinanceChartGesture,
     FINANCE_CHART_HEIGHT,
     FINANCE_CHART_PADDING_BOTTOM,
     FINANCE_CHART_PADDING_LEFT,
@@ -15,6 +19,7 @@ import {
     FINANCE_CHART_WIDTH,
     pickFinanceChartPointIndex,
 } from '@/utils/financeChartInteraction';
+import { ExternalHorizontalGestureContext } from './ExternalHorizontalGestureContext';
 
 function formatNumber(value: number | null, digits: number = 2): string {
     if (value === null || !Number.isFinite(value)) return 'n/a';
@@ -66,6 +71,11 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
     const { theme } = useUnistyles();
     const [selectedIndex, setSelectedIndex] = React.useState(Math.max(0, props.chart.points.length - 1));
     const [layoutWidth, setLayoutWidth] = React.useState(FINANCE_CHART_WIDTH);
+    const drawerPan = React.useContext(DrawerGestureContext);
+    const externalHorizontalGestures = React.useContext(ExternalHorizontalGestureContext);
+    const startX = useSharedValue(0);
+    const startY = useSharedValue(0);
+    const decided = useSharedValue(false);
     const selected = props.chart.points[selectedIndex] ?? props.chart.points[props.chart.points.length - 1];
     const range = React.useMemo(() => valueRange(props.chart.points), [props.chart.points]);
     const latestTone = changeTone(props.chart.latest.change);
@@ -75,9 +85,9 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
             ? '#16a765'
             : theme.colors.textSecondary;
 
-    const updateSelection = React.useCallback((event: GestureResponderEvent) => {
+    const updateSelectionAtX = React.useCallback((locationX: number) => {
         setSelectedIndex(pickFinanceChartPointIndex({
-            locationX: event.nativeEvent.locationX,
+            locationX,
             layoutWidth,
             pointCount: props.chart.points.length,
         }));
@@ -87,6 +97,57 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
         const width = event.nativeEvent.layout.width;
         if (width > 0) setLayoutWidth(width);
     }, []);
+
+    const chartGesture = React.useMemo(() => {
+        const pan = Gesture.Pan()
+            .manualActivation(true)
+            .onTouchesDown((event) => {
+                'worklet';
+                const touch = event.allTouches[0];
+                if (!touch) return;
+                startX.value = touch.x;
+                startY.value = touch.y;
+                decided.value = false;
+            })
+            .onTouchesMove((event, state) => {
+                'worklet';
+                if (decided.value) return;
+                const touch = event.allTouches[0];
+                if (!touch) return;
+                const owner = arbitrateFinanceChartGesture({
+                    dx: touch.x - startX.value,
+                    dy: touch.y - startY.value,
+                });
+                if (owner === 'undecided') return;
+                decided.value = true;
+                if (owner === 'parent') {
+                    state.fail();
+                    return;
+                }
+                state.activate();
+                runOnJS(updateSelectionAtX)(touch.x);
+            })
+            .onUpdate((event) => {
+                'worklet';
+                runOnJS(updateSelectionAtX)(event.x);
+            });
+
+        const gesturesToBlock = drawerPan
+            ? [drawerPan, ...externalHorizontalGestures]
+            : externalHorizontalGestures;
+        if (gesturesToBlock.length > 0) {
+            pan.blocksExternalGesture(...gesturesToBlock);
+        }
+
+        const tap = Gesture.Tap()
+            .maxDistance(8)
+            .onStart((event) => {
+                'worklet';
+                runOnJS(updateSelectionAtX)(event.x);
+            });
+
+        return Gesture.Simultaneous(tap, pan);
+    }, [decided, drawerPan, externalHorizontalGestures, startX, startY, updateSelectionAtX]);
 
     return (
         <View
@@ -116,78 +177,73 @@ export const FinanceChartCard = React.memo(function FinanceChartCard(props: {
                 </View>
             </View>
 
-            <View
-                style={styles.chartFrame}
-                onLayout={handleLayout}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderGrant={updateSelection}
-                onResponderMove={updateSelection}
-            >
-                <Svg width="100%" height={FINANCE_CHART_HEIGHT} viewBox={`0 0 ${FINANCE_CHART_WIDTH} ${FINANCE_CHART_HEIGHT}`}>
-                    {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                        const y = FINANCE_CHART_PADDING_TOP + ratio * FINANCE_CHART_PLOT_HEIGHT;
-                        return (
-                            <Line
-                                key={ratio}
-                                x1={FINANCE_CHART_PADDING_LEFT}
-                                y1={y}
-                                x2={FINANCE_CHART_WIDTH - FINANCE_CHART_PADDING_RIGHT}
-                                y2={y}
-                                stroke={theme.colors.divider}
-                                strokeWidth={0.7}
-                                strokeDasharray="4 5"
-                            />
-                        );
-                    })}
-                    {props.chart.points.map((point, index) => {
-                        const x = xForIndex(index, props.chart.points.length);
-                        const yOpen = yForValue(point.open, range.min, range.max);
-                        const yClose = yForValue(point.close, range.min, range.max);
-                        const yHigh = yForValue(point.high, range.min, range.max);
-                        const yLow = yForValue(point.low, range.min, range.max);
-                        const up = point.close >= point.open;
-                        const color = up ? '#e83e54' : '#16a765';
-                        const candleWidth = Math.max(4, Math.min(10, FINANCE_CHART_PLOT_WIDTH / props.chart.points.length * 0.55));
-                        const bodyY = Math.min(yOpen, yClose);
-                        const bodyHeight = Math.max(2, Math.abs(yClose - yOpen));
-                        return (
-                            <React.Fragment key={`${point.date}-${index}`}>
-                                <Line x1={x} y1={yHigh} x2={x} y2={yLow} stroke={color} strokeWidth={1.4} />
-                                <Rect
-                                    x={x - candleWidth / 2}
-                                    y={bodyY}
-                                    width={candleWidth}
-                                    height={bodyHeight}
-                                    fill={color}
-                                    rx={1}
+            <GestureDetector gesture={chartGesture}>
+                <View style={styles.chartFrame} onLayout={handleLayout} collapsable={false}>
+                    <Svg width="100%" height={FINANCE_CHART_HEIGHT} viewBox={`0 0 ${FINANCE_CHART_WIDTH} ${FINANCE_CHART_HEIGHT}`}>
+                        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                            const y = FINANCE_CHART_PADDING_TOP + ratio * FINANCE_CHART_PLOT_HEIGHT;
+                            return (
+                                <Line
+                                    key={ratio}
+                                    x1={FINANCE_CHART_PADDING_LEFT}
+                                    y1={y}
+                                    x2={FINANCE_CHART_WIDTH - FINANCE_CHART_PADDING_RIGHT}
+                                    y2={y}
+                                    stroke={theme.colors.divider}
+                                    strokeWidth={0.7}
+                                    strokeDasharray="4 5"
                                 />
-                            </React.Fragment>
-                        );
-                    })}
-                    {selected ? (
-                        <>
-                            <Line
-                                x1={xForIndex(selectedIndex, props.chart.points.length)}
-                                y1={FINANCE_CHART_PADDING_TOP}
-                                x2={xForIndex(selectedIndex, props.chart.points.length)}
-                                y2={FINANCE_CHART_HEIGHT - FINANCE_CHART_PADDING_BOTTOM}
-                                stroke={theme.colors.textSecondary}
-                                strokeWidth={1}
-                                strokeDasharray="3 4"
-                            />
-                            <Circle
-                                cx={xForIndex(selectedIndex, props.chart.points.length)}
-                                cy={yForValue(selected.close, range.min, range.max)}
-                                r={4}
-                                fill={theme.colors.surface}
-                                stroke={theme.colors.text}
-                                strokeWidth={1.5}
-                            />
-                        </>
-                    ) : null}
-                </Svg>
-            </View>
+                            );
+                        })}
+                        {props.chart.points.map((point, index) => {
+                            const x = xForIndex(index, props.chart.points.length);
+                            const yOpen = yForValue(point.open, range.min, range.max);
+                            const yClose = yForValue(point.close, range.min, range.max);
+                            const yHigh = yForValue(point.high, range.min, range.max);
+                            const yLow = yForValue(point.low, range.min, range.max);
+                            const up = point.close >= point.open;
+                            const color = up ? '#e83e54' : '#16a765';
+                            const candleWidth = Math.max(4, Math.min(10, FINANCE_CHART_PLOT_WIDTH / props.chart.points.length * 0.55));
+                            const bodyY = Math.min(yOpen, yClose);
+                            const bodyHeight = Math.max(2, Math.abs(yClose - yOpen));
+                            return (
+                                <React.Fragment key={`${point.date}-${index}`}>
+                                    <Line x1={x} y1={yHigh} x2={x} y2={yLow} stroke={color} strokeWidth={1.4} />
+                                    <Rect
+                                        x={x - candleWidth / 2}
+                                        y={bodyY}
+                                        width={candleWidth}
+                                        height={bodyHeight}
+                                        fill={color}
+                                        rx={1}
+                                    />
+                                </React.Fragment>
+                            );
+                        })}
+                        {selected ? (
+                            <>
+                                <Line
+                                    x1={xForIndex(selectedIndex, props.chart.points.length)}
+                                    y1={FINANCE_CHART_PADDING_TOP}
+                                    x2={xForIndex(selectedIndex, props.chart.points.length)}
+                                    y2={FINANCE_CHART_HEIGHT - FINANCE_CHART_PADDING_BOTTOM}
+                                    stroke={theme.colors.textSecondary}
+                                    strokeWidth={1}
+                                    strokeDasharray="3 4"
+                                />
+                                <Circle
+                                    cx={xForIndex(selectedIndex, props.chart.points.length)}
+                                    cy={yForValue(selected.close, range.min, range.max)}
+                                    r={4}
+                                    fill={theme.colors.surface}
+                                    stroke={theme.colors.text}
+                                    strokeWidth={1.5}
+                                />
+                            </>
+                        ) : null}
+                    </Svg>
+                </View>
+            </GestureDetector>
 
             {selected ? (
                 <View style={styles.readout}>
