@@ -23,14 +23,21 @@ import {
 } from '@/hooks/useSessionManagementPreferences';
 import { useAllMachines, useAllSessions, useSessionListViewData, useUnreadSessionIds } from '@/sync/storage';
 import type { Session } from '@/sync/storageTypes';
+import {
+    buildSessionManagementSections,
+    getSessionManagementPrimaryStatus,
+    type SessionManagementPrimaryStatus,
+    type SessionManagementSortItem,
+} from '@/utils/sessionManagementLayout';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { t } from '@/text';
 
 type SessionFilter = 'all' | 'needs' | 'running' | 'pinned' | 'drafts';
 type SessionSection = 'active' | 'pinned' | 'needs' | 'running' | 'recent';
-type PrimaryStatus = 'permission' | 'running' | 'unread' | 'draft' | 'todo' | 'manual' | 'recent';
+type PrimaryStatus = SessionManagementPrimaryStatus;
 
-interface ManagedSession {
+interface ManagedSession extends SessionManagementSortItem {
+    id: string;
     session: Session;
     title: string;
     subtitle: string;
@@ -45,6 +52,7 @@ interface ManagedSession {
     totalTodosCount: number;
     needsAction: boolean;
     primaryStatus: PrimaryStatus;
+    updatedAt: number;
 }
 
 const FILTERS: SessionFilter[] = ['all', 'needs', 'running', 'pinned', 'drafts'];
@@ -71,8 +79,6 @@ export default React.memo(function SessionSearchScreen() {
         return activeItem?.type === 'active-sessions' ? activeItem.sessions.map((session) => session.id) : [];
     }, [sessionListViewData]);
 
-    const activeSessionIdSet = React.useMemo(() => new Set(activeSessionOrder), [activeSessionOrder]);
-
     const machineNameById = React.useMemo(() => {
         const map = new Map<string, string>();
         for (const machine of machines) {
@@ -92,24 +98,19 @@ export default React.memo(function SessionSearchScreen() {
             const hasDraft = !!session.draft;
             const needsAction = manualFocus || hasPermission || unread || hasDraft || incompleteTodosCount > 0;
 
-            let primaryStatus: PrimaryStatus = 'recent';
-            if (hasPermission) {
-                primaryStatus = 'permission';
-            } else if (running) {
-                primaryStatus = 'running';
-            } else if (unread) {
-                primaryStatus = 'unread';
-            } else if (hasDraft) {
-                primaryStatus = 'draft';
-            } else if (incompleteTodosCount > 0) {
-                primaryStatus = 'todo';
-            } else if (manualFocus) {
-                primaryStatus = 'manual';
-            }
+            const primaryStatus = getSessionManagementPrimaryStatus({
+                hasPermission,
+                running,
+                unread,
+                hasDraft,
+                incompleteTodosCount,
+                manualFocus,
+            });
 
             const machineId = session.metadata?.machineId ?? null;
 
             return {
+                id: session.id,
                 session,
                 title: getSessionName(session),
                 subtitle: getSessionSubtitle(session),
@@ -124,6 +125,7 @@ export default React.memo(function SessionSearchScreen() {
                 totalTodosCount,
                 needsAction,
                 primaryStatus,
+                updatedAt: session.updatedAt,
             };
         });
     }, [machineNameById, management, sessions, unreadSessionIds]);
@@ -146,30 +148,14 @@ export default React.memo(function SessionSearchScreen() {
 
     const sections = React.useMemo(() => {
         const showActiveGroup = filter === 'all' && query.trim().length === 0;
-        const active = showActiveGroup
-            ? sortByQueue(
-                filteredSessions.filter((item) => activeSessionIdSet.has(item.session.id)),
-                activeSessionOrder,
-            )
-            : [];
-        const isReservedActive = (item: ManagedSession) => showActiveGroup && activeSessionIdSet.has(item.session.id);
-        const pinned = sortByQueue(
-            filteredSessions.filter((item) => item.pinned && !isReservedActive(item)),
-            management.preferences.pinnedOrder,
-        );
-        const needs = sortByQueue(
-            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && item.needsAction),
-            management.preferences.focusOrder,
-        );
-        const running = sortByPriority(
-            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && !item.needsAction && item.running),
-        );
-        const recent = sortByPriority(
-            filteredSessions.filter((item) => !item.pinned && !isReservedActive(item) && !item.needsAction && !item.running),
-        );
-
-        return { active, pinned, needs, running, recent };
-    }, [activeSessionIdSet, activeSessionOrder, filter, filteredSessions, management.preferences.focusOrder, management.preferences.pinnedOrder, query]);
+        return buildSessionManagementSections({
+            items: filteredSessions,
+            activeSessionOrder,
+            pinnedOrder: management.preferences.pinnedOrder,
+            focusOrder: management.preferences.focusOrder,
+            showActiveGroup,
+        });
+    }, [activeSessionOrder, filter, filteredSessions, management.preferences.focusOrder, management.preferences.pinnedOrder, query]);
 
     const allNeedsCount = managedSessions.filter((item) => item.needsAction).length;
     const hasQuery = query.trim().length > 0;
@@ -177,7 +163,6 @@ export default React.memo(function SessionSearchScreen() {
 
     const handleSessionPress = React.useCallback((sessionId: string) => {
         if (sortMode) {
-            setExpandedSessionId((current) => current === sessionId ? null : sessionId);
             return;
         }
         navigateToSession(sessionId);
@@ -256,9 +241,9 @@ export default React.memo(function SessionSearchScreen() {
                     {hasResults ? (
                         <>
                             <SessionSectionView
-                                section="active"
-                                title={t('sessionSearch.sections.active')}
-                                items={sections.active}
+                                section="pinned"
+                                title={t('sessionSearch.sections.pinned')}
+                                items={sections.pinned}
                                 sortMode={sortMode}
                                 expandedSessionId={expandedSessionId}
                                 management={management}
@@ -266,9 +251,9 @@ export default React.memo(function SessionSearchScreen() {
                                 onToggleExpanded={setExpandedSessionId}
                             />
                             <SessionSectionView
-                                section="pinned"
-                                title={t('sessionSearch.sections.pinned')}
-                                items={sections.pinned}
+                                section="active"
+                                title={t('sessionSearch.sections.active')}
+                                items={sections.active}
                                 sortMode={sortMode}
                                 expandedSessionId={expandedSessionId}
                                 management={management}
@@ -462,7 +447,7 @@ const ManagedSessionRow = React.memo(({
     }, [canDrag, dragTranslateY, item.session.id, management, queue]);
 
     const panResponder = React.useMemo(() => PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponder: () => canDrag,
         onMoveShouldSetPanResponder: (_event, gesture) => (
             canDrag && Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx)
         ),
@@ -478,11 +463,11 @@ const ManagedSessionRow = React.memo(({
         onPanResponderRelease: (_event, gesture) => finishDrag(gesture.dy),
         onPanResponderTerminate: () => finishDrag(0),
         onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
     }), [canDrag, dragTranslateY, finishDrag]);
 
     return (
         <Animated.View
-            {...(canDrag ? panResponder.panHandlers : {})}
             style={[
                 styles.cardShell,
                 expanded && styles.cardShellExpanded,
@@ -491,9 +476,9 @@ const ManagedSessionRow = React.memo(({
             ]}
         >
             <Pressable
-                onPress={onPress}
+                onPress={sortMode ? undefined : onPress}
                 onLongPress={sortMode ? undefined : onToggleExpanded}
-                style={({ pressed }) => [styles.row, pressed && !dragging && styles.rowPressed]}
+                style={({ pressed }) => [styles.row, pressed && !sortMode && !dragging && styles.rowPressed]}
             >
                 <View style={[styles.statusRail, { backgroundColor: statusColor }]} />
                 <Avatar
@@ -525,7 +510,10 @@ const ManagedSessionRow = React.memo(({
                     {sortMode ? (
                         queue ? (
                             <View style={styles.sortControls}>
-                                <View style={styles.dragHandle}>
+                                <View
+                                    {...(canDrag ? panResponder.panHandlers : {})}
+                                    style={[styles.dragHandle, dragging && styles.dragHandleActive]}
+                                >
                                     <Ionicons name="reorder-three" size={16} color={styles.iconButtonIcon.color} />
                                 </View>
                                 <IconButton
@@ -680,33 +668,6 @@ function getBadges(item: ManagedSession): { key: string; label: string; tone: Pr
     }
 
     return badges;
-}
-
-function sortByPriority(items: ManagedSession[]): ManagedSession[] {
-    const priority: Record<PrimaryStatus, number> = {
-        permission: 0,
-        unread: 1,
-        draft: 2,
-        todo: 3,
-        manual: 4,
-        running: 5,
-        recent: 6,
-    };
-    return items.slice().sort((a, b) => (
-        priority[a.primaryStatus] - priority[b.primaryStatus] || b.session.updatedAt - a.session.updatedAt
-    ));
-}
-
-function sortByQueue(items: ManagedSession[], order: string[]): ManagedSession[] {
-    const orderById = new Map(order.map((id, index) => [id, index]));
-    return items.slice().sort((a, b) => {
-        const aIndex = orderById.get(a.session.id);
-        const bIndex = orderById.get(b.session.id);
-        if (aIndex != null && bIndex != null) return aIndex - bIndex;
-        if (aIndex != null) return -1;
-        if (bIndex != null) return 1;
-        return sortByPriority([a, b])[0].session.id === a.session.id ? -1 : 1;
-    });
 }
 
 function getStatusColor(status: PrimaryStatus): string {
@@ -1057,6 +1018,9 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.colors.surfacePressed,
+    },
+    dragHandleActive: {
+        backgroundColor: theme.colors.surfaceSelected,
     },
     iconButton: {
         width: 32,
