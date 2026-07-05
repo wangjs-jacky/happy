@@ -1186,7 +1186,7 @@ export const en = {
         recommendedOtaFooter: 'Start here. The history below is for rollback or comparing older builds.',
         latestPreview: 'Latest',
         previewHistoryTitle: 'Preview channel history',
-        previewHistoryFooter: 'Tap a version, then switch-lock this device to it. Running details only appear when a locked version is still waiting for reload.',
+        previewHistoryFooter: 'Tap a version to switch and lock this device to it. Display details only appear if the switch has not completed.',
         loadFailedRetry: 'Load failed, tap to retry',
         noVersions: 'No versions',
         noVersionsSubtitle: 'This channel has no OTA releases yet',

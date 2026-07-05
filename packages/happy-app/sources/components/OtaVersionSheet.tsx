@@ -151,10 +151,10 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
     const userState = version ? getOtaVersionUserState(version, props.currentUpdateId, props.lockedStamp) : null;
     const isLocked = userState?.isLocked ?? false;
     const statusValue = userState?.isPendingAcceptance
-        ? '已锁定，重启后生效'
+        ? '切换未完成'
         : (userState?.isAcceptance
             ? (isLocked ? '当前验收版本（已锁定）' : '当前验收版本（跟随最新）')
-            : (userState?.isCurrentDisplayOnly ? '当前显示；锁定版本重启后生效' : '历史版本'));
+            : (userState?.isCurrentDisplayOnly ? '当前显示；目标版本尚未切换完成' : '历史版本'));
     const sourceLabel = version?.display?.source?.number ? `PR #${version.display.source.number}` : '';
     const [rendered, setRendered] = React.useState(props.visible);
     const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -250,7 +250,7 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
                             <>
                                 <View style={styles.headerBadgeRow}>
                                     <StatusPill label={props.appChannel || 'unknown'} />
-                                    {userState?.isPendingAcceptance ? <StatusPill label="已锁定，重启后生效" tone="warning" /> : null}
+                                    {userState?.isPendingAcceptance ? <StatusPill label="切换未完成" tone="warning" /> : null}
                                     {!userState?.isPendingAcceptance && userState?.isAcceptance ? (
                                         <StatusPill label="当前验收版本" tone={isLocked ? 'locked' : 'running'} />
                                     ) : null}

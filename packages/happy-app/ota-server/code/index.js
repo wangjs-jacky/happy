@@ -3,6 +3,7 @@
 // 收到 App 的检查请求 → 从 OSS 读 manifest → 按 multipart/mixed 协议回应。
 
 const http = require('http');
+const crypto = require('crypto');
 
 // ============ 配置区 ============
 const OSS_PUBLIC_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
@@ -23,20 +24,90 @@ function buildMultipart(partName, jsonObj) {
   );
 }
 
+function stableUuid(input) {
+  const bytes = crypto.createHash('sha256').update(input).digest();
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function parseExtraParam(extraParamsHeader, key) {
+  if (!extraParamsHeader) return null;
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`${escaped}\\s*=\\s*"?([A-Za-z0-9_.:-]+)"?`).exec(extraParamsHeader);
+  return m ? m[1] : null;
+}
+
+function normalizeGeneration(value) {
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    return value;
+  }
+  return String(Date.now());
+}
+
+function maxIsoDate(a, bMs) {
+  const aMs = Date.parse(a || '');
+  const safeA = Number.isFinite(aMs) ? aMs : 0;
+  return new Date(Math.max(safeA, Number(bMs))).toISOString();
+}
+
+function virtualizeManifest(manifest, target) {
+  if (!target) return manifest;
+
+  const generation = normalizeGeneration(target.generation);
+  const mode = target.stamp === 'latest' ? 'latest' : 'locked';
+  const originalId = manifest.id;
+  const virtualId = stableUuid([
+    'happy-ota-target-v1',
+    mode,
+    target.stamp,
+    generation,
+    originalId,
+  ].join(':'));
+
+  return {
+    ...manifest,
+    id: virtualId,
+    createdAt: maxIsoDate(manifest.createdAt, generation),
+    metadata: {
+      ...(manifest.metadata || {}),
+      'happy-ota-mode': mode,
+      'happy-ota-target-stamp': target.stamp,
+      'happy-ota-generation': generation,
+      'happy-ota-original-id': originalId,
+    },
+    extra: {
+      ...(manifest.extra || {}),
+      otaTarget: {
+        mode,
+        stamp: target.stamp,
+        generation,
+        originalUpdateId: originalId,
+        virtualUpdateId: virtualId,
+      },
+    },
+  };
+}
+
 // 从 expo-extra-params 头里解析出 App 设置的 ota-target-stamp（定向版本锁定）。
 //
 // expo-updates 客户端把 `Updates.setExtraParamAsync(key, value)` 设的参数，
 // 以 RFC 8941 structured-field dictionary 形式塞进 `Expo-Extra-Params` 请求头，
 // 形如：`ota-target-stamp="1782729144216", foo="bar"`。
-// 这里只关心 ota-target-stamp，且严格白名单：必须是纯数字串（毫秒时间戳），
-// 既防路径穿越（拼进 OSS key），也排除任何非法取值。解析失败一律返回 null（= 不锁定）。
-function parseTargetStamp(extraParamsHeader) {
-  if (!extraParamsHeader) return null;
-  // 兼容带引号 ota-target-stamp="123" 与裸 token ota-target-stamp=123 两种写法
-  const m = /ota-target-stamp\s*=\s*"?(\d+)"?/.exec(extraParamsHeader);
-  if (!m) return null;
-  const stamp = m[1];
-  return /^\d+$/.test(stamp) ? stamp : null;
+// 允许两种目标：
+//   - 纯数字 stamp：锁定某个历史版本
+//   - latest：解除锁定后仍发送一个 generation，让 latest 也能抢过本机缓存的虚拟历史版本
+function parseOtaTarget(extraParamsHeader) {
+  const stamp = parseExtraParam(extraParamsHeader, 'ota-target-stamp');
+  if (!stamp || (stamp !== 'latest' && !/^\d+$/.test(stamp))) {
+    return null;
+  }
+
+  return {
+    stamp,
+    generation: normalizeGeneration(parseExtraParam(extraParamsHeader, 'ota-target-generation')),
+  };
 }
 
 const updatesHeaders = {
@@ -68,14 +139,14 @@ const server = http.createServer(async (req, res) => {
     // App 在「OTA 版本」选择器里锁定某个历史版本时，会 setExtraParamAsync('ota-target-stamp', <stamp>)，
     // 该值随 expo-extra-params 头传到这里。命中后取该 stamp 的历史 manifest 而非 latest。
     // production 频道一律忽略（永远跟随 latest），防止误把线上用户锁到旧包。
-    const targetStamp = channel === 'preview' ? parseTargetStamp(h['expo-extra-params']) : null;
+    const otaTarget = channel === 'preview' ? parseOtaTarget(h['expo-extra-params']) : null;
     const channelBase = `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/${channel}`;
 
     let r;
     // 锁定了具体版本 → 先取该历史 manifest；取不到（已被清理/拼错）则静默回退到 latest，
     // 符合「never show loading error，always retry」——宁可给最新也不报错。
-    if (targetStamp) {
-      r = await fetch(`${channelBase}/${targetStamp}.json`);
+    if (otaTarget && otaTarget.stamp !== 'latest') {
+      r = await fetch(`${channelBase}/${otaTarget.stamp}.json`);
     }
     if (!r || !r.ok) {
       r = await fetch(`${channelBase}/latest.json`);
@@ -95,7 +166,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const manifest = await r.json();
+    const manifest = virtualizeManifest(await r.json(), otaTarget);
 
     // 已经是最新 → 回「无需更新」指令；否则回 manifest
     let body;
@@ -113,6 +184,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('happy-ota-server listening on', PORT);
-});
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('happy-ota-server listening on', PORT);
+  });
+}
+
+module.exports = {
+  buildMultipart,
+  parseOtaTarget,
+  server,
+  stableUuid,
+  virtualizeManifest,
+};

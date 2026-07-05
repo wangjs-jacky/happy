@@ -1169,7 +1169,7 @@ export const zhHans: TranslationStructure = {
         recommendedOtaFooter: '优先看这里。下面的历史列表只用于回滚或对比旧包。',
         latestPreview: '最新',
         previewHistoryTitle: 'preview 频道历史版本',
-        previewHistoryFooter: '点选某版本后，可将本设备切换并锁定到它。只有锁定版本等待重载时才显示当前显示状态。',
+        previewHistoryFooter: '点选某版本后，可将本设备切换并锁定到它。只有切换未完成时才显示当前显示状态。',
         loadFailedRetry: '加载失败，点此重试',
         noVersions: '暂无版本',
         noVersionsSubtitle: '该频道还没有发布过 OTA',

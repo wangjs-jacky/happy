@@ -164,7 +164,7 @@ export default function OtaVersionsScreen() {
     const heroTitle = featuredSummary?.title || (lockedStamp ? `已锁定 ${lockedStamp}` : '当前设备跟随最新 preview');
     const heroSubtitle = React.useMemo(() => {
         if (acceptanceStatus.isPendingReload) {
-            return `已锁定，重启后生效。当前仍在显示 ${currentDisplayLabel}。`;
+            return `切换未完成。当前仍在显示 ${currentDisplayLabel}，可点入目标版本重新切换。`;
         }
         if (featuredSummary) {
             return acceptanceStatus.isLocked
@@ -193,7 +193,7 @@ export default function OtaVersionsScreen() {
                 {!featuredStamp ? (
                     <StatusChip label="等待匹配" />
                 ) : acceptanceStatus.isPendingReload ? (
-                    <StatusChip label="已锁定，重启后生效" tone="warning" />
+                    <StatusChip label="切换未完成" tone="warning" />
                 ) : (
                     <StatusChip label="当前验收版本" tone={acceptanceStatus.isLocked ? 'locked' : 'running'} />
                 )}
@@ -327,7 +327,7 @@ export default function OtaVersionsScreen() {
                             <View style={styles.releaseBadgeRow}>
                                 {item.display?.source?.number ? <StatusChip label={`PR #${item.display.source.number}`} /> : null}
                                 {userState.isPendingAcceptance ? (
-                                    <StatusChip label="已锁定，重启后生效" tone="warning" />
+                                    <StatusChip label="切换未完成" tone="warning" />
                                 ) : null}
                                 {!userState.isPendingAcceptance && userState.isAcceptance ? (
                                     <StatusChip label="当前验收版本" tone={userState.isLocked ? 'locked' : 'running'} />
