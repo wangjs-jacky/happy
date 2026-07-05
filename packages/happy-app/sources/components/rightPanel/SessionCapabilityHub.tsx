@@ -2,36 +2,69 @@ import * as React from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { Modal } from '@/modal';
-import { useSettingMutable } from '@/sync/storage';
+import { useSession, useSettingMutable } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 import { hapticsLight } from '../haptics';
 import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { CapabilityBlockCard } from './CapabilityBlockCard';
-import { CapabilityHubDetailView } from './CapabilityHubDetailView';
+import { CapabilityHubDetailView, SessionActionsDetailView } from './CapabilityHubDetailView';
+import { QuickPromptEditorModal } from './QuickPromptEditorModal';
+import type { SessionActionItem } from '@/hooks/useSessionQuickActions';
+import type { Session } from '@/sync/storageTypes';
 import type { CapabilityKey, QuickPromptCapabilityItem } from './sessionCapabilityHubModel';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 
-const BLOCK_ORDER: CapabilityKey[] = ['skills', 'quickPrompts', 'images', 'artifacts', 'files'];
+type CapabilityPanelKey = CapabilityKey | 'sessionActions';
+
+const BLOCK_ORDER: CapabilityPanelKey[] = ['sessionActions', 'skills', 'quickPrompts', 'images', 'artifacts', 'files'];
 
 export const SessionCapabilityHub = React.memo(function SessionCapabilityHub(props: {
     sessionId?: string;
+    onInsertQuickPrompt?: (prompt: string) => void;
 }) {
     if (!props.sessionId) {
         return <CapabilityHubPlaceholder />;
     }
-    return <SessionCapabilityHubInner sessionId={props.sessionId} />;
+    return <SessionCapabilityHubInner onInsertQuickPrompt={props.onInsertQuickPrompt} sessionId={props.sessionId} />;
 });
 
 const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(props: {
     sessionId: string;
+    onInsertQuickPrompt?: (prompt: string) => void;
+}) {
+    const session = useSession(props.sessionId);
+
+    if (!session) {
+        return <CapabilityHubPlaceholder />;
+    }
+
+    return (
+        <SessionCapabilityHubLoaded
+            onInsertQuickPrompt={props.onInsertQuickPrompt}
+            session={session}
+            sessionId={props.sessionId}
+        />
+    );
+});
+
+const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoaded(props: {
+    session: Session;
+    sessionId: string;
+    onInsertQuickPrompt?: (prompt: string) => void;
 }) {
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
     const panel = useRightSwipePanel();
     const [quickPrompts, setQuickPrompts] = useSettingMutable('quickPrompts');
-    const [selectedKey, setSelectedKey] = React.useState<CapabilityKey | null>(null);
+    const [selectedKey, setSelectedKey] = React.useState<CapabilityPanelKey | null>(null);
+    const { onInsertQuickPrompt, sessionId } = props;
+    const { actionItems } = useSessionQuickActions(props.session, {
+        onAfterArchive: () => panel?.closePanel(),
+        onAfterDelete: () => panel?.closePanel(),
+    });
 
     React.useEffect(() => {
         setSelectedKey(null);
@@ -45,39 +78,26 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
         });
     }, [panel, selectedKey]);
 
-    const addQuickPrompt = React.useCallback(async () => {
-        const title = (await Modal.prompt(
-            t('rightPanelCapabilityHub.quickPrompt.addTitle'),
-            t('rightPanelCapabilityHub.quickPrompt.addTitleMessage'),
-            {
-                placeholder: t('rightPanelCapabilityHub.quickPrompt.titlePlaceholder'),
-                confirmText: t('common.continue'),
+    const addQuickPrompt = React.useCallback(() => {
+        Modal.show({
+            component: QuickPromptEditorModal,
+            props: {
+                onSave: ({ title, prompt }: { title: string; prompt: string }) => {
+                    const now = Date.now();
+                    setQuickPrompts([
+                        {
+                            id: `quick-prompt-${now}`,
+                            title,
+                            prompt,
+                            createdAt: now,
+                            updatedAt: now,
+                        },
+                        ...quickPrompts,
+                    ]);
+                    setSelectedKey('quickPrompts');
+                },
             },
-        ))?.trim();
-        if (!title) return;
-
-        const prompt = (await Modal.prompt(
-            t('rightPanelCapabilityHub.quickPrompt.addBodyTitle'),
-            t('rightPanelCapabilityHub.quickPrompt.addBodyMessage'),
-            {
-                placeholder: t('rightPanelCapabilityHub.quickPrompt.bodyPlaceholder'),
-                confirmText: t('common.save'),
-            },
-        ))?.trim();
-        if (!prompt) return;
-
-        const now = Date.now();
-        setQuickPrompts([
-            {
-                id: `quick-prompt-${now}`,
-                title,
-                prompt,
-                createdAt: now,
-                updatedAt: now,
-            },
-            ...quickPrompts,
-        ]);
-        setSelectedKey('quickPrompts');
+        });
     }, [quickPrompts, setQuickPrompts]);
 
     const deleteQuickPrompt = React.useCallback(async (item: QuickPromptCapabilityItem) => {
@@ -95,11 +115,35 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
 
     const runQuickPrompt = React.useCallback((item: QuickPromptCapabilityItem) => {
         hapticsLight();
-        sync.sendMessage(props.sessionId, item.prompt, { source: 'chat' });
+        sync.sendMessage(sessionId, item.prompt, { source: 'chat' });
         panel?.closePanel();
-    }, [panel, props.sessionId]);
+    }, [panel, sessionId]);
+
+    const insertQuickPrompt = React.useCallback((item: QuickPromptCapabilityItem) => {
+        if (!onInsertQuickPrompt) return;
+        hapticsLight();
+        onInsertQuickPrompt(item.prompt);
+        panel?.closePanel();
+    }, [onInsertQuickPrompt, panel]);
+
+    const runSessionAction = React.useCallback((item: SessionActionItem) => {
+        hapticsLight();
+        panel?.closePanel();
+        item.onPress();
+    }, [panel]);
 
     if (selectedKey) {
+        if (selectedKey === 'sessionActions') {
+            return (
+                <SessionActionsDetailView
+                    actions={actionItems}
+                    onActionPress={runSessionAction}
+                    onBack={() => setSelectedKey(null)}
+                    title={t('rightPanelCapabilityHub.blocks.sessionActions')}
+                />
+            );
+        }
+
         return (
             <CapabilityHubDetailView
                 count={model.details[selectedKey].length}
@@ -107,8 +151,9 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
                 onAddQuickPrompt={selectedKey === 'quickPrompts' ? addQuickPrompt : undefined}
                 onBack={() => setSelectedKey(null)}
                 onDeleteQuickPrompt={deleteQuickPrompt}
+                onInsertQuickPrompt={insertQuickPrompt}
                 onRunQuickPrompt={runQuickPrompt}
-                sessionId={props.sessionId}
+                sessionId={sessionId}
                 title={t(`rightPanelCapabilityHub.blocks.${selectedKey}` as const)}
                 type={selectedKey}
             />
@@ -128,6 +173,19 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
 
             <View style={styles.grid}>
                 {BLOCK_ORDER.map((key) => {
+                    if (key === 'sessionActions') {
+                        return (
+                            <CapabilityBlockCard
+                                count={actionItems.length}
+                                icon={<Ionicons color={theme.colors.text} name="ellipsis-horizontal-circle-outline" size={17} />}
+                                key={key}
+                                onPress={() => setSelectedKey(key)}
+                                preview={getSessionActionsPreview(actionItems)}
+                                title={t('rightPanelCapabilityHub.blocks.sessionActions')}
+                            />
+                        );
+                    }
+
                     const block = model.blocks.find((entry) => entry.key === key);
                     if (!block) return null;
                     return (
@@ -145,6 +203,13 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
         </ScrollView>
     );
 });
+
+function getSessionActionsPreview(actionItems: SessionActionItem[]): string | null {
+    const priority = actionItems.filter((item) => item.destructive);
+    const source = priority.length > 0 ? priority : actionItems;
+    const labels = source.slice(0, 2).map((item) => item.label);
+    return labels.length > 0 ? labels.join(' · ') : null;
+}
 
 const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() {
     const { theme } = useUnistyles();
@@ -168,7 +233,9 @@ const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() 
                     <CapabilityBlockCard
                         count={0}
                         disabled={true}
-                        icon={renderBlockIcon(key, theme.colors.textSecondary)}
+                        icon={key === 'sessionActions'
+                            ? <Ionicons color={theme.colors.textSecondary} name="ellipsis-horizontal-circle-outline" size={17} />
+                            : renderBlockIcon(key, theme.colors.textSecondary)}
                         key={key}
                         preview={null}
                         title={t(`rightPanelCapabilityHub.blocks.${key}` as const)}

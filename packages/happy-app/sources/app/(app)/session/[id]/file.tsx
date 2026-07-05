@@ -12,6 +12,11 @@ import { layout } from '@/components/layout';
 import { t } from '@/text';
 import { FileIcon } from '@/components/FileIcon';
 import { resolveSessionFilePath } from '@/utils/sessionFileLinks';
+import {
+    getEffectiveFileViewerDisplayMode,
+    getInitialFileViewerDisplayMode,
+    type FileViewerDisplayMode,
+} from '@/utils/fileViewerState';
 
 interface FileContent {
     content: string;
@@ -113,7 +118,9 @@ export default React.memo(function FileScreen() {
         return { content: cached.content ?? '', encoding: 'utf8', isBinary: cached.isBinary };
     });
     const [diffContent, setDiffContent] = React.useState<string | null>(() => cached?.diff ?? null);
-    const [displayMode, setDisplayMode] = React.useState<'file' | 'diff'>('diff');
+    const [displayMode, setDisplayMode] = React.useState<FileViewerDisplayMode>(() => (
+        getInitialFileViewerDisplayMode(Boolean(cached?.diff), requestedLine)
+    ));
     const [isLoading, setIsLoading] = React.useState(!cached);
     const [error, setError] = React.useState<string | null>(null);
     const scrollViewRef = React.useRef<ScrollView | null>(null);
@@ -191,59 +198,51 @@ export default React.memo(function FileScreen() {
         return ext ? binaryExtensions.includes(ext) : false;
     }, []);
 
-    // Load file content (fetches in background even if cache exists)
+    React.useEffect(() => {
+        const nextCached = storage.getState().sessionFileCache[sessionId!]?.[filePath] ?? null;
+        setFileContent(nextCached ? { content: nextCached.content ?? '', encoding: 'utf8', isBinary: nextCached.isBinary } : null);
+        setDiffContent(nextCached?.diff ?? null);
+        setDisplayMode(getInitialFileViewerDisplayMode(Boolean(nextCached?.diff), requestedLine));
+        setIsLoading(!nextCached);
+        setError(null);
+    }, [filePath, requestedLine, sessionId]);
+
+    // Load file content first. Diff is fetched independently below so slow git
+    // commands do not block the primary text render.
     React.useEffect(() => {
         let isCancelled = false;
 
         const loadFile = async () => {
             try {
-                // Only show loading spinner if no cache
-                if (!cached) {
+                const cachedAtLoadStart = storage.getState().sessionFileCache[sessionId!]?.[filePath] ?? null;
+                if (!cachedAtLoadStart) {
                     setIsLoading(true);
                 }
                 setError(null);
 
                 if (isBinaryFile(filePath)) {
                     if (!isCancelled) {
+                        const existingDiff = storage.getState().sessionFileCache[sessionId!]?.[filePath]?.diff ?? null;
                         setFileContent({ content: '', encoding: 'base64', isBinary: true });
-                        storage.getState().applyFileCache(sessionId!, filePath, '', null, true);
+                        storage.getState().applyFileCache(sessionId!, filePath, '', existingDiff, true);
                         setIsLoading(false);
                     }
                     return;
                 }
 
-                let fetchedDiff: string | null = null;
-
-                // Fetch git diff for the file (if in git repo)
-                if (sessionPath && sessionId && gitDiffPath && gitDiffPath !== '.') {
-                    try {
-                        const diffResponse = await sessionBash(sessionId, {
-                            command: `git diff --no-ext-diff -- "${gitDiffPath}"`,
-                            cwd: sessionPath,
-                            timeout: 5000
-                        });
-
-                        if (!isCancelled && diffResponse.success && diffResponse.stdout.trim()) {
-                            fetchedDiff = diffResponse.stdout;
-                            setDiffContent(fetchedDiff);
-                        }
-                    } catch (diffError) {
-                        console.log('Could not fetch git diff:', diffError);
-                    }
-                }
-
                 const response = await sessionReadFile(sessionId, filePath);
 
                 if (!isCancelled) {
-                    if (response.success && response.content) {
+                    if (response.success && typeof response.content === 'string') {
                         let rawBytes: Uint8Array;
                         let decodedContent: string;
                         try {
                             rawBytes = decodeBase64ToBytes(response.content);
                             decodedContent = decodeUtf8Bytes(rawBytes);
                         } catch (decodeError) {
+                            const existingDiff = storage.getState().sessionFileCache[sessionId!]?.[filePath]?.diff ?? null;
                             setFileContent({ content: '', encoding: 'base64', isBinary: true });
-                            storage.getState().applyFileCache(sessionId!, filePath, '', fetchedDiff, true);
+                            storage.getState().applyFileCache(sessionId!, filePath, '', existingDiff, true);
                             return;
                         }
 
@@ -252,11 +251,12 @@ export default React.memo(function FileScreen() {
                             const code = char.charCodeAt(0);
                             return code < 32 && code !== 9 && code !== 10 && code !== 13;
                         }).length;
-                        const isBinary = hasNullBytes || (nonPrintableCount / decodedContent.length > 0.1);
+                        const isBinary = hasNullBytes || (decodedContent.length > 0 && nonPrintableCount / decodedContent.length > 0.1);
 
                         const content = isBinary ? '' : decodedContent;
+                        const existingDiff = storage.getState().sessionFileCache[sessionId!]?.[filePath]?.diff ?? null;
                         setFileContent({ content, encoding: 'utf8', isBinary });
-                        storage.getState().applyFileCache(sessionId!, filePath, content, fetchedDiff, isBinary);
+                        storage.getState().applyFileCache(sessionId!, filePath, content, existingDiff, isBinary);
                     } else {
                         setError(response.error || 'Failed to read file');
                     }
@@ -278,7 +278,57 @@ export default React.memo(function FileScreen() {
         return () => {
             isCancelled = true;
         };
-    }, [filePath, gitDiffPath, isBinaryFile, sessionId, sessionPath]);
+    }, [filePath, isBinaryFile, sessionId]);
+
+    // Fetch git diff in the background. This keeps the file body usable even
+    // when the path is outside a git repo or the remote shell is slow.
+    React.useEffect(() => {
+        let isCancelled = false;
+
+        if (!sessionPath || !sessionId || !gitDiffPath || gitDiffPath === '.') {
+            setDiffContent(null);
+            return;
+        }
+
+        const loadDiff = async () => {
+            try {
+                const diffResponse = await sessionBash(sessionId, {
+                    command: `git diff --no-ext-diff -- "${gitDiffPath}"`,
+                    cwd: sessionPath,
+                    timeout: 5000
+                });
+
+                if (isCancelled) return;
+
+                const fetchedDiff = diffResponse.success && diffResponse.stdout.trim()
+                    ? diffResponse.stdout
+                    : null;
+                setDiffContent(fetchedDiff);
+
+                const currentCache = storage.getState().sessionFileCache[sessionId]?.[filePath];
+                if (currentCache || fetchedDiff) {
+                    storage.getState().applyFileCache(
+                        sessionId,
+                        filePath,
+                        currentCache?.content ?? null,
+                        fetchedDiff,
+                        currentCache?.isBinary ?? false,
+                    );
+                }
+            } catch (diffError) {
+                console.log('Could not fetch git diff:', diffError);
+                if (!isCancelled) {
+                    setDiffContent(null);
+                }
+            }
+        };
+
+        loadDiff();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [filePath, gitDiffPath, sessionId, sessionPath]);
 
     // Show error modal if there's an error
     React.useEffect(() => {
@@ -310,6 +360,11 @@ export default React.memo(function FileScreen() {
 
     const fileName = filePath.split('/').pop() || filePath;
     const language = getFileLanguage(filePath);
+    const effectiveDisplayMode = getEffectiveFileViewerDisplayMode(
+        displayMode,
+        Boolean(diffContent),
+        Boolean(fileContent?.content),
+    );
 
     if (isLoading) {
         return (
@@ -485,15 +540,15 @@ export default React.memo(function FileScreen() {
                 contentContainerStyle={{ padding: 16, maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}
                 showsVerticalScrollIndicator={true}
             >
-                {displayMode === 'diff' && diffContent ? (
+                {effectiveDisplayMode === 'diff' && diffContent ? (
                     <DiffDisplay diffContent={diffContent} />
-                ) : displayMode === 'file' && fileContent?.content ? (
+                ) : effectiveDisplayMode === 'file' && fileContent?.content ? (
                     <SimpleSyntaxHighlighter
                         code={fileContent.content}
                         language={language}
                         selectable={true}
                     />
-                ) : displayMode === 'file' && fileContent && !fileContent.content ? (
+                ) : effectiveDisplayMode === 'file' && fileContent && !fileContent.content ? (
                     <Text style={{
                         fontSize: 16,
                         color: theme.colors.textSecondary,

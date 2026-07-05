@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import { BackHandler, Platform, Pressable, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
@@ -41,6 +42,7 @@ const SPRING_CONFIG = {
 export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ children, panelContent }: Props) {
     const { theme } = useUnistyles();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const safeArea = useSafeAreaInsets();
     const { width: windowWidth } = useWindowDimensions();
     const isTablet = useIsTablet();
@@ -81,27 +83,27 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
     }, []);
 
     const handlePanelBack = React.useCallback(() => {
-        if (!open) return false;
+        if (!isFocused || !open) return false;
         if (backHandlerRef.current?.()) return true;
         closePanel();
         return true;
-    }, [closePanel, open]);
+    }, [closePanel, isFocused, open]);
 
     React.useEffect(() => {
-        if (!enabled) return;
+        if (!enabled || !isFocused) return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', handlePanelBack);
         return () => subscription.remove();
-    }, [enabled, handlePanelBack]);
+    }, [enabled, handlePanelBack, isFocused]);
 
     React.useEffect(() => {
-        if (!enabled) return;
+        if (!enabled || !isFocused) return;
         return navigation.addListener('beforeRemove', (event) => {
             const actionType = event.data.action.type;
             if (actionType !== 'GO_BACK' && actionType !== 'POP') return;
             if (!handlePanelBack()) return;
             event.preventDefault();
         });
-    }, [enabled, handlePanelBack, navigation]);
+    }, [enabled, handlePanelBack, isFocused, navigation]);
 
     const contextValue = React.useMemo<RightSwipePanelContextValue>(() => ({
         closePanel,

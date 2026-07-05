@@ -180,11 +180,12 @@ export const pt: TranslationStructure = {
 
     rightPanelCapabilityHub: {
         title: 'Capability Hub',
-        emptyHomeDescription: 'Open a session to see skills, quick prompts, files, images, and artifacts here.',
+        emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',
         recentTitle: 'Recent',
         noRecent: 'Nothing recent yet',
         back: 'Back',
         blocks: {
+            sessionActions: 'Session Actions',
             skills: 'Skills',
             quickPrompts: 'Quick Prompts',
             images: 'Images',
@@ -192,6 +193,7 @@ export const pt: TranslationStructure = {
             files: 'Files',
         },
         empty: {
+            sessionActions: 'No actions available for this session',
             skills: 'No skills available for this session',
             quickPrompts: 'No quick prompts yet',
             images: 'No images in this session yet',

@@ -70,6 +70,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     const { width: windowWidth } = useWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
+    const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Base condition: can we show the diff sidebar at all?
     const canShowSidebar = fileDiffsSidebarEnabled
@@ -111,6 +112,9 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
     const latestOtaPreviewId = otaPreviews[0]?.id ?? null;
     const latestOtaPreviewIdRef = React.useRef(latestOtaPreviewId);
+    const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
+        sessionComposerHandleRef.current?.setMessage(prompt);
+    }, []);
 
     React.useEffect(() => {
         if (sidebarMode === 'otaPreview' && otaPreviews.length === 0) {
@@ -315,7 +319,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                 ) : (
-                    <SessionViewLoaded key={sessionId} sessionId={sessionId} session={session} />
+                    <SessionViewLoaded key={sessionId} composerHandleRef={sessionComposerHandleRef} sessionId={sessionId} session={session} />
                 )}
             </View>
 
@@ -343,7 +347,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
     if (!canShowSidebar) {
         return (
-            <RightSwipePanelHost panelContent={<SessionCapabilityHub sessionId={sessionId} />}>
+            <RightSwipePanelHost panelContent={<SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />}>
                 {mainContent}
             </RightSwipePanelHost>
         );
@@ -438,6 +442,7 @@ function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
 type ChatComposerHandle = {
     getMessage: () => string;
     clearMessage: () => void;
+    setMessage: (text: string) => void;
 };
 
 type ChatComposerProps = Omit<
@@ -484,6 +489,11 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
             setMessage('');
             clearDraft();
         },
+        setMessage: (text: string) => {
+            inputHandleRef.current?.setTextAndSelection(text, { start: text.length, end: text.length });
+            inputHandleRef.current?.focus();
+            setMessage(text);
+        },
     }), [clearDraft]);
 
     return (
@@ -497,7 +507,15 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
-function SessionViewLoaded({ sessionId, session }: { sessionId: string, session: Session }) {
+function SessionViewLoaded({
+    sessionId,
+    session,
+    composerHandleRef,
+}: {
+    sessionId: string;
+    session: Session;
+    composerHandleRef: React.RefObject<ChatComposerHandle | null>;
+}) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const safeArea = useSafeAreaInsets();
@@ -527,12 +545,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
 
     // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
-
-    // ChatComposer owns the message state + useDraft subscription. We only
-    // hold an imperative handle so handleSend can read the live text and
-    // clear it without subscribing to it (which would re-render the whole
-    // SessionViewLoaded tree on every keystroke).
-    const composerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -566,7 +578,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             if (attachments) clearImages();
             sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
         }
-    }, [sessionId, selectedImages, clearImages]);
+    }, [composerHandleRef, sessionId, selectedImages, clearImages]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);

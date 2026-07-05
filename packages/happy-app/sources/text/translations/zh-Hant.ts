@@ -181,11 +181,12 @@ export const zhHant: TranslationStructure = {
 
     rightPanelCapabilityHub: {
         title: '能力中心',
-        emptyHomeDescription: '打開一個會話後，這裡會集中展示本次會話的 skills、快捷指令、檔案、圖片和 artifacts。',
+        emptyHomeDescription: '打開一個會話後，這裡會集中展示本次會話的操作、skills、快捷指令、檔案、圖片和 artifacts。',
         recentTitle: '最近資源',
         noRecent: '目前還沒有最近資源',
         back: '返回',
         blocks: {
+            sessionActions: '會話操作',
             skills: 'Skills',
             quickPrompts: '快捷指令',
             images: '圖片',
@@ -193,6 +194,7 @@ export const zhHant: TranslationStructure = {
             files: '檔案',
         },
         empty: {
+            sessionActions: '目前會話還沒有可用操作',
             skills: '目前會話還沒有可用的 skills',
             quickPrompts: '目前還沒有快捷指令',
             images: '目前會話還沒有圖片',
@@ -207,10 +209,10 @@ export const zhHant: TranslationStructure = {
         quickPrompt: {
             add: '新增指令',
             addTitle: '指令名稱',
-            addTitleMessage: '給這個快捷 Prompt 起一個容易識別的名稱。',
+            addTitleMessage: '可選；留空時會用 Prompt 第一行作為名稱。',
             titlePlaceholder: '評審這次改動',
             addBodyTitle: 'Prompt 內容',
-            addBodyMessage: '點擊快捷指令時，這段內容會直接傳送到目前會話。',
+            addBodyMessage: '點擊卡片會把內容填入輸入框；點擊傳送會立即傳送。',
             bodyPlaceholder: '執行相關測試，並總結失敗原因。',
             send: '傳送',
             deleteTitle: '刪除快捷指令？',
