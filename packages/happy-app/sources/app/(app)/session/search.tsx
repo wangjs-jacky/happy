@@ -174,7 +174,6 @@ export default React.memo(function SessionSearchScreen() {
         >
             <View style={styles.content}>
                 <View style={styles.headerRow}>
-                    <Text style={styles.title}>{t('sessionSearch.title')}</Text>
                     <Pressable
                         onPress={() => setSortMode((current) => !current)}
                         style={({ pressed }) => [
@@ -210,6 +209,7 @@ export default React.memo(function SessionSearchScreen() {
 
                 <ScrollView
                     horizontal
+                    style={styles.filterScroller}
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.filterRow}
                     keyboardShouldPersistTaps="handled"
@@ -735,17 +735,10 @@ const styles = StyleSheet.create((theme) => ({
     headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
+        justifyContent: 'flex-end',
         marginHorizontal: 18,
-        marginTop: 16,
+        marginTop: 12,
         marginBottom: 12,
-    },
-    title: {
-        flex: 1,
-        fontSize: 21,
-        color: theme.colors.text,
-        ...Typography.default('semiBold'),
     },
     sortButton: {
         minHeight: 38,
@@ -787,13 +780,19 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         ...Typography.default(),
     },
+    filterScroller: {
+        flexGrow: 0,
+        flexShrink: 0,
+        height: 46,
+        marginBottom: 12,
+    },
     filterRow: {
         gap: 8,
+        alignItems: 'center',
         paddingHorizontal: 18,
-        paddingBottom: 12,
     },
     filterChip: {
-        minHeight: 34,
+        height: 34,
         paddingHorizontal: 14,
         borderRadius: 16,
         alignItems: 'center',
