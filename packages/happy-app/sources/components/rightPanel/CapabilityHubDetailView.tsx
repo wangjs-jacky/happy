@@ -149,25 +149,38 @@ const QuickPromptItemRow = React.memo(function QuickPromptItemRow(props: {
                         {props.item.prompt}
                     </Text>
                 </View>
-                <Text style={[styles.sendText, { color: theme.colors.textLink }]}>
-                    {t('rightPanelCapabilityHub.quickPrompt.send')}
-                </Text>
             </Pressable>
-            {props.onDelete ? (
-                <Pressable
-                    hitSlop={8}
-                    onPress={() => props.onDelete?.(props.item)}
-                    style={({ pressed }) => [
-                        styles.deleteButton,
-                        {
-                            backgroundColor: theme.colors.surfaceHigh,
-                            opacity: pressed ? 0.72 : 1,
-                        },
-                    ]}
-                >
-                    <Ionicons color={theme.colors.textSecondary} name="trash-outline" size={15} />
-                </Pressable>
-            ) : null}
+            <View style={styles.quickPromptActions}>
+                {props.onRun ? (
+                    <Pressable
+                        hitSlop={8}
+                        onPress={() => props.onRun?.(props.item)}
+                        style={({ pressed }) => [
+                            styles.sendButton,
+                            { opacity: pressed ? 0.72 : 1 },
+                        ]}
+                    >
+                        <Text style={[styles.sendText, { color: theme.colors.textLink }]}>
+                            {t('rightPanelCapabilityHub.quickPrompt.send')}
+                        </Text>
+                    </Pressable>
+                ) : null}
+                {props.onDelete ? (
+                    <Pressable
+                        hitSlop={8}
+                        onPress={() => props.onDelete?.(props.item)}
+                        style={({ pressed }) => [
+                            styles.deleteButton,
+                            {
+                                backgroundColor: theme.colors.surfaceHigh,
+                                opacity: pressed ? 0.72 : 1,
+                            },
+                        ]}
+                    >
+                        <Ionicons color={theme.colors.textSecondary} name="trash-outline" size={15} />
+                    </Pressable>
+                ) : null}
+            </View>
         </View>
     );
 });
@@ -387,8 +400,9 @@ const styles = StyleSheet.create(() => ({
     },
     quickPromptCard: {
         alignItems: 'stretch',
-        gap: 0,
-        paddingRight: 8,
+        gap: 8,
+        minHeight: 72,
+        paddingRight: 10,
     },
     quickPromptMain: {
         alignItems: 'center',
@@ -396,6 +410,14 @@ const styles = StyleSheet.create(() => ({
         flexDirection: 'row',
         gap: 10,
         minWidth: 0,
+    },
+    quickPromptActions: {
+        alignItems: 'center',
+        flexDirection: 'row',
+        flexShrink: 0,
+        gap: 8,
+        justifyContent: 'flex-end',
+        width: 86,
     },
     rowIconWrap: {
         alignItems: 'center',
@@ -420,14 +442,18 @@ const styles = StyleSheet.create(() => ({
     sendText: {
         fontSize: 12,
         fontWeight: '700',
-        marginLeft: 4,
+    },
+    sendButton: {
+        alignItems: 'center',
+        height: 34,
+        justifyContent: 'center',
+        minWidth: 36,
     },
     deleteButton: {
         alignItems: 'center',
-        borderRadius: 14,
-        height: 28,
+        borderRadius: 17,
+        height: 34,
         justifyContent: 'center',
-        marginLeft: 8,
-        width: 28,
+        width: 34,
     },
 }));
