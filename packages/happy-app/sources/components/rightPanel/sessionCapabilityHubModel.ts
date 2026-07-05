@@ -1,8 +1,9 @@
 import type { DecryptedArtifact } from '@/sync/artifactTypes';
+import type { QuickPrompt } from '@/sync/settings';
 import type { Session } from '@/sync/storageTypes';
 import type { Message } from '@/sync/typesMessage';
 
-export type CapabilityKey = 'skills' | 'images' | 'artifacts' | 'files';
+export type CapabilityKey = 'skills' | 'quickPrompts' | 'images' | 'artifacts' | 'files';
 
 export type SkillCapabilityItem = {
     id: string;
@@ -45,14 +46,26 @@ export type FileCapabilityItem = {
     createdAt: number;
 };
 
+export type QuickPromptCapabilityItem = {
+    id: string;
+    kind: 'quickPrompt';
+    title: string;
+    meta: 'custom';
+    prompt: string;
+    createdAt?: number;
+    updatedAt?: number;
+};
+
 export type CapabilityItem =
     | SkillCapabilityItem
+    | QuickPromptCapabilityItem
     | ImageCapabilityItem
     | ArtifactCapabilityItem
     | FileCapabilityItem;
 
 export type CapabilityItemsByKey = {
     skills: SkillCapabilityItem;
+    quickPrompts: QuickPromptCapabilityItem;
     images: ImageCapabilityItem;
     artifacts: ArtifactCapabilityItem;
     files: FileCapabilityItem;
@@ -69,28 +82,24 @@ export type CapabilityBlock = {
     empty: boolean;
 };
 
-export type RecentResource = ImageCapabilityItem | ArtifactCapabilityItem | FileCapabilityItem;
-
 export type SessionCapabilityHubModel = {
     blocks: CapabilityBlock[];
     details: Record<CapabilityKey, CapabilityItem[]>;
-    recentResources: RecentResource[];
 };
 
 type BuildArgs = {
     session: Session | null;
     messages: Message[];
     artifacts: DecryptedArtifact[];
+    quickPrompts?: QuickPrompt[] | null;
     skillNames?: string[] | null;
     limits?: {
         details?: number;
-        recentResources?: number;
     };
 };
 
-const DETAIL_KEYS: CapabilityKey[] = ['skills', 'images', 'artifacts', 'files'];
+const DETAIL_KEYS: CapabilityKey[] = ['skills', 'quickPrompts', 'images', 'artifacts', 'files'];
 const DEFAULT_DETAIL_LIMIT = Number.POSITIVE_INFINITY;
-const DEFAULT_RECENT_LIMIT = 8;
 const EDIT_TOOL_NAMES = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 const PATCH_TOOL_NAMES = new Set(['CodexPatch', 'GeminiPatch']);
 
@@ -275,6 +284,24 @@ function getSkillItems(session: Session | null, skillNames: string[] | null | un
         }));
 }
 
+function getQuickPromptItems(quickPrompts: QuickPrompt[] | null | undefined, limit: number): QuickPromptCapabilityItem[] {
+    if (!Array.isArray(quickPrompts)) return [];
+    return quickPrompts
+        .filter((item) => item.title.trim().length > 0 && item.prompt.trim().length > 0)
+        .slice()
+        .sort((a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0))
+        .slice(0, limit)
+        .map((item) => ({
+            id: item.id,
+            kind: 'quickPrompt',
+            title: item.title,
+            meta: 'custom',
+            prompt: item.prompt,
+            ...(item.createdAt !== undefined ? { createdAt: item.createdAt } : {}),
+            ...(item.updatedAt !== undefined ? { updatedAt: item.updatedAt } : {}),
+        }));
+}
+
 function getPreview(items: CapabilityItem[]): string | null {
     if (items.length === 0) return null;
     return items[0]?.title ?? null;
@@ -286,6 +313,8 @@ export function getCapabilityDetailItems<K extends CapabilityKey>(key: K, args: 
     switch (key) {
         case 'skills':
             return getSkillItems(args.session, args.skillNames, limit) as CapabilityItemsByKey[K][];
+        case 'quickPrompts':
+            return getQuickPromptItems(args.quickPrompts, limit) as CapabilityItemsByKey[K][];
         case 'images':
             return getImageItems(args.messages, limit) as CapabilityItemsByKey[K][];
         case 'artifacts':
@@ -298,6 +327,7 @@ export function getCapabilityDetailItems<K extends CapabilityKey>(key: K, args: 
 export function buildSessionCapabilityHubModel(args: BuildArgs): SessionCapabilityHubModel {
     const details: CapabilityDetails = {
         skills: getCapabilityDetailItems('skills', args),
+        quickPrompts: getCapabilityDetailItems('quickPrompts', args),
         images: getCapabilityDetailItems('images', args),
         artifacts: getCapabilityDetailItems('artifacts', args),
         files: getCapabilityDetailItems('files', args),
@@ -313,22 +343,8 @@ export function buildSessionCapabilityHubModel(args: BuildArgs): SessionCapabili
         };
     });
 
-    const recentLimit = args.limits?.recentResources ?? DEFAULT_RECENT_LIMIT;
-    const recentResources: RecentResource[] = [
-        ...details.images,
-        ...details.artifacts,
-        ...details.files,
-    ]
-        .sort((a, b) => {
-            const aTime = a.kind === 'artifact' ? a.updatedAt : a.createdAt;
-            const bTime = b.kind === 'artifact' ? b.updatedAt : b.createdAt;
-            return bTime - aTime;
-        })
-        .slice(0, recentLimit);
-
     return {
         blocks,
         details,
-        recentResources,
     };
 }

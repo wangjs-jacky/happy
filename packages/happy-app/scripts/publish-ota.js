@@ -5,6 +5,8 @@
 //   --platform 平台，缺省 android
 //   人类可读展示信息可通过环境变量传入，或在 GitHub Actions 中从 GITHUB_EVENT_PATH 自动读取：
 //     OTA_DISPLAY_TITLE / OTA_DISPLAY_MESSAGE / OTA_SOURCE_TYPE / OTA_SOURCE_NUMBER / OTA_SOURCE_URL
+//   本地也可以用参数传入：
+//     --display-title "能力中心快捷指令与返回逻辑" --display-message "移除最近资源，新增快捷指令。"
 //
 // 凭证来源：本脚本通过 `aliyun ossutil` 上传，复用 aliyun CLI 已配置的默认 profile 凭证
 //（~/.aliyun/config.json），因此无需在环境变量里再写 AccessKey。
@@ -23,8 +25,18 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--channel') out.channel = argv[++i];
     else if (a === '--platform') out.platform = argv[++i];
+    else if (a === '--display-title') out.displayTitle = argv[++i];
+    else if (a === '--display-message') out.displayMessage = argv[++i];
+    else if (a === '--source-type') out.sourceType = argv[++i];
+    else if (a === '--source-number') out.sourceNumber = argv[++i];
+    else if (a === '--source-url') out.sourceUrl = argv[++i];
     else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
     else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
+    else if (a.startsWith('--display-title=')) out.displayTitle = a.slice('--display-title='.length);
+    else if (a.startsWith('--display-message=')) out.displayMessage = a.slice('--display-message='.length);
+    else if (a.startsWith('--source-type=')) out.sourceType = a.slice('--source-type='.length);
+    else if (a.startsWith('--source-number=')) out.sourceNumber = a.slice('--source-number='.length);
+    else if (a.startsWith('--source-url=')) out.sourceUrl = a.slice('--source-url='.length);
   }
   return out;
 }
@@ -115,17 +127,32 @@ function githubEventDisplayInfo() {
 
 // 读取 CI/本地注入的人类可读展示信息。PR 预览 OTA 用它记录中文标题和说明，
 // 避免列表只能看到自动 merge commit。
-function displayInfo() {
+function displayInfo(git) {
   const eventDisplay = githubEventDisplayInfo();
   const clean = (value, maxLength) => {
     if (!value) return '';
     return String(value).replace(/\r\n/g, '\n').trim().slice(0, maxLength);
   };
-  const title = clean(process.env.OTA_DISPLAY_TITLE || eventDisplay.title, 160);
-  const message = clean(process.env.OTA_DISPLAY_MESSAGE || eventDisplay.message, 2000);
-  const sourceType = clean(process.env.OTA_SOURCE_TYPE || eventDisplay.sourceType, 40);
-  const sourceNumber = clean(process.env.OTA_SOURCE_NUMBER || eventDisplay.sourceNumber, 40);
-  const sourceUrl = clean(process.env.OTA_SOURCE_URL || eventDisplay.sourceUrl, 400);
+  const title = clean(ARGS.displayTitle || process.env.OTA_DISPLAY_TITLE || eventDisplay.title, 160);
+  const message = clean(ARGS.displayMessage || process.env.OTA_DISPLAY_MESSAGE || eventDisplay.message, 2000);
+  const sourceType = clean(ARGS.sourceType || process.env.OTA_SOURCE_TYPE || eventDisplay.sourceType, 40);
+  const sourceNumber = clean(ARGS.sourceNumber || process.env.OTA_SOURCE_NUMBER || eventDisplay.sourceNumber, 40);
+  const sourceUrl = clean(ARGS.sourceUrl || process.env.OTA_SOURCE_URL || eventDisplay.sourceUrl, 400);
+  if (CHANNEL === 'preview' && git.dirty && !title) {
+    console.error([
+      '错误：当前工作区有未提交改动，发布 preview OTA 必须提供人类可读标题。',
+      '这样 OTA 版本页才能一眼看出应该选择哪个包。',
+      '',
+      '示例：',
+      '  OTA_DISPLAY_TITLE="能力中心快捷指令与返回逻辑" \\',
+      '  OTA_DISPLAY_MESSAGE="移除最近资源，新增快捷指令，并修正右侧面板返回逻辑。" \\',
+      '  pnpm ota:selfhost:preview',
+      '',
+      '或：',
+      '  pnpm ota:selfhost:preview -- --display-title "能力中心快捷指令与返回逻辑"',
+    ].join('\n'));
+    process.exit(1);
+  }
   const source = {};
   if (sourceType) source.type = sourceType;
   if (sourceNumber) source.number = sourceNumber;
@@ -185,13 +212,18 @@ async function main() {
     process.exit(1);
   }
 
-  // 2) 本次发布目录（时间戳，保证唯一、可回滚）
+  // 2) 先读取/校验展示元信息。dirty preview 缺少标题时必须在任何上传前失败，
+  //    避免 OSS 上留下无法从 App 入口选择的无用版本对象。
+  const git = gitInfo();
+  const display = displayInfo(git);
+
+  // 3) 本次发布目录（时间戳，保证唯一、可回滚）
   const stamp = String(Date.now());
   const baseKey = `updates/${PLATFORM}/${RUNTIME_VERSION}/${stamp}`;
   console.log('本次发布目录:', baseKey);
   console.log('上传端点:', OSS_UPLOAD_ENDPOINT, '· addressing:', OSS_ADDRESSING_STYLE);
 
-  // 3) JS 主包（launchAsset）
+  // 4) JS 主包（launchAsset）
   const bundleRelPath = fileMeta.bundle;
   const bundleBuf = fs.readFileSync(path.join(DIST_DIR, bundleRelPath));
   const bundleKey = `${baseKey}/bundle.js`;
@@ -203,7 +235,7 @@ async function main() {
     url: `${OSS_PUBLIC_BASE}/${bundleKey}`,
   };
 
-  // 4) 资源 assets：整目录递归上传一次（dist/assets/ 下全是扁平 hash 文件名）
+  // 5) 资源 assets：整目录递归上传一次（dist/assets/ 下全是扁平 hash 文件名）
   const assetList = fileMeta.assets || [];
   if (assetList.length > 0) {
     console.log(`上传 assets 目录（${assetList.length} 个引用 / 去重后若干）...`);
@@ -221,9 +253,7 @@ async function main() {
     };
   });
 
-  // 5) 组装 manifest（extra.git 记录本次发布对应的 commit，回退时据此辨认是哪个版本）
-  const git = gitInfo();
-  const display = displayInfo();
+  // 6) 组装 manifest（extra.git 记录本次发布对应的 commit，回退时据此辨认是哪个版本）
   const manifest = {
     id: toUUID(crypto.createHash('sha256').update(bundleBuf.toString('hex') + stamp).digest('hex')),
     createdAt: new Date(Number(stamp)).toISOString(),
@@ -234,7 +264,7 @@ async function main() {
     extra: { git, display },
   };
 
-  // 6) 上传 manifest 到频道下的 latest.json（每次覆盖）。先写临时文件再传。
+  // 7) 上传 manifest 到频道下的 latest.json（每次覆盖）。先写临时文件再传。
   //    路径含 channel 段：manifests/<platform>/<runtime>/<channel>/latest.json
   const tmpManifest = path.join(os.tmpdir(), `ota-manifest-${stamp}.json`);
   fs.writeFileSync(tmpManifest, JSON.stringify(manifest, null, 2));
@@ -245,7 +275,7 @@ async function main() {
   ossUpload(tmpManifest, `${channelPrefix}/${stamp}.json`, 'application/json');
   fs.unlinkSync(tmpManifest);
 
-  // 7) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git + display。
+  // 8) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git + display。
   //    回退脚本读这个小文件即可展示「这是哪个 commit」，无需下载体积较大的整份 manifest。
   const meta = { stamp, createdAt: manifest.createdAt, id: manifest.id, channel: CHANNEL, git, display };
   const tmpMeta = path.join(os.tmpdir(), `ota-meta-${stamp}.json`);
@@ -264,7 +294,7 @@ async function main() {
     console.log('展示标题:', display.title);
   }
 
-  // 8) CI 集成：若在 GitHub Actions 中（设置了 GITHUB_OUTPUT），把版本信息写入 step output，
+  // 9) CI 集成：若在 GitHub Actions 中（设置了 GITHUB_OUTPUT），把版本信息写入 step output，
   //    供后续步骤在 PR 上评论「预览已发布」。本地运行时该变量不存在，自动跳过。
   if (process.env.GITHUB_OUTPUT) {
     const lines = [

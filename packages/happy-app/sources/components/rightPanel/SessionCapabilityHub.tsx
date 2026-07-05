@@ -1,22 +1,19 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { ScrollView, Text, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useAttachmentImage } from '@/hooks/useAttachmentImage';
-import { imageViewer } from '@/sync/imageViewer';
+import { Modal } from '@/modal';
+import { useSettingMutable } from '@/sync/storage';
+import { sync } from '@/sync/sync';
 import { t } from '@/text';
+import { hapticsLight } from '../haptics';
+import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { CapabilityBlockCard } from './CapabilityBlockCard';
 import { CapabilityHubDetailView } from './CapabilityHubDetailView';
-import type {
-    CapabilityKey,
-    FileCapabilityItem,
-    ImageCapabilityItem,
-    RecentResource,
-} from './sessionCapabilityHubModel';
+import type { CapabilityKey, QuickPromptCapabilityItem } from './sessionCapabilityHubModel';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 
-const BLOCK_ORDER: CapabilityKey[] = ['skills', 'images', 'artifacts', 'files'];
+const BLOCK_ORDER: CapabilityKey[] = ['skills', 'quickPrompts', 'images', 'artifacts', 'files'];
 
 export const SessionCapabilityHub = React.memo(function SessionCapabilityHub(props: {
     sessionId?: string;
@@ -32,18 +29,85 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
 }) {
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
+    const panel = useRightSwipePanel();
+    const [quickPrompts, setQuickPrompts] = useSettingMutable('quickPrompts');
     const [selectedKey, setSelectedKey] = React.useState<CapabilityKey | null>(null);
 
     React.useEffect(() => {
         setSelectedKey(null);
     }, [props.sessionId]);
 
+    React.useEffect(() => {
+        if (!selectedKey) return;
+        return panel?.registerBackHandler(() => {
+            setSelectedKey(null);
+            return true;
+        });
+    }, [panel, selectedKey]);
+
+    const addQuickPrompt = React.useCallback(async () => {
+        const title = (await Modal.prompt(
+            t('rightPanelCapabilityHub.quickPrompt.addTitle'),
+            t('rightPanelCapabilityHub.quickPrompt.addTitleMessage'),
+            {
+                placeholder: t('rightPanelCapabilityHub.quickPrompt.titlePlaceholder'),
+                confirmText: t('common.continue'),
+            },
+        ))?.trim();
+        if (!title) return;
+
+        const prompt = (await Modal.prompt(
+            t('rightPanelCapabilityHub.quickPrompt.addBodyTitle'),
+            t('rightPanelCapabilityHub.quickPrompt.addBodyMessage'),
+            {
+                placeholder: t('rightPanelCapabilityHub.quickPrompt.bodyPlaceholder'),
+                confirmText: t('common.save'),
+            },
+        ))?.trim();
+        if (!prompt) return;
+
+        const now = Date.now();
+        setQuickPrompts([
+            {
+                id: `quick-prompt-${now}`,
+                title,
+                prompt,
+                createdAt: now,
+                updatedAt: now,
+            },
+            ...quickPrompts,
+        ]);
+        setSelectedKey('quickPrompts');
+    }, [quickPrompts, setQuickPrompts]);
+
+    const deleteQuickPrompt = React.useCallback(async (item: QuickPromptCapabilityItem) => {
+        const confirmed = await Modal.confirm(
+            t('rightPanelCapabilityHub.quickPrompt.deleteTitle'),
+            t('rightPanelCapabilityHub.quickPrompt.deleteMessage', { title: item.title }),
+            {
+                confirmText: t('common.delete'),
+                destructive: true,
+            },
+        );
+        if (!confirmed) return;
+        setQuickPrompts(quickPrompts.filter((entry) => entry.id !== item.id));
+    }, [quickPrompts, setQuickPrompts]);
+
+    const runQuickPrompt = React.useCallback((item: QuickPromptCapabilityItem) => {
+        hapticsLight();
+        sync.sendMessage(props.sessionId, item.prompt, { source: 'chat' });
+        panel?.closePanel();
+    }, [panel, props.sessionId]);
+
     if (selectedKey) {
         return (
             <CapabilityHubDetailView
                 count={model.details[selectedKey].length}
                 items={model.details[selectedKey]}
+                onAddQuickPrompt={selectedKey === 'quickPrompts' ? addQuickPrompt : undefined}
                 onBack={() => setSelectedKey(null)}
+                onDeleteQuickPrompt={deleteQuickPrompt}
+                onRunQuickPrompt={runQuickPrompt}
                 sessionId={props.sessionId}
                 title={t(`rightPanelCapabilityHub.blocks.${selectedKey}` as const)}
                 type={selectedKey}
@@ -78,33 +142,6 @@ const SessionCapabilityHubInner = React.memo(function SessionCapabilityHubInner(
                     );
                 })}
             </View>
-
-            <View style={styles.sectionHead}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                    {t('rightPanelCapabilityHub.recentTitle')}
-                </Text>
-                <Text style={[styles.sectionMeta, { color: theme.colors.textSecondary }]}>
-                    {model.recentResources.length}
-                </Text>
-            </View>
-
-            {model.recentResources.length === 0 ? (
-                <View style={[styles.emptyRecent, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surface }]}>
-                    <Text style={[styles.emptyRecentText, { color: theme.colors.textSecondary }]}>
-                        {t('rightPanelCapabilityHub.noRecent')}
-                    </Text>
-                </View>
-            ) : (
-                <View style={styles.recentList}>
-                    {model.recentResources.map((item) => (
-                        <RecentResourceRow
-                            item={item}
-                            key={item.id}
-                            sessionId={props.sessionId}
-                        />
-                    ))}
-                </View>
-            )}
         </ScrollView>
     );
 });
@@ -142,129 +179,12 @@ const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() 
     );
 });
 
-const RecentResourceRow = React.memo(function RecentResourceRow(props: {
-    item: RecentResource;
-    sessionId: string;
-}) {
-    if (props.item.kind === 'image') {
-        return <RecentImageRow item={props.item} sessionId={props.sessionId} />;
-    }
-    if (props.item.kind === 'file') {
-        return <RecentFileRow item={props.item} sessionId={props.sessionId} />;
-    }
-    return <RecentArtifactRow item={props.item} />;
-});
-
-const RecentImageRow = React.memo(function RecentImageRow(props: {
-    item: ImageCapabilityItem;
-    sessionId: string;
-}) {
-    const { theme } = useUnistyles();
-    const { uri } = useAttachmentImage(props.sessionId, props.item.ref);
-
-    return (
-        <Pressable
-            disabled={!uri}
-            onPress={uri ? () => imageViewer.open({ uri, width: props.item.width, height: props.item.height }) : undefined}
-            style={({ pressed }) => [
-                styles.recentRow,
-                {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.divider,
-                    opacity: uri ? 1 : 0.78,
-                    transform: [{ scale: pressed ? 0.99 : 1 }],
-                },
-            ]}
-        >
-            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
-                <Ionicons color={theme.colors.text} name="image-outline" size={15} />
-            </View>
-            <View style={styles.recentCopy}>
-                <Text numberOfLines={1} style={[styles.recentTitle, { color: theme.colors.text }]}>
-                    {props.item.title}
-                </Text>
-                <Text numberOfLines={1} style={[styles.recentMeta, { color: theme.colors.textSecondary }]}>
-                    {t('rightPanelCapabilityHub.meta.image')}
-                </Text>
-            </View>
-            {!uri ? <ActivityIndicator color={theme.colors.textSecondary} size="small" /> : <Ionicons color={theme.colors.textSecondary} name="expand-outline" size={16} />}
-        </Pressable>
-    );
-});
-
-const RecentArtifactRow = React.memo(function RecentArtifactRow(props: {
-    item: Extract<RecentResource, { kind: 'artifact' }>;
-}) {
-    const router = useRouter();
-    const { theme } = useUnistyles();
-
-    return (
-        <Pressable
-            onPress={() => router.push(`/artifacts/${props.item.artifactId}` as any)}
-            style={({ pressed }) => [
-                styles.recentRow,
-                {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.divider,
-                    transform: [{ scale: pressed ? 0.99 : 1 }],
-                },
-            ]}
-        >
-            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
-                <Ionicons color={theme.colors.text} name="document-text-outline" size={15} />
-            </View>
-            <View style={styles.recentCopy}>
-                <Text numberOfLines={1} style={[styles.recentTitle, { color: theme.colors.text }]}>
-                    {props.item.title}
-                </Text>
-                <Text numberOfLines={1} style={[styles.recentMeta, { color: theme.colors.textSecondary }]}>
-                    {t('rightPanelCapabilityHub.meta.artifact')}
-                </Text>
-            </View>
-            <Ionicons color={theme.colors.textSecondary} name="chevron-forward" size={16} />
-        </Pressable>
-    );
-});
-
-const RecentFileRow = React.memo(function RecentFileRow(props: {
-    item: FileCapabilityItem;
-    sessionId: string;
-}) {
-    const router = useRouter();
-    const { theme } = useUnistyles();
-
-    return (
-        <Pressable
-            onPress={() => router.push(`/session/${props.sessionId}/file?path=${btoa(props.item.path)}` as any)}
-            style={({ pressed }) => [
-                styles.recentRow,
-                {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: theme.colors.divider,
-                    transform: [{ scale: pressed ? 0.99 : 1 }],
-                },
-            ]}
-        >
-            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
-                <Octicons color={theme.colors.text} name="file-code" size={14} />
-            </View>
-            <View style={styles.recentCopy}>
-                <Text numberOfLines={1} style={[styles.recentTitle, { color: theme.colors.text }]}>
-                    {props.item.title}
-                </Text>
-                <Text numberOfLines={1} style={[styles.recentMeta, { color: theme.colors.textSecondary }]}>
-                    {props.item.path}
-                </Text>
-            </View>
-            <Ionicons color={theme.colors.textSecondary} name="chevron-forward" size={16} />
-        </Pressable>
-    );
-});
-
 function renderBlockIcon(key: CapabilityKey, color: string) {
     switch (key) {
         case 'skills':
             return <Ionicons color={color} name="flash-outline" size={16} />;
+        case 'quickPrompts':
+            return <Ionicons color={color} name="chatbubble-ellipses-outline" size={16} />;
         case 'images':
             return <Ionicons color={color} name="image-outline" size={16} />;
         case 'artifacts':
@@ -299,68 +219,5 @@ const styles = StyleSheet.create(() => ({
         flexWrap: 'wrap',
         justifyContent: 'space-between',
         rowGap: 10,
-    },
-    sectionHead: {
-        alignItems: 'center',
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-        marginTop: 16,
-        paddingHorizontal: 2,
-    },
-    sectionTitle: {
-        fontSize: 13,
-        fontWeight: '700',
-        letterSpacing: 0.2,
-        textTransform: 'uppercase',
-    },
-    sectionMeta: {
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    emptyRecent: {
-        borderRadius: 16,
-        borderWidth: 1,
-        minHeight: 72,
-        justifyContent: 'center',
-        paddingHorizontal: 14,
-    },
-    emptyRecentText: {
-        fontSize: 13,
-        lineHeight: 18,
-        textAlign: 'center',
-    },
-    recentList: {
-        rowGap: 8,
-    },
-    recentRow: {
-        alignItems: 'center',
-        borderRadius: 16,
-        borderWidth: 1,
-        flexDirection: 'row',
-        gap: 10,
-        minHeight: 58,
-        paddingHorizontal: 10,
-        paddingVertical: 10,
-    },
-    rowIconWrap: {
-        alignItems: 'center',
-        borderRadius: 11,
-        height: 30,
-        justifyContent: 'center',
-        width: 30,
-    },
-    recentCopy: {
-        flex: 1,
-        minWidth: 0,
-    },
-    recentTitle: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginBottom: 4,
-    },
-    recentMeta: {
-        fontSize: 12,
-        lineHeight: 16,
     },
 }));

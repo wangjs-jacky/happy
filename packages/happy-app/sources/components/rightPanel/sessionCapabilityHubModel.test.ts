@@ -97,6 +97,7 @@ describe('sessionCapabilityHubModel', () => {
 
         expect(model.blocks.map((block) => [block.key, block.count])).toEqual([
             ['skills', 2],
+            ['quickPrompts', 0],
             ['images', 1],
             ['artifacts', 1],
             ['files', 1],
@@ -214,5 +215,36 @@ describe('sessionCapabilityHubModel', () => {
         });
 
         expect(items.map((item) => item.title)).toEqual(['agent-browser', 'codex-harness', 'using-superpowers']);
+    });
+
+    it('includes user quick prompts newest-first', () => {
+        const items = getCapabilityDetailItems('quickPrompts', {
+            session: createSession(),
+            messages: [],
+            artifacts: [],
+            quickPrompts: [
+                {
+                    id: 'prompt-1',
+                    title: 'Older prompt',
+                    prompt: 'Summarize the current session.',
+                    createdAt: 1000,
+                    updatedAt: 1000,
+                },
+                {
+                    id: 'prompt-2',
+                    title: 'Newer prompt',
+                    prompt: 'Run tests and summarize failures.',
+                    createdAt: 2000,
+                    updatedAt: 3000,
+                },
+            ],
+        });
+
+        expect(items.map((item) => item.title)).toEqual(['Newer prompt', 'Older prompt']);
+        expect(items[0]).toMatchObject({
+            id: 'prompt-2',
+            kind: 'quickPrompt',
+            prompt: 'Run tests and summarize failures.',
+        });
     });
 });

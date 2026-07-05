@@ -12,12 +12,16 @@ import type {
     CapabilityKey,
     FileCapabilityItem,
     ImageCapabilityItem,
+    QuickPromptCapabilityItem,
 } from './sessionCapabilityHubModel';
 
 type Props = {
     count: number;
     items: CapabilityItem[];
+    onAddQuickPrompt?: () => void;
     onBack: () => void;
+    onDeleteQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
+    onRunQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     sessionId: string;
     title: string;
     type: CapabilityKey;
@@ -41,6 +45,11 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
                         {props.count}
                     </Text>
                 </View>
+                {props.type === 'quickPrompts' && props.onAddQuickPrompt ? (
+                    <Pressable hitSlop={8} onPress={props.onAddQuickPrompt} style={[styles.addButton, { backgroundColor: theme.colors.surfaceHigh }]}>
+                        <Ionicons color={theme.colors.text} name="add" size={18} />
+                    </Pressable>
+                ) : null}
             </View>
 
             {props.items.length === 0 ? (
@@ -48,6 +57,22 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
                     <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
                         {t(`rightPanelCapabilityHub.empty.${props.type}` as const)}
                     </Text>
+                    {props.type === 'quickPrompts' && props.onAddQuickPrompt ? (
+                        <Pressable
+                            onPress={props.onAddQuickPrompt}
+                            style={({ pressed }) => [
+                                styles.emptyAction,
+                                {
+                                    backgroundColor: theme.colors.button.primary.background,
+                                    opacity: pressed ? 0.82 : 1,
+                                },
+                            ]}
+                        >
+                            <Text style={[styles.emptyActionText, { color: theme.colors.button.primary.tint }]}>
+                                {t('rightPanelCapabilityHub.quickPrompt.add')}
+                            </Text>
+                        </Pressable>
+                    ) : null}
                 </View>
             ) : (
                 <ScrollView
@@ -58,6 +83,8 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
                         <CapabilityItemRow
                             item={item}
                             key={item.id}
+                            onDeleteQuickPrompt={props.onDeleteQuickPrompt}
+                            onRunQuickPrompt={props.onRunQuickPrompt}
                             sessionId={props.sessionId}
                         />
                     ))}
@@ -69,8 +96,19 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
 
 const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
     item: CapabilityItem;
+    onDeleteQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
+    onRunQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     sessionId: string;
 }) {
+    if (props.item.kind === 'quickPrompt') {
+        return (
+            <QuickPromptItemRow
+                item={props.item}
+                onDelete={props.onDeleteQuickPrompt}
+                onRun={props.onRunQuickPrompt}
+            />
+        );
+    }
     if (props.item.kind === 'image') {
         return <ImageItemRow item={props.item} sessionId={props.sessionId} />;
     }
@@ -81,6 +119,57 @@ const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
         return <FileItemRow item={props.item} sessionId={props.sessionId} />;
     }
     return <SkillItemRow title={props.item.title} />;
+});
+
+const QuickPromptItemRow = React.memo(function QuickPromptItemRow(props: {
+    item: QuickPromptCapabilityItem;
+    onDelete?: (item: QuickPromptCapabilityItem) => void;
+    onRun?: (item: QuickPromptCapabilityItem) => void;
+}) {
+    const { theme } = useUnistyles();
+
+    return (
+        <View style={[styles.rowCard, styles.quickPromptCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
+            <Pressable
+                disabled={!props.onRun}
+                onPress={() => props.onRun?.(props.item)}
+                style={({ pressed }) => [
+                    styles.quickPromptMain,
+                    { opacity: pressed ? 0.72 : 1 },
+                ]}
+            >
+                <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
+                    <Ionicons color={theme.colors.text} name="chatbubble-ellipses-outline" size={15} />
+                </View>
+                <View style={styles.rowCopy}>
+                    <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.colors.text }]}>
+                        {props.item.title}
+                    </Text>
+                    <Text numberOfLines={2} style={[styles.rowMeta, { color: theme.colors.textSecondary }]}>
+                        {props.item.prompt}
+                    </Text>
+                </View>
+                <Text style={[styles.sendText, { color: theme.colors.textLink }]}>
+                    {t('rightPanelCapabilityHub.quickPrompt.send')}
+                </Text>
+            </Pressable>
+            {props.onDelete ? (
+                <Pressable
+                    hitSlop={8}
+                    onPress={() => props.onDelete?.(props.item)}
+                    style={({ pressed }) => [
+                        styles.deleteButton,
+                        {
+                            backgroundColor: theme.colors.surfaceHigh,
+                            opacity: pressed ? 0.72 : 1,
+                        },
+                    ]}
+                >
+                    <Ionicons color={theme.colors.textSecondary} name="trash-outline" size={15} />
+                </Pressable>
+            ) : null}
+        </View>
+    );
 });
 
 const SkillItemRow = React.memo(function SkillItemRow(props: { title: string }) {
@@ -251,7 +340,15 @@ const styles = StyleSheet.create(() => ({
         fontSize: 12,
         fontWeight: '600',
     },
+    addButton: {
+        alignItems: 'center',
+        borderRadius: 14,
+        height: 28,
+        justifyContent: 'center',
+        width: 28,
+    },
     emptyWrap: {
+        alignItems: 'center',
         flex: 1,
         justifyContent: 'center',
         paddingHorizontal: 18,
@@ -260,6 +357,18 @@ const styles = StyleSheet.create(() => ({
         fontSize: 14,
         lineHeight: 20,
         textAlign: 'center',
+    },
+    emptyAction: {
+        alignItems: 'center',
+        borderRadius: 12,
+        justifyContent: 'center',
+        marginTop: 14,
+        minHeight: 40,
+        paddingHorizontal: 16,
+    },
+    emptyActionText: {
+        fontSize: 14,
+        fontWeight: '700',
     },
     scrollContent: {
         paddingHorizontal: 12,
@@ -275,6 +384,18 @@ const styles = StyleSheet.create(() => ({
         minHeight: 64,
         paddingHorizontal: 10,
         paddingVertical: 10,
+    },
+    quickPromptCard: {
+        alignItems: 'stretch',
+        gap: 0,
+        paddingRight: 8,
+    },
+    quickPromptMain: {
+        alignItems: 'center',
+        flex: 1,
+        flexDirection: 'row',
+        gap: 10,
+        minWidth: 0,
     },
     rowIconWrap: {
         alignItems: 'center',
@@ -295,5 +416,18 @@ const styles = StyleSheet.create(() => ({
     rowMeta: {
         fontSize: 12,
         lineHeight: 16,
+    },
+    sendText: {
+        fontSize: 12,
+        fontWeight: '700',
+        marginLeft: 4,
+    },
+    deleteButton: {
+        alignItems: 'center',
+        borderRadius: 14,
+        height: 28,
+        justifyContent: 'center',
+        marginLeft: 8,
+        width: 28,
     },
 }));
