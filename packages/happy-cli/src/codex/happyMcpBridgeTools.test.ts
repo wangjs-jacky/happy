@@ -34,12 +34,13 @@ function createServerMock(): { server: McpServer; registrations: ToolRegistratio
 }
 
 describe('registerHappyBridgeTools', () => {
-    it('registers every first-party Happy bridge tool, including send_image', () => {
+    it('registers every first-party Happy bridge tool, including send_image and finance_chart', () => {
         const { server, registrations } = createServerMock();
 
         registerHappyBridgeTools(server, async () => ({}) as Client);
 
         expect(registrations.map((registration) => registration.name)).toEqual([...HAPPY_MCP_BRIDGE_TOOL_NAMES]);
+        expect(HAPPY_MCP_BRIDGE_TOOL_NAMES).toContain('finance_chart');
         expect(registrations.find((registration) => registration.name === 'send_image')?.config).toMatchObject({
             title: 'Send Image To Chat',
         });
@@ -47,6 +48,11 @@ describe('registerHappyBridgeTools', () => {
             .toContain('current chat');
         expect(registrations.find((registration) => registration.name === 'send_image')?.config.inputSchema)
             .toHaveProperty('path');
+        expect(registrations.find((registration) => registration.name === 'finance_chart')?.config).toMatchObject({
+            title: 'Fetch Finance Chart',
+        });
+        expect(registrations.find((registration) => registration.name === 'finance_chart')?.config.inputSchema)
+            .toHaveProperty('query');
     });
 
     it('forwards send_image calls to the HTTP MCP client', async () => {
@@ -69,6 +75,30 @@ describe('registerHappyBridgeTools', () => {
         });
         expect(result).toMatchObject({
             content: [{ type: 'text', text: 'ok send_image' }],
+            isError: false,
+        });
+    });
+
+    it('forwards finance_chart calls to the HTTP MCP client', async () => {
+        const { server, registrations } = createServerMock();
+        const callTool = vi.fn(async (params: { name: string; arguments?: Record<string, unknown> }) => ({
+            content: [{ type: 'text' as const, text: `ok ${params.name}` }],
+            isError: false,
+        }));
+
+        registerHappyBridgeTools(server, async () => ({ callTool }) as unknown as Client);
+
+        const financeChart = registrations.find((registration) => registration.name === 'finance_chart');
+        expect(financeChart).toBeDefined();
+
+        const result = await financeChart?.handler({ query: '上证指数', range: '1mo' });
+
+        expect(callTool).toHaveBeenCalledWith({
+            name: 'finance_chart',
+            arguments: { query: '上证指数', range: '1mo' },
+        });
+        expect(result).toMatchObject({
+            content: [{ type: 'text', text: 'ok finance_chart' }],
             isError: false,
         });
     });

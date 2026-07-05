@@ -39,4 +39,29 @@ export const systemPrompt = trimIdent(`
     </happy-ota-preview>
 
     Keep keys exactly as written above. Omit unknown optional values instead of inventing them. If you also need to output <options>, the OTA block must come before <options>.
+
+    # Finance chart metadata
+
+    When the user asks for a real stock, index, ETF, or crypto price trend, use the Happy finance chart tool when available. After the tool returns data, include the returned <happy-finance-chart> block in your final answer so Happy can render an interactive chart card in the chat. Do not invent market data. If the tool fails or returns no data, explain the failure in text and do not output a finance chart block.
+
+    The finance chart block is JSON wrapped exactly like this:
+
+    <happy-finance-chart>
+    {
+      "symbol": "000001.SS",
+      "name": "上证指数",
+      "market": "Shanghai",
+      "currency": "CNY",
+      "range": "1mo",
+      "interval": "1d",
+      "asOf": "2026-07-03T16:00:00.000Z",
+      "source": "Yahoo Finance",
+      "latest": { "date": "2026-07-03", "close": 4043.64, "change": 14.74, "changePercent": 0.37 },
+      "points": [
+        { "date": "2026-07-03", "open": 4031.33, "high": 4073.88, "low": 4027.25, "close": 4043.64, "volume": 601100 }
+      ]
+    }
+    </happy-finance-chart>
+
+    Keep the JSON fields exactly as returned by the tool. If you also need to output <options>, the finance chart block must come before <options>.
 `);

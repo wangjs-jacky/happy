@@ -10,7 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image'] as const;
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'finance_chart'] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -68,6 +68,29 @@ export function registerHappyBridgeTools(
       { path: args.path },
       ensureHttpClient,
       'Failed to send image'
+    )
+  );
+
+  server.registerTool(
+    'finance_chart',
+    {
+      description: 'Fetch real market OHLC chart data for a stock, index, ETF, or crypto symbol and return a Happy finance chart block for chat rendering.',
+      title: 'Fetch Finance Chart',
+      inputSchema: {
+        query: z.string().describe('Stock/index query or symbol, such as 上证指数, 000001.SS, AAPL, or 0700.HK'),
+        range: z.enum(['5d', '1mo', '3mo', '6mo', '1y']).optional().describe('Chart range. Defaults to 1mo.'),
+        interval: z.enum(['1d']).optional().describe('Chart interval. Defaults to 1d.'),
+      },
+    },
+    async (args) => forwardHappyToolCall(
+      'finance_chart',
+      {
+        query: args.query,
+        ...(args.range ? { range: args.range } : {}),
+        ...(args.interval ? { interval: args.interval } : {}),
+      },
+      ensureHttpClient,
+      'Failed to fetch finance chart'
     )
   );
 }
