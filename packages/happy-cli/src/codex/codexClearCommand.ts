@@ -1,4 +1,4 @@
-import { parseSpecialCommand } from '@/parsers/specialCommands';
+import { parseSpecialCommand, type SpecialCommandType } from '@/parsers/specialCommands';
 import type { PendingAttachment } from '@/utils/MessageQueue2';
 
 type CodexUserTextQueue<T> = {
@@ -10,9 +10,9 @@ export function isCodexClearText(text: string): boolean {
     return parseSpecialCommand(text).type === 'clear';
 }
 
-function getIsolatedCommand(text: string): 'clear' | 'skills' | null {
+function getIsolatedCommand(text: string): SpecialCommandType | null {
     const type = parseSpecialCommand(text).type;
-    return type === 'clear' || type === 'skills' ? type : null;
+    return type;
 }
 
 export function enqueueCodexUserText<T>(opts: {
@@ -20,7 +20,7 @@ export function enqueueCodexUserText<T>(opts: {
     mode: T;
     attachments?: PendingAttachment[];
     queue: CodexUserTextQueue<T>;
-}): 'clear' | 'skills' | 'queued' {
+}): SpecialCommandType | 'queued' {
     const isolatedCommand = getIsolatedCommand(opts.text);
     if (isolatedCommand) {
         opts.queue.pushIsolateAndClear(opts.text, opts.mode, opts.attachments);

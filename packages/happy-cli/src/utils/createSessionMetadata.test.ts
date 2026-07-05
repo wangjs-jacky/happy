@@ -94,9 +94,40 @@ describe('createSessionMetadata', () => {
         expect(metadata.skills).toEqual(['brainstorming', 'supabase:supabase']);
     });
 
+    it('advertises Codex-native slash commands for remote autocomplete', () => {
+        const { metadata } = createSessionMetadata({
+            flavor: 'codex',
+            machineId: 'machine-8',
+        });
+
+        expect(metadata.slashCommands).toEqual([
+            'clear',
+            'compact',
+            'mcp',
+            'skills',
+            'goal',
+            'usage',
+            'status',
+            'diff',
+            'new',
+            'fork',
+            'review',
+            'plan',
+        ]);
+    });
+
+    it('does not add Codex-native slash commands to non-Codex sessions', () => {
+        const { metadata } = createSessionMetadata({
+            flavor: 'claude',
+            machineId: 'machine-9',
+        });
+
+        expect(metadata.slashCommands).toBeUndefined();
+    });
+
     it('marks title regeneration support for Claude and Codex sessions only', () => {
-        expect(createSessionMetadata({ flavor: 'claude', machineId: 'machine-8' }).metadata.capabilities?.regenerateTitle).toBe(true);
-        expect(createSessionMetadata({ flavor: 'codex', machineId: 'machine-9' }).metadata.capabilities?.regenerateTitle).toBe(true);
-        expect(createSessionMetadata({ flavor: 'gemini', machineId: 'machine-10' }).metadata.capabilities?.regenerateTitle).toBe(false);
+        expect(createSessionMetadata({ flavor: 'claude', machineId: 'machine-10' }).metadata.capabilities?.regenerateTitle).toBe(true);
+        expect(createSessionMetadata({ flavor: 'codex', machineId: 'machine-11' }).metadata.capabilities?.regenerateTitle).toBe(true);
+        expect(createSessionMetadata({ flavor: 'gemini', machineId: 'machine-12' }).metadata.capabilities?.regenerateTitle).toBe(false);
     });
 });

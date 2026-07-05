@@ -24,7 +24,7 @@ export function resolveCodexExecutionPolicy(
             // Defensive fallback for Claude-specific modes (backward compatibility)
             case 'bypassPermissions': return 'never';              // Full access: map to yolo behavior
             case 'acceptEdits': return 'on-request';               // Let model decide (closest to auto-approve edits)
-            case 'plan': return 'untrusted';                       // Conservative: ask for non-trusted
+            case 'plan': return 'never';                           // Plan mode should not pause for write approvals
             default: return 'untrusted';                           // Safe fallback
         }
     })();
@@ -38,7 +38,7 @@ export function resolveCodexExecutionPolicy(
             // Defensive fallback for Claude-specific modes
             case 'bypassPermissions': return 'danger-full-access'; // Full access: map to yolo
             case 'acceptEdits': return 'workspace-write';          // Can edit files in workspace
-            case 'plan': return 'workspace-write';                 // Can write for planning
+            case 'plan': return 'read-only';                       // Planning should not modify files
             default: return 'workspace-write';                     // Safe default
         }
     })();

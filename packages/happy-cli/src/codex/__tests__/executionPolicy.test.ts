@@ -52,4 +52,13 @@ describe('resolveCodexExecutionPolicy', () => {
             sandbox: 'danger-full-access',
         });
     });
+
+    it('maps plan mode to never + read-only without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('plan', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+        });
+    });
 });

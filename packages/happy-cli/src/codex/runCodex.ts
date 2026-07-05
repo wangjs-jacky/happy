@@ -2,12 +2,18 @@ import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
 import { CodexAppServerClient } from './codexAppServerClient';
-import type { Model, ReasoningEffort } from './codexAppServerTypes';
+import type {
+    GetAccountTokenUsageResponse,
+    ListMcpServerStatusResponse,
+    Model,
+    ReasoningEffort,
+    ThreadGoal,
+} from './codexAppServerTypes';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
 import { randomUUID } from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { logger } from '@/ui/logger';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
@@ -39,7 +45,7 @@ import {
 } from './utils/sessionProtocolMapper';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
-import { enqueueCodexUserText, isCodexClearText } from './codexClearCommand';
+import { enqueueCodexUserText } from './codexClearCommand';
 import {
     buildCodexTurnPrompt,
     hashCodexEnhancedMode,
@@ -47,6 +53,7 @@ import {
 } from './codexPrompt';
 import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
+import type { GoalCommand, UsageCommand } from '@/parsers/specialCommands';
 import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
@@ -66,6 +73,209 @@ function describeCodexFailure(msg: any): string | null {
 }
 
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'default';
+
+function formatCodexGoal(goal: ThreadGoal): string {
+    const budget = goal.tokenBudget === null
+        ? `${goal.tokensUsed} tokens used`
+        : `${goal.tokensUsed} / ${goal.tokenBudget} tokens used`;
+
+    return [
+        '**Goal**',
+        '',
+        `Status: ${goal.status}`,
+        `Progress: ${budget}`,
+        '',
+        goal.objective,
+    ].join('\n');
+}
+
+function goalErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message.length > 0) {
+        return error.message;
+    }
+    return 'Unknown goal error';
+}
+
+function formatNumber(value: number | null | undefined): string {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return 'unknown';
+    }
+    return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
+        return 'unknown';
+    }
+
+    const rounded = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    const secs = rounded % 60;
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+    return parts.join(' ');
+}
+
+function formatDailyUsageBuckets(usage: GetAccountTokenUsageResponse, limit: number = 14): string[] {
+    const buckets = [...(usage.dailyUsageBuckets ?? [])]
+        .filter((bucket) => typeof bucket.startDate === 'string' && typeof bucket.tokens === 'number')
+        .sort((a, b) => a.startDate.localeCompare(b.startDate))
+        .slice(-limit);
+
+    if (buckets.length === 0) {
+        return ['No daily usage buckets were returned.'];
+    }
+
+    return buckets.map((bucket) => `- ${bucket.startDate}: ${formatNumber(bucket.tokens)} tokens`);
+}
+
+function weekStartUtc(dateString: string): string {
+    const date = new Date(`${dateString}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) {
+        return dateString;
+    }
+    const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+    return date.toISOString().slice(0, 10);
+}
+
+function formatWeeklyUsageBuckets(usage: GetAccountTokenUsageResponse): string[] {
+    const weekly = new Map<string, number>();
+    for (const bucket of usage.dailyUsageBuckets ?? []) {
+        if (typeof bucket.startDate !== 'string' || typeof bucket.tokens !== 'number') {
+            continue;
+        }
+        const key = weekStartUtc(bucket.startDate);
+        weekly.set(key, (weekly.get(key) ?? 0) + bucket.tokens);
+    }
+
+    const entries = [...weekly.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-12);
+    if (entries.length === 0) {
+        return ['No weekly usage buckets were returned.'];
+    }
+
+    return entries.map(([week, tokens]) => `- Week of ${week}: ${formatNumber(tokens)} tokens`);
+}
+
+function formatCodexUsage(usage: GetAccountTokenUsageResponse, range: UsageCommand['range']): string {
+    const summary = usage.summary ?? {};
+    const header = range === 'summary'
+        ? '**Codex Usage**'
+        : `**Codex Usage: ${range[0].toUpperCase()}${range.slice(1)}**`;
+    const lines = [
+        header,
+        '',
+        `Lifetime tokens: ${formatNumber(summary.lifetimeTokens)}`,
+        `Peak daily tokens: ${formatNumber(summary.peakDailyTokens)}`,
+        `Current streak: ${formatNumber(summary.currentStreakDays)} days`,
+        `Longest streak: ${formatNumber(summary.longestStreakDays)} days`,
+        `Longest turn: ${formatDuration(summary.longestRunningTurnSec)}`,
+    ];
+
+    if (range === 'daily') {
+        return [...lines, '', 'Daily buckets:', ...formatDailyUsageBuckets(usage, 30)].join('\n');
+    }
+
+    if (range === 'weekly') {
+        return [...lines, '', 'Weekly buckets:', ...formatWeeklyUsageBuckets(usage)].join('\n');
+    }
+
+    if (range === 'cumulative') {
+        const returnedBucketTokens = (usage.dailyUsageBuckets ?? []).reduce((total, bucket) => (
+            total + (typeof bucket.tokens === 'number' ? bucket.tokens : 0)
+        ), 0);
+        return [
+            ...lines,
+            '',
+            `Returned bucket total: ${formatNumber(returnedBucketTokens)} tokens`,
+        ].join('\n');
+    }
+
+    return [...lines, '', 'Recent daily buckets:', ...formatDailyUsageBuckets(usage, 7)].join('\n');
+}
+
+function formatMcpStatus(status: ListMcpServerStatusResponse, verbose: boolean): string {
+    const servers = status.data ?? [];
+    if (servers.length === 0) {
+        return '**MCP Servers**\n\nNo MCP servers are connected.';
+    }
+
+    const lines = ['**MCP Servers**', ''];
+    for (const server of servers) {
+        const tools = Object.values(server.tools ?? {});
+        lines.push(
+            `- ${server.name}: ${tools.length} tools, ${server.resources?.length ?? 0} resources, ${server.resourceTemplates?.length ?? 0} templates, auth=${server.authStatus}`,
+        );
+
+        if (verbose && server.serverInfo) {
+            const details = [
+                server.serverInfo.title,
+                server.serverInfo.version ? `v${server.serverInfo.version}` : null,
+                server.serverInfo.websiteUrl,
+            ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+            if (details.length > 0) {
+                lines.push(`  ${details.join(' | ')}`);
+            }
+        }
+
+        if (verbose && tools.length > 0) {
+            for (const tool of tools) {
+                const title = tool.title && tool.title !== tool.name ? ` - ${tool.title}` : '';
+                lines.push(`  - ${tool.name}${title}`);
+            }
+        }
+    }
+
+    if (status.nextCursor) {
+        lines.push('', 'More MCP servers are available; rerun from a terminal for pagination.');
+    }
+
+    return lines.join('\n');
+}
+
+function runGit(args: string[]): string | null {
+    try {
+        return execFileSync('git', args, {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+            maxBuffer: 1024 * 1024,
+        }).trim();
+    } catch {
+        return null;
+    }
+}
+
+function formatGitDiffSummary(): string {
+    if (runGit(['rev-parse', '--is-inside-work-tree']) !== 'true') {
+        return 'Not inside a Git worktree.';
+    }
+
+    const status = runGit(['status', '--short']) ?? '';
+    const staged = runGit(['diff', '--cached', '--stat']) ?? '';
+    const unstaged = runGit(['diff', '--stat']) ?? '';
+    const lines = ['**Git Diff**', ''];
+
+    if (!status && !staged && !unstaged) {
+        return [...lines, 'Working tree is clean.'].join('\n');
+    }
+
+    if (status) {
+        lines.push('Status:', '```text', status, '```');
+    }
+    if (staged) {
+        lines.push('Staged:', '```text', staged, '```');
+    }
+    if (unstaged) {
+        lines.push('Unstaged:', '```text', unstaged, '```');
+    }
+
+    return lines.join('\n');
+}
 
 /**
  * Main entry point for the codex command with ink UI
@@ -865,7 +1075,304 @@ export async function runCodex(opts: {
             }
         }
 
+        const resolveExecutionPolicyForMode = (mode: EnhancedMode) => {
+            const sandboxManagedByHappy = client.sandboxEnabled;
+            return resolveCodexExecutionPolicy(
+                mode.permissionMode,
+                sandboxManagedByHappy,
+            );
+        };
+
+        const ensureCodexThread = async (mode: EnhancedMode) => {
+            const executionPolicy = resolveExecutionPolicyForMode(mode);
+            if (!client.hasActiveThread()) {
+                const startedThread = await client.startThread({
+                    model: mode.model,
+                    cwd: process.cwd(),
+                    approvalPolicy: executionPolicy.approvalPolicy,
+                    sandbox: executionPolicy.sandbox,
+                    mcpServers,
+                });
+                if (!mode.model) {
+                    baselineModel = startedThread.model;
+                    currentModel = startedThread.model;
+                }
+                if (mode.effort === undefined) {
+                    baselineEffort = startedThread.reasoningEffort ?? baselineEffort;
+                    currentEffort = startedThread.reasoningEffort ?? currentEffort;
+                }
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    codexThreadId: startedThread.threadId,
+                }));
+                syncCodexSessionConfigMetadata(
+                    mode.model ?? startedThread.model,
+                    mode.effort ?? startedThread.reasoningEffort ?? undefined,
+                );
+            }
+
+            const threadId = client.threadId ?? session.getMetadata()?.codexThreadId;
+            if (!threadId) {
+                throw new Error('No Codex thread is available.');
+            }
+
+            return { threadId, executionPolicy };
+        };
+
+        const ensureExistingCodexThread = async (mode: EnhancedMode) => {
+            const existingThreadId = client.threadId ?? session.getMetadata()?.codexThreadId;
+            if (!existingThreadId) {
+                return null;
+            }
+
+            const executionPolicy = resolveExecutionPolicyForMode(mode);
+            if (!client.hasActiveThread()) {
+                const resumedThread = await client.resumeThread({
+                    threadId: existingThreadId,
+                    model: mode.model,
+                    cwd: process.cwd(),
+                    approvalPolicy: executionPolicy.approvalPolicy,
+                    sandbox: executionPolicy.sandbox,
+                    mcpServers,
+                });
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    codexThreadId: resumedThread.threadId,
+                }));
+                syncCodexSessionConfigMetadata(
+                    mode.model ?? resumedThread.model,
+                    mode.effort ?? resumedThread.reasoningEffort ?? undefined,
+                );
+            }
+
+            const threadId = client.threadId ?? existingThreadId;
+            return { threadId, executionPolicy };
+        };
+
+        const respondToGoalCommand = async (goal: GoalCommand, mode: EnhancedMode): Promise<string> => {
+            if (goal.action === 'edit') {
+                return 'Goal editing through an external editor is not available from Happy. Send `/goal <new objective>` to replace the current goal.';
+            }
+
+            let threadId = client.threadId ?? session.getMetadata()?.codexThreadId;
+            if (!threadId && goal.action === 'set') {
+                threadId = (await ensureCodexThread(mode)).threadId;
+            }
+
+            if (!threadId) {
+                return 'No goal is currently set. Send `/goal <objective>` to create one.';
+            }
+
+            if (goal.action === 'show') {
+                const { goal: currentGoal } = await client.getThreadGoal({ threadId });
+                return currentGoal
+                    ? formatCodexGoal(currentGoal)
+                    : 'No goal is currently set. Send `/goal <objective>` to create one.';
+            }
+
+            if (goal.action === 'clear') {
+                const { cleared } = await client.clearThreadGoal({ threadId });
+                return cleared ? 'Goal cleared.' : 'No goal was set.';
+            }
+
+            if (goal.action === 'pause') {
+                const { goal: pausedGoal } = await client.setThreadGoal({ threadId, status: 'paused' });
+                return ['Goal paused.', '', formatCodexGoal(pausedGoal)].join('\n');
+            }
+
+            if (goal.action === 'resume') {
+                const { goal: activeGoal } = await client.setThreadGoal({ threadId, status: 'active' });
+                return ['Goal resumed.', '', formatCodexGoal(activeGoal)].join('\n');
+            }
+
+            const { goal: updatedGoal } = await client.setThreadGoal({
+                threadId,
+                objective: goal.objective,
+            });
+            return ['Goal set.', '', formatCodexGoal(updatedGoal)].join('\n');
+        };
+
+        const formatCodexStatus = (mode: EnhancedMode): string => {
+            const executionPolicy = resolveExecutionPolicyForMode(mode);
+            const threadId = client.threadId ?? session.getMetadata()?.codexThreadId ?? 'none';
+            return [
+                '**Codex Status**',
+                '',
+                `Thread: ${threadId}`,
+                `Model: ${currentModel ?? baselineModel ?? 'default'}`,
+                `Effort: ${currentEffort ?? baselineEffort ?? 'default'}`,
+                `Permission mode: ${mode.permissionMode}`,
+                `Approval policy: ${executionPolicy.approvalPolicy ?? 'default'}`,
+                `Sandbox: ${executionPolicy.sandbox ?? 'default'}`,
+                `Cwd: ${process.cwd()}`,
+                'App server: connected',
+            ].join('\n');
+        };
+
+        const respondToUsageCommand = async (range: UsageCommand['range']): Promise<string> => {
+            const usage = await client.readAccountUsage();
+            return formatCodexUsage(usage, range);
+        };
+
+        const respondToMcpCommand = async (verbose: boolean, mode: EnhancedMode): Promise<string> => {
+            const existing = await ensureExistingCodexThread(mode);
+            const status = await client.listMcpServerStatus({
+                threadId: existing?.threadId ?? null,
+                detail: verbose ? 'full' : 'toolsAndAuthOnly',
+                limit: 50,
+            });
+            return formatMcpStatus(status, verbose);
+        };
+
+        const resetCodexThreadState = (opts?: { resetFirst?: boolean }) => {
+            client.clearThreadState();
+            currentTurnId = null;
+            codexStartedSubagents = new Set<string>();
+            codexActiveSubagents = new Set<string>();
+            codexProviderSubagentToSessionSubagent = new Map<string, string>();
+            permissionHandler.reset();
+            reasoningProcessor.abort();
+            diffProcessor.reset();
+            appendSystemPromptInjected = false;
+            if (opts?.resetFirst) {
+                first = true;
+            }
+            thinking = false;
+            session.keepAlive(thinking, 'remote');
+            session.updateMetadata((currentMetadata) => {
+                const nextMetadata = { ...currentMetadata };
+                delete nextMetadata.codexThreadId;
+                return nextMetadata;
+            });
+        };
+
+        const respondToForkCommand = async (mode: EnhancedMode): Promise<string> => {
+            const existing = await ensureExistingCodexThread(mode);
+            if (!existing) {
+                return 'No active Codex thread is available to fork. Send a normal message first.';
+            }
+
+            const sourceThreadId = existing.threadId;
+            const forkedThread = await client.forkThread({
+                threadId: sourceThreadId,
+                model: mode.model,
+                cwd: process.cwd(),
+                approvalPolicy: existing.executionPolicy.approvalPolicy,
+                sandbox: existing.executionPolicy.sandbox,
+                mcpServers,
+            });
+            session.updateMetadata((currentMetadata) => ({
+                ...currentMetadata,
+                codexThreadId: forkedThread.threadId,
+            }));
+            if (!mode.model) {
+                baselineModel = forkedThread.model;
+                currentModel = forkedThread.model;
+            }
+            syncCodexSessionConfigMetadata(mode.model ?? forkedThread.model, mode.effort ?? currentEffort);
+            return [
+                'Forked Codex thread.',
+                '',
+                `From: ${sourceThreadId}`,
+                `To: ${forkedThread.threadId}`,
+            ].join('\n');
+        };
+
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;
+
+        const sendImmediateCommandResponse = (responseText: string) => {
+            messageBuffer.addMessage(responseText, 'assistant');
+            session.sendAgentMessage('codex', {
+                type: 'message',
+                message: responseText,
+            });
+            emitReadyIfIdle({
+                pending,
+                queueSize: () => messageQueue.size(),
+                shouldExit,
+                sendReady,
+            });
+        };
+
+        const sendStatusMessage = (statusMessage: string) => {
+            messageBuffer.addMessage(statusMessage, 'status');
+            session.sendSessionEvent({ type: 'message', message: statusMessage });
+        };
+
+        const finalizeCodexTurn = () => {
+            permissionHandler.reset();
+            reasoningProcessor.abort();
+            diffProcessor.reset();
+            thinking = false;
+            session.keepAlive(thinking, 'remote');
+            emitReadyIfIdle({
+                pending,
+                queueSize: () => messageQueue.size(),
+                shouldExit,
+                sendReady,
+            });
+            logActiveHandles('after-turn');
+        };
+
+        const runCodexPromptTurn = async (opts: {
+            prompt: string;
+            mode: EnhancedMode;
+            attachments?: PendingAttachment[];
+        }) => {
+            const { executionPolicy } = await ensureCodexThread(opts.mode);
+
+            const includeAppendSystemPrompt = Boolean(
+                opts.mode.appendSystemPrompt && !appendSystemPromptInjected,
+            );
+            const turnPrompt = buildCodexTurnPrompt({
+                message: opts.prompt,
+                mode: opts.mode,
+                includeAppendSystemPrompt,
+                includeTitleInstruction: first,
+            });
+
+            const turnInput = buildCodexInput(turnPrompt, opts.attachments);
+            const turnImages = turnInput.filter(
+                (item): item is { type: 'localImage'; path: string } => item.type === 'localImage',
+            );
+            if (turnImages.length > 0) {
+                logger.debug(`[Codex] Attaching ${turnImages.length} image(s) to turn`);
+            }
+
+            const result = await client.sendTurnAndWait(turnPrompt, {
+                model: opts.mode.model,
+                approvalPolicy: executionPolicy.approvalPolicy,
+                sandbox: executionPolicy.sandbox,
+                effort: opts.mode.effort,
+                images: turnImages,
+            });
+            first = false;
+            if (includeAppendSystemPrompt) {
+                appendSystemPromptInjected = true;
+            }
+
+            if (result.aborted) {
+                logger.debug('[Codex] Turn aborted');
+            }
+        };
+
+        const runServerStartedTurn = async (
+            statusMessage: string,
+            start: () => Promise<{ aborted: boolean }>,
+        ) => {
+            sendStatusMessage(statusMessage);
+            try {
+                const result = await start();
+                if (result.aborted) {
+                    logger.debug('[Codex] Server-started turn aborted');
+                }
+            } catch (error) {
+                logger.warn('Error in codex session:', error);
+                sendStatusMessage('Process exited unexpectedly');
+            } finally {
+                finalizeCodexTurn();
+            }
+        };
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
@@ -900,11 +1407,83 @@ export async function runCodex(opts: {
                     ? '**Available Skills**\n\n' + skills.map((skill) => `- /${skill}`).join('\n')
                     : 'No skills available. Try again after the session finishes initializing.';
 
-                messageBuffer.addMessage(responseText, 'assistant');
-                session.sendAgentMessage('codex', {
-                    type: 'message',
-                    message: responseText,
-                });
+                sendImmediateCommandResponse(responseText);
+                continue;
+            }
+
+            if (specialCommand.type === 'usage' && specialCommand.usage) {
+                let responseText: string;
+                try {
+                    responseText = await respondToUsageCommand(specialCommand.usage.range);
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /usage command', error);
+                    responseText = `Failed to read usage: ${goalErrorMessage(error)}`;
+                }
+
+                sendImmediateCommandResponse(responseText);
+                continue;
+            }
+
+            if (specialCommand.type === 'mcp' && specialCommand.mcp) {
+                let responseText: string;
+                try {
+                    responseText = await respondToMcpCommand(specialCommand.mcp.verbose, message.mode);
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /mcp command', error);
+                    responseText = `Failed to read MCP server status: ${goalErrorMessage(error)}`;
+                }
+
+                sendImmediateCommandResponse(responseText);
+                continue;
+            }
+
+            if (specialCommand.type === 'status') {
+                sendImmediateCommandResponse(formatCodexStatus(message.mode));
+                continue;
+            }
+
+            if (specialCommand.type === 'diff') {
+                sendImmediateCommandResponse(formatGitDiffSummary());
+                continue;
+            }
+
+            if (specialCommand.type === 'fork') {
+                let responseText: string;
+                try {
+                    responseText = await respondToForkCommand(message.mode);
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /fork command', error);
+                    responseText = `Failed to fork Codex thread: ${goalErrorMessage(error)}`;
+                }
+
+                sendImmediateCommandResponse(responseText);
+                continue;
+            }
+
+            if (specialCommand.type === 'goal' && specialCommand.goal) {
+                let responseText: string;
+                try {
+                    responseText = await respondToGoalCommand(specialCommand.goal, message.mode);
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /goal command', error);
+                    responseText = `Failed to update goal: ${goalErrorMessage(error)}`;
+                }
+
+                sendImmediateCommandResponse(responseText);
+                continue;
+            }
+
+            if (specialCommand.type === 'new') {
+                logger.debug('[Codex] Handling /new command - starting a fresh Codex thread on next prompt');
+                resetCodexThreadState({ resetFirst: true });
+                sendImmediateCommandResponse('Started a fresh Codex thread. Send your next message to begin.');
+                continue;
+            }
+
+            if (specialCommand.type === 'clear') {
+                logger.debug('[Codex] Handling /clear command - resetting Codex thread state');
+                resetCodexThreadState();
+                sendStatusMessage('Context was reset');
                 emitReadyIfIdle({
                     pending,
                     queueSize: () => messageQueue.size(),
@@ -914,32 +1493,64 @@ export async function runCodex(opts: {
                 continue;
             }
 
-            if (specialCommand.type === 'clear') {
-                logger.debug('[Codex] Handling /clear command - resetting Codex thread state');
-                client.clearThreadState();
-                currentTurnId = null;
-                codexStartedSubagents = new Set<string>();
-                codexActiveSubagents = new Set<string>();
-                codexProviderSubagentToSessionSubagent = new Map<string, string>();
-                permissionHandler.reset();
-                reasoningProcessor.abort();
-                diffProcessor.reset();
-                appendSystemPromptInjected = false;
-                thinking = false;
-                session.keepAlive(thinking, 'remote');
-                messageBuffer.addMessage('Context was reset', 'status');
-                session.sendSessionEvent({ type: 'message', message: 'Context was reset' });
-                session.updateMetadata((currentMetadata) => {
-                    const nextMetadata = { ...currentMetadata };
-                    delete nextMetadata.codexThreadId;
-                    return nextMetadata;
-                });
-                emitReadyIfIdle({
-                    pending,
-                    queueSize: () => messageQueue.size(),
-                    shouldExit,
-                    sendReady,
-                });
+            if (specialCommand.type === 'compact') {
+                try {
+                    const existing = await ensureExistingCodexThread(message.mode);
+                    if (!existing) {
+                        sendImmediateCommandResponse('No active Codex thread is available to compact.');
+                        continue;
+                    }
+
+                    await runServerStartedTurn('Compacting Codex context...', () => client.startCompactAndWait({
+                        threadId: existing.threadId,
+                    }));
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /compact command', error);
+                    sendImmediateCommandResponse(`Failed to compact Codex context: ${goalErrorMessage(error)}`);
+                }
+                continue;
+            }
+
+            if (specialCommand.type === 'review' && specialCommand.review) {
+                try {
+                    const { threadId } = await ensureCodexThread(message.mode);
+                    const target = specialCommand.review.instructions
+                        ? { type: 'custom' as const, instructions: specialCommand.review.instructions }
+                        : { type: 'uncommittedChanges' as const };
+
+                    await runServerStartedTurn('Reviewing current changes...', () => client.startReviewAndWait({
+                        threadId,
+                        target,
+                        delivery: 'inline',
+                    }));
+                } catch (error) {
+                    logger.debug('[Codex] Failed to handle /review command', error);
+                    sendImmediateCommandResponse(`Failed to start Codex review: ${goalErrorMessage(error)}`);
+                }
+                continue;
+            }
+
+            if (specialCommand.type === 'plan' && specialCommand.plan) {
+                messageBuffer.addMessage(message.message, 'user');
+                const prompt = specialCommand.plan.prompt
+                    ?? 'Propose a concise implementation plan for the current task. Do not modify files, run write operations, publish, deploy, or make commits.';
+                const planMode: EnhancedMode = {
+                    ...message.mode,
+                    permissionMode: 'plan',
+                };
+
+                try {
+                    await runCodexPromptTurn({
+                        prompt,
+                        mode: planMode,
+                        attachments: message.attachments,
+                    });
+                } catch (error) {
+                    logger.warn('Error in codex session:', error);
+                    sendStatusMessage('Process exited unexpectedly');
+                } finally {
+                    finalizeCodexTurn();
+                }
                 continue;
             }
 
@@ -947,97 +1558,18 @@ export async function runCodex(opts: {
             messageBuffer.addMessage(message.message, 'user');
 
             try {
-                // Map permission mode to approval policy and sandbox.
-                // With app-server, these are per-turn — no restart needed on mode change.
-                const sandboxManagedByHappy = client.sandboxEnabled;
-                const executionPolicy = resolveCodexExecutionPolicy(
-                    message.mode.permissionMode,
-                    sandboxManagedByHappy,
-                );
-
-                // Start thread on first turn (thread persists across mode changes)
-                if (!client.hasActiveThread()) {
-                    const startedThread = await client.startThread({
-                        model: message.mode.model,
-                        cwd: process.cwd(),
-                        approvalPolicy: executionPolicy.approvalPolicy,
-                        sandbox: executionPolicy.sandbox,
-                        mcpServers,
-                    });
-                    if (!message.mode.model) {
-                        baselineModel = startedThread.model;
-                        currentModel = startedThread.model;
-                    }
-                    if (message.mode.effort === undefined) {
-                        baselineEffort = startedThread.reasoningEffort ?? baselineEffort;
-                        currentEffort = startedThread.reasoningEffort ?? currentEffort;
-                    }
-                    session.updateMetadata((currentMetadata) => ({
-                        ...currentMetadata,
-                        codexThreadId: startedThread.threadId,
-                    }));
-                    syncCodexSessionConfigMetadata(
-                        message.mode.model ?? startedThread.model,
-                        message.mode.effort ?? startedThread.reasoningEffort ?? undefined,
-                    );
-                }
-
-                const includeAppendSystemPrompt = Boolean(
-                    message.mode.appendSystemPrompt && !appendSystemPromptInjected,
-                );
-                const turnPrompt = buildCodexTurnPrompt({
-                    message: message.message,
+                await runCodexPromptTurn({
+                    prompt: message.message,
                     mode: message.mode,
-                    includeAppendSystemPrompt,
-                    includeTitleInstruction: first,
+                    attachments: message.attachments,
                 });
-
-                // Stage any image attachments to disk and hand Codex their paths
-                // as `localImage` input items (the text item is appended inside).
-                const turnInput = buildCodexInput(turnPrompt, message.attachments);
-                const turnImages = turnInput.filter(
-                    (item): item is { type: 'localImage'; path: string } => item.type === 'localImage',
-                );
-                if (turnImages.length > 0) {
-                    logger.debug(`[Codex] Attaching ${turnImages.length} image(s) to turn`);
-                }
-
-                const result = await client.sendTurnAndWait(turnPrompt, {
-                    model: message.mode.model,
-                    approvalPolicy: executionPolicy.approvalPolicy,
-                    sandbox: executionPolicy.sandbox,
-                    effort: message.mode.effort,
-                    images: turnImages,
-                });
-                first = false;
-                if (includeAppendSystemPrompt) {
-                    appendSystemPromptInjected = true;
-                }
-
-                if (result.aborted) {
-                    // Turn was aborted (user abort or permission cancel).
-                    // UI handling already done by the event handler (turn_aborted).
-                    logger.debug('[Codex] Turn aborted');
-                }
             } catch (error) {
                 // Only actual errors reach here (process crash, connection failure, etc.)
                 logger.warn('Error in codex session:', error);
-                messageBuffer.addMessage('Process exited unexpectedly', 'status');
-                session.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                sendStatusMessage('Process exited unexpectedly');
             } finally {
                 // Reset permission handler, reasoning processor, and diff processor
-                permissionHandler.reset();
-                reasoningProcessor.abort();  // Use abort to properly finish any in-progress tool calls
-                diffProcessor.reset();
-                thinking = false;
-                session.keepAlive(thinking, 'remote');
-                emitReadyIfIdle({
-                    pending,
-                    queueSize: () => messageQueue.size(),
-                    shouldExit,
-                    sendReady,
-                });
-                logActiveHandles('after-turn');
+                finalizeCodexTurn();
             }
         }
 

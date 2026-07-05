@@ -176,6 +176,118 @@ export type ThreadSettingsUpdatedNotification = {
     threadSettings: ThreadSettings;
 };
 
+export type ThreadGoalStatus = "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
+
+export type ThreadGoal = {
+    threadId: string;
+    objective: string;
+    status: ThreadGoalStatus;
+    tokenBudget: number | null;
+    tokensUsed: number;
+    timeUsedSeconds: number;
+    createdAt: number;
+    updatedAt: number;
+};
+
+export type ThreadGoalSetParams = {
+    threadId: ThreadId;
+    objective?: string | null;
+    status?: ThreadGoalStatus | null;
+    tokenBudget?: number | null;
+};
+
+export type ThreadGoalSetResponse = {
+    goal: ThreadGoal;
+};
+
+export type ThreadGoalGetParams = {
+    threadId: ThreadId;
+};
+
+export type ThreadGoalGetResponse = {
+    goal: ThreadGoal | null;
+};
+
+export type ThreadGoalClearParams = {
+    threadId: ThreadId;
+};
+
+export type ThreadGoalClearResponse = {
+    cleared: boolean;
+};
+
+// --- Mobile slash command helpers ---
+
+export type AccountTokenUsageDailyBucket = {
+    startDate: string;
+    tokens: number;
+};
+
+export type AccountTokenUsageSummary = {
+    currentStreakDays?: number | null;
+    lifetimeTokens?: number | null;
+    longestRunningTurnSec?: number | null;
+    longestStreakDays?: number | null;
+    peakDailyTokens?: number | null;
+};
+
+export type GetAccountTokenUsageResponse = {
+    summary: AccountTokenUsageSummary;
+    dailyUsageBuckets?: AccountTokenUsageDailyBucket[] | null;
+};
+
+export type McpServerStatusDetail = "full" | "toolsAndAuthOnly";
+
+export type McpToolDefinition = {
+    name: string;
+    description?: string | null;
+    title?: string | null;
+    inputSchema: unknown;
+    outputSchema?: unknown;
+};
+
+export type McpServerStatus = {
+    name: string;
+    authStatus: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+    tools: Record<string, McpToolDefinition>;
+    resources: unknown[];
+    resourceTemplates: unknown[];
+    serverInfo?: {
+        name: string;
+        title?: string | null;
+        version: string;
+        description?: string | null;
+        websiteUrl?: string | null;
+    } | null;
+};
+
+export type ListMcpServerStatusParams = {
+    threadId?: ThreadId | null;
+    detail?: McpServerStatusDetail | null;
+    cursor?: string | null;
+    limit?: number | null;
+};
+
+export type ListMcpServerStatusResponse = {
+    data: McpServerStatus[];
+    nextCursor?: string | null;
+};
+
+export type ThreadCompactStartResponse = Record<string, never>;
+
+export type ReviewStartParams = {
+    threadId: ThreadId;
+    delivery?: "inline" | "detached";
+    target:
+        | { type: "uncommittedChanges" }
+        | { type: "custom"; instructions: string };
+};
+
+export type ReviewStartResponse = {
+    turn?: ThreadTurn;
+    reviewThreadId: ThreadId;
+};
+
 // --- Turn lifecycle ---
 
 export type SendUserTurnParams = {
