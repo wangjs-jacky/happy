@@ -1098,6 +1098,7 @@ export const zhHant: TranslationStructure = {
         codexUsageRateLimits: '限流狀態',
         codexUsageScannedAt: '掃描時間',
         codexUsageNoData: '沒有找到本機 Codex 用量資料',
+        codexUsageWaitingForDaemon: '等待守護進程上報本機 Codex 用量',
         codexUsageFooter: '讀取此機器本機 Codex 會話日誌。執行這個採集器不會發起模型請求。',
         activeSessions: ({ count }: { count: number }) => `活躍工作階段 (${count})`,
         machineGroup: '裝置',

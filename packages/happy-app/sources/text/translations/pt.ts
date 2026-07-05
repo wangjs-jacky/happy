@@ -998,6 +998,7 @@ export const pt: TranslationStructure = {
         codexUsageRateLimits: 'Limites de taxa',
         codexUsageScannedAt: 'Escaneado em',
         codexUsageNoData: 'Nenhum dado local de uso do Codex encontrado',
+        codexUsageWaitingForDaemon: 'Aguardando o relatório de uso do daemon',
         codexUsageFooter: 'Lê os logs locais de sessões do Codex nesta máquina. Executar este coletor não faz solicitações ao modelo.',
         activeSessions: ({ count }: { count: number }) => `Sessões ativas (${count})`,
         machineGroup: 'Máquina',

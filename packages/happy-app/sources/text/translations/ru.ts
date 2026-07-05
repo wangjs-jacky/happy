@@ -1003,6 +1003,7 @@ export const ru: TranslationStructure = {
         codexUsageRateLimits: 'Лимиты частоты',
         codexUsageScannedAt: 'Просканировано',
         codexUsageNoData: 'Локальные данные использования Codex не найдены',
+        codexUsageWaitingForDaemon: 'Ожидание отчета об использовании от демона',
         codexUsageFooter: 'Читает локальные журналы сессий Codex на этой машине. Запуск этого сборщика не отправляет запросы к модели.',
         activeSessions: ({ count }: { count: number }) => `Активные сессии (${count})`,
         machineGroup: 'Машина',

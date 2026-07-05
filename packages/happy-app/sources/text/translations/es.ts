@@ -999,6 +999,7 @@ export const es: TranslationStructure = {
         codexUsageRateLimits: 'Límites de frecuencia',
         codexUsageScannedAt: 'Escaneado en',
         codexUsageNoData: 'No se encontraron datos locales de uso de Codex',
+        codexUsageWaitingForDaemon: 'Esperando el informe de uso del daemon',
         codexUsageFooter: 'Lee los registros locales de sesiones de Codex en esta máquina. Ejecutar este recopilador no hace solicitudes al modelo.',
         activeSessions: ({ count }: { count: number }) => `Sesiones activas (${count})`,
         machineGroup: 'Máquina',

@@ -997,6 +997,7 @@ export const it: TranslationStructure = {
         codexUsageRateLimits: 'Limiti di frequenza',
         codexUsageScannedAt: 'Scansionato il',
         codexUsageNoData: 'Nessun dato locale di utilizzo Codex trovato',
+        codexUsageWaitingForDaemon: 'In attesa del report di utilizzo del daemon',
         codexUsageFooter: 'Legge i log locali delle sessioni Codex su questa macchina. Eseguire questo raccoglitore non invia richieste al modello.',
         activeSessions: ({ count }: { count: number }) => `Sessioni attive (${count})`,
         machineGroup: 'Macchina',

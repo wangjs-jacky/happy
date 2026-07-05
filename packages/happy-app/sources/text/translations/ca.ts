@@ -999,6 +999,7 @@ export const ca: TranslationStructure = {
         codexUsageRateLimits: 'Límits de ritme',
         codexUsageScannedAt: 'Escanejat a',
         codexUsageNoData: 'No s\'han trobat dades locals d\'ús de Codex',
+        codexUsageWaitingForDaemon: 'Esperant l\'informe d\'ús del daemon',
         codexUsageFooter: 'Llegeix els registres locals de sessions de Codex en aquesta màquina. Executar aquest recopilador no fa peticions al model.',
         activeSessions: ({ count }: { count: number }) => `Sessions actives (${count})`,
         machineGroup: 'Màquina',

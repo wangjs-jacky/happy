@@ -594,52 +594,60 @@ export default function MachineDetailScreen() {
                         />
                 </ItemGroup>
 
-                {codexUsage && (
-                    <ItemGroup title={t('machine.codexUsage')} footer={t('machine.codexUsageFooter')}>
-                        {codexUsage.today ? (
-                            <Item
-                                title={t('machine.codexUsageToday')}
-                                detail={formatCompactTokenCount(codexUsage.today.totalTokens)}
-                                subtitle={formatCodexUsageSubtitle(codexUsage.today)}
-                                subtitleLines={0}
-                                showChevron={false}
-                            />
-                        ) : (
-                            <Item
-                                title={t('machine.codexUsageToday')}
-                                subtitle={t('machine.codexUsageNoData')}
-                                showChevron={false}
-                            />
-                        )}
-                        {codexUsage.yesterday ? (
-                            <Item
-                                title={t('machine.codexUsageYesterday')}
-                                detail={formatCompactTokenCount(codexUsage.yesterday.totalTokens)}
-                                subtitle={formatCodexUsageSubtitle(codexUsage.yesterday)}
-                                subtitleLines={0}
-                                showChevron={false}
-                            />
-                        ) : (
-                            <Item
-                                title={t('machine.codexUsageYesterday')}
-                                subtitle={t('machine.codexUsageNoData')}
-                                showChevron={false}
-                            />
-                        )}
-                        {codexRateLimits && (
-                            <Item
-                                title={t('machine.codexUsageRateLimits')}
-                                subtitle={codexRateLimits}
-                                showChevron={false}
-                            />
-                        )}
+                <ItemGroup title={t('machine.codexUsage')} footer={t('machine.codexUsageFooter')}>
+                    {!codexUsage ? (
                         <Item
-                            title={t('machine.codexUsageScannedAt')}
-                            subtitle={new Date(codexUsage.scannedAt).toLocaleString()}
+                            title={t('machine.status')}
+                            subtitle={t('machine.codexUsageWaitingForDaemon')}
                             showChevron={false}
                         />
-                    </ItemGroup>
-                )}
+                    ) : (
+                        <>
+                            {codexUsage.today ? (
+                                <Item
+                                    title={t('machine.codexUsageToday')}
+                                    detail={formatCompactTokenCount(codexUsage.today.totalTokens)}
+                                    subtitle={formatCodexUsageSubtitle(codexUsage.today)}
+                                    subtitleLines={0}
+                                    showChevron={false}
+                                />
+                            ) : (
+                                <Item
+                                    title={t('machine.codexUsageToday')}
+                                    subtitle={t('machine.codexUsageNoData')}
+                                    showChevron={false}
+                                />
+                            )}
+                            {codexUsage.yesterday ? (
+                                <Item
+                                    title={t('machine.codexUsageYesterday')}
+                                    detail={formatCompactTokenCount(codexUsage.yesterday.totalTokens)}
+                                    subtitle={formatCodexUsageSubtitle(codexUsage.yesterday)}
+                                    subtitleLines={0}
+                                    showChevron={false}
+                                />
+                            ) : (
+                                <Item
+                                    title={t('machine.codexUsageYesterday')}
+                                    subtitle={t('machine.codexUsageNoData')}
+                                    showChevron={false}
+                                />
+                            )}
+                            {codexRateLimits && (
+                                <Item
+                                    title={t('machine.codexUsageRateLimits')}
+                                    subtitle={codexRateLimits}
+                                    showChevron={false}
+                                />
+                            )}
+                            <Item
+                                title={t('machine.codexUsageScannedAt')}
+                                subtitle={new Date(codexUsage.scannedAt).toLocaleString()}
+                                showChevron={false}
+                            />
+                        </>
+                    )}
+                </ItemGroup>
 
                 {/* CLI Availability */}
                 {metadata?.cliAvailability && (

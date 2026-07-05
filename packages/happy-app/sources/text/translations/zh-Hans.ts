@@ -1567,6 +1567,7 @@ export const zhHans: TranslationStructure = {
         codexUsageRateLimits: '限流状态',
         codexUsageScannedAt: '扫描时间',
         codexUsageNoData: '没有找到本机 Codex 用量数据',
+        codexUsageWaitingForDaemon: '等待守护进程上报本机 Codex 用量',
         codexUsageFooter: '读取此机器本地 Codex 会话日志。运行这个采集器不会发起模型请求。',
         activeSessions: ({ count }: { count: number }) => `活跃会话 (${count})`,
         machineGroup: '设备',

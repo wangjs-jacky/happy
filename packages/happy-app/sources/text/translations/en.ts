@@ -1013,6 +1013,7 @@ export const en: TranslationStructure = {
         codexUsageRateLimits: 'Rate Limits',
         codexUsageScannedAt: 'Scanned At',
         codexUsageNoData: 'No local Codex usage data found',
+        codexUsageWaitingForDaemon: 'Waiting for daemon usage report',
         codexUsageFooter: 'Read from local Codex session logs on this machine. Running this collector does not make model requests.',
         activeSessions: ({ count }: { count: number }) => `Active Sessions (${count})`,
         machineGroup: 'Machine',

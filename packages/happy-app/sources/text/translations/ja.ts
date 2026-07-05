@@ -1000,6 +1000,7 @@ export const ja: TranslationStructure = {
         codexUsageRateLimits: 'レート制限',
         codexUsageScannedAt: 'スキャン時刻',
         codexUsageNoData: 'ローカルの Codex 使用量データが見つかりません',
+        codexUsageWaitingForDaemon: 'デーモンからの使用量レポートを待機中',
         codexUsageFooter: 'このマシン上のローカル Codex セッションログを読み取ります。この収集処理はモデルリクエストを送信しません。',
         activeSessions: ({ count }: { count: number }) => `アクティブセッション (${count})`,
         machineGroup: 'マシン',
