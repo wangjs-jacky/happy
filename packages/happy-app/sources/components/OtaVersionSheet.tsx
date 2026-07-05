@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { Typography } from '@/constants/Typography';
+import { getOtaVersionUserState } from '@/hooks/otaVersionDisplay';
 import { useOtaVersion } from '@/hooks/useOtaVersions';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import {
@@ -123,7 +124,14 @@ function ActionButton(props: {
                 },
             ]}
         >
-            <Text style={[styles.actionButtonText, { color: textColor }]}>{props.label}</Text>
+            <Text
+                style={[styles.actionButtonText, { color: textColor }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+            >
+                {props.label}
+            </Text>
         </Pressable>
     );
 }
@@ -140,8 +148,13 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
     const notes = version ? buildOtaVersionNotes(version) : '';
     const calendar = version ? formatOtaVersionCalendarParts(version) : null;
     const commit = version ? formatOtaVersionCommit(version) : '';
-    const isRunning = !!version && !!props.currentUpdateId && version.id === props.currentUpdateId;
-    const isLocked = !!version && version.stamp === props.lockedStamp;
+    const userState = version ? getOtaVersionUserState(version, props.currentUpdateId, props.lockedStamp) : null;
+    const isLocked = userState?.isLocked ?? false;
+    const statusValue = userState?.isPendingAcceptance
+        ? '已锁定，重启后生效'
+        : (userState?.isAcceptance
+            ? (isLocked ? '当前验收版本（已锁定）' : '当前验收版本（跟随最新）')
+            : (userState?.isCurrentDisplayOnly ? '当前显示；锁定版本重启后生效' : '历史版本'));
     const sourceLabel = version?.display?.source?.number ? `PR #${version.display.source.number}` : '';
     const [rendered, setRendered] = React.useState(props.visible);
     const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -237,8 +250,11 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
                             <>
                                 <View style={styles.headerBadgeRow}>
                                     <StatusPill label={props.appChannel || 'unknown'} />
-                                    {isRunning ? <StatusPill label="当前运行" tone="running" /> : null}
-                                    {isLocked ? <StatusPill label="当前锁定" tone="locked" /> : null}
+                                    {userState?.isPendingAcceptance ? <StatusPill label="已锁定，重启后生效" tone="warning" /> : null}
+                                    {!userState?.isPendingAcceptance && userState?.isAcceptance ? (
+                                        <StatusPill label="当前验收版本" tone={isLocked ? 'locked' : 'running'} />
+                                    ) : null}
+                                    {userState?.isCurrentDisplayOnly ? <StatusPill label="当前显示" /> : null}
                                     {!isLocked && props.appChannel !== 'preview' ? <StatusPill label="仅浏览" tone="warning" /> : null}
                                 </View>
 
@@ -262,7 +278,7 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
 
                                     {props.appChannel === 'preview' ? (
                                         <ActionButton
-                                            label={props.busy ? '正在拉取…' : (isLocked ? '拉取最新' : '拉取并切换')}
+                                            label={props.busy ? '正在切换…' : (isLocked ? '解除锁定回到最新' : '切换并锁定到此版本')}
                                             tone={isLocked ? 'danger' : 'primary'}
                                             disabled={props.busy}
                                             onPress={handlePrimaryAction}
@@ -290,7 +306,7 @@ export const OtaVersionSheet = React.memo(function OtaVersionSheet(props: OtaVer
 
                             <View style={[styles.sectionCard, { borderColor: theme.colors.divider }]}>
                                 <Text style={styles.sectionTitle}>版本信息</Text>
-                                <MetaRow label="状态" value={isRunning && isLocked ? '当前运行 / 当前锁定' : (isRunning ? '当前运行' : (isLocked ? '当前锁定' : '历史版本'))} />
+                                <MetaRow label="验收状态" value={statusValue} />
                                 <MetaRow label="发布时间" value={formatOtaVersionDateTime(version)} />
                                 <MetaRow label="提交" value={commit} />
                                 <MetaRow label="分支" value={version.git?.branch || '未知'} />

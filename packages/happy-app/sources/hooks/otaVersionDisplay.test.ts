@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
     compactOtaMessage,
     formatOtaVersionLine,
+    getOtaAcceptanceStatus,
     getOtaVersionState,
+    getOtaVersionUserState,
     getRecommendedOtaVersion,
 } from './otaVersionDisplay';
 import type { OtaVersion } from './useOtaVersions';
@@ -67,6 +69,50 @@ describe('otaVersionDisplay', () => {
         expect(getOtaVersionState(v, 'other', null)).toEqual({
             isRunning: false,
             isLocked: false,
+        });
+    });
+
+    it('treats the locked version as the acceptance target and detects pending reload', () => {
+        const running = version({ stamp: '200', id: 'running-update-id' });
+        const locked = version({ stamp: '100', id: 'locked-update-id' });
+
+        expect(getOtaAcceptanceStatus([running, locked], running.id, locked.stamp)).toEqual({
+            acceptanceVersion: locked,
+            acceptanceStamp: locked.stamp,
+            runningVersion: running,
+            lockedVersion: locked,
+            isLocked: true,
+            isPendingReload: true,
+        });
+
+        expect(getOtaAcceptanceStatus([running, locked], running.id, null)).toEqual({
+            acceptanceVersion: running,
+            acceptanceStamp: running.stamp,
+            runningVersion: running,
+            lockedVersion: null,
+            isLocked: false,
+            isPendingReload: false,
+        });
+    });
+
+    it('marks the user-facing acceptance row separately from the debug display row', () => {
+        const running = version({ stamp: '200', id: 'running-update-id' });
+        const locked = version({ stamp: '100', id: 'locked-update-id' });
+
+        expect(getOtaVersionUserState(locked, running.id, locked.stamp)).toEqual({
+            isRunning: false,
+            isLocked: true,
+            isAcceptance: true,
+            isPendingAcceptance: true,
+            isCurrentDisplayOnly: false,
+        });
+
+        expect(getOtaVersionUserState(running, running.id, locked.stamp)).toEqual({
+            isRunning: true,
+            isLocked: false,
+            isAcceptance: false,
+            isPendingAcceptance: false,
+            isCurrentDisplayOnly: true,
         });
     });
 

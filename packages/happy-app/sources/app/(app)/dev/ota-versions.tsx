@@ -8,6 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { useOtaVersions } from '@/hooks/useOtaVersions';
 import { useOtaTarget } from '@/hooks/useOtaTarget';
+import { getOtaAcceptanceStatus, getOtaVersionUserState } from '@/hooks/otaVersionDisplay';
 import {
     buildOtaVersionPreview,
     formatOtaVersionCompactDate,
@@ -120,16 +121,12 @@ export default function OtaVersionsScreen() {
     const [selectedStamp, setSelectedStamp] = React.useState<string | null>(null);
     const [actionBusy, setActionBusy] = React.useState(false);
 
-    const runningVersion = React.useMemo(
-        () => versions.find((version) => version.id === currentUpdateId) ?? null,
-        [currentUpdateId, versions],
+    const acceptanceStatus = React.useMemo(
+        () => getOtaAcceptanceStatus(versions, currentUpdateId, lockedStamp),
+        [currentUpdateId, lockedStamp, versions],
     );
-    const lockedVersion = React.useMemo(
-        () => versions.find((version) => version.stamp === lockedStamp) ?? null,
-        [lockedStamp, versions],
-    );
-    const featuredVersion = lockedVersion ?? runningVersion;
-    const featuredStamp = lockedStamp ?? runningVersion?.stamp ?? null;
+    const featuredVersion = acceptanceStatus.acceptanceVersion;
+    const featuredStamp = acceptanceStatus.acceptanceStamp;
     const selectedPreviewVersion = React.useMemo(
         () => versions.find((version) => version.stamp === selectedStamp) ?? null,
         [selectedStamp, versions],
@@ -161,25 +158,46 @@ export default function OtaVersionsScreen() {
     }, [unlock]);
 
     const featuredSummary = featuredVersion ? formatOtaVersionSummary(featuredVersion) : null;
+    const currentDisplayLabel = acceptanceStatus.runningVersion
+        ? formatOtaVersionCommit(acceptanceStatus.runningVersion)
+        : currentUpdateId?.slice(0, 8) ?? '未知版本';
+    const heroTitle = featuredSummary?.title || (lockedStamp ? `已锁定 ${lockedStamp}` : '当前设备跟随最新 preview');
+    const heroSubtitle = React.useMemo(() => {
+        if (acceptanceStatus.isPendingReload) {
+            return `已锁定，重启后生效。当前仍在显示 ${currentDisplayLabel}。`;
+        }
+        if (featuredSummary) {
+            return acceptanceStatus.isLocked
+                ? '当前验收版本已锁定，解除前不会自动跳到其它 preview。'
+                : '当前验收版本跟随 preview 最新版。点历史版本可切换并锁定。';
+        }
+        if (lockedStamp) {
+            return '已记录锁定目标；重启或再次切换后会尝试显示此版本。';
+        }
+        return currentUpdateId
+            ? `当前验收版本 ${currentUpdateId.slice(0, 8)}，暂未匹配到版本元信息。`
+            : '当前还没有匹配到 OTA 元信息。';
+    }, [acceptanceStatus.isLocked, acceptanceStatus.isPendingReload, currentDisplayLabel, currentUpdateId, featuredSummary, lockedStamp]);
 
     const listHeader = React.useMemo(() => (
         <View style={styles.headerBlock}>
-            <Text style={styles.sectionKicker}>当前设备</Text>
+            <Text style={styles.sectionKicker}>当前验收版本</Text>
 
             <ReleaseSummaryCard
-                title={featuredSummary?.title || (lockedStamp ? `已锁定 ${lockedStamp}` : '当前设备跟随最新 preview')}
-                subtitle={
-                    featuredSummary?.subtitle
-                    || (currentUpdateId
-                        ? `当前运行 ${currentUpdateId.slice(0, 8)}${lockedStamp ? ` · 锁定 ${lockedStamp}` : ''}`
-                        : (lockedStamp ? `锁定到 ${lockedStamp}` : '当前还没有匹配到正在运行的 OTA 元信息'))
-                }
+                title={heroTitle}
+                subtitle={heroSubtitle}
                 disabled={!featuredStamp}
                 onPress={featuredStamp ? () => openVersionSheet(featuredStamp) : undefined}
             >
                 <StatusChip label={channel || 'unknown'} />
-                {runningVersion ? <StatusChip label="当前运行" tone="running" /> : null}
-                {lockedStamp ? <StatusChip label="当前锁定" tone="locked" /> : <StatusChip label="跟随最新" tone="neutral" />}
+                {!featuredStamp ? (
+                    <StatusChip label="等待匹配" />
+                ) : acceptanceStatus.isPendingReload ? (
+                    <StatusChip label="已锁定，重启后生效" tone="warning" />
+                ) : (
+                    <StatusChip label="当前验收版本" tone={acceptanceStatus.isLocked ? 'locked' : 'running'} />
+                )}
+                {acceptanceStatus.isLocked ? <StatusChip label="已锁定" tone="locked" /> : <StatusChip label="跟随最新" tone="neutral" />}
                 {channel !== 'preview' ? <StatusChip label="不可切换" tone="warning" /> : null}
             </ReleaseSummaryCard>
 
@@ -188,7 +206,7 @@ export default function OtaVersionsScreen() {
                 <Text style={styles.timelineCount}>{totalCount ? `${loadedCount} / ${totalCount}` : '0 / 0'}</Text>
             </View>
         </View>
-    ), [channel, currentUpdateId, featuredStamp, featuredSummary, loadedCount, lockedStamp, openVersionSheet, runningVersion, styles.headerBlock, styles.sectionKicker, styles.timelineCount, styles.timelineHeader, styles.timelineHeaderRow, totalCount]);
+    ), [acceptanceStatus.isLocked, acceptanceStatus.isPendingReload, channel, featuredStamp, heroSubtitle, heroTitle, loadedCount, openVersionSheet, styles.headerBlock, styles.sectionKicker, styles.timelineCount, styles.timelineHeader, styles.timelineHeaderRow, totalCount]);
 
     const listEmpty = React.useMemo(() => {
         if (listLoading) {
@@ -267,8 +285,7 @@ export default function OtaVersionsScreen() {
         const preview = buildOtaVersionPreview(item, 140);
         const compactDate = formatOtaVersionCompactDate(item);
         const commit = formatOtaVersionCommit(item);
-        const isRunning = item.id === currentUpdateId;
-        const isLocked = item.stamp === lockedStamp;
+        const userState = getOtaVersionUserState(item, currentUpdateId, lockedStamp);
         const isLast = index === versions.length - 1;
 
         return (
@@ -278,9 +295,11 @@ export default function OtaVersionsScreen() {
                         style={[
                             styles.timelineDot,
                             {
-                                backgroundColor: isLocked
-                                    ? (theme.colors.button.primary.background ?? theme.colors.text)
-                                    : (isRunning ? (theme.colors.success ?? '#34C759') : theme.colors.surfaceHigh),
+                                backgroundColor: userState.isPendingAcceptance
+                                    ? '#FF9500'
+                                    : (userState.isAcceptance
+                                        ? (theme.colors.button.primary.background ?? theme.colors.text)
+                                        : (userState.isCurrentDisplayOnly ? (theme.colors.success ?? '#34C759') : theme.colors.surfaceHigh)),
                             },
                         ]}
                     />
@@ -295,7 +314,7 @@ export default function OtaVersionsScreen() {
                         styles.releaseCard,
                         {
                             backgroundColor: theme.colors.surface,
-                            borderColor: isLocked
+                            borderColor: userState.isAcceptance
                                 ? (theme.colors.button.primary.background ?? '#0A84FF')
                                 : theme.colors.modal.border,
                             opacity: pressed ? 0.9 : 1,
@@ -307,8 +326,13 @@ export default function OtaVersionsScreen() {
                             <Text style={styles.releaseDate}>{compactDate}</Text>
                             <View style={styles.releaseBadgeRow}>
                                 {item.display?.source?.number ? <StatusChip label={`PR #${item.display.source.number}`} /> : null}
-                                {isRunning ? <StatusChip label="当前运行" tone="running" /> : null}
-                                {isLocked ? <StatusChip label="当前锁定" tone="locked" /> : null}
+                                {userState.isPendingAcceptance ? (
+                                    <StatusChip label="已锁定，重启后生效" tone="warning" />
+                                ) : null}
+                                {!userState.isPendingAcceptance && userState.isAcceptance ? (
+                                    <StatusChip label="当前验收版本" tone={userState.isLocked ? 'locked' : 'running'} />
+                                ) : null}
+                                {userState.isCurrentDisplayOnly ? <StatusChip label="当前显示" /> : null}
                             </View>
                         </View>
                         <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />

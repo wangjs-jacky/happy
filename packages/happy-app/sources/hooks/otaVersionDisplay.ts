@@ -12,6 +12,21 @@ export interface OtaVersionState {
     isLocked: boolean;
 }
 
+export interface OtaAcceptanceStatus {
+    acceptanceVersion: OtaVersion | null;
+    acceptanceStamp: string | null;
+    runningVersion: OtaVersion | null;
+    lockedVersion: OtaVersion | null;
+    isLocked: boolean;
+    isPendingReload: boolean;
+}
+
+export interface OtaVersionUserState extends OtaVersionState {
+    isAcceptance: boolean;
+    isPendingAcceptance: boolean;
+    isCurrentDisplayOnly: boolean;
+}
+
 export function compactOtaMessage(message: string | undefined, maxLength: number = 500): string {
     if (!message) {
         return '';
@@ -56,5 +71,47 @@ export function getOtaVersionState(
     return {
         isRunning: !!currentUpdateId && v.id === currentUpdateId,
         isLocked: v.stamp === lockedStamp,
+    };
+}
+
+export function getOtaAcceptanceStatus(
+    versions: OtaVersion[],
+    currentUpdateId: string | null | undefined,
+    lockedStamp: string | null | undefined,
+): OtaAcceptanceStatus {
+    const normalizedLock = typeof lockedStamp === 'string' && lockedStamp.length > 0 ? lockedStamp : null;
+    const runningVersion = currentUpdateId
+        ? versions.find((version) => version.id === currentUpdateId) ?? null
+        : null;
+    const lockedVersion = normalizedLock
+        ? versions.find((version) => version.stamp === normalizedLock) ?? null
+        : null;
+    const acceptanceVersion = lockedVersion ?? runningVersion;
+    const acceptanceStamp = normalizedLock ?? runningVersion?.stamp ?? null;
+
+    return {
+        acceptanceVersion,
+        acceptanceStamp,
+        runningVersion,
+        lockedVersion,
+        isLocked: normalizedLock !== null,
+        isPendingReload: normalizedLock !== null && runningVersion?.stamp !== normalizedLock,
+    };
+}
+
+export function getOtaVersionUserState(
+    v: OtaVersion,
+    currentUpdateId: string | null | undefined,
+    lockedStamp: string | null | undefined,
+): OtaVersionUserState {
+    const normalizedLock = typeof lockedStamp === 'string' && lockedStamp.length > 0 ? lockedStamp : null;
+    const state = getOtaVersionState(v, currentUpdateId, normalizedLock);
+    const hasLock = normalizedLock !== null;
+
+    return {
+        ...state,
+        isAcceptance: hasLock ? state.isLocked : state.isRunning,
+        isPendingAcceptance: hasLock && state.isLocked && !state.isRunning,
+        isCurrentDisplayOnly: hasLock && state.isRunning && !state.isLocked,
     };
 }

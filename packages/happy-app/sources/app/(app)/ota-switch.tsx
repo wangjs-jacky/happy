@@ -32,9 +32,9 @@ export default function OtaSwitchScreen() {
                 return;
             }
             const confirmed = await Modal.confirm(
-                '切换 OTA 版本？',
+                '切换并锁定 OTA 版本？',
                 `即将把本设备锁定到 preview 频道版本：\nstamp ${stamp}\n\n确认后会立即拉取目标包并重载，仅影响本设备。`,
-                { confirmText: '拉取并切换', cancelText: '取消' },
+                { confirmText: '切换并锁定', cancelText: '取消' },
             );
             if (!confirmed) {
                 router.back();
