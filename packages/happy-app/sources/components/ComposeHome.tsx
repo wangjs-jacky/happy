@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines } from '@/sync/storage';
+import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -23,6 +23,7 @@ import { Avatar } from './Avatar';
 import { RightSwipePanelHost } from './RightSwipePanelHost';
 import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
+import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -68,6 +69,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const headerHeight = useHeaderHeight();
     const profile = useProfile();
     const machines = useAllMachines();
+    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
@@ -130,6 +132,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
+        const resolvedModes = resolveNewSessionModeSelection({
+            agent: draft.agentType,
+            permissionMode: draft.permissionMode,
+            modelMode: draft.modelMode,
+            effortLevel: draft.effortLevel,
+            agentDefaultOverrides,
+        });
 
         // Spawnable only when a machine is selected, online, and we're not asked to
         // create a fresh worktree. The send button is disabled in every other case
@@ -148,9 +157,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             path: draft.selectedPath,
             agent: draft.agentType,
             worktreeKey: draft.worktreeKey,
-            permissionMode: liveSelection?.permissionKey ?? (draft.permissionMode !== 'default' ? draft.permissionMode : undefined),
-            modelMode: liveSelection?.modelKey ?? (draft.modelMode !== 'default' ? draft.modelMode : undefined),
-            effortLevel: liveSelection ? liveSelection.effortKey : draft.effortLevel,
+            permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
+            modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
+            effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt: trimmed,
             images,
         }).then((ok) => {
@@ -160,7 +169,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
