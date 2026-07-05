@@ -1,11 +1,14 @@
 import * as React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
+import type { SessionActionItem } from '@/hooks/useSessionQuickActions';
 import { imageViewer } from '@/sync/imageViewer';
 import { t } from '@/text';
+import { thumbhashToDataUri } from '@/utils/thumbhash';
 import type {
     ArtifactCapabilityItem,
     CapabilityItem,
@@ -21,6 +24,7 @@ type Props = {
     onAddQuickPrompt?: () => void;
     onBack: () => void;
     onDeleteQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
+    onInsertQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     onRunQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     sessionId: string;
     title: string;
@@ -84,6 +88,7 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
                             item={item}
                             key={item.id}
                             onDeleteQuickPrompt={props.onDeleteQuickPrompt}
+                            onInsertQuickPrompt={props.onInsertQuickPrompt}
                             onRunQuickPrompt={props.onRunQuickPrompt}
                             sessionId={props.sessionId}
                         />
@@ -94,9 +99,91 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
     );
 });
 
+export const SessionActionsDetailView = React.memo(function SessionActionsDetailView(props: {
+    actions: SessionActionItem[];
+    onActionPress: (item: SessionActionItem) => void;
+    onBack: () => void;
+    title: string;
+}) {
+    const { theme } = useUnistyles();
+
+    return (
+        <View style={styles.container}>
+            <View style={[styles.header, { borderBottomColor: theme.colors.divider }]}>
+                <Pressable hitSlop={8} onPress={props.onBack} style={styles.backButton}>
+                    <Ionicons color={theme.colors.text} name="chevron-back" size={18} />
+                    <Text style={[styles.backText, { color: theme.colors.text }]}>{t('rightPanelCapabilityHub.back')}</Text>
+                </Pressable>
+                <View style={styles.headerCopy}>
+                    <Text numberOfLines={1} style={[styles.headerTitle, { color: theme.colors.text }]}>
+                        {props.title}
+                    </Text>
+                    <Text style={[styles.headerMeta, { color: theme.colors.textSecondary }]}>
+                        {props.actions.length}
+                    </Text>
+                </View>
+            </View>
+
+            {props.actions.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                    <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                        {t('rightPanelCapabilityHub.empty.sessionActions')}
+                    </Text>
+                </View>
+            ) : (
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {props.actions.map((action) => (
+                        <SessionActionItemRow
+                            action={action}
+                            key={action.id}
+                            onPress={props.onActionPress}
+                        />
+                    ))}
+                </ScrollView>
+            )}
+        </View>
+    );
+});
+
+const SessionActionItemRow = React.memo(function SessionActionItemRow(props: {
+    action: SessionActionItem;
+    onPress: (item: SessionActionItem) => void;
+}) {
+    const { theme } = useUnistyles();
+    const color = props.action.destructive ? theme.colors.status.error : theme.colors.text;
+
+    return (
+        <Pressable
+            onPress={() => props.onPress(props.action)}
+            style={({ pressed }) => [
+                styles.rowCard,
+                {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.divider,
+                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                },
+            ]}
+        >
+            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
+                <Ionicons color={color} name={props.action.icon as keyof typeof Ionicons.glyphMap} size={16} />
+            </View>
+            <View style={styles.rowCopy}>
+                <Text numberOfLines={1} style={[styles.rowTitle, { color }]}>
+                    {props.action.label}
+                </Text>
+            </View>
+            <Ionicons color={color} name="chevron-forward" size={16} />
+        </Pressable>
+    );
+});
+
 const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
     item: CapabilityItem;
     onDeleteQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
+    onInsertQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     onRunQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     sessionId: string;
 }) {
@@ -105,6 +192,7 @@ const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
             <QuickPromptItemRow
                 item={props.item}
                 onDelete={props.onDeleteQuickPrompt}
+                onInsert={props.onInsertQuickPrompt}
                 onRun={props.onRunQuickPrompt}
             />
         );
@@ -124,6 +212,7 @@ const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
 const QuickPromptItemRow = React.memo(function QuickPromptItemRow(props: {
     item: QuickPromptCapabilityItem;
     onDelete?: (item: QuickPromptCapabilityItem) => void;
+    onInsert?: (item: QuickPromptCapabilityItem) => void;
     onRun?: (item: QuickPromptCapabilityItem) => void;
 }) {
     const { theme } = useUnistyles();
@@ -131,8 +220,8 @@ const QuickPromptItemRow = React.memo(function QuickPromptItemRow(props: {
     return (
         <View style={[styles.rowCard, styles.quickPromptCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
             <Pressable
-                disabled={!props.onRun}
-                onPress={() => props.onRun?.(props.item)}
+                disabled={!props.onInsert}
+                onPress={() => props.onInsert?.(props.item)}
                 style={({ pressed }) => [
                     styles.quickPromptMain,
                     { opacity: pressed ? 0.72 : 1 },
@@ -211,6 +300,11 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
 }) {
     const { theme } = useUnistyles();
     const { uri } = useAttachmentImage(props.sessionId, props.item.ref);
+    const placeholder = React.useMemo(() => {
+        if (!props.item.thumbhash) return undefined;
+        const placeholderUri = thumbhashToDataUri(props.item.thumbhash);
+        return placeholderUri ? { uri: placeholderUri } : undefined;
+    }, [props.item.thumbhash]);
     const subtitle = props.item.width && props.item.height
         ? `${props.item.width} × ${props.item.height}`
         : t('rightPanelCapabilityHub.meta.image');
@@ -221,6 +315,7 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
             onPress={uri ? () => imageViewer.open({ uri, width: props.item.width, height: props.item.height }) : undefined}
             style={({ pressed }) => [
                 styles.rowCard,
+                styles.imageRowCard,
                 {
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.divider,
@@ -229,8 +324,24 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
                 },
             ]}
         >
-            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
-                <Ionicons color={theme.colors.text} name="image-outline" size={15} />
+            <View style={[styles.imageThumbWrap, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
+                <Image
+                    source={uri ? { uri } : undefined}
+                    placeholder={placeholder}
+                    style={styles.imageThumb}
+                    contentFit="cover"
+                    transition={150}
+                />
+                {!uri && !placeholder ? (
+                    <View style={styles.imageThumbOverlay}>
+                        <Ionicons color={theme.colors.textSecondary} name="image-outline" size={20} />
+                    </View>
+                ) : null}
+                {!uri ? (
+                    <View style={styles.imageLoadingBadge}>
+                        <ActivityIndicator color={theme.colors.textSecondary} size="small" />
+                    </View>
+                ) : null}
             </View>
             <View style={styles.rowCopy}>
                 <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.colors.text }]}>
@@ -240,7 +351,7 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
                     {subtitle}
                 </Text>
             </View>
-            {!uri ? <ActivityIndicator color={theme.colors.textSecondary} size="small" /> : <Ionicons color={theme.colors.textSecondary} name="expand-outline" size={16} />}
+            {uri ? <Ionicons color={theme.colors.textSecondary} name="expand-outline" size={16} /> : null}
         </Pressable>
     );
 });
@@ -404,6 +515,10 @@ const styles = StyleSheet.create(() => ({
         minHeight: 72,
         paddingRight: 10,
     },
+    imageRowCard: {
+        minHeight: 82,
+        paddingVertical: 8,
+    },
     quickPromptMain: {
         alignItems: 'center',
         flex: 1,
@@ -425,6 +540,36 @@ const styles = StyleSheet.create(() => ({
         height: 30,
         justifyContent: 'center',
         width: 30,
+    },
+    imageThumbWrap: {
+        borderRadius: 12,
+        borderWidth: 1,
+        height: 58,
+        overflow: 'hidden',
+        position: 'relative',
+        width: 58,
+    },
+    imageThumb: {
+        height: '100%',
+        width: '100%',
+    },
+    imageThumbOverlay: {
+        alignItems: 'center',
+        bottom: 0,
+        justifyContent: 'center',
+        left: 0,
+        position: 'absolute',
+        right: 0,
+        top: 0,
+    },
+    imageLoadingBadge: {
+        alignItems: 'center',
+        bottom: 4,
+        height: 20,
+        justifyContent: 'center',
+        position: 'absolute',
+        right: 4,
+        width: 20,
     },
     rowCopy: {
         flex: 1,
