@@ -72,6 +72,18 @@ export const SettingsSchema = z.object({
             openclaw: z.boolean().optional(),
         }).default({}),
     }).default({ perMachine: {}, global: {} }).describe('Tracks which CLI installation warnings user has dismissed (per-machine or globally)'),
+    agents: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        glyph: z.string(),
+        color: z.string(),
+        machineId: z.string(),
+        path: z.string(),
+        presets: z.array(z.object({
+            label: z.string(),
+            prompt: z.string(),
+        })).default([]),
+    })).default([]).describe('用户配置的「我的 Agent」快捷入口（机器+目录+预设指令）'),
 });
 
 //
@@ -129,6 +141,7 @@ export const settingsDefaults: Settings = {
     lastUsedModelMode: null,
     agentDefaultOverrides: {},
     dismissedCLIWarnings: { perMachine: {}, global: {} },
+    agents: [],
 };
 Object.freeze(settingsDefaults);
 

@@ -88,6 +88,19 @@ describe('settings', () => {
                 }
             });
         });
+
+        describe('agents field', () => {
+            it('defaults to empty array', () => {
+                expect(settingsParse({}).agents).toEqual([]);
+            });
+            it('parses a valid agent entry', () => {
+                const a = { id: 'x1', name: '工作日程', glyph: '日', color: '#5e5791', machineId: 'm1', path: '~/work', presets: [{ label: '看今天', prompt: '列出今天事项' }] };
+                expect(settingsParse({ agents: [a] }).agents).toEqual([a]);
+            });
+            it('drops malformed agents back to default', () => {
+                expect(settingsParse({ agents: 'nope' }).agents).toEqual([]);
+            });
+        });
     });
 
     describe('applySettings', () => {
@@ -207,6 +220,7 @@ describe('settings', () => {
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
                 dismissedCLIWarnings: { perMachine: {}, global: {} },
+                agents: [],
             });
         });
 

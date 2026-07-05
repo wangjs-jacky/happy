@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { View, Text, Pressable, LayoutAnimation } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useRouter, useNavigation } from 'expo-router';
+import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines } from '@/sync/storage';
+import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -25,6 +25,7 @@ import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
+import { hapticsLight } from './haptics';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -72,6 +73,26 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const [text, setText] = React.useState('');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
+
+    // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
+    // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
+    const { agentId } = useLocalSearchParams<{ agentId?: string }>();
+    const agents = useSetting('agents');
+    const activeAgent = React.useMemo(
+        () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
+        [agentId, agents],
+    );
+
+    // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
+    // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
+    // setTextAndSelection 才会真正改写原生输入框，并回调 onChangeText 同步父级 text
+    // 与发送按钮的 hasText 状态。随后 focus 让光标落到末尾，但不自动发送。
+    const fillPreset = React.useCallback((prompt: string) => {
+        hapticsLight();
+        const len = prompt.length;
+        composerInputRef.current?.setTextAndSelection(prompt, { start: len, end: len });
+        composerInputRef.current?.focus();
+    }, []);
 
     const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
@@ -215,13 +236,29 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
                     <Text style={styles.greeting}>
-                        {name
-                            ? t('composeHome.greeting', { name })
-                            : t('composeHome.greetingNoName')}
+                        {activeAgent
+                            ? t('composeHome.greetingAgent', { name: activeAgent.name })
+                            : name
+                                ? t('composeHome.greeting', { name })
+                                : t('composeHome.greetingNoName')}
                     </Text>
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
+                    {activeAgent && activeAgent.presets.length > 0 && (
+                        <View style={styles.presetRow}>
+                            {activeAgent.presets.map((preset, i) => (
+                                <Pressable
+                                    key={`${preset.label}-${i}`}
+                                    onPress={() => fillPreset(preset.prompt)}
+                                    style={styles.presetChip}
+                                    hitSlop={6}
+                                >
+                                    <Text style={styles.presetChipText} numberOfLines={1}>{preset.label}</Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    )}
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
@@ -332,6 +369,27 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
+    },
+    presetRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        paddingHorizontal: 4,
+        paddingBottom: 10,
+    },
+    presetChip: {
+        maxWidth: 240,
+        paddingVertical: 7,
+        paddingHorizontal: 13,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    presetChipText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.text,
     },
     byline: {
         ...Typography.default(),

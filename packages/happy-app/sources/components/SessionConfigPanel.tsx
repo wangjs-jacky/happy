@@ -58,7 +58,7 @@ const ALL_AGENTS: { key: AgentKey; label: string }[] = [
     { key: 'gemini', label: 'gemini' },
 ];
 
-type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
+export type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
 
 type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission';
 
@@ -249,7 +249,7 @@ function buildCrumbs(absPath: string | undefined, home: string | undefined): Cru
     return out;
 }
 
-function PathPickerContent({
+export function PathPickerContent({
     title,
     items,
     value,
@@ -259,6 +259,7 @@ function PathPickerContent({
     onChangeValue,
     onDone,
     embedded = false,
+    manualInput = true,
 }: {
     title: string;
     items: PickerItem[];
@@ -269,6 +270,7 @@ function PathPickerContent({
     onChangeValue: (value: string) => void;
     onDone?: () => void;
     embedded?: boolean;
+    manualInput?: boolean;
 }) {
     const { theme } = useUnistyles();
     const inputRef = React.useRef<TextInput>(null);
@@ -339,6 +341,43 @@ function PathPickerContent({
     const doneIconColor = theme.colors.header.tint;
     const canBrowse = !!machineId && machineOnline;
     const currentFolderName = browsePath ? (crumbs[crumbs.length - 1]?.label ?? browsePath) : '';
+    const pathInputRow = (
+        <View
+            style={[
+                pickerStyles.pathInputRow,
+                {
+                    backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
+                    borderColor: embedded ? 'transparent' : theme.colors.divider,
+                },
+                embedded && pickerStyles.embeddedPathInputRow,
+            ]}
+        >
+            <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+            <View style={pickerStyles.pathInputField}>
+                <TextInput
+                    ref={inputRef}
+                    value={currentValue}
+                    onChangeText={onChangeValue}
+                    onSelectionChange={handleSelectionChange}
+                    selection={selection}
+                    placeholder={manualInput ? 'Enter project path' : 'Select project path'}
+                    placeholderTextColor={theme.colors.textSecondary}
+                    style={[
+                        pickerStyles.pathTextInput,
+                        embedded && pickerStyles.embeddedPathTextInput,
+                        { color: theme.colors.text },
+                    ]}
+                    editable={manualInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    multiline={false}
+                    numberOfLines={1}
+                    returnKeyType="done"
+                    onSubmitEditing={onDone}
+                />
+            </View>
+        </View>
+    );
 
     return (
         <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer]}>
@@ -487,42 +526,18 @@ function PathPickerContent({
                 </>
             ) : (
                 <>
-                    <View
-                        style={[
-                            pickerStyles.pathInputRow,
-                            {
-                                backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
-                                borderColor: embedded ? 'transparent' : theme.colors.divider,
-                            },
-                            embedded && pickerStyles.embeddedPathInputRow,
-                        ]}
-                    >
-                        <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
-                        <View style={pickerStyles.pathInputField}>
-                            <TextInput
-                                ref={inputRef}
-                                value={currentValue}
-                                onChangeText={onChangeValue}
-                                onSelectionChange={handleSelectionChange}
-                                selection={selection}
-                                placeholder="Enter project path"
-                                placeholderTextColor={theme.colors.textSecondary}
-                                style={[
-                                    pickerStyles.pathTextInput,
-                                    embedded && pickerStyles.embeddedPathTextInput,
-                                    { color: theme.colors.text },
-                                ]}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                                multiline={false}
-                                numberOfLines={1}
-                                returnKeyType="done"
-                                onSubmitEditing={onDone}
-                            />
-                        </View>
-                    </View>
+                    {manualInput ? pathInputRow : (
+                        <Pressable
+                            onPress={canBrowse ? startBrowsing : undefined}
+                            disabled={!canBrowse}
+                            accessibilityRole="button"
+                            accessibilityLabel="Select project path"
+                        >
+                            {pathInputRow}
+                        </Pressable>
+                    )}
 
-                    {isCustomPath && (
+                    {manualInput && isCustomPath && (
                         <Text style={[pickerStyles.pathMetaText, { color: theme.colors.textSecondary }]}>
                             using custom path above
                         </Text>

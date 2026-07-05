@@ -134,6 +134,20 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/my-agents"
+                options={{
+                    headerTitle: t('agents.title'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/my-agent-edit"
+                options={{
+                    // 标题随「新建/编辑」动态变化，由组件内联 Stack.Screen 驱动；
+                    // 此处留空标题避免新建时先闪一下 "Edit"。
+                    headerTitle: '',
+                }}
+            />
+            <Stack.Screen
                 name="settings/features"
                 options={{
                     headerTitle: t('settings.features'),
