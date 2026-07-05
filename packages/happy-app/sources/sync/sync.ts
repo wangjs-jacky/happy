@@ -51,6 +51,7 @@ import { fetchFeed } from './apiFeed';
 import { FeedItem } from './feedTypes';
 import { UserProfile } from './friendTypes';
 import {
+    getInitialSessionEventLocalNotificationsEnabled,
     maybeScheduleSessionEventLocalNotification,
     shouldEnableSessionEventLocalNotifications,
 } from './sessionEventLocalNotification';
@@ -136,7 +137,7 @@ class Sync {
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
     private backgroundSendStartedAt: number | null = null;
-    private sessionEventLocalNotificationsEnabled = false;
+    private sessionEventLocalNotificationsEnabled = getInitialSessionEventLocalNotificationsEnabled();
     revenueCatInitialized = false;
 
     // Generic locking mechanism

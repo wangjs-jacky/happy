@@ -4,6 +4,10 @@ import { log } from '@/log';
 import type { ApiEphemeralSessionEventUpdate } from './apiTypes';
 import type { SyncCurrentPushTokenResult } from './pushRegistration';
 
+export function getInitialSessionEventLocalNotificationsEnabled(): boolean {
+    return Platform.OS !== 'web';
+}
+
 export function shouldEnableSessionEventLocalNotifications(result: SyncCurrentPushTokenResult): boolean {
     return Platform.OS !== 'web' && result.permission.granted && !result.registered;
 }
@@ -30,7 +34,9 @@ export async function maybeScheduleSessionEventLocalNotification(
                 },
                 sound: true,
             },
-            trigger: null,
+            trigger: {
+                channelId: 'messages',
+            },
         });
         return true;
     } catch (error) {

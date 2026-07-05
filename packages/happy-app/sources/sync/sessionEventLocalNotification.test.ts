@@ -17,6 +17,7 @@ vi.mock('react-native', () => reactNativeMock);
 vi.mock('@/log', () => ({ log: logMock }));
 
 import {
+    getInitialSessionEventLocalNotificationsEnabled,
     maybeScheduleSessionEventLocalNotification,
     shouldEnableSessionEventLocalNotifications,
 } from './sessionEventLocalNotification';
@@ -54,7 +55,9 @@ describe('sessionEventLocalNotification', () => {
                 },
                 sound: true,
             },
-            trigger: null,
+            trigger: {
+                channelId: 'messages',
+            },
         });
     });
 
@@ -86,5 +89,13 @@ describe('sessionEventLocalNotification', () => {
             token: null,
             permission: { status: 'denied', granted: false, canAskAgain: false },
         })).toBe(false);
+    });
+
+    it('keeps fallback available on native until remote push registration proves it can handle session events', () => {
+        reactNativeMock.Platform.OS = 'android';
+        expect(getInitialSessionEventLocalNotificationsEnabled()).toBe(true);
+
+        reactNativeMock.Platform.OS = 'web';
+        expect(getInitialSessionEventLocalNotificationsEnabled()).toBe(false);
     });
 });
