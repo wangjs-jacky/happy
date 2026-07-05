@@ -58,6 +58,7 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: undefined,
+      model: undefined,
       effort: undefined,
     })
     expect(
@@ -83,6 +84,7 @@ describe('handleCodexCommand', () => {
       noSandbox: true,
       resumeThreadId: 'thread-123',
       permissionMode: undefined,
+      model: undefined,
       effort: undefined,
     })
   })
@@ -96,6 +98,21 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
+    })
+  })
+
+  it('passes model through to runCodex', async () => {
+    await handleCodexCommand(['--model', 'gpt-5.4'])
+
+    expect(mocks.mockRunCodex).toHaveBeenCalledWith({
+      credentials: { token: 'token' },
+      startedBy: undefined,
+      noSandbox: false,
+      resumeThreadId: undefined,
+      permissionMode: undefined,
+      model: 'gpt-5.4',
       effort: undefined,
     })
   })
@@ -109,6 +126,7 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: undefined,
+      model: undefined,
       effort: 'xhigh',
     })
   })
@@ -122,6 +140,7 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
       effort: undefined,
     })
   })

@@ -21,6 +21,24 @@ describe('enqueueCodexUserText', () => {
         expect(queue.push).not.toHaveBeenCalled();
     });
 
+    it('queues /skills in isolation instead of batching it into a model prompt', () => {
+        const mode = { permissionMode: 'default' as const };
+        const queue = {
+            push: vi.fn(),
+            pushIsolateAndClear: vi.fn(),
+        };
+
+        const result = enqueueCodexUserText({
+            text: '/skills',
+            mode,
+            queue,
+        });
+
+        expect(result).toBe('skills');
+        expect(queue.pushIsolateAndClear).toHaveBeenCalledWith('/skills', mode, undefined);
+        expect(queue.push).not.toHaveBeenCalled();
+    });
+
     it('forwards image attachments alongside ordinary text', () => {
         const mode = { permissionMode: 'default' as const };
         const queue = {

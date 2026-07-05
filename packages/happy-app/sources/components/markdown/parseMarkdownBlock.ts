@@ -1,5 +1,17 @@
 import type { MarkdownBlock, MarkdownSpan } from "./parseMarkdown";
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
+import {
+    isHappyOtaPreviewBlock,
+    looksLikeOtaPreviewLegacyStart,
+    parseOtaPreviewSection,
+} from '@/utils/sessionOtaPreviews';
+import {
+    getFinanceChartCloseTag,
+    isHappyFinanceChartBlock,
+    parseFinanceChartSection,
+} from '@/utils/sessionFinanceCharts';
+
+const OTA_BLOCK_CLOSE = '</happy-ota-preview>';
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
 // empty strings caused by outer pipes while preserving interior empty cells.
@@ -134,6 +146,61 @@ export function parseMarkdownBlock(markdown: string) {
                 blocks.push({ type: 'options', items });
             }
             continue;
+        }
+
+        // Happy OTA preview block
+        if (isHappyOtaPreviewBlock(trimmed)) {
+            const content: string[] = [];
+            while (index < lines.length) {
+                const nextLine = lines[index];
+                if (nextLine.trim() === OTA_BLOCK_CLOSE) {
+                    index++;
+                    break;
+                }
+                content.push(nextLine);
+                index++;
+            }
+            const preview = parseOtaPreviewSection(content.join('\n'));
+            if (preview) {
+                blocks.push({ type: 'ota-preview', preview });
+            }
+            continue;
+        }
+
+        // Happy finance chart block
+        if (isHappyFinanceChartBlock(trimmed)) {
+            const content: string[] = [];
+            const closeTag = getFinanceChartCloseTag();
+            while (index < lines.length) {
+                const nextLine = lines[index];
+                if (nextLine.trim() === closeTag) {
+                    index++;
+                    break;
+                }
+                content.push(nextLine);
+                index++;
+            }
+            const chart = parseFinanceChartSection(content.join('\n'));
+            if (chart) {
+                blocks.push({ type: 'finance-chart', chart });
+            }
+            continue;
+        }
+
+        // Legacy Happy OTA preview section
+        if (looksLikeOtaPreviewLegacyStart(trimmed)) {
+            const sectionLines = [line];
+            let nextIndex = index;
+            while (nextIndex < lines.length && lines[nextIndex].trim() !== '') {
+                sectionLines.push(lines[nextIndex]);
+                nextIndex++;
+            }
+            const preview = parseOtaPreviewSection(sectionLines.join('\n'), { source: 'legacy' });
+            if (preview) {
+                blocks.push({ type: 'ota-preview', preview });
+                index = nextIndex;
+                continue;
+            }
         }
 
         // Image block

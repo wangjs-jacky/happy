@@ -28,6 +28,10 @@ const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isP
 interface ActiveSessionsGroupProps {
     sessions: SessionRowData[];
     selectedSessionId?: string;
+    selectionMode?: boolean;
+    selectedIds?: Set<string>;
+    onStartSelection?: (sessionId: string) => void;
+    onToggleSelection?: (sessionId: string) => void;
 }
 
 /**
@@ -159,7 +163,14 @@ const MachineSeparator = React.memo(({ machineName, machineId }: { machineName: 
     );
 });
 
-export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: ActiveSessionsGroupProps) {
+export function ActiveSessionsGroupCompact({
+    sessions,
+    selectedSessionId,
+    selectionMode = false,
+    selectedIds,
+    onStartSelection,
+    onToggleSelection,
+}: ActiveSessionsGroupProps) {
     const styles = stylesheet;
     const machines = useAllMachines();
 
@@ -252,7 +263,11 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
                                                 key={session.id}
                                                 session={session}
                                                 selected={selectedSessionId === session.id}
+                                                bulkSelected={selectedIds?.has(session.id) ?? false}
+                                                selectionMode={selectionMode}
                                                 showBorder={index < projectGroup.sessions.length - 1}
+                                                onStartSelection={onStartSelection}
+                                                onToggleSelection={onToggleSelection}
                                             />
                                         ))}
                                     </View>
@@ -267,7 +282,15 @@ export function ActiveSessionsGroupCompact({ sessions, selectedSessionId }: Acti
 }
 
 // Compact session row with status dot indicator
-const CompactSessionRow = React.memo(({ session, selected, showBorder }: { session: SessionRowData; selected?: boolean; showBorder?: boolean }) => {
+const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selectionMode, showBorder, onStartSelection, onToggleSelection }: {
+    session: SessionRowData;
+    selected?: boolean;
+    bulkSelected?: boolean;
+    selectionMode?: boolean;
+    showBorder?: boolean;
+    onStartSelection?: (sessionId: string) => void;
+    onToggleSelection?: (sessionId: string) => void;
+}) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const baseStatus = STATUS_CONFIG[session.state];
@@ -279,8 +302,12 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
     const [actionsAnchor, setActionsAnchor] = React.useState<SessionActionsAnchor | null>(null);
 
     const handlePress = React.useCallback(() => {
+        if (selectionMode) {
+            onToggleSelection?.(session.id);
+            return;
+        }
         navigateToSession(session.id);
-    }, [navigateToSession, session.id]);
+    }, [navigateToSession, onToggleSelection, selectionMode, session.id]);
 
     const handleContextMenu = React.useCallback((event: any) => {
         event.preventDefault?.();
@@ -305,14 +332,26 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
 
     const menuProps = Platform.OS === 'web' ? {
         onContextMenu: handleContextMenu,
-    } as any : {
+    } as any : selectionMode ? {} : {
         onLongPress: handleLongPress,
     };
 
     const renderLeadingIndicator = () => {
         let indicator: React.ReactNode = null;
 
-        if (session.hasUnread) {
+        if (selectionMode) {
+            indicator = (
+                <View style={[styles.selectionCheckbox, bulkSelected && styles.selectionCheckboxSelected]}>
+                    {bulkSelected ? (
+                        <Ionicons
+                            name="checkmark"
+                            size={14}
+                            color="#FFFFFF"
+                        />
+                    ) : null}
+                </View>
+            );
+        } else if (session.hasUnread) {
             indicator = <StatusDot color={status.dotColor} isPulsing={false} />;
         } else if (session.state === 'waiting' && session.hasDraft) {
             indicator = (
@@ -340,7 +379,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             style={[
                 styles.sessionRow,
                 showBorder && styles.sessionRowWithBorder,
-                (selected || !!actionsAnchor) && styles.sessionRowSelected
+                (selected || bulkSelected || !!actionsAnchor) && styles.sessionRowSelected
             ]}
             onPress={handlePress}
             {...menuProps}
@@ -369,6 +408,7 @@ const CompactSessionRow = React.memo(({ session, selected, showBorder }: { sessi
             <SessionActionsPopover
                 anchor={actionsAnchor}
                 onClose={() => setActionsAnchor(null)}
+                onSelectSession={onStartSelection ? () => onStartSelection(session.id) : undefined}
                 sessionId={session.id}
                 visible={!!actionsAnchor}
             />
@@ -512,8 +552,21 @@ const stylesheet = StyleSheet.create((theme) => ({
     leadingIndicatorSlot: {
         alignItems: 'center',
         justifyContent: 'center',
-        width: 16,
-        height: 16,
+        width: 20,
+        height: 20,
         marginRight: 8,
+    },
+    selectionCheckbox: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: theme.colors.textSecondary,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    selectionCheckboxSelected: {
+        borderColor: theme.colors.radio.active,
+        backgroundColor: theme.colors.radio.active,
     },
 }));

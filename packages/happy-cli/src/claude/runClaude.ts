@@ -32,6 +32,7 @@ import { getProjectPath } from './utils/path';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RawJSONLinesSchema, type RawJSONLines } from './types';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -791,6 +792,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Browser-side "Archive" button routes through this RPC and DOES
     // want the metadata stamped — it's the user explicitly choosing to
     // retire the session, not just disconnecting.
+    registerSessionTitleWorker(session, 'claude');
     registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true }));
 
     // Create claude loop

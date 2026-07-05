@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     getAvailableModels,
     getAvailablePermissionModes,
+    getEffortLevelsForModel,
     getCodexModelModes,
     getClaudePermissionModes,
     getDefaultEffortKey,
@@ -36,11 +37,8 @@ describe('modelModeOptions', () => {
             'default',
             'gpt-5.5',
             'gpt-5.4',
-            'gpt-5.3-codex',
-            'gpt-5.2-codex',
-            'gpt-5.1-codex-max',
-            'gpt-5.2',
-            'gpt-5.1-codex-mini',
+            'gpt-5.4-mini',
+            'gpt-5.3-codex-spark',
         ]);
         expect(models[0].name).toBe('default model');
         expect(models[1].name).toBe('gpt-5.5');
@@ -50,9 +48,9 @@ describe('modelModeOptions', () => {
         expect(getDefaultPermissionModeKey('claude')).toBe('bypassPermissions');
         expect(getDefaultModelKey('claude')).toBe('opus');
         expect(getDefaultEffortKey('claude')).toBe('medium');
-        expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
-        expect(getDefaultModelKey('codex')).toBe('gpt-5.5');
-        expect(getDefaultEffortKey('codex')).toBe('medium');
+        expect(getDefaultPermissionModeKey('codex')).toBe('default');
+        expect(getDefaultModelKey('codex')).toBe('default');
+        expect(getDefaultEffortKey('codex')).toBeNull();
     });
 
     it('prefers metadata models over hardcoded fallbacks', () => {
@@ -77,6 +75,21 @@ describe('modelModeOptions', () => {
         expect(models).toEqual([
             { key: 'default', name: 'default model', description: null },
             { key: 'gpt-5.4', name: 'gpt-5.4', description: 'Latest' },
+        ]);
+    });
+
+    it('prefers metadata effort levels for codex when available', () => {
+        const levels = getEffortLevelsForModel('codex', 'gpt-5.4', {
+            thoughtLevels: [
+                { code: 'minimal', value: 'minimal', description: 'Quickest' },
+                { code: 'xhigh', value: 'xhigh', description: 'Deepest' },
+            ],
+        } as any);
+
+        expect(levels).toEqual([
+            { key: 'default', name: 'default effort', description: null },
+            { key: 'minimal', name: 'minimal', description: 'Quickest' },
+            { key: 'xhigh', name: 'xhigh', description: 'Deepest' },
         ]);
     });
 

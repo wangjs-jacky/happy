@@ -6,6 +6,7 @@ import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
 import { Typography } from '@/constants/Typography';
 import { RoundButton } from '@/components/RoundButton';
+import { t } from '@/text';
 
 // Example custom modal component
 function CustomContentModal({ onClose, title, message }: { onClose: () => void; title: string; message: string }) {
@@ -15,7 +16,7 @@ function CustomContentModal({ onClose, title, message }: { onClose: () => void; 
             <Text style={[styles.customModalMessage, Typography.default()]}>{message}</Text>
             <View style={styles.customModalButtons}>
                 <RoundButton
-                    title="Close"
+                    title={t('devTools.close')}
                     onPress={onClose}
                     size="normal"
                 />
@@ -25,131 +26,131 @@ function CustomContentModal({ onClose, title, message }: { onClose: () => void; 
 }
 
 export default function ModalDemoScreen() {
-    const [lastResult, setLastResult] = React.useState<string>('No action taken yet');
+    const [lastResult, setLastResult] = React.useState<string>(() => t('devTools.noActionTaken'));
 
     const showSimpleAlert = () => {
-        Modal.alert('Simple Alert', 'This is a simple alert modal.');
-        setLastResult('Showed simple alert');
+        Modal.alert(t('devTools.simpleAlert'), t('devTools.simpleAlertMessage'));
+        setLastResult(t('devTools.showedSimpleAlert'));
     };
 
     const showAlertWithMessage = () => {
         Modal.alert(
-            'Alert with Message',
-            'This alert has a longer message that explains something in detail. It can span multiple lines if needed.'
+            t('devTools.alertWithMessage'),
+            t('devTools.alertWithMessageBody')
         );
-        setLastResult('Showed alert with message');
+        setLastResult(t('devTools.showedAlertWithMessage'));
     };
 
     const showAlertWithButtons = () => {
         Modal.alert(
-            'Multiple Actions',
-            'Choose an action:',
+            t('devTools.multipleActions'),
+            t('devTools.chooseAnAction'),
             [
-                { text: 'Cancel', style: 'cancel', onPress: () => setLastResult('Pressed Cancel') },
-                { text: 'Option 1', onPress: () => setLastResult('Pressed Option 1') },
-                { text: 'Option 2', onPress: () => setLastResult('Pressed Option 2') }
+                { text: t('common.cancel'), style: 'cancel', onPress: () => setLastResult(t('devTools.pressedAction', { action: t('common.cancel') })) },
+                { text: t('devTools.optionOne'), onPress: () => setLastResult(t('devTools.pressedAction', { action: t('devTools.optionOne') })) },
+                { text: t('devTools.optionTwo'), onPress: () => setLastResult(t('devTools.pressedAction', { action: t('devTools.optionTwo') })) }
             ]
         );
     };
 
     const showConfirm = async () => {
         const result = await Modal.confirm(
-            'Confirm Action',
-            'Are you sure you want to proceed?'
+            t('devTools.confirmAction'),
+            t('devTools.confirmActionMessage')
         );
-        setLastResult(`Confirm result: ${result ? 'Confirmed' : 'Cancelled'}`);
+        setLastResult(t('devTools.confirmResult', { result: result ? t('devTools.confirmed') : t('devTools.cancelled') }));
     };
 
     const showDestructiveConfirm = async () => {
         const result = await Modal.confirm(
-            'Delete Item',
-            'This action cannot be undone. Are you sure?',
+            t('devTools.deleteItem'),
+            t('devTools.deleteItemMessage'),
             {
-                confirmText: 'Delete',
-                cancelText: 'Keep',
+                confirmText: t('common.delete'),
+                cancelText: t('devTools.keep'),
                 destructive: true
             }
         );
-        setLastResult(`Delete result: ${result ? 'Deleted' : 'Kept'}`);
+        setLastResult(t('devTools.deleteResult', { result: result ? t('devTools.deleted') : t('devTools.kept') }));
     };
 
     const showCustomModal = () => {
         Modal.show({
             component: CustomContentModal,
             props: {
-                title: 'Custom Modal',
-                message: 'This is a completely custom modal component. You can put anything in here!'
+                title: t('devTools.customModal'),
+                message: t('devTools.customModalMessage')
             }
         });
-        setLastResult('Showed custom modal');
+        setLastResult(t('devTools.showedCustomModal'));
     };
 
     const showMultipleModals = async () => {
-        Modal.alert('First Modal', 'This is the first modal');
+        Modal.alert(t('devTools.firstModal'), t('devTools.firstModalMessage'));
         
         setTimeout(() => {
-            Modal.alert('Second Modal', 'This modal appeared after the first one');
+            Modal.alert(t('devTools.secondModal'), t('devTools.secondModalMessage'));
         }, 1500);
         
-        setLastResult('Showed multiple modals');
+        setLastResult(t('devTools.showedMultipleModals'));
     };
 
     return (
         <ScrollView style={styles.container}>
             <View style={styles.header}>
-                <Text style={[styles.title, Typography.default('semiBold')]}>Modal Demo</Text>
+                <Text style={[styles.title, Typography.default('semiBold')]}>{t('devTools.modalDemoTitle')}</Text>
                 <Text style={[styles.subtitle, Typography.default()]}>
-                    Platform: {Platform.OS} ({Platform.OS === 'web' ? 'Custom modals' : 'Native alerts'})
+                    {t('devTools.platformSummary', { platform: Platform.OS, implementation: Platform.OS === 'web' ? t('devTools.customModals') : t('devTools.nativeAlerts') })}
                 </Text>
             </View>
 
             <ItemList>
-                <ItemGroup title="Alert Modals">
+                <ItemGroup title={t('devTools.alertModals')}>
                     <Item
-                        title="Simple Alert"
-                        subtitle="Basic alert with title only"
+                        title={t('devTools.simpleAlert')}
+                        subtitle={t('devTools.simpleAlertSubtitle')}
                         onPress={showSimpleAlert}
                     />
                     <Item
-                        title="Alert with Message"
-                        subtitle="Alert with title and message"
+                        title={t('devTools.alertWithMessage')}
+                        subtitle={t('devTools.alertWithMessageSubtitle')}
                         onPress={showAlertWithMessage}
                     />
                     <Item
-                        title="Alert with Multiple Buttons"
-                        subtitle="Alert with custom buttons"
+                        title={t('devTools.alertWithMultipleButtons')}
+                        subtitle={t('devTools.alertWithMultipleButtonsSubtitle')}
                         onPress={showAlertWithButtons}
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Confirmation Modals">
+                <ItemGroup title={t('devTools.confirmationModals')}>
                     <Item
-                        title="Basic Confirmation"
-                        subtitle="Simple yes/no confirmation"
+                        title={t('devTools.basicConfirmation')}
+                        subtitle={t('devTools.basicConfirmationSubtitle')}
                         onPress={showConfirm}
                     />
                     <Item
-                        title="Destructive Confirmation"
-                        subtitle="Confirmation with destructive action"
+                        title={t('devTools.destructiveConfirmation')}
+                        subtitle={t('devTools.destructiveConfirmationSubtitle')}
                         onPress={showDestructiveConfirm}
                         destructive
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Custom Modals">
+                <ItemGroup title={t('devTools.customModalsGroup')}>
                     <Item
-                        title="Custom Modal"
-                        subtitle="Fully custom modal component"
+                        title={t('devTools.customModal')}
+                        subtitle={t('devTools.customModalSubtitle')}
                         onPress={showCustomModal}
                     />
                     <Item
-                        title="Multiple Modals"
-                        subtitle="Show multiple modals in sequence"
+                        title={t('devTools.multipleModals')}
+                        subtitle={t('devTools.multipleModalsSubtitle')}
                         onPress={showMultipleModals}
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Last Action Result">
+                <ItemGroup title={t('devTools.lastActionResult')}>
                     <View style={styles.resultContainer}>
                         <Text style={[styles.resultText, Typography.default()]}>
                             {lastResult}

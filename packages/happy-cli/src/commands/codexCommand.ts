@@ -9,6 +9,7 @@ import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
 export async function handleCodexCommand(args: string[]): Promise<void> {
   let startedBy: 'daemon' | 'terminal' | undefined = undefined
   let permissionMode: PermissionMode | undefined = undefined
+  let model: string | undefined = undefined
   let effort: ReasoningEffort | undefined = undefined
   const sandboxArgs = extractNoSandboxFlag(args)
   const codexArgs = extractCodexResumeFlag(sandboxArgs.args)
@@ -18,6 +19,8 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
       startedBy = codexArgs.args[++i] as 'daemon' | 'terminal'
     } else if (codexArgs.args[i] === '--permission-mode') {
       permissionMode = codexArgs.args[++i] as PermissionMode
+    } else if (codexArgs.args[i] === '--model') {
+      model = codexArgs.args[++i]
     } else if (codexArgs.args[i] === '--effort') {
       effort = codexArgs.args[++i] as ReasoningEffort
     } else if (codexArgs.args[i] === '--yolo') {
@@ -34,6 +37,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     noSandbox: sandboxArgs.noSandbox,
     resumeThreadId: codexArgs.resumeThreadId ?? undefined,
     permissionMode,
+    model,
     effort,
   })
 }

@@ -2,9 +2,9 @@ import * as React from 'react';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionKill, sessionDelete, sessionRegenerateTitle, sessionUpdateMetadata, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
-import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
+import { storage, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
 import { resolveMessageModeMeta } from '@/sync/messageMeta';
@@ -18,6 +18,10 @@ import { useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
 import { hapticsSuccess } from '@/components/haptics';
+import { getSessionName } from '@/utils/sessionUtils';
+import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
+import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
+import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 
 export interface SessionActionItem {
     id: string;
@@ -31,6 +35,7 @@ interface UseSessionQuickActionsOptions {
     onAfterArchive?: () => void;
     onAfterDelete?: () => void;
     onAfterCopySessionMetadata?: () => void;
+    onSelectSession?: () => void;
 }
 
 type ResumeAvailability = {
@@ -39,6 +44,12 @@ type ResumeAvailability = {
     subtitle: string;
     message: string;
 };
+
+function isRegenerateTitleRpcUnavailable(message: string | undefined): boolean {
+    return message === 'RPC call failed'
+        || message === 'RPC method not available'
+        || message === 'Method not found';
+}
 
 function getResumeAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
     if (isConnected) {
@@ -105,14 +116,15 @@ export function useSessionQuickActions(
 ) {
     const {
         onAfterArchive,
+        onAfterDelete,
         onAfterCopySessionMetadata,
+        onSelectSession,
     } = options;
     const router = useRouter();
     const navigateToSession = useNavigateToSession();
     const sessionStatus = useSessionStatus(session);
     const machineId = session.metadata?.machineId ?? '';
     const machine = useMachine(machineId);
-    const devModeEnabled = useLocalSetting('devModeEnabled');
     const expResumeSession = useSetting('expResumeSession');
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
@@ -137,6 +149,7 @@ export function useSessionQuickActions(
         && machine
         && isMachineOnline(machine),
     );
+    const canRegenerateTitle = canRegenerateSessionTitle(session);
 
     const openDetails = React.useCallback(() => {
         router.push(`/session/${session.id}/info`);
@@ -190,7 +203,7 @@ export function useSessionQuickActions(
                 if (session.modelMode) {
                     storage.getState().updateSessionModelMode(result.sessionId, session.modelMode);
                 }
-                if (session.effortLevel) {
+                if (session.effortLevel !== undefined) {
                     storage.getState().updateSessionEffortLevel(result.sessionId, session.effortLevel);
                 }
 
@@ -218,6 +231,120 @@ export function useSessionQuickActions(
     const archiveSession = React.useCallback(() => {
         performArchive();
     }, [performArchive]);
+
+    const [renamingSession, performRename] = useHappyAction(async () => {
+        if (!session.metadata) {
+            throw new HappyError(t('sessionInfo.renameSessionMissingMetadata'), false);
+        }
+
+        const currentTitle = getSessionName(session);
+        const nextTitle = await Modal.prompt(
+            t('sessionInfo.renameSession'),
+            t('sessionInfo.renameSessionPrompt'),
+            {
+                defaultValue: currentTitle === t('session.newChat') ? '' : currentTitle,
+                placeholder: t('sessionInfo.renameSessionPlaceholder'),
+                cancelText: t('common.cancel'),
+                confirmText: t('common.rename'),
+            },
+        );
+
+        if (nextTitle === null) {
+            return;
+        }
+
+        const trimmedTitle = nextTitle.trim();
+        if (!trimmedTitle) {
+            return;
+        }
+
+        await sessionUpdateMetadata(
+            session.id,
+            session.metadata,
+            session.metadataVersion,
+            metadata => ({
+                ...metadata,
+                summary: {
+                    text: trimmedTitle,
+                    updatedAt: Date.now(),
+                },
+            }),
+        );
+    });
+
+    const renameSession = React.useCallback(() => {
+        performRename();
+    }, [performRename]);
+
+    const [regeneratingTitle, performRegenerateTitle] = useHappyAction(async () => {
+        if (!session.metadata || !sessionStatus.isConnected) {
+            throw new HappyError(t('sessionInfo.regenerateTitleUnavailable'), false);
+        }
+        if (!canRegenerateTitle) {
+            throw new HappyError(t('sessionInfo.regenerateTitleRequiresUpdatedCli'), false);
+        }
+
+        await sync.ensureMessagesLoaded(session.id);
+        const messages = storage.getState().sessionMessages[session.id]?.messages ?? [];
+        const transcript = buildSessionTitleTranscript(messages);
+        if (!transcript) {
+            throw new HappyError(t('sessionInfo.regenerateTitleNoMessages'), false);
+        }
+
+        const result = await sessionRegenerateTitle(session.id, {
+            transcript,
+            currentTitle: session.metadata.summary?.text ?? null,
+            projectPath: session.metadata.path ?? null,
+            model: session.modelMode ?? session.metadata.currentModelCode ?? null,
+            effort: session.effortLevel ?? session.metadata.currentThoughtLevelCode ?? null,
+        });
+        if (!result.success) {
+            const message = isRegenerateTitleRpcUnavailable(result.message)
+                ? t('sessionInfo.regenerateTitleRequiresUpdatedCli')
+                : result.message || t('sessionInfo.regenerateTitleFailed');
+            throw new HappyError(message, false);
+        }
+
+        await sync.refreshSessions();
+        hapticsSuccess();
+    });
+
+    const regenerateTitle = React.useCallback(() => {
+        performRegenerateTitle();
+    }, [performRegenerateTitle]);
+
+    // Permanently delete a session. If it is still active, first try to stop
+    // the CLI process so the server accepts the delete.
+    const [deletingSession, performDelete] = useHappyAction(async () => {
+        await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
+
+        // Best-effort kill in case the session reactivated between render and tap.
+        if (sessionStatus.isConnected || session.active) {
+            await sessionKill(session.id).catch(() => {});
+        }
+
+        const result = await sessionDelete(session.id);
+        if (!result.success) {
+            throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
+        }
+        storage.getState().deleteSession(session.id);
+        onAfterDelete?.();
+    });
+
+    const deleteSession = React.useCallback(() => {
+        Modal.alert(
+            t('sessionInfo.deleteSession'),
+            t('sessionInfo.deleteSessionWarning'),
+            [
+                { text: t('common.cancel'), style: 'cancel' },
+                {
+                    text: t('sessionInfo.deleteSession'),
+                    style: 'destructive',
+                    onPress: performDelete,
+                },
+            ],
+        );
+    }, [performDelete]);
 
     const resumeSession = React.useCallback(() => {
         performResume();
@@ -253,42 +380,60 @@ export function useSessionQuickActions(
         } as any);
     }, [canFork, session.id]);
 
-    const canCopySessionMetadata = __DEV__ || devModeEnabled;
+    const canCopySessionMetadata = false;
 
     const actionItems = React.useMemo<SessionActionItem[]>(() => {
-        const items: SessionActionItem[] = [
-            { id: 'details', icon: 'information-circle-outline', label: t('profile.details'), onPress: openDetails },
-        ];
-
-        if (resumeAvailability.canShowResume) {
-            items.push({ id: 'resume', icon: 'play-circle-outline', label: t('sessionInfo.resumeSession'), onPress: resumeSession });
-        }
-
-        if (canFork) {
-            items.push({ id: 'fork', icon: 'git-branch-outline', label: t('session.forkAction'), onPress: forkSession });
-            items.push({ id: 'duplicate', icon: 'time-outline', label: t('session.duplicateAction'), onPress: openDuplicateSheet });
-        }
-
-        if (canCopySessionMetadata) {
-            items.push({ id: 'copy-metadata', icon: 'bug-outline', label: t('sessionInfo.copyMetadata'), onPress: copySessionMetadata });
-            items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' & Client Logs', onPress: copySessionMetadataAndLogs });
-        }
-
-        items.push({ id: 'archive', icon: 'archive-outline', label: 'Archive', onPress: archiveSession, destructive: true });
-
-        return items;
+        return buildSessionQuickActionItems({
+            labels: {
+                details: t('profile.details'),
+                resume: t('sessionInfo.resumeSession'),
+                rename: t('sessionInfo.renameSession'),
+                regenerateTitle: t('sessionInfo.regenerateTitle'),
+                fork: t('session.forkAction'),
+                duplicate: t('session.duplicateAction'),
+                copyMetadata: t('sessionInfo.copyMetadata'),
+                copyMetadataAndLogs: t('sessionInfo.copyMetadata') + ' & Client Logs',
+                archive: t('sessionInfo.archiveSession'),
+                delete: t('sessionInfo.deleteSession'),
+                select: t('sessionInfo.selectSession'),
+            },
+            callbacks: {
+                openDetails,
+                resumeSession,
+                renameSession,
+                regenerateTitle,
+                forkSession,
+                openDuplicateSheet,
+                copySessionMetadata,
+                copySessionMetadataAndLogs,
+                archiveSession,
+                deleteSession,
+                selectSession: onSelectSession,
+            },
+            canShowResume: resumeAvailability.canShowResume,
+            canRegenerateTitle,
+            canFork,
+            canCopySessionMetadata,
+            sessionActive: session.active,
+            canSelect: Boolean(onSelectSession),
+        });
     }, [
         archiveSession,
         canCopySessionMetadata,
+        canRegenerateTitle,
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,
-        forkSource,
+        deleteSession,
         forkSession,
         openDetails,
         openDuplicateSheet,
+        onSelectSession,
+        regenerateTitle,
+        renameSession,
         resumeAvailability.canShowResume,
         resumeSession,
+        session.active,
     ]);
 
     const showActionAlert = React.useCallback(() => {
@@ -306,17 +451,25 @@ export function useSessionQuickActions(
         showActionAlert,
         archiveSession,
         archivingSession,
-        canArchive: true,
+        canArchive: session.active,
+        canDelete: true,
+        deleteSession,
+        deletingSession,
         canCopySessionMetadata,
         canResume: resumeAvailability.canResume,
         canShowResume: resumeAvailability.canShowResume,
         canFork,
+        canRegenerateTitle,
         copySessionMetadata,
         copySessionMetadataAndLogs,
         forkSession,
         forking,
         openDetails,
         openDuplicateSheet,
+        regenerateTitle,
+        regeneratingTitle,
+        renameSession,
+        renamingSession,
         resumeSession,
         resumeSessionSubtitle: resumeAvailability.subtitle,
         resumingSession,

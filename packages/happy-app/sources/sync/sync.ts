@@ -50,6 +50,11 @@ import { getFriendsList, getUserProfile } from './apiFriends';
 import { fetchFeed } from './apiFeed';
 import { FeedItem } from './feedTypes';
 import { UserProfile } from './friendTypes';
+import {
+    getInitialSessionEventLocalNotificationsEnabled,
+    maybeScheduleSessionEventLocalNotification,
+    shouldEnableSessionEventLocalNotifications,
+} from './sessionEventLocalNotification';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
@@ -57,6 +62,7 @@ import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import type { SessionApplyOptions } from './sessionApply';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -132,6 +138,7 @@ class Sync {
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
     private backgroundSendStartedAt: number | null = null;
+    private sessionEventLocalNotificationsEnabled = getInitialSessionEventLocalNotificationsEnabled();
     revenueCatInitialized = false;
 
     // Generic locking mechanism
@@ -296,6 +303,10 @@ class Sync {
         if (session) {
             voiceHooks.onSessionFocus(sessionId, session.metadata || undefined);
         }
+    }
+
+    ensureMessagesLoaded = async (sessionId: string): Promise<void> => {
+        await this.getMessagesSync(sessionId).invalidateAndAwait();
     }
 
     private getMessagesSync(sessionId: string): InvalidateSync {
@@ -975,7 +986,7 @@ class Sync {
         }
 
         // Apply to storage
-        this.applySessions(decryptedSessions);
+        this.applySessions(decryptedSessions, { replace: true });
         log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
 
     }
@@ -2076,7 +2087,10 @@ class Sync {
                 registered: result.registered,
                 hasToken: !!result.token,
                 permission: result.permission.status,
+                error: result.error,
             }));
+            this.sessionEventLocalNotificationsEnabled = shouldEnableSessionEventLocalNotifications(result);
+            log.log('Session-event local notification fallback: ' + (this.sessionEventLocalNotificationsEnabled ? 'enabled' : 'disabled'));
             if (!result.permission.granted) {
                 console.log('Failed to get push token for push notification!');
             }
@@ -2228,19 +2242,7 @@ class Sync {
             // Remove session from storage
             storage.getState().deleteSession(sessionId);
 
-            // Remove encryption keys from memory
-            this.encryption.removeSessionEncryption(sessionId);
-
-            // Clear any cached git status
-            gitStatusSync.clearForSession(sessionId);
-            this.messagesSync.delete(sessionId);
-            this.sendSync.delete(sessionId);
-            this.pendingOutbox.delete(sessionId);
-            this.sessionLastSeq.delete(sessionId);
-            this.sessionOldestSeq.delete(sessionId);
-            this.sessionMessageLocks.delete(sessionId);
-            this.sessionMessageQueue.delete(sessionId);
-            this.sessionQueueProcessing.delete(sessionId);
+            this.clearSessionRuntimeState(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -2698,6 +2700,9 @@ class Sync {
         // unread counter on these only, ignore the noisy per-message stream.
         if (updateData.type === 'session-event') {
             notifyUnreadMessage();
+            void maybeScheduleSessionEventLocalNotification(updateData, {
+                enabled: this.sessionEventLocalNotificationsEnabled,
+            });
         }
 
         // daemon-status ephemeral updates are deprecated, machine status is handled via machine-activity
@@ -2726,11 +2731,35 @@ class Sync {
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
         presence?: "online" | number;
-    })[]) => {
+    })[], options?: SessionApplyOptions) => {
+        const removedSessionIds = options?.replace
+            ? this.getSessionIdsMissingFromSnapshot(sessions)
+            : [];
         const active = storage.getState().getActiveSessions();
-        storage.getState().applySessions(sessions);
+        storage.getState().applySessions(sessions, options);
+        for (const sessionId of removedSessionIds) {
+            this.clearSessionRuntimeState(sessionId);
+        }
         const newActive = storage.getState().getActiveSessions();
         this.applySessionDiff(active, newActive);
+    }
+
+    private getSessionIdsMissingFromSnapshot(sessions: Array<{ id: string }>): string[] {
+        const incomingIds = new Set(sessions.map((session) => session.id));
+        return Object.keys(storage.getState().sessions).filter((sessionId) => !incomingIds.has(sessionId));
+    }
+
+    private clearSessionRuntimeState(sessionId: string) {
+        this.encryption?.removeSessionEncryption(sessionId);
+        gitStatusSync.clearForSession(sessionId);
+        this.messagesSync.delete(sessionId);
+        this.sendSync.delete(sessionId);
+        this.pendingOutbox.delete(sessionId);
+        this.sessionLastSeq.delete(sessionId);
+        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageLocks.delete(sessionId);
+        this.sessionMessageQueue.delete(sessionId);
+        this.sessionQueueProcessing.delete(sessionId);
     }
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {

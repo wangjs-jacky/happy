@@ -20,10 +20,12 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
-        canCopySessionMetadata,
+        canRegenerateTitle,
+        deleteSession,
         canShowResume,
-        copySessionMetadata,
         openDetails,
+        regenerateTitle,
+        renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
         onAfterArchive,
@@ -36,19 +38,25 @@ export function SessionActionsNativeMenu({
                 <DropdownMenuItem onClick={openDetails}>
                     <DropdownMenuItem.Text>Details</DropdownMenuItem.Text>
                 </DropdownMenuItem>
-                {canArchive && (
-                    <DropdownMenuItem onClick={archiveSession}>
-                        <DropdownMenuItem.Text>Archive</DropdownMenuItem.Text>
+                <DropdownMenuItem onClick={renameSession}>
+                    <DropdownMenuItem.Text>{t('sessionInfo.renameSession')}</DropdownMenuItem.Text>
+                </DropdownMenuItem>
+                {canRegenerateTitle && (
+                    <DropdownMenuItem onClick={regenerateTitle}>
+                        <DropdownMenuItem.Text>{t('sessionInfo.regenerateTitle')}</DropdownMenuItem.Text>
                     </DropdownMenuItem>
                 )}
+                {canArchive && (
+                    <DropdownMenuItem onClick={archiveSession}>
+                        <DropdownMenuItem.Text>{t('sessionInfo.archiveSession')}</DropdownMenuItem.Text>
+                    </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={deleteSession}>
+                    <DropdownMenuItem.Text>{t('sessionInfo.deleteSession')}</DropdownMenuItem.Text>
+                </DropdownMenuItem>
                 {canShowResume && (
                     <DropdownMenuItem onClick={resumeSession}>
                         <DropdownMenuItem.Text>Resume</DropdownMenuItem.Text>
-                    </DropdownMenuItem>
-                )}
-                {canCopySessionMetadata && (
-                    <DropdownMenuItem onClick={copySessionMetadata}>
-                        <DropdownMenuItem.Text>{t('sessionInfo.copyMetadata')}</DropdownMenuItem.Text>
                     </DropdownMenuItem>
                 )}
             </DropdownMenu.Items>

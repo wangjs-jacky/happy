@@ -1,4 +1,4 @@
-import type { TranslationStructure } from '../_default';
+import { en, type TranslationStructure } from '../_default';
 
 /**
  * Polish plural helper function
@@ -196,6 +196,47 @@ export const pl: TranslationStructure = {
         missingPath: 'Brak ścieżki pliku',
     },
 
+    rightPanelCapabilityHub: {
+        title: 'Capability Hub',
+        emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',
+        recentTitle: 'Recent',
+        noRecent: 'Nothing recent yet',
+        back: 'Back',
+        blocks: {
+            sessionActions: 'Session Actions',
+            skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
+            images: 'Images',
+            artifacts: 'Artifacts',
+            files: 'Files',
+        },
+        empty: {
+            sessionActions: 'No actions available for this session',
+            skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
+            images: 'No images in this session yet',
+            artifacts: 'No linked artifacts yet',
+            files: 'No touched files yet',
+        },
+        meta: {
+            available: 'Available in session',
+            image: 'Image attachment',
+            artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
+        },
+    },
+
     settingsAppearance: {
         mascot: 'Maskotka',
         mascotDescription: 'Wybierz świstaka, który wita Cię na ekranie głównym',
@@ -206,6 +247,7 @@ export const pl: TranslationStructure = {
             barista: 'Barista',
             ninja: 'Ninja',
             scientist: 'Naukowiec',
+            florist: 'Florystka',
         },
         // Appearance settings screen
         theme: 'Motyw',
@@ -437,6 +479,22 @@ export const pl: TranslationStructure = {
         resumeSessionUnexpectedDirectoryPrompt: 'Resume cannot create directories. Start the session manually from its original path.',
         killSessionSubtitle: 'Natychmiastowo zakończ sesję',
         archiveSessionSubtitle: 'Zarchiwizuj tę sesję i zatrzymaj ją',
+        renameSession: 'Rename Session',
+        renameSessionPrompt: 'Enter a title for this session.',
+        renameSessionPlaceholder: 'Session title',
+        renameSessionMissingMetadata: 'This session is missing metadata, so it cannot be renamed.',
+        regenerateTitle: 'Regenerate Title',
+        regenerateTitleSubtitle: 'Use an independent agent to update the title from this session.',
+        regenerateTitleUnavailable: 'This session is not connected, so its title cannot be regenerated.',
+        regenerateTitleRequiresUpdatedCli: 'This session needs a newer Happy CLI. Update and restart the session, then try again.',
+        regenerateTitleNoMessages: 'This session does not have messages that can be used for a title yet.',
+        regenerateTitleFailed: 'Failed to regenerate title.',
+        selectSession: 'Select',
+        selectedSessions: ({ count }: { count: number }) => `${count} selected`,
+        bulkArchiveSessions: 'Archive',
+        bulkDeleteSessions: 'Delete',
+        bulkArchiveConfirm: ({ count }: { count: number }) => `Archive ${count} selected session${count === 1 ? '' : 's'}?`,
+        bulkDeleteConfirm: ({ count }: { count: number }) => `Permanently delete ${count} selected session${count === 1 ? '' : 's'}?`,
         metadata: 'Metadane',
         host: 'Host',
         path: 'Ścieżka',
@@ -496,6 +554,7 @@ export const pl: TranslationStructure = {
             claude: 'Claude',
             codex: 'Codex',
             gemini: 'Gemini',
+            opencode: 'OpenCode',
             openclaw: 'OpenClaw',
         },
         model: {
@@ -558,13 +617,58 @@ export const pl: TranslationStructure = {
         hideArchived: 'Ukryj zarchiwizowane',
         newSession: 'Nowa sesja',
 
-        searchSessions: 'Szukaj sesji',
+        searchSessions: 'Zarządzaj sesjami',
     },
     sessionSearch: {
-        title: 'Szukaj sesji',
+        title: 'Zarządzanie sesjami',
         placeholder: 'Szukaj po nazwie, ścieżce lub maszynie',
-        empty: 'Wpisz, aby wyszukać sesje',
+        empty: 'Brak sesji do zarządzania',
         noResults: ({ query }: { query: string }) => `Brak sesji pasujących do ${query}`,
+        filters: {
+            all: 'Wszystkie',
+            needs: 'Wymaga reakcji',
+            running: 'Działa',
+            pinned: 'Przypięte',
+            drafts: 'Szkice',
+        },
+        sections: {
+            active: 'Bieżące sesje',
+            pinned: 'Przypięte',
+            needs: 'Wymaga reakcji',
+            running: 'Działa',
+            recent: 'Ostatnie',
+        },
+        sort: 'Sortuj',
+        sorting: 'Sortowanie',
+        done: 'Gotowe',
+        view: 'Pokaż',
+        sortHintTitle: 'Sortowanie kolejek',
+        sortHintBody: 'Przeciągaj przypięte i wymagające reakcji sesje albo użyj strzałek. Ostatnie sesje pozostają według czasu.',
+        footerNeeds: ({ count }: { count: number }) => `${count} ${plural({ count, one: 'sesja wymaga uwagi', few: 'sesje wymagają uwagi', many: 'sesji wymaga uwagi' })}`,
+        footerNeedsSubtitle: 'Najpierw sprawdź uprawnienia, nieprzeczytane wyniki, szkice i otwarte todo',
+        footerSortTitle: 'Zmień kolejność przypiętych i wymagających reakcji',
+        footerSortSubtitle: 'Ostatnie sesje zachowują kolejność czasu',
+        status: {
+            permission: 'Wymaga zgody',
+            running: 'Działa',
+            unread: 'Nowy wynik',
+            draft: 'Szkic',
+            todo: 'Todo',
+            manual: 'Oznaczono',
+            recent: 'Ostatnie',
+        },
+        actions: {
+            pin: 'Przypnij',
+            unpin: 'Odepnij',
+            markNeeds: 'Oznacz',
+            clearNeeds: 'Wyczyść',
+            moveToTop: 'Na górę',
+            moveUp: 'W górę',
+            moveDown: 'W dół',
+            moveToPinned: 'Przypnij',
+            moveToNeeds: 'Ważne',
+            more: 'Więcej akcji',
+        },
     },
 
     zen: {
@@ -736,7 +840,11 @@ export const pl: TranslationStructure = {
         linkNewDevice: 'Połącz nowe urządzenie',
         linkNewDeviceSubtitle: 'Zeskanuj kod QR, aby połączyć urządzenie',
         profile: 'Profil',
+        editProfile: 'Edit Profile',
         name: 'Nazwa',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Dotknij, aby rozłączyć',
         server: 'Serwer',
@@ -776,6 +884,8 @@ export const pl: TranslationStructure = {
         authenticateWithUrlPaste: 'Uwierzytelnij terminal poprzez wklejenie URL',
         pasteAuthUrl: 'Wklej URL uwierzytelnienia z terminala',
     },
+
+    devTools: en.devTools,
 
     updateBanner: {
         updateAvailable: 'Dostępna aktualizacja',
@@ -1080,6 +1190,11 @@ export const pl: TranslationStructure = {
             : `Nie udało się przesłać ${count} zdjęć i nie zostały wysłane.`,
         notSupportedTitle: 'Obrazy nieobsługiwane',
         notSupportedMessage: 'Ten agent nie obsługuje załączników obrazów. Wysłano tylko tekst.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

@@ -1,0 +1,95 @@
+import { describe, expect, it } from 'vitest';
+import { extractMessageOtaPreviews, extractSessionOtaPreviews } from './sessionOtaPreviews';
+import type { AgentTextMessage, Message } from '@/sync/typesMessage';
+
+function agentMessage(text: string, id: string = 'msg-1'): AgentTextMessage {
+    return {
+        kind: 'agent-text',
+        id,
+        localId: null,
+        createdAt: Date.now(),
+        text,
+    };
+}
+
+describe('sessionOtaPreviews', () => {
+    it('extracts tagged happy ota preview blocks', () => {
+        const previews = extractMessageOtaPreviews(agentMessage(`
+            preview is ready
+
+            <happy-ota-preview>
+            title: Settings brand profile
+            channel: preview
+            platform: android
+            runtimeVersion: 21
+            updateId: 37fdee5f-0417-b135-d7aa-248634dccd37
+            stamp: 1751600000000
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/1751600000000.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/123
+            summary: workflow_dispatch skipped the PR comment step, but the OTA itself is live.
+            </happy-ota-preview>
+        `));
+
+        expect(previews).toHaveLength(1);
+        expect(previews[0]).toMatchObject({
+            title: 'Settings brand profile',
+            channel: 'preview',
+            platform: 'android',
+            runtimeVersion: '21',
+            updateId: '37fdee5f-0417-b135-d7aa-248634dccd37',
+            stamp: '1751600000000',
+            sourceUrl: 'https://github.com/wangjs-jacky/happy/pull/123',
+        });
+    });
+
+    it('extracts legacy ota summary bullets from assistant text', () => {
+        const previews = extractMessageOtaPreviews(agentMessage(`
+            ### 📲 预览 OTA 已发布
+
+            • Channel: preview
+            • Platform: android
+            • runtimeVersion: 21
+            • Update ID: 37fdee5f-0417-b135-d7aa-248634dccd37
+            • Manifest: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json
+        `));
+
+        expect(previews).toHaveLength(1);
+        expect(previews[0]).toMatchObject({
+            source: 'legacy',
+            title: '📲 预览 OTA 已发布',
+            channel: 'preview',
+            platform: 'android',
+            runtimeVersion: '21',
+            manifestUrl: 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json',
+            siteUrl: 'https://wangjs-jacky.github.io/happy-ota-site/',
+        });
+    });
+
+    it('returns previews newest-first across session messages', () => {
+        const messages: Message[] = [
+            agentMessage(`
+                <happy-ota-preview>
+                title: newer
+                channel: preview
+                platform: android
+                runtimeVersion: 21
+                updateId: newer-id
+                manifestUrl: https://example.com/manifests/android/21/preview/2.json
+                </happy-ota-preview>
+            `, 'newer'),
+            agentMessage(`
+                <happy-ota-preview>
+                title: older
+                channel: preview
+                platform: android
+                runtimeVersion: 21
+                updateId: older-id
+                manifestUrl: https://example.com/manifests/android/21/preview/1.json
+                </happy-ota-preview>
+            `, 'older'),
+        ];
+
+        const previews = extractSessionOtaPreviews(messages);
+        expect(previews.map((preview) => preview.title)).toEqual(['newer', 'older']);
+    });
+});

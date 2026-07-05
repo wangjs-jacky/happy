@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { ToolView } from '@/components/tools/ToolView';
 import { ItemGroup } from '@/components/ItemGroup';
 import { Item } from '@/components/Item';
+import { t } from '@/text';
 
 export default function Tools2Screen() {
     const [selectedExample, setSelectedExample] = useState<string>('all');
@@ -379,57 +380,57 @@ export function formatTime(date: Date): string {
         <>
             <Stack.Screen
                 options={{
-                    headerTitle: 'Tool Views Demo',
+                    headerTitle: t('devTools.toolViews'),
                 }}
             />
             
             <ScrollView style={styles.container}>
                 <View style={styles.content}>
-                    <Text style={styles.pageTitle}>Tool View Components</Text>
+                    <Text style={styles.pageTitle}>{t('devTools.toolViewComponents')}</Text>
                     <Text style={styles.description}>
-                        Examples of different tool calls and their visual representations
+                        {t('devTools.toolViewComponentsDescription')}
                     </Text>
 
-                    <ItemGroup title="Filter Examples">
+                    <ItemGroup title={t('devTools.filterExamples')}>
                         <Item
-                            title="All Examples"
+                            title={t('devTools.allExamples')}
                             selected={selectedExample === 'all'}
                             onPress={() => setSelectedExample('all')}
                         />
                         <Item
-                            title="Read Tool"
+                            title={t('devTools.readTool')}
                             selected={selectedExample === 'read'}
                             onPress={() => setSelectedExample('read')}
                         />
                         <Item
-                            title="Edit Tool"
+                            title={t('devTools.editTool')}
                             selected={selectedExample === 'edit'}
                             onPress={() => setSelectedExample('edit')}
                         />
                         <Item
-                            title="Bash Tool"
+                            title={t('devTools.bashTool')}
                             selected={selectedExample === 'bash'}
                             onPress={() => setSelectedExample('bash')}
                         />
                         <Item
-                            title="Other Tools"
+                            title={t('devTools.otherTools')}
                             selected={selectedExample === 'other'}
                             onPress={() => setSelectedExample('other')}
                         />
                         <Item
-                            title="Permission States"
+                            title={t('devTools.permissionStates')}
                             selected={selectedExample === 'permissions'}
                             onPress={() => setSelectedExample('permissions')}
                         />
                         <Item
-                            title="Status Icons"
+                            title={t('devTools.statusIcons')}
                             selected={selectedExample === 'status'}
                             onPress={() => setSelectedExample('status')}
                         />
                     </ItemGroup>
 
                     <View style={styles.examplesSection}>
-                        <Text style={styles.sectionTitle}>Examples</Text>
+                        <Text style={styles.sectionTitle}>{t('devTools.examples')}</Text>
                         
                         {selectedExample === 'all' || selectedExample === 'read' ? (
                             <>
@@ -464,7 +465,7 @@ export function formatTime(date: Date): string {
 
                         {selectedExample === 'all' || selectedExample === 'permissions' ? (
                             <>
-                                <Text style={styles.subsectionTitle}>Permission States</Text>
+                                <Text style={styles.subsectionTitle}>{t('devTools.permissionStates')}</Text>
                                 {renderExample('toolPending', examples.toolPending)}
                                 {renderExample('toolApproved', examples.toolApproved)}
                                 {renderExample('toolDenied', examples.toolDenied)}
@@ -474,16 +475,16 @@ export function formatTime(date: Date): string {
 
                         {selectedExample === 'status' ? (
                             <>
-                                <Text style={styles.subsectionTitle}>Status Icons Overview</Text>
+                                <Text style={styles.subsectionTitle}>{t('devTools.statusIconsOverview')}</Text>
                                 <View style={styles.statusSection}>
                                     <Text style={styles.statusDescription}>
-                                        The following status icons are used in tool views:
+                                        {t('devTools.statusIconsDescription')}
                                     </Text>
-                                    {renderExample('bashRunning', { ...examples.bashRunning, name: 'Running State' })}
-                                    {renderExample('bash', { ...examples.bash, name: 'Completed State' })}
-                                    {renderExample('bashError', { ...examples.bashError, name: 'Error State (Warning Icon)' })}
-                                    {renderExample('toolDenied', { ...examples.toolDenied, name: 'Denied State (Neutral Icon)' })}
-                                    {renderExample('toolCanceled', { ...examples.toolCanceled, name: 'Canceled State (Neutral Icon)' })}
+                                    {renderExample('bashRunning', { ...examples.bashRunning, name: t('devTools.runningState') })}
+                                    {renderExample('bash', { ...examples.bash, name: t('devTools.completedState') })}
+                                    {renderExample('bashError', { ...examples.bashError, name: t('devTools.errorStateWarningIcon') })}
+                                    {renderExample('toolDenied', { ...examples.toolDenied, name: t('devTools.deniedStateNeutralIcon') })}
+                                    {renderExample('toolCanceled', { ...examples.toolCanceled, name: t('devTools.canceledStateNeutralIcon') })}
                                 </View>
                             </>
                         ) : null}

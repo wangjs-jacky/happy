@@ -30,6 +30,33 @@ export const CommandSuggestion = React.memo(({ command, description }: CommandSu
     );
 });
 
+interface SkillSuggestionProps {
+    syntax: string;
+}
+
+export const SkillSuggestion = React.memo(({ syntax }: SkillSuggestionProps) => {
+    return (
+        <View style={styles.suggestionContainer}>
+            <View style={styles.iconContainer}>
+                <Ionicons
+                    name="flash-outline"
+                    size={18}
+                    color={styles.iconColor.color}
+                />
+            </View>
+            <Text
+                style={styles.fileNameText}
+                numberOfLines={1}
+            >
+                {syntax}
+            </Text>
+            <Text style={styles.labelText}>
+                {t('settingsSkills.detailTitle')}
+            </Text>
+        </View>
+    );
+});
+
 interface FileMentionProps {
     fileName: string;
     filePath: string;

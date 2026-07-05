@@ -30,6 +30,7 @@ import {
   mergeAcpSessionConfigIntoMetadata,
 } from './sessionConfigMetadata';
 import type { SessionConfigOption, SessionModeState, SessionModelState } from '@agentclientprotocol/sdk';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
 const ACP_EVENT_PREVIEW_CHARS = 240;
@@ -935,13 +936,15 @@ export async function runAcp(opts: {
     await handleAbort();
   }
 
+  session.rpcHandlerManager.registerHandler('abort', handleAbort);
+  registerSessionTitleWorker(session, 'acp');
+
   archiveCurrentSession = (reason?: string) => {
     setTimeout(() => {
       void requestSessionArchive(reason || 'Requested by user');
     }, 100);
   };
 
-  session.rpcHandlerManager.registerHandler('abort', handleAbort);
   registerKillSessionHandler(session.rpcHandlerManager, () => requestSessionArchive());
 
   try {

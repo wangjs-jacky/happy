@@ -7,7 +7,7 @@
 
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
-import type { AgentState } from "@/api/types";
+import type { AgentState, Metadata, PermissionMode } from '@/api/types';
 import {
     BasePermissionHandler,
     PermissionResult,
@@ -17,18 +17,36 @@ import {
 // Re-export types for backwards compatibility
 export type { PermissionResult, PendingRequest };
 
+export type CodexPermissionNotification = {
+    kind: 'permission';
+    metadata: Metadata | null | undefined;
+    data: {
+        sessionId: string;
+        requestId: string;
+        tool: string;
+        type: 'permission_request';
+        provider: 'codex';
+    };
+};
+
+type CodexPermissionNotifier = (notification: CodexPermissionNotification) => void;
+
 /**
  * Codex-specific permission handler.
  */
 export class CodexPermissionHandler extends BasePermissionHandler {
-    // Exact tool names that should always be auto-approved. Include the bare
-    // form (used by Codex elicitation messages like `tool "change_title"`)
-    // and the MCP-qualified form for defense in depth.
+    private currentPermissionMode: PermissionMode = 'default';
+
+    // Exact first-party Happy tool names that should always be auto-approved.
+    // Include the bare form (used by Codex elicitation messages like
+    // `tool "change_title"`) and the MCP-qualified form for defense in depth.
     private static readonly ALWAYS_AUTO_APPROVE_NAMES: ReadonlySet<string> = new Set([
         'change_title',
         'mcp__happy__change_title',
         'archive_session',
         'mcp__happy__archive_session',
+        'send_image',
+        'mcp__happy__send_image',
     ]);
 
     // Tool-call IDs that should auto-approve when they exactly match one of
@@ -38,9 +56,13 @@ export class CodexPermissionHandler extends BasePermissionHandler {
     private static readonly ALWAYS_AUTO_APPROVE_ID_PREFIXES: readonly string[] = [
         'change_title',
         'archive_session',
+        'send_image',
     ];
 
-    constructor(session: ApiSessionClient) {
+    constructor(
+        session: ApiSessionClient,
+        private readonly notifyPermission?: CodexPermissionNotifier
+    ) {
         super(session);
     }
 
@@ -48,7 +70,21 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         return '[Codex]';
     }
 
+    setPermissionMode(mode: PermissionMode): void {
+        const previousMode = this.currentPermissionMode;
+        this.currentPermissionMode = mode;
+        logger.debug(`${this.getLogPrefix()} Permission mode set to: ${mode}`);
+
+        if (mode === 'yolo' && previousMode !== 'yolo') {
+            this.approveAllPending('approved_for_session');
+        }
+    }
+
     private shouldAutoApprove(toolName: string, toolCallId: string): boolean {
+        if (this.currentPermissionMode === 'yolo') {
+            return true;
+        }
+
         if (CodexPermissionHandler.ALWAYS_AUTO_APPROVE_NAMES.has(toolName)) {
             return true;
         }
@@ -60,6 +96,28 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         }
 
         return false;
+    }
+
+    private notifyPendingPermission(toolCallId: string, toolName: string): void {
+        if (!this.notifyPermission) {
+            return;
+        }
+
+        try {
+            this.notifyPermission({
+                kind: 'permission',
+                metadata: this.session.getMetadata(),
+                data: {
+                    sessionId: this.session.sessionId,
+                    requestId: toolCallId,
+                    tool: toolName,
+                    type: 'permission_request',
+                    provider: 'codex',
+                },
+            });
+        } catch (error) {
+            logger.debug(`${this.getLogPrefix()} Failed to send permission notification`, error);
+        }
     }
 
     /**
@@ -75,7 +133,8 @@ export class CodexPermissionHandler extends BasePermissionHandler {
         input: unknown
     ): Promise<PermissionResult> {
         if (this.shouldAutoApprove(toolName, toolCallId)) {
-            logger.debug(`${this.getLogPrefix()} Auto-approving tool ${toolName} (${toolCallId})`);
+            const decision = this.currentPermissionMode === 'yolo' ? 'approved_for_session' : 'approved';
+            logger.debug(`${this.getLogPrefix()} Auto-approving tool ${toolName} (${toolCallId}) in ${this.currentPermissionMode} mode`);
 
             this.session.updateAgentState((currentState) => ({
                 ...currentState,
@@ -87,12 +146,12 @@ export class CodexPermissionHandler extends BasePermissionHandler {
                         createdAt: Date.now(),
                         completedAt: Date.now(),
                         status: 'approved',
-                        decision: 'approved',
+                        decision,
                     },
                 },
             } satisfies AgentState));
 
-            return { decision: 'approved' };
+            return { decision };
         }
 
         return new Promise<PermissionResult>((resolve, reject) => {
@@ -106,6 +165,7 @@ export class CodexPermissionHandler extends BasePermissionHandler {
 
             // Update agent state with pending request
             this.addPendingRequestToState(toolCallId, toolName, input);
+            this.notifyPendingPermission(toolCallId, toolName);
 
             logger.debug(`${this.getLogPrefix()} Permission request sent for tool: ${toolName} (${toolCallId})`);
         });

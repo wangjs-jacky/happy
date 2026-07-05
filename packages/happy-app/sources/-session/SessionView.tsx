@@ -24,12 +24,14 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
+import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
+import { extractSessionOtaPreviews } from '@/utils/sessionOtaPreviews';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -47,6 +49,7 @@ import { useUnistyles } from 'react-native-unistyles';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
@@ -67,6 +70,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     const { width: windowWidth } = useWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
+    const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Base condition: can we show the diff sidebar at all?
     const canShowSidebar = fileDiffsSidebarEnabled
@@ -75,6 +79,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         && isDataReady && !!session;
 
     const showSidebar = canShowSidebar && !zenMode;
+    const { messages } = useSessionMessages(sessionId);
 
     // Match left sidebar width: 30% of window, clamped to 250–360px
     const sidebarWidth = Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
@@ -101,6 +106,30 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
+    const otaPreviews = React.useMemo(
+        () => extractSessionOtaPreviews(messages),
+        [messages],
+    );
+    const latestOtaPreviewId = otaPreviews[0]?.id ?? null;
+    const latestOtaPreviewIdRef = React.useRef(latestOtaPreviewId);
+    const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
+        sessionComposerHandleRef.current?.setMessage(prompt);
+    }, []);
+
+    React.useEffect(() => {
+        if (sidebarMode === 'otaPreview' && otaPreviews.length === 0) {
+            setSidebarMode('changes');
+        }
+    }, [otaPreviews.length, sidebarMode]);
+
+    React.useEffect(() => {
+        const previousId = latestOtaPreviewIdRef.current;
+        latestOtaPreviewIdRef.current = latestOtaPreviewId;
+        if (!showSidebar || !latestOtaPreviewId || latestOtaPreviewId === previousId) {
+            return;
+        }
+        setSidebarMode((current) => (current === 'changes' ? 'otaPreview' : current));
+    }, [latestOtaPreviewId, showSidebar]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -290,7 +319,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                 ) : (
-                    <SessionViewLoaded key={sessionId} sessionId={sessionId} session={session} />
+                    <SessionViewLoaded key={sessionId} composerHandleRef={sessionComposerHandleRef} sessionId={sessionId} session={session} />
                 )}
             </View>
 
@@ -318,7 +347,7 @@ export const SessionView = React.memo((props: { id: string }) => {
 
     if (!canShowSidebar) {
         return (
-            <RightSwipePanelHost>
+            <RightSwipePanelHost panelContent={<SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />}>
                 {mainContent}
             </RightSwipePanelHost>
         );
@@ -389,6 +418,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         mode={sidebarMode}
                         onModeChange={setSidebarMode}
                         onAllFilesFilePress={handleAllFilesFilePress}
+                        otaPreviews={otaPreviews}
                     />
                 </View>
             </Animated.View>
@@ -400,6 +430,11 @@ const SIDEBAR_MIN_WINDOW_WIDTH = 1100;
 
 // Hoisted so MessageComposer's React.memo doesn't see a new array ref on every keystroke
 const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
+const CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/', '$'];
+
+function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
+    return flavor === 'codex' || flavor === 'openai' || flavor === 'gpt';
+}
 
 // Imperative handle exposed by ChatComposer so SessionViewLoaded can read /
 // clear the message text without subscribing to it (which would re-render
@@ -407,6 +442,7 @@ const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
 type ChatComposerHandle = {
     getMessage: () => string;
     clearMessage: () => void;
+    setMessage: (text: string) => void;
 };
 
 type ChatComposerProps = Omit<
@@ -453,6 +489,11 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
             setMessage('');
             clearDraft();
         },
+        setMessage: (text: string) => {
+            inputHandleRef.current?.setTextAndSelection(text, { start: text.length, end: text.length });
+            inputHandleRef.current?.focus();
+            setMessage(text);
+        },
     }), [clearDraft]);
 
     return (
@@ -466,7 +507,15 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
-function SessionViewLoaded({ sessionId, session }: { sessionId: string, session: Session }) {
+function SessionViewLoaded({
+    sessionId,
+    session,
+    composerHandleRef,
+}: {
+    sessionId: string;
+    session: Session;
+    composerHandleRef: React.RefObject<ChatComposerHandle | null>;
+}) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const safeArea = useSafeAreaInsets();
@@ -496,12 +545,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
 
     // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
-
-    // ChatComposer owns the message state + useDraft subscription. We only
-    // hold an imperative handle so handleSend can read the live text and
-    // clear it without subscribing to it (which would re-render the whole
-    // SessionViewLoaded tree on every keystroke).
-    const composerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -535,7 +578,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             if (attachments) clearImages();
             sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
         }
-    }, [sessionId, selectedImages, clearImages]);
+    }, [composerHandleRef, sessionId, selectedImages, clearImages]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);
@@ -547,8 +590,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     }, [router, sessionId]);
 
     const handleAutocompleteSuggestions = React.useCallback((query: string) => (
-        getSuggestions(sessionId, query)
-    ), [sessionId]);
+        getSuggestions(sessionId, query, { flavor: session.metadata?.flavor ?? null })
+    ), [sessionId, session.metadata?.flavor]);
+
+    const autocompletePrefixes = React.useMemo(
+        () => (isCodexSessionFlavor(session.metadata?.flavor) ? CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES : AGENT_INPUT_AUTOCOMPLETE_PREFIXES),
+        [session.metadata?.flavor],
+    );
 
     const connectionStatus = React.useMemo(() => ({
         text: sessionStatus.statusText,
@@ -625,7 +673,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
+            autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
             alwaysShowContextSize={alwaysShowContextSize}

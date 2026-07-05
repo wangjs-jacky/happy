@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 const ColorSwatch = ({ name, color, textColor = '#000' }: { name: string; color: string; textColor?: string }) => (
     <View style={styles.swatchContainer}>
@@ -19,8 +20,8 @@ const ColorPair = ({ name, bg, text }: { name: string; bg: string; text: string 
             style={[styles.swatch, { backgroundColor: bg }]}
         >
             <Text style={{ color: text, ...Typography.default('semiBold'), marginBottom: 4 }}>{name}</Text>
-            <Text style={{ color: text, ...Typography.mono(), fontSize: 12 }}>BG: {bg}</Text>
-            <Text style={{ color: text, ...Typography.mono(), fontSize: 12 }}>Text: {text}</Text>
+            <Text style={{ color: text, ...Typography.mono(), fontSize: 12 }}>{t('devTools.backgroundLabel', { value: bg })}</Text>
+            <Text style={{ color: text, ...Typography.mono(), fontSize: 12 }}>{t('devTools.textLabel', { value: text })}</Text>
         </View>
     </View>
 );
@@ -32,7 +33,7 @@ export default function ColorsScreen() {
                 {/* iOS System Colors */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        iOS System Colors
+                        {t('devTools.iosSystemColors')}
                     </Text>
                     
                     <ColorSwatch name="Blue (Default Tint)" color="#007AFF" textColor="#FFF" />
@@ -49,7 +50,7 @@ export default function ColorsScreen() {
                 {/* Gray Scale */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        Gray Scale
+                        {t('devTools.grayScale')}
                     </Text>
                     
                     <ColorSwatch name="Label" color="#000000" textColor="#FFF" />
@@ -70,7 +71,7 @@ export default function ColorsScreen() {
                 {/* Backgrounds */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        Backgrounds
+                        {t('devTools.backgrounds')}
                     </Text>
                     
                     <ColorSwatch name="System Background" color="#FFFFFF" />
@@ -83,7 +84,7 @@ export default function ColorsScreen() {
                 {/* Component Colors */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        Component Colors
+                        {t('devTools.componentColors')}
                     </Text>
                     
                     <ColorPair name="List Item" bg="#FFFFFF" text="#000000" />
@@ -96,7 +97,7 @@ export default function ColorsScreen() {
                 {/* Usage in Code */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        Usage Examples
+                        {t('devTools.usageExamples')}
                     </Text>
                     
                     <View style={styles.codeBlock}>
@@ -123,7 +124,7 @@ const groupedBackground = '#F2F2F7';`}
                 {/* Tailwind/NativeWind Classes */}
                 <View style={styles.section}>
                     <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
-                        NativeWind Classes
+                        {t('devTools.nativeWindClasses')}
                     </Text>
                     
                     <View style={styles.colorGrid}>

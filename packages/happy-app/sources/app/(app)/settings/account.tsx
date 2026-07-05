@@ -100,6 +100,10 @@ function buildPushTokenSubtitle(pushToken: PushToken, options: {
     return lines.join('\n');
 }
 
+function buildPushRefreshFailureMessage(error?: string): string {
+    return error ? `${t('pushNotifications.refreshFailed')}\n\n${error}` : t('pushNotifications.refreshFailed');
+}
+
 export default React.memo(() => {
     const { theme } = useUnistyles();
     const auth = useAuth();
@@ -234,8 +238,12 @@ export default React.memo(() => {
             setPushPermission(result.permission);
 
             if (result.granted) {
-                await syncCurrentPushToken(auth.credentials);
+                const syncResult = await syncCurrentPushToken(auth.credentials);
                 await loadPushSettings();
+                if (!syncResult.registered) {
+                    Modal.alert(t('common.error'), buildPushRefreshFailureMessage(syncResult.error));
+                    return;
+                }
                 Modal.alert(t('common.success'), t('pushNotifications.enabledForDevice'));
                 return;
             }
@@ -269,6 +277,11 @@ export default React.memo(() => {
 
             if (!result.permission.granted) {
                 Modal.alert(t('common.error'), t('pushNotifications.notEnabledYet'));
+                return;
+            }
+
+            if (!result.registered) {
+                Modal.alert(t('common.error'), buildPushRefreshFailureMessage(result.error));
                 return;
             }
 

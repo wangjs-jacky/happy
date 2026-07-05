@@ -367,6 +367,10 @@ Conversation history is preserved on the server, but in-flight tool calls are in
           startedBy = args[++i] as 'daemon' | 'terminal';
           continue;
         }
+        if (!customCommandMode && args[i] === '--happy-starting-mode') {
+          i++;
+          continue;
+        }
         if (!customCommandMode && args[i] === '--verbose') {
           verbose = true;
           continue;
@@ -680,6 +684,7 @@ ${chalk.bold('Usage:')}
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
   happy acp               Start a generic ACP-compatible agent
+  happy acp opencode      Start OpenCode mode (ACP)
   happy connect           Connect AI vendor API keys
   happy sandbox           Configure and manage OS-level sandboxing
   happy notify            Send push notification

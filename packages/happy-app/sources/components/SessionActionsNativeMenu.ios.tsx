@@ -23,10 +23,12 @@ export function SessionActionsNativeMenu({
     const {
         archiveSession,
         canArchive,
-        canCopySessionMetadata,
+        canRegenerateTitle,
+        deleteSession,
         canShowResume,
-        copySessionMetadata,
         openDetails,
+        regenerateTitle,
+        renameSession,
         resumeSession,
     } = useSessionQuickActions(session, {
         onAfterArchive,
@@ -38,14 +40,16 @@ export function SessionActionsNativeMenu({
             <ContextMenu>
                 <ContextMenu.Items>
                     <Button onPress={openDetails} systemImage={iosSymbol('info.circle')} label="Details" />
-                    {canArchive && (
-                        <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label="Archive" />
+                    <Button onPress={renameSession} systemImage={iosSymbol('pencil')} label={t('sessionInfo.renameSession')} />
+                    {canRegenerateTitle && (
+                        <Button onPress={regenerateTitle} systemImage={iosSymbol('arrow.clockwise')} label={t('sessionInfo.regenerateTitle')} />
                     )}
+                    {canArchive && (
+                        <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label={t('sessionInfo.archiveSession')} />
+                    )}
+                    <Button onPress={deleteSession} systemImage={iosSymbol('trash')} role="destructive" label={t('sessionInfo.deleteSession')} />
                     {canShowResume && (
                         <Button onPress={resumeSession} systemImage={iosSymbol('play.circle')} label="Resume" />
-                    )}
-                    {canCopySessionMetadata && (
-                        <Button onPress={copySessionMetadata} systemImage={iosSymbol('ladybug')} label={t('sessionInfo.copyMetadata')} />
                     )}
                 </ContextMenu.Items>
                 <ContextMenu.Trigger>{children}</ContextMenu.Trigger>

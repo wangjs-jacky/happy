@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MMKV } from 'react-native-mmkv';
 import {
     getLastViewedTitle,
@@ -10,25 +10,26 @@ const mmkv = new MMKV();
 
 export function useChangelog() {
     const latestTitle = getLatestTitle();
+    const [hasUnread, setHasUnread] = useState(false);
 
-    const [hasUnread, setHasUnread] = useState(() => {
+    useEffect(() => {
+        if (!latestTitle) return;
+
         const lastViewed = getLastViewedTitle();
 
-        // On first install (no old or new key), mark as read
-        // If old version key exists but new title key doesn't, this is a
-        // migration — show the banner
-        if (!lastViewed && latestTitle) {
+        if (!lastViewed) {
             const hadOldKey = mmkv.contains('changelog-last-viewed-version');
             if (!hadOldKey) {
                 setLastViewedTitle(latestTitle);
-                return false;
+                setHasUnread(false);
+                return;
             }
-            // Migration from old system — treat as unread
-            return true;
+            setHasUnread(true);
+            return;
         }
 
-        return latestTitle !== lastViewed;
-    });
+        setHasUnread(latestTitle !== lastViewed);
+    }, [latestTitle]);
 
     const markAsRead = useCallback(() => {
         if (latestTitle) {
@@ -40,6 +41,7 @@ export function useChangelog() {
     return {
         hasUnread,
         latestTitle,
+        loading: false,
         markAsRead
     };
 }

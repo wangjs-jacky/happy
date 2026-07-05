@@ -1,6 +1,6 @@
 /**
  * Zustand store for new session draft state, backed by MMKV.
- * Persists the user's last-used configuration (machine, path, agent, model, permissions, etc.)
+ * Persists the user's last-used configuration (machine, path, model, permissions, etc.)
  * so the new session screen restores the same defaults on next visit.
  */
 import { create } from 'zustand';
@@ -56,7 +56,7 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     input: initial?.input ?? '',
     selectedMachineId: initial?.selectedMachineId ?? null,
     selectedPath: initial?.selectedPath ?? null,
-    agentType: initial?.agentType ?? 'claude',
+    agentType: 'opencode',
     permissionMode: initial?.permissionMode ?? 'default',
     modelMode: initial?.modelMode ?? 'default',
     effortLevel: initial?.effortLevel ?? null,

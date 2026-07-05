@@ -1136,4 +1136,125 @@ describe('CodexAppServerClient sandbox integration', () => {
 
         await client.disconnect();
     });
+
+    it('lists models through model/list', async () => {
+        const requests: MockRpcMessage[] = [];
+        const proc = createMockProcess({
+            pid: 3008,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+
+                if (msg.method === 'model/list' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                data: [{
+                                    id: 'm1',
+                                    model: 'gpt-5.5',
+                                    displayName: 'GPT-5.5',
+                                    description: 'Primary model',
+                                    hidden: false,
+                                    supportedReasoningEfforts: [
+                                        { reasoningEffort: 'medium', description: 'Balanced' },
+                                        { reasoningEffort: 'xhigh', description: 'Deepest' },
+                                    ],
+                                    defaultReasoningEffort: 'medium',
+                                    isDefault: true,
+                                }],
+                                nextCursor: null,
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        const result = await client.listModels({ includeHidden: true, limit: 10 });
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]).toEqual(expect.objectContaining({
+            model: 'gpt-5.5',
+            defaultReasoningEffort: 'medium',
+        }));
+        expect(requests.find((msg) => msg.method === 'model/list')?.params).toEqual({
+            cursor: null,
+            includeHidden: true,
+            limit: 10,
+        });
+
+        await client.disconnect();
+    });
+
+    it('forwards thread/settings/updated notifications to the event handler', async () => {
+        const proc = createMockProcess({
+            pid: 3009,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-settings-1', path: '/tmp/thread-settings-1' },
+                                model: 'gpt-5.4',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'readOnly' },
+                                reasoningEffort: 'high',
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'thread/settings/updated',
+                            params: {
+                                threadId: 'thread-settings-1',
+                                threadSettings: {
+                                    model: 'gpt-5.4',
+                                    effort: 'xhigh',
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-5.4',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+        });
+
+        await waitFor(() => events.some((event) => event.type === 'thread_settings_updated'));
+
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                type: 'thread_settings_updated',
+                thread_id: 'thread-settings-1',
+                thread_settings: expect.objectContaining({
+                    model: 'gpt-5.4',
+                    effort: 'xhigh',
+                }),
+            }),
+        ]));
+
+        await client.disconnect();
+    });
 });

@@ -7,7 +7,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Avatar } from '@/components/Avatar';
-import { useSession, useIsDataReady } from '@/sync/storage';
+import { storage, useSession, useIsDataReady } from '@/sync/storage';
 import { getSessionName, useSessionStatus, formatOSPlatform, formatPathRelativeToHome, getSessionAvatarId, getResumeCommand } from '@/utils/sessionUtils';
 import * as Clipboard from 'expo-clipboard';
 import { Modal } from '@/modal';
@@ -132,9 +132,12 @@ function SessionInfoContent({ session }: { session: Session }) {
     const {
         canShowResume,
         canFork,
+        canRegenerateTitle,
         forking,
         forkSession,
         openDuplicateSheet,
+        regenerateTitle,
+        regeneratingTitle,
         resumeSession,
         resumeSessionSubtitle,
     } = useSessionQuickActions(session);
@@ -197,6 +200,7 @@ function SessionInfoContent({ session }: { session: Session }) {
         if (!result.success) {
             throw new HappyError(result.message || t('sessionInfo.failedToDeleteSession'), false);
         }
+        storage.getState().deleteSession(session.id);
     });
 
     const handleDeleteSession = useCallback(() => {
@@ -364,6 +368,15 @@ function SessionInfoContent({ session }: { session: Session }) {
                             onPress={resumeSession}
                         />
                     )}
+                    {canRegenerateTitle && (
+                        <Item
+                            title={t('sessionInfo.regenerateTitle')}
+                            subtitle={t('sessionInfo.regenerateTitleSubtitle')}
+                            icon={<Ionicons name="refresh-outline" size={29} color={theme.colors.accent} />}
+                            onPress={regenerateTitle}
+                            loading={regeneratingTitle}
+                        />
+                    )}
                     {canFork && (
                         <Item
                             title={t('session.forkAction')}
@@ -442,6 +455,7 @@ function SessionInfoContent({ session }: { session: Session }) {
                                 if (flavor === 'claude') return 'Claude';
                                 if (flavor === 'gpt' || flavor === 'openai') return 'Codex';
                                 if (flavor === 'gemini') return 'Gemini';
+                                if (flavor === 'opencode') return 'OpenCode';
                                 if (flavor === 'openclaw') return 'OpenClaw';
                                 return flavor;
                             })()}

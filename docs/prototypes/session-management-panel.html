@@ -1,0 +1,1910 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happy 会话管理面板原型</title>
+    <style>
+        :root {
+            --page: #eef1eb;
+            --panel: #f7f8f4;
+            --surface: #ffffff;
+            --surface-soft: #f3f5f0;
+            --surface-pressed: #edf1e9;
+            --line: rgba(35, 42, 34, 0.1);
+            --line-strong: rgba(35, 42, 34, 0.18);
+            --text: #20271f;
+            --muted: #778172;
+            --muted-2: #99a195;
+            --blue: #4d9bea;
+            --blue-soft: #eaf4ff;
+            --green: #32b96e;
+            --green-soft: #e8f7ee;
+            --amber: #f2a33a;
+            --amber-soft: #fff2df;
+            --red: #e65c5c;
+            --red-soft: #ffecec;
+            --violet: #7554c8;
+            --shadow: 0 18px 60px rgba(30, 39, 29, 0.14);
+            --card-shadow: 0 14px 32px rgba(30, 39, 29, 0.07);
+            --radius: 8px;
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background: linear-gradient(140deg, #dfe5db 0%, #f1f3ee 48%, #dce2d8 100%);
+            color: var(--text);
+            font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+            letter-spacing: 0;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        button {
+            border: 0;
+        }
+
+        .stage {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: minmax(360px, 430px) minmax(320px, 420px);
+            gap: 28px;
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+        }
+
+        .phone {
+            position: relative;
+            height: min(860px, calc(100vh - 64px));
+            min-height: 720px;
+            aspect-ratio: 430 / 930;
+            border-radius: 34px;
+            padding: 10px;
+            background: #1f241f;
+            box-shadow: var(--shadow);
+        }
+
+        .screen {
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            border-radius: 27px;
+            background: var(--panel);
+        }
+
+        .statusbar {
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 18px;
+            color: #151a14;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .status-icons {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: #1b211a;
+        }
+
+        .signal {
+            display: inline-grid;
+            grid-auto-flow: column;
+            align-items: end;
+            gap: 2px;
+            height: 14px;
+        }
+
+        .signal i {
+            width: 3px;
+            border-radius: 2px;
+            background: currentColor;
+        }
+
+        .signal i:nth-child(1) { height: 5px; }
+        .signal i:nth-child(2) { height: 8px; }
+        .signal i:nth-child(3) { height: 11px; }
+        .signal i:nth-child(4) { height: 14px; }
+
+        .battery {
+            width: 24px;
+            height: 12px;
+            border: 2px solid currentColor;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .battery::before {
+            content: "";
+            position: absolute;
+            left: 2px;
+            top: 2px;
+            bottom: 2px;
+            width: 14px;
+            border-radius: 2px;
+            background: currentColor;
+        }
+
+        .battery::after {
+            content: "";
+            position: absolute;
+            right: -5px;
+            top: 3px;
+            width: 3px;
+            height: 5px;
+            border-radius: 1px;
+            background: currentColor;
+        }
+
+        .app {
+            height: calc(100% - 42px);
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        .top-card {
+            margin: 12px 20px 10px;
+            padding: 13px 14px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-radius: 20px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            box-shadow: 0 2px 10px rgba(30, 39, 29, 0.04);
+        }
+
+        .avatar {
+            width: 46px;
+            height: 46px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            color: #fff;
+            background: linear-gradient(145deg, #2c3330, #616a61);
+            font-weight: 800;
+            font-size: 17px;
+            position: relative;
+            flex: 0 0 auto;
+        }
+
+        .avatar::after {
+            content: "";
+            position: absolute;
+            right: -2px;
+            bottom: -2px;
+            width: 15px;
+            height: 15px;
+            border: 3px solid var(--surface);
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .identity {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .identity strong {
+            display: block;
+            font-size: 20px;
+            line-height: 1.1;
+        }
+
+        .identity span {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .gear {
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            border-radius: 13px;
+            color: var(--muted);
+            background: var(--surface-soft);
+        }
+
+        .gear::before {
+            content: "";
+            width: 15px;
+            height: 15px;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            box-shadow:
+                0 -7px 0 -5px currentColor,
+                0 7px 0 -5px currentColor,
+                7px 0 0 -5px currentColor,
+                -7px 0 0 -5px currentColor;
+        }
+
+        .management {
+            min-height: 0;
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+            padding: 0 14px 12px;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 0 6px 10px;
+        }
+
+        .quick-button {
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 18px;
+            color: var(--text);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .quick-button.is-active {
+            color: #113256;
+            background: var(--blue-soft);
+            border-color: rgba(77, 155, 234, 0.32);
+        }
+
+        .line-icon {
+            width: 17px;
+            height: 17px;
+            display: inline-block;
+            position: relative;
+            color: currentColor;
+            flex: 0 0 auto;
+        }
+
+        .line-icon.search::before {
+            content: "";
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            left: 0;
+            top: 0;
+        }
+
+        .line-icon.search::after {
+            content: "";
+            position: absolute;
+            width: 8px;
+            height: 2px;
+            border-radius: 2px;
+            background: currentColor;
+            transform: rotate(45deg);
+            right: 0;
+            bottom: 1px;
+        }
+
+        .line-icon.plus::before,
+        .line-icon.plus::after {
+            content: "";
+            position: absolute;
+            inset: 7px 2px auto;
+            height: 2px;
+            border-radius: 2px;
+            background: currentColor;
+        }
+
+        .line-icon.plus::after {
+            transform: rotate(90deg);
+        }
+
+        .toolbar {
+            display: grid;
+            gap: 8px;
+            padding: 0 6px 8px;
+        }
+
+        .title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .title-row h1 {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.1;
+            letter-spacing: 0;
+        }
+
+        .sort-toggle {
+            height: 38px;
+            padding: 0 14px;
+            border-radius: 16px;
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .sort-toggle.active {
+            color: #194c30;
+            background: var(--green-soft);
+            border-color: rgba(50, 185, 110, 0.32);
+        }
+
+        .search-bar {
+            height: 46px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 0 14px;
+            border-radius: 18px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+        }
+
+        .search-bar input {
+            width: 100%;
+            min-width: 0;
+            border: 0;
+            outline: 0;
+            color: var(--text);
+            background: transparent;
+            font-size: 14px;
+        }
+
+        .search-bar input::placeholder {
+            color: var(--muted-2);
+        }
+
+        .clear-search {
+            display: none;
+            width: 26px;
+            height: 26px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            color: var(--muted);
+            background: var(--surface-soft);
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .clear-search.visible {
+            display: flex;
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            padding-bottom: 1px;
+        }
+
+        .filter-row::-webkit-scrollbar {
+            display: none;
+        }
+
+        .filter-chip {
+            flex: 0 0 auto;
+            height: 34px;
+            padding: 0 14px;
+            border-radius: 16px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.62);
+            border: 1px solid var(--line);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .filter-chip.active {
+            color: var(--panel);
+            background: var(--text);
+            border-color: var(--text);
+            box-shadow: 0 8px 18px rgba(30, 39, 29, 0.12);
+        }
+
+        .sort-hint {
+            display: none;
+            grid-template-columns: 1fr;
+            gap: 3px;
+            padding: 12px 14px;
+            border-radius: 18px;
+            color: #194c30;
+            background: var(--green-soft);
+            border: 1px solid rgba(50, 185, 110, 0.24);
+        }
+
+        .sort-hint strong {
+            font-size: 12px;
+            line-height: 1.1;
+            font-weight: 900;
+        }
+
+        .sort-hint span {
+            color: #4e6555;
+            font-size: 11px;
+            line-height: 1.35;
+            font-weight: 700;
+        }
+
+        .sort-mode .sort-hint {
+            display: grid;
+        }
+
+        .list-wrap {
+            min-height: 0;
+            overflow: auto;
+            padding: 2px 6px 98px;
+            scrollbar-width: none;
+        }
+
+        .list-wrap::-webkit-scrollbar {
+            display: none;
+        }
+
+        .section {
+            margin-top: 10px;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 2px 7px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .section-head span:last-child {
+            color: var(--muted-2);
+            font-weight: 700;
+        }
+
+        .cards {
+            display: grid;
+            gap: 1px;
+            border-radius: 22px;
+            overflow: hidden;
+            box-shadow: var(--card-shadow);
+            outline: 0 solid transparent;
+            outline-offset: 2px;
+            transition: outline-color 140ms ease, background 140ms ease;
+        }
+
+        .cards:empty {
+            display: none;
+        }
+
+        .sort-mode .cards[data-dropzone]:empty {
+            min-height: 70px;
+            display: grid;
+            place-items: center;
+            border: 1px dashed rgba(50, 185, 110, 0.32);
+            box-shadow: none;
+            background: rgba(232, 247, 238, 0.54);
+        }
+
+        .sort-mode .cards[data-dropzone]:empty::after {
+            content: "拖到这里";
+            color: #4e6555;
+            font-size: 12px;
+            font-weight: 850;
+        }
+
+        .cards.drop-active {
+            outline-width: 2px;
+            outline-color: rgba(50, 185, 110, 0.32);
+            background: rgba(232, 247, 238, 0.38);
+        }
+
+        .session-card {
+            min-height: 92px;
+            display: grid;
+            grid-template-columns: 22px 1fr auto;
+            gap: 12px;
+            align-items: center;
+            padding: 13px 14px 13px 0;
+            background: var(--surface);
+            border: 1px solid transparent;
+            cursor: pointer;
+            user-select: none;
+            transition: background 140ms ease, border-color 140ms ease, transform 160ms ease, box-shadow 160ms ease;
+        }
+
+        .session-card:hover {
+            background: #fbfcfa;
+        }
+
+        .session-card.selected {
+            border-color: rgba(77, 155, 234, 0.28);
+            background: var(--blue-soft);
+        }
+
+        .session-card.dragging {
+            opacity: 0.48;
+            transform: scale(0.985);
+        }
+
+        .sort-mode .session-card {
+            cursor: grab;
+        }
+
+        .sort-mode .session-card:active {
+            cursor: grabbing;
+        }
+
+        .session-card.drop-before {
+            box-shadow: inset 0 3px 0 var(--green), var(--card-shadow);
+        }
+
+        .session-card.drop-after {
+            box-shadow: inset 0 -3px 0 var(--green), var(--card-shadow);
+        }
+
+        .status-rail {
+            justify-self: center;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted-2);
+        }
+
+        .status-question .status-rail { background: var(--amber); }
+        .status-permission .status-rail { background: var(--red); }
+        .status-thinking .status-rail { background: var(--blue); }
+        .status-done .status-rail { background: var(--green); }
+        .status-draft .status-rail { background: var(--violet); }
+
+        .card-main {
+            min-width: 0;
+            display: grid;
+            gap: 5px;
+        }
+
+        .card-title-row {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+        }
+
+        .unread-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--blue);
+            flex: 0 0 auto;
+        }
+
+        .card-title {
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .pin-mark {
+            width: 18px;
+            height: 18px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: #194c30;
+            border-radius: 7px;
+            background: var(--green-soft);
+            font-size: 11px;
+            font-weight: 900;
+            flex: 0 0 auto;
+        }
+
+        .is-pinned .pin-mark {
+            display: flex;
+        }
+
+        .meta-line {
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--muted);
+            font-size: 12.5px;
+            font-weight: 650;
+        }
+
+        .badge-row {
+            display: flex;
+            gap: 5px;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .badge {
+            flex: 0 0 auto;
+            padding: 3px 8px;
+            border-radius: 9px;
+            font-size: 11px;
+            line-height: 1.1;
+            font-weight: 850;
+        }
+
+        .badge.question { color: #76500f; background: var(--amber-soft); }
+        .badge.permission { color: #8b2424; background: var(--red-soft); }
+        .badge.thinking { color: #164a7b; background: var(--blue-soft); }
+        .badge.done { color: #195435; background: var(--green-soft); }
+        .badge.draft { color: #513b8c; background: #f0ecff; }
+        .badge.todo { color: #536052; background: var(--surface-soft); }
+
+        .card-side {
+            display: grid;
+            align-items: center;
+            justify-items: end;
+            gap: 8px;
+        }
+
+        .drag-handle {
+            width: 32px;
+            height: 32px;
+            display: none;
+            place-items: center;
+            border-radius: 13px;
+            color: var(--muted);
+            background: var(--surface-soft);
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .sort-mode .drag-handle {
+            display: grid;
+        }
+
+        .sort-controls,
+        .queue-controls {
+            display: none;
+        }
+
+        .sort-mode .more-button {
+            display: none;
+        }
+
+        .sort-mode .sort-controls,
+        .sort-mode .queue-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .sort-control,
+        .queue-control {
+            min-width: 30px;
+            height: 30px;
+            display: grid;
+            place-items: center;
+            border-radius: 12px;
+            color: var(--muted);
+            background: var(--surface-soft);
+            border: 1px solid var(--line);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .queue-control {
+            min-width: 44px;
+            padding: 0 9px;
+            color: #194c30;
+            background: var(--green-soft);
+            border-color: rgba(50, 185, 110, 0.22);
+        }
+
+        .sort-control:active,
+        .queue-control:active {
+            transform: translateY(1px);
+        }
+
+        .more-button {
+            width: 32px;
+            height: 32px;
+            display: grid;
+            place-items: center;
+            border-radius: 13px;
+            color: var(--muted);
+            background: transparent;
+        }
+
+        .more-button::before {
+            content: "";
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
+        }
+
+        .footer-bar {
+            position: absolute;
+            left: 20px;
+            right: 20px;
+            bottom: 16px;
+            height: 64px;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: center;
+            padding: 10px;
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid var(--line);
+            box-shadow: 0 18px 42px rgba(30, 39, 29, 0.14);
+            backdrop-filter: blur(14px);
+        }
+
+        .queue-summary {
+            padding-left: 8px;
+        }
+
+        .queue-summary strong {
+            display: block;
+            font-size: 13px;
+            line-height: 1.1;
+        }
+
+        .queue-summary span {
+            display: block;
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .done-button {
+            height: 44px;
+            min-width: 76px;
+            padding: 0 14px;
+            border-radius: 16px;
+            color: #fff;
+            background: #243026;
+            font-size: 13px;
+            font-weight: 850;
+        }
+
+        .context-menu {
+            position: absolute;
+            z-index: 20;
+            min-width: 178px;
+            padding: 6px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid var(--line-strong);
+            box-shadow: 0 18px 48px rgba(30, 39, 29, 0.2);
+            display: none;
+            backdrop-filter: blur(18px);
+        }
+
+        .context-menu.open {
+            display: grid;
+        }
+
+        .menu-item {
+            height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 10px;
+            border-radius: 8px;
+            color: var(--text);
+            background: transparent;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 750;
+        }
+
+        .menu-item:hover {
+            background: var(--surface-soft);
+        }
+
+        .menu-item.danger {
+            color: var(--red);
+        }
+
+        .side-panel {
+            align-self: stretch;
+            max-height: min(860px, calc(100vh - 64px));
+            min-height: 720px;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.58);
+            border: 1px solid rgba(255, 255, 255, 0.56);
+            box-shadow: 0 18px 60px rgba(30, 39, 29, 0.11);
+            backdrop-filter: blur(22px);
+            overflow: hidden;
+        }
+
+        .spec-head {
+            padding: 26px 26px 18px;
+            border-bottom: 1px solid rgba(35, 42, 34, 0.09);
+        }
+
+        .spec-head p {
+            margin: 0 0 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .spec-head h2 {
+            margin: 0;
+            font-size: 30px;
+            line-height: 1.04;
+            letter-spacing: 0;
+            text-wrap: pretty;
+        }
+
+        .spec-body {
+            min-height: 0;
+            overflow: auto;
+            padding: 20px 26px 26px;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        .metric {
+            padding: 13px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.68);
+            border: 1px solid rgba(35, 42, 34, 0.08);
+        }
+
+        .metric strong {
+            display: block;
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .metric span {
+            display: block;
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .detail-card,
+        .rule-card {
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(35, 42, 34, 0.08);
+            box-shadow: 0 8px 28px rgba(30, 39, 29, 0.06);
+        }
+
+        .detail-card {
+            padding: 18px;
+            margin-bottom: 14px;
+        }
+
+        .detail-kicker {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 850;
+        }
+
+        .detail-title {
+            margin: 6px 0 12px;
+            font-size: 20px;
+            line-height: 1.18;
+            letter-spacing: 0;
+        }
+
+        .detail-grid {
+            display: grid;
+            gap: 8px;
+        }
+
+        .detail-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 750;
+        }
+
+        .detail-row strong {
+            color: var(--text);
+            text-align: right;
+            font-weight: 850;
+        }
+
+        .rule-card {
+            padding: 15px;
+            margin-top: 10px;
+        }
+
+        .rule-card h3 {
+            margin: 0 0 10px;
+            font-size: 14px;
+            line-height: 1.2;
+        }
+
+        .rule-list {
+            display: grid;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .rule-list li {
+            display: grid;
+            grid-template-columns: 8px 1fr;
+            gap: 9px;
+            align-items: baseline;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+            font-weight: 650;
+        }
+
+        .rule-list li::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%) translateY(20px);
+            opacity: 0;
+            pointer-events: none;
+            padding: 10px 14px;
+            border-radius: 10px;
+            color: #fff;
+            background: #253026;
+            box-shadow: 0 14px 32px rgba(30, 39, 29, 0.24);
+            font-size: 13px;
+            font-weight: 800;
+            transition: opacity 180ms ease, transform 180ms ease;
+            z-index: 50;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        @media (max-width: 900px) {
+            .stage {
+                grid-template-columns: 1fr;
+                padding: 18px;
+            }
+
+            .phone {
+                width: min(430px, calc(100vw - 36px));
+                height: auto;
+                min-height: 780px;
+                justify-self: center;
+            }
+
+            .side-panel {
+                width: min(430px, calc(100vw - 36px));
+                min-height: auto;
+                max-height: none;
+                justify-self: center;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                transition: none !important;
+                animation: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="stage">
+        <section class="phone" aria-label="Happy mobile prototype">
+            <div class="screen">
+                <div class="statusbar">
+                    <span>14:34</span>
+                    <div class="status-icons" aria-hidden="true">
+                        <span>5G</span>
+                        <span class="signal"><i></i><i></i><i></i><i></i></span>
+                        <span class="battery"></span>
+                    </div>
+                </div>
+
+                <div class="app">
+                    <div>
+                        <div class="top-card">
+                            <div class="avatar">J</div>
+                            <div class="identity">
+                                <strong>jacky</strong>
+                                <span>mac-mini</span>
+                            </div>
+                            <button class="gear" type="button" aria-label="设置"></button>
+                        </div>
+                    </div>
+
+                    <div class="management" id="management">
+                        <div class="quick-actions">
+                            <button class="quick-button" type="button">
+                                <span class="line-icon plus"></span>
+                                <span>新建会话</span>
+                            </button>
+                            <button class="quick-button is-active" type="button">
+                                <span class="line-icon search"></span>
+                                <span>会话管理</span>
+                            </button>
+                        </div>
+
+                        <div class="toolbar">
+                            <div class="title-row">
+                                <h1>会话管理</h1>
+                                <button class="sort-toggle" id="sortToggle" type="button">排序</button>
+                            </div>
+
+                            <label class="search-bar">
+                                <span class="line-icon search" aria-hidden="true"></span>
+                                <input id="searchInput" type="search" placeholder="搜索标题、路径、机器" autocomplete="off">
+                                <button class="clear-search" id="clearSearch" type="button" aria-label="清空搜索">×</button>
+                            </label>
+
+                            <div class="filter-row" id="filterRow" aria-label="会话筛选">
+                                <button class="filter-chip active" type="button" data-filter="all">全部</button>
+                                <button class="filter-chip" type="button" data-filter="needs">需处理</button>
+                                <button class="filter-chip" type="button" data-filter="thinking">进行中</button>
+                                <button class="filter-chip" type="button" data-filter="pinned">已置顶</button>
+                                <button class="filter-chip" type="button" data-filter="draft">有草稿</button>
+                            </div>
+
+                            <div class="sort-hint" id="sortHint">
+                                <strong>队列排序模式</strong>
+                                <span>拖动卡片到置顶或需处理队列；普通历史保持时间排序。手机上可用上下按钮微调。</span>
+                            </div>
+                        </div>
+
+                        <div class="list-wrap" id="listWrap">
+                            <section class="section" data-section="pinned">
+                                <div class="section-head">
+                                    <span>置顶</span>
+                                    <span id="pinnedCount">0</span>
+                                </div>
+                                <div class="cards" id="pinnedList" data-dropzone="pinned"></div>
+                            </section>
+
+                            <section class="section" data-section="needs">
+                                <div class="section-head">
+                                    <span>需处理</span>
+                                    <span id="needsCount">0</span>
+                                </div>
+                                <div class="cards" id="needsList" data-dropzone="needs"></div>
+                            </section>
+
+                            <section class="section" data-section="thinking">
+                                <div class="section-head">
+                                    <span>进行中</span>
+                                    <span id="thinkingCount">0</span>
+                                </div>
+                                <div class="cards" id="thinkingList"></div>
+                            </section>
+
+                            <section class="section" data-section="recent">
+                                <div class="section-head">
+                                    <span>最近</span>
+                                    <span id="recentCount">0</span>
+                                </div>
+                                <div class="cards" id="recentList"></div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="footer-bar">
+                    <div class="queue-summary">
+                        <strong id="footerTitle">3 个会话需要处理</strong>
+                        <span id="footerSubtitle">优先看需回答和需授权</span>
+                    </div>
+                    <button class="done-button" id="footerButton" type="button">完成</button>
+                </div>
+
+                <div class="context-menu" id="contextMenu" role="menu">
+                    <button class="menu-item" type="button" data-action="pin">
+                        <span id="pinActionText">置顶</span>
+                        <span>P</span>
+                    </button>
+                    <button class="menu-item" type="button" data-action="focus">
+                        <span>标记需处理</span>
+                        <span>!</span>
+                    </button>
+                    <button class="menu-item" type="button" data-action="top">
+                        <span>移到顶部</span>
+                        <span>↑</span>
+                    </button>
+                    <button class="menu-item" type="button" data-action="archive">
+                        <span>归档</span>
+                        <span>A</span>
+                    </button>
+                    <button class="menu-item danger" type="button" data-action="delete">
+                        <span>删除</span>
+                        <span>D</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <aside class="side-panel" aria-label="Prototype states">
+            <div class="spec-head">
+                <p>Happy Fork</p>
+                <h2>从搜索入口升级为可操作的工作队列</h2>
+            </div>
+            <div class="spec-body">
+                <div class="metrics">
+                    <div class="metric">
+                        <strong id="metricNeeds">3</strong>
+                        <span>需处理</span>
+                    </div>
+                    <div class="metric">
+                        <strong id="metricPinned">2</strong>
+                        <span>已置顶</span>
+                    </div>
+                    <div class="metric">
+                        <strong id="metricActive">2</strong>
+                        <span>进行中</span>
+                    </div>
+                </div>
+
+                <div class="detail-card">
+                    <div class="detail-kicker" id="detailKicker">当前选中</div>
+                    <h2 class="detail-title" id="detailTitle">Happy Fork 用户交互通知方案</h2>
+                    <div class="detail-grid">
+                        <div class="detail-row">
+                            <span>状态</span>
+                            <strong id="detailStatus">需回答</strong>
+                        </div>
+                        <div class="detail-row">
+                            <span>机器</span>
+                            <strong id="detailMachine">mac-mini</strong>
+                        </div>
+                        <div class="detail-row">
+                            <span>路径</span>
+                            <strong id="detailPath">happy--right-swipe-panel</strong>
+                        </div>
+                        <div class="detail-row">
+                            <span>队列</span>
+                            <strong id="detailQueue">置顶 / 需处理</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rule-card">
+                    <h3>状态优先级</h3>
+                    <ul class="rule-list">
+                        <li>question 事件显示为「需回答」，优先级最高。</li>
+                        <li>permission_required 显示为「需授权」，跟在需回答后面。</li>
+                        <li>done 且未读显示为「已完成」，用于提醒回看结果。</li>
+                        <li>草稿、todo、pin 不覆盖主状态，只作为辅助 badge。</li>
+                    </ul>
+                </div>
+
+                <div class="rule-card">
+                    <h3>排序规则</h3>
+                    <ul class="rule-list">
+                        <li>排序模式只保存两个显式队列：置顶队列和需处理队列。</li>
+                        <li>拖进置顶队列会自动 pin；拖进需处理队列会取消 pin 并标记需处理。</li>
+                        <li>普通历史仍按更新时间排序，但可拖入队列或用按钮移入队列。</li>
+                        <li>移动端不用依赖精准拖拽，可用卡片右侧上下按钮微调顺序。</li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script>
+        const sessions = [
+            {
+                id: 'notify',
+                title: 'Happy Fork 用户交互通知方案',
+                machine: 'mac-mini',
+                path: 'happy--right-swipe-panel',
+                status: 'question',
+                statusLabel: '需回答',
+                pinned: true,
+                unread: true,
+                draft: false,
+                todo: '2/5',
+                updated: 10,
+                focus: true
+            },
+            {
+                id: 'ota',
+                title: '优化 Preview OTA 版本识别',
+                machine: 'mac-mini',
+                path: 'happy--preview-ota-display-meta',
+                status: 'permission',
+                statusLabel: '需授权',
+                pinned: true,
+                unread: true,
+                draft: false,
+                todo: '1/3',
+                updated: 9,
+                focus: true
+            },
+            {
+                id: 'harness',
+                title: '查看 codex-harness 经验',
+                machine: 'mac-mini',
+                path: 'jacky-skills',
+                status: 'thinking',
+                statusLabel: '进行中',
+                pinned: false,
+                unread: false,
+                draft: false,
+                todo: '0/4',
+                updated: 8,
+                focus: false
+            },
+            {
+                id: 'chinese',
+                title: '中文问候与任务确认',
+                machine: 'mac-mini',
+                path: 'happy--custom-instructions',
+                status: 'done',
+                statusLabel: '已完成',
+                pinned: false,
+                unread: true,
+                draft: false,
+                todo: '3/3',
+                updated: 7,
+                focus: true
+            },
+            {
+                id: 'quick-folder',
+                title: 'Happy 菜单加「快速进入机器文件夹」卡片',
+                machine: 'happy',
+                path: 'happy--right-swipe-panel',
+                status: 'draft',
+                statusLabel: '有草稿',
+                pinned: false,
+                unread: false,
+                draft: true,
+                todo: '0/2',
+                updated: 6,
+                focus: false
+            },
+            {
+                id: 'card-details',
+                title: '移动端 OTA 卡片样式细节',
+                machine: 'happy',
+                path: 'happy--preview-ota-display-meta',
+                status: 'thinking',
+                statusLabel: '进行中',
+                pinned: false,
+                unread: false,
+                draft: false,
+                todo: '1/6',
+                updated: 5,
+                focus: false
+            },
+            {
+                id: 'habit',
+                title: '恢复会话设计稿并开发 Habit 快捷入口',
+                machine: 'happy',
+                path: 'happy-home-mockups',
+                status: 'idle',
+                statusLabel: '最近',
+                pinned: false,
+                unread: false,
+                draft: true,
+                todo: '0/1',
+                updated: 4,
+                focus: false
+            }
+        ];
+
+        const state = {
+            filter: 'all',
+            query: '',
+            sortMode: new URLSearchParams(window.location.search).get('sort') === '1',
+            selectedId: 'notify',
+            menuSessionId: null,
+            draggedId: null,
+            dropTargetId: null,
+            dropPosition: 'before',
+            dropSection: null,
+            pinnedOrder: ['notify', 'ota'],
+            focusOrder: ['chinese']
+        };
+
+        const statusMeta = {
+            question: { badgeClass: 'question', section: 'needs' },
+            permission: { badgeClass: 'permission', section: 'needs' },
+            done: { badgeClass: 'done', section: 'needs' },
+            thinking: { badgeClass: 'thinking', section: 'thinking' },
+            draft: { badgeClass: 'draft', section: 'recent' },
+            idle: { badgeClass: 'todo', section: 'recent' }
+        };
+
+        const els = {
+            management: document.getElementById('management'),
+            searchInput: document.getElementById('searchInput'),
+            clearSearch: document.getElementById('clearSearch'),
+            filterRow: document.getElementById('filterRow'),
+            sortToggle: document.getElementById('sortToggle'),
+            listWrap: document.getElementById('listWrap'),
+            pinnedList: document.getElementById('pinnedList'),
+            needsList: document.getElementById('needsList'),
+            thinkingList: document.getElementById('thinkingList'),
+            recentList: document.getElementById('recentList'),
+            pinnedCount: document.getElementById('pinnedCount'),
+            needsCount: document.getElementById('needsCount'),
+            thinkingCount: document.getElementById('thinkingCount'),
+            recentCount: document.getElementById('recentCount'),
+            metricNeeds: document.getElementById('metricNeeds'),
+            metricPinned: document.getElementById('metricPinned'),
+            metricActive: document.getElementById('metricActive'),
+            detailKicker: document.getElementById('detailKicker'),
+            detailTitle: document.getElementById('detailTitle'),
+            detailStatus: document.getElementById('detailStatus'),
+            detailMachine: document.getElementById('detailMachine'),
+            detailPath: document.getElementById('detailPath'),
+            detailQueue: document.getElementById('detailQueue'),
+            footerTitle: document.getElementById('footerTitle'),
+            footerSubtitle: document.getElementById('footerSubtitle'),
+            footerButton: document.getElementById('footerButton'),
+            contextMenu: document.getElementById('contextMenu'),
+            pinActionText: document.getElementById('pinActionText'),
+            toast: document.getElementById('toast')
+        };
+
+        function isNeedsAttention(session) {
+            return session.focus || session.status === 'question' || session.status === 'permission' || (session.status === 'done' && session.unread);
+        }
+
+        function isVisibleByFilter(session) {
+            if (state.filter === 'needs') return isNeedsAttention(session);
+            if (state.filter === 'thinking') return session.status === 'thinking';
+            if (state.filter === 'pinned') return session.pinned;
+            if (state.filter === 'draft') return session.draft || session.status === 'draft';
+            return true;
+        }
+
+        function isVisibleByQuery(session) {
+            const query = state.query.trim().toLowerCase();
+            if (!query) return true;
+            return [session.title, session.machine, session.path, session.statusLabel]
+                .join(' ')
+                .toLowerCase()
+                .includes(query);
+        }
+
+        function sortByPriority(items) {
+            const priority = { question: 0, permission: 1, done: 2, thinking: 3, draft: 4, idle: 5 };
+            return [...items].sort((a, b) => {
+                if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                return (priority[a.status] - priority[b.status]) || (b.updated - a.updated);
+            });
+        }
+
+        function isInNeedsQueue(session) {
+            return !session.pinned && isNeedsAttention(session);
+        }
+
+        function ensureOrderIntegrity() {
+            const existingIds = new Set(sessions.map((session) => session.id));
+            state.pinnedOrder = state.pinnedOrder.filter((id) => {
+                const session = sessions.find((item) => item.id === id);
+                return existingIds.has(id) && !!session?.pinned;
+            });
+            state.focusOrder = state.focusOrder.filter((id) => {
+                const session = sessions.find((item) => item.id === id);
+                return existingIds.has(id) && !!session && isInNeedsQueue(session);
+            });
+
+            for (const session of sortByPriority(sessions)) {
+                if (session.pinned && !state.pinnedOrder.includes(session.id)) {
+                    state.pinnedOrder.push(session.id);
+                }
+                if (isInNeedsQueue(session) && !state.focusOrder.includes(session.id)) {
+                    state.focusOrder.push(session.id);
+                }
+            }
+        }
+
+        function sortByQueue(items, queue) {
+            const indexById = new Map(queue.map((id, index) => [id, index]));
+            return [...items].sort((a, b) => {
+                const aIndex = indexById.has(a.id) ? indexById.get(a.id) : Number.MAX_SAFE_INTEGER;
+                const bIndex = indexById.has(b.id) ? indexById.get(b.id) : Number.MAX_SAFE_INTEGER;
+                if (aIndex !== bIndex) return aIndex - bIndex;
+                return sortByPriority([a, b])[0].id === a.id ? -1 : 1;
+            });
+        }
+
+        function getFilteredSessions() {
+            return sessions.filter((session) => isVisibleByFilter(session) && isVisibleByQuery(session));
+        }
+
+        function makeBadge(session) {
+            const meta = statusMeta[session.status] || statusMeta.idle;
+            const pieces = [`<span class="badge ${meta.badgeClass}">${session.statusLabel}</span>`];
+            if (session.draft && session.status !== 'draft') {
+                pieces.push('<span class="badge draft">有草稿</span>');
+            }
+            if (session.todo && session.todo !== '0/0') {
+                pieces.push(`<span class="badge todo">todo ${session.todo}</span>`);
+            }
+            return pieces.join('');
+        }
+
+        function makeSortControlMarkup(section) {
+            if (!state.sortMode) {
+                return '';
+            }
+            if (section === 'pinned' || section === 'needs') {
+                return `
+                    <div class="sort-controls" aria-label="调整顺序">
+                        <button class="sort-control" type="button" data-sort-action="up" aria-label="上移">↑</button>
+                        <button class="sort-control" type="button" data-sort-action="down" aria-label="下移">↓</button>
+                    </div>
+                `;
+            }
+            return `
+                <div class="queue-controls" aria-label="移入队列">
+                    <button class="queue-control" type="button" data-sort-action="pin">置顶</button>
+                    <button class="queue-control" type="button" data-sort-action="focus">处理</button>
+                </div>
+            `;
+        }
+
+        function renderCard(session, section) {
+            const card = document.createElement('article');
+            card.className = [
+                'session-card',
+                `status-${session.status}`,
+                session.pinned ? 'is-pinned' : '',
+                state.selectedId === session.id ? 'selected' : '',
+                state.sortMode ? 'can-drag' : '',
+                state.dropTargetId === session.id ? `drop-${state.dropPosition}` : ''
+            ].filter(Boolean).join(' ');
+            card.dataset.id = session.id;
+            card.dataset.section = section;
+            card.draggable = state.sortMode;
+            card.innerHTML = `
+                <div class="status-rail"></div>
+                <div class="card-main">
+                    <div class="card-title-row">
+                        ${session.unread ? '<span class="unread-dot"></span>' : ''}
+                        <span class="card-title">${escapeHtml(session.title)}</span>
+                        <span class="pin-mark">P</span>
+                    </div>
+                    <div class="meta-line">${escapeHtml(session.path)} · ${escapeHtml(session.machine)}</div>
+                    <div class="badge-row">${makeBadge(session)}</div>
+                </div>
+                <div class="card-side">
+                    <span class="drag-handle" aria-hidden="true">≡</span>
+                    ${makeSortControlMarkup(section)}
+                    <button class="more-button" type="button" aria-label="更多操作"></button>
+                </div>
+            `;
+            wireCard(card, session);
+            return card;
+        }
+
+        function wireCard(card, session) {
+            let longPressTimer = null;
+
+            card.addEventListener('click', (event) => {
+                if (event.target.closest('.more-button') || event.target.closest('[data-sort-action]')) return;
+                state.selectedId = session.id;
+                hideMenu();
+                render();
+            });
+
+            card.querySelector('.more-button').addEventListener('click', (event) => {
+                event.stopPropagation();
+                showMenu(session.id, event.clientX, event.clientY);
+            });
+
+            for (const button of card.querySelectorAll('[data-sort-action]')) {
+                button.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    handleSortAction(session.id, card.dataset.section, button.dataset.sortAction);
+                });
+            }
+
+            card.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                showMenu(session.id, event.clientX, event.clientY);
+            });
+
+            card.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0 || event.target.closest('.more-button')) return;
+                longPressTimer = window.setTimeout(() => {
+                    showMenu(session.id, event.clientX, event.clientY);
+                }, 520);
+            });
+
+            card.addEventListener('pointerup', () => window.clearTimeout(longPressTimer));
+            card.addEventListener('pointerleave', () => window.clearTimeout(longPressTimer));
+            card.addEventListener('pointercancel', () => window.clearTimeout(longPressTimer));
+
+            card.addEventListener('dragstart', (event) => {
+                if (!state.sortMode) {
+                    event.preventDefault();
+                    return;
+                }
+                state.draggedId = session.id;
+                state.selectedId = session.id;
+                card.classList.add('dragging');
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', session.id);
+            });
+
+            card.addEventListener('dragend', () => {
+                state.draggedId = null;
+                clearDropMarkers();
+                card.classList.remove('dragging');
+            });
+        }
+
+        function render() {
+            ensureOrderIntegrity();
+            const visible = getFilteredSessions();
+            const pinned = sortByQueue(visible.filter((session) => session.pinned), state.pinnedOrder);
+            const needs = sortByQueue(visible.filter(isInNeedsQueue), state.focusOrder);
+            const thinking = visible.filter((session) => !session.pinned && !isNeedsAttention(session) && session.status === 'thinking');
+            const recent = visible.filter((session) => !session.pinned && !isNeedsAttention(session) && session.status !== 'thinking');
+
+            els.management.classList.toggle('sort-mode', state.sortMode);
+            els.sortToggle.classList.toggle('active', state.sortMode);
+            els.sortToggle.textContent = state.sortMode ? '排序中' : '排序';
+            els.clearSearch.classList.toggle('visible', state.query.trim().length > 0);
+
+            renderList(els.pinnedList, pinned, 'pinned');
+            renderList(els.needsList, needs, 'needs');
+            renderList(els.thinkingList, sortByPriority(thinking), 'thinking');
+            renderList(els.recentList, sortByPriority(recent), 'recent');
+
+            els.pinnedCount.textContent = pinned.length;
+            els.needsCount.textContent = needs.length;
+            els.thinkingCount.textContent = thinking.length;
+            els.recentCount.textContent = recent.length;
+
+            const allNeeds = sessions.filter(isNeedsAttention).length;
+            const allPinned = sessions.filter((session) => session.pinned).length;
+            const allThinking = sessions.filter((session) => session.status === 'thinking').length;
+            els.metricNeeds.textContent = allNeeds;
+            els.metricPinned.textContent = allPinned;
+            els.metricActive.textContent = allThinking;
+
+            els.footerTitle.textContent = state.sortMode ? '拖拽调整置顶和需处理' : `${allNeeds} 个会话需要处理`;
+            els.footerSubtitle.textContent = state.sortMode ? '普通历史仍按时间排序' : '优先看需回答和需授权';
+            els.footerButton.textContent = state.sortMode ? '完成' : '查看';
+
+            updateDetail();
+        }
+
+        function renderList(container, items, section) {
+            container.innerHTML = '';
+            for (const session of items) {
+                container.appendChild(renderCard(session, section));
+            }
+        }
+
+        function updateDetail() {
+            const selected = sessions.find((session) => session.id === state.selectedId) || sessions[0];
+            const queues = [];
+            if (selected.pinned) queues.push('置顶');
+            if (isNeedsAttention(selected)) queues.push('需处理');
+            if (selected.status === 'thinking') queues.push('进行中');
+            if (queues.length === 0) queues.push('最近');
+
+            els.detailKicker.textContent = selected.unread ? '当前选中 · 未读' : '当前选中';
+            els.detailTitle.textContent = selected.title;
+            els.detailStatus.textContent = selected.statusLabel;
+            els.detailMachine.textContent = selected.machine;
+            els.detailPath.textContent = selected.path;
+            els.detailQueue.textContent = queues.join(' / ');
+        }
+
+        function showMenu(sessionId, clientX, clientY) {
+            state.menuSessionId = sessionId;
+            state.selectedId = sessionId;
+            const session = sessions.find((item) => item.id === sessionId);
+            els.pinActionText.textContent = session && session.pinned ? '取消置顶' : '置顶';
+
+            const screenRect = document.querySelector('.screen').getBoundingClientRect();
+            const x = Math.min(Math.max(clientX - screenRect.left, 16), screenRect.width - 196);
+            const y = Math.min(Math.max(clientY - screenRect.top, 58), screenRect.height - 238);
+            els.contextMenu.style.left = `${x}px`;
+            els.contextMenu.style.top = `${y}px`;
+            els.contextMenu.classList.add('open');
+            render();
+            els.contextMenu.classList.add('open');
+        }
+
+        function hideMenu() {
+            els.contextMenu.classList.remove('open');
+            state.menuSessionId = null;
+        }
+
+        function toast(message) {
+            els.toast.textContent = message;
+            els.toast.classList.add('show');
+            window.clearTimeout(toast.timeout);
+            toast.timeout = window.setTimeout(() => els.toast.classList.remove('show'), 1300);
+        }
+
+        function moveSessionToTop(sessionId) {
+            const session = sessions.find((item) => item.id === sessionId);
+            if (!session) return;
+            const max = Math.max(...sessions.map((item) => item.updated));
+            session.updated = max + 1;
+            if (session.pinned) {
+                state.pinnedOrder = [sessionId, ...state.pinnedOrder.filter((id) => id !== sessionId)];
+            }
+            if (isInNeedsQueue(session)) {
+                state.focusOrder = [sessionId, ...state.focusOrder.filter((id) => id !== sessionId)];
+            }
+        }
+
+        function archiveSession(sessionId) {
+            const index = sessions.findIndex((item) => item.id === sessionId);
+            if (index >= 0) {
+                sessions.splice(index, 1);
+                if (state.selectedId === sessionId) {
+                    state.selectedId = sessions[0]?.id || null;
+                }
+            }
+        }
+
+        function deleteSession(sessionId) {
+            archiveSession(sessionId);
+        }
+
+        function getQueueForSection(section) {
+            return section === 'pinned' ? state.pinnedOrder : state.focusOrder;
+        }
+
+        function setQueueForSection(section, nextQueue) {
+            if (section === 'pinned') {
+                state.pinnedOrder = nextQueue;
+                return;
+            }
+            state.focusOrder = nextQueue;
+        }
+
+        function moveToQueue(sessionId, targetSection, targetId = null, position = 'before') {
+            const session = sessions.find((item) => item.id === sessionId);
+            if (!session || (targetSection !== 'pinned' && targetSection !== 'needs')) return;
+
+            if (targetSection === 'pinned') {
+                session.pinned = true;
+            } else {
+                session.pinned = false;
+                session.focus = true;
+            }
+
+            ensureOrderIntegrity();
+
+            const queue = getQueueForSection(targetSection).filter((id) => id !== sessionId);
+            let insertIndex = 0;
+            if (targetId) {
+                const targetIndex = queue.indexOf(targetId);
+                insertIndex = targetIndex === -1 ? 0 : targetIndex + (position === 'after' ? 1 : 0);
+            }
+            queue.splice(insertIndex, 0, sessionId);
+            setQueueForSection(targetSection, queue);
+            state.selectedId = sessionId;
+            toast(targetSection === 'pinned' ? '已放入置顶队列' : '已放入需处理队列');
+        }
+
+        function moveWithinQueue(sessionId, section, direction) {
+            if (section !== 'pinned' && section !== 'needs') return;
+            ensureOrderIntegrity();
+            const queue = getQueueForSection(section).slice();
+            const index = queue.indexOf(sessionId);
+            if (index === -1) return;
+            const nextIndex = direction === 'up' ? index - 1 : index + 1;
+            if (nextIndex < 0 || nextIndex >= queue.length) {
+                toast(direction === 'up' ? '已经在最上面' : '已经在最下面');
+                return;
+            }
+            [queue[index], queue[nextIndex]] = [queue[nextIndex], queue[index]];
+            setQueueForSection(section, queue);
+            state.selectedId = sessionId;
+            toast('顺序已调整');
+        }
+
+        function handleSortAction(sessionId, section, action) {
+            if (action === 'up' || action === 'down') {
+                moveWithinQueue(sessionId, section, action);
+            } else if (action === 'pin') {
+                moveToQueue(sessionId, 'pinned');
+            } else if (action === 'focus') {
+                moveToQueue(sessionId, 'needs');
+            }
+            render();
+        }
+
+        function wireDropzone(container, section) {
+            container.addEventListener('dragover', (event) => {
+                if (!state.sortMode) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                clearDropMarkers();
+                container.classList.add('drop-active');
+
+                const targetCard = event.target.closest('.session-card');
+                state.dropSection = section;
+                state.dropTargetId = null;
+                state.dropPosition = 'before';
+
+                if (targetCard && targetCard.dataset.id !== state.draggedId) {
+                    const rect = targetCard.getBoundingClientRect();
+                    const position = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+                    targetCard.classList.add(position === 'after' ? 'drop-after' : 'drop-before');
+                    state.dropTargetId = targetCard.dataset.id;
+                    state.dropPosition = position;
+                }
+            });
+            container.addEventListener('dragleave', (event) => {
+                if (!container.contains(event.relatedTarget)) {
+                    clearDropMarkers();
+                }
+            });
+            container.addEventListener('drop', (event) => {
+                if (!state.sortMode) return;
+                event.preventDefault();
+                const draggedId = event.dataTransfer.getData('text/plain') || state.draggedId;
+                moveToQueue(draggedId, section, state.dropTargetId, state.dropPosition);
+                clearDropMarkers();
+                render();
+            });
+        }
+
+        function clearDropMarkers() {
+            state.dropTargetId = null;
+            state.dropSection = null;
+            for (const item of document.querySelectorAll('.drop-active, .drop-before, .drop-after')) {
+                item.classList.remove('drop-active', 'drop-before', 'drop-after');
+            }
+        }
+
+        function escapeHtml(value) {
+            return value
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;');
+        }
+
+        els.searchInput.addEventListener('input', (event) => {
+            state.query = event.target.value;
+            render();
+        });
+
+        els.clearSearch.addEventListener('click', () => {
+            state.query = '';
+            els.searchInput.value = '';
+            render();
+            els.searchInput.focus();
+        });
+
+        els.filterRow.addEventListener('click', (event) => {
+            const button = event.target.closest('.filter-chip');
+            if (!button) return;
+            state.filter = button.dataset.filter;
+            for (const item of els.filterRow.querySelectorAll('.filter-chip')) {
+                item.classList.toggle('active', item === button);
+            }
+            hideMenu();
+            render();
+        });
+
+        els.sortToggle.addEventListener('click', () => {
+            state.sortMode = !state.sortMode;
+            hideMenu();
+            render();
+            toast(state.sortMode ? '排序模式已开启' : '排序已完成');
+        });
+
+        els.footerButton.addEventListener('click', () => {
+            if (state.sortMode) {
+                state.sortMode = false;
+                render();
+                toast('排序已完成');
+                return;
+            }
+            state.filter = 'needs';
+            for (const item of els.filterRow.querySelectorAll('.filter-chip')) {
+                item.classList.toggle('active', item.dataset.filter === 'needs');
+            }
+            render();
+        });
+
+        els.contextMenu.addEventListener('click', (event) => {
+            const item = event.target.closest('.menu-item');
+            if (!item || !state.menuSessionId) return;
+            const session = sessions.find((entry) => entry.id === state.menuSessionId);
+            if (!session) return;
+
+            switch (item.dataset.action) {
+                case 'pin':
+                    session.pinned = !session.pinned;
+                    if (session.pinned) moveSessionToTop(session.id);
+                    toast(session.pinned ? '已置顶' : '已取消置顶');
+                    break;
+                case 'focus':
+                    session.focus = !session.focus;
+                    toast(session.focus ? '已标记需处理' : '已取消需处理');
+                    break;
+                case 'top':
+                    moveSessionToTop(session.id);
+                    toast('已移到顶部');
+                    break;
+                case 'archive':
+                    archiveSession(session.id);
+                    toast('已归档');
+                    break;
+                case 'delete':
+                    deleteSession(session.id);
+                    toast('已删除');
+                    break;
+            }
+            hideMenu();
+            render();
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!event.target.closest('.context-menu') && !event.target.closest('.more-button')) {
+                hideMenu();
+            }
+        });
+
+        wireDropzone(els.pinnedList, 'pinned');
+        wireDropzone(els.needsList, 'needs');
+        render();
+    </script>
+</body>
+</html>

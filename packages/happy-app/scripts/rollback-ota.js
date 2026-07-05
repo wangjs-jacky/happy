@@ -78,13 +78,14 @@ function readMeta(stamp) {
   }
 }
 
-// 把一个版本的 git 信息压成一行简短描述，供菜单展示
+// 把一个版本的信息压成一行简短描述，供菜单展示
 function describeVersion(meta) {
   if (!meta || !meta.git || !meta.git.sha) return '(无 commit 记录)';
   const g = meta.git;
+  const title = meta.display && meta.display.title ? ` ${meta.display.title}` : '';
   const dirty = g.dirty ? '*' : '';
   const subject = g.subject ? ' ' + g.subject : '';
-  return `${g.sha}${dirty}${subject}`;
+  return `${g.sha}${dirty}${title || subject}`;
 }
 
 // 问一个问题，返回用户输入（去空白）

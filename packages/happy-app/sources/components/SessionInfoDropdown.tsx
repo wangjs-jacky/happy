@@ -12,6 +12,7 @@ import {
     resolveCurrentOption,
 } from '@/components/modelModeOptions';
 import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
+import { sessionSetPermissionMode } from '@/sync/ops';
 import { storage, useSetting } from '@/sync/storage';
 import { t } from '@/text';
 import { Modal } from '@/modal';
@@ -21,6 +22,7 @@ import * as Clipboard from 'expo-clipboard';
 const agentIcons = {
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
+    opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
 } as const;
@@ -28,6 +30,7 @@ const agentIcons = {
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
@@ -59,12 +62,14 @@ function permissionIcon(key: string | undefined): 'play-forward' | 'pause' | 'sh
  * reflects the *running* session's metadata.
  *
  * Editability splits by what the running CLI process can actually change mid-
- * session: permission / model / effort are per-turn meta (happy-cli re-reads
- * them from each outgoing message), so those rows are tappable and expand an
- * inline option list — the pick takes effect on the *next* turn. machine /
- * folder / agent are baked into the spawned process and can't change without a
- * new session, so they stay read-only. Each editable row only becomes tappable
- * when it actually has more than one option to choose from.
+ * session: model / effort are per-turn meta (happy-cli re-reads them from each
+ * outgoing message), so those rows are tappable and expand an inline option
+ * list — the pick takes effect on the *next* turn. Permission mode also
+ * persists onto future turns, and Codex can hot-apply it to the current turn
+ * through a session RPC. machine / folder / agent are baked into the spawned
+ * process and can't change without a new session, so they stay read-only. Each
+ * editable row only becomes tappable when it actually has more than one option
+ * to choose from.
  *
  * A "Session details" row at the bottom links into the full info screen.
  * Renders its own full-screen backdrop so a tap anywhere outside collapses it.
@@ -98,22 +103,26 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
 
     const permissionMode = React.useMemo(() => resolveCurrentOption(availableModes, [
         session.permissionMode,
-        effectiveAgentDefaults.permissionMode,
         metadata?.currentOperatingModeCode,
+        effectiveAgentDefaults.permissionMode,
     ]), [availableModes, session.permissionMode, effectiveAgentDefaults.permissionMode, metadata?.currentOperatingModeCode]);
 
     const modelMode = React.useMemo(() => resolveCurrentOption(availableModels, [
         session.modelMode,
-        effectiveAgentDefaults.modelMode,
         metadata?.currentModelCode,
+        effectiveAgentDefaults.modelMode,
     ]), [availableModels, session.modelMode, effectiveAgentDefaults.modelMode, metadata?.currentModelCode]);
 
     const modelKey = modelMode?.key ?? 'default';
-    const availableEffortLevels = React.useMemo(() => getEffortLevelsForModel(flavor, modelKey), [flavor, modelKey]);
+    const availableEffortLevels = React.useMemo(
+        () => getEffortLevelsForModel(flavor, modelKey, metadata),
+        [flavor, modelKey, metadata],
+    );
     const effortLevel = React.useMemo(() => resolveCurrentOption(availableEffortLevels, [
         session.effortLevel,
+        metadata?.currentThoughtLevelCode,
         effectiveAgentDefaults.effortLevel,
-    ]), [availableEffortLevels, session.effortLevel, effectiveAgentDefaults.effortLevel]);
+    ]), [availableEffortLevels, session.effortLevel, metadata?.currentThoughtLevelCode, effectiveAgentDefaults.effortLevel]);
 
     // Only the rows with a real choice (>1 option) become tappable; otherwise
     // there's nothing to switch to and they stay read-only.
@@ -132,13 +141,19 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
         setExpanded((cur) => (cur === row ? null : row));
     }, [animateNext]);
 
-    // Apply a pick to the running session. happy-cli attaches the updated value
-    // to the next outgoing message's meta, so the change lands on the next turn.
+    // Apply a pick to the running session. The value is always persisted for
+    // future turns via message meta; Codex also receives an immediate RPC update
+    // so a turn already blocked on permissions can continue.
     const applyPermission = React.useCallback((key: string) => {
         storage.getState().updateSessionPermissionMode(session.id, key);
+        if (flavor === 'codex') {
+            void sessionSetPermissionMode(session.id, key).catch((error) => {
+                console.error('Failed to push permission mode to running Codex session:', error);
+            });
+        }
         animateNext();
         setExpanded(null);
-    }, [session.id, animateNext]);
+    }, [session.id, animateNext, flavor]);
     const applyModel = React.useCallback((key: string) => {
         storage.getState().updateSessionModelMode(session.id, key);
         animateNext();

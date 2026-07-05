@@ -9,9 +9,20 @@ vi.mock('@/ui/logger', () => ({
 
 function createSessionMock() {
     let state: Record<string, any> = {};
+    const sendSessionNotification = vi.fn();
+    const metadata = {
+        path: '/Users/test/project',
+        host: 'test-host',
+        homeDir: '/Users/test',
+        happyHomeDir: '/Users/test/.happy',
+        happyLibDir: '/Users/test/.happy/lib',
+        happyToolsDir: '/Users/test/.happy/tools',
+    };
 
     return {
         session: {
+            sessionId: 'session-123',
+            getMetadata: vi.fn(() => metadata),
             rpcHandlerManager: {
                 registerHandler: vi.fn(),
             },
@@ -21,6 +32,8 @@ function createSessionMock() {
             }),
         },
         getState: () => state,
+        sendSessionNotification,
+        metadata,
     };
 }
 
@@ -63,6 +76,25 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
+    it('auto-approves the first-party send_image tool by exact name', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const result = await handler.handleToolCall(
+            'call_send_image_123',
+            'mcp__happy__send_image',
+            { path: '/tmp/render.png' },
+        );
+
+        expect(result).toEqual({ decision: 'approved' });
+        expect(getState().completedRequests.call_send_image_123).toMatchObject({
+            tool: 'mcp__happy__send_image',
+            arguments: { path: '/tmp/render.png' },
+            status: 'approved',
+            decision: 'approved',
+        });
+    });
+
     it('keeps non-safe tools pending for user approval', async () => {
         const { session, getState } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);
@@ -81,6 +113,79 @@ describe('CodexPermissionHandler', () => {
         handler.abortAll();
 
         await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('sends a permission notification when a Codex tool waits for user approval', async () => {
+        const { session, metadata, sendSessionNotification } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any, sendSessionNotification);
+
+        const pending = handler.handleToolCall(
+            'call_exec_notify',
+            'CodexBash',
+            { command: ['pnpm', 'test'], cwd: '/Users/test/project' },
+        );
+
+        expect(sendSessionNotification).toHaveBeenCalledTimes(1);
+        expect(sendSessionNotification).toHaveBeenCalledWith({
+            kind: 'permission',
+            metadata,
+            data: {
+                sessionId: 'session-123',
+                requestId: 'call_exec_notify',
+                tool: 'CodexBash',
+                type: 'permission_request',
+                provider: 'codex',
+            },
+        });
+
+        handler.abortAll();
+
+        await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('auto-approves all tools in yolo mode', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+        handler.setPermissionMode('yolo');
+
+        const result = await handler.handleToolCall(
+            'call_patch_123',
+            'CodexPatch',
+            { changes: [{ path: 'file.ts', diff: '...' }] },
+        );
+
+        expect(result).toEqual({ decision: 'approved_for_session' });
+        expect(getState().completedRequests.call_patch_123).toMatchObject({
+            tool: 'CodexPatch',
+            status: 'approved',
+            decision: 'approved_for_session',
+        });
+        expect(getState().requests).toBeUndefined();
+    });
+
+    it('approves an already-pending request when switching into yolo mode', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_patch_pending',
+            'CodexPatch',
+            { changes: [{ path: 'file.ts', diff: '...' }] },
+        );
+
+        expect(getState().requests.call_patch_pending).toMatchObject({
+            tool: 'CodexPatch',
+        });
+
+        handler.setPermissionMode('yolo');
+
+        await expect(pending).resolves.toEqual({ decision: 'approved_for_session' });
+        expect(getState().requests).toEqual({});
+        expect(getState().completedRequests.call_patch_pending).toMatchObject({
+            tool: 'CodexPatch',
+            status: 'approved',
+            decision: 'approved_for_session',
+        });
     });
 
     it('does NOT auto-approve a crafted tool name containing change_title as substring', async () => {
@@ -106,6 +211,20 @@ describe('CodexPermissionHandler', () => {
             'call_malicious_archive_1',
             'archive_session_and_run_command',
             { reason: 'pwn', cmd: 'rm -rf /' },
+        );
+
+        handler.abortAll();
+        await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('does NOT auto-approve a crafted tool name containing send_image as substring', async () => {
+        const { session } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_malicious_2',
+            'send_image_and_run_command',
+            { path: '/tmp/render.png', cmd: 'rm -rf /' },
         );
 
         handler.abortAll();

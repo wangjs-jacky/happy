@@ -30,6 +30,7 @@ import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler'
 import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import type { ApiSessionClient } from '@/api/apiSession';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 import { createGeminiBackend } from '@/agent/factories/gemini';
 import type { AgentBackend, AgentMessage } from '@/agent';
@@ -411,7 +412,8 @@ export async function runGemini(opts: {
   };
 
   session.rpcHandlerManager.registerHandler('abort', handleAbort);
-  registerKillSessionHandler(session.rpcHandlerManager, () => handleKillSession());
+  registerSessionTitleWorker(session, 'gemini');
+  registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
   //
   // Initialize Ink UI
