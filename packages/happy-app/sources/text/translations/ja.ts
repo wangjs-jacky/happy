@@ -520,6 +520,24 @@ export const ja: TranslationStructure = {
             scanQrCode: 'QRコードをスキャン',
             openCamera: 'カメラを開く',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'スクリーンショット',
+            screenshotDesktop: 'デスクトップ全体',
+            screenshotBrowser: '最前面のブラウザウィンドウ',
+            screenshotGallery: 'ギャラリー',
+            screenshotFailedTitle: 'スクリーンショットに失敗しました',
+            screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
+            screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
+        },
+        screenshotGallery: {
+            title: 'スクリーンショット',
+            empty: 'スクリーンショットはまだありません',
+            emptyHint: '撮影したスクリーンショットがここに表示されます',
+            attach: '入力欄に添付',
+            sourceManual: '手動',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {

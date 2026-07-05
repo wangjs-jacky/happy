@@ -519,6 +519,24 @@ export const ca: TranslationStructure = {
             scanQrCode: 'Escaneja el codi QR',
             openCamera: 'Obre la càmera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Captura de pantalla',
+            screenshotDesktop: 'Escriptori complet',
+            screenshotBrowser: 'Finestra del navegador en primer pla',
+            screenshotGallery: 'Galeria',
+            screenshotFailedTitle: 'La captura de pantalla ha fallat',
+            screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
+            screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
+        },
+        screenshotGallery: {
+            title: 'Captures de pantalla',
+            empty: 'Encara no hi ha captures',
+            emptyHint: 'Les captures que facis apareixeran aquí',
+            attach: 'Adjunta a l\'entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {

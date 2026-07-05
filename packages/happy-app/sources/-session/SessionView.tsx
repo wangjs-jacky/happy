@@ -14,6 +14,11 @@ import { useDraft } from '@/hooks/useDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
+import { requestScreenshot } from '@/sync/ops.screenshot';
+import { saveBase64Png, addScreenshotEntry, useHasNewScreenshots, type ScreenshotEntry } from '@/sync/screenshotGallery';
+import { ScreenshotGalleryDrawer } from '@/components/ScreenshotGalleryDrawer';
+import { imageViewer } from '@/sync/imageViewer';
+import { Modal } from '@/modal';
 import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessionUsage, useSetting } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
@@ -507,6 +512,15 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
+/** 判断 CLI 返回的截图错误是否属于「平台不支持」（截图仅 macOS）。
+ *  CLI 的 error 文案可能是中/英混合，匹配几个稳定特征词即可，无需精确解析。 */
+function isUnsupportedPlatformError(error: string | undefined): boolean {
+    if (!error) {
+        return false;
+    }
+    return /macOS|platform|仅支持/i.test(error);
+}
+
 function SessionViewLoaded({
     sessionId,
     session,
@@ -546,6 +560,26 @@ function SessionViewLoaded({
     // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
 
+    // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
+    // screenshots; opening the drawer clears it (handled inside the drawer).
+    const [galleryOpen, setGalleryOpen] = React.useState(false);
+    const { hasNew: galleryHasNew } = useHasNewScreenshots(sessionId);
+    const handleOpenGallery = React.useCallback(() => setGalleryOpen(true), []);
+    const handleCloseGallery = React.useCallback(() => setGalleryOpen(false), []);
+    // Attach a gallery screenshot to the composer input. Intrinsic size is
+    // unknown for screenshots (0/0 is accepted by the upload pipeline).
+    const handleAttachScreenshot = React.useCallback((entry: ScreenshotEntry) => {
+        addImages([{
+            id: entry.id,
+            uri: entry.uri,
+            width: 0,
+            height: 0,
+            mimeType: 'image/png',
+            size: 0,
+            name: entry.id,
+        }]);
+    }, [addImages]);
+
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
         if (machineId && cliVersion) {
@@ -579,6 +613,38 @@ function SessionViewLoaded({
             sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
         }
     }, [composerHandleRef, sessionId, selectedImages, clearImages]);
+
+    // Manual screenshot: ask the CLI for a capture, persist it to the local
+    // gallery and immediately open it in the fullscreen viewer. Self-contained
+    // try/catch (instead of useHappyAction, which takes a no-arg action) so we
+    // can pass `target` and still surface every failure — including RPC throws —
+    // via Modal (RN Alert is banned). No unhandled rejection escapes.
+    const handleCaptureScreenshot = React.useCallback((target: 'desktop' | 'browser') => {
+        (async () => {
+            try {
+                const res = await requestScreenshot(sessionId, target);
+                if (!res.success || !res.dataBase64) {
+                    // 平台不支持（如非 macOS）时给本地化文案，否则原样回显 CLI error
+                    const body = isUnsupportedPlatformError(res.error)
+                        ? t('components.messageComposer.screenshotUnsupportedPlatform')
+                        : (res.error ?? t('components.messageComposer.screenshotFailedBody'));
+                    Modal.alert(
+                        t('components.messageComposer.screenshotFailedTitle'),
+                        body,
+                    );
+                    return;
+                }
+                const uri = await saveBase64Png(res.dataBase64);
+                addScreenshotEntry(sessionId, { uri, source: 'manual', target, createdAt: Date.now() });
+                imageViewer.open({ uri });
+            } catch (e) {
+                Modal.alert(
+                    t('components.messageComposer.screenshotFailedTitle'),
+                    e instanceof Error ? e.message : t('components.messageComposer.screenshotFailedBody'),
+                );
+            }
+        })();
+    }, [sessionId]);
 
     const handleAbort = React.useCallback(() => {
         storage.getState().resetSessionAgentOverrides(sessionId);
@@ -673,6 +739,9 @@ function SessionViewLoaded({
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
+            onCaptureScreenshot={handleCaptureScreenshot}
+            onOpenGallery={handleOpenGallery}
+            galleryHasNew={galleryHasNew}
             autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
@@ -789,6 +858,14 @@ function SessionViewLoaded({
                     </Pressable>
                 )
             }
+
+            {/* Screenshot gallery bottom drawer (能力 B) */}
+            <ScreenshotGalleryDrawer
+                visible={galleryOpen}
+                onClose={handleCloseGallery}
+                sessionId={sessionId}
+                onAttach={handleAttachScreenshot}
+            />
         </>
     )
 }

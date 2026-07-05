@@ -517,6 +517,24 @@ export const it: TranslationStructure = {
             scanQrCode: 'Scansiona il codice QR',
             openCamera: 'Apri fotocamera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Screenshot',
+            screenshotDesktop: 'Intero desktop',
+            screenshotBrowser: 'Finestra del browser in primo piano',
+            screenshotGallery: 'Galleria',
+            screenshotFailedTitle: 'Screenshot non riuscito',
+            screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
+            screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
+        },
+        screenshotGallery: {
+            title: 'Screenshot',
+            empty: 'Nessuno screenshot',
+            emptyHint: 'Gli screenshot che acquisisci appariranno qui',
+            attach: 'Allega all\'input',
+            sourceManual: 'Manuale',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {

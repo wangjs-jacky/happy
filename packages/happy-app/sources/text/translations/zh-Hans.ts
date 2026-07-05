@@ -520,6 +520,24 @@ export const zhHans: TranslationStructure = {
             scanQrCode: '扫描二维码',
             openCamera: '打开相机',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: '截屏',
+            screenshotDesktop: '桌面整屏',
+            screenshotBrowser: '最前浏览器窗口',
+            screenshotGallery: '图库',
+            screenshotFailedTitle: '截屏失败',
+            screenshotFailedBody: '无法截取屏幕，请重试。',
+            screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
+        },
+        screenshotGallery: {
+            title: '截图',
+            empty: '暂无截图',
+            emptyHint: '你截取的截图会显示在这里',
+            attach: '添加到输入栏',
+            sourceManual: '手动',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {

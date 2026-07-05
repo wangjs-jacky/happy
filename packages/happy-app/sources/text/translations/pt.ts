@@ -518,6 +518,24 @@ export const pt: TranslationStructure = {
             scanQrCode: 'Escaneie o código QR',
             openCamera: 'Abrir câmera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Captura de tela',
+            screenshotDesktop: 'Área de trabalho inteira',
+            screenshotBrowser: 'Janela do navegador em primeiro plano',
+            screenshotGallery: 'Galeria',
+            screenshotFailedTitle: 'Falha na captura de tela',
+            screenshotFailedBody: 'Não foi possível capturar a tela. Tente novamente.',
+            screenshotUnsupportedPlatform: 'Por enquanto, as capturas de tela só são compatíveis com macOS.',
+        },
+        screenshotGallery: {
+            title: 'Capturas de tela',
+            empty: 'Ainda não há capturas',
+            emptyHint: 'As capturas que você fizer aparecerão aqui',
+            attach: 'Anexar à entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {

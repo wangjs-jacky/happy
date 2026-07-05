@@ -535,6 +535,24 @@ export const pl: TranslationStructure = {
             scanQrCode: 'Zeskanuj kod QR',
             openCamera: 'Otwórz kamerę',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Zrzut ekranu',
+            screenshotDesktop: 'Cały pulpit',
+            screenshotBrowser: 'Aktywne okno przeglądarki',
+            screenshotGallery: 'Galeria',
+            screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
+            screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
+            screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
+        },
+        screenshotGallery: {
+            title: 'Zrzuty ekranu',
+            empty: 'Brak zrzutów ekranu',
+            emptyHint: 'Zrobione zrzuty pojawią się tutaj',
+            attach: 'Dołącz do pola tekstowego',
+            sourceManual: 'Ręcznie',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {

@@ -472,6 +472,24 @@ export const ru: TranslationStructure = {
             scanQrCode: 'Отсканируйте QR-код',
             openCamera: 'Открыть камеру',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Снимок экрана',
+            screenshotDesktop: 'Весь рабочий стол',
+            screenshotBrowser: 'Активное окно браузера',
+            screenshotGallery: 'Галерея',
+            screenshotFailedTitle: 'Не удалось сделать снимок экрана',
+            screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
+            screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
+        },
+        screenshotGallery: {
+            title: 'Снимки экрана',
+            empty: 'Пока нет снимков',
+            emptyHint: 'Сделанные снимки появятся здесь',
+            attach: 'Прикрепить к вводу',
+            sourceManual: 'Вручную',
+            sourceAi: 'ИИ',
+        },
     },
 
     profile: {

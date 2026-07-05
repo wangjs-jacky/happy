@@ -14,6 +14,7 @@ import { AsyncLock } from '@/utils/lock';
 import { deriveKey } from '@/utils/deriveKey';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
+import { ScreenshotStore } from '@/utils/screenshotStore';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
 import { createEnvelope, type SessionEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
@@ -98,6 +99,12 @@ export class ApiSessionClient extends EventEmitter {
      */
     private pendingDownloads: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>[] = [];
     readonly rpcHandlerManager: RpcHandlerManager;
+    /**
+     * 会话内截图临时缓存：由 client 持有，构造时即 new，时序最早。
+     * MCP take 工具（startHappyServer）与会话级 RPC getScreenshotById 共享同一实例，
+     * 这样 AI 截图存进去后，App 懒拉取时能查到磁盘路径。
+     */
+    readonly screenshotStore = new ScreenshotStore();
     private agentStateLock = new AsyncLock();
     private metadataLock = new AsyncLock();
     private encryptionKey: Uint8Array;
@@ -141,7 +148,7 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
+        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, this.screenshotStore);
 
         //
         // Create socket
