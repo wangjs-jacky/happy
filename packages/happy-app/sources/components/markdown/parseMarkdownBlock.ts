@@ -5,6 +5,11 @@ import {
     looksLikeOtaPreviewLegacyStart,
     parseOtaPreviewSection,
 } from '@/utils/sessionOtaPreviews';
+import {
+    getFinanceChartCloseTag,
+    isHappyFinanceChartBlock,
+    parseFinanceChartSection,
+} from '@/utils/sessionFinanceCharts';
 
 const OTA_BLOCK_CLOSE = '</happy-ota-preview>';
 
@@ -158,6 +163,26 @@ export function parseMarkdownBlock(markdown: string) {
             const preview = parseOtaPreviewSection(content.join('\n'));
             if (preview) {
                 blocks.push({ type: 'ota-preview', preview });
+            }
+            continue;
+        }
+
+        // Happy finance chart block
+        if (isHappyFinanceChartBlock(trimmed)) {
+            const content: string[] = [];
+            const closeTag = getFinanceChartCloseTag();
+            while (index < lines.length) {
+                const nextLine = lines[index];
+                if (nextLine.trim() === closeTag) {
+                    index++;
+                    break;
+                }
+                content.push(nextLine);
+                index++;
+            }
+            const chart = parseFinanceChartSection(content.join('\n'));
+            if (chart) {
+                blocks.push({ type: 'finance-chart', chart });
             }
             continue;
         }

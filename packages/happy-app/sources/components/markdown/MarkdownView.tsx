@@ -13,6 +13,7 @@ import { useLocalSetting } from '@/sync/storage';
 import { storeTempText } from '@/sync/persistence';
 import { imageViewer } from '@/sync/imageViewer';
 import { OtaPreviewCard } from '@/components/OtaPreviewCard';
+import { FinanceChartCard } from '@/components/FinanceChartCard';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
@@ -86,6 +87,8 @@ export const MarkdownView = React.memo((props: {
                         return <RenderImageBlock url={block.url} alt={block.alt} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'ota-preview') {
                         return <RenderOtaPreviewBlock preview={block.preview} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                    } else if (block.type === 'finance-chart') {
+                        return <RenderFinanceChartBlock chart={block.chart} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else {
                         return null;
                     }
@@ -239,6 +242,14 @@ function RenderOtaPreviewBlock(props: { preview: import('@/utils/sessionOtaPrevi
     return (
         <View style={[style.otaPreviewBlock, props.first && style.first, props.last && style.last]}>
             <OtaPreviewCard preview={props.preview} variant="message" />
+        </View>
+    );
+}
+
+function RenderFinanceChartBlock(props: { chart: import('@/utils/sessionFinanceCharts').SessionFinanceChart, first: boolean, last: boolean }) {
+    return (
+        <View style={[style.otaPreviewBlock, props.first && style.first, props.last && style.last]}>
+            <FinanceChartCard chart={props.chart} />
         </View>
     );
 }
