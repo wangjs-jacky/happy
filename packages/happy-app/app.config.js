@@ -23,6 +23,30 @@ const consoleLoggingDefault = {
     preview: true,
     production: false,
 }[variant];
+// 自建 OTA 频道：开发/预览包都拉 preview 频道（供开发在真机预览 PR），
+// 正式包拉 production 频道。两条频道互不干扰，预览发布不会影响线上用户。
+// 注意：频道在构建时写死进包，改了必须重新构建装机才生效。
+const otaChannel = {
+    development: "preview",
+    preview: "preview",
+    production: "production",
+}[variant];
+const localHttpException = {
+    NSExceptionAllowsInsecureHTTPLoads: true,
+    NSTemporaryExceptionAllowsInsecureHTTPLoads: true,
+    NSIncludesSubdomains: true,
+};
+const developmentAppTransportSecurity = {
+    NSAllowsLocalNetworking: true,
+    NSAllowsArbitraryLoads: true,
+    NSAllowsArbitraryLoadsInWebContent: true,
+    NSAllowsArbitraryLoadsForMedia: true,
+    NSExceptionDomains: {
+        localhost: localHttpException,
+        "127.0.0.1": localHttpException,
+        "198.18.0.1": localHttpException,
+    },
+};
 
 function git(args) {
     try {
@@ -80,12 +104,13 @@ export default {
                 //   addresses (e.g. self-hosted server at 192.168.x.y) without
                 //   forcing TLS. Production cloud server is HTTPS, so the
                 //   default policy still applies there.
-                // - In dev/preview only, allow arbitrary HTTP loads so a
-                //   developer pointing the app at their machine doesn't have
-                //   to ship a TLS cert just to test attachment uploads.
+                // - In dev/preview, explicitly allow local HTTP endpoints used
+                //   by Expo Dev Launcher and iOS Simulator. Some loader paths
+                //   enforce ATS before the broader arbitrary-load switch is
+                //   honored, so keep domain-level exceptions for local hosts.
                 NSAppTransportSecurity: variant === 'production'
                     ? { NSAllowsLocalNetworking: true }
-                    : { NSAllowsLocalNetworking: true, NSAllowsArbitraryLoads: true }
+                    : developmentAppTransportSecurity
             },
             // Universal Links 需真实域名 + AASA 文件，IP 自托管暂不支持；有域名后填 ["applinks:<your-domain>"]
             associatedDomains: []
@@ -201,7 +226,7 @@ export default {
             // 改了这个地址必须重新构建装机才生效。
             url: "https://happy-oa-server-vqzpvgrhgx.cn-hangzhou.fcapp.run",
             requestHeaders: {
-                "expo-channel-name": "production"
+                "expo-channel-name": otaChannel
             }
         },
         experiments: {
@@ -221,6 +246,9 @@ export default {
                 revenueCatStripeKey: process.env.EXPO_PUBLIC_REVENUE_CAT_STRIPE,
                 elevenLabsAgentId,
                 consoleLoggingDefault,
+                otaChannel,
+                repositoryUrl: process.env.EXPO_PUBLIC_REPOSITORY_URL || 'https://github.com/wangjs-jacky/happy',
+                repositoryIssuesUrl: process.env.EXPO_PUBLIC_REPOSITORY_ISSUES_URL || 'https://github.com/wangjs-jacky/happy/issues',
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,
             }

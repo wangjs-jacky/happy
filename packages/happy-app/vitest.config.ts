@@ -21,6 +21,8 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': resolve('./sources'),
+            '@slopus/happy-wire': resolve('../happy-wire/dist/index.mjs'),
+            'react-native-mmkv': resolve('./sources/test/reactNativeMmkvMock.ts'),
         },
     },
 })

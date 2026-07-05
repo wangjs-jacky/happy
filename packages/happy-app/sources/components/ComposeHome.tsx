@@ -1,14 +1,15 @@
 import * as React from 'react';
 import { View, Text, Pressable, LayoutAnimation } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useRouter, useNavigation } from 'expo-router';
+import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { MessageComposer } from './MessageComposer';
-import { SessionConfigPanel } from './SessionConfigPanel';
+import type { MultiTextInputHandle } from './MultiTextInput';
+import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
@@ -19,14 +20,19 @@ import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
+import { RightSwipePanelHost } from './RightSwipePanelHost';
+import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
+import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
+import { hapticsLight } from './haptics';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
@@ -64,8 +70,31 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const headerHeight = useHeaderHeight();
     const profile = useProfile();
     const machines = useAllMachines();
+    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
+    const composerInputRef = React.useRef<MultiTextInputHandle>(null);
+    const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
+
+    // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
+    // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
+    const { agentId } = useLocalSearchParams<{ agentId?: string }>();
+    const agents = useSetting('agents');
+    const activeAgent = React.useMemo(
+        () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
+        [agentId, agents],
+    );
+
+    // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
+    // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
+    // setTextAndSelection 才会真正改写原生输入框，并回调 onChangeText 同步父级 text
+    // 与发送按钮的 hasText 状态。随后 focus 让光标落到末尾，但不自动发送。
+    const fillPreset = React.useCallback((prompt: string) => {
+        hapticsLight();
+        const len = prompt.length;
+        composerInputRef.current?.setTextAndSelection(prompt, { start: len, end: len });
+        composerInputRef.current?.focus();
+    }, []);
 
     const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
@@ -73,11 +102,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         worktreeKey: s.worktreeKey,
     })));
 
-    // Inline image attachments (claude-only, behind the expImageUpload flag) — same
-    // gating and picker as /new, so the home can attach without bouncing to the
-    // full composer. The compact horizontal strip keeps the footprint to one row.
-    const expImageUpload = useSetting('expImageUpload');
-    const canAttach = expImageUpload && agentType === 'claude';
+    // Inline image attachments (claude / codex). 图片上传已转正：Claude、Codex 会话默认
+    // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
+    // supportsAttachments），其余 runner（gemini / openclaw）会静默丢弃，故不显示。
+    // compact horizontal strip keeps the footprint to one row.
+    const canAttach = agentType === 'claude' || agentType === 'codex';
     const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
 
@@ -122,7 +151,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         if ((!trimmed && !images) || sending) return;
 
         const draft = useNewSessionDraft.getState();
+        const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
+        const resolvedModes = resolveNewSessionModeSelection({
+            agent: draft.agentType,
+            permissionMode: draft.permissionMode,
+            modelMode: draft.modelMode,
+            effortLevel: draft.effortLevel,
+            agentDefaultOverrides,
+        });
 
         // Spawnable only when a machine is selected, online, and we're not asked to
         // create a fresh worktree. The send button is disabled in every other case
@@ -141,15 +178,19 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             path: draft.selectedPath,
             agent: draft.agentType,
             worktreeKey: draft.worktreeKey,
+            permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
+            modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
+            effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt: trimmed,
             images,
         }).then((ok) => {
             if (ok) {
+                composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
                 setText('');
                 clearImages();
             }
         });
-    }, [text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -168,7 +209,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
 
     return (
-        <View style={styles.container}>
+        <RightSwipePanelHost panelContent={<SessionCapabilityHub />}>
+            <View style={styles.container}>
             <Header
                 title={modelChip}
                 headerShadowVisible={false}
@@ -203,14 +245,31 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
                     <Text style={styles.greeting}>
-                        {name
-                            ? t('composeHome.greeting', { name })
-                            : t('composeHome.greetingNoName')}
+                        {activeAgent
+                            ? t('composeHome.greetingAgent', { name: activeAgent.name })
+                            : name
+                                ? t('composeHome.greeting', { name })
+                                : t('composeHome.greetingNoName')}
                     </Text>
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
+                    {activeAgent && activeAgent.presets.length > 0 && (
+                        <View style={styles.presetRow}>
+                            {activeAgent.presets.map((preset, i) => (
+                                <Pressable
+                                    key={`${preset.label}-${i}`}
+                                    onPress={() => fillPreset(preset.prompt)}
+                                    style={styles.presetChip}
+                                    hitSlop={6}
+                                >
+                                    <Text style={styles.presetChipText} numberOfLines={1}>{preset.label}</Text>
+                                </Pressable>
+                            ))}
+                        </View>
+                    )}
                     <MessageComposer
+                        ref={composerInputRef}
                         mode="home"
                         placeholder={t('composeHome.placeholder')}
                         initialValue={text}
@@ -236,11 +295,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onPress={closePanel}
                     />
                     <View style={[styles.panelDropdown, { top: insets.top + headerHeight }]}>
-                        <SessionConfigPanel layout="inline" collapsible={false} />
+                        <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
                     </View>
                 </>
             )}
-        </View>
+            </View>
+        </RightSwipePanelHost>
     );
 });
 
@@ -318,6 +378,27 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
+    },
+    presetRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        paddingHorizontal: 4,
+        paddingBottom: 10,
+    },
+    presetChip: {
+        maxWidth: 240,
+        paddingVertical: 7,
+        paddingHorizontal: 13,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    presetChipText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.text,
     },
     byline: {
         ...Typography.default(),

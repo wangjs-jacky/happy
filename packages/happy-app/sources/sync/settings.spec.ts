@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import { mergeServerSettings, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -86,6 +86,19 @@ describe('settings', () => {
                     width: 100,
                     height: 200
                 }
+            });
+        });
+
+        describe('agents field', () => {
+            it('defaults to empty array', () => {
+                expect(settingsParse({}).agents).toEqual([]);
+            });
+            it('parses a valid agent entry', () => {
+                const a = { id: 'x1', name: '工作日程', glyph: '日', color: '#5e5791', machineId: 'm1', path: '~/work', presets: [{ label: '看今天', prompt: '列出今天事项' }] };
+                expect(settingsParse({ agents: [a] }).agents).toEqual([a]);
+            });
+            it('drops malformed agents back to default', () => {
+                expect(settingsParse({ agents: 'nope' }).agents).toEqual([]);
             });
         });
     });
@@ -175,6 +188,7 @@ describe('settings', () => {
         it('should have correct default values', () => {
             expect(settingsDefaults).toEqual({
                 schemaVersion: 2,
+                customInstructions: '',
                 viewInline: false,
                 expandTodos: true,
                 showLineNumbers: true,
@@ -200,11 +214,13 @@ describe('settings', () => {
                 voiceBypassToken: false,
                 preferredLanguage: null,
                 recentMachinePaths: [],
+                quickPrompts: [],
                 lastUsedAgent: null,
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
                 dismissedCLIWarnings: { perMachine: {}, global: {} },
+                agents: [],
             });
         });
 
@@ -241,6 +257,57 @@ describe('settings', () => {
                     codex: { modelMode: 'gpt-5.4' },
                 },
             });
+        });
+    });
+
+    describe('mergeServerSettings', () => {
+        const agent = {
+            id: 'agent-1',
+            name: 'Mac mini',
+            glyph: 'M',
+            color: '#5e5791',
+            machineId: 'machine-1',
+            path: '~/jacky-github/happy',
+            presets: [{ label: 'Plan', prompt: 'Make a plan' }],
+        };
+
+        it('preserves local agents when a server payload predates the agents field', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                agents: [agent],
+            };
+            const serverRaw = {
+                viewInline: true,
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.viewInline).toBe(true);
+            expect(merged.agents).toEqual([agent]);
+        });
+
+        it('accepts an explicit empty agents list from the server', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                agents: [agent],
+            };
+            const serverRaw = {
+                agents: [],
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.agents).toEqual([]);
         });
     });
 

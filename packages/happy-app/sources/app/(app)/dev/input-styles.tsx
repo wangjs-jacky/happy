@@ -4,6 +4,7 @@ import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-ico
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { t } from '@/text';
 
 type InputStyle = {
     id: string;
@@ -21,8 +22,8 @@ export default function InputStylesDemo() {
     const inputStyles: InputStyle[] = [
         {
             id: 'slack',
-            name: 'Slack Style',
-            description: 'Minimalist with icon-only buttons',
+            name: t('devTools.inputStyleSlackName'),
+            description: t('devTools.inputStyleSlackDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{
@@ -75,7 +76,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ flex: 1, fontSize: 14, color: '#333' }}
-                                placeholder="Message"
+                                placeholder={t('devTools.inputMessagePlaceholder')}
                                 placeholderTextColor="#999"
                                 editable={false}
                             />
@@ -89,8 +90,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'openai',
-            name: 'OpenAI Style',
-            description: 'Clean with subtle rounded corners',
+            name: t('devTools.inputStyleOpenAIName'),
+            description: t('devTools.inputStyleOpenAIDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{ padding: 16 }}>
@@ -107,7 +108,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ flex: 1, fontSize: 16, color: '#000', paddingVertical: 12 }}
-                                placeholder="Message ChatGPT..."
+                                placeholder={t('devTools.inputMessageChatGPTPlaceholder')}
                                 placeholderTextColor="#8e8e8e"
                                 editable={false}
                             />
@@ -161,8 +162,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'discord',
-            name: 'Discord Style',
-            description: 'Dark mode with attachment button',
+            name: t('devTools.inputStyleDiscordName'),
+            description: t('devTools.inputStyleDiscordDescription'),
             preview: (
                 <View style={{ backgroundColor: '#36393f' }}>
                     <View style={{ padding: 16 }}>
@@ -179,7 +180,7 @@ export default function InputStylesDemo() {
                             </Pressable>
                             <TextInput
                                 style={{ flex: 1, fontSize: 16, color: '#dcddde' }}
-                                placeholder="Message #general"
+                                placeholder={t('devTools.inputMessageGeneralPlaceholder')}
                                 placeholderTextColor="#72767d"
                                 editable={false}
                             />
@@ -212,8 +213,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'whatsapp',
-            name: 'WhatsApp Style',
-            description: 'Green accents with circular buttons',
+            name: t('devTools.inputStyleWhatsAppName'),
+            description: t('devTools.inputStyleWhatsAppDescription'),
             preview: (
                 <View style={{ backgroundColor: '#e5ddd5' }}>
                     <View style={{
@@ -236,7 +237,7 @@ export default function InputStylesDemo() {
                             </Pressable>
                             <TextInput
                                 style={{ flex: 1, fontSize: 16, color: '#000' }}
-                                placeholder="Type a message"
+                                placeholder={t('devTools.inputTypeMessagePlaceholder')}
                                 placeholderTextColor="#999"
                                 editable={false}
                             />
@@ -271,7 +272,7 @@ export default function InputStylesDemo() {
                             borderRadius: 12,
                             marginRight: 6,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#667781' }}>Photo</Text>
+                            <Text style={{ fontSize: 12, color: '#667781' }}>{t('devTools.photo')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 12,
@@ -280,7 +281,7 @@ export default function InputStylesDemo() {
                             borderRadius: 12,
                             marginRight: 6,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#667781' }}>Video</Text>
+                            <Text style={{ fontSize: 12, color: '#667781' }}>{t('devTools.video')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 12,
@@ -288,7 +289,7 @@ export default function InputStylesDemo() {
                             backgroundColor: 'rgba(0,0,0,0.05)',
                             borderRadius: 12,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#667781' }}>Document</Text>
+                            <Text style={{ fontSize: 12, color: '#667781' }}>{t('devTools.document')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -296,8 +297,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'telegram',
-            name: 'Telegram Style',
-            description: 'Flat design with sharp corners',
+            name: t('devTools.inputStyleTelegramName'),
+            description: t('devTools.inputStyleTelegramDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{
@@ -320,7 +321,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ fontSize: 16, color: '#000' }}
-                                placeholder="Message"
+                                placeholder={t('devTools.inputMessagePlaceholder')}
                                 placeholderTextColor="#999"
                                 editable={false}
                             />
@@ -360,8 +361,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'linear',
-            name: 'Linear Style',
-            description: 'Modern with subtle gradients',
+            name: t('devTools.inputStyleLinearName'),
+            description: t('devTools.inputStyleLinearDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fcfcfc' }}>
                     <View style={{ padding: 16 }}>
@@ -378,7 +379,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ flex: 1, fontSize: 15, color: '#24292e' }}
-                                placeholder="Add a comment..."
+                                placeholder={t('devTools.inputAddCommentPlaceholder')}
                                 placeholderTextColor="#6a737d"
                                 editable={false}
                             />
@@ -389,7 +390,7 @@ export default function InputStylesDemo() {
                                 borderRadius: 6,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                                    Comment
+                                    {t('devTools.commentAction')}
                                 </Text>
                             </Pressable>
                         </View>
@@ -418,8 +419,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'notion',
-            name: 'Notion Style',
-            description: 'Minimal with "/" command hint',
+            name: t('devTools.inputStyleNotionName'),
+            description: t('devTools.inputStyleNotionDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{ padding: 16 }}>
@@ -432,7 +433,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ fontSize: 16, color: '#37352f' }}
-                                placeholder="Type '/' for commands"
+                                placeholder={t('devTools.inputSlashCommandsPlaceholder')}
                                 placeholderTextColor="rgba(55, 53, 47, 0.4)"
                                 editable={false}
                             />
@@ -451,7 +452,7 @@ export default function InputStylesDemo() {
                             borderRadius: 3,
                             marginRight: 8,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#787774' }}>Add icon</Text>
+                            <Text style={{ fontSize: 12, color: '#787774' }}>{t('devTools.addIcon')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 10,
@@ -460,7 +461,7 @@ export default function InputStylesDemo() {
                             borderRadius: 3,
                             marginRight: 8,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#787774' }}>Add cover</Text>
+                            <Text style={{ fontSize: 12, color: '#787774' }}>{t('devTools.addCover')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 10,
@@ -468,7 +469,7 @@ export default function InputStylesDemo() {
                             backgroundColor: '#f7f6f3',
                             borderRadius: 3,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#787774' }}>Add comment</Text>
+                            <Text style={{ fontSize: 12, color: '#787774' }}>{t('devTools.addComment')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -476,8 +477,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'github',
-            name: 'GitHub Style',
-            description: 'Developer-focused with markdown hint',
+            name: t('devTools.inputStyleGitHubName'),
+            description: t('devTools.inputStyleGitHubDescription'),
             preview: (
                 <View style={{ backgroundColor: '#f6f8fa' }}>
                     <View style={{ padding: 16 }}>
@@ -516,7 +517,7 @@ export default function InputStylesDemo() {
                             </View>
                             <TextInput
                                 style={{ fontSize: 14, color: '#24292e', minHeight: 60 }}
-                                placeholder="Leave a comment"
+                                placeholder={t('devTools.inputLeaveCommentPlaceholder')}
                                 placeholderTextColor="#6a737d"
                                 multiline
                                 editable={false}
@@ -531,7 +532,7 @@ export default function InputStylesDemo() {
                         paddingBottom: 12,
                     }}>
                         <Text style={{ fontSize: 12, color: '#6a737d' }}>
-                            Markdown is supported
+                            {t('devTools.markdownSupported')}
                         </Text>
                         <View style={{ flexDirection: 'row' }}>
                             <Pressable style={{
@@ -543,7 +544,7 @@ export default function InputStylesDemo() {
                                 borderColor: '#d1d5da',
                                 marginRight: 8,
                             }}>
-                                <Text style={{ fontSize: 14, color: '#24292e' }}>Cancel</Text>
+                                <Text style={{ fontSize: 14, color: '#24292e' }}>{t('common.cancel')}</Text>
                             </Pressable>
                             <Pressable style={{
                                 paddingHorizontal: 12,
@@ -551,7 +552,7 @@ export default function InputStylesDemo() {
                                 backgroundColor: '#2ea44f',
                                 borderRadius: 6,
                             }}>
-                                <Text style={{ fontSize: 14, color: '#fff', fontWeight: '600' }}>Comment</Text>
+                                <Text style={{ fontSize: 14, color: '#fff', fontWeight: '600' }}>{t('devTools.commentAction')}</Text>
                             </Pressable>
                         </View>
                     </View>
@@ -560,8 +561,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'imessage',
-            name: 'Apple Messages',
-            description: 'iOS native messaging style',
+            name: t('devTools.inputStyleAppleMessagesName'),
+            description: t('devTools.inputStyleAppleMessagesDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{
@@ -631,8 +632,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'material',
-            name: 'Material Design',
-            description: 'Google\'s design language',
+            name: t('devTools.inputStyleMaterialDesignName'),
+            description: t('devTools.inputStyleMaterialDesignDescription'),
             preview: (
                 <View style={{ backgroundColor: '#fff' }}>
                     <View style={{ padding: 16 }}>
@@ -646,7 +647,7 @@ export default function InputStylesDemo() {
                                 color: '#1976d2',
                                 marginBottom: 4,
                             }}>
-                                Message
+                                {t('devTools.inputMessageLabel')}
                             </Text>
                             <View style={{
                                 flexDirection: 'row',
@@ -654,7 +655,7 @@ export default function InputStylesDemo() {
                             }}>
                                 <TextInput
                                     style={{ flex: 1, fontSize: 16, color: '#000' }}
-                                    placeholder="Type your message"
+                                    placeholder={t('devTools.inputTypeYourMessagePlaceholder')}
                                     placeholderTextColor="#999"
                                     editable={false}
                                 />
@@ -719,8 +720,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'brutalist',
-            name: 'Brutalist Style',
-            description: 'Bold borders and high contrast',
+            name: t('devTools.inputStyleBrutalistName'),
+            description: t('devTools.inputStyleBrutalistDescription'),
             preview: (
                 <View style={{ backgroundColor: '#ffeb3b' }}>
                     <View style={{ padding: 16 }}>
@@ -740,7 +741,7 @@ export default function InputStylesDemo() {
                                     color: '#000',
                                     fontWeight: 'bold',
                                 }}
-                                placeholder="TYPE HERE!"
+                                placeholder={t('devTools.inputTypeHerePlaceholder')}
                                 placeholderTextColor="#666"
                                 editable={false}
                             />
@@ -755,7 +756,7 @@ export default function InputStylesDemo() {
                                     fontSize: 16, 
                                     fontWeight: 'bold' 
                                 }}>
-                                    SEND
+                                    {t('devTools.sendActionUpper')}
                                 </Text>
                             </Pressable>
                         </View>
@@ -774,7 +775,7 @@ export default function InputStylesDemo() {
                             paddingVertical: 8,
                             marginRight: 8,
                         }}>
-                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>BOLD</Text>
+                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>{t('devTools.boldUpper')}</Text>
                         </Pressable>
                         <Pressable style={{
                             backgroundColor: '#fff',
@@ -784,7 +785,7 @@ export default function InputStylesDemo() {
                             paddingVertical: 8,
                             marginRight: 8,
                         }}>
-                            <Text style={{ color: '#000', fontWeight: 'bold' }}>ITALIC</Text>
+                            <Text style={{ color: '#000', fontWeight: 'bold' }}>{t('devTools.italicUpper')}</Text>
                         </Pressable>
                         <Pressable style={{
                             backgroundColor: '#f44336',
@@ -793,7 +794,7 @@ export default function InputStylesDemo() {
                             paddingHorizontal: 16,
                             paddingVertical: 8,
                         }}>
-                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>LINK</Text>
+                            <Text style={{ color: '#fff', fontWeight: 'bold' }}>{t('devTools.linkUpper')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -801,8 +802,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'glassmorphism',
-            name: 'Glassmorphism',
-            description: 'Translucent with blur effects',
+            name: t('devTools.inputStyleGlassmorphismName'),
+            description: t('devTools.inputStyleGlassmorphismDescription'),
             preview: (
                 <View style={{ backgroundColor: '#1a1a2e' }}>
                     <View style={{ padding: 16 }}>
@@ -822,7 +823,7 @@ export default function InputStylesDemo() {
                                     fontSize: 16, 
                                     color: '#fff',
                                 }}
-                                placeholder="Type a message..."
+                                placeholder={t('devTools.inputTypeMessageEllipsisPlaceholder')}
                                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
                                 editable={false}
                             />
@@ -889,8 +890,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'spotify',
-            name: 'Spotify Style',
-            description: 'Music-focused with playback controls',
+            name: t('devTools.inputStyleSpotifyName'),
+            description: t('devTools.inputStyleSpotifyDescription'),
             preview: (
                 <View style={{ backgroundColor: '#121212' }}>
                     <View style={{ padding: 16 }}>
@@ -910,7 +911,7 @@ export default function InputStylesDemo() {
                                     color: '#fff',
                                     marginLeft: 12,
                                 }}
-                                placeholder="Search for songs..."
+                                placeholder={t('devTools.inputSearchSongsPlaceholder')}
                                 placeholderTextColor="#535353"
                                 editable={false}
                             />
@@ -955,8 +956,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'figma',
-            name: 'Figma Style',
-            description: 'Design tool with collaborative features',
+            name: t('devTools.inputStyleFigmaName'),
+            description: t('devTools.inputStyleFigmaDescription'),
             preview: (
                 <View style={{ backgroundColor: '#2c2c2c' }}>
                     <View style={{ padding: 16 }}>
@@ -970,7 +971,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ flex: 1, fontSize: 14, color: '#fff' }}
-                                placeholder="Add a comment..."
+                                placeholder={t('devTools.inputAddCommentPlaceholder')}
                                 placeholderTextColor="#a0a0a0"
                                 editable={false}
                             />
@@ -982,7 +983,7 @@ export default function InputStylesDemo() {
                                 marginLeft: 8,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                                    Post
+                                    {t('devTools.postAction')}
                                 </Text>
                             </Pressable>
                         </View>
@@ -1029,7 +1030,7 @@ export default function InputStylesDemo() {
                                 marginLeft: 12,
                                 alignSelf: 'center',
                             }}>
-                                3 people here
+                                {t('devTools.peopleHere', { count: 3 })}
                             </Text>
                         </View>
                         <View style={{ flexDirection: 'row' }}>
@@ -1046,8 +1047,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'twitter',
-            name: 'Twitter/X Style',
-            description: 'Microblogging with character limit',
+            name: t('devTools.inputStyleTwitterName'),
+            description: t('devTools.inputStyleTwitterDescription'),
             preview: (
                 <View style={{ backgroundColor: '#000' }}>
                     <View style={{ padding: 16 }}>
@@ -1063,7 +1064,7 @@ export default function InputStylesDemo() {
                                     color: '#fff',
                                     minHeight: 60,
                                 }}
-                                placeholder="What's happening?"
+                                placeholder={t('devTools.inputWhatsHappeningPlaceholder')}
                                 placeholderTextColor="#71767b"
                                 multiline
                                 editable={false}
@@ -1099,7 +1100,7 @@ export default function InputStylesDemo() {
                                         borderRadius: 18,
                                     }}>
                                         <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
-                                            Post
+                                            {t('devTools.postAction')}
                                         </Text>
                                     </Pressable>
                                 </View>
@@ -1120,7 +1121,7 @@ export default function InputStylesDemo() {
                             borderColor: '#333',
                             marginRight: 8,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#1d9bf0' }}>Everyone</Text>
+                            <Text style={{ fontSize: 12, color: '#1d9bf0' }}>{t('devTools.everyone')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 12,
@@ -1130,7 +1131,7 @@ export default function InputStylesDemo() {
                             borderColor: '#333',
                             marginRight: 8,
                         }}>
-                            <Text style={{ fontSize: 12, color: '#71767b' }}>Location</Text>
+                            <Text style={{ fontSize: 12, color: '#71767b' }}>{t('devTools.location')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 12,
@@ -1139,7 +1140,7 @@ export default function InputStylesDemo() {
                             borderWidth: 1,
                             borderColor: '#333',
                         }}>
-                            <Text style={{ fontSize: 12, color: '#71767b' }}>Schedule</Text>
+                            <Text style={{ fontSize: 12, color: '#71767b' }}>{t('devTools.schedule')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -1147,8 +1148,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'arc',
-            name: 'Arc Browser Style',
-            description: 'Minimal with command palette',
+            name: t('devTools.inputStyleArcName'),
+            description: t('devTools.inputStyleArcDescription'),
             preview: (
                 <View style={{ backgroundColor: '#f6f6f6' }}>
                     <View style={{ padding: 16 }}>
@@ -1179,7 +1180,7 @@ export default function InputStylesDemo() {
                                     color: '#000',
                                     marginLeft: 12,
                                 }}
-                                placeholder="Search or enter URL..."
+                                placeholder={t('devTools.inputSearchOrEnterUrlPlaceholder')}
                                 placeholderTextColor="#999"
                                 editable={false}
                             />
@@ -1216,7 +1217,7 @@ export default function InputStylesDemo() {
                                 backgroundColor: '#ff5f57',
                                 marginRight: 6,
                             }} />
-                            <Text style={{ fontSize: 13, color: '#333' }}>Space 1</Text>
+                            <Text style={{ fontSize: 13, color: '#333' }}>{t('devTools.spaceNumber', { number: 1 })}</Text>
                         </Pressable>
                         <Pressable style={{
                             flexDirection: 'row',
@@ -1234,7 +1235,7 @@ export default function InputStylesDemo() {
                                 backgroundColor: '#ffbd2e',
                                 marginRight: 6,
                             }} />
-                            <Text style={{ fontSize: 13, color: '#333' }}>Space 2</Text>
+                            <Text style={{ fontSize: 13, color: '#333' }}>{t('devTools.spaceNumber', { number: 2 })}</Text>
                         </Pressable>
                         <Pressable style={{
                             flexDirection: 'row',
@@ -1251,7 +1252,7 @@ export default function InputStylesDemo() {
                                 backgroundColor: '#28ca42',
                                 marginRight: 6,
                             }} />
-                            <Text style={{ fontSize: 13, color: '#333' }}>Space 3</Text>
+                            <Text style={{ fontSize: 13, color: '#333' }}>{t('devTools.spaceNumber', { number: 3 })}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -1259,8 +1260,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'claude',
-            name: 'Claude Style',
-            description: 'AI assistant with artifacts',
+            name: t('devTools.inputStyleClaudeName'),
+            description: t('devTools.inputStyleClaudeDescription'),
             preview: (
                 <View style={{ backgroundColor: '#f9f7f4' }}>
                     <View style={{ padding: 16 }}>
@@ -1278,7 +1279,7 @@ export default function InputStylesDemo() {
                                     color: '#000',
                                     minHeight: 40,
                                 }}
-                                placeholder="Ask Claude anything..."
+                                placeholder={t('devTools.inputAskClaudePlaceholder')}
                                 placeholderTextColor="#999"
                                 multiline
                                 editable={false}
@@ -1341,7 +1342,7 @@ export default function InputStylesDemo() {
                             borderRadius: 20,
                             marginRight: 8,
                         }}>
-                            <Text style={{ fontSize: 13, color: '#666' }}>Artifacts</Text>
+                            <Text style={{ fontSize: 13, color: '#666' }}>{t('devTools.artifacts')}</Text>
                         </Pressable>
                         <Pressable style={{
                             paddingHorizontal: 12,
@@ -1349,7 +1350,7 @@ export default function InputStylesDemo() {
                             backgroundColor: '#f4f2ee',
                             borderRadius: 20,
                         }}>
-                            <Text style={{ fontSize: 13, color: '#666' }}>Projects</Text>
+                            <Text style={{ fontSize: 13, color: '#666' }}>{t('devTools.projects')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -1357,8 +1358,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'reddit',
-            name: 'Reddit Style',
-            description: 'Community-focused with markdown',
+            name: t('devTools.inputStyleRedditName'),
+            description: t('devTools.inputStyleRedditDescription'),
             preview: (
                 <View style={{ backgroundColor: '#1a1a1b' }}>
                     <View style={{ padding: 12 }}>
@@ -1375,7 +1376,7 @@ export default function InputStylesDemo() {
                                     color: '#d7dadc',
                                     minHeight: 80,
                                 }}
-                                placeholder="What are your thoughts?"
+                                placeholder={t('devTools.inputThoughtsPlaceholder')}
                                 placeholderTextColor="#818384"
                                 multiline
                                 editable={false}
@@ -1413,7 +1414,7 @@ export default function InputStylesDemo() {
                                 marginRight: 8,
                             }}>
                                 <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                                    Reply
+                                    {t('devTools.replyAction')}
                                 </Text>
                             </Pressable>
                         </View>
@@ -1446,8 +1447,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'wechat',
-            name: 'WeChat Style',
-            description: 'Chinese super-app design',
+            name: t('devTools.inputStyleWeChatName'),
+            description: t('devTools.inputStyleWeChatDescription'),
             preview: (
                 <View style={{ backgroundColor: '#ededed' }}>
                     <View style={{
@@ -1480,7 +1481,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ fontSize: 16, color: '#000' }}
-                                placeholder="Type message"
+                                placeholder={t('devTools.inputTypeMessageShortPlaceholder')}
                                 placeholderTextColor="#999"
                                 editable={false}
                             />
@@ -1522,23 +1523,23 @@ export default function InputStylesDemo() {
                     }}>
                         <Pressable style={{ alignItems: 'center' }}>
                             <Ionicons name="camera" size={24} color="#576b95" />
-                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>Album</Text>
+                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>{t('devTools.album')}</Text>
                         </Pressable>
                         <Pressable style={{ alignItems: 'center' }}>
                             <Ionicons name="videocam" size={24} color="#576b95" />
-                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>Sight</Text>
+                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>{t('devTools.sight')}</Text>
                         </Pressable>
                         <Pressable style={{ alignItems: 'center' }}>
                             <Ionicons name="call" size={24} color="#576b95" />
-                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>Call</Text>
+                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>{t('devTools.call')}</Text>
                         </Pressable>
                         <Pressable style={{ alignItems: 'center' }}>
                             <Ionicons name="location" size={24} color="#576b95" />
-                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>Location</Text>
+                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>{t('devTools.location')}</Text>
                         </Pressable>
                         <Pressable style={{ alignItems: 'center' }}>
                             <MaterialIcons name="attach-money" size={24} color="#576b95" />
-                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>Transfer</Text>
+                            <Text style={{ fontSize: 11, color: '#576b95', marginTop: 2 }}>{t('devTools.transfer')}</Text>
                         </Pressable>
                     </View>
                 </View>
@@ -1546,8 +1547,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'obsidian',
-            name: 'Obsidian Style',
-            description: 'Note-taking with linking',
+            name: t('devTools.inputStyleObsidianName'),
+            description: t('devTools.inputStyleObsidianDescription'),
             preview: (
                 <View style={{ backgroundColor: '#202020' }}>
                     <View style={{ padding: 16 }}>
@@ -1564,7 +1565,7 @@ export default function InputStylesDemo() {
                                     color: '#e0e0e0',
                                     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
                                 }}
-                                placeholder="# Start typing..."
+                                placeholder={t('devTools.inputStartTypingPlaceholder')}
                                 placeholderTextColor="#666"
                                 editable={false}
                             />
@@ -1611,8 +1612,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'snapchat',
-            name: 'Snapchat Style',
-            description: 'Ephemeral messaging with camera',
+            name: t('devTools.inputStyleSnapchatName'),
+            description: t('devTools.inputStyleSnapchatDescription'),
             preview: (
                 <View style={{ backgroundColor: '#000' }}>
                     <View style={{
@@ -1641,7 +1642,7 @@ export default function InputStylesDemo() {
                         }}>
                             <TextInput
                                 style={{ fontSize: 16, color: '#fff' }}
-                                placeholder="Send a chat"
+                                placeholder={t('devTools.inputSendChatPlaceholder')}
                                 placeholderTextColor="#666"
                                 editable={false}
                             />
@@ -1671,7 +1672,7 @@ export default function InputStylesDemo() {
                             marginRight: 8,
                         }}>
                             <Text style={{ color: '#000', fontSize: 14, fontWeight: '600' }}>
-                                Snap
+                                {t('devTools.snap')}
                             </Text>
                         </Pressable>
                         <Pressable style={{
@@ -1682,7 +1683,7 @@ export default function InputStylesDemo() {
                             marginRight: 8,
                         }}>
                             <Text style={{ color: '#fff', fontSize: 14 }}>
-                                Stickers
+                                {t('devTools.stickers')}
                             </Text>
                         </Pressable>
                         <Pressable style={{
@@ -1692,7 +1693,7 @@ export default function InputStylesDemo() {
                             borderRadius: 20,
                         }}>
                             <Text style={{ color: '#fff', fontSize: 14 }}>
-                                Games
+                                {t('devTools.games')}
                             </Text>
                         </Pressable>
                     </View>
@@ -1701,8 +1702,8 @@ export default function InputStylesDemo() {
         },
         {
             id: 'teams',
-            name: 'Microsoft Teams',
-            description: 'Corporate communication style',
+            name: t('devTools.inputStyleTeamsName'),
+            description: t('devTools.inputStyleTeamsDescription'),
             preview: (
                 <View style={{ backgroundColor: '#f5f5f5' }}>
                     <View style={{ padding: 12 }}>
@@ -1745,7 +1746,7 @@ export default function InputStylesDemo() {
                                     paddingVertical: 8,
                                     minHeight: 40,
                                 }}
-                                placeholder="Type a new message"
+                                placeholder={t('devTools.inputTypeNewMessagePlaceholder')}
                                 placeholderTextColor="#a19f9d"
                                 editable={false}
                             />
@@ -1797,7 +1798,7 @@ export default function InputStylesDemo() {
                         }}>
                             <Ionicons name="videocam" size={16} color="#6264a7" />
                             <Text style={{ fontSize: 13, color: '#605e5c', marginLeft: 6 }}>
-                                Meet now
+                                {t('devTools.meetNow')}
                             </Text>
                         </Pressable>
                         <Pressable style={{
@@ -1812,7 +1813,7 @@ export default function InputStylesDemo() {
                         }}>
                             <Ionicons name="calendar" size={16} color="#6264a7" />
                             <Text style={{ fontSize: 13, color: '#605e5c', marginLeft: 6 }}>
-                                Schedule
+                                {t('devTools.schedule')}
                             </Text>
                         </Pressable>
                     </View>
@@ -1855,7 +1856,7 @@ export default function InputStylesDemo() {
                         marginBottom: 4,
                         ...Typography.default(),
                     }}>
-                        Active Style: {style.name}
+                        {t('devTools.activeInputStyle', { name: style.name })}
                     </Text>
                     {style.preview}
                 </View>
@@ -1879,7 +1880,7 @@ export default function InputStylesDemo() {
                     paddingHorizontal: 16,
                     ...Typography.default('semiBold'),
                 }}>
-                    Input Style Variants
+                    {t('devTools.inputStyleVariantsTitle')}
                 </Text>
                 <Text style={{
                     fontSize: 14,
@@ -1888,7 +1889,7 @@ export default function InputStylesDemo() {
                     paddingHorizontal: 16,
                     ...Typography.default(),
                 }}>
-                    Tap any style to see it applied to the bottom input
+                    {t('devTools.inputStyleVariantsDescription')}
                 </Text>
 
                 {inputStyles.map((style) => (

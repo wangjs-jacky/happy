@@ -22,8 +22,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `pnpm test` - Run tests in watch mode (Vitest)
 - No existing tests in the codebase yet
 
-### Production
-- `pnpm ota` - Deploy over-the-air updates via EAS Update to production branch
+### Production (self-hosted OTA, 阿里云 OSS)
+- `pnpm ota:selfhost` - 发布 OTA 到 **production** 频道（线上正式用户）
+- `pnpm ota:selfhost:preview` - 发布 OTA 到 **preview** 频道（开发真机预览）
+- `pnpm ota:rollback` / `pnpm ota:rollback:preview` - 列出历史版本并回滚对应频道
+- 机制详见根目录 `CLAUDE.md` 第九节。EAS Update 那套（`eas update`）已弃用，App 的 `updates.url` 指向自建 FC，不会访问 EAS。
 
 ## Architecture Overview
 

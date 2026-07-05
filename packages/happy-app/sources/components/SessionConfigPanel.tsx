@@ -37,26 +37,28 @@ import {
     type EffortLevel,
 } from '@/components/modelModeOptions';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
-import { resolveAgentDefaultConfig } from '@/sync/agentDefaults';
+import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import { isRunningOnMac } from '@/utils/platform';
 
 // Agent icon assets
 const agentIcons = {
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
+    opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
 };
 
 type AgentKey = NewSessionAgentType;
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
+    { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },
     { key: 'openclaw', label: 'openclaw' },
     { key: 'gemini', label: 'gemini' },
 ];
 
-type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
+export type PickerItem = { key: string; label: string; subtitle?: string; dimmed?: boolean };
 
 type PickerType = 'machine' | 'path' | 'worktree' | 'agent' | 'model' | 'effort' | 'permission';
 
@@ -247,7 +249,7 @@ function buildCrumbs(absPath: string | undefined, home: string | undefined): Cru
     return out;
 }
 
-function PathPickerContent({
+export function PathPickerContent({
     title,
     items,
     value,
@@ -257,6 +259,7 @@ function PathPickerContent({
     onChangeValue,
     onDone,
     embedded = false,
+    manualInput = true,
 }: {
     title: string;
     items: PickerItem[];
@@ -267,6 +270,7 @@ function PathPickerContent({
     onChangeValue: (value: string) => void;
     onDone?: () => void;
     embedded?: boolean;
+    manualInput?: boolean;
 }) {
     const { theme } = useUnistyles();
     const inputRef = React.useRef<TextInput>(null);
@@ -337,6 +341,43 @@ function PathPickerContent({
     const doneIconColor = theme.colors.header.tint;
     const canBrowse = !!machineId && machineOnline;
     const currentFolderName = browsePath ? (crumbs[crumbs.length - 1]?.label ?? browsePath) : '';
+    const pathInputRow = (
+        <View
+            style={[
+                pickerStyles.pathInputRow,
+                {
+                    backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
+                    borderColor: embedded ? 'transparent' : theme.colors.divider,
+                },
+                embedded && pickerStyles.embeddedPathInputRow,
+            ]}
+        >
+            <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+            <View style={pickerStyles.pathInputField}>
+                <TextInput
+                    ref={inputRef}
+                    value={currentValue}
+                    onChangeText={onChangeValue}
+                    onSelectionChange={handleSelectionChange}
+                    selection={selection}
+                    placeholder={manualInput ? 'Enter project path' : 'Select project path'}
+                    placeholderTextColor={theme.colors.textSecondary}
+                    style={[
+                        pickerStyles.pathTextInput,
+                        embedded && pickerStyles.embeddedPathTextInput,
+                        { color: theme.colors.text },
+                    ]}
+                    editable={manualInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    multiline={false}
+                    numberOfLines={1}
+                    returnKeyType="done"
+                    onSubmitEditing={onDone}
+                />
+            </View>
+        </View>
+    );
 
     return (
         <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer]}>
@@ -485,42 +526,18 @@ function PathPickerContent({
                 </>
             ) : (
                 <>
-                    <View
-                        style={[
-                            pickerStyles.pathInputRow,
-                            {
-                                backgroundColor: embedded ? 'transparent' : theme.colors.input.background,
-                                borderColor: embedded ? 'transparent' : theme.colors.divider,
-                            },
-                            embedded && pickerStyles.embeddedPathInputRow,
-                        ]}
-                    >
-                        <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
-                        <View style={pickerStyles.pathInputField}>
-                            <TextInput
-                                ref={inputRef}
-                                value={currentValue}
-                                onChangeText={onChangeValue}
-                                onSelectionChange={handleSelectionChange}
-                                selection={selection}
-                                placeholder="Enter project path"
-                                placeholderTextColor={theme.colors.textSecondary}
-                                style={[
-                                    pickerStyles.pathTextInput,
-                                    embedded && pickerStyles.embeddedPathTextInput,
-                                    { color: theme.colors.text },
-                                ]}
-                                autoCapitalize="none"
-                                autoCorrect={false}
-                                multiline={false}
-                                numberOfLines={1}
-                                returnKeyType="done"
-                                onSubmitEditing={onDone}
-                            />
-                        </View>
-                    </View>
+                    {manualInput ? pathInputRow : (
+                        <Pressable
+                            onPress={canBrowse ? startBrowsing : undefined}
+                            disabled={!canBrowse}
+                            accessibilityRole="button"
+                            accessibilityLabel="Select project path"
+                        >
+                            {pathInputRow}
+                        </Pressable>
+                    )}
 
-                    {isCustomPath && (
+                    {manualInput && isCustomPath && (
                         <Text style={[pickerStyles.pathMetaText, { color: theme.colors.textSecondary }]}>
                             using custom path above
                         </Text>
@@ -615,8 +632,8 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
  * read back from the draft store.
  */
 export interface SessionConfigSelection {
-    permissionKey: string;
-    modelKey: string;
+    permissionKey?: string;
+    modelKey?: string;
     effortKey: string | null;
     /** '__none__' | '__new__' | <existing worktree absolute path>. */
     worktreeKey: string;
@@ -649,8 +666,9 @@ export interface SessionConfigPanelProps {
  * permission / worktree, plus the pickers that drive them. Extracted from the
  * /new screen so both /new and the compose-first home can render the same panel.
  * It reads and writes the shared `useNewSessionDraft` store for the persisted
- * fields (machine/path/agent/permission/model/worktree) and keeps effort + the
- * model/permission *indices* as local state, exposed via the imperative handle.
+ * fields (machine/path/agent/permission/model/effort/worktree) and keeps the
+ * model/permission/effort *indices* as local state, exposed via the imperative
+ * handle.
  */
 export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, SessionConfigPanelProps>(
     function SessionConfigPanel({ layout = 'inline', collapsible = true, onPickerOpenChange }, ref) {
@@ -669,8 +687,12 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             setPath: s.setPath,
             agentType: s.agentType,
             setAgentType: s.setAgentType,
+            permissionMode: s.permissionMode,
             setPermissionMode: s.setPermissionMode,
+            modelMode: s.modelMode,
             setModelMode: s.setModelMode,
+            effortLevel: s.effortLevel,
+            setEffortLevel: s.setEffortLevel,
             sessionType: s.sessionType,
             setSessionType: s.setSessionType,
             worktreeKey: s.worktreeKey,
@@ -691,7 +713,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             draft.setWorktreeKey(worktreeKey === '__none__' || worktreeKey === '__new__' ? null : worktreeKey);
         }, [worktreeKey]);
 
-        // Local-only UI state (not persisted)
+        // Picker indices are local UI state; selected values that affect sends
+        // are persisted through the shared new-session draft store.
         const [permissionIndex, setPermissionIndex] = React.useState(0);
         const [modelIndex, setModelIndex] = React.useState(0);
         const [effortIndex, setEffortIndex] = React.useState(0);
@@ -844,9 +867,15 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getEffortLevelsForModel(selectedAgent, currentModelKey),
             [selectedAgent, currentModelKey],
         );
-        const effectiveAgentDefaults = React.useMemo(() => (
-            resolveAgentDefaultConfig(agentDefaultOverrides, selectedAgent)
-        ), [agentDefaultOverrides, selectedAgent]);
+        const resolvedModeSelection = React.useMemo(() => (
+            resolveNewSessionModeSelection({
+                agent: selectedAgent,
+                permissionMode: draft.permissionMode,
+                modelMode: draft.modelMode,
+                effortLevel: draft.effortLevel,
+                agentDefaultOverrides,
+            })
+        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, selectedAgent]);
 
         const supportsWorktree = getSupportsWorktree(selectedAgent);
         const showModel = modelModes.length > 1;
@@ -855,25 +884,27 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
 
         // Reset indices when agent/default settings change.
         React.useEffect(() => {
-            const defaultPermIdx = permissionModes.findIndex(m => m.key === effectiveAgentDefaults.permissionMode);
+            const defaultPermIdx = permissionModes.findIndex(m => m.key === resolvedModeSelection.permissionMode);
             setPermissionIndex(defaultPermIdx >= 0 ? defaultPermIdx : 0);
 
-            const defaultModelIdx = modelModes.findIndex(m => m.key === effectiveAgentDefaults.modelMode);
+            const defaultModelIdx = modelModes.findIndex(m => m.key === resolvedModeSelection.modelMode);
             setModelIndex(defaultModelIdx >= 0 ? defaultModelIdx : 0);
 
             if (!supportsWorktree) setWorktreeKey('__none__');
-        }, [permissionModes, modelModes, supportsWorktree, effectiveAgentDefaults.permissionMode, effectiveAgentDefaults.modelMode]);
+        }, [permissionModes, modelModes, supportsWorktree, resolvedModeSelection.permissionMode, resolvedModeSelection.modelMode]);
 
         // Reset effort when model changes
         React.useEffect(() => {
-            const defaultEffort = effectiveAgentDefaults.effortLevel;
+            const defaultEffort = resolvedModeSelection.effortLevel;
             if (defaultEffort && effortLevels.length > 0) {
                 const idx = effortLevels.findIndex(e => e.key === defaultEffort);
                 setEffortIndex(idx >= 0 ? idx : effortLevels.length - 1);
+                draft.setEffortLevel(idx >= 0 ? defaultEffort : effortLevels[effortLevels.length - 1]?.key ?? null);
             } else {
                 setEffortIndex(0);
+                draft.setEffortLevel(effortLevels[0]?.key ?? null);
             }
-        }, [effectiveAgentDefaults.effortLevel, currentModelKey, effortLevels]);
+        }, [draft.setEffortLevel, resolvedModeSelection.effortLevel, currentModelKey, effortLevels]);
 
         // Auto collapse config once when user starts typing (mobile only, collapsible).
         // On desktop (web / Mac Catalyst) the panel stays expanded. Also skip on
@@ -993,6 +1024,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                     const next = effortLevels.findIndex((level) => level.key === key);
                     if (next >= 0) {
                         setEffortIndex(next);
+                        draft.setEffortLevel(effortLevels[next]?.key ?? null);
                     }
                     break;
                 }
@@ -1010,6 +1042,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             activePicker,
             availableAgents,
             dismissPicker,
+            draft.setEffortLevel,
             draft.setModelMode,
             draft.setPermissionMode,
             effortLevels,
@@ -1023,13 +1056,13 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         // Expose the live selection + a way to dismiss pickers to the host.
         React.useImperativeHandle(ref, () => ({
             getSelection: () => ({
-                permissionKey: currentPermission?.key ?? 'default',
-                modelKey: currentModelKey,
-                effortKey: currentEffort?.key ?? null,
+                permissionKey: currentPermission?.key === 'default' ? undefined : currentPermission?.key,
+                modelKey: currentModelKey === 'default' ? undefined : currentModelKey,
+                effortKey: draft.effortLevel ?? resolvedModeSelection.effortLevel ?? null,
                 worktreeKey,
             }),
             closePickers: dismissPicker,
-        }), [currentPermission?.key, currentModelKey, currentEffort?.key, worktreeKey, dismissPicker]);
+        }), [currentPermission?.key, currentModelKey, draft.effortLevel, resolvedModeSelection.effortLevel, worktreeKey, dismissPicker]);
 
         // Render the active picker inline directly under its row. Web (non-sidebar)
         // shows it as a dropdown popover; sidebar and native render it embedded as a
@@ -1276,6 +1309,26 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     />
                                 </Pressable>
 
+                                {showModel && (
+                                    <Pressable
+                                        onPress={() => togglePicker('model')}
+                                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    >
+                                        <Ionicons name="hardware-chip-outline" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                )}
+
+                                {showEffort && (
+                                    <Pressable
+                                        onPress={() => togglePicker('effort')}
+                                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    >
+                                        <Ionicons name="speedometer-outline" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                )}
+
                                 {showPermission && (
                                     <Pressable
                                         onPress={() => togglePicker('permission')}
@@ -1302,6 +1355,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             </View>
                             {renderActivePickerPopover('machine')}
                             {renderActivePickerPopover('agent')}
+                            {renderActivePickerPopover('model')}
+                            {renderActivePickerPopover('effort')}
                             {renderActivePickerPopover('permission')}
                             {renderActivePickerPopover('worktree')}
 

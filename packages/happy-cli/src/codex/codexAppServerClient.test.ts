@@ -114,10 +114,35 @@ const sandboxConfig: SandboxConfig = {
 
 describe('CodexAppServerClient sandbox integration', () => {
     const originalRustLog = process.env.RUST_LOG;
+    const proxyEnvKeys = [
+        'HTTP_PROXY',
+        'HTTPS_PROXY',
+        'ALL_PROXY',
+        'http_proxy',
+        'https_proxy',
+        'all_proxy',
+        'HAPPY_CODEX_PROXY_URL',
+        'CODEX_PROXY_URL',
+    ] as const;
+    const originalProxyEnv = Object.fromEntries(
+        proxyEnvKeys.map((key) => [key, process.env[key]]),
+    ) as Record<(typeof proxyEnvKeys)[number], string | undefined>;
+
+    function restoreProxyEnv() {
+        for (const key of proxyEnvKeys) {
+            const value = originalProxyEnv[key];
+            if (typeof value === 'string') {
+                process.env[key] = value;
+            } else {
+                delete process.env[key];
+            }
+        }
+    }
 
     beforeEach(() => {
         vi.clearAllMocks();
         process.env.RUST_LOG = originalRustLog;
+        restoreProxyEnv();
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
@@ -126,6 +151,7 @@ describe('CodexAppServerClient sandbox integration', () => {
 
     afterAll(() => {
         process.env.RUST_LOG = originalRustLog;
+        restoreProxyEnv();
     });
 
     it('wraps transport when sandbox is enabled', async () => {
@@ -198,6 +224,36 @@ describe('CodexAppServerClient sandbox integration', () => {
             expect.objectContaining({
                 env: expect.objectContaining({
                     RUST_LOG: 'info,codex_core=warn,codex_core::rollout::list=off',
+                }),
+            }),
+        );
+
+        await client.disconnect();
+    });
+
+    it('overrides inherited ReClaude proxy with the Codex-specific proxy for app-server', async () => {
+        process.env.HTTP_PROXY = 'http://127.0.0.1:52722';
+        process.env.HTTPS_PROXY = 'http://127.0.0.1:52722';
+        process.env.http_proxy = 'http://127.0.0.1:52722';
+        process.env.https_proxy = 'http://127.0.0.1:52722';
+        process.env.HAPPY_CODEX_PROXY_URL = 'http://127.0.0.1:10802';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+            'codex',
+            ['app-server', '--listen', 'stdio://'],
+            expect.objectContaining({
+                env: expect.objectContaining({
+                    HTTP_PROXY: 'http://127.0.0.1:10802',
+                    HTTPS_PROXY: 'http://127.0.0.1:10802',
+                    ALL_PROXY: 'http://127.0.0.1:10802',
+                    http_proxy: 'http://127.0.0.1:10802',
+                    https_proxy: 'http://127.0.0.1:10802',
+                    all_proxy: 'http://127.0.0.1:10802',
+                    HAPPY_CODEX_PROXY_URL: 'http://127.0.0.1:10802',
                 }),
             }),
         );
@@ -487,6 +543,269 @@ describe('CodexAppServerClient sandbox integration', () => {
                 content: [{ type: 'input_text', text: 'hello' }],
             }],
         });
+
+        await client.disconnect();
+    });
+
+    it('gets, sets, and clears Codex thread goals through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const goal = {
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            status: 'active',
+            tokenBudget: 200000,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            createdAt: 1776272400,
+            updatedAt: 1776272400,
+        };
+        const proc = createMockProcess({
+            pid: 2551,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+
+                if (msg.method === 'thread/goal/set' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { goal },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'thread/goal/get' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { goal },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'thread/goal/clear' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { cleared: true },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.setThreadGoal({
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            tokenBudget: 200000,
+        })).resolves.toEqual({ goal });
+        await expect(client.getThreadGoal({ threadId: 'thread-goal' })).resolves.toEqual({ goal });
+        await expect(client.clearThreadGoal({ threadId: 'thread-goal' })).resolves.toEqual({ cleared: true });
+
+        expect(requests.find((msg) => msg.method === 'thread/goal/set')?.params).toEqual({
+            threadId: 'thread-goal',
+            objective: 'Reduce p95 latency',
+            tokenBudget: 200000,
+        });
+        expect(requests.find((msg) => msg.method === 'thread/goal/get')?.params).toEqual({
+            threadId: 'thread-goal',
+        });
+        expect(requests.find((msg) => msg.method === 'thread/goal/clear')?.params).toEqual({
+            threadId: 'thread-goal',
+        });
+
+        await client.disconnect();
+    });
+
+    it('reads account token usage through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const usage = {
+            summary: {
+                lifetimeTokens: 1200000,
+                currentStreakDays: 3,
+                longestStreakDays: 8,
+                peakDailyTokens: 450000,
+                longestRunningTurnSec: 3600,
+            },
+            dailyUsageBuckets: [
+                { startDate: '2026-07-04', tokens: 100000 },
+                { startDate: '2026-07-05', tokens: 200000 },
+            ],
+        };
+        const proc = createMockProcess({
+            pid: 2552,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'account/usage/read' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: usage });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.readAccountUsage()).resolves.toEqual(usage);
+        expect(requests.find((msg) => msg.method === 'account/usage/read')?.params).toBeUndefined();
+
+        await client.disconnect();
+    });
+
+    it('lists MCP server status through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const response = {
+            data: [{
+                name: 'happy',
+                authStatus: 'unsupported',
+                tools: {
+                    send_image: { name: 'send_image', inputSchema: {} },
+                    change_title: { name: 'change_title', inputSchema: {} },
+                },
+                resources: [],
+                resourceTemplates: [],
+            }],
+            nextCursor: null,
+        };
+        const proc = createMockProcess({
+            pid: 2553,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'mcpServerStatus/list' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: response });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.listMcpServerStatus({
+            threadId: 'thread-mcp',
+            detail: 'toolsAndAuthOnly',
+            limit: 50,
+        })).resolves.toEqual(response);
+        expect(requests.find((msg) => msg.method === 'mcpServerStatus/list')?.params).toEqual({
+            threadId: 'thread-mcp',
+            detail: 'toolsAndAuthOnly',
+            cursor: null,
+            limit: 50,
+        });
+
+        await client.disconnect();
+    });
+
+    it('starts compact and review turns through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const proc = createMockProcess({
+            pid: 2554,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'thread/compact/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, { id: msg.id, result: {} });
+                    }, 0);
+                }
+                if (msg.method === 'review/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-review', status: 'inProgress', items: [], error: null },
+                                reviewThreadId: 'thread-review',
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        await expect(client.startCompact({ threadId: 'thread-compact' })).resolves.toEqual({});
+        await expect(client.startReview({
+            threadId: 'thread-review',
+            target: { type: 'custom', instructions: 'focus on regressions' },
+            delivery: 'inline',
+        })).resolves.toEqual({
+            turn: { id: 'turn-review', status: 'inProgress', items: [], error: null },
+            reviewThreadId: 'thread-review',
+        });
+        expect(requests.find((msg) => msg.method === 'thread/compact/start')?.params).toEqual({
+            threadId: 'thread-compact',
+        });
+        expect(requests.find((msg) => msg.method === 'review/start')?.params).toEqual({
+            threadId: 'thread-review',
+            target: { type: 'custom', instructions: 'focus on regressions' },
+            delivery: 'inline',
+        });
+
+        await client.disconnect();
+    });
+
+    it('emits inline review results from exitedReviewMode items', async () => {
+        const proc = createMockProcess({
+            pid: 2555,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'review/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-review-inline', status: 'inProgress', items: [], error: null },
+                                reviewThreadId: 'thread-review-inline',
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-review-inline',
+                                turnId: 'turn-review-inline',
+                                item: {
+                                    type: 'exitedReviewMode',
+                                    id: 'review-item-1',
+                                    review: 'Findings: none.',
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await expect(client.startReviewAndWait({
+            threadId: 'thread-review-inline',
+            target: { type: 'uncommittedChanges' },
+            delivery: 'inline',
+        })).resolves.toEqual({ aborted: false });
+
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'agent_message', message: 'Findings: none.', item_id: 'review-item-1' }),
+            expect.objectContaining({ type: 'task_complete', turn_id: 'turn-review-inline' }),
+        ]));
 
         await client.disconnect();
     });
@@ -1075,6 +1394,127 @@ describe('CodexAppServerClient sandbox integration', () => {
                     content: {},
                     _meta: null,
                 },
+            }),
+        ]));
+
+        await client.disconnect();
+    });
+
+    it('lists models through model/list', async () => {
+        const requests: MockRpcMessage[] = [];
+        const proc = createMockProcess({
+            pid: 3008,
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+
+                if (msg.method === 'model/list' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                data: [{
+                                    id: 'm1',
+                                    model: 'gpt-5.5',
+                                    displayName: 'GPT-5.5',
+                                    description: 'Primary model',
+                                    hidden: false,
+                                    supportedReasoningEfforts: [
+                                        { reasoningEffort: 'medium', description: 'Balanced' },
+                                        { reasoningEffort: 'xhigh', description: 'Deepest' },
+                                    ],
+                                    defaultReasoningEffort: 'medium',
+                                    isDefault: true,
+                                }],
+                                nextCursor: null,
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+        const result = await client.listModels({ includeHidden: true, limit: 10 });
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]).toEqual(expect.objectContaining({
+            model: 'gpt-5.5',
+            defaultReasoningEffort: 'medium',
+        }));
+        expect(requests.find((msg) => msg.method === 'model/list')?.params).toEqual({
+            cursor: null,
+            includeHidden: true,
+            limit: 10,
+        });
+
+        await client.disconnect();
+    });
+
+    it('forwards thread/settings/updated notifications to the event handler', async () => {
+        const proc = createMockProcess({
+            pid: 3009,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-settings-1', path: '/tmp/thread-settings-1' },
+                                model: 'gpt-5.4',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'readOnly' },
+                                reasoningEffort: 'high',
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'thread/settings/updated',
+                            params: {
+                                threadId: 'thread-settings-1',
+                                threadSettings: {
+                                    model: 'gpt-5.4',
+                                    effort: 'xhigh',
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-5.4',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+        });
+
+        await waitFor(() => events.some((event) => event.type === 'thread_settings_updated'));
+
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                type: 'thread_settings_updated',
+                thread_id: 'thread-settings-1',
+                thread_settings: expect.objectContaining({
+                    model: 'gpt-5.4',
+                    effort: 'xhigh',
+                }),
             }),
         ]));
 

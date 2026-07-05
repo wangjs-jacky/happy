@@ -16,7 +16,7 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
-import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
+import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
 import {
@@ -50,6 +50,11 @@ import { getFriendsList, getUserProfile } from './apiFriends';
 import { fetchFeed } from './apiFeed';
 import { FeedItem } from './feedTypes';
 import { UserProfile } from './friendTypes';
+import {
+    getInitialSessionEventLocalNotificationsEnabled,
+    maybeScheduleSessionEventLocalNotification,
+    shouldEnableSessionEventLocalNotifications,
+} from './sessionEventLocalNotification';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
@@ -57,6 +62,7 @@ import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import type { SessionApplyOptions } from './sessionApply';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -132,6 +138,7 @@ class Sync {
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
     private backgroundSendStartedAt: number | null = null;
+    private sessionEventLocalNotificationsEnabled = getInitialSessionEventLocalNotificationsEnabled();
     revenueCatInitialized = false;
 
     // Generic locking mechanism
@@ -296,6 +303,10 @@ class Sync {
         if (session) {
             voiceHooks.onSessionFocus(sessionId, session.metadata || undefined);
         }
+    }
+
+    ensureMessagesLoaded = async (sessionId: string): Promise<void> => {
+        await this.getMessagesSync(sessionId).invalidateAndAwait();
     }
 
     private getMessagesSync(sessionId: string): InvalidateSync {
@@ -689,7 +700,7 @@ class Sync {
             },
             meta: {
                 sentFrom,
-                appendSystemPrompt: systemPrompt,
+                appendSystemPrompt: [systemPrompt, storage.getState().settings.customInstructions?.trim()].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
@@ -721,10 +732,13 @@ class Sync {
     }
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
-    private applyServerSettings = (serverSettings: Settings, version: number) => {
-        const merged = Object.keys(this.pendingSettings).length > 0
-            ? applySettings(serverSettings, this.pendingSettings)
-            : serverSettings;
+    private applyServerSettings = (serverSettings: Settings, version: number, rawServerSettings: unknown) => {
+        const merged = mergeServerSettings(
+            storage.getState().settings,
+            serverSettings,
+            this.pendingSettings,
+            rawServerSettings,
+        );
         storage.getState().applySettings(merged, version);
     }
 
@@ -975,7 +989,7 @@ class Sync {
         }
 
         // Apply to storage
-        this.applySessions(decryptedSessions);
+        this.applySessions(decryptedSessions, { replace: true });
         log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
 
     }
@@ -1562,15 +1576,16 @@ class Sync {
                 }
                 if (data.error === 'version-mismatch') {
                     // Parse server settings
-                    const serverSettings = data.currentSettings
-                        ? settingsParse(await this.encryption.decryptRaw(data.currentSettings))
+                    const rawServerSettings = data.currentSettings
+                        ? await this.encryption.decryptRaw(data.currentSettings)
+                        : null;
+                    const serverSettings = rawServerSettings
+                        ? settingsParse(rawServerSettings)
                         : { ...settingsDefaults };
 
-                    // Merge: server base + our pending changes (our changes win)
-                    const mergedSettings = applySettings(serverSettings, this.pendingSettings);
-
                     // Update local storage with merged result at server's version
-                    this.applyServerSettings(mergedSettings, data.currentVersion);
+                    this.applyServerSettings(serverSettings, data.currentVersion, rawServerSettings);
+                    const mergedSettings = storage.getState().settings;
 
                     // Sync tracking state with merged settings
                     if (tracking) {
@@ -1613,9 +1628,13 @@ class Sync {
         };
 
         // Parse response
+        let rawServerSettings: unknown = null;
         let parsedSettings: Settings;
         if (data.settings) {
-            parsedSettings = settingsParse(await this.encryption.decryptRaw(data.settings));
+            rawServerSettings = await this.encryption.decryptRaw(data.settings);
+            parsedSettings = rawServerSettings
+                ? settingsParse(rawServerSettings)
+                : { ...settingsDefaults };
         } else {
             parsedSettings = { ...settingsDefaults };
         }
@@ -1627,7 +1646,7 @@ class Sync {
         }));
 
         // Apply settings to storage, re-layering any pending local changes on top
-        this.applyServerSettings(parsedSettings, data.settingsVersion);
+        this.applyServerSettings(parsedSettings, data.settingsVersion, rawServerSettings);
 
         // Sync PostHog opt-out state with settings
         if (tracking) {
@@ -2076,7 +2095,10 @@ class Sync {
                 registered: result.registered,
                 hasToken: !!result.token,
                 permission: result.permission.status,
+                error: result.error,
             }));
+            this.sessionEventLocalNotificationsEnabled = shouldEnableSessionEventLocalNotifications(result);
+            log.log('Session-event local notification fallback: ' + (this.sessionEventLocalNotificationsEnabled ? 'enabled' : 'disabled'));
             if (!result.permission.granted) {
                 console.log('Failed to get push token for push notification!');
             }
@@ -2228,19 +2250,7 @@ class Sync {
             // Remove session from storage
             storage.getState().deleteSession(sessionId);
 
-            // Remove encryption keys from memory
-            this.encryption.removeSessionEncryption(sessionId);
-
-            // Clear any cached git status
-            gitStatusSync.clearForSession(sessionId);
-            this.messagesSync.delete(sessionId);
-            this.sendSync.delete(sessionId);
-            this.pendingOutbox.delete(sessionId);
-            this.sessionLastSeq.delete(sessionId);
-            this.sessionOldestSeq.delete(sessionId);
-            this.sessionMessageLocks.delete(sessionId);
-            this.sessionMessageQueue.delete(sessionId);
-            this.sessionQueueProcessing.delete(sessionId);
+            this.clearSessionRuntimeState(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -2351,7 +2361,9 @@ class Sync {
             if (accountUpdate.settings?.value) {
                 try {
                     const decryptedSettings = await this.encryption.decryptRaw(accountUpdate.settings.value);
-                    const parsedSettings = settingsParse(decryptedSettings);
+                    const parsedSettings = decryptedSettings
+                        ? settingsParse(decryptedSettings)
+                        : { ...settingsDefaults };
 
                     // Version compatibility check
                     const settingsSchemaVersion = parsedSettings.schemaVersion ?? 1;
@@ -2362,7 +2374,7 @@ class Sync {
                         );
                     }
 
-                    this.applyServerSettings(parsedSettings, accountUpdate.settings.version);
+                    this.applyServerSettings(parsedSettings, accountUpdate.settings.version, decryptedSettings);
                     log.log(`📋 Settings synced from server (schema v${settingsSchemaVersion}, version ${accountUpdate.settings.version})`);
                 } catch (error) {
                     console.error('❌ Failed to process settings update:', error);
@@ -2717,6 +2729,9 @@ class Sync {
         // unread counter on these only, ignore the noisy per-message stream.
         if (updateData.type === 'session-event') {
             notifyUnreadMessage();
+            void maybeScheduleSessionEventLocalNotification(updateData, {
+                enabled: this.sessionEventLocalNotificationsEnabled,
+            });
         }
 
         // daemon-status ephemeral updates are deprecated, machine status is handled via machine-activity
@@ -2745,11 +2760,35 @@ class Sync {
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
         presence?: "online" | number;
-    })[]) => {
+    })[], options?: SessionApplyOptions) => {
+        const removedSessionIds = options?.replace
+            ? this.getSessionIdsMissingFromSnapshot(sessions)
+            : [];
         const active = storage.getState().getActiveSessions();
-        storage.getState().applySessions(sessions);
+        storage.getState().applySessions(sessions, options);
+        for (const sessionId of removedSessionIds) {
+            this.clearSessionRuntimeState(sessionId);
+        }
         const newActive = storage.getState().getActiveSessions();
         this.applySessionDiff(active, newActive);
+    }
+
+    private getSessionIdsMissingFromSnapshot(sessions: Array<{ id: string }>): string[] {
+        const incomingIds = new Set(sessions.map((session) => session.id));
+        return Object.keys(storage.getState().sessions).filter((sessionId) => !incomingIds.has(sessionId));
+    }
+
+    private clearSessionRuntimeState(sessionId: string) {
+        this.encryption?.removeSessionEncryption(sessionId);
+        gitStatusSync.clearForSession(sessionId);
+        this.messagesSync.delete(sessionId);
+        this.sendSync.delete(sessionId);
+        this.pendingOutbox.delete(sessionId);
+        this.sessionLastSeq.delete(sessionId);
+        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageLocks.delete(sessionId);
+        this.sessionMessageQueue.delete(sessionId);
+        this.sessionQueueProcessing.delete(sessionId);
     }
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {

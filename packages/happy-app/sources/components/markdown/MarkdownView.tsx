@@ -12,6 +12,8 @@ import { Modal } from '@/modal';
 import { useLocalSetting } from '@/sync/storage';
 import { storeTempText } from '@/sync/persistence';
 import { imageViewer } from '@/sync/imageViewer';
+import { OtaPreviewCard } from '@/components/OtaPreviewCard';
+import { FinanceChartCard } from '@/components/FinanceChartCard';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
@@ -19,6 +21,7 @@ import { MermaidRenderer } from './MermaidRenderer';
 import { t } from '@/text';
 import { isHttpMarkdownLink } from './linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { hapticsLight } from '../haptics';
 
 // Option type for callback
 export type Option = {
@@ -82,6 +85,10 @@ export const MarkdownView = React.memo((props: {
                         return <RenderTableBlock headers={block.headers} rows={block.rows} onLinkPress={handleLinkPress} selectable={selectable} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'image') {
                         return <RenderImageBlock url={block.url} alt={block.alt} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                    } else if (block.type === 'ota-preview') {
+                        return <RenderOtaPreviewBlock preview={block.preview} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                    } else if (block.type === 'finance-chart') {
+                        return <RenderFinanceChartBlock chart={block.chart} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else {
                         return null;
                     }
@@ -103,6 +110,7 @@ export const MarkdownView = React.memo((props: {
     const longPressGesture = Gesture.LongPress()
         .minDuration(500)
         .onStart(() => {
+            hapticsLight();
             handleLongPress();
         })
         .runOnJS(true);
@@ -226,6 +234,22 @@ function RenderImageBlock(props: { url: string, alt: string, first: boolean, las
             {props.alt ? (
                 <Text style={style.imageCaption}>{props.alt}</Text>
             ) : null}
+        </View>
+    );
+}
+
+function RenderOtaPreviewBlock(props: { preview: import('@/utils/sessionOtaPreviews').SessionOtaPreview, first: boolean, last: boolean }) {
+    return (
+        <View style={[style.otaPreviewBlock, props.first && style.first, props.last && style.last]}>
+            <OtaPreviewCard preview={props.preview} variant="message" />
+        </View>
+    );
+}
+
+function RenderFinanceChartBlock(props: { chart: import('@/utils/sessionFinanceCharts').SessionFinanceChart, first: boolean, last: boolean }) {
+    return (
+        <View style={[style.otaPreviewBlock, props.first && style.first, props.last && style.last]}>
+            <FinanceChartCard chart={props.chart} />
         </View>
     );
 }
@@ -613,6 +637,11 @@ const style = StyleSheet.create((theme) => ({
         fontSize: 14,
         lineHeight: 20,
         color: theme.colors.textSecondary,
+    },
+    otaPreviewBlock: {
+        width: '100%',
+        maxWidth: 520,
+        alignSelf: 'flex-start',
     },
     copyButtonContainer: {
         position: 'absolute',

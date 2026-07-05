@@ -24,6 +24,5 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro';
  * Used in system prompts to instruct agents to call change_title function
  */
 export const CHANGE_TITLE_INSTRUCTION = trimIdent(
-  `Based on this message, call functions.happy__change_title to change chat session title that would represent the current task. If chat idea would change dramatically - call this function again to update the title.`
+  `Based on this message, call functions.happy__change_title to change chat session title that would represent the current task. If chat idea would change dramatically - call this function again to update the title. If the user explicitly asks to archive, close, or end the current Happy chat session after finishing the task, complete the task first and then call functions.happy__archive_session.`
 );
-

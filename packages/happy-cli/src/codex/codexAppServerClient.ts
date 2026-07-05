@@ -32,6 +32,16 @@ import type {
     InjectItemsParams,
     InjectItemsResponse,
     Thread,
+    ThreadGoalClearResponse,
+    ThreadGoalGetResponse,
+    ThreadGoalSetResponse,
+    ThreadGoalStatus,
+    GetAccountTokenUsageResponse,
+    ListMcpServerStatusParams,
+    ListMcpServerStatusResponse,
+    ReviewStartParams,
+    ReviewStartResponse,
+    ThreadCompactStartResponse,
     InterruptConversationParams,
     ReviewDecision,
     EventMsg,
@@ -40,8 +50,11 @@ import type {
     ApprovalPolicy,
     SandboxMode,
     InputItem,
+    ModelListParams,
+    ModelListResponse,
     ReasoningEffort,
     McpServerElicitationRequestResponse,
+    ThreadSettings,
 } from './codexAppServerTypes';
 import type { SandboxConfig } from '@/persistence';
 import { initializeSandbox, wrapForMcpTransport } from '@/sandbox/manager';
@@ -84,6 +97,27 @@ function isAppServerAvailable(): boolean {
     } catch {
         return false;
     }
+}
+
+function buildCodexProcessEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (typeof value === 'string') {
+            env[key] = value;
+        }
+    }
+
+    const codexProxy = env.HAPPY_CODEX_PROXY_URL || env.CODEX_PROXY_URL;
+    if (codexProxy) {
+        env.HTTP_PROXY = codexProxy;
+        env.HTTPS_PROXY = codexProxy;
+        env.ALL_PROXY = codexProxy;
+        env.http_proxy = codexProxy;
+        env.https_proxy = codexProxy;
+        env.all_proxy = codexProxy;
+    }
+
+    return env;
 }
 
 function normalizeRawFileChangeList(changes: unknown): LegacyPatchChanges | undefined {
@@ -236,6 +270,7 @@ export class CodexAppServerClient {
         const isRawNotification = method === 'thread/started'
             || method === 'turn/started'
             || method === 'turn/completed'
+            || method === 'thread/settings/updated'
             || method === 'thread/status/changed'
             || method === 'thread/tokenUsage/updated'
             || method.startsWith('item/');
@@ -316,6 +351,19 @@ export class CodexAppServerClient {
                 params?.turn?.error ?? params?.error,
                 method,
             );
+            return true;
+        }
+
+        if (method === 'thread/settings/updated') {
+            const threadId = typeof params?.threadId === 'string' ? params.threadId : null;
+            const threadSettings = params?.threadSettings as ThreadSettings | undefined;
+            if (threadSettings && typeof threadSettings.model === 'string') {
+                this.eventHandler?.({
+                    type: 'thread_settings_updated',
+                    ...(threadId ? { thread_id: threadId } : {}),
+                    thread_settings: threadSettings,
+                });
+            }
             return true;
         }
 
@@ -427,6 +475,28 @@ export class CodexAppServerClient {
             return true;
         }
 
+        if (method === 'item/completed' && item.type === 'exitedReviewMode') {
+            const review = typeof item.review === 'string' ? item.review : '';
+            if (review.length > 0) {
+                this.eventHandler?.({
+                    type: 'agent_message',
+                    message: review,
+                    item_id: item.id,
+                    phase: 'final_answer',
+                });
+            }
+
+            if (this.pendingTurnCompletion) {
+                this.emitRawTurnCompletion(
+                    this.extractTurnId(params),
+                    'completed',
+                    null,
+                    `${method}:exitedReviewMode`,
+                );
+            }
+            return true;
+        }
+
         return method.startsWith('item/');
     }
 
@@ -463,11 +533,8 @@ export class CodexAppServerClient {
             }
         }
 
-        // Build env — same filtering as the old MCP client
-        const env: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
-            if (typeof value === 'string') env[key] = value;
-        }
+        // Build env — same filtering as the old MCP client, with Codex-specific proxy isolation.
+        const env = buildCodexProcessEnv();
         // Mute noisy rollout list logging
         const filter = 'codex_core::rollout::list=off';
         if (!env.RUST_LOG) {
@@ -624,6 +691,15 @@ export class CodexAppServerClient {
         };
     }
 
+    async listModels(opts?: ModelListParams): Promise<ModelListResponse> {
+        const params: ModelListParams = {
+            cursor: opts?.cursor ?? null,
+            includeHidden: opts?.includeHidden ?? null,
+            limit: opts?.limit ?? null,
+        };
+        return await this.request('model/list', params) as ModelListResponse;
+    }
+
     // ─── Thread management ──────────────────────────────────────
 
     async startThread(opts: {
@@ -632,7 +708,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
-    }): Promise<{ threadId: string; model: string }> {
+    }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
         const params: NewConversationParams = {
             model: opts.model ?? null,
             modelProvider: null,
@@ -652,9 +728,12 @@ export class CodexAppServerClient {
         const result = await this.request('thread/start', params) as NewConversationResponse;
         this._threadId = result.thread.id;
         this._turnId = null;
-        this.rememberThreadDefaults(opts);
+        this.rememberThreadDefaults({
+            ...opts,
+            model: opts.model ?? result.model,
+        });
         logger.debug('[CodexAppServer] Thread started:', this._threadId);
-        return { threadId: result.thread.id, model: result.model };
+        return { threadId: result.thread.id, model: result.model, reasoningEffort: result.reasoningEffort };
     }
 
     async resumeThread(opts?: {
@@ -664,7 +743,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         mcpServers?: Record<string, unknown>;
-    }): Promise<{ threadId: string; model: string }> {
+    }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
         const threadId = opts?.threadId ?? this._threadId;
         if (!threadId) {
             throw new Error('No thread available to resume.');
@@ -688,14 +767,14 @@ export class CodexAppServerClient {
         this._threadId = result.thread.id;
         this._turnId = null;
         this.rememberThreadDefaults({
-            model: opts?.model ?? defaults.model,
+            model: opts?.model ?? defaults.model ?? result.model,
             cwd: opts?.cwd ?? defaults.cwd,
             approvalPolicy: opts?.approvalPolicy ?? defaults.approvalPolicy,
             sandbox: opts?.sandbox ?? defaults.sandbox,
             mcpServers: opts?.mcpServers ?? defaults.mcpServers,
         });
         logger.debug('[CodexAppServer] Thread resumed:', this._threadId);
-        return { threadId: result.thread.id, model: result.model };
+        return { threadId: result.thread.id, model: result.model, reasoningEffort: result.reasoningEffort };
     }
 
     async forkThread(opts: {
@@ -766,6 +845,70 @@ export class CodexAppServerClient {
             items: opts.items,
         };
         return await this.request('thread/inject_items', params) as InjectItemsResponse;
+    }
+
+    async setThreadGoal(opts: {
+        threadId?: string;
+        objective?: string | null;
+        status?: ThreadGoalStatus | null;
+        tokenBudget?: number | null;
+    }): Promise<ThreadGoalSetResponse> {
+        const threadId = opts.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to set a goal.');
+        }
+
+        const params: Record<string, unknown> = { threadId };
+        if (opts.objective !== undefined) params.objective = opts.objective;
+        if (opts.status !== undefined) params.status = opts.status;
+        if (opts.tokenBudget !== undefined) params.tokenBudget = opts.tokenBudget;
+
+        return await this.request('thread/goal/set', params) as ThreadGoalSetResponse;
+    }
+
+    async getThreadGoal(opts?: { threadId?: string }): Promise<ThreadGoalGetResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to read a goal.');
+        }
+
+        return await this.request('thread/goal/get', { threadId }) as ThreadGoalGetResponse;
+    }
+
+    async clearThreadGoal(opts?: { threadId?: string }): Promise<ThreadGoalClearResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to clear a goal.');
+        }
+
+        return await this.request('thread/goal/clear', { threadId }) as ThreadGoalClearResponse;
+    }
+
+    async readAccountUsage(): Promise<GetAccountTokenUsageResponse> {
+        return await this.request('account/usage/read') as GetAccountTokenUsageResponse;
+    }
+
+    async listMcpServerStatus(opts?: ListMcpServerStatusParams): Promise<ListMcpServerStatusResponse> {
+        const params: ListMcpServerStatusParams = {
+            threadId: opts?.threadId ?? null,
+            detail: opts?.detail ?? null,
+            cursor: opts?.cursor ?? null,
+            limit: opts?.limit ?? null,
+        };
+        return await this.request('mcpServerStatus/list', params) as ListMcpServerStatusResponse;
+    }
+
+    async startCompact(opts?: { threadId?: string }): Promise<ThreadCompactStartResponse> {
+        const threadId = opts?.threadId ?? this._threadId;
+        if (!threadId) {
+            throw new Error('No thread available to compact.');
+        }
+
+        return await this.request('thread/compact/start', { threadId }) as ThreadCompactStartResponse;
+    }
+
+    async startReview(opts: ReviewStartParams): Promise<ReviewStartResponse> {
+        return await this.request('review/start', opts) as ReviewStartResponse;
     }
 
     async reconnectAndResumeThread(): Promise<boolean> {
@@ -1002,6 +1145,70 @@ export class CodexAppServerClient {
         const aborted = await completion;
         if (timer) clearTimeout(timer);
         return { aborted };
+    }
+
+    private async waitForServerStartedTurn(
+        start: () => Promise<{ turn?: { id?: string | null } } | Record<string, unknown>>,
+        timeoutMs: number = CodexAppServerClient.TURN_TIMEOUT_MS,
+    ): Promise<{ aborted: boolean }> {
+        if (this.pendingInterrupt) {
+            await this.pendingInterrupt;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const completion = new Promise<boolean>((resolve) => {
+            this.pendingTurnCompletion = {
+                resolve,
+                turnId: null,
+            };
+
+            timer = setTimeout(() => {
+                if (this.pendingTurnCompletion) {
+                    logger.warn(`[CodexAppServer] Server-started turn timed out after ${timeoutMs}ms — treating as abort`);
+                    this.resolvePendingTurn(true);
+                }
+            }, timeoutMs);
+        });
+
+        try {
+            const result = await start();
+            const turn = (result as { turn?: { id?: string | null } }).turn;
+            const turnId = turn?.id;
+            if (typeof turnId === 'string' && turnId.length > 0) {
+                this._turnId = turnId;
+                if (this.pendingTurnCompletion) {
+                    this.pendingTurnCompletion.turnId = turnId;
+                }
+            }
+        } catch (err) {
+            if (timer) clearTimeout(timer);
+            this.pendingTurnCompletion = null;
+            throw err;
+        }
+
+        const aborted = await completion;
+        if (timer) clearTimeout(timer);
+        return { aborted };
+    }
+
+    async startCompactAndWait(opts?: {
+        threadId?: string;
+        turnTimeoutMs?: number;
+    }): Promise<{ aborted: boolean }> {
+        return this.waitForServerStartedTurn(
+            () => this.startCompact({ threadId: opts?.threadId }),
+            opts?.turnTimeoutMs,
+        );
+    }
+
+    async startReviewAndWait(opts: ReviewStartParams & {
+        turnTimeoutMs?: number;
+    }): Promise<{ aborted: boolean }> {
+        return this.waitForServerStartedTurn(
+            () => this.startReview(opts),
+            opts.turnTimeoutMs,
+        );
     }
 
     async interruptTurn(): Promise<void> {

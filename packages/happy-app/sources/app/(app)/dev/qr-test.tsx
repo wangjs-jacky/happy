@@ -4,6 +4,7 @@ import { QRCode } from '@/components/qr';
 import { RoundButton } from '@/components/RoundButton';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { t } from '@/text';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -56,11 +57,11 @@ export default function QRTest() {
     const [customData, setCustomData] = useState('Hello World!');
 
     const testData = [
-        { label: 'Simple Text', data: 'Hello QR Code!' },
-        { label: 'URL', data: 'https://github.com/slopus/happy' },
-        { label: 'Email', data: 'mailto:test@example.com' },
-        { label: 'Phone', data: 'tel:+1234567890' },
-        { label: 'WiFi', data: 'WIFI:T:WPA;S:MyNetwork;P:password123;H:false;;' },
+        { label: t('devTools.simpleText'), data: 'Hello QR Code!' },
+        { label: t('devTools.url'), data: 'https://github.com/slopus/happy' },
+        { label: t('devTools.email'), data: 'mailto:test@example.com' },
+        { label: t('devTools.phoneLabel'), data: 'tel:+1234567890' },
+        { label: t('devTools.wifi'), data: 'WIFI:T:WPA;S:MyNetwork;P:password123;H:false;;' },
     ];
 
     const sizes = [100, 150, 200, 250];
@@ -70,24 +71,24 @@ export default function QRTest() {
         <ScrollView style={styles.container}>
             {/* Custom QR Code */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Custom QR Code</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.customQrCode')}</Text>
                 <TextInput
                     style={styles.input}
                     value={customData}
                     onChangeText={setCustomData}
-                    placeholder="Enter your data here..."
+                    placeholder={t('devTools.enterDataHere')}
                     placeholderTextColor={theme.colors.input.placeholder}
                     multiline
                 />
                 <View style={styles.qrContainer}>
-                    <Text style={styles.qrLabel}>Custom Data</Text>
+                    <Text style={styles.qrLabel}>{t('devTools.customData')}</Text>
                     <QRCode data={customData} size={200} />
                 </View>
             </View>
 
             {/* Predefined Examples */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Example QR Codes</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.exampleQrCodes')}</Text>
                 {testData.map((item, index) => (
                     <View key={index} style={styles.qrContainer}>
                         <Text style={styles.qrLabel}>{item.label}: {item.data}</Text>
@@ -98,7 +99,7 @@ export default function QRTest() {
 
             {/* Different Sizes */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Different Sizes</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.differentSizes')}</Text>
                 <View style={styles.row}>
                     {sizes.map((size) => (
                         <View key={size} style={[styles.qrContainer, { margin: 5 }]}>
@@ -111,7 +112,7 @@ export default function QRTest() {
 
             {/* Error Correction Levels */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Error Correction Levels</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.errorCorrectionLevels')}</Text>
                 <View style={styles.row}>
                     {errorLevels.map((level) => (
                         <View key={level} style={[styles.qrContainer, { margin: 5 }]}>
@@ -128,10 +129,10 @@ export default function QRTest() {
 
             {/* Color Variations */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Color Variations</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.colorVariations')}</Text>
                 <View style={styles.row}>
                     <View style={[styles.qrContainer, { margin: 5 }]}>
-                        <Text style={styles.qrLabel}>Blue on White</Text>
+                        <Text style={styles.qrLabel}>{t('devTools.blueOnWhite')}</Text>
                         <QRCode 
                             data="Blue QR Code" 
                             size={150} 
@@ -140,7 +141,7 @@ export default function QRTest() {
                         />
                     </View>
                     <View style={[styles.qrContainer, { margin: 5 }]}>
-                        <Text style={styles.qrLabel}>White on Dark</Text>
+                        <Text style={styles.qrLabel}>{t('devTools.whiteOnDark')}</Text>
                         <QRCode 
                             data="White QR Code" 
                             size={150} 
@@ -153,9 +154,9 @@ export default function QRTest() {
 
             {/* Long Text Test */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Long Text Handling</Text>
+                <Text style={styles.sectionTitle}>{t('devTools.longTextHandling')}</Text>
                 <View style={styles.qrContainer}>
-                    <Text style={styles.qrLabel}>Long text with multiple lines</Text>
+                    <Text style={styles.qrLabel}>{t('devTools.longTextWithMultipleLines')}</Text>
                     <QRCode 
                         data="This is a very long text that should be encoded into a QR code to test how the component handles larger amounts of data. The QR code should automatically adjust its version to accommodate all this text while maintaining readability and scannability."
                         size={250}

@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { Platform, ScrollView, ScrollViewProps, LayoutChangeEvent } from 'react-native';
+import { Platform, ScrollView, ScrollViewProps, LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
+import { useSharedValue } from 'react-native-reanimated';
 
 // Gesture-locked horizontal wheel scroll.
 //
@@ -91,43 +92,62 @@ function WebHorizontalScrollView(props: Props) {
     );
 }
 
-// Native: a wide table renders inside the drawer's full-screen open gesture —
+// Native: a wide table lives inside the drawer's full-screen open gesture —
 // SidebarNavigator sets `swipeEdgeWidth = windowWidth`, so the drawer's pan
-// listens across the whole screen and was swallowing horizontal drags meant for
-// the table, leaving the table unscrollable.
+// listens across the whole screen. Worse, that pan activates SYMMETRICALLY
+// (`activeOffsetX([-5, 5])` in react-native-drawer-layout), so a closed left
+// drawer grabs BOTH left- and right-going swipes — a plain native ScrollView
+// never gets to scroll, and an unconditional `blocksExternalGesture` made the
+// table win even when it had nothing left to scroll (dead zones at the edges).
 //
-// Fix: give the table's own scroll gesture priority over the drawer, but ONLY
-// while the content actually overflows horizontally. We grab the drawer's pan
-// from DrawerGestureContext (react-native-drawer-layout, the engine under
-// @react-navigation/drawer) and have the ScrollView's native gesture
-// `blocksExternalGesture(drawerPan)`: a horizontal pan started on an
-// overflowing table scrolls the table and the drawer stays put. Everywhere else
-// — empty space, text, bubbles, and tables that already fit — the drawer's
-// open-anywhere swipe is completely untouched.
+// We instead arbitrate ONCE at the start of each drag with a manual-activation
+// Pan, using only two signals — swipe direction and current scrollLeft — which
+// fully disambiguate intent (there is no genuinely ambiguous case):
 //
-// drawerPan is undefined when the table is rendered outside any drawer (e.g. a
-// modal); then there's nothing to contend with and we just scroll normally.
+//   • vertical drag                  → yield (FlatList scrolls; drawer self-fails via failOffsetY)
+//   • table doesn't overflow         → yield (nothing to scroll → keep the open-anywhere drawer)
+//   • swipe right while at left edge  → yield (table can't go further left → open the drawer)
+//   • everything else                → claim (scroll the table, block the drawer)
+//
+// "Claim" blocks the drawer and runs simultaneously with the ScrollView's own
+// native recognizer, so native momentum / bounce is preserved — we never drive
+// the scroll by hand. The owner is decided once per drag (RNGH can't transfer
+// an active gesture mid-drag); at an edge you lift and swipe again, the standard
+// native nested-scroll convention.
+//
+// drawerPan is undefined when rendered outside any drawer (e.g. a modal); then
+// there's nothing to contend with and we just scroll normally.
+
+const EDGE_EPS = 1;       // px tolerance for treating the table as "at the left edge"
+const DECIDE_OFFSET = 6;  // px of finger travel before we commit the drag to an owner
+
 function NativeHorizontalScrollView(props: Props) {
     const {
         showsHorizontalScrollIndicator = true,
         nestedScrollEnabled = true,
         onLayout,
         onContentSizeChange,
+        onScroll,
+        scrollEventThrottle,
         ...rest
     } = props;
 
     const drawerPan = React.useContext(DrawerGestureContext);
 
+    // Shared values are read inside the gesture worklet on the UI thread.
+    const scrollX = useSharedValue(0);
+    const canScroll = useSharedValue(false);
+    const startX = useSharedValue(0);
+    const startY = useSharedValue(0);
+    const decided = useSharedValue(false);
+
     // Only contend with the drawer when there's actually something to scroll, so
     // a narrow table that already fits keeps the open-anywhere swipe.
     const viewportWidth = React.useRef(0);
     const contentWidth = React.useRef(0);
-    const [hasOverflow, setHasOverflow] = React.useState(false);
-
     const recomputeOverflow = React.useCallback(() => {
-        const overflow = contentWidth.current > viewportWidth.current + 1;
-        setHasOverflow((prev) => (prev !== overflow ? overflow : prev));
-    }, []);
+        canScroll.value = contentWidth.current > viewportWidth.current + 1;
+    }, [canScroll]);
 
     const handleLayout = React.useCallback((e: LayoutChangeEvent) => {
         viewportWidth.current = e.nativeEvent.layout.width;
@@ -141,26 +161,63 @@ function NativeHorizontalScrollView(props: Props) {
         onContentSizeChange?.(w, h);
     }, [onContentSizeChange, recomputeOverflow]);
 
-    // Gesture.Native() represents the ScrollView's own scroll recognizer; we
-    // only attach the blocking relation while overflowing + inside a drawer.
-    // Changing the gesture object doesn't remount the ScrollView, so scroll
-    // position survives an overflow toggle.
-    const scrollGesture = React.useMemo(() => {
-        const g = Gesture.Native();
-        if (drawerPan && hasOverflow) {
-            g.blocksExternalGesture(drawerPan);
+    const handleScroll = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        scrollX.value = e.nativeEvent.contentOffset.x;
+        onScroll?.(e);
+    }, [scrollX, onScroll]);
+
+    // Gesture.Native() is the ScrollView's own scroll recognizer (kept for
+    // native momentum). The arbiter Pan only decides who owns the drag; it never
+    // moves content itself. Composing them with Gesture.Simultaneous lets the
+    // ScrollView keep scrolling while the arbiter blocks the drawer.
+    const gesture = React.useMemo(() => {
+        const native = Gesture.Native();
+        const arbiter = Gesture.Pan()
+            .manualActivation(true)
+            .onTouchesDown((e) => {
+                'worklet';
+                const t = e.allTouches[0];
+                if (!t) return;
+                startX.value = t.x;
+                startY.value = t.y;
+                decided.value = false;
+            })
+            .onTouchesMove((e, state) => {
+                'worklet';
+                if (decided.value) return;
+                const t = e.allTouches[0];
+                if (!t) return;
+                const dx = t.x - startX.value;
+                const dy = t.y - startY.value;
+                const adx = Math.abs(dx);
+                const ady = Math.abs(dy);
+                if (adx < DECIDE_OFFSET && ady < DECIDE_OFFSET) return;
+                decided.value = true;
+                // Vertical → list scrolls (the drawer self-fails on failOffsetY).
+                if (ady > adx) { state.fail(); return; }
+                // Nothing to scroll → keep the open-anywhere drawer.
+                if (!canScroll.value) { state.fail(); return; }
+                // Right-going swipe with the table already at its left edge is the
+                // sole case we hand to the drawer; everything else scrolls the table.
+                if (dx > 0 && scrollX.value <= EDGE_EPS) { state.fail(); return; }
+                state.activate();
+            });
+        if (drawerPan) {
+            arbiter.blocksExternalGesture(drawerPan);
         }
-        return g;
-    }, [drawerPan, hasOverflow]);
+        return Gesture.Simultaneous(native, arbiter);
+    }, [drawerPan, startX, startY, decided, canScroll, scrollX]);
 
     return (
-        <GestureDetector gesture={scrollGesture}>
+        <GestureDetector gesture={gesture}>
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={showsHorizontalScrollIndicator}
                 nestedScrollEnabled={nestedScrollEnabled}
                 onLayout={handleLayout}
                 onContentSizeChange={handleContentSizeChange}
+                onScroll={handleScroll}
+                scrollEventThrottle={scrollEventThrottle ?? 16}
                 {...rest}
             />
         </GestureDetector>

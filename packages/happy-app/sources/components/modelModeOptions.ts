@@ -88,11 +88,8 @@ export function getCodexModelModes(): ModelMode[] {
         { key: 'default', name: 'default model', description: null },
         { key: 'gpt-5.5', name: 'gpt-5.5', description: null },
         { key: 'gpt-5.4', name: 'gpt-5.4', description: null },
-        { key: 'gpt-5.3-codex', name: 'gpt-5.3-codex', description: null },
-        { key: 'gpt-5.2-codex', name: 'gpt-5.2-codex', description: null },
-        { key: 'gpt-5.1-codex-max', name: 'gpt-5.1-codex-max', description: null },
-        { key: 'gpt-5.2', name: 'gpt-5.2', description: null },
-        { key: 'gpt-5.1-codex-mini', name: 'gpt-5.1-codex-mini', description: null },
+        { key: 'gpt-5.4-mini', name: 'gpt-5.4-mini', description: null },
+        { key: 'gpt-5.3-codex-spark', name: 'gpt-5.3-codex-spark', description: null },
     ];
 }
 
@@ -107,12 +104,21 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
+export function getOpenCodePermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
+    ];
+}
+
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
     }
     if (flavor === 'gemini') {
         return getGeminiPermissionModes(translate);
+    }
+    if (flavor === 'opencode') {
+        return getOpenCodePermissionModes(translate);
     }
     if (flavor === 'openclaw') {
         return getOpenClawPermissionModes(translate);
@@ -126,12 +132,25 @@ export function getOpenClawModelModes(): ModelMode[] {
     ];
 }
 
+export function getOpenCodeModelModes(): ModelMode[] {
+    return [
+        { key: 'default', name: 'default model', description: null },
+        { key: 'deepseek/deepseek-v4-pro', name: 'deepseek v4 pro', description: 'most capable' },
+        { key: 'deepseek/deepseek-v4-flash', name: 'deepseek v4 flash', description: 'fast' },
+        { key: 'deepseek/deepseek-chat', name: 'deepseek chat', description: null },
+        { key: 'deepseek/deepseek-reasoner', name: 'deepseek reasoner', description: 'reasoning' },
+    ];
+}
+
 export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translate): ModelMode[] {
     if (flavor === 'codex') {
         return getCodexModelModes();
     }
     if (flavor === 'gemini') {
         return getGeminiModelModes();
+    }
+    if (flavor === 'opencode') {
+        return getOpenCodeModelModes();
     }
     if (flavor === 'openclaw') {
         return getOpenClawModelModes();
@@ -159,7 +178,7 @@ export function getAvailablePermissionModes(
     metadata: Metadata | null | undefined,
     translate: Translate,
 ): PermissionMode[] {
-    if (flavor === 'claude' || flavor === 'codex' || flavor === 'openclaw') {
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'opencode' || flavor === 'openclaw') {
         return hackModes(getHardcodedPermissionModes(flavor, translate));
     }
 
@@ -213,6 +232,8 @@ export function getClaudeEffortLevels(): EffortLevel[] {
 
 export function getCodexEffortLevels(): EffortLevel[] {
     return [
+        { key: 'default', name: 'default effort' },
+        { key: 'minimal', name: 'minimal' },
         { key: 'low', name: 'low' },
         { key: 'medium', name: 'medium' },
         { key: 'high', name: 'high' },
@@ -231,7 +252,7 @@ export function getDefaultEffortKey(flavor: AgentFlavor): string | null {
 }
 
 // Per-model effort: returns effort levels for a specific model, or empty if the model has no effort
-export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string): EffortLevel[] {
+export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, metadata?: Metadata | null): EffortLevel[] {
     // Claude and Codex expose effort/thought levels regardless of which
     // specific model is picked — the same low/medium/high/max scale applies
     // to the whole flavor (mirrors how Codex already worked, which the user
@@ -240,6 +261,13 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string):
         return getClaudeEffortLevels();
     }
     if (flavor === 'codex') {
+        const metadataEfforts = mapMetadataOptions(metadata?.thoughtLevels);
+        if (metadataEfforts.length > 0) {
+            return [
+                { key: 'default', name: 'default effort', description: null },
+                ...metadataEfforts.filter((level) => level.key !== 'default'),
+            ];
+        }
         return getCodexEffortLevels();
     }
     return [];
@@ -249,7 +277,7 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string):
 export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: string): string | null {
     const levels = getEffortLevelsForModel(flavor, modelKey);
     if (levels.length === 0) return null;
-    return getCodeAgentDefaults(flavor).effortLevel ?? levels[levels.length - 1].key;
+    return getCodeAgentDefaults(flavor).effortLevel ?? levels[0].key;
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {

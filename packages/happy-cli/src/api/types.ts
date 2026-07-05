@@ -138,6 +138,7 @@ export const MachineMetadataSchema = z.object({
     claude: z.boolean(),
     codex: z.boolean(),
     gemini: z.boolean(),
+    opencode: z.boolean(),
     openclaw: z.boolean(),
     detectedAt: z.number(),
   }).optional(),
@@ -151,6 +152,53 @@ export const MachineMetadataSchema = z.object({
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
+
+export const CodexUsageTokenTotalsSchema = z.object({
+  inputTokens: z.number(),
+  cachedInputTokens: z.number(),
+  outputTokens: z.number(),
+  reasoningOutputTokens: z.number(),
+  totalTokens: z.number(),
+})
+
+export const CodexUsageDaySchema = CodexUsageTokenTotalsSchema.extend({
+  date: z.string(),
+  tokenCountEvents: z.number(),
+  sessions: z.number(),
+  totalOnlyTokens: z.number(),
+})
+
+export const CodexUsageSnapshotSchema = z.object({
+  source: z.literal('codex-session-jsonl'),
+  codexHome: z.string(),
+  sessionsDir: z.string(),
+  timeZone: z.string(),
+  scannedAt: z.number(),
+  today: CodexUsageDaySchema.nullable(),
+  yesterday: CodexUsageDaySchema.nullable(),
+  days: z.array(CodexUsageDaySchema),
+  latestEvent: z.object({
+    timestamp: z.string(),
+    localDate: z.string(),
+    lastTokenUsage: CodexUsageTokenTotalsSchema,
+    sessionTotalTokenUsage: CodexUsageTokenTotalsSchema.optional(),
+    rateLimits: z.object({
+      planType: z.string().optional(),
+      primary: z.object({
+        usedPercent: z.number().optional(),
+        windowMinutes: z.number().optional(),
+        resetsAt: z.number().optional(),
+      }).optional(),
+      secondary: z.object({
+        usedPercent: z.number().optional(),
+        windowMinutes: z.number().optional(),
+        resetsAt: z.number().optional(),
+      }).optional(),
+      rateLimitReachedType: z.string().nullable().optional(),
+    }).optional(),
+  }).nullable(),
+  warnings: z.array(z.string()),
+})
 
 /**
  * Daemon state - dynamic runtime information (frequently updated)
@@ -168,7 +216,8 @@ export const DaemonStateSchema = z.object({
     z.union([
       z.enum(['mobile-app', 'cli', 'os-signal', 'unknown']),
       z.string() // Forward compatibility
-    ]).optional()
+    ]).optional(),
+  codexUsage: CodexUsageSnapshotSchema.optional(),
 })
 
 export type DaemonState = z.infer<typeof DaemonStateSchema>
@@ -190,6 +239,7 @@ export const MessageMetaSchema = z.object({
   sentFrom: z.string().optional(), // Source identifier
   permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'read-only', 'safe-yolo', 'yolo']).optional(), // Permission mode for this message
   model: z.string().nullable().optional(), // Model name for this message (null = reset)
+  effort: z.string().nullable().optional(), // Reasoning / thinking effort for this message (null = reset)
   fallbackModel: z.string().nullable().optional(), // Fallback model for this message (null = reset)
   customSystemPrompt: z.string().nullable().optional(), // Custom system prompt for this message (null = reset)
   appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
@@ -298,6 +348,9 @@ export type Metadata = {
   summary?: {
     text: string,
     updatedAt: number
+  },
+  capabilities?: {
+    regenerateTitle?: boolean
   },
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID

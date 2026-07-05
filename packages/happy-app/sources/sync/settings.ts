@@ -8,10 +8,19 @@ import { AgentDefaultOverridesSchema } from './agentDefaults';
 // Current schema version for backward compatibility
 export const SUPPORTED_SCHEMA_VERSION = 2;
 
+export const QuickPromptSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    prompt: z.string(),
+    createdAt: z.number().optional(),
+    updatedAt: z.number().optional(),
+});
+
 export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
 
+    customInstructions: z.string().describe('User-defined instructions appended to the system prompt of every message'),
     viewInline: z.boolean().describe('Whether to view inline tool calls'),
     inferenceOpenAIKey: z.string().nullish().describe('OpenAI API key for inference'),
     expandTodos: z.boolean().describe('Whether to expand todo lists'),
@@ -41,6 +50,7 @@ export const SettingsSchema = z.object({
         machineId: z.string(),
         path: z.string()
     })).describe('Last 10 machine-path combinations, ordered by most recent first'),
+    quickPrompts: z.array(QuickPromptSchema).describe('User-defined quick prompts that can be sent from the right-side capability hub'),
     lastUsedAgent: z.string().nullable().describe('Last selected agent type for new sessions'),
     lastUsedPermissionMode: z.string().nullable().describe('Last selected permission mode for new sessions'),
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
@@ -51,15 +61,29 @@ export const SettingsSchema = z.object({
             claude: z.boolean().optional(),
             codex: z.boolean().optional(),
             gemini: z.boolean().optional(),
+            opencode: z.boolean().optional(),
             openclaw: z.boolean().optional(),
         })).default({}),
         global: z.object({
             claude: z.boolean().optional(),
             codex: z.boolean().optional(),
             gemini: z.boolean().optional(),
+            opencode: z.boolean().optional(),
             openclaw: z.boolean().optional(),
         }).default({}),
     }).default({ perMachine: {}, global: {} }).describe('Tracks which CLI installation warnings user has dismissed (per-machine or globally)'),
+    agents: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        glyph: z.string(),
+        color: z.string(),
+        machineId: z.string(),
+        path: z.string(),
+        presets: z.array(z.object({
+            label: z.string(),
+            prompt: z.string(),
+        })).default([]),
+    })).default([]).describe('用户配置的「我的 Agent」快捷入口（机器+目录+预设指令）'),
 });
 
 //
@@ -76,6 +100,7 @@ export const SettingsSchema = z.object({
 const SettingsSchemaPartial = SettingsSchema.partial();
 
 export type Settings = z.infer<typeof SettingsSchema>;
+export type QuickPrompt = z.infer<typeof QuickPromptSchema>;
 
 //
 // Defaults
@@ -83,6 +108,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 
 export const settingsDefaults: Settings = {
     schemaVersion: SUPPORTED_SCHEMA_VERSION,
+    customInstructions: '',
     viewInline: false,
     inferenceOpenAIKey: null,
     expandTodos: true,
@@ -109,11 +135,13 @@ export const settingsDefaults: Settings = {
     voiceBypassToken: false,
     preferredLanguage: null,
     recentMachinePaths: [],
+    quickPrompts: [],
     lastUsedAgent: null,
     lastUsedPermissionMode: null,
     lastUsedModelMode: null,
     agentDefaultOverrides: {},
     dismissedCLIWarnings: { perMachine: {}, global: {} },
+    agents: [],
 };
 Object.freeze(settingsDefaults);
 
@@ -168,6 +196,30 @@ export function applySettings(settings: Settings, delta: Partial<Settings>): Set
     });
 
     return result;
+}
+
+function hasOwnField(value: unknown, field: string): boolean {
+    return !!value
+        && typeof value === 'object'
+        && !Array.isArray(value)
+        && Object.prototype.hasOwnProperty.call(value, field);
+}
+
+export function mergeServerSettings(
+    currentSettings: Settings,
+    serverSettings: Settings,
+    pendingSettings: Partial<Settings>,
+    rawServerSettings: unknown,
+): Settings {
+    const pendingHasAgents = hasOwnField(pendingSettings, 'agents');
+    const serverHasAgents = hasOwnField(rawServerSettings, 'agents');
+    const baseSettings = !pendingHasAgents && !serverHasAgents && currentSettings.agents.length > 0
+        ? { ...serverSettings, agents: currentSettings.agents }
+        : serverSettings;
+
+    return Object.keys(pendingSettings).length > 0
+        ? applySettings(baseSettings, pendingSettings)
+        : baseSettings;
 }
 
 export function settingsToSyncPayload(settings: Settings): Partial<Settings> {

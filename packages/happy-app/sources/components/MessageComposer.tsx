@@ -20,6 +20,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSetting } from '@/sync/storage';
 import { Theme } from '@/theme';
 import { t } from '@/text';
+import type { ComposerAutocompleteSuggestion } from './autocomplete/types';
 
 interface MessageComposerProps {
     // Drives layout differences between the home compose box and the in-session
@@ -48,10 +49,11 @@ interface MessageComposerProps {
             claude: boolean | null;
             codex: boolean | null;
             gemini?: boolean | null;
+            opencode?: boolean | null;
         };
     };
     autocompletePrefixes?: string[];
-    autocompleteSuggestions?: (query: string) => Promise<{ key: string, text: string, component: React.ElementType }[]>;
+    autocompleteSuggestions?: (query: string) => Promise<ComposerAutocompleteSuggestion[]>;
     usageData?: {
         inputTokens: number;
         outputTokens: number;
@@ -61,7 +63,7 @@ interface MessageComposerProps {
     };
     alwaysShowContextSize?: boolean;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw';
+    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;
@@ -354,6 +356,24 @@ const AgentInputStatusRow = React.memo(function AgentInputStatusRow(p: StatusRow
                                         </Text>
                                     </View>
                                 )}
+                                {p.connectionStatus.cliStatus.opencode !== undefined && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.opencode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            {p.connectionStatus.cliStatus.opencode ? '✓' : '✗'}
+                                        </Text>
+                                        <Text style={{
+                                            fontSize: 11,
+                                            color: p.connectionStatus.cliStatus.opencode ? theme.colors.success : theme.colors.textDestructive,
+                                            ...Typography.default()
+                                        }}>
+                                            opencode
+                                        </Text>
+                                    </View>
+                                )}
                             </>
                         )}
                     </>
@@ -622,7 +642,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
         const result = applySuggestion(
             inputState.text,
             inputState.selection,
-            suggestion.text,
+            suggestion.insertText ?? suggestion.text,
             autocompletePrefixes,
             true // add space after
         );
@@ -852,7 +872,15 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                             fontWeight: '600',
                                             ...Typography.default('semiBold'),
                                         }}>
-                                            {props.agentType === 'claude' ? t('agentInput.agent.claude') : props.agentType === 'codex' ? t('agentInput.agent.codex') : props.agentType === 'openclaw' ? t('agentInput.agent.openclaw') : t('agentInput.agent.gemini')}
+                                            {props.agentType === 'claude'
+                                                ? t('agentInput.agent.claude')
+                                                : props.agentType === 'codex'
+                                                    ? t('agentInput.agent.codex')
+                                                    : props.agentType === 'opencode'
+                                                        ? 'OpenCode'
+                                                    : props.agentType === 'openclaw'
+                                                        ? t('agentInput.agent.openclaw')
+                                                        : t('agentInput.agent.gemini')}
                                         </Text>
                                     </Pressable>
                                 )}

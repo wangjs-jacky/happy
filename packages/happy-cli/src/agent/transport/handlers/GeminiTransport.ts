@@ -63,6 +63,11 @@ const GEMINI_TOOL_PATTERNS: ExtendedToolPattern[] = [
     emptyInputDefault: true, // change_title often has empty input (title extracted from context)
   },
   {
+    name: 'archive_session',
+    patterns: ['archive_session', 'archive-session', 'happy__archive_session', 'mcp__happy__archive_session'],
+    inputFields: ['reason'],
+  },
+  {
     name: 'save_memory',
     patterns: ['save_memory', 'save-memory'],
     inputFields: ['memory', 'content'],

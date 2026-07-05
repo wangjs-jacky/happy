@@ -14,6 +14,7 @@ import {
     type ForkSource,
 } from '@/sync/ops';
 import { getSessionForkSource } from '@/utils/sessionFork';
+import { hapticsSuccess } from './haptics';
 
 export interface DuplicateSheetProps {
     sessionId: string;
@@ -151,6 +152,7 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
             });
 
         if (result.type === 'success') {
+            hapticsSuccess();
             onClose?.();
             router.replace(`/session/${result.sessionId}`);
             return;

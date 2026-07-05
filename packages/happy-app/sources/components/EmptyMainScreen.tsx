@@ -6,6 +6,8 @@ import { RoundButton } from '@/components/RoundButton';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import { useLocalSettingMutable } from '@/sync/storage';
+import { getMascotImage } from '@/components/mascots';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
 const stylesheet = StyleSheet.create((theme) => ({
@@ -90,12 +92,14 @@ export function EmptyMainScreen() {
     const { connectTerminal, connectWithUrl, isLoading } = useConnectTerminal();
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    // 用户在「设置 → 外观 → 吉祥物」选中的形象，空状态页实时跟随
+    const [mascot] = useLocalSettingMutable('mascot');
 
     return (
         <View style={styles.container}>
-            {/* Paws 土拨鼠挥手吉祥物 — 空状态友好引导 */}
+            {/* 自有土拨鼠吉祥物 — 空状态友好引导，跟随用户选择 */}
             <Image
-                source={require('@/assets/images/paws-mascot.png')}
+                source={getMascotImage(mascot)}
                 style={{ width: 140, height: 169, marginBottom: 20 }}
                 contentFit="contain"
             />

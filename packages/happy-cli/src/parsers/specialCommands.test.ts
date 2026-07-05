@@ -62,6 +62,78 @@ describe('parseSpecialCommand', () => {
         expect(result.originalMessage).toBeUndefined();
     });
 
+    it('should detect skills command', () => {
+        const result = parseSpecialCommand('/skills');
+        expect(result.type).toBe('skills');
+        expect(result.originalMessage).toBeUndefined();
+    });
+
+    it('should detect Codex mobile command variants', () => {
+        expect(parseSpecialCommand('/mcp')).toMatchObject({ type: 'mcp', mcp: { verbose: false } });
+        expect(parseSpecialCommand('/mcp verbose')).toMatchObject({ type: 'mcp', mcp: { verbose: true } });
+        expect(parseSpecialCommand('/usage')).toMatchObject({ type: 'usage', usage: { range: 'summary' } });
+        expect(parseSpecialCommand('/usage daily')).toMatchObject({ type: 'usage', usage: { range: 'daily' } });
+        expect(parseSpecialCommand('/usage weekly')).toMatchObject({ type: 'usage', usage: { range: 'weekly' } });
+        expect(parseSpecialCommand('/usage cumulative')).toMatchObject({ type: 'usage', usage: { range: 'cumulative' } });
+        expect(parseSpecialCommand('/status')).toMatchObject({ type: 'status' });
+        expect(parseSpecialCommand('/diff')).toMatchObject({ type: 'diff' });
+        expect(parseSpecialCommand('/new')).toMatchObject({ type: 'new' });
+        expect(parseSpecialCommand('/fork')).toMatchObject({ type: 'fork' });
+        expect(parseSpecialCommand('/review')).toMatchObject({
+            type: 'review',
+            review: { instructions: undefined },
+        });
+        expect(parseSpecialCommand('/review focus on regressions')).toMatchObject({
+            type: 'review',
+            review: { instructions: 'focus on regressions' },
+        });
+        expect(parseSpecialCommand('/plan')).toMatchObject({
+            type: 'plan',
+            plan: { prompt: undefined },
+        });
+        expect(parseSpecialCommand('/plan propose the migration')).toMatchObject({
+            type: 'plan',
+            plan: { prompt: 'propose the migration' },
+        });
+    });
+
+    it('rejects unsupported arguments for strict Codex mobile commands', () => {
+        expect(parseSpecialCommand('/mcp noisy').type).toBeNull();
+        expect(parseSpecialCommand('/usage hourly').type).toBeNull();
+        expect(parseSpecialCommand('/status now').type).toBeNull();
+        expect(parseSpecialCommand('/diff stat').type).toBeNull();
+        expect(parseSpecialCommand('/new task').type).toBeNull();
+        expect(parseSpecialCommand('/fork task').type).toBeNull();
+    });
+
+    it('should detect goal command variants', () => {
+        expect(parseSpecialCommand('/goal')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'show' },
+        });
+        expect(parseSpecialCommand('/goal clear')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'clear' },
+        });
+        expect(parseSpecialCommand('/goal pause')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'pause' },
+        });
+        expect(parseSpecialCommand('/goal resume')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'resume' },
+        });
+        expect(parseSpecialCommand('/goal edit')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'edit' },
+        });
+        expect(parseSpecialCommand('/goal Reduce p95 latency')).toMatchObject({
+            type: 'goal',
+            goal: { action: 'set', objective: 'Reduce p95 latency' },
+        });
+        expect(parseSpecialCommand('/goalkeeper').type).toBeNull();
+    });
+
     it('should return null for regular messages', () => {
         const result = parseSpecialCommand('hello world');
         expect(result.type).toBeNull();

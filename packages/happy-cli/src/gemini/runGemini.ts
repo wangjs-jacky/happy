@@ -30,6 +30,7 @@ import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler'
 import { connectionState } from '@/utils/serverConnectionErrors';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import type { ApiSessionClient } from '@/api/apiSession';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 import { createGeminiBackend } from '@/agent/factories/gemini';
 import type { AgentBackend, AgentMessage } from '@/agent';
@@ -376,7 +377,7 @@ export async function runGemini(opts: {
     }
   }
 
-  const handleKillSession = async () => {
+  const handleKillSession = async (archiveReason = 'User terminated') => {
     logger.debug('[Gemini] Kill session requested - terminating process');
     await handleAbort();
     logger.debug('[Gemini] Abort completed, proceeding with termination');
@@ -388,7 +389,7 @@ export async function runGemini(opts: {
           lifecycleState: 'archived',
           lifecycleStateSince: Date.now(),
           archivedBy: 'cli',
-          archiveReason: 'User terminated'
+          archiveReason
         }));
 
         session.sendSessionDeath();
@@ -411,6 +412,7 @@ export async function runGemini(opts: {
   };
 
   session.rpcHandlerManager.registerHandler('abort', handleAbort);
+  registerSessionTitleWorker(session, 'gemini');
   registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
   //
@@ -502,7 +504,14 @@ export async function runGemini(opts: {
   // Start Happy MCP server and create Gemini backend
   //
 
-  const happyServer = await startHappyServer(session);
+  const happyServer = await startHappyServer(session, {
+    archiveSession: async (reason?: string) => {
+      setTimeout(() => {
+        void handleKillSession(reason || 'Requested by user');
+      }, 100);
+      return { success: true };
+    },
+  });
   const bridgeCommand = join(projectPath(), 'bin', 'happy-mcp.mjs');
   const mcpServers = {
     happy: {

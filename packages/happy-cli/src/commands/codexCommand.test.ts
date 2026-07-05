@@ -48,7 +48,7 @@ describe('handleCodexCommand', () => {
     mocks.mockRunCodex.mockResolvedValue(undefined)
   })
 
-  it('ensures the daemon is running before starting a codex session', async () => {
+  it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {
     await handleCodexCommand(['--started-by', 'terminal'])
 
     expect(mocks.mockEnsureDaemonRunning).toHaveBeenCalledTimes(1)
@@ -57,7 +57,9 @@ describe('handleCodexCommand', () => {
       startedBy: 'terminal',
       noSandbox: false,
       resumeThreadId: undefined,
-      permissionMode: undefined,
+      permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
     })
     expect(
       mocks.mockEnsureDaemonRunning.mock.invocationCallOrder[0],
@@ -81,7 +83,9 @@ describe('handleCodexCommand', () => {
       startedBy: 'daemon',
       noSandbox: true,
       resumeThreadId: 'thread-123',
-      permissionMode: undefined,
+      permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
     })
   })
 
@@ -94,6 +98,36 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
+    })
+  })
+
+  it('passes model through to runCodex', async () => {
+    await handleCodexCommand(['--model', 'gpt-5.4'])
+
+    expect(mocks.mockRunCodex).toHaveBeenCalledWith({
+      credentials: { token: 'token' },
+      startedBy: undefined,
+      noSandbox: false,
+      resumeThreadId: undefined,
+      permissionMode: 'yolo',
+      model: 'gpt-5.4',
+      effort: undefined,
+    })
+  })
+
+  it('passes effort through to runCodex', async () => {
+    await handleCodexCommand(['--effort', 'xhigh'])
+
+    expect(mocks.mockRunCodex).toHaveBeenCalledWith({
+      credentials: { token: 'token' },
+      startedBy: undefined,
+      noSandbox: false,
+      resumeThreadId: undefined,
+      permissionMode: 'yolo',
+      model: undefined,
+      effort: 'xhigh',
     })
   })
 
@@ -106,6 +140,8 @@ describe('handleCodexCommand', () => {
       noSandbox: false,
       resumeThreadId: undefined,
       permissionMode: 'yolo',
+      model: undefined,
+      effort: undefined,
     })
   })
 })

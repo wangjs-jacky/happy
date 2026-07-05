@@ -3,7 +3,7 @@ import type { ApprovalPolicy, SandboxMode } from './codexAppServerTypes';
 export function resolveCodexExecutionPolicy(
     permissionMode: import('@/api/types').PermissionMode,
     sandboxManagedByHappy: boolean,
-): { approvalPolicy: ApprovalPolicy; sandbox: SandboxMode } {
+): { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode } {
     if (sandboxManagedByHappy) {
         return {
             approvalPolicy: 'never',
@@ -11,17 +11,20 @@ export function resolveCodexExecutionPolicy(
         };
     }
 
+    if (permissionMode === 'default') {
+        return {};
+    }
+
     const approvalPolicy: ApprovalPolicy = (() => {
         switch (permissionMode) {
             // Codex native modes
-            case 'default': return 'untrusted';                    // Ask for non-trusted commands
             case 'read-only': return 'never';                      // Never ask, read-only enforced by sandbox
             case 'safe-yolo': return 'on-failure';                 // Auto-run, ask only on failure
             case 'yolo': return 'never';                           // Full YOLO: never interrupt for approvals
             // Defensive fallback for Claude-specific modes (backward compatibility)
             case 'bypassPermissions': return 'never';              // Full access: map to yolo behavior
             case 'acceptEdits': return 'on-request';               // Let model decide (closest to auto-approve edits)
-            case 'plan': return 'untrusted';                       // Conservative: ask for non-trusted
+            case 'plan': return 'never';                           // Plan mode should not pause for write approvals
             default: return 'untrusted';                           // Safe fallback
         }
     })();
@@ -29,14 +32,13 @@ export function resolveCodexExecutionPolicy(
     const sandbox: SandboxMode = (() => {
         switch (permissionMode) {
             // Codex native modes
-            case 'default': return 'workspace-write';              // Can write in workspace
             case 'read-only': return 'read-only';                  // Read-only filesystem
             case 'safe-yolo': return 'workspace-write';            // Can write in workspace
             case 'yolo': return 'danger-full-access';              // Full system access
             // Defensive fallback for Claude-specific modes
             case 'bypassPermissions': return 'danger-full-access'; // Full access: map to yolo
             case 'acceptEdits': return 'workspace-write';          // Can edit files in workspace
-            case 'plan': return 'workspace-write';                 // Can write for planning
+            case 'plan': return 'read-only';                       // Planning should not modify files
             default: return 'workspace-write';                     // Safe default
         }
     })();

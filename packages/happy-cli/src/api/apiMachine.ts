@@ -90,7 +90,7 @@ interface DaemonToServerEvents {
 
 type MachineRpcHandlers = {
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
-    resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>;
+    resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
 }
@@ -118,7 +118,7 @@ export class ApiMachineClient {
     private lastKnownCLIAvailability: CLIAvailability | null = null;
     private lastKnownResumeSupport: ResumeSupport | null = null;
     private rpcHandlerManager: RpcHandlerManager;
-    private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string }) => Promise<SpawnSessionResult>) | null = null;
+    private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>) | null = null;
     private reconnectInterval: NodeJS.Timeout | null = null;
 
     constructor(
@@ -335,7 +335,7 @@ export class ApiMachineClient {
         if (this.resumeSessionHandler) {
             if (!this.rpcHandlerManager.hasHandler(method)) {
                 this.rpcHandlerManager.registerHandler(method, async (params: any) => {
-                    const { sessionId, model, permissionMode } = params || {};
+                    const { sessionId, model, permissionMode, effort } = params || {};
 
                     if (!sessionId || typeof sessionId !== 'string') {
                         throw new Error('Session ID is required');
@@ -346,7 +346,7 @@ export class ApiMachineClient {
                         throw new Error('Resume session handler not available');
                     }
 
-                    const result = await handler(sessionId, { model, permissionMode });
+                    const result = await handler(sessionId, { model, permissionMode, effort });
                     switch (result.type) {
                         case 'success':
                             return { type: 'success', sessionId: result.sessionId };
@@ -523,7 +523,12 @@ export class ApiMachineClient {
             const prev = this.lastKnownCLIAvailability;
             const newResumeSupport = detectResumeSupport();
             const prevResume = this.lastKnownResumeSupport;
-            const cliAvailabilityChanged = !prev || prev.claude !== newAvailability.claude || prev.codex !== newAvailability.codex || prev.gemini !== newAvailability.gemini || prev.openclaw !== newAvailability.openclaw;
+            const cliAvailabilityChanged = !prev
+                || prev.claude !== newAvailability.claude
+                || prev.codex !== newAvailability.codex
+                || prev.gemini !== newAvailability.gemini
+                || prev.opencode !== newAvailability.opencode
+                || prev.openclaw !== newAvailability.openclaw;
             const resumeSupportChanged = !prevResume
                 || prevResume.rpcAvailable !== newResumeSupport.rpcAvailable
                 || prevResume.happyAgentAuthenticated !== newResumeSupport.happyAgentAuthenticated;
@@ -541,6 +546,10 @@ export class ApiMachineClient {
             }
         }, 20000);
         logger.debug('[API MACHINE] Keep-alive started (20s interval)');
+    }
+
+    isConnected(): boolean {
+        return this.socket?.connected === true;
     }
 
     private startSmartReconnect() {

@@ -10,6 +10,7 @@ import Constants from 'expo-constants';
 import { useIsTablet, getDeviceType, calculateDeviceDimensions, useHeaderHeight } from '@/utils/responsive';
 import { layout } from '@/components/layout';
 import { isRunningOnMac } from '@/utils/platform';
+import { t } from '@/text';
 
 export default function DeviceInfo() {
     const insets = useSafeAreaInsets();
@@ -34,147 +35,147 @@ export default function DeviceInfo() {
         <>
             <Stack.Screen
                 options={{
-                    title: 'Device Info',
+                    title: t('devTools.deviceInfo'),
                     headerLargeTitle: false,
                 }}
             />
             <ItemList>
-                <ItemGroup title="Safe Area Insets">
+                <ItemGroup title={t('devTools.safeAreaInsets')}>
                     <Item
-                        title="Top"
+                        title={t('devTools.top')}
                         detail={`${insets.top}px`}
                     />
                     <Item
-                        title="Bottom"
+                        title={t('devTools.bottom')}
                         detail={`${insets.bottom}px`}
                     />
                     <Item
-                        title="Left"
+                        title={t('devTools.left')}
                         detail={`${insets.left}px`}
                     />
                     <Item
-                        title="Right"
+                        title={t('devTools.right')}
                         detail={`${insets.right}px`}
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Device Detection">
+                <ItemGroup title={t('devTools.deviceDetection')}>
                     <Item
-                        title="Device Type"
-                        detail={deviceType === 'tablet' ? 'Tablet' : 'Phone'}
+                        title={t('devTools.deviceType')}
+                        detail={deviceType === 'tablet' ? t('devTools.tablet') : t('devTools.phone')}
                     />
                     <Item
-                        title="Detection Method"
+                        title={t('devTools.detectionMethod')}
                         // @ts-ignore - isPad is not in the type definitions but exists at runtime on iOS
-                        detail={Platform.OS === 'ios' && Platform.isPad ? 'iOS isPad' : `${diagonalInches.toFixed(1)}" diagonal`}
+                        detail={Platform.OS === 'ios' && Platform.isPad ? 'iOS isPad' : t('devTools.diagonalValue', { value: diagonalInches.toFixed(1) })}
                     />
                     <Item
-                        title="Mac Catalyst"
-                        detail={isRunningOnMacCatalyst ? 'Yes' : 'No'}
+                        title={t('devTools.macCatalyst')}
+                        detail={isRunningOnMacCatalyst ? t('common.yes') : t('common.no')}
                     />
                     <Item
-                        title="Header Height"
-                        detail={`${headerHeight} points`}
+                        title={t('devTools.headerHeight')}
+                        detail={t('devTools.pointsValue', { value: headerHeight })}
                     />
                     <Item
-                        title="Diagonal Size"
-                        detail={`${diagonalInches.toFixed(2)} inches`}
+                        title={t('devTools.diagonalSize')}
+                        detail={t('devTools.inchesValue', { value: diagonalInches.toFixed(2) })}
                     />
                     <Item
-                        title="Width (inches)"
+                        title={t('devTools.widthInches')}
                         detail={`${widthInches.toFixed(2)}"`}
                     />
                     <Item
-                        title="Height (inches)"
+                        title={t('devTools.heightInches')}
                         detail={`${heightInches.toFixed(2)}"`}
                     />
                     <Item
-                        title="Pixel Density"
+                        title={t('devTools.pixelDensity')}
                         detail={`${pixelDensity}x`}
                     />
                     <Item
-                        title="Points per Inch"
+                        title={t('devTools.pointsPerInch')}
                         detail={Platform.OS === 'ios' ? '163' : '160'}
                     />
                     <Item
-                        title="Layout Max Width"
+                        title={t('devTools.layoutMaxWidth')}
                         detail={`${layout.maxWidth}px`}
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Screen Dimensions">
+                <ItemGroup title={t('devTools.screenDimensions')}>
                     <Item
-                        title="Window Width"
-                        detail={`${width} points`}
+                        title={t('devTools.windowWidth')}
+                        detail={t('devTools.pointsValue', { value: width })}
                     />
                     <Item
-                        title="Window Height"
-                        detail={`${height} points`}
+                        title={t('devTools.windowHeight')}
+                        detail={t('devTools.pointsValue', { value: height })}
                     />
                     <Item
-                        title="Screen Width"
-                        detail={`${screenDimensions.width} points`}
+                        title={t('devTools.screenWidth')}
+                        detail={t('devTools.pointsValue', { value: screenDimensions.width })}
                     />
                     <Item
-                        title="Screen Height"
-                        detail={`${screenDimensions.height} points`}
+                        title={t('devTools.screenHeight')}
+                        detail={t('devTools.pointsValue', { value: screenDimensions.height })}
                     />
                     <Item
-                        title="Physical Pixels (width)"
+                        title={t('devTools.physicalPixelsWidth')}
                         detail={`${Math.round(screenDimensions.width * pixelDensity)}px`}
                     />
                     <Item
-                        title="Physical Pixels (height)"
+                        title={t('devTools.physicalPixelsHeight')}
                         detail={`${Math.round(screenDimensions.height * pixelDensity)}px`}
                     />
                     <Item
-                        title="Aspect Ratio"
+                        title={t('devTools.aspectRatio')}
                         detail={`${(height / width).toFixed(3)}`}
                     />
                 </ItemGroup>
 
-                <ItemGroup title="Platform Info">
+                <ItemGroup title={t('devTools.platformInfo')}>
                     <Item
-                        title="Platform"
+                        title={t('machine.platform')}
                         detail={Platform.OS}
                     />
                     <Item
-                        title="Version"
-                        detail={Platform.Version?.toString() || 'N/A'}
+                        title={t('common.version')}
+                        detail={Platform.Version?.toString() || t('devTools.notAvailable')}
                     />
                     {Platform.OS === 'ios' && (
                         <>
                             <Item
-                                title="iOS Interface"
+                                title={t('devTools.iosInterface')}
                                 // @ts-ignore - isPad is not in the type definitions but exists at runtime on iOS
                                 detail={Platform.isPad ? 'iPad' : 'iPhone'}
                             />
                             <Item
-                                title="iOS Version"
-                                detail={Platform.Version?.toString() || 'N/A'}
+                                title={t('devTools.iosVersion')}
+                                detail={Platform.Version?.toString() || t('devTools.notAvailable')}
                             />
                         </>
                     )}
                     {Platform.OS === 'android' && (
                         <Item
-                            title="API Level"
-                            detail={Platform.Version?.toString() || 'N/A'}
+                            title={t('devTools.apiLevel')}
+                            detail={Platform.Version?.toString() || t('devTools.notAvailable')}
                         />
                     )}
                 </ItemGroup>
 
-                <ItemGroup title="App Info">
+                <ItemGroup title={t('devTools.appInfo')}>
                     <Item
-                        title="App Version"
-                        detail={Constants.expoConfig?.version || 'N/A'}
+                        title={t('devTools.appVersion')}
+                        detail={Constants.expoConfig?.version || t('devTools.notAvailable')}
                     />
                     <Item
-                        title="SDK Version"
-                        detail={Constants.expoConfig?.sdkVersion || 'N/A'}
+                        title={t('devTools.sdkVersion')}
+                        detail={Constants.expoConfig?.sdkVersion || t('devTools.notAvailable')}
                     />
                     <Item
-                        title="Build Number"
-                        detail={Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode?.toString() || 'N/A'}
+                        title={t('devTools.buildNumber')}
+                        detail={Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode?.toString() || t('devTools.notAvailable')}
                     />
                 </ItemGroup>
             </ItemList>

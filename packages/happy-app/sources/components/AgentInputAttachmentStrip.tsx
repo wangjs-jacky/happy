@@ -4,13 +4,14 @@
  * Uses thumbhash as a blurry placeholder while the full image loads.
  */
 import * as React from 'react';
-import { ScrollView, View, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
+import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 
 const THUMB_SIZE = 72;
 const BORDER_RADIUS = 12;
@@ -26,31 +27,39 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
     if (images.length === 0) return null;
 
     return (
-        <ScrollView
-            horizontal
+        // HorizontalScrollView arbitrates against the full-width drawer open
+        // gesture so swiping this strip doesn't yank the sidebar out. See
+        // HorizontalScrollView.tsx / AttachmentGalleryView for the rationale.
+        <HorizontalScrollView
             showsHorizontalScrollIndicator={false}
             style={styles.strip}
             contentContainerStyle={styles.stripContent}
             keyboardShouldPersistTaps="always"
         >
-            {images.map((img) => (
+            {images.map((img, index) => (
                 <AttachmentThumbnail
                     key={img.id}
                     image={img}
+                    index={index}
+                    images={images}
                     onRemove={onRemove}
                     theme={theme}
                 />
             ))}
-        </ScrollView>
+        </HorizontalScrollView>
     );
 }
 
 function AttachmentThumbnail({
     image,
+    index,
+    images,
     onRemove,
     theme,
 }: {
     image: AttachmentPreview;
+    index: number;
+    images: AttachmentPreview[];
     onRemove: (id: string) => void;
     theme: any;
 }) {
@@ -63,9 +72,12 @@ function AttachmentThumbnail({
 
     return (
         <View style={styles.thumbContainer}>
-            {/* Tap the image to open the fullscreen zoomable viewer. */}
+            {/* Tap the image to open the fullscreen swipeable viewer at this one. */}
             <Pressable
-                onPress={() => imageViewer.open({ uri: image.uri, width: image.width, height: image.height })}
+                onPress={() => imageViewer.open(
+                    images.map((it) => ({ uri: it.uri, width: it.width, height: it.height })),
+                    index,
+                )}
                 style={[styles.thumbPressable, { borderColor: theme.colors.divider }]}
             >
                 <Image

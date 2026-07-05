@@ -3,15 +3,17 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
-import { useRouter } from 'expo-router';
-import * as Localization from 'expo-localization';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
 import { applyTheme } from '@/unistyles';
+import { runThemeTransition } from '@/components/ThemeTransition';
+import { GradientIcon } from '@/components/GradientIcon';
 import { ACCENTS } from '@/themePacks';
 import { Typography } from '@/constants/Typography';
 import { Pressable, View, Text } from 'react-native';
-import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
+import { Image } from 'expo-image';
+import { MASCOT_IDS, getMascotImage, getMascotName, getMascotTheme } from '@/components/mascots';
+import { t } from '@/text';
 
 // Define known avatar styles for this version of the app
 type KnownAvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
@@ -22,7 +24,6 @@ const isKnownAvatarStyle = (style: string): style is KnownAvatarStyle => {
 
 export default function AppearanceSettingsScreen() {
     const { theme } = useUnistyles();
-    const router = useRouter();
     const [viewInline, setViewInline] = useSettingMutable('viewInline');
     const [expandTodos, setExpandTodos] = useSettingMutable('expandTodos');
     const [showLineNumbers, setShowLineNumbers] = useSettingMutable('showLineNumbers');
@@ -34,25 +35,12 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [themePack, setThemePack] = useLocalSettingMutable('themePack');
-    const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    
+    const [mascot, setMascot] = useLocalSettingMutable('mascot');
+    const [hapticFeedbackEnabled, setHapticFeedbackEnabled] = useLocalSettingMutable('hapticFeedbackEnabled');
+
     // Ensure we have a valid style for display, defaulting to gradient for unknown values
     const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
     
-    // Language display
-    const getLanguageDisplayText = () => {
-        if (preferredLanguage === null) {
-            const deviceLocale = Localization.getLocales()?.[0]?.languageTag ?? 'en-US';
-            const deviceLanguage = deviceLocale.split('-')[0].toLowerCase();
-            const detectedLanguageName = deviceLanguage in SUPPORTED_LANGUAGES ? 
-                                        getLanguageNativeName(deviceLanguage as keyof typeof SUPPORTED_LANGUAGES) : 
-                                        getLanguageNativeName('en');
-            return `${t('settingsLanguage.automatic')} (${detectedLanguageName})`;
-        } else if (preferredLanguage && preferredLanguage in SUPPORTED_LANGUAGES) {
-            return getLanguageNativeName(preferredLanguage as keyof typeof SUPPORTED_LANGUAGES);
-        }
-        return t('settingsLanguage.automatic');
-    };
     return (
         <ItemList style={{ paddingTop: 0 }}>
 
@@ -68,9 +56,11 @@ export default function AppearanceSettingsScreen() {
                         const nextIndex = (currentIndex + 1) % 3;
                         const nextTheme = nextIndex === 0 ? 'adaptive' : nextIndex === 1 ? 'light' : 'dark';
                         
-                        // Update the setting and apply immediately (含主题包)
-                        setThemePreference(nextTheme);
-                        applyTheme(themePack, nextTheme);
+                        // 带 crossfade 过渡切换明暗
+                        runThemeTransition(() => {
+                            setThemePreference(nextTheme);
+                            applyTheme(themePack, nextTheme);
+                        });
                     }}
                 />
                 {/* 主题配色包选择器 — 一排色板，点选即切换 */}
@@ -81,10 +71,10 @@ export default function AppearanceSettingsScreen() {
                             <Pressable
                                 key={acc.id}
                                 style={styles.swatchItem}
-                                onPress={() => {
+                                onPress={() => runThemeTransition(() => {
                                     setThemePack(acc.id as typeof themePack);
                                     applyTheme(acc.id as typeof themePack, themePreference);
-                                }}
+                                })}
                             >
                                 <View style={[
                                     styles.swatchCircle,
@@ -102,14 +92,49 @@ export default function AppearanceSettingsScreen() {
                 </View>
             </ItemGroup>
 
-            {/* Language Settings */}
-            <ItemGroup title={t('settingsLanguage.title')} footer={t('settingsLanguage.description')}>
-                <Item
-                    title={t('settingsLanguage.currentLanguage')}
-                    icon={<Ionicons name="language-outline" size={29} color={theme.colors.accent} />}
-                    detail={getLanguageDisplayText()}
-                    onPress={() => router.push('/settings/language')}
-                />
+            {/* 吉祥物选择器 — 一排土拨鼠形象，点选即切换，空状态页/设置头部实时跟随 */}
+            <ItemGroup title={t('settingsAppearance.mascot')} footer={t('settingsAppearance.mascotDescription')}>
+                <View style={styles.mascotRow}>
+                    {MASCOT_IDS.map((id) => {
+                        const selected = id === mascot;
+                        return (
+                            <Pressable
+                                key={id}
+                                style={styles.mascotItem}
+                                onPress={() => runThemeTransition(() => {
+                                    // 选吉祥物即联动切换它绑定的主题配色（带 crossfade 过渡；色板仍保留可微调）
+                                    setMascot(id);
+                                    const pack = getMascotTheme(id);
+                                    setThemePack(pack as typeof themePack);
+                                    applyTheme(pack as typeof themePack, themePreference);
+                                })}
+                            >
+                                <View style={[
+                                    styles.mascotCard,
+                                    { backgroundColor: theme.colors.surfaceHigh },
+                                    selected && { borderColor: theme.colors.text, borderWidth: 2 },
+                                ]}>
+                                    <Image
+                                        source={getMascotImage(id)}
+                                        style={{ width: 56, height: 56 }}
+                                        contentFit="contain"
+                                    />
+                                    {selected && (
+                                        <View style={[styles.mascotCheck, { backgroundColor: theme.colors.text }]}>
+                                            <Ionicons name="checkmark" size={12} color={theme.colors.surface} />
+                                        </View>
+                                    )}
+                                </View>
+                                <Text
+                                    numberOfLines={1}
+                                    style={[styles.mascotLabel, { color: selected ? theme.colors.text : theme.colors.textSecondary }]}
+                                >
+                                    {getMascotName(id)}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
             </ItemGroup>
 
             {/* Text Settings */}
@@ -137,7 +162,7 @@ export default function AppearanceSettingsScreen() {
                 <Item
                     title={t('settingsAppearance.inlineToolCalls')}
                     subtitle={t('settingsAppearance.inlineToolCallsDescription')}
-                    icon={<Ionicons name="code-slash-outline" size={29} color="#5856D6" />}
+                    icon={<GradientIcon name="code-slash" colors={['#7B8CFF', '#5856D6']} />}
                     rightElement={
                         <Switch
                             value={viewInline}
@@ -153,6 +178,17 @@ export default function AppearanceSettingsScreen() {
                         <Switch
                             value={expandTodos}
                             onValueChange={setExpandTodos}
+                        />
+                    }
+                />
+                <Item
+                    title={t('settingsAppearance.hapticFeedback')}
+                    subtitle={t('settingsAppearance.hapticFeedbackDescription')}
+                    icon={<Ionicons name="phone-portrait-outline" size={29} color="#5856D6" />}
+                    rightElement={
+                        <Switch
+                            value={hapticFeedbackEnabled}
+                            onValueChange={setHapticFeedbackEnabled}
                         />
                     }
                 />
@@ -297,5 +333,42 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default(),
         fontSize: 11,
         marginTop: 6,
+    },
+    mascotRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 14,
+        paddingHorizontal: 18,
+        paddingVertical: 16,
+        backgroundColor: theme.colors.surface,
+    },
+    mascotItem: {
+        alignItems: 'center',
+        width: 72,
+    },
+    mascotCard: {
+        width: 68,
+        height: 68,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderColor: 'transparent',
+        borderWidth: 0,
+    },
+    mascotCheck: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    mascotLabel: {
+        ...Typography.default(),
+        fontSize: 11,
+        marginTop: 6,
+        textAlign: 'center',
     },
 }));

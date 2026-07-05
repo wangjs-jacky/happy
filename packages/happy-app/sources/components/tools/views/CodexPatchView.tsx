@@ -9,6 +9,7 @@ import { resolvePath } from '@/utils/pathUtils';
 import { ToolDiffView } from '@/components/tools/ToolDiffView';
 import { getDiffStats, getPatchDiffStats } from '@/components/diff/calculateDiff';
 import { materializeUnifiedDiffPatch } from '@/utils/codexUnifiedDiff';
+import { shouldExpandCodexPatchByDefault, type CodexPatchDisplayEntry } from '@/utils/codexPatchDisplay';
 import { t } from '@/text';
 
 interface CodexPatchViewProps {
@@ -17,7 +18,7 @@ interface CodexPatchViewProps {
     permissionFooter?: React.ReactNode;
 }
 
-type CodexPatchEntry = {
+type CodexPatchEntry = CodexPatchDisplayEntry & {
     diff?: string;
     unified_diff?: string;
     type?: string;
@@ -199,7 +200,7 @@ const CodexPatchFileView = React.memo(function CodexPatchFileView(props: {
 }) {
     const { file, change, metadata, permissionFooter } = props;
     const { theme } = useUnistyles();
-    const [expanded, setExpanded] = React.useState(false);
+    const [expanded, setExpanded] = React.useState(() => shouldExpandCodexPatchByDefault(change));
 
     const filePath = resolvePath(file, metadata);
     const diffInput = getPatchInput(change);

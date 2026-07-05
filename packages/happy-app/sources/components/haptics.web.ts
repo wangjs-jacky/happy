@@ -1,7 +1,15 @@
-export function hapticsError() {
-    // No implementation
+export function hapticsLight() {
+    // No implementation on web
 }
 
-export function hapticsLight() {
-    // No implementation
+export function hapticsSelection() {
+    // No implementation on web
+}
+
+export function hapticsSuccess() {
+    // No implementation on web
+}
+
+export function hapticsError() {
+    // No implementation on web
 }

@@ -70,6 +70,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="session/search"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('sessionSearch.title'),
+                    headerBackTitle: t('common.home')
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]/message/[messageId]"
                 options={{
                     headerShown: true,
@@ -108,6 +116,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/profile"
+                options={{
+                    headerTitle: t('settingsAccount.editProfile'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),
@@ -116,13 +130,45 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/agents"
                 options={{
-                    headerTitle: 'Agent Defaults',
+                    headerTitle: t('settings.agentDefaults'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/my-agents"
+                options={{
+                    headerTitle: t('agents.title'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/my-agent-edit"
+                options={{
+                    // 标题随「新建/编辑」动态变化，由组件内联 Stack.Screen 驱动；
+                    // 此处留空标题避免新建时先闪一下 "Edit"。
+                    headerTitle: '',
                 }}
             />
             <Stack.Screen
                 name="settings/features"
                 options={{
                     headerTitle: t('settings.features'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/custom-instructions"
+                options={{
+                    headerTitle: t('settings.customInstructions'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/skills"
+                options={{
+                    headerTitle: t('settingsSkills.title'),
+                }}
+            />
+            <Stack.Screen
+                name="settings/skill"
+                options={{
+                    headerTitle: t('settingsSkills.detailTitle'),
                 }}
             />
             <Stack.Screen
@@ -236,56 +282,134 @@ export default function RootLayout() {
             <Stack.Screen
                 name="dev/index"
                 options={{
-                    headerTitle: 'Developer Tools',
+                    headerTitle: t('settings.developerTools'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/ota-versions"
+                options={{
+                    headerTitle: t('devTools.otaVersions'),
+                }}
+            />
+            <Stack.Screen
+                name="ota-switch"
+                options={{
+                    headerTitle: t('devTools.switchOtaVersion'),
                 }}
             />
 
             <Stack.Screen
                 name="dev/list-demo"
                 options={{
-                    headerTitle: 'List Components Demo',
+                    headerTitle: t('devTools.listComponents'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/device-info"
+                options={{
+                    headerTitle: t('devTools.deviceInfo'),
                 }}
             />
             <Stack.Screen
                 name="dev/typography"
                 options={{
-                    headerTitle: 'Typography',
+                    headerTitle: t('devTools.typography'),
                 }}
             />
             <Stack.Screen
                 name="dev/colors"
                 options={{
-                    headerTitle: 'Colors',
+                    headerTitle: t('devTools.colors'),
                 }}
             />
             <Stack.Screen
                 name="dev/tools2"
                 options={{
-                    headerTitle: 'Tool Views Demo',
+                    headerTitle: t('devTools.toolViews'),
                 }}
             />
             <Stack.Screen
                 name="dev/masked-progress"
                 options={{
-                    headerTitle: 'Masked Progress',
+                    headerTitle: t('devTools.maskedProgress'),
                 }}
             />
             <Stack.Screen
                 name="dev/shimmer-demo"
                 options={{
-                    headerTitle: 'Shimmer View Demo',
+                    headerTitle: t('devTools.shimmerView'),
                 }}
             />
             <Stack.Screen
                 name="dev/multi-text-input"
                 options={{
-                    headerTitle: 'Multi Text Input',
+                    headerTitle: t('devTools.multiTextInput'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/input-styles"
+                options={{
+                    headerTitle: t('devTools.inputStyles'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/messages-demo"
+                options={{
+                    headerTitle: t('devTools.messageDemos'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/modal-demo"
+                options={{
+                    headerTitle: t('devTools.modalSystem'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/tests"
+                options={{
+                    headerTitle: t('devTools.unitTests'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/unistyles-demo"
+                options={{
+                    headerTitle: t('devTools.unistylesDemo'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/qr-test"
+                options={{
+                    headerTitle: t('devTools.qrCodeTest'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/logs"
+                options={{
+                    headerTitle: t('devTools.viewLogs'),
                 }}
             />
             <Stack.Screen
                 name="dev/session-composer"
                 options={{
-                    headerTitle: 'Session Composer',
+                    headerTitle: t('devTools.sessionComposer'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/purchases"
+                options={{
+                    headerTitle: t('devTools.purchases'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/expo-constants"
+                options={{
+                    headerTitle: t('devTools.expoConstants'),
+                }}
+            />
+            <Stack.Screen
+                name="dev/inverted-list"
+                options={{
+                    headerTitle: t('devTools.invertedListTest'),
                 }}
             />
             <Stack.Screen
@@ -300,7 +424,7 @@ export default function RootLayout() {
                 name="settings/connect/claude"
                 options={{
                     headerShown: true,
-                    headerTitle: 'Connect to Claude',
+                    headerTitle: t('connectClaude.title'),
                     headerBackTitle: t('common.back'),
                     // headerStyle: {
                     //     backgroundColor: Platform.OS === 'web' ? theme.colors.header.background : '#1F1E1C',

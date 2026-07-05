@@ -81,15 +81,18 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
         },
         input: {
             width: '100%',
-            height: 36,
+            minHeight: 44,
             borderWidth: 1,
             borderColor: theme.colors.divider,
-            borderRadius: 8,
-            paddingHorizontal: 10,
+            borderRadius: 10,
+            paddingHorizontal: 14,
+            paddingVertical: 0,
             marginTop: 16,
-            fontSize: 14,
+            fontSize: 15,
+            lineHeight: 20,
             color: theme.colors.text,
-            backgroundColor: theme.colors.input.background
+            backgroundColor: theme.colors.input.background,
+            textAlignVertical: 'center'
         },
         buttonContainer: {
             borderTopWidth: 1,

@@ -32,6 +32,7 @@ import { getProjectPath } from './utils/path';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RawJSONLinesSchema, type RawJSONLines } from './types';
+import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -345,8 +346,18 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         },
     });
 
+    let archiveCurrentSession: ((reason?: string) => void) | null = null;
+
     // Start Happy MCP server
-    const happyServer = await startHappyServer(session);
+    const happyServer = await startHappyServer(session, {
+        archiveSession: async (reason?: string) => {
+            if (!archiveCurrentSession) {
+                return { success: false, error: 'Archive handler is not ready' };
+            }
+            archiveCurrentSession(reason);
+            return { success: true };
+        },
+    });
     logger.debug(`[START] Happy MCP server started at ${happyServer.url}`);
 
     // Variable to track current session instance (updated via onSessionReady callback)
@@ -693,7 +704,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     //
     // Crashes (uncaughtException / unhandledRejection) keep archiving
     // because the session is genuinely toast at that point.
-    const cleanup = async (opts: { archive?: boolean } = { archive: true }) => {
+    const cleanup = async (opts: { archive?: boolean; archiveReason?: string } = { archive: true }) => {
         logger.debug(`[START] Received termination signal, cleaning up (archive=${opts.archive ?? true})...`);
 
         try {
@@ -709,7 +720,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                         lifecycleState: 'archived',
                         lifecycleStateSince: Date.now(),
                         archivedBy: 'cli',
-                        archiveReason: 'User terminated'
+                        archiveReason: opts.archiveReason ?? 'User terminated'
                     }));
                 }
 
@@ -754,6 +765,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         }
     };
 
+    archiveCurrentSession = (reason?: string) => {
+        setTimeout(() => {
+            void cleanup({ archive: true, archiveReason: reason || 'Requested by user' });
+        }, 100);
+    };
+
     // Handle termination signals — Ctrl-C / SIGTERM are user-initiated
     // exits, treat as "I'll come back to this session later" rather than
     // "archive forever".
@@ -775,6 +792,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Browser-side "Archive" button routes through this RPC and DOES
     // want the metadata stamped — it's the user explicitly choosing to
     // retire the session, not just disconnecting.
+    registerSessionTitleWorker(session, 'claude');
     registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true }));
 
     // Create claude loop

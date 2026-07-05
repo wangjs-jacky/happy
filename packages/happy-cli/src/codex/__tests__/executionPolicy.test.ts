@@ -11,13 +11,10 @@ describe('resolveCodexExecutionPolicy', () => {
         });
     });
 
-    it('maps codex default mode to untrusted + workspace-write without managed sandbox', () => {
+    it('lets Codex resolve default approval and sandbox from official config without managed sandbox', () => {
         const policy = resolveCodexExecutionPolicy('default', false);
 
-        expect(policy).toEqual({
-            approvalPolicy: 'untrusted',
-            sandbox: 'workspace-write',
-        });
+        expect(policy).toEqual({});
     });
 
     it('maps read-only mode to never + read-only without managed sandbox', () => {
@@ -53,6 +50,15 @@ describe('resolveCodexExecutionPolicy', () => {
         expect(policy).toEqual({
             approvalPolicy: 'never',
             sandbox: 'danger-full-access',
+        });
+    });
+
+    it('maps plan mode to never + read-only without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('plan', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
         });
     });
 });

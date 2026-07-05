@@ -4,6 +4,8 @@
     "scripts": {
         "cli": "pnpm --filter happy cli",
         "release": "node ./scripts/release.cjs",
+        "app": "pnpm env:up:authenticated && pnpm env:ios",
+        "app:ios": "pnpm env:ios",
         "web": "pnpm --filter happy-app web",
         "codium": "pnpm --filter codium dev",
         "app-logs": "pnpm --filter happy-app-logs start",

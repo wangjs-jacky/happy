@@ -1,6 +1,7 @@
 /**
  * Happy MCP server
  * Provides Happy CLI specific tools including chat session title management
+ * and current-session lifecycle actions.
  *
  * Uses stateless StreamableHTTP: each request gets a fresh McpServer + transport.
  * This is required by MCP SDK >=1.27 which rejects reuse of an already-connected transport.
@@ -17,10 +18,17 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { captureScreenshot, type ScreenshotTarget } from "@/utils/screenshot";
 import { type ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
+import { fetchFinanceChart } from "@/finance/financeChart";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+    archiveSession: (reason?: string) => Promise<{ success: boolean; error?: string }>;
+    financeChart: (input: {
+        query: string;
+        range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
+        interval?: '1d';
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 };
 
 /** 带外图库三工具的依赖注入接口（便于纯函数单测，且给 Task 2.2/3.1 留注入点） */
@@ -172,10 +180,88 @@ function createMcpServer(handlers: HappyMcpHandlers, screenshotTools: ReturnType
         content: [{ type: 'text', text: JSON.stringify(await screenshotTools.list()) }],
     }));
 
+    mcp.registerTool('archive_session', {
+        description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
+        title: 'Archive Current Chat Session',
+        inputSchema: {
+            reason: z.string().optional().describe('Optional short reason for archiving the session'),
+        },
+    }, async (args) => {
+        const response = await handlers.archiveSession(args.reason);
+
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Archived current chat session',
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to archive chat session: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
+    mcp.registerTool('finance_chart', {
+        description: 'Fetch real market OHLC chart data for a stock, index, ETF, or crypto symbol and return a Happy finance chart block for chat rendering.',
+        title: 'Fetch Finance Chart',
+        inputSchema: {
+            query: z.string().describe('Stock/index query or symbol, such as 上证指数, 000001.SS, AAPL, or 0700.HK'),
+            range: z.enum(['5d', '1mo', '3mo', '6mo', '1y']).optional().describe('Chart range. Defaults to 1mo.'),
+            interval: z.enum(['1d']).optional().describe('Chart interval. Defaults to 1d.'),
+        },
+    }, async (args) => {
+        const response = await handlers.financeChart({
+            query: args.query,
+            ...(args.range ? { range: args.range } : {}),
+            ...(args.interval ? { interval: args.interval } : {}),
+        });
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify(response.data, null, 2),
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to fetch finance chart: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     return mcp;
 }
 
-export async function startHappyServer(client: ApiSessionClient) {
+export async function startHappyServer(
+    client: ApiSessionClient,
+    options?: {
+        archiveSession?: (reason?: string) => Promise<{ success: boolean; error?: string }>;
+    },
+) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
 
     const handlers: HappyMcpHandlers = {
@@ -200,6 +286,22 @@ export async function startHappyServer(client: ApiSessionClient) {
                 return { success: true };
             } catch (error) {
                 return { success: false, error: String(error) };
+            }
+        },
+        archiveSession: async (reason?: string) => {
+            logger.debug('[happyMCP] Archiving current session:', reason);
+            if (!options?.archiveSession) {
+                return { success: false, error: 'Archive handler is not configured' };
+            }
+            return options.archiveSession(reason);
+        },
+        financeChart: async (input) => {
+            logger.debug('[happyMCP] Fetching finance chart:', input);
+            try {
+                const data = await fetchFinanceChart(input);
+                return { success: true, data };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
             }
         },
     };
@@ -260,7 +362,15 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title', 'send_image', 'take_screenshot', 'get_screenshot', 'list_screenshots'],
+        toolNames: [
+            'change_title',
+            'send_image',
+            'take_screenshot',
+            'get_screenshot',
+            'list_screenshots',
+            'archive_session',
+            'finance_chart',
+        ],
         // 暴露给 Task 3.1：会话级 RPC 的 getScreenshotById 复用同一实例
         screenshotStore,
         stop: () => {

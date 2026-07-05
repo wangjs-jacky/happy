@@ -32,6 +32,9 @@ export const MetadataSchema = z.object({
         text: z.string(),
         updatedAt: z.number()
     }).optional(),
+    capabilities: z.object({
+        regenerateTitle: z.boolean().optional(),
+    }).optional(),
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
     codexThreadId: z.string().optional(), // Codex app-server thread ID
@@ -172,6 +175,7 @@ export const MachineMetadataSchema = z.object({
         claude: z.boolean(),
         codex: z.boolean(),
         gemini: z.boolean(),
+        opencode: z.boolean().optional(),
         openclaw: z.boolean(),
         detectedAt: z.number(),
     }).optional(),

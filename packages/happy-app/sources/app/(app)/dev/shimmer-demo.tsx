@@ -4,27 +4,28 @@ import { Stack } from 'expo-router';
 import { ShimmerView } from '@/components/ShimmerView';
 import { ItemGroup } from '@/components/ItemGroup';
 import { Ionicons } from '@expo/vector-icons';
+import { t } from '@/text';
 
 export default function ShimmerDemoScreen() {
     return (
         <>
             <Stack.Screen
                 options={{
-                    headerTitle: 'Shimmer View Demo',
+                    headerTitle: t('devTools.shimmerView'),
                 }}
             />
             
             <ScrollView style={styles.container}>
                 <View style={styles.content}>
-                    <Text style={styles.pageTitle}>Shimmer View Examples</Text>
+                    <Text style={styles.pageTitle}>{t('devTools.shimmerViewExamples')}</Text>
                     <Text style={styles.description}>
-                        Various examples of shimmer effects using children as masks
+                        {t('devTools.shimmerViewDescription')}
                     </Text>
 
-                    <ItemGroup title="Text Shimmer">
+                    <ItemGroup title={t('devTools.textShimmer')}>
                         <View style={styles.example}>
                             <ShimmerView style={styles.shimmerContainer}>
-                                <Text style={styles.shimmerText}>Loading Content...</Text>
+                                <Text style={styles.shimmerText}>{t('devTools.loadingContent')}</Text>
                             </ShimmerView>
                         </View>
 
@@ -34,14 +35,14 @@ export default function ShimmerDemoScreen() {
                                 shimmerColors={['#D0D0D0', '#E8E8E8', '#FFFFFF', '#E8E8E8', '#D0D0D0']}
                             >
                                 <View>
-                                    <Text style={styles.titleText}>Awesome Title</Text>
-                                    <Text style={styles.subtitleText}>This is a subtitle with shimmer effect</Text>
+                                    <Text style={styles.titleText}>{t('devTools.awesomeTitle')}</Text>
+                                    <Text style={styles.subtitleText}>{t('devTools.shimmerSubtitle')}</Text>
                                 </View>
                             </ShimmerView>
                         </View>
                     </ItemGroup>
 
-                    <ItemGroup title="Icon Shimmer">
+                    <ItemGroup title={t('devTools.iconShimmer')}>
                         <View style={styles.example}>
                             <ShimmerView style={styles.iconShimmerContainer} duration={1000}>
                                 <View style={styles.iconContainer}>
@@ -51,7 +52,7 @@ export default function ShimmerDemoScreen() {
                         </View>
                     </ItemGroup>
 
-                    <ItemGroup title="Card Skeleton">
+                    <ItemGroup title={t('devTools.cardSkeleton')}>
                         <View style={styles.example}>
                             <ShimmerView style={styles.cardShimmerContainer}>
                                 <View style={styles.card}>
@@ -71,7 +72,7 @@ export default function ShimmerDemoScreen() {
                         </View>
                     </ItemGroup>
 
-                    <ItemGroup title="Custom Colors">
+                    <ItemGroup title={t('devTools.customColors')}>
                         <View style={styles.example}>
                             <ShimmerView 
                                 style={styles.shimmerContainer}
@@ -79,7 +80,7 @@ export default function ShimmerDemoScreen() {
                                 duration={2000}
                             >
                                 <Text style={[styles.shimmerText, { color: '#FF69B4' }]}>
-                                    Pink Shimmer
+                                    {t('devTools.pinkShimmer')}
                                 </Text>
                             </ShimmerView>
                         </View>
@@ -91,13 +92,13 @@ export default function ShimmerDemoScreen() {
                                 shimmerWidthPercent={120}
                             >
                                 <Text style={[styles.shimmerText, { color: '#009688' }]}>
-                                    Teal Shimmer
+                                    {t('devTools.tealShimmer')}
                                 </Text>
                             </ShimmerView>
                         </View>
                     </ItemGroup>
 
-                    <ItemGroup title="Complex Shapes">
+                    <ItemGroup title={t('devTools.complexShapes')}>
                         <View style={styles.example}>
                             <ShimmerView style={styles.complexShimmerContainer}>
                                 <View style={styles.complexShape}>
@@ -109,11 +110,11 @@ export default function ShimmerDemoScreen() {
                         </View>
                     </ItemGroup>
 
-                    <ItemGroup title="Full Width Example">
+                    <ItemGroup title={t('devTools.fullWidthExample')}>
                         <View style={styles.example}>
                             <ShimmerView style={styles.fullWidthContainer}>
                                 <View style={styles.fullWidthContent}>
-                                    <Text style={styles.fullWidthText}>Full Width Shimmer Effect</Text>
+                                    <Text style={styles.fullWidthText}>{t('devTools.fullWidthShimmerEffect')}</Text>
                                 </View>
                             </ShimmerView>
                         </View>

@@ -6,6 +6,7 @@ import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { SessionHeaderChip } from '@/components/SessionHeaderChip';
 import { SessionInfoDropdown } from '@/components/SessionInfoDropdown';
+import { RightSwipePanelHost } from '@/components/RightSwipePanelHost';
 import { ChatList } from '@/components/ChatList';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
@@ -28,12 +29,15 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
+import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
+import { extractSessionOtaPreviews } from '@/utils/sessionOtaPreviews';
+import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
@@ -50,9 +54,12 @@ import { useUnistyles } from 'react-native-unistyles';
 const AGENT_LABELS: Record<string, string> = {
     claude: 'claude code',
     codex: 'codex',
+    opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
+
+const CAN_COPY_SESSION_ID = Application.applicationId === 'build.paws.preview';
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
@@ -68,6 +75,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     const { width: windowWidth } = useWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
+    const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Base condition: can we show the diff sidebar at all?
     const canShowSidebar = fileDiffsSidebarEnabled
@@ -76,6 +84,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         && isDataReady && !!session;
 
     const showSidebar = canShowSidebar && !zenMode;
+    const { messages } = useSessionMessages(sessionId);
 
     // Match left sidebar width: 30% of window, clamped to 250–360px
     const sidebarWidth = Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
@@ -102,6 +111,30 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
+    const otaPreviews = React.useMemo(
+        () => extractSessionOtaPreviews(messages),
+        [messages],
+    );
+    const latestOtaPreviewId = otaPreviews[0]?.id ?? null;
+    const latestOtaPreviewIdRef = React.useRef(latestOtaPreviewId);
+    const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
+        sessionComposerHandleRef.current?.setMessage(prompt);
+    }, []);
+
+    React.useEffect(() => {
+        if (sidebarMode === 'otaPreview' && otaPreviews.length === 0) {
+            setSidebarMode('changes');
+        }
+    }, [otaPreviews.length, sidebarMode]);
+
+    React.useEffect(() => {
+        const previousId = latestOtaPreviewIdRef.current;
+        latestOtaPreviewIdRef.current = latestOtaPreviewId;
+        if (!showSidebar || !latestOtaPreviewId || latestOtaPreviewId === previousId) {
+            return;
+        }
+        setSidebarMode((current) => (current === 'changes' ? 'otaPreview' : current));
+    }, [latestOtaPreviewId, showSidebar]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -291,7 +324,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
                     </View>
                 ) : (
-                    <SessionViewLoaded key={sessionId} sessionId={sessionId} session={session} />
+                    <SessionViewLoaded key={sessionId} composerHandleRef={sessionComposerHandleRef} sessionId={sessionId} session={session} />
                 )}
             </View>
 
@@ -306,6 +339,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     machineName={machineName}
                     online={sessionOnline}
                     top={safeArea.top + headerHeight}
+                    canCopySessionId={CAN_COPY_SESSION_ID}
                     onClose={() => setInfoPanelOpen(false)}
                     onViewDetails={() => {
                         setInfoPanelOpen(false);
@@ -317,7 +351,11 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        return mainContent;
+        return (
+            <RightSwipePanelHost panelContent={<SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />}>
+                {mainContent}
+            </RightSwipePanelHost>
+        );
     }
 
     // Desktop layout: chat + animated sidebar at the same level (full height).
@@ -385,6 +423,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         mode={sidebarMode}
                         onModeChange={setSidebarMode}
                         onAllFilesFilePress={handleAllFilesFilePress}
+                        otaPreviews={otaPreviews}
                     />
                 </View>
             </Animated.View>
@@ -396,6 +435,11 @@ const SIDEBAR_MIN_WINDOW_WIDTH = 1100;
 
 // Hoisted so MessageComposer's React.memo doesn't see a new array ref on every keystroke
 const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
+const CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/', '$'];
+
+function isCodexSessionFlavor(flavor: string | null | undefined): boolean {
+    return flavor === 'codex' || flavor === 'openai' || flavor === 'gpt';
+}
 
 // Imperative handle exposed by ChatComposer so SessionViewLoaded can read /
 // clear the message text without subscribing to it (which would re-render
@@ -403,6 +447,7 @@ const AGENT_INPUT_AUTOCOMPLETE_PREFIXES = ['@', '/'];
 type ChatComposerHandle = {
     getMessage: () => string;
     clearMessage: () => void;
+    setMessage: (text: string) => void;
 };
 
 type ChatComposerProps = Omit<
@@ -449,6 +494,11 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
             setMessage('');
             clearDraft();
         },
+        setMessage: (text: string) => {
+            inputHandleRef.current?.setTextAndSelection(text, { start: text.length, end: text.length });
+            inputHandleRef.current?.focus();
+            setMessage(text);
+        },
     }), [clearDraft]);
 
     return (
@@ -471,7 +521,15 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
     return /macOS|platform|仅支持/i.test(error);
 }
 
-function SessionViewLoaded({ sessionId, session }: { sessionId: string, session: Session }) {
+function SessionViewLoaded({
+    sessionId,
+    session,
+    composerHandleRef,
+}: {
+    sessionId: string;
+    session: Session;
+    composerHandleRef: React.RefObject<ChatComposerHandle | null>;
+}) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const safeArea = useSafeAreaInsets();
@@ -499,8 +557,7 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
 
-    // Image attachment state (expImageUpload feature flag)
-    const expImageUpload = useSetting('expImageUpload');
+    // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
 
     // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
@@ -522,12 +579,6 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             name: entry.id,
         }]);
     }, [addImages]);
-
-    // ChatComposer owns the message state + useDraft subscription. We only
-    // hold an imperative handle so handleSend can read the live text and
-    // clear it without subscribing to it (which would re-render the whole
-    // SessionViewLoaded tree on every keystroke).
-    const composerHandleRef = React.useRef<ChatComposerHandle | null>(null);
 
     // Handle dismissing CLI version warning
     const handleDismissCliWarning = React.useCallback(() => {
@@ -555,13 +606,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     // need to re-create on every keystroke.
     const handleSend = React.useCallback(() => {
         const liveMessage = composerHandleRef.current?.getMessage() ?? '';
-        if (liveMessage.trim() || (expImageUpload && selectedImages.length > 0)) {
-            const attachments = expImageUpload ? selectedImages : undefined;
+        if (liveMessage.trim() || selectedImages.length > 0) {
+            const attachments = selectedImages.length > 0 ? selectedImages : undefined;
             composerHandleRef.current?.clearMessage();
-            if (expImageUpload) clearImages();
+            if (attachments) clearImages();
             sync.sendMessage(sessionId, liveMessage, { source: 'chat', attachments });
         }
-    }, [sessionId, expImageUpload, selectedImages, clearImages]);
+    }, [composerHandleRef, sessionId, selectedImages, clearImages]);
 
     // Manual screenshot: ask the CLI for a capture, persist it to the local
     // gallery and immediately open it in the fullscreen viewer. Self-contained
@@ -605,8 +656,13 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
     }, [router, sessionId]);
 
     const handleAutocompleteSuggestions = React.useCallback((query: string) => (
-        getSuggestions(sessionId, query)
-    ), [sessionId]);
+        getSuggestions(sessionId, query, { flavor: session.metadata?.flavor ?? null })
+    ), [sessionId, session.metadata?.flavor]);
+
+    const autocompletePrefixes = React.useMemo(
+        () => (isCodexSessionFlavor(session.metadata?.flavor) ? CODEX_AGENT_INPUT_AUTOCOMPLETE_PREFIXES : AGENT_INPUT_AUTOCOMPLETE_PREFIXES),
+        [session.metadata?.flavor],
+    );
 
     const connectionStatus = React.useMemo(() => ({
         text: sessionStatus.statusText,
@@ -679,14 +735,14 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             onAbort={isDisconnected ? undefined : handleAbort}
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}
-            selectedImages={expImageUpload ? selectedImages : undefined}
-            onPickImages={expImageUpload ? pickImages : undefined}
-            onRemoveImage={expImageUpload ? removeImage : undefined}
-            onAddImages={expImageUpload ? addImages : undefined}
-            onCaptureScreenshot={expImageUpload ? handleCaptureScreenshot : undefined}
-            onOpenGallery={expImageUpload ? handleOpenGallery : undefined}
-            galleryHasNew={expImageUpload ? galleryHasNew : undefined}
-            autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
+            selectedImages={selectedImages}
+            onPickImages={pickImages}
+            onRemoveImage={removeImage}
+            onAddImages={addImages}
+            onCaptureScreenshot={handleCaptureScreenshot}
+            onOpenGallery={handleOpenGallery}
+            galleryHasNew={galleryHasNew}
+            autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}
             usageData={usageData}
             alwaysShowContextSize={alwaysShowContextSize}
@@ -804,14 +860,12 @@ function SessionViewLoaded({ sessionId, session }: { sessionId: string, session:
             }
 
             {/* Screenshot gallery bottom drawer (能力 B) */}
-            {expImageUpload && (
-                <ScreenshotGalleryDrawer
-                    visible={galleryOpen}
-                    onClose={handleCloseGallery}
-                    sessionId={sessionId}
-                    onAttach={handleAttachScreenshot}
-                />
-            )}
+            <ScreenshotGalleryDrawer
+                visible={galleryOpen}
+                onClose={handleCloseGallery}
+                sessionId={sessionId}
+                onAttach={handleAttachScreenshot}
+            />
         </>
     )
 }

@@ -1,6 +1,6 @@
 /**
  * Zustand store for new session draft state, backed by MMKV.
- * Persists the user's last-used configuration (machine, path, agent, model, permissions, etc.)
+ * Persists the user's last-used configuration (machine, path, model, permissions, etc.)
  * so the new session screen restores the same defaults on next visit.
  */
 import { create } from 'zustand';
@@ -20,6 +20,7 @@ interface NewSessionDraftState {
     agentType: NewSessionAgentType;
     permissionMode: PermissionModeKey;
     modelMode: string;
+    effortLevel: string | null;
     sessionType: NewSessionSessionType;
     worktreeKey: string | null;
 
@@ -29,6 +30,7 @@ interface NewSessionDraftState {
     setAgentType: (agent: NewSessionAgentType) => void;
     setPermissionMode: (mode: PermissionModeKey) => void;
     setModelMode: (mode: string) => void;
+    setEffortLevel: (level: string | null) => void;
     setSessionType: (type: NewSessionSessionType) => void;
     setWorktreeKey: (key: string | null) => void;
 }
@@ -41,6 +43,7 @@ function persist(state: NewSessionDraftState) {
         agentType: state.agentType,
         permissionMode: state.permissionMode,
         modelMode: state.modelMode,
+        effortLevel: state.effortLevel,
         sessionType: state.sessionType,
         worktreeKey: state.worktreeKey,
         updatedAt: Date.now(),
@@ -53,9 +56,10 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     input: initial?.input ?? '',
     selectedMachineId: initial?.selectedMachineId ?? null,
     selectedPath: initial?.selectedPath ?? null,
-    agentType: initial?.agentType ?? 'claude',
+    agentType: initial?.agentType ?? 'opencode',
     permissionMode: initial?.permissionMode ?? 'default',
     modelMode: initial?.modelMode ?? 'default',
+    effortLevel: initial?.effortLevel ?? null,
     sessionType: initial?.sessionType ?? 'simple',
     worktreeKey: initial?.worktreeKey ?? null,
 
@@ -65,6 +69,7 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     setAgentType: (agent) => { set({ agentType: agent }); persist(get()); },
     setPermissionMode: (mode) => { set({ permissionMode: mode }); persist(get()); },
     setModelMode: (mode) => { set({ modelMode: mode }); persist(get()); },
+    setEffortLevel: (level) => { set({ effortLevel: level }); persist(get()); },
     setSessionType: (type) => { set({ sessionType: type }); persist(get()); },
     setWorktreeKey: (key) => { set({ worktreeKey: key }); persist(get()); },
 }));

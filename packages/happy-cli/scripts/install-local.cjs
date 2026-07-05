@@ -11,7 +11,7 @@
  *   5. verify by running `happy --version`
  *
  * Reuses ~/.happy/ — no separate dev home dir. Auth and sessions carry over.
- * To undo: `npm unlink -g happy && npm i -g happy@latest`.
+ * To undo: `npm unlink -g @wangjs-jacky/paws && npm i -g happy-coder@latest`.
  */
 
 const { spawnSync } = require('child_process');
@@ -49,4 +49,4 @@ run('happy', ['daemon', 'start']);
 run('happy', ['--version']);
 
 console.log(`\n✓ Installed from ${PACKAGE_DIR}`);
-console.log('  To undo: npm unlink -g happy && npm i -g happy@latest');
+console.log('  To undo: npm unlink -g @wangjs-jacky/paws && npm i -g happy-coder@latest');
