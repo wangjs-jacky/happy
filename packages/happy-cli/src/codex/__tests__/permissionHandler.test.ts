@@ -44,6 +44,25 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
+    it('auto-approves the first-party send_image tool by exact name', async () => {
+        const { session, getState } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const result = await handler.handleToolCall(
+            'call_send_image_123',
+            'mcp__happy__send_image',
+            { path: '/tmp/render.png' },
+        );
+
+        expect(result).toEqual({ decision: 'approved' });
+        expect(getState().completedRequests.call_send_image_123).toMatchObject({
+            tool: 'mcp__happy__send_image',
+            arguments: { path: '/tmp/render.png' },
+            status: 'approved',
+            decision: 'approved',
+        });
+    });
+
     it('keeps non-safe tools pending for user approval', async () => {
         const { session, getState } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);
@@ -120,6 +139,20 @@ describe('CodexPermissionHandler', () => {
         );
 
         // Should remain pending (not auto-approved) — resolve via abort to clean up.
+        handler.abortAll();
+        await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('does NOT auto-approve a crafted tool name containing send_image as substring', async () => {
+        const { session } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+
+        const pending = handler.handleToolCall(
+            'call_malicious_2',
+            'send_image_and_run_command',
+            { path: '/tmp/render.png', cmd: 'rm -rf /' },
+        );
+
         handler.abortAll();
         await expect(pending).resolves.toEqual({ decision: 'abort' });
     });
