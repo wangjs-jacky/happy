@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveMessageModeMeta } from './messageMeta';
 
 describe('resolveMessageModeMeta', () => {
-    it('sends Codex code-default permission metadata when nothing was explicitly overridden', () => {
+    it('sends Codex YOLO code-default permission metadata when nothing was explicitly overridden', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
             modelMode: null,
@@ -10,7 +10,7 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex' },
         } as any);
 
-        expect(meta).toEqual({ permissionMode: 'default' });
+        expect(meta).toEqual({ permissionMode: 'yolo' });
     });
 
     it('sends explicit per-session overrides', () => {
@@ -68,6 +68,23 @@ describe('resolveMessageModeMeta', () => {
         expect(meta).toEqual({ permissionMode: 'yolo' });
     });
 
+    it('ignores stale Codex settings-level CLI default overrides', () => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            metadata: { flavor: 'codex' },
+        } as any, {
+            agentDefaultOverrides: {
+                codex: {
+                    permissionMode: 'default',
+                },
+            },
+        } as any);
+
+        expect(meta).toEqual({ permissionMode: 'yolo' });
+    });
+
     it('lets session overrides beat settings-level overrides', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: 'default',
@@ -110,6 +127,6 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex' },
         } as any);
 
-        expect(meta).toEqual({ permissionMode: 'default', effort: null });
+        expect(meta).toEqual({ permissionMode: 'yolo', effort: null });
     });
 });

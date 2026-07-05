@@ -48,7 +48,7 @@ describe('modelModeOptions', () => {
         expect(getDefaultPermissionModeKey('claude')).toBe('bypassPermissions');
         expect(getDefaultModelKey('claude')).toBe('opus');
         expect(getDefaultEffortKey('claude')).toBe('medium');
-        expect(getDefaultPermissionModeKey('codex')).toBe('default');
+        expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('default');
         expect(getDefaultEffortKey('codex')).toBeNull();
     });

@@ -31,7 +31,7 @@ const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
     // The Claude UI key for YOLO is `bypassPermissions`; the CLI also accepts
     // `yolo` and maps it to the Claude SDK's bypass mode.
     claude: { permissionMode: 'bypassPermissions', modelMode: 'opus', effortLevel: 'medium' },
-    codex: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
+    codex: { permissionMode: 'yolo', modelMode: 'default', effortLevel: null },
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
     opencode: { permissionMode: 'default', modelMode: 'deepseek/deepseek-v4-pro', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
@@ -48,11 +48,27 @@ export function getCodeAgentDefaults(flavor: string | null | undefined): AgentDe
     return codeAgentDefaults[normalizeAgentKey(flavor)];
 }
 
+function normalizeAgentDefaultOverride(
+    flavor: string | null | undefined,
+    override: AgentDefaultOverride | undefined,
+): AgentDefaultOverride {
+    if (!override) {
+        return {};
+    }
+
+    if (normalizeAgentKey(flavor) !== 'codex' || override.permissionMode !== 'default') {
+        return override;
+    }
+
+    const { permissionMode: _permissionMode, ...rest } = override;
+    return rest;
+}
+
 export function getAgentDefaultOverride(
     overrides: AgentDefaultOverrides | null | undefined,
     flavor: string | null | undefined,
 ): AgentDefaultOverride {
-    return overrides?.[normalizeAgentKey(flavor)] ?? {};
+    return normalizeAgentDefaultOverride(flavor, overrides?.[normalizeAgentKey(flavor)]);
 }
 
 export function resolveAgentDefaultConfig(
@@ -94,7 +110,7 @@ export function setAgentDefaultOverride(
     const next: AgentDefaultOverrides = { ...(overrides ?? {}) };
     const current: AgentDefaultOverride = { ...(next[key] ?? {}) };
 
-    if (value === null || value === undefined) {
+    if (value === null || value === undefined || (key === 'codex' && field === 'permissionMode' && value === 'default')) {
         delete current[field];
     } else {
         current[field] = value;
