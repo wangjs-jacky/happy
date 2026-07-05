@@ -63,8 +63,7 @@ describe('sessionScanner', () => {
     
     // Write first line
     await writeFile(sessionFile1, lines1[0] + '\n')
-    scanner.onNewSession(sessionId1)
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await scanner.onNewSession(sessionId1)
     
     expect(collectedMessages).toHaveLength(1)
     expect(collectedMessages[0].type).toBe('user')
@@ -102,8 +101,7 @@ describe('sessionScanner', () => {
     }
     await writeFile(sessionFile2, initialContent)
     
-    scanner.onNewSession(sessionId2)
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await scanner.onNewSession(sessionId2)
     
     // Should have added only 1 new message (summary) 
     // The historical user + assistant messages (lines 1-2) are deduplicated because they have same UUIDs
@@ -223,7 +221,7 @@ describe('sessionScanner', () => {
 
     // Phantom: announced but no file on disk, ever.
     const phantomId = 'fd4aa0c2-000a-4cd3-a066-80c6d87c3456'
-    scanner.onNewSession(phantomId)
+    await scanner.onNewSession(phantomId)
 
     // Long enough for the first ~1s backoff + give-up to fire.
     await new Promise((r) => setTimeout(r, 2500))
@@ -237,8 +235,7 @@ describe('sessionScanner', () => {
     const realFile = join(projectDir, `${realId}.jsonl`)
 
     await writeFile(realFile, lines[0] + '\n')
-    scanner.onNewSession(realId)
-    await new Promise((r) => setTimeout(r, 200))
+    await scanner.onNewSession(realId)
 
     expect(collectedMessages).toHaveLength(1)
     expect(collectedMessages[0].type).toBe('user')
