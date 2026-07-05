@@ -27,6 +27,8 @@ export class CodexPermissionHandler extends BasePermissionHandler {
     private static readonly ALWAYS_AUTO_APPROVE_NAMES: ReadonlySet<string> = new Set([
         'change_title',
         'mcp__happy__change_title',
+        'archive_session',
+        'mcp__happy__archive_session',
     ]);
 
     // Tool-call IDs that should auto-approve when they exactly match one of
@@ -35,6 +37,7 @@ export class CodexPermissionHandler extends BasePermissionHandler {
     // contain `change_title` as a substring would be silently approved.
     private static readonly ALWAYS_AUTO_APPROVE_ID_PREFIXES: readonly string[] = [
         'change_title',
+        'archive_session',
     ];
 
     constructor(session: ApiSessionClient) {

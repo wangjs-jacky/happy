@@ -21,6 +21,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
+import type { AgentState } from '@/api/types';
 import {
   extractConfigOptionsFromPayload,
   extractCurrentModeIdFromPayload,
@@ -406,6 +407,18 @@ function resolveRequestedLegacyModelCode(models: SessionModelState, requested: s
 
 class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPermissionHandler {
   private readonly logPrefix: string;
+  private static readonly ALWAYS_AUTO_APPROVE_NAMES: ReadonlySet<string> = new Set([
+    'change_title',
+    'happy__change_title',
+    'mcp__happy__change_title',
+    'archive_session',
+    'happy__archive_session',
+    'mcp__happy__archive_session',
+  ]);
+  private static readonly ALWAYS_AUTO_APPROVE_ID_PREFIXES: readonly string[] = [
+    'change_title',
+    'archive_session',
+  ];
 
   constructor(session: ApiSessionClient, agentName: string) {
     super(session);
@@ -416,7 +429,41 @@ class GenericAcpPermissionHandler extends BasePermissionHandler implements AcpPe
     return this.logPrefix;
   }
 
+  private shouldAutoApprove(toolName: string, toolCallId: string): boolean {
+    if (GenericAcpPermissionHandler.ALWAYS_AUTO_APPROVE_NAMES.has(toolName)) {
+      return true;
+    }
+
+    for (const prefix of GenericAcpPermissionHandler.ALWAYS_AUTO_APPROVE_ID_PREFIXES) {
+      if (toolCallId === prefix || toolCallId.startsWith(`${prefix}-`)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   async handleToolCall(toolCallId: string, toolName: string, input: unknown): Promise<PermissionResult> {
+    if (this.shouldAutoApprove(toolName, toolCallId)) {
+      this.session.updateAgentState((currentState) => ({
+        ...currentState,
+        completedRequests: {
+          ...currentState.completedRequests,
+          [toolCallId]: {
+            tool: toolName,
+            arguments: input,
+            createdAt: Date.now(),
+            completedAt: Date.now(),
+            status: 'approved',
+            decision: 'approved',
+          },
+        },
+      } satisfies AgentState));
+
+      logger.debug(`${this.logPrefix} Auto-approved Happy MCP tool: ${toolName} (${toolCallId})`);
+      return { decision: 'approved' };
+    }
+
     return new Promise<PermissionResult>((resolve, reject) => {
       this.pendingRequests.set(toolCallId, {
         resolve,
@@ -527,8 +574,18 @@ export async function runAcp(opts: {
   let sawSlashCommands = false;
   let sawModes = false;
   let sawModels = false;
+  let archiveReason = 'Session ended';
+  let archiveCurrentSession: ((reason?: string) => void) | null = null;
 
-  const happyServer = await startHappyServer(session);
+  const happyServer = await startHappyServer(session, {
+    archiveSession: async (reason?: string) => {
+      if (!archiveCurrentSession) {
+        return { success: false, error: 'Archive handler is not ready' };
+      }
+      archiveCurrentSession(reason);
+      return { success: true };
+    },
+  });
   const mcpServers = {
     happy: {
       command: join(projectPath(), 'bin', 'happy-mcp.mjs'),
@@ -870,13 +927,22 @@ export async function runAcp(opts: {
     }
   }
 
-  session.rpcHandlerManager.registerHandler('abort', handleAbort);
-  registerKillSessionHandler(session.rpcHandlerManager, async () => {
+  async function requestSessionArchive(reason = 'User terminated') {
+    archiveReason = reason;
     shouldExit = true;
     messageQueue.close();
     clearPendingTurn(new Error('Session terminated'));
     await handleAbort();
-  });
+  }
+
+  archiveCurrentSession = (reason?: string) => {
+    setTimeout(() => {
+      void requestSessionArchive(reason || 'Requested by user');
+    }, 100);
+  };
+
+  session.rpcHandlerManager.registerHandler('abort', handleAbort);
+  registerKillSessionHandler(session.rpcHandlerManager, () => requestSessionArchive());
 
   try {
     const started = await backend.startSession();
@@ -961,7 +1027,7 @@ export async function runAcp(opts: {
         lifecycleState: 'archived',
         lifecycleStateSince: Date.now(),
         archivedBy: 'cli',
-        archiveReason: 'Session ended',
+        archiveReason,
       }));
       session.sendSessionDeath();
       await session.flush();

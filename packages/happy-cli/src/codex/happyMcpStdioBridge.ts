@@ -1,7 +1,7 @@
 /**
  * Happy MCP STDIO Bridge
  *
- * Minimal STDIO MCP server exposing a single tool `change_title`.
+ * Minimal STDIO MCP server exposing Happy tools such as `change_title`.
  * On invocation it forwards the tool call to an existing Happy HTTP MCP server
  * using the StreamableHTTPClientTransport.
  *
@@ -63,7 +63,7 @@ async function main() {
     version: '1.0.0',
   });
 
-  // Register the single tool and forward to HTTP MCP
+  // Register tools and forward calls to the HTTP MCP server.
   server.registerTool(
     'change_title',
     {
@@ -90,6 +90,31 @@ async function main() {
     }
   );
 
+  server.registerTool(
+    'archive_session',
+    {
+      description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
+      title: 'Archive Current Chat Session',
+      inputSchema: {
+        reason: z.string().optional().describe('Optional short reason for archiving the session'),
+      },
+    },
+    async (args) => {
+      try {
+        const client = await ensureHttpClient();
+        const response = await client.callTool({ name: 'archive_session', arguments: args });
+        return response as any;
+      } catch (error) {
+        return {
+          content: [
+            { type: 'text', text: `Failed to archive chat session: ${error instanceof Error ? error.message : String(error)}` },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // Start STDIO transport
   const stdio = new StdioServerTransport();
   await server.connect(stdio);
@@ -103,4 +128,3 @@ main().catch((err) => {
     process.exit(1);
   }
 });
-

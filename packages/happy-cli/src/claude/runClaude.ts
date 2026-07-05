@@ -345,8 +345,18 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         },
     });
 
+    let archiveCurrentSession: ((reason?: string) => void) | null = null;
+
     // Start Happy MCP server
-    const happyServer = await startHappyServer(session);
+    const happyServer = await startHappyServer(session, {
+        archiveSession: async (reason?: string) => {
+            if (!archiveCurrentSession) {
+                return { success: false, error: 'Archive handler is not ready' };
+            }
+            archiveCurrentSession(reason);
+            return { success: true };
+        },
+    });
     logger.debug(`[START] Happy MCP server started at ${happyServer.url}`);
 
     // Variable to track current session instance (updated via onSessionReady callback)
@@ -693,7 +703,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     //
     // Crashes (uncaughtException / unhandledRejection) keep archiving
     // because the session is genuinely toast at that point.
-    const cleanup = async (opts: { archive?: boolean } = { archive: true }) => {
+    const cleanup = async (opts: { archive?: boolean; archiveReason?: string } = { archive: true }) => {
         logger.debug(`[START] Received termination signal, cleaning up (archive=${opts.archive ?? true})...`);
 
         try {
@@ -709,7 +719,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                         lifecycleState: 'archived',
                         lifecycleStateSince: Date.now(),
                         archivedBy: 'cli',
-                        archiveReason: 'User terminated'
+                        archiveReason: opts.archiveReason ?? 'User terminated'
                     }));
                 }
 
@@ -752,6 +762,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug('[START] Error during cleanup:', error);
             process.exit(1);
         }
+    };
+
+    archiveCurrentSession = (reason?: string) => {
+        setTimeout(() => {
+            void cleanup({ archive: true, archiveReason: reason || 'Requested by user' });
+        }, 100);
     };
 
     // Handle termination signals — Ctrl-C / SIGTERM are user-initiated

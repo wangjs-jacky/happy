@@ -1,6 +1,7 @@
 /**
  * Happy MCP server
  * Provides Happy CLI specific tools including chat session title management
+ * and current-session lifecycle actions.
  *
  * Uses stateless StreamableHTTP: each request gets a fresh McpServer + transport.
  * This is required by MCP SDK >=1.27 which rejects reuse of an already-connected transport.
@@ -18,6 +19,7 @@ import { randomUUID } from "node:crypto";
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
     sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+    archiveSession: (reason?: string) => Promise<{ success: boolean; error?: string }>;
 };
 
 function createMcpServer(handlers: HappyMcpHandlers): McpServer {
@@ -92,10 +94,48 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         }
     });
 
+    mcp.registerTool('archive_session', {
+        description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
+        title: 'Archive Current Chat Session',
+        inputSchema: {
+            reason: z.string().optional().describe('Optional short reason for archiving the session'),
+        },
+    }, async (args) => {
+        const response = await handlers.archiveSession(args.reason);
+        logger.debug('[happyMCP] Response:', response);
+
+        if (response.success) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Archived current chat session',
+                    },
+                ],
+                isError: false,
+            };
+        } else {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Failed to archive chat session: ${response.error || 'Unknown error'}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
     return mcp;
 }
 
-export async function startHappyServer(client: ApiSessionClient) {
+export async function startHappyServer(
+    client: ApiSessionClient,
+    options?: {
+        archiveSession?: (reason?: string) => Promise<{ success: boolean; error?: string }>;
+    },
+) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
 
     const handlers: HappyMcpHandlers = {
@@ -121,6 +161,13 @@ export async function startHappyServer(client: ApiSessionClient) {
             } catch (error) {
                 return { success: false, error: String(error) };
             }
+        },
+        archiveSession: async (reason?: string) => {
+            logger.debug('[happyMCP] Archiving current session:', reason);
+            if (!options?.archiveSession) {
+                return { success: false, error: 'Archive handler is not configured' };
+            }
+            return options.archiveSession(reason);
         },
     };
 
@@ -156,7 +203,7 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title', 'send_image'],
+        toolNames: ['change_title', 'send_image', 'archive_session'],
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
             server.close();

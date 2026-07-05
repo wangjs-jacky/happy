@@ -481,7 +481,7 @@ export async function runCodex(opts: {
      * Abort stops the current inference but keeps the session alive.
      * Kill terminates the entire process.
      */
-    const handleKillSession = async () => {
+    const handleKillSession = async (archiveReason = 'User terminated') => {
         logger.debug('[Codex] Kill session requested - terminating process');
         await handleAbort();
         logger.debug('[Codex] Abort completed, proceeding with termination');
@@ -494,7 +494,7 @@ export async function runCodex(opts: {
                     lifecycleState: 'archived',
                     lifecycleStateSince: Date.now(),
                     archivedBy: 'cli',
-                    archiveReason: 'User terminated'
+                    archiveReason
                 }));
                 
                 // Send session death message
@@ -524,7 +524,7 @@ export async function runCodex(opts: {
     // Register abort handler
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
 
-    registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
+    registerKillSessionHandler(session.rpcHandlerManager, () => handleKillSession());
 
     //
     // Initialize Ink UI
@@ -715,7 +715,14 @@ export async function runCodex(opts: {
     });
 
     // Start Happy MCP server (HTTP) and prepare STDIO bridge config for Codex
-    const happyServer = await startHappyServer(session);
+    const happyServer = await startHappyServer(session, {
+        archiveSession: async (reason?: string) => {
+            setTimeout(() => {
+                void handleKillSession(reason || 'Requested by user');
+            }, 100);
+            return { success: true };
+        },
+    });
     // Launch the bridge via `node <path>` (rather than relying on the .mjs shebang)
     // so it works on Windows, where Windows can't execute shebang scripts directly.
     // codex would otherwise fail to start the MCP server, the change_title tool would
