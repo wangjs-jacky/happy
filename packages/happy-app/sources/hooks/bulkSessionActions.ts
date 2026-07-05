@@ -1,4 +1,5 @@
 import { sessionArchive, sessionDelete, sessionKill } from '@/sync/ops';
+import { storage } from '@/sync/storage';
 import type { Session } from '@/sync/storageTypes';
 
 export async function bulkArchiveSessions(sessions: Session[]): Promise<void> {
@@ -23,5 +24,6 @@ export async function bulkDeleteSessions(sessions: Session[]): Promise<void> {
         if (!deleteResult.success) {
             throw new Error(deleteResult.message || `Failed to delete session ${session.id}`);
         }
+        storage.getState().deleteSession(session.id);
     }
 }

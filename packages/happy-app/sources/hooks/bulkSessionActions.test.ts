@@ -3,6 +3,7 @@ import { bulkArchiveSessions, bulkDeleteSessions } from './bulkSessionActions';
 import type { Session } from '@/sync/storageTypes';
 
 const mocks = vi.hoisted(() => ({
+    deleteLocalSession: vi.fn(),
     sessionArchive: vi.fn(),
     sessionDelete: vi.fn(),
     sessionKill: vi.fn(),
@@ -12,6 +13,14 @@ vi.mock('@/sync/ops', () => ({
     sessionArchive: mocks.sessionArchive,
     sessionDelete: mocks.sessionDelete,
     sessionKill: mocks.sessionKill,
+}));
+
+vi.mock('@/sync/storage', () => ({
+    storage: {
+        getState: () => ({
+            deleteSession: mocks.deleteLocalSession,
+        }),
+    },
 }));
 
 function session(overrides: Partial<Session>): Session {
@@ -36,6 +45,7 @@ function session(overrides: Partial<Session>): Session {
 describe('bulkSessionActions', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.deleteLocalSession.mockReset();
         mocks.sessionKill.mockResolvedValue({ success: true });
         mocks.sessionArchive.mockResolvedValue({ success: true });
         mocks.sessionDelete.mockResolvedValue({ success: true });
@@ -66,5 +76,7 @@ describe('bulkSessionActions', () => {
         expect(mocks.sessionKill).toHaveBeenCalledWith('active');
         expect(mocks.sessionDelete).toHaveBeenCalledWith('active');
         expect(mocks.sessionDelete).toHaveBeenCalledWith('archived');
+        expect(mocks.deleteLocalSession).toHaveBeenCalledWith('active');
+        expect(mocks.deleteLocalSession).toHaveBeenCalledWith('archived');
     });
 });

@@ -62,6 +62,7 @@ import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import type { SessionApplyOptions } from './sessionApply';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -985,7 +986,7 @@ class Sync {
         }
 
         // Apply to storage
-        this.applySessions(decryptedSessions);
+        this.applySessions(decryptedSessions, { replace: true });
         log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
 
     }
@@ -2241,19 +2242,7 @@ class Sync {
             // Remove session from storage
             storage.getState().deleteSession(sessionId);
 
-            // Remove encryption keys from memory
-            this.encryption.removeSessionEncryption(sessionId);
-
-            // Clear any cached git status
-            gitStatusSync.clearForSession(sessionId);
-            this.messagesSync.delete(sessionId);
-            this.sendSync.delete(sessionId);
-            this.pendingOutbox.delete(sessionId);
-            this.sessionLastSeq.delete(sessionId);
-            this.sessionOldestSeq.delete(sessionId);
-            this.sessionMessageLocks.delete(sessionId);
-            this.sessionMessageQueue.delete(sessionId);
-            this.sessionQueueProcessing.delete(sessionId);
+            this.clearSessionRuntimeState(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -2742,11 +2731,35 @@ class Sync {
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
         presence?: "online" | number;
-    })[]) => {
+    })[], options?: SessionApplyOptions) => {
+        const removedSessionIds = options?.replace
+            ? this.getSessionIdsMissingFromSnapshot(sessions)
+            : [];
         const active = storage.getState().getActiveSessions();
-        storage.getState().applySessions(sessions);
+        storage.getState().applySessions(sessions, options);
+        for (const sessionId of removedSessionIds) {
+            this.clearSessionRuntimeState(sessionId);
+        }
         const newActive = storage.getState().getActiveSessions();
         this.applySessionDiff(active, newActive);
+    }
+
+    private getSessionIdsMissingFromSnapshot(sessions: Array<{ id: string }>): string[] {
+        const incomingIds = new Set(sessions.map((session) => session.id));
+        return Object.keys(storage.getState().sessions).filter((sessionId) => !incomingIds.has(sessionId));
+    }
+
+    private clearSessionRuntimeState(sessionId: string) {
+        this.encryption?.removeSessionEncryption(sessionId);
+        gitStatusSync.clearForSession(sessionId);
+        this.messagesSync.delete(sessionId);
+        this.sendSync.delete(sessionId);
+        this.pendingOutbox.delete(sessionId);
+        this.sessionLastSeq.delete(sessionId);
+        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageLocks.delete(sessionId);
+        this.sessionMessageQueue.delete(sessionId);
+        this.sessionQueueProcessing.delete(sessionId);
     }
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {
