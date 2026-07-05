@@ -24,12 +24,14 @@ export type { PermissionResult, PendingRequest };
 export class CodexPermissionHandler extends BasePermissionHandler {
     private currentPermissionMode: PermissionMode = 'default';
 
-    // Exact tool names that should always be auto-approved. Include the bare
-    // form (used by Codex elicitation messages like `tool "change_title"`)
-    // and the MCP-qualified form for defense in depth.
+    // Exact first-party Happy tool names that should always be auto-approved.
+    // Include the bare form (used by Codex elicitation messages like
+    // `tool "change_title"`) and the MCP-qualified form for defense in depth.
     private static readonly ALWAYS_AUTO_APPROVE_NAMES: ReadonlySet<string> = new Set([
         'change_title',
         'mcp__happy__change_title',
+        'send_image',
+        'mcp__happy__send_image',
     ]);
 
     // Tool-call IDs that should auto-approve when they exactly match one of
