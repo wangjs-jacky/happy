@@ -9,9 +9,20 @@ vi.mock('@/ui/logger', () => ({
 
 function createSessionMock() {
     let state: Record<string, any> = {};
+    const sendSessionNotification = vi.fn();
+    const metadata = {
+        path: '/Users/test/project',
+        host: 'test-host',
+        homeDir: '/Users/test',
+        happyHomeDir: '/Users/test/.happy',
+        happyLibDir: '/Users/test/.happy/lib',
+        happyToolsDir: '/Users/test/.happy/tools',
+    };
 
     return {
         session: {
+            sessionId: 'session-123',
+            getMetadata: vi.fn(() => metadata),
             rpcHandlerManager: {
                 registerHandler: vi.fn(),
             },
@@ -21,6 +32,8 @@ function createSessionMock() {
             }),
         },
         getState: () => state,
+        sendSessionNotification,
+        metadata,
     };
 }
 
@@ -57,6 +70,34 @@ describe('CodexPermissionHandler', () => {
         expect(getState().requests.call_exec_123).toMatchObject({
             tool: 'Bash',
             arguments: { command: 'pwd' },
+        });
+
+        handler.abortAll();
+
+        await expect(pending).resolves.toEqual({ decision: 'abort' });
+    });
+
+    it('sends a permission notification when a Codex tool waits for user approval', async () => {
+        const { session, metadata, sendSessionNotification } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any, sendSessionNotification);
+
+        const pending = handler.handleToolCall(
+            'call_exec_notify',
+            'CodexBash',
+            { command: ['pnpm', 'test'], cwd: '/Users/test/project' },
+        );
+
+        expect(sendSessionNotification).toHaveBeenCalledTimes(1);
+        expect(sendSessionNotification).toHaveBeenCalledWith({
+            kind: 'permission',
+            metadata,
+            data: {
+                sessionId: 'session-123',
+                requestId: 'call_exec_notify',
+                tool: 'CodexBash',
+                type: 'permission_request',
+                provider: 'codex',
+            },
         });
 
         handler.abortAll();
