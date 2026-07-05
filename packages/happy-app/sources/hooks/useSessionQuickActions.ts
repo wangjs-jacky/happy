@@ -20,6 +20,7 @@ import { DuplicateSheet } from '@/components/DuplicateSheet';
 import { hapticsSuccess } from '@/components/haptics';
 import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
+import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 
 export interface SessionActionItem {
@@ -148,10 +149,7 @@ export function useSessionQuickActions(
         && machine
         && isMachineOnline(machine),
     );
-    const canRegenerateTitle = Boolean(
-        sessionStatus.isConnected
-        && session.metadata?.capabilities?.regenerateTitle,
-    );
+    const canRegenerateTitle = canRegenerateSessionTitle(session);
 
     const openDetails = React.useCallback(() => {
         router.push(`/session/${session.id}/info`);
