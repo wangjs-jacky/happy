@@ -736,7 +736,11 @@ export const ru: TranslationStructure = {
         linkNewDevice: 'Привязать новое устройство',
         linkNewDeviceSubtitle: 'Отсканируйте QR-код для привязки устройства',
         profile: 'Профиль',
+        editProfile: 'Edit Profile',
         name: 'Имя',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Нажмите для отключения',
         server: 'Сервер',
@@ -1079,6 +1083,11 @@ export const ru: TranslationStructure = {
             : `${count} изображений не удалось загрузить — они не были отправлены.`,
         notSupportedTitle: 'Изображения не поддерживаются',
         notSupportedMessage: 'Этот агент не поддерживает изображения. Отправлен только текст.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

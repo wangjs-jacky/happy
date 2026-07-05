@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
+import { storage } from '@/sync/storage';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -18,6 +19,10 @@ export interface SpawnSessionArgs {
     agent: NewSessionAgentType;
     /** Existing worktree absolute path, or null/'__none__' for no worktree. */
     worktreeKey: string | null;
+    /** Per-session mode overrides selected before the first message. */
+    permissionMode?: string;
+    modelMode?: string;
+    effortLevel?: string | null;
     /** Initial prompt to send into the freshly spawned session. */
     prompt: string;
     /** Image attachments to send with the initial message (claude-only). */
@@ -28,12 +33,10 @@ export interface SpawnSessionArgs {
  * Inline session spawn used by the compose-first home so the user can type and
  * send without first opening /new. It mirrors the core of /new's `handleSend`
  * (resolve path → spawn → send initial message → navigate, with the
- * directory-creation approval round-trip), but intentionally omits:
- *   - per-session permission/model/effort overrides (left at agent defaults), and
- *   - worktree *creation* (the '__new__' case).
- * For those, the caller routes to the full composer (/new) instead. The home only
- * calls this for the straightforward "machine online, no new worktree" path.
- * Image attachments, however, ride along with the initial message (claude-only).
+ * directory-creation approval round-trip). Worktree *creation* (the '__new__'
+ * case) is still handled by /new; this hook is for the straightforward "machine
+ * online, no new worktree" path. Image attachments ride along with the initial
+ * message for agents that support them.
  */
 export function useSpawnSession() {
     const navigateToSession = useNavigateToSession();
@@ -44,7 +47,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, prompt, images } = args;
+        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, images } = args;
         if (!isMachineOnline(machine)) {
             Modal.alert(t('common.error'), t('newSession.machineOffline'));
             return false;
@@ -71,6 +74,16 @@ export function useSpawnSession() {
             switch (result.type) {
                 case 'success':
                     await sync.refreshSessions();
+                    const sessionStorage = storage.getState();
+                    if (permissionMode !== undefined) {
+                        sessionStorage.updateSessionPermissionMode(result.sessionId, permissionMode);
+                    }
+                    if (modelMode !== undefined) {
+                        sessionStorage.updateSessionModelMode(result.sessionId, modelMode);
+                    }
+                    if (effortLevel !== undefined) {
+                        sessionStorage.updateSessionEffortLevel(result.sessionId, effortLevel);
+                    }
                     const attachments = images && images.length > 0 ? images : undefined;
                     if (prompt || attachments) {
                         await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', attachments });

@@ -2,7 +2,7 @@ import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
 import { CodexAppServerClient } from './codexAppServerClient';
-import type { ReasoningEffort } from './codexAppServerTypes';
+import type { Model, ReasoningEffort } from './codexAppServerTypes';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { ReasoningProcessor } from './utils/reasoningProcessor';
 import { DiffProcessor } from './utils/diffProcessor';
@@ -45,6 +45,7 @@ import {
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
 } from './codexPrompt';
+import { mergeCodexSessionConfigIntoMetadata } from './sessionConfigMetadata';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -74,6 +75,8 @@ export async function runCodex(opts: {
     noSandbox?: boolean;
     resumeThreadId?: string;
     permissionMode?: PermissionMode;
+    model?: string;
+    effort?: ReasoningEffort;
 }): Promise<void> {
     // Early check: ensure Codex CLI is installed before proceeding
     try {
@@ -227,15 +230,29 @@ export async function runCodex(opts: {
 
     // Track current overrides to apply per message
     // Use shared PermissionMode type from api/types for cross-agent compatibility
+    let baselineModel: string | undefined = opts.model ?? DEFAULT_CODEX_MODEL;
+    let baselineEffort: ReasoningEffort | undefined = opts.effort ?? DEFAULT_CODEX_EFFORT;
     let currentPermissionMode: PermissionMode | undefined = initialPermissionMode;
-    let currentModel: string | undefined = DEFAULT_CODEX_MODEL;
-    let currentEffort: ReasoningEffort | undefined = DEFAULT_CODEX_EFFORT;
+    let currentModel: string | undefined = baselineModel;
+    let currentEffort: ReasoningEffort | undefined = baselineEffort;
     let currentAppendSystemPrompt: string | undefined = undefined;
+    let codexModelCatalog: Model[] | null = null;
+
+    const syncCodexSessionConfigMetadata = (model: string | undefined, effort: ReasoningEffort | undefined) => {
+        if (!model) {
+            return;
+        }
+        session.updateMetadata((currentMetadata) => mergeCodexSessionConfigIntoMetadata(currentMetadata, {
+            models: codexModelCatalog,
+            currentModel: model,
+            currentEffort: effort ?? null,
+        }));
+    };
 
     const resetCurrentModeDefaults = () => {
-        currentPermissionMode = DEFAULT_CODEX_PERMISSION_MODE;
-        currentModel = DEFAULT_CODEX_MODEL;
-        currentEffort = DEFAULT_CODEX_EFFORT;
+        currentPermissionMode = initialPermissionMode;
+        currentModel = baselineModel;
+        currentEffort = baselineEffort;
         currentAppendSystemPrompt = undefined;
         logger.debug('[Codex] Reset current mode defaults after abort');
     };
@@ -626,6 +643,15 @@ export async function runCodex(opts: {
             );
         } else if (msg.type === 'task_started') {
             messageBuffer.addMessage('Starting task...', 'status');
+        } else if (msg.type === 'thread_settings_updated') {
+            const threadSettings = (msg as any).thread_settings;
+            if (threadSettings && typeof threadSettings.model === 'string') {
+                baselineModel = threadSettings.model;
+                currentModel = threadSettings.model;
+                baselineEffort = threadSettings.effort ?? undefined;
+                currentEffort = threadSettings.effort ?? undefined;
+                syncCodexSessionConfigMetadata(currentModel, currentEffort);
+            }
         } else if (msg.type === 'task_complete') {
             // Ready is emitted from the main loop's idle check so pushes only fire once
             // after the queue is actually drained.
@@ -733,8 +759,26 @@ export async function runCodex(opts: {
         await client.connect();
         logger.debug('[codex]: client.connect done');
 
+        try {
+            const models: Model[] = [];
+            let cursor: string | null = null;
+            do {
+                const page = await client.listModels({
+                    cursor,
+                    includeHidden: true,
+                    limit: 100,
+                });
+                models.push(...page.data);
+                cursor = page.nextCursor ?? null;
+            } while (cursor);
+            codexModelCatalog = models;
+            logger.debug(`[Codex] Loaded ${models.length} models from app-server catalog`);
+        } catch (error) {
+            logger.debug('[Codex] Failed to load model catalog from app-server; using fallback metadata', error);
+        }
+
         if (opts.resumeThreadId) {
-            await resumeExistingThread({
+            const resumedThread = await resumeExistingThread({
                 client,
                 session,
                 messageBuffer,
@@ -742,6 +786,18 @@ export async function runCodex(opts: {
                 cwd: process.cwd(),
                 mcpServers,
             });
+            if (!opts.model) {
+                baselineModel = resumedThread.model;
+                currentModel = resumedThread.model;
+            }
+            if (opts.effort === undefined) {
+                baselineEffort = resumedThread.reasoningEffort ?? undefined;
+                currentEffort = resumedThread.reasoningEffort ?? undefined;
+            }
+            syncCodexSessionConfigMetadata(
+                opts.model ?? resumedThread.model,
+                opts.effort ?? resumedThread.reasoningEffort ?? undefined,
+            );
             first = false;
             appendSystemPromptInjected = true;
         }
@@ -844,10 +900,22 @@ export async function runCodex(opts: {
                         sandbox: executionPolicy.sandbox,
                         mcpServers,
                     });
+                    if (!message.mode.model) {
+                        baselineModel = startedThread.model;
+                        currentModel = startedThread.model;
+                    }
+                    if (message.mode.effort === undefined) {
+                        baselineEffort = startedThread.reasoningEffort ?? baselineEffort;
+                        currentEffort = startedThread.reasoningEffort ?? currentEffort;
+                    }
                     session.updateMetadata((currentMetadata) => ({
                         ...currentMetadata,
                         codexThreadId: startedThread.threadId,
                     }));
+                    syncCodexSessionConfigMetadata(
+                        message.mode.model ?? startedThread.model,
+                        message.mode.effort ?? startedThread.reasoningEffort ?? undefined,
+                    );
                 }
 
                 const includeAppendSystemPrompt = Boolean(

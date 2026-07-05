@@ -246,6 +246,9 @@ export default {
                 revenueCatStripeKey: process.env.EXPO_PUBLIC_REVENUE_CAT_STRIPE,
                 elevenLabsAgentId,
                 consoleLoggingDefault,
+                otaChannel,
+                repositoryUrl: process.env.EXPO_PUBLIC_REPOSITORY_URL || 'https://github.com/wangjs-jacky/happy',
+                repositoryIssuesUrl: process.env.EXPO_PUBLIC_REPOSITORY_ISSUES_URL || 'https://github.com/wangjs-jacky/happy/issues',
                 buildCommitSha: buildMetadata.commitSha,
                 buildCommitTimestamp: buildMetadata.commitTimestamp,
             }

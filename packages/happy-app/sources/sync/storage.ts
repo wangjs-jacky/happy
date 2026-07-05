@@ -23,6 +23,7 @@ import { Purchases, customerInfoToPurchases } from "./purchases";
 import { Profile } from "./profile";
 import { UserProfile, RelationshipUpdatedEvent } from "./friendTypes";
 import { loadSettings, loadLocalSettings, saveLocalSettings, saveSettings, loadPurchases, savePurchases, loadProfile, saveProfile, loadSessionDrafts, saveSessionDrafts, loadSessionPermissionModes, saveSessionPermissionModes, loadSessionModelModes, saveSessionModelModes, loadSessionEffortLevels, saveSessionEffortLevels } from "./persistence";
+import { collectPersistedSessionPermissionModes, resolveRestoredSessionPermissionMode } from './sessionPermissionModes';
 import type { CustomerInfo } from './revenueCat/types';
 import React from "react";
 import { sync } from "./sync";
@@ -410,12 +411,11 @@ export const storage = create<StorageState>()((set, get) => {
                 // CLI resolve code defaults later.
                 const existingDraft = state.sessions[session.id]?.draft;
                 const savedDraft = savedDrafts[session.id];
-                const savedPermissionMode = savedPermissionModes[session.id] ?? null;
-                const existingPermissionModeRaw = state.sessions[session.id]?.permissionMode ?? null;
-                const existingPermissionMode = existingPermissionModeRaw === 'default' && savedPermissionMode !== 'default'
-                    ? null
-                    : existingPermissionModeRaw;
-                const resolvedPermissionMode = existingPermissionMode ?? savedPermissionMode ?? session.permissionMode ?? null;
+                const resolvedPermissionMode = resolveRestoredSessionPermissionMode({
+                    existingPermissionMode: state.sessions[session.id]?.permissionMode ?? null,
+                    savedPermissionMode: savedPermissionModes[session.id] ?? null,
+                    incomingPermissionMode: session.permissionMode ?? null,
+                });
 
                 // Restore model mode / effort level from MMKV on first load — server
                 // does not sync these, and they used to reset on every app restart (#1028).
@@ -707,14 +707,7 @@ export const storage = create<StorageState>()((set, get) => {
 
             // Persist plan mode change
             if (shouldEnterPlanMode) {
-                const allModes: Record<string, string> = {};
-                const currentState = get();
-                Object.entries(currentState.sessions).forEach(([id, sess]) => {
-                    if (sess.permissionMode && sess.permissionMode !== 'default') {
-                        allModes[id] = sess.permissionMode;
-                    }
-                });
-                saveSessionPermissionModes(allModes);
+                saveSessionPermissionModes(collectPersistedSessionPermissionModes(get().sessions));
             }
 
             return { changed: Array.from(changed), hasReadyEvent };
@@ -1024,15 +1017,10 @@ export const storage = create<StorageState>()((set, get) => {
             };
 
             // Collect all permission modes for persistence
-            const allModes: Record<string, string> = {};
-            Object.entries(updatedSessions).forEach(([id, sess]) => {
-                if (sess.permissionMode) {
-                    allModes[id] = sess.permissionMode;
-                }
-            });
-
-            // Persist only explicit overrides; null/missing means code default.
-            saveSessionPermissionModes(allModes);
+            // Persist only durable explicit overrides. `default` is a per-turn
+            // reset to CLI settings; keeping it across OTA/restarts would mask
+            // the agent default (Codex uses yolo).
+            saveSessionPermissionModes(collectPersistedSessionPermissionModes(updatedSessions));
 
             // No need to rebuild sessionListViewData since permission mode doesn't affect the list display
             return {
@@ -1108,15 +1096,13 @@ export const storage = create<StorageState>()((set, get) => {
                 }
             };
 
-            const permissionModes: Record<string, string> = {};
             const modelModes: Record<string, string> = {};
             const effortLevels: Record<string, string> = {};
             Object.entries(updatedSessions).forEach(([id, sess]) => {
-                if (sess.permissionMode) permissionModes[id] = sess.permissionMode;
                 if (sess.modelMode) modelModes[id] = sess.modelMode;
                 if (sess.effortLevel) effortLevels[id] = sess.effortLevel;
             });
-            saveSessionPermissionModes(permissionModes);
+            saveSessionPermissionModes(collectPersistedSessionPermissionModes(updatedSessions));
             saveSessionModelModes(modelModes);
             saveSessionEffortLevels(effortLevels);
 

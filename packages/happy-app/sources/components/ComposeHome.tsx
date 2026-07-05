@@ -9,7 +9,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
 import { MessageComposer } from './MessageComposer';
 import type { MultiTextInputHandle } from './MultiTextInput';
-import { SessionConfigPanel } from './SessionConfigPanel';
+import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
@@ -68,6 +68,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
+    const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
     const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
@@ -124,6 +125,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         if ((!trimmed && !images) || sending) return;
 
         const draft = useNewSessionDraft.getState();
+        const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
 
         // Spawnable only when a machine is selected, online, and we're not asked to
@@ -143,6 +145,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             path: draft.selectedPath,
             agent: draft.agentType,
             worktreeKey: draft.worktreeKey,
+            permissionMode: liveSelection?.permissionKey ?? (draft.permissionMode !== 'default' ? draft.permissionMode : undefined),
+            modelMode: liveSelection?.modelKey ?? (draft.modelMode !== 'default' ? draft.modelMode : undefined),
+            effortLevel: liveSelection ? liveSelection.effortKey : draft.effortLevel,
             prompt: trimmed,
             images,
         }).then((ok) => {
@@ -240,7 +245,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onPress={closePanel}
                     />
                     <View style={[styles.panelDropdown, { top: insets.top + headerHeight }]}>
-                        <SessionConfigPanel layout="inline" collapsible={false} />
+                        <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
                     </View>
                 </>
             )}

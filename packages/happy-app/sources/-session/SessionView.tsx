@@ -29,6 +29,7 @@ import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
+import { extractSessionOtaPreviews } from '@/utils/sessionOtaPreviews';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
@@ -71,6 +72,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         && isDataReady && !!session;
 
     const showSidebar = canShowSidebar && !zenMode;
+    const { messages } = useSessionMessages(sessionId);
 
     // Match left sidebar width: 30% of window, clamped to 250–360px
     const sidebarWidth = Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
@@ -97,6 +99,27 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
+    const otaPreviews = React.useMemo(
+        () => extractSessionOtaPreviews(messages),
+        [messages],
+    );
+    const latestOtaPreviewId = otaPreviews[0]?.id ?? null;
+    const latestOtaPreviewIdRef = React.useRef(latestOtaPreviewId);
+
+    React.useEffect(() => {
+        if (sidebarMode === 'otaPreview' && otaPreviews.length === 0) {
+            setSidebarMode('changes');
+        }
+    }, [otaPreviews.length, sidebarMode]);
+
+    React.useEffect(() => {
+        const previousId = latestOtaPreviewIdRef.current;
+        latestOtaPreviewIdRef.current = latestOtaPreviewId;
+        if (!showSidebar || !latestOtaPreviewId || latestOtaPreviewId === previousId) {
+            return;
+        }
+        setSidebarMode((current) => (current === 'changes' ? 'otaPreview' : current));
+    }, [latestOtaPreviewId, showSidebar]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -380,6 +403,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         mode={sidebarMode}
                         onModeChange={setSidebarMode}
                         onAllFilesFilePress={handleAllFilesFilePress}
+                        otaPreviews={otaPreviews}
                     />
                 </View>
             </Animated.View>

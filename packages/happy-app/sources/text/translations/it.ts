@@ -718,7 +718,11 @@ export const it: TranslationStructure = {
         linkNewDevice: 'Collega nuovo dispositivo',
         linkNewDeviceSubtitle: 'Scansiona il codice QR per collegare il dispositivo',
         profile: 'Profilo',
+        editProfile: 'Edit Profile',
         name: 'Nome',
+        namePlaceholder: 'Enter your name',
+        nameRequired: 'Please enter a name.',
+        profileSaveFailed: 'Could not save your profile.',
         github: 'GitHub',
         tapToDisconnect: 'Tocca per disconnettere',
         server: 'Server',
@@ -1049,6 +1053,11 @@ export const it: TranslationStructure = {
             : `Non è stato possibile caricare ${count} immagini e non sono state inviate.`,
         notSupportedTitle: 'Immagini non supportate',
         notSupportedMessage: 'Questo agente non supporta gli allegati immagine. È stato inviato solo il testo.',
+        viewAvatar: 'View profile picture',
+        changeAvatar: 'Change profile picture',
+        avatarPermissionMessage: 'Allow access to your photo library to choose a profile picture.',
+        avatarUploadFailedTitle: 'Avatar Upload Failed',
+        avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
     feed: {

@@ -105,4 +105,44 @@ describe('parseMarkdownBlock - table parsing', () => {
         expect(tableBlocks).toHaveLength(1);
         expect(textBlocks).toHaveLength(1);
     });
+
+    it('parses tagged happy ota preview blocks into a dedicated markdown block', () => {
+        const md = [
+            '<happy-ota-preview>',
+            'title: Settings preview ready',
+            'channel: preview',
+            'platform: android',
+            'runtimeVersion: 21',
+            'updateId: 37fdee5f-0417-b135-d7aa-248634dccd37',
+            'manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/1751600000000.json',
+            '</happy-ota-preview>',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].type).toBe('ota-preview');
+        if (blocks[0].type !== 'ota-preview') throw new Error('not an ota preview block');
+        expect(blocks[0].preview.title).toBe('Settings preview ready');
+        expect(blocks[0].preview.channel).toBe('preview');
+        expect(blocks[0].preview.stamp).toBe('1751600000000');
+    });
+
+    it('parses legacy ota preview field groups into a dedicated markdown block', () => {
+        const md = [
+            '• Channel: preview',
+            '• Platform: android',
+            '• runtimeVersion: 21',
+            '• Update ID: 37fdee5f-0417-b135-d7aa-248634dccd37',
+            '• Manifest: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].type).toBe('ota-preview');
+        if (blocks[0].type !== 'ota-preview') throw new Error('not an ota preview block');
+        expect(blocks[0].preview.source).toBe('legacy');
+        expect(blocks[0].preview.channel).toBe('preview');
+        expect(blocks[0].preview.platform).toBe('android');
+        expect(blocks[0].preview.manifestUrl).toContain('/preview/latest.json');
+    });
 });

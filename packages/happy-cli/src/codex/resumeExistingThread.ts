@@ -1,11 +1,12 @@
 import { trimIdent } from '@/utils/trimIdent';
+import type { ReasoningEffort } from './codexAppServerTypes';
 
 type ResumeThreadClient = {
     resumeThread: (opts: {
         threadId: string;
         cwd: string;
         mcpServers: Record<string, unknown>;
-    }) => Promise<{ threadId: string; model: string }>;
+    }) => Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }>;
 };
 
 type ResumeThreadSession = {
@@ -24,7 +25,7 @@ export async function resumeExistingThread(opts: {
     threadId: string;
     cwd: string;
     mcpServers: Record<string, unknown>;
-}): Promise<{ threadId: string; model: string }> {
+}): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
     try {
         const resumedThread = await opts.client.resumeThread({
             threadId: opts.threadId,

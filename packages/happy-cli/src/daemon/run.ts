@@ -34,6 +34,66 @@ function shellescape(s: string): string {
     return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
+const CODEX_HOME_CONFIG_ENTRIES = new Set([
+    'AGENTS.md',
+    'AGENTS.override.md',
+    'config.toml',
+    'hooks.json',
+    'plugins',
+    'prompts',
+    'requirements.toml',
+    'rules',
+    'skills',
+]);
+
+function shouldInheritCodexHomeEntry(entry: string): boolean {
+    return CODEX_HOME_CONFIG_ENTRIES.has(entry) || entry.endsWith('.config.toml');
+}
+
+async function inheritCodexHomeConfiguration(targetCodexHome: string): Promise<void> {
+    const sourceCodexHome = process.env.CODEX_HOME || join(os.homedir(), '.codex');
+    if (sourceCodexHome === targetCodexHome) return;
+
+    let entries: string[];
+    try {
+        entries = await fs.readdir(sourceCodexHome);
+    } catch (error) {
+        logger.debug(`[DAEMON RUN] Could not read Codex home for config inheritance: ${sourceCodexHome}`, error);
+        return;
+    }
+
+    await Promise.all(entries.filter(shouldInheritCodexHomeEntry).map(async (entry) => {
+        const sourcePath = join(sourceCodexHome, entry);
+        const targetPath = join(targetCodexHome, entry);
+
+        try {
+            await fs.lstat(targetPath);
+            return;
+        } catch {
+            // Expected for a fresh temporary CODEX_HOME.
+        }
+
+        try {
+            const stats = await fs.lstat(sourcePath);
+            const symlinkType = stats.isDirectory()
+                ? (process.platform === 'win32' ? 'junction' : 'dir')
+                : 'file';
+            await fs.symlink(sourcePath, targetPath, symlinkType);
+        } catch (error) {
+            try {
+                const stats = await fs.lstat(sourcePath);
+                if (!stats.isDirectory()) {
+                    await fs.copyFile(sourcePath, targetPath);
+                    return;
+                }
+            } catch {
+                // Keep the original symlink error for diagnostics below.
+            }
+            logger.debug(`[DAEMON RUN] Failed to inherit Codex home entry ${entry}`, error);
+        }
+    }));
+}
+
 // Prepare initial metadata
 // Suffix host with `-dev` for the HAPPY_VARIANT=dev variant so the dev daemon
 // is visually distinct from the stable one in the machine list (they otherwise
@@ -305,6 +365,10 @@ export async function startDaemon(): Promise<void> {
 
             // Create a temporary directory for Codex
             const codexHomeDir = tmp.dirSync();
+
+            // Keep Codex's official config/instruction discovery intact while
+            // isolating the auth file supplied by this spawn request.
+            await inheritCodexHomeConfiguration(codexHomeDir.name);
 
             // Write the token to the temporary directory
             await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
@@ -658,7 +722,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string }): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -716,6 +780,9 @@ export async function startDaemon(): Promise<void> {
         }
         if (options?.permissionMode) {
           launch.args.push('--permission-mode', options.permissionMode);
+        }
+        if (options?.effort) {
+          launch.args.push('--effort', options.effort);
         }
 
         await fs.access(launch.cwd);

@@ -211,7 +211,7 @@ export default function DevScreen() {
                     title="OTA Versions"
                     subtitle="查看当前版本 / 切换 preview 历史版本"
                     icon={<Ionicons name="cube-outline" size={28} color={theme.colors.accent} />}
-                    onPress={() => router.push('/dev/ota-versions')}
+                    onPress={() => router.push('/dev/ota-versions' as any)}
                 />
             </ItemGroup>
 
