@@ -8,6 +8,14 @@ import { AgentDefaultOverridesSchema } from './agentDefaults';
 // Current schema version for backward compatibility
 export const SUPPORTED_SCHEMA_VERSION = 2;
 
+export const QuickPromptSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    prompt: z.string(),
+    createdAt: z.number().optional(),
+    updatedAt: z.number().optional(),
+});
+
 export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
@@ -42,6 +50,7 @@ export const SettingsSchema = z.object({
         machineId: z.string(),
         path: z.string()
     })).describe('Last 10 machine-path combinations, ordered by most recent first'),
+    quickPrompts: z.array(QuickPromptSchema).describe('User-defined quick prompts that can be sent from the right-side capability hub'),
     lastUsedAgent: z.string().nullable().describe('Last selected agent type for new sessions'),
     lastUsedPermissionMode: z.string().nullable().describe('Last selected permission mode for new sessions'),
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
@@ -79,6 +88,7 @@ export const SettingsSchema = z.object({
 const SettingsSchemaPartial = SettingsSchema.partial();
 
 export type Settings = z.infer<typeof SettingsSchema>;
+export type QuickPrompt = z.infer<typeof QuickPromptSchema>;
 
 //
 // Defaults
@@ -113,6 +123,7 @@ export const settingsDefaults: Settings = {
     voiceBypassToken: false,
     preferredLanguage: null,
     recentMachinePaths: [],
+    quickPrompts: [],
     lastUsedAgent: null,
     lastUsedPermissionMode: null,
     lastUsedModelMode: null,

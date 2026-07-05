@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useArtifacts, useSession, useSessionMessages } from '@/sync/storage';
+import { useArtifacts, useSession, useSessionMessages, useSetting } from '@/sync/storage';
 import { scanSkills } from '@/sync/skills';
 import { buildSessionCapabilityHubModel } from './sessionCapabilityHubModel';
 
@@ -7,6 +7,7 @@ export function useSessionCapabilityHub(sessionId: string) {
     const session = useSession(sessionId);
     const { messages } = useSessionMessages(sessionId);
     const artifacts = useArtifacts();
+    const quickPrompts = useSetting('quickPrompts');
     const machineId = session?.metadata?.machineId ?? null;
     const cwd = session?.metadata?.path ?? undefined;
     const [skillNames, setSkillNames] = React.useState<string[] | null>(null);
@@ -37,6 +38,7 @@ export function useSessionCapabilityHub(sessionId: string) {
         session,
         messages,
         artifacts,
+        quickPrompts,
         skillNames,
-    }), [artifacts, messages, session, skillNames]);
+    }), [artifacts, messages, quickPrompts, session, skillNames]);
 }

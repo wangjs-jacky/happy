@@ -181,18 +181,20 @@ export const ca: TranslationStructure = {
 
     rightPanelCapabilityHub: {
         title: 'Capability Hub',
-        emptyHomeDescription: 'Open a session to see skills, files, images, and artifacts here.',
+        emptyHomeDescription: 'Open a session to see skills, quick prompts, files, images, and artifacts here.',
         recentTitle: 'Recent',
         noRecent: 'Nothing recent yet',
         back: 'Back',
         blocks: {
             skills: 'Skills',
+            quickPrompts: 'Quick Prompts',
             images: 'Images',
             artifacts: 'Artifacts',
             files: 'Files',
         },
         empty: {
             skills: 'No skills available for this session',
+            quickPrompts: 'No quick prompts yet',
             images: 'No images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
@@ -201,6 +203,18 @@ export const ca: TranslationStructure = {
             available: 'Available in session',
             image: 'Image attachment',
             artifact: 'Linked artifact',
+        },
+        quickPrompt: {
+            add: 'Add Prompt',
+            addTitle: 'Prompt name',
+            addTitleMessage: 'Name this shortcut so it is easy to find later.',
+            titlePlaceholder: 'Review this change',
+            addBodyTitle: 'Prompt text',
+            addBodyMessage: 'This text will be sent to the current session when you tap the shortcut.',
+            bodyPlaceholder: 'Run the relevant tests and summarize any failures.',
+            send: 'Send',
+            deleteTitle: 'Delete quick prompt?',
+            deleteMessage: ({ title }: { title: string }) => `Delete "${title}"?`,
         },
     },
 

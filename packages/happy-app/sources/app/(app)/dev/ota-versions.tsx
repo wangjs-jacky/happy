@@ -8,6 +8,12 @@ import { Modal } from '@/modal';
 import { useUnistyles } from 'react-native-unistyles';
 import { useOtaVersions, OtaVersion } from '@/hooks/useOtaVersions';
 import { useOtaTarget } from '@/hooks/useOtaTarget';
+import {
+    compactOtaMessage,
+    formatOtaVersionLine,
+    getOtaVersionState,
+    getRecommendedOtaVersion,
+} from '@/hooks/otaVersionDisplay';
 import { t } from '@/text';
 
 // OTA 版本选择器（dev 页，preview 频道专用）。
@@ -15,37 +21,20 @@ import { t } from '@/text';
 // 高亮当前运行 / 当前锁定项，点选即把本设备锁定到该版本（reload 生效），可一键解除锁定回到最新。
 // production 包拉的是 production 频道，FC 忽略锁定参数，故此页只对 preview 包有意义。
 
-// 把一个版本渲染成一行的文案：PR 预览 OTA 优先展示发布时记录的中文标题，
-// 没有 display 元数据的历史版本继续退回 commit subject。
-function shortLine(v: OtaVersion): { title: string; subtitle: string; message?: string } {
-    const sha = v.git?.sha ? `${v.git.sha}${v.git.dirty ? '*' : ''}` : v.id.slice(0, 8);
-    const when = v.createdAt ? new Date(v.createdAt).toLocaleString() : v.stamp;
-    const branch = v.git?.branch ? ` · ${v.git.branch}` : '';
-    const title = v.display?.title || v.git?.subject || `(无 commit 信息) ${v.id.slice(0, 8)}`;
-    const source = v.display?.source?.number ? `PR #${v.display.source.number} · ` : '';
-    const commitSubject = v.display?.title && v.git?.subject ? `${v.git.subject} · ` : '';
-    return {
-        title,
-        subtitle: `${source}${commitSubject}${sha}${branch} · ${when}`,
-        message: v.display?.message,
-    };
-}
-
-function previewMessage(message: string | undefined): string {
-    if (!message) return '';
-    const compact = message.replace(/\n{3,}/g, '\n\n').trim();
-    return compact.length > 500 ? `${compact.slice(0, 500)}...` : compact;
-}
-
 export default function OtaVersionsScreen() {
     const { theme } = useUnistyles();
     const { versions, loading: listLoading, error, debug, refresh } = useOtaVersions('preview');
     const { lockedStamp, currentUpdateId, channel, loading: targetLoading, lockTo, unlock } = useOtaTarget();
+    const recommendedVersion = React.useMemo(() => getRecommendedOtaVersion(versions), [versions]);
+
+    const formatLine = React.useCallback((v: OtaVersion) => formatOtaVersionLine(v, {
+        noCommitInfo: (id) => t('devTools.noCommitInfo', { id }),
+    }), []);
 
     const handleLock = React.useCallback((v: OtaVersion) => {
         (async () => {
-            const line = shortLine(v);
-            const message = previewMessage(line.message);
+            const line = formatLine(v);
+            const message = compactOtaMessage(line.message);
             const confirmed = await Modal.confirm(
                 t('devTools.switchToThisVersion'),
                 t('devTools.lockToVersionMessage', { title: line.title, subtitle: line.subtitle, message }),
@@ -69,6 +58,43 @@ export default function OtaVersionsScreen() {
             }
         })();
     }, [unlock]);
+
+    const renderRecommendation = () => {
+        if (listLoading || error || !recommendedVersion) {
+            return null;
+        }
+
+        const line = formatLine(recommendedVersion);
+        const state = getOtaVersionState(recommendedVersion, currentUpdateId, lockedStamp);
+        const message = compactOtaMessage(line.message, 220);
+        const canSwitch = channel === 'preview' && !state.isRunning;
+        const subtitle = [
+            line.title,
+            line.subtitle,
+            message,
+        ].filter(Boolean).join('\n');
+
+        return (
+            <ItemGroup title={t('devTools.recommendedOtaTitle')} footer={t('devTools.recommendedOtaFooter')}>
+                <Item
+                    title={state.isRunning ? t('devTools.recommendedOtaRunning') : t('devTools.recommendedLatestPreview')}
+                    subtitle={subtitle}
+                    subtitleLines={0}
+                    selected={state.isLocked}
+                    leftElement={
+                        <Ionicons
+                            name={state.isRunning ? 'checkmark-circle' : 'sparkles-outline'}
+                            size={20}
+                            color={state.isRunning ? (theme.colors.success ?? '#34C759') : (theme.colors.status?.connecting ?? theme.colors.text)}
+                        />
+                    }
+                    rightElement={state.isRunning ? <Ionicons name="checkmark" size={20} color={theme.colors.success ?? '#34C759'} /> : undefined}
+                    showChevron={canSwitch}
+                    onPress={canSwitch ? () => handleLock(recommendedVersion) : undefined}
+                />
+            </ItemGroup>
+        );
+    };
 
     return (
         <ItemList>
@@ -104,6 +130,8 @@ export default function OtaVersionsScreen() {
                 ) : null}
             </ItemGroup>
 
+            {renderRecommendation()}
+
             {/* 版本列表 */}
             <ItemGroup title={t('devTools.previewHistoryTitle')} footer={t('devTools.previewHistoryFooter')}>
                 {listLoading ? (
@@ -121,15 +149,16 @@ export default function OtaVersionsScreen() {
                     <Item title={t('devTools.noVersions')} subtitle={t('devTools.noVersionsSubtitle')} />
                 ) : (
                     versions.map((v) => {
-                        const line = shortLine(v);
-                        const isRunning = !!currentUpdateId && v.id === currentUpdateId;
-                        const isLocked = v.stamp === lockedStamp;
+                        const line = formatLine(v);
+                        const { isRunning, isLocked } = getOtaVersionState(v, currentUpdateId, lockedStamp);
+                        const isLatest = v === recommendedVersion;
                         return (
                             <Item
                                 key={v.stamp}
                                 title={line.title}
                                 subtitle={line.subtitle}
                                 subtitleLines={2}
+                                detail={isLatest && !isLocked ? t('devTools.latestPreview') : undefined}
                                 selected={isLocked}
                                 leftElement={
                                     <Ionicons
