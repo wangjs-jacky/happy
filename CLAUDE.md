@@ -145,6 +145,91 @@ git push origin jacky-main
   - daemon 给每个新会话 spawn 全新进程读取 `dist/`，**重建后不必重启 daemon**；但**已在运行的会话**仍是旧代码（已加载进内存），需新开会话才用上新代码。
 - 只有当你想让**其他机器 / 其他人**用上改动，或想从 dev-link 切回干净的 npm 安装版时，才需要走「发 npm 包」流程。
 
+
+## 六补充、Mac mini 上 Happy daemon / CLI 切换规范
+
+> 本节只针对 Mac mini 这台远端执行机。它解决的是 Happy App 能看到机器在线，但新建 Codex 会话失败、daemon 日志出现 `Session webhook timeout` 的反复问题。
+
+### 背景
+
+Mac mini 的 Happy daemon 是手机 Happy 远程拉起 Codex/OpenCode/Claude 会话的入口。它不仅要运行，还必须从稳定环境启动：
+
+- Node 固定使用 `/Users/jacky/.nvm/versions/node/v24.14.0/bin/node`
+- 工作目录固定为 `/Users/jacky`
+- `HAPPY_SERVER_URL=http://47.115.228.20:3005`
+- `HAPPY_CODEX_PROXY_URL=http://127.0.0.1:10802`
+- `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 指向 `http://127.0.0.1:10802`
+- 需要时继承 `NODE_EXTRA_CA_CERTS=$HOME/.reclaude/ca.pem`
+
+历史故障模式：某个 Happy/Codex 会话从 repo 目录或 Homebrew Node 环境重启了 daemon，导致 daemon 进程变成 `/opt/homebrew/Cellar/node/.../bin/node`、`PWD` 变成 `~/jacky-github/happy/packages/happy-cli`。之后 App 新建 Codex 会话时，子进程 `happy codex --started-by daemon` 3-4 秒内退出，daemon 侧最终报 `Session webhook timeout`。
+
+### 硬约束
+
+1. 在 Mac mini 上不要直接运行裸 `happy daemon start`、`happy daemon restart` 或从 `packages/happy-cli` 目录启动 daemon。
+2. 不要依赖 `happy` shebang 的 `/usr/bin/env node` 启动 daemon；不同上下文会解析到 Homebrew Node。
+3. 需要重启 daemon 时，一律使用稳定入口：
+
+```bash
+/Users/jacky/.local/bin/happy-daemon-rc
+```
+
+4. 如果必须手动等价执行，必须显式固定目录、Node 和环境：
+
+```bash
+cd /Users/jacky
+export PATH="/Users/jacky/.nvm/versions/node/v24.14.0/bin:/opt/homebrew/bin:/Users/jacky/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export HAPPY_SERVER_URL="http://47.115.228.20:3005"
+export HAPPY_CODEX_PROXY_URL="http://127.0.0.1:10802"
+export HTTP_PROXY="http://127.0.0.1:10802"
+export HTTPS_PROXY="http://127.0.0.1:10802"
+export ALL_PROXY="http://127.0.0.1:10802"
+export NO_PROXY="localhost,127.0.0.1,::1,47.115.228.20"
+[ -f "$HOME/.reclaude/ca.pem" ] && export NODE_EXTRA_CA_CERTS="$HOME/.reclaude/ca.pem"
+/Users/jacky/.nvm/versions/node/v24.14.0/bin/node --no-warnings --no-deprecation /Users/jacky/jacky-github/happy/packages/happy-cli/dist/index.mjs daemon start
+```
+
+### 切换后的必检项
+
+每次切换 CLI、更新 `packages/happy-cli/dist/`、修改 npm link、切 agent，或任何动作触发 daemon 重启后，必须检查：
+
+```bash
+happy daemon status
+LOG=$(ls -t ~/.happy/logs/*-daemon.log | head -1)
+sed -n '1,60p' "$LOG"
+lsof -nP -iTCP:10802 -sTCP:LISTEN
+```
+
+通过标准：
+
+- daemon log 里的 `processArgv[0]` 是 `/Users/jacky/.nvm/versions/node/v24.14.0/bin/node`
+- `nodeVersion` 是 `v24.14.0`
+- `PWD` / `workingDirectory` 是 `/Users/jacky`
+- `serverUrl` 是 `http://47.115.228.20:3005`
+- 日志出现 `Machine registered` 和 `Connected to server`
+- `127.0.0.1:10802` 有 `v2ray` 监听
+
+### 新会话 smoke check
+
+如果用户反馈 App 里 Mac mini 在线但新建 Codex 会话失败，优先看 daemon 最新日志是否有：
+
+- `spawn-happy-session`
+- `Child PID ... exited with code 1`
+- `Session webhook timeout`
+
+修复后至少验证一次新会话能报告到 daemon。日志里必须出现：
+
+- `Session started: ...`
+- `Session reported`
+- `startedFromDaemon: true`
+- `flavor: "codex"`
+
+### 排查顺序
+
+1. `ssh macmini` 是否通，先排除整机/Tailscale 问题。
+2. `lsof -nP -iTCP:10802 -sTCP:LISTEN`，确认代理还在。
+3. `happy daemon status` 和最新 daemon log，确认 daemon 连接的是阿里云中继。
+4. 如果失败发生在 `spawn-happy-session` 后，重点查 daemon 的 Node、`PATH`、`PWD`，以及是否绕过了 `happy-daemon-rc`。
+
 ## 七、提交信息规范
 
 ```
