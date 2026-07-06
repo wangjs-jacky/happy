@@ -10,6 +10,7 @@ import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
+import { createAppBuilderAgent, getAgentSubtitle } from './builtinAgents';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -23,6 +24,18 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const agents = useSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
+    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
+        machines,
+        preferredMachineId: draft.selectedMachineId,
+        preferredPath: draft.selectedPath,
+        title: t('agents.appBuilderTitle'),
+        presetBuildLabel: t('agents.appBuilderPresetBuild'),
+        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+    }), [draft.selectedMachineId, draft.selectedPath, machines]);
+    const visibleAgents = React.useMemo(
+        () => (builtinAppAgent ? [builtinAppAgent, ...agents] : agents),
+        [builtinAppAgent, agents],
+    );
 
     const goManage = React.useCallback(() => {
         onClose();
@@ -53,7 +66,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                     </Pressable>
                 </View>
 
-                {agents.length === 0 ? (
+                {visibleAgents.length === 0 ? (
                     <Pressable
                         onPress={goManage}
                         style={({ pressed }) => [styles.empty, pressed && styles.pressed]}
@@ -62,11 +75,11 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                     </Pressable>
                 ) : (
                     <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-                        {agents.map((agent) => {
+                        {visibleAgents.map((agent) => {
                             const machine = machines.find((m) => m.id === agent.machineId);
                             const online = !!machine && isMachineOnline(machine);
                             const missing = !machine;
-                            const subtitleHost = machine?.metadata?.displayName ?? machine?.metadata?.host ?? (missing ? t('agents.machineMissing') : agent.machineId);
+                            const subtitle = getAgentSubtitle(agent, machine, missing ? t('agents.machineMissing') : agent.machineId);
 
                             return (
                                 <Pressable
@@ -95,11 +108,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                                     {/* Text block */}
                                     <View style={styles.rowText}>
                                         <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
-                                        <Text style={styles.subtitle} numberOfLines={1}>
-                                            {subtitleHost}
-                                            {' · '}
-                                            <Text style={styles.path}>{agent.path}</Text>
-                                        </Text>
+                                        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
                                         {!online && (
                                             <Text style={styles.statusLabel} numberOfLines={1}>
                                                 {missing ? t('agents.machineMissing') : t('agents.machineOffline')}

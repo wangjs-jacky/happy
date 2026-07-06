@@ -27,6 +27,7 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
+import { createAppBuilderAgent } from './agents/builtinAgents';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -80,10 +81,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
     const { agentId } = useLocalSearchParams<{ agentId?: string }>();
     const agents = useSetting('agents');
-    const activeAgent = React.useMemo(
-        () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
-        [agentId, agents],
-    );
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -101,6 +98,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         selectedMachineId: s.selectedMachineId,
         worktreeKey: s.worktreeKey,
     })));
+    const selectedPath = useNewSessionDraft(s => s.selectedPath);
 
     // Inline image attachments (claude / codex). 图片上传已转正：Claude、Codex 会话默认
     // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
@@ -115,6 +113,18 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         () => machines.find((m) => m.id === selectedMachineId),
         [machines, selectedMachineId],
     );
+    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
+        machines,
+        preferredMachineId: selectedMachineId,
+        preferredPath: selectedPath,
+        title: t('agents.appBuilderTitle'),
+        presetBuildLabel: t('agents.appBuilderPresetBuild'),
+        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+    }), [machines, selectedMachineId, selectedPath]);
+    const displayAgent = React.useMemo(() => {
+        if (!agentId) return null;
+        return agents.find((a) => a.id === agentId) ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
+    }, [agentId, agents, builtinAppAgent]);
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const agentLabel = AGENT_LABELS[agentType] ?? agentType;
@@ -245,8 +255,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
                     <Text style={styles.greeting}>
-                        {activeAgent
-                            ? t('composeHome.greetingAgent', { name: activeAgent.name })
+                        {displayAgent
+                            ? t('composeHome.greetingAgent', { name: displayAgent.name })
                             : name
                                 ? t('composeHome.greeting', { name })
                                 : t('composeHome.greetingNoName')}
@@ -254,9 +264,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
-                    {activeAgent && activeAgent.presets.length > 0 && (
+                    {displayAgent && displayAgent.presets.length > 0 && (
                         <View style={styles.presetRow}>
-                            {activeAgent.presets.map((preset, i) => (
+                            {displayAgent.presets.map((preset, i) => (
                                 <Pressable
                                     key={`${preset.label}-${i}`}
                                     onPress={() => fillPreset(preset.prompt)}

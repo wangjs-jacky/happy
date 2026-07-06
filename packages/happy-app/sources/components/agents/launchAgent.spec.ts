@@ -14,6 +14,10 @@ describe('launchAgent', () => {
             setPath: vi.fn(() => calls.push('path')),
             setSessionType: vi.fn(() => calls.push('type')),
             setInput: vi.fn(() => calls.push('input')),
+            setAgentType: vi.fn(() => calls.push('agent')),
+            setPermissionMode: vi.fn(() => calls.push('permission')),
+            setModelMode: vi.fn(() => calls.push('model')),
+            setEffortLevel: vi.fn(() => calls.push('effort')),
         };
         const navigate = vi.fn();
         launchAgent(agent, draft as any, navigate);
@@ -22,5 +26,31 @@ describe('launchAgent', () => {
         expect(draft.setPath).toHaveBeenCalledWith('~/work/schedule');
         expect(draft.setInput).toHaveBeenCalledWith('');
         expect(navigate).toHaveBeenCalledWith('/new?agentId=a1');
+    });
+
+    it('applies optional runner defaults for built-in agents', () => {
+        const draft = {
+            setMachineId: vi.fn(),
+            setPath: vi.fn(),
+            setSessionType: vi.fn(),
+            setInput: vi.fn(),
+            setAgentType: vi.fn(),
+            setPermissionMode: vi.fn(),
+            setModelMode: vi.fn(),
+            setEffortLevel: vi.fn(),
+        };
+        const navigate = vi.fn();
+        launchAgent({
+            ...agent,
+            agentType: 'codex',
+            permissionMode: 'yolo',
+            modelMode: 'default',
+            effortLevel: null,
+        }, draft, navigate);
+
+        expect(draft.setAgentType).toHaveBeenCalledWith('codex');
+        expect(draft.setPermissionMode).toHaveBeenCalledWith('yolo');
+        expect(draft.setModelMode).toHaveBeenCalledWith('default');
+        expect(draft.setEffortLevel).toHaveBeenCalledWith(null);
     });
 });

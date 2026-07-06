@@ -7,8 +7,11 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSetting, useAllMachines } from '@/sync/storage';
+import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
+import { launchAgent, type AgentLauncher } from '@/components/agents/launchAgent';
+import { createAppBuilderAgent, getAgentSubtitle } from '@/components/agents/builtinAgents';
 
 /**
  * 「我的 Agent」配置列表页：展示已配置的 Agent，点击行进入编辑，顶部入口新建。
@@ -20,14 +23,45 @@ export default React.memo(function MyAgentsSettingsScreen() {
     const router = useRouter();
     const agents = useSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
+    const draft = useNewSessionDraft();
+    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
+        machines,
+        preferredMachineId: draft.selectedMachineId,
+        preferredPath: draft.selectedPath,
+        title: t('agents.appBuilderTitle'),
+        presetBuildLabel: t('agents.appBuilderPresetBuild'),
+        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+    }), [draft.selectedMachineId, draft.selectedPath, machines]);
 
     const machineName = React.useCallback((machineId: string): string => {
         const machine = machines.find((m) => m.id === machineId);
         return machine?.metadata?.displayName ?? machine?.metadata?.host ?? (machine ? machineId : t('agents.machineMissing'));
     }, [machines]);
+    const handleLaunchAgent = React.useCallback((agent: AgentLauncher) => {
+        launchAgent(agent, draft, (p) => router.navigate(p as any));
+    }, [draft, router]);
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
+            {builtinAppAgent && (
+                <ItemGroup title={t('agents.builtinTitle')}>
+                    <Item
+                        title={builtinAppAgent.name}
+                        subtitle={getAgentSubtitle(
+                            builtinAppAgent,
+                            machines.find((m) => m.id === builtinAppAgent.machineId),
+                            t('agents.machineMissing'),
+                        )}
+                        leftElement={
+                            <View style={[styles.avatar, { backgroundColor: builtinAppAgent.color }]}>
+                                <Text style={styles.avatarGlyph}>{builtinAppAgent.glyph}</Text>
+                            </View>
+                        }
+                        onPress={() => handleLaunchAgent(builtinAppAgent)}
+                    />
+                </ItemGroup>
+            )}
+
             <ItemGroup>
                 <Item
                     title={t('agents.new')}
