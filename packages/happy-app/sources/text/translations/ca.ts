@@ -1200,6 +1200,13 @@ export const ca: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Baixa la imatge',
+        close: 'Tanca el visor d’imatges',
+        downloadFailedTitle: 'Error de baixada',
+        downloadFailedMessage: 'No s’ha pogut preparar aquesta imatge per baixar-la.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} t'ha enviat una sol·licitud d'amistat`,

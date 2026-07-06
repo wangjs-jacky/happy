@@ -1299,6 +1299,13 @@ export const zhHant: TranslationStructure = {
         avatarUploadFailedMessage: '無法更新您的頭像。',
     },
 
+    imageViewer: {
+        download: '下載圖片',
+        close: '關閉圖片預覽',
+        downloadFailedTitle: '下載失敗',
+        downloadFailedMessage: '無法準備這張圖片以下載。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} 向您傳送了好友請求`,

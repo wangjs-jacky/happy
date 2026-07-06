@@ -1202,6 +1202,13 @@ export const ja: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: '画像をダウンロード',
+        close: '画像ビューアを閉じる',
+        downloadFailedTitle: 'ダウンロードに失敗しました',
+        downloadFailedMessage: 'この画像をダウンロード用に準備できませんでした。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name}さんから友達リクエストが届きました`,

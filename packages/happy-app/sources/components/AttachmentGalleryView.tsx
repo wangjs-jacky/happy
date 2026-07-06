@@ -90,7 +90,7 @@ export const AttachmentGalleryView = React.memo<{
         const index = ordered.findIndex((x) => x.img.id === tappedId);
         if (index < 0) return;
         imageViewer.open(
-            ordered.map((x) => ({ uri: x.uri, width: x.img.width, height: x.img.height })),
+            ordered.map((x) => ({ uri: x.uri, width: x.img.width, height: x.img.height, filename: x.img.name })),
             index,
         );
     }, [images]);

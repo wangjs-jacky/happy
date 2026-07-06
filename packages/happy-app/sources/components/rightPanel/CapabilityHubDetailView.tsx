@@ -312,7 +312,7 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
     return (
         <Pressable
             disabled={!uri}
-            onPress={uri ? () => imageViewer.open({ uri, width: props.item.width, height: props.item.height }) : undefined}
+            onPress={uri ? () => imageViewer.open({ uri, width: props.item.width, height: props.item.height, filename: props.item.title }) : undefined}
             style={({ pressed }) => [
                 styles.rowCard,
                 styles.imageRowCard,

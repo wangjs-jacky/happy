@@ -13,10 +13,13 @@
  * fullscreen view.
  */
 import { create } from 'zustand';
+import type { ImageDownloadSource } from '@/utils/imageDownloadCore';
 
-export interface ImageViewerSource {
+export interface ImageViewerSource extends ImageDownloadSource {
     /** Image URI — local file://, remote http(s):// or a data: URI. */
     uri: string;
+    /** Optional filename used by the viewer's download action. */
+    filename?: string;
     /** Optional intrinsic size; lets the viewer fit the image before it loads. */
     width?: number;
     height?: number;

@@ -1768,6 +1768,13 @@ export const zhHans: TranslationStructure = {
         avatarUploadFailedMessage: '无法更新您的头像。',
     },
 
+    imageViewer: {
+        download: '下载图片',
+        close: '关闭图片预览',
+        downloadFailedTitle: '下载失败',
+        downloadFailedMessage: '无法准备这张图片用于下载。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} 向您发送了好友请求`,

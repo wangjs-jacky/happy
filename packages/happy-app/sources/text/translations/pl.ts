@@ -1230,6 +1230,13 @@ export const pl: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Pobierz obraz',
+        close: 'Zamknij podgląd obrazu',
+        downloadFailedTitle: 'Pobieranie nie powiodło się',
+        downloadFailedMessage: 'Nie udało się przygotować tego obrazu do pobrania.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} wysłał Ci zaproszenie do znajomych`,
