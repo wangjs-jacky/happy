@@ -485,6 +485,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         isSending={sending}
                         isSendDisabled={!canSubmit}
                         selectedImages={hasImages ? selectedImages : undefined}
+                        selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         onPickImages={canAttach ? pickImages : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
                         onAddImages={canAttach ? addImages : undefined}

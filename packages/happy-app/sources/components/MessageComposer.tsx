@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable } from 'react-native';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { layout } from './layout';
 import { MultiTextInput, KeyPressEvent } from './MultiTextInput';
@@ -76,6 +77,7 @@ interface MessageComposerProps {
     zenMode?: boolean;
     /** Image attachments waiting to be sent (expImageUpload feature). */
     selectedImages?: AttachmentPreview[];
+    selectedImagesPresentation?: AttachmentGalleryPresentation;
     onPickImages?: () => void;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
@@ -817,6 +819,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                         <AgentInputAttachmentStrip
                             images={props.selectedImages}
                             onRemove={props.onRemoveImage ?? (() => {})}
+                            presentation={props.selectedImagesPresentation}
                         />
                     )}
                     {/* Input field */}

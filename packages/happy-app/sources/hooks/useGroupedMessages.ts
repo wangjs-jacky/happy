@@ -40,6 +40,7 @@ export type ImageGroupItem = {
     id: string;
     messages: Message[];
     presentation: AttachmentGalleryPresentation;
+    pendingCount: number;
 };
 
 export type ToolDisplayItem = TextItem | ToolGroupItem;
@@ -48,6 +49,12 @@ type CollectedAgentWorkGroup = {
     item: AgentWorkGroupItem;
     hiddenIndexes: number[];
     oldestIdx: number;
+    turn: number;
+};
+type ImageAgentPresentationState = {
+    featuredAttachmentIds: Set<string>;
+    pendingCountByAnchorAttachmentId: Map<string, number>;
+    pendingGroupByWorkOldestIndex: Map<number, ImageGroupItem>;
 };
 
 /**
@@ -78,10 +85,14 @@ export function groupMessagesForDisplay(
 
     if (!enabled) {
         const turnOf = getTurnAssignments(messages);
-        const featuredAttachmentIds = getImageAgentGeneratedAttachmentIds(messages, turnOf);
-        const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
-            collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, { imageOnly: true }),
+        const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, { imageOnly: true });
+        const imageAgentPresentation = getImageAgentPresentationState(
+            messages,
+            turnOf,
+            workGroups,
+            collapseCurrentTurn,
         );
+        const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(workGroups);
         // Tool-call grouping is off, but user image attachments must STILL
         // collapse into a horizontal Kimi-style gallery — the thumbnail UI is
         // independent of the "Group Tool Calls" setting. Without this, images
@@ -95,6 +106,10 @@ export function groupMessagesForDisplay(
         for (let i = 0; i < messages.length; i++) {
             const msg = messages[i];
             if (hiddenWorkIndexes.has(i)) {
+                const pendingGroup = imageAgentPresentation.pendingGroupByWorkOldestIndex.get(i);
+                if (pendingGroup) {
+                    result.push(pendingGroup);
+                }
                 const workGroup = workGroupByOldestIndex.get(i);
                 if (workGroup) {
                     result.push(workGroup);
@@ -111,7 +126,8 @@ export function groupMessagesForDisplay(
                         type: 'image-group',
                         id: `images-${chronological[0].id}`,
                         messages: chronological,
-                        presentation: getAttachmentPresentation(chronological, featuredAttachmentIds),
+                        presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
+                        pendingCount: getPendingCountForImageGroup(chronological, imageAgentPresentation),
                     });
                 }
                 continue;
@@ -122,10 +138,14 @@ export function groupMessagesForDisplay(
     }
 
     const turnOf = getTurnAssignments(messages);
-    const featuredAttachmentIds = getImageAgentGeneratedAttachmentIds(messages, turnOf);
-    const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
-        collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn),
+    const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn);
+    const imageAgentPresentation = getImageAgentPresentationState(
+        messages,
+        turnOf,
+        workGroups,
+        collapseCurrentTurn,
     );
+    const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(workGroups);
 
     const visibleForToolGrouping = (msg: Message, index: number): boolean => {
         if (hiddenWorkIndexes.has(index)) return false;
@@ -150,6 +170,10 @@ export function groupMessagesForDisplay(
         if (isInvisibleMessage(msg)) continue;
 
         if (hiddenWorkIndexes.has(i)) {
+            const pendingGroup = imageAgentPresentation.pendingGroupByWorkOldestIndex.get(i);
+            if (pendingGroup) {
+                result.push(pendingGroup);
+            }
             const workGroup = workGroupByOldestIndex.get(i);
             if (workGroup) {
                 result.push(workGroup);
@@ -167,7 +191,8 @@ export function groupMessagesForDisplay(
                     type: 'image-group',
                     id: `images-${chronological[0].id}`,
                     messages: chronological,
-                    presentation: getAttachmentPresentation(chronological, featuredAttachmentIds),
+                    presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
+                    pendingCount: getPendingCountForImageGroup(chronological, imageAgentPresentation),
                 });
             }
             continue;
@@ -204,27 +229,93 @@ export function groupMessagesForDisplay(
     return result;
 }
 
-function getImageAgentGeneratedAttachmentIds(messages: Message[], turnOf: number[]): Set<string> {
-    const imageAgentTurns = new Set<number>();
+function getImageAgentPresentationState(
+    messages: Message[],
+    turnOf: number[],
+    workGroups: CollectedAgentWorkGroup[],
+    collapseCurrentTurn: boolean,
+): ImageAgentPresentationState {
+    const featuredAttachmentIds = new Set<string>();
+    const pendingCountByAnchorAttachmentId = new Map<string, number>();
+    const pendingGroupByWorkOldestIndex = new Map<number, ImageGroupItem>();
+    const workGroupByTurn = new Map<number, CollectedAgentWorkGroup>();
+
+    for (const workGroup of workGroups) {
+        workGroupByTurn.set(workGroup.turn, workGroup);
+    }
+
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
-        if (msg.kind === 'user-text' && isGeneratedImageBatchPromptText(msg.text)) {
-            imageAgentTurns.add(turnOf[i]);
+        if (msg.kind !== 'user-text' || !isGeneratedImageBatchPromptText(msg.text)) continue;
+
+        const turn = turnOf[i];
+        for (let j = i + 1; j < messages.length && isUserAttachment(messages[j]); j++) {
+            featuredAttachmentIds.add(messages[j].id);
+        }
+
+        const generatedIndexes: number[] = [];
+        let hasRunning = turn === 0 && !collapseCurrentTurn;
+        for (let j = 0; j < messages.length; j++) {
+            const candidate = messages[j];
+            if (turnOf[j] !== turn) continue;
+            if (isUserAttachment(candidate)) {
+                featuredAttachmentIds.add(candidate.id);
+                generatedIndexes.push(j);
+            }
+            if (candidate.kind === 'tool-call' && candidate.tool.state === 'running') {
+                hasRunning = true;
+            }
+        }
+
+        const pendingCount = hasRunning
+            ? Math.max(0, getExpectedImageAgentOutputCount(msg.text) - generatedIndexes.length)
+            : 0;
+        if (pendingCount === 0) continue;
+
+        if (generatedIndexes.length > 0) {
+            pendingCountByAnchorAttachmentId.set(messages[generatedIndexes[0]].id, pendingCount);
+            continue;
+        }
+
+        const workGroup = workGroupByTurn.get(turn);
+        if (workGroup) {
+            pendingGroupByWorkOldestIndex.set(workGroup.oldestIdx, {
+                type: 'image-group',
+                id: `images-pending-${msg.id}`,
+                messages: [],
+                presentation: 'featured',
+                pendingCount,
+            });
         }
     }
 
-    const ids = new Set<string>();
-    for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        if (imageAgentTurns.has(turnOf[i]) && isUserAttachment(msg)) {
-            ids.add(msg.id);
-        }
-    }
-    return ids;
+    return { featuredAttachmentIds, pendingCountByAnchorAttachmentId, pendingGroupByWorkOldestIndex };
 }
 
 function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
     return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
+}
+
+function getPendingCountForImageGroup(messages: Message[], state: ImageAgentPresentationState): number {
+    for (const message of messages) {
+        const pendingCount = state.pendingCountByAnchorAttachmentId.get(message.id);
+        if (pendingCount !== undefined) return pendingCount;
+    }
+    return 0;
+}
+
+function getExpectedImageAgentOutputCount(text: string): number {
+    const variantsMatch = text.match(/各生成\s*(\d+)\s*张变体/);
+    const variants = variantsMatch ? Math.max(1, Number.parseInt(variantsMatch[1], 10) || 1) : 1;
+    const styleSectionIndex = text.search(/已选择的\s+GPT Image(?: 2| Gallery)?\s*风格/);
+    if (styleSectionIndex < 0) return variants;
+
+    const styleCount = text
+        .slice(styleSectionIndex)
+        .split('\n')
+        .filter((line) => /^\s*\d+\.\s+/.test(line))
+        .length;
+    return Math.max(1, styleCount * variants);
 }
 
 function indexAgentWorkGroups(workGroups: CollectedAgentWorkGroup[]): {
@@ -399,6 +490,7 @@ function collectAgentWorkGroups(
                     : Math.max(...hiddenMessages.map((msg) => msg.createdAt));
 
                 groups.push({
+                    turn,
                     hiddenIndexes,
                     oldestIdx,
                     item: {
@@ -436,6 +528,7 @@ function collectAgentWorkGroups(
         const hasRunning = hiddenMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
 
         groups.push({
+            turn,
             hiddenIndexes,
             oldestIdx,
             item: {

@@ -59,6 +59,22 @@ function imageAgentPrompt(): string {
     ].join('\n');
 }
 
+function imageAgentPromptWithStyleCount(styleCount: number, variants: number = 1): string {
+    return [
+        '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
+        '',
+        '生成锁：',
+        '- 将这次请求视为一个已锁定的图片生成任务。这个锁只用于避免并发图片任务，不限制多风格或多图片输出。',
+        '',
+        '输出要求：',
+        `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
+        '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。',
+        '',
+        '已选择的 GPT Image 2 风格：',
+        ...Array.from({ length: styleCount }, (_, index) => `${index + 1}. style-${index + 1} - 风格 ${index + 1}`),
+    ].join('\n');
+}
+
 function fileMessage(id: string, createdAt: number): ToolCallMessage {
     return {
         kind: 'tool-call',
@@ -354,7 +370,7 @@ describe('useGroupedMessages', () => {
         expect(items.some((item) => item.type === 'message' && (item.id === 'agent-final' || item.id === 'agent-progress'))).toBe(false);
     });
 
-    it('keeps uploaded reference images compact while marking generated image-agent outputs as featured', () => {
+    it('marks uploaded reference images and generated image-agent outputs as featured', () => {
         const messages: Message[] = [
             fileMessage('generated-image', 5),
             {
@@ -370,10 +386,57 @@ describe('useGroupedMessages', () => {
         const items = groupMessagesForDisplay(messages, true);
 
         expect(items).toMatchObject([
-            { type: 'image-group', id: 'images-generated-image', presentation: 'featured' },
+            { type: 'image-group', id: 'images-generated-image', presentation: 'featured', pendingCount: 0 },
             { type: 'message', id: 'user' },
-            { type: 'image-group', id: 'images-reference-image', presentation: 'compact' },
+            { type: 'image-group', id: 'images-reference-image', presentation: 'featured', pendingCount: 0 },
         ]);
+    });
+
+    it('adds featured loading placeholders for running image-agent outputs before images arrive', () => {
+        const messages: Message[] = [
+            toolMessage('image-tool-running', 4, { state: 'running' }),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 3,
+                text: imageAgentPromptWithStyleCount(3),
+            },
+            fileMessage('reference-image', 2),
+        ];
+
+        const items = groupMessagesForDisplay(messages, true, { collapseCurrentTurn: false });
+
+        expect(items).toMatchObject([
+            { type: 'image-group', id: 'images-pending-user', presentation: 'featured', messages: [], pendingCount: 3 },
+            { type: 'agent-work-group', id: 'work-image-tool-running', hasRunning: true },
+            { type: 'message', id: 'user' },
+            { type: 'image-group', id: 'images-reference-image', presentation: 'featured', pendingCount: 0 },
+        ]);
+    });
+
+    it('keeps only missing loading placeholders once some image-agent outputs have arrived', () => {
+        const messages: Message[] = [
+            fileMessage('generated-image', 5),
+            toolMessage('image-tool-running', 4, { state: 'running' }),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 3,
+                text: imageAgentPromptWithStyleCount(3),
+            },
+            fileMessage('reference-image', 2),
+        ];
+
+        const items = groupMessagesForDisplay(messages, true, { collapseCurrentTurn: false });
+
+        expect(items[0]).toMatchObject({
+            type: 'image-group',
+            id: 'images-generated-image',
+            presentation: 'featured',
+            pendingCount: 2,
+        });
     });
 
     it('keeps the failure summary visible for an image-agent turn without generated images', () => {
@@ -415,8 +478,14 @@ describe('useGroupedMessages', () => {
 
         const items = groupMessagesForDisplay(messages, true, { collapseCurrentTurn: false });
 
-        expect(items.map((item) => item.type)).toEqual(['agent-work-group', 'message']);
+        expect(items.map((item) => item.type)).toEqual(['image-group', 'agent-work-group', 'message']);
         expect(items[0]).toMatchObject({
+            type: 'image-group',
+            id: 'images-pending-user',
+            pendingCount: 1,
+            presentation: 'featured',
+        });
+        expect(items[1]).toMatchObject({
             type: 'agent-work-group',
             id: 'work-image-tool-running',
             hasRunning: true,

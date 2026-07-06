@@ -6,13 +6,15 @@
  * adjacent attachments into a single `image-group` DisplayItem. Ordinary
  * uploaded reference images render as a compact Kimi-style thumbnail strip;
  * GPT Image Agent outputs render larger, preserving the image aspect ratio.
+ * Running GPT Image batches can also reserve pending slots so the user sees
+ * one loading placeholder per expected image before the file events arrive.
  *
  * Each thumbnail reuses the same decrypt/cache pipeline as FileView
  * (useAttachmentImage + thumbhash placeholder) and opens the fullscreen
  * zoomable viewer on tap.
  */
 import * as React from 'react';
-import { View, Pressable, useWindowDimensions } from 'react-native';
+import { View, Pressable, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -75,8 +77,10 @@ export const AttachmentGalleryView = React.memo<{
     messages: Message[];
     sessionId: string;
     presentation?: AttachmentGalleryPresentation;
-}>(({ messages, sessionId, presentation = 'compact' }) => {
+    pendingCount?: number;
+}>(({ messages, sessionId, presentation = 'compact', pendingCount = 0 }) => {
     const images = React.useMemo(() => toGalleryImages(messages), [messages]);
+    const placeholderCount = Math.max(0, pendingCount);
 
     // Decrypted URIs resolve lazily inside each thumbnail. We collect them here
     // (in a ref, so resolution doesn't re-render the strip) so that tapping any
@@ -100,7 +104,7 @@ export const AttachmentGalleryView = React.memo<{
         );
     }, [images]);
 
-    if (images.length === 0) return null;
+    if (images.length === 0 && placeholderCount === 0) return null;
 
     if (presentation === 'featured') {
         return (
@@ -114,6 +118,9 @@ export const AttachmentGalleryView = React.memo<{
                         onResolved={handleResolved}
                         onOpen={handleOpen}
                     />
+                ))}
+                {Array.from({ length: placeholderCount }, (_, index) => (
+                    <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} />
                 ))}
             </View>
         );
@@ -139,6 +146,9 @@ export const AttachmentGalleryView = React.memo<{
                     onResolved={handleResolved}
                     onOpen={handleOpen}
                 />
+            ))}
+            {Array.from({ length: placeholderCount }, (_, index) => (
+                <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} />
             ))}
         </HorizontalScrollView>
     );
@@ -203,6 +213,42 @@ const GalleryThumbnail = React.memo<{
     );
 });
 
+const GalleryPlaceholder = React.memo<{
+    presentation: AttachmentGalleryPresentation;
+}>(({ presentation }) => {
+    const { theme } = useUnistyles();
+    const windowDimensions = useWindowDimensions();
+    const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 56));
+    const displaySize = computeAttachmentGalleryImageSize({
+        presentation,
+        maxWidth: maxFeaturedWidth,
+        maxHeight: FEATURED_MAX_HEIGHT,
+    });
+    const isFeatured = presentation === 'featured';
+
+    return (
+        <View
+            style={[
+                isFeatured ? styles.featuredWrapper : styles.thumbWrapper,
+                displaySize,
+                styles.placeholder,
+                {
+                    borderColor: theme.colors.divider,
+                    backgroundColor: theme.colors.surfaceHigh,
+                },
+            ]}
+        >
+            <View style={styles.placeholderCenter}>
+                <Ionicons name="image-outline" size={isFeatured ? 28 : 20} color={theme.colors.textSecondary} />
+                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+            </View>
+            <View style={[styles.placeholderProgressTrack, { backgroundColor: theme.colors.divider }]}>
+                <View style={[styles.placeholderProgressBar, { backgroundColor: theme.colors.textSecondary }]} />
+            </View>
+        </View>
+    );
+});
+
 const styles = StyleSheet.create(() => ({
     strip: {
         marginHorizontal: 8,
@@ -238,6 +284,29 @@ const styles = StyleSheet.create(() => ({
     },
     thumb: {
         borderRadius: BORDER_RADIUS,
+    },
+    placeholder: {
+        justifyContent: 'center',
+    },
+    placeholderCenter: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+    },
+    placeholderProgressTrack: {
+        position: 'absolute',
+        left: 18,
+        right: 18,
+        bottom: 18,
+        height: 4,
+        borderRadius: 2,
+        overflow: 'hidden',
+        opacity: 0.7,
+    },
+    placeholderProgressBar: {
+        width: '45%',
+        height: '100%',
+        borderRadius: 2,
     },
     errorOverlay: {
         position: 'absolute',

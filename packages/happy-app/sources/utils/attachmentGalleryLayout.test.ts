@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeAttachmentGalleryImageSize } from './attachmentGalleryLayout';
+import { computeAttachmentGalleryImageSize, computeInputAttachmentImageSize } from './attachmentGalleryLayout';
 
 describe('computeAttachmentGalleryImageSize', () => {
     it('keeps compact gallery images as square thumbnails', () => {
@@ -38,5 +38,23 @@ describe('computeAttachmentGalleryImageSize', () => {
             maxWidth: 360,
             maxHeight: 480,
         })).toEqual({ width: 360, height: 270 });
+    });
+
+    it('keeps regular input attachments compact but enlarges GPT Image input attachments by aspect ratio', () => {
+        expect(computeInputAttachmentImageSize({
+            presentation: 'compact',
+            sourceWidth: 1600,
+            sourceHeight: 900,
+            maxWidth: 320,
+            maxHeight: 220,
+        })).toEqual({ width: 72, height: 72 });
+
+        expect(computeInputAttachmentImageSize({
+            presentation: 'featured',
+            sourceWidth: 1600,
+            sourceHeight: 900,
+            maxWidth: 320,
+            maxHeight: 220,
+        })).toEqual({ width: 320, height: 180 });
     });
 });
