@@ -4,6 +4,15 @@ export type AutoFoldPromptInfo = {
     preview: string;
 };
 
+export type AutoFoldPromptBodyRenderState = {
+    kind: 'preview-text';
+    text: string;
+} | {
+    kind: 'markdown';
+    text: string;
+    markdownVariant: 'foldedPrompt';
+};
+
 const MIN_PROMPT_CHARS = 1400;
 const MIN_PROMPT_LINES = 10;
 const LONG_SINGLE_BLOCK_CHARS = 2400;
@@ -84,5 +93,24 @@ export function getAutoFoldPromptInfo(text: string): AutoFoldPromptInfo | null {
         charCount,
         lineCount,
         preview: buildPreview(trimmed),
+    };
+}
+
+export function getAutoFoldPromptBodyRenderState(args: {
+    text: string;
+    info: AutoFoldPromptInfo;
+    expanded: boolean;
+}): AutoFoldPromptBodyRenderState {
+    if (!args.expanded) {
+        return {
+            kind: 'preview-text',
+            text: args.info.preview,
+        };
+    }
+
+    return {
+        kind: 'markdown',
+        text: args.text,
+        markdownVariant: 'foldedPrompt',
     };
 }

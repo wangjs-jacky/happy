@@ -13,7 +13,7 @@ import { sync } from '@/sync/sync';
 import { Option } from './markdown/MarkdownView';
 import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
-import { getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
+import { getAutoFoldPromptBodyRenderState, getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
 
 
 export const MessageView = React.memo((props: {
@@ -213,6 +213,11 @@ function AutoFoldPromptBlock(props: {
   const copyPrompt = React.useCallback(() => {
     void Clipboard.setStringAsync(props.text);
   }, [props.text]);
+  const bodyRenderState = getAutoFoldPromptBodyRenderState({
+    text: props.text,
+    info: props.info,
+    expanded,
+  });
 
   return (
     <View style={styles.autoFoldCard}>
@@ -235,9 +240,18 @@ function AutoFoldPromptBlock(props: {
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textSecondary} />
         </Pressable>
       </View>
-      <Text style={styles.autoFoldBodyText} numberOfLines={expanded ? undefined : 8}>
-        {expanded ? props.text : props.info.preview}
-      </Text>
+      <View style={styles.autoFoldBody}>
+        {bodyRenderState.kind === 'markdown' ? (
+          <MarkdownView
+            markdown={bodyRenderState.text}
+            onOptionPress={props.onOptionPress}
+            sessionId={props.sessionId}
+            variant={bodyRenderState.markdownVariant}
+          />
+        ) : (
+          <Text style={styles.autoFoldBodyText}>{bodyRenderState.text}</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -428,6 +442,8 @@ const styles = StyleSheet.create((theme) => ({
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
     fontSize: 12,
     lineHeight: 18,
+  },
+  autoFoldBody: {
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
