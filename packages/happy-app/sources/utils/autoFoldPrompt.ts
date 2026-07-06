@@ -36,6 +36,15 @@ const IMAGE_BATCH_MARKERS = [
     /生成锁/,
 ];
 
+export function isGeneratedImageBatchPromptText(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) {
+        return false;
+    }
+    const markerSearchText = trimmed.slice(0, 1800);
+    return IMAGE_BATCH_MARKERS.every((marker) => marker.test(markerSearchText));
+}
+
 function buildPreview(text: string): string {
     const linePreview = text.split('\n').slice(0, PREVIEW_LINES).join('\n').trim();
     if (linePreview.length <= PREVIEW_CHARS) {
@@ -52,10 +61,8 @@ export function getAutoFoldPromptInfo(text: string): AutoFoldPromptInfo | null {
 
     const charCount = trimmed.length;
     const lineCount = trimmed.split('\n').length;
-    const markerSearchText = trimmed.slice(0, 1800);
-    const isGeneratedImageBatchPrompt = IMAGE_BATCH_MARKERS.every((marker) => marker.test(markerSearchText));
 
-    if (isGeneratedImageBatchPrompt && charCount >= 180 && lineCount >= 6) {
+    if (isGeneratedImageBatchPromptText(trimmed) && charCount >= 180 && lineCount >= 6) {
         return {
             charCount,
             lineCount,
@@ -68,6 +75,7 @@ export function getAutoFoldPromptInfo(text: string): AutoFoldPromptInfo | null {
         return null;
     }
 
+    const markerSearchText = trimmed.slice(0, 1800);
     if (!PROMPT_MARKERS.some((marker) => marker.test(markerSearchText))) {
         return null;
     }

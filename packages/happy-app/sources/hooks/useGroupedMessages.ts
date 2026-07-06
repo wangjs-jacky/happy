@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Message } from '@/sync/typesMessage';
 import { knownTools } from '@/components/tools/knownTools';
 import { t } from '@/text';
+import { isGeneratedImageBatchPromptText } from '@/utils/autoFoldPrompt';
 
 // Display item types for the grouped message list
 export type TextItem = {
@@ -41,6 +42,11 @@ export type ImageGroupItem = {
 
 export type ToolDisplayItem = TextItem | ToolGroupItem;
 export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem | ImageGroupItem;
+type CollectedAgentWorkGroup = {
+    item: AgentWorkGroupItem;
+    hiddenIndexes: number[];
+    oldestIdx: number;
+};
 
 /**
  * The messages array is newest-first for the inverted FlatList.
@@ -66,16 +72,32 @@ export function groupMessagesForDisplay(
     enabled: boolean = true,
     options: { collapseCurrentTurn?: boolean } = {},
 ): DisplayItem[] {
+    const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
+
     if (!enabled) {
+        const turnOf = getTurnAssignments(messages);
+        const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
+            collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, { imageOnly: true }),
+        );
         // Tool-call grouping is off, but user image attachments must STILL
         // collapse into a horizontal Kimi-style gallery — the thumbnail UI is
         // independent of the "Group Tool Calls" setting. Without this, images
         // fall back to full-width FileView rows whenever groupToolCalls is
         // false (which is the default), silently undoing the gallery feature.
-        const attachmentRuns = collectToolRuns(messages, (msg) => isUserAttachment(msg));
+        const attachmentRuns = collectToolRuns(
+            messages,
+            (msg, index) => !hiddenWorkIndexes.has(index) && isUserAttachment(msg),
+        );
         const result: DisplayItem[] = [];
         for (let i = 0; i < messages.length; i++) {
             const msg = messages[i];
+            if (hiddenWorkIndexes.has(i)) {
+                const workGroup = workGroupByOldestIndex.get(i);
+                if (workGroup) {
+                    result.push(workGroup);
+                }
+                continue;
+            }
             if (isUserAttachment(msg)) {
                 const run = attachmentRuns.get(i);
                 // Emit the whole run once, at its oldest member, so visual order
@@ -95,18 +117,10 @@ export function groupMessagesForDisplay(
         return result;
     }
 
-    const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
     const turnOf = getTurnAssignments(messages);
-    const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn);
-    const hiddenWorkIndexes = new Set<number>();
-    const workGroupByOldestIndex = new Map<number, AgentWorkGroupItem>();
-
-    for (const group of workGroups) {
-        workGroupByOldestIndex.set(group.oldestIdx, group.item);
-        for (const index of group.hiddenIndexes) {
-            hiddenWorkIndexes.add(index);
-        }
-    }
+    const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
+        collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn),
+    );
 
     const visibleForToolGrouping = (msg: Message, index: number): boolean => {
         if (hiddenWorkIndexes.has(index)) return false;
@@ -182,6 +196,23 @@ export function groupMessagesForDisplay(
     }
 
     return result;
+}
+
+function indexAgentWorkGroups(workGroups: CollectedAgentWorkGroup[]): {
+    hiddenWorkIndexes: Set<number>;
+    workGroupByOldestIndex: Map<number, AgentWorkGroupItem>;
+} {
+    const hiddenWorkIndexes = new Set<number>();
+    const workGroupByOldestIndex = new Map<number, AgentWorkGroupItem>();
+
+    for (const group of workGroups) {
+        workGroupByOldestIndex.set(group.oldestIdx, group.item);
+        for (const index of group.hiddenIndexes) {
+            hiddenWorkIndexes.add(index);
+        }
+    }
+
+    return { hiddenWorkIndexes, workGroupByOldestIndex };
 }
 
 export function groupToolCallsForDisplay(
@@ -292,11 +323,12 @@ function collectToolRuns(
     return runsByIndex;
 }
 
-function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseCurrentTurn: boolean): Array<{
-    item: AgentWorkGroupItem;
-    hiddenIndexes: number[];
-    oldestIdx: number;
-}> {
+function collectAgentWorkGroups(
+    messages: Message[],
+    turnOf: number[],
+    collapseCurrentTurn: boolean,
+    options: { imageOnly?: boolean } = {},
+): CollectedAgentWorkGroup[] {
     const segments = new Map<number, number[]>();
     for (let i = 0; i < messages.length; i++) {
         const turn = turnOf[i];
@@ -306,23 +338,61 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
         segments.get(turn)!.push(i);
     }
 
-    const groups: Array<{
-        item: AgentWorkGroupItem;
-        hiddenIndexes: number[];
-        oldestIdx: number;
-    }> = [];
+    const groups: CollectedAgentWorkGroup[] = [];
 
     for (const [turn, indexes] of segments) {
-        if (turn === 0 && !collapseCurrentTurn) {
-            continue;
-        }
-
         const visibleAgentIndexes = indexes.filter((index) => {
             const msg = messages[index];
             if (msg.kind === 'user-text') return false;
             if (isInvisibleMessage(msg) || isUserAttachment(msg)) return false;
             return true;
         });
+        if (visibleAgentIndexes.length === 0) continue;
+
+        const isImageAgentTurn = indexes.some((index) => {
+            const msg = messages[index];
+            return msg.kind === 'user-text' && isGeneratedImageBatchPromptText(msg.text);
+        });
+        const isCurrentTurn = turn === 0;
+
+        if (isImageAgentTurn) {
+            const hasGeneratedAttachment = indexes.some((index) => isUserAttachment(messages[index]));
+            const isActiveTurn = isCurrentTurn && !collapseCurrentTurn;
+            if (hasGeneratedAttachment || isActiveTurn) {
+                const hiddenIndexes = visibleAgentIndexes;
+                const oldestIdx = Math.max(...hiddenIndexes);
+                const hiddenMessages = hiddenIndexes.map((index) => messages[index]);
+                const startedAt = Math.min(...hiddenMessages.map((msg) => msg.createdAt));
+                const hasRunning = isActiveTurn
+                    || hiddenMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
+                const completedAt = hasRunning
+                    ? null
+                    : Math.max(...hiddenMessages.map((msg) => msg.createdAt));
+
+                groups.push({
+                    hiddenIndexes,
+                    oldestIdx,
+                    item: {
+                        type: 'agent-work-group',
+                        id: `work-${messages[oldestIdx].id}`,
+                        messages: hiddenMessages,
+                        hasRunning,
+                        hasPendingPermission: hasPendingPermission(hiddenMessages),
+                        startedAt,
+                        completedAt,
+                    },
+                });
+                continue;
+            }
+        }
+
+        if (options.imageOnly) {
+            continue;
+        }
+
+        if (isCurrentTurn && !collapseCurrentTurn) {
+            continue;
+        }
 
         const finalTextIndex = visibleAgentIndexes.find((index) => messages[index].kind === 'agent-text');
         if (finalTextIndex === undefined) continue;
