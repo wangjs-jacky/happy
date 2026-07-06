@@ -1,18 +1,18 @@
 /**
- * Horizontal gallery for consecutive user image attachments.
+ * Gallery for consecutive image attachments.
  *
  * The wire/sync format still stores each sent image as its own `file`
  * tool-call message (see sync.ts). useGroupedMessages collapses a run of
- * adjacent user attachments into a single `image-group` DisplayItem, which
- * this component renders as a Kimi-style horizontally scrollable row of
- * square thumbnails instead of a tall vertical stack of full-width images.
+ * adjacent attachments into a single `image-group` DisplayItem. Ordinary
+ * uploaded reference images render as a compact Kimi-style thumbnail strip;
+ * GPT Image Agent outputs render larger, preserving the image aspect ratio.
  *
  * Each thumbnail reuses the same decrypt/cache pipeline as FileView
  * (useAttachmentImage + thumbhash placeholder) and opens the fullscreen
  * zoomable viewer on tap.
  */
 import * as React from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -22,8 +22,12 @@ import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
+import { computeAttachmentGalleryImageSize } from '@/utils/attachmentGalleryLayout';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 const THUMB_SIZE = 100;
+const FEATURED_MAX_WIDTH = 360;
+const FEATURED_MAX_HEIGHT = 520;
 const BORDER_RADIUS = 10;
 
 // Same shape FileView parses out of a `file` tool call's input.
@@ -70,7 +74,8 @@ function toGalleryImages(messages: Message[]): GalleryImage[] {
 export const AttachmentGalleryView = React.memo<{
     messages: Message[];
     sessionId: string;
-}>(({ messages, sessionId }) => {
+    presentation?: AttachmentGalleryPresentation;
+}>(({ messages, sessionId, presentation = 'compact' }) => {
     const images = React.useMemo(() => toGalleryImages(messages), [messages]);
 
     // Decrypted URIs resolve lazily inside each thumbnail. We collect them here
@@ -97,6 +102,23 @@ export const AttachmentGalleryView = React.memo<{
 
     if (images.length === 0) return null;
 
+    if (presentation === 'featured') {
+        return (
+            <View style={styles.featuredList}>
+                {images.map((img) => (
+                    <GalleryThumbnail
+                        key={img.id}
+                        image={img}
+                        sessionId={sessionId}
+                        presentation={presentation}
+                        onResolved={handleResolved}
+                        onOpen={handleOpen}
+                    />
+                ))}
+            </View>
+        );
+    }
+
     return (
         // HorizontalScrollView (not a plain ScrollView): on mobile the drawer's
         // open gesture spans the full screen width and activates symmetrically,
@@ -113,6 +135,7 @@ export const AttachmentGalleryView = React.memo<{
                     key={img.id}
                     image={img}
                     sessionId={sessionId}
+                    presentation={presentation}
                     onResolved={handleResolved}
                     onOpen={handleOpen}
                 />
@@ -124,10 +147,12 @@ export const AttachmentGalleryView = React.memo<{
 const GalleryThumbnail = React.memo<{
     image: GalleryImage;
     sessionId: string;
+    presentation: AttachmentGalleryPresentation;
     onResolved: (id: string, uri: string | null) => void;
     onOpen: (id: string) => void;
-}>(({ image, sessionId, onResolved, onOpen }) => {
+}>(({ image, sessionId, presentation, onResolved, onOpen }) => {
     const { theme } = useUnistyles();
+    const windowDimensions = useWindowDimensions();
 
     const placeholder = React.useMemo(() => {
         if (!image.thumbhash) return undefined;
@@ -142,17 +167,31 @@ const GalleryThumbnail = React.memo<{
         onResolved(image.id, uri ?? null);
     }, [image.id, uri, onResolved]);
 
+    const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 56));
+    const displaySize = computeAttachmentGalleryImageSize({
+        presentation,
+        sourceWidth: image.width,
+        sourceHeight: image.height,
+        maxWidth: maxFeaturedWidth,
+        maxHeight: FEATURED_MAX_HEIGHT,
+    });
+    const isFeatured = presentation === 'featured';
+
     return (
         <Pressable
             onPress={uri ? () => onOpen(image.id) : undefined}
             disabled={!uri}
-            style={[styles.thumbWrapper, { borderColor: theme.colors.divider }]}
+            style={[
+                isFeatured ? styles.featuredWrapper : styles.thumbWrapper,
+                displaySize,
+                { borderColor: theme.colors.divider },
+            ]}
         >
             <Image
                 source={uri ? { uri } : undefined}
                 placeholder={placeholder}
-                style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, styles.thumb]}
-                contentFit="cover"
+                style={[displaySize, styles.thumb]}
+                contentFit={isFeatured ? 'contain' : 'cover'}
                 transition={150}
             />
             {error && !uri && (
@@ -174,6 +213,13 @@ const styles = StyleSheet.create(() => ({
         gap: 8,
         paddingHorizontal: 4,
     },
+    featuredList: {
+        alignItems: 'flex-start',
+        gap: 12,
+        marginHorizontal: 8,
+        marginVertical: 8,
+        paddingHorizontal: 4,
+    },
     thumbWrapper: {
         width: THUMB_SIZE,
         height: THUMB_SIZE,
@@ -181,6 +227,14 @@ const styles = StyleSheet.create(() => ({
         borderWidth: 1,
         overflow: 'hidden',
         position: 'relative',
+    },
+    featuredWrapper: {
+        borderRadius: BORDER_RADIUS,
+        borderWidth: 1,
+        overflow: 'hidden',
+        position: 'relative',
+        alignSelf: 'flex-start',
+        backgroundColor: 'transparent',
     },
     thumb: {
         borderRadius: BORDER_RADIUS,

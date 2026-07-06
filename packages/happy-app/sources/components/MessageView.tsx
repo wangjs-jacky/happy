@@ -235,13 +235,9 @@ function AutoFoldPromptBlock(props: {
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textSecondary} />
         </Pressable>
       </View>
-      {expanded ? (
-        <View style={styles.autoFoldExpanded}>
-          <MarkdownView markdown={props.text} onOptionPress={props.onOptionPress} sessionId={props.sessionId} />
-        </View>
-      ) : (
-        <Text style={styles.autoFoldPreview} numberOfLines={8}>{props.info.preview}</Text>
-      )}
+      <Text style={styles.autoFoldBodyText} numberOfLines={expanded ? undefined : 8}>
+        {expanded ? props.text : props.info.preview}
+      </Text>
     </View>
   );
 }
@@ -427,17 +423,13 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.textSecondary,
     fontSize: 12,
   },
-  autoFoldPreview: {
+  autoFoldBodyText: {
     color: theme.colors.textSecondary,
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
     fontSize: 12,
     lineHeight: 18,
     paddingHorizontal: 10,
     paddingVertical: 8,
-  },
-  autoFoldExpanded: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
   },
   debugText: {
     color: theme.colors.agentEventText,

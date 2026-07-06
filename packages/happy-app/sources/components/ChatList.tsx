@@ -263,6 +263,7 @@ const ChatListInternal = React.memo((props: {
                 <AttachmentGalleryView
                     messages={item.messages}
                     sessionId={props.sessionId}
+                    presentation={item.presentation}
                 />
             );
         }

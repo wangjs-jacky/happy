@@ -3,6 +3,7 @@ import { Message } from '@/sync/typesMessage';
 import { knownTools } from '@/components/tools/knownTools';
 import { t } from '@/text';
 import { isGeneratedImageBatchPromptText } from '@/utils/autoFoldPrompt';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 // Display item types for the grouped message list
 export type TextItem = {
@@ -38,6 +39,7 @@ export type ImageGroupItem = {
     type: 'image-group';
     id: string;
     messages: Message[];
+    presentation: AttachmentGalleryPresentation;
 };
 
 export type ToolDisplayItem = TextItem | ToolGroupItem;
@@ -76,6 +78,7 @@ export function groupMessagesForDisplay(
 
     if (!enabled) {
         const turnOf = getTurnAssignments(messages);
+        const featuredAttachmentIds = getImageAgentGeneratedAttachmentIds(messages, turnOf);
         const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
             collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, { imageOnly: true }),
         );
@@ -108,6 +111,7 @@ export function groupMessagesForDisplay(
                         type: 'image-group',
                         id: `images-${chronological[0].id}`,
                         messages: chronological,
+                        presentation: getAttachmentPresentation(chronological, featuredAttachmentIds),
                     });
                 }
                 continue;
@@ -118,6 +122,7 @@ export function groupMessagesForDisplay(
     }
 
     const turnOf = getTurnAssignments(messages);
+    const featuredAttachmentIds = getImageAgentGeneratedAttachmentIds(messages, turnOf);
     const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(
         collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn),
     );
@@ -162,6 +167,7 @@ export function groupMessagesForDisplay(
                     type: 'image-group',
                     id: `images-${chronological[0].id}`,
                     messages: chronological,
+                    presentation: getAttachmentPresentation(chronological, featuredAttachmentIds),
                 });
             }
             continue;
@@ -196,6 +202,29 @@ export function groupMessagesForDisplay(
     }
 
     return result;
+}
+
+function getImageAgentGeneratedAttachmentIds(messages: Message[], turnOf: number[]): Set<string> {
+    const imageAgentTurns = new Set<number>();
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.kind === 'user-text' && isGeneratedImageBatchPromptText(msg.text)) {
+            imageAgentTurns.add(turnOf[i]);
+        }
+    }
+
+    const ids = new Set<string>();
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (imageAgentTurns.has(turnOf[i]) && isUserAttachment(msg)) {
+            ids.add(msg.id);
+        }
+    }
+    return ids;
+}
+
+function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
+    return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
 }
 
 function indexAgentWorkGroups(workGroups: CollectedAgentWorkGroup[]): {

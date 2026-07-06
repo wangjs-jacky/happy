@@ -308,6 +308,7 @@ describe('useGroupedMessages', () => {
             throw new Error('Expected generated image group');
         }
         expect(items[0].messages.map((message) => message.id)).toEqual(['generated-image']);
+        expect(items[0].presentation).toBe('featured');
         if (items[1].type !== 'agent-work-group') {
             throw new Error('Expected image-agent work group');
         }
@@ -349,7 +350,30 @@ describe('useGroupedMessages', () => {
         const items = groupMessagesForDisplay(messages, false);
 
         expect(items.map((item) => item.type)).toEqual(['image-group', 'agent-work-group', 'message']);
+        expect(items[0]).toMatchObject({ type: 'image-group', presentation: 'featured' });
         expect(items.some((item) => item.type === 'message' && (item.id === 'agent-final' || item.id === 'agent-progress'))).toBe(false);
+    });
+
+    it('keeps uploaded reference images compact while marking generated image-agent outputs as featured', () => {
+        const messages: Message[] = [
+            fileMessage('generated-image', 5),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 4,
+                text: imageAgentPrompt(),
+            },
+            fileMessage('reference-image', 3),
+        ];
+
+        const items = groupMessagesForDisplay(messages, true);
+
+        expect(items).toMatchObject([
+            { type: 'image-group', id: 'images-generated-image', presentation: 'featured' },
+            { type: 'message', id: 'user' },
+            { type: 'image-group', id: 'images-reference-image', presentation: 'compact' },
+        ]);
     });
 
     it('keeps the failure summary visible for an image-agent turn without generated images', () => {
