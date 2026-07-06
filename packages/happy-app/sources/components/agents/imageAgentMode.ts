@@ -56,6 +56,21 @@ export function selectImageAgentStyle(agent: AgentLauncher, styleId: string): Ag
     };
 }
 
+export function setImageAgentStyles(agent: AgentLauncher, styleIds: string[]): AgentLauncher {
+    return {
+        ...agent,
+        imageStyleIds: [...new Set(styleIds)],
+    };
+}
+
+export function toggleImageAgentStyle(agent: AgentLauncher, styleId: string): AgentLauncher {
+    const current = agent.imageStyleIds ?? [];
+    const next = current.includes(styleId)
+        ? current.filter((id) => id !== styleId)
+        : [...current, styleId];
+    return setImageAgentStyles(agent, next);
+}
+
 export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): string {
     return [
         '使用 $gpt-image-2 skill 生成或编辑图片，并以下面选中的 Garden 案例作为目标风格。',

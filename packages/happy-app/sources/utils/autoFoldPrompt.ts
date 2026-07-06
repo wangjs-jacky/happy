@@ -28,6 +28,14 @@ const PROMPT_MARKERS = [
     /完整提示/,
 ];
 
+const IMAGE_BATCH_MARKERS = [
+    /\$gpt-image-2/,
+    /GPT Image 2/i,
+    /图片编辑\s*\/\s*生成批处理/,
+    /mcp__happy__send_image/,
+    /生成锁/,
+];
+
 function buildPreview(text: string): string {
     const linePreview = text.split('\n').slice(0, PREVIEW_LINES).join('\n').trim();
     if (linePreview.length <= PREVIEW_CHARS) {
@@ -44,12 +52,22 @@ export function getAutoFoldPromptInfo(text: string): AutoFoldPromptInfo | null {
 
     const charCount = trimmed.length;
     const lineCount = trimmed.split('\n').length;
+    const markerSearchText = trimmed.slice(0, 1800);
+    const isGeneratedImageBatchPrompt = IMAGE_BATCH_MARKERS.every((marker) => marker.test(markerSearchText));
+
+    if (isGeneratedImageBatchPrompt && charCount >= 180 && lineCount >= 6) {
+        return {
+            charCount,
+            lineCount,
+            preview: buildPreview(trimmed),
+        };
+    }
+
     const isLongEnough = charCount >= LONG_SINGLE_BLOCK_CHARS || (charCount >= MIN_PROMPT_CHARS && lineCount >= MIN_PROMPT_LINES);
     if (!isLongEnough) {
         return null;
     }
 
-    const markerSearchText = trimmed.slice(0, 1800);
     if (!PROMPT_MARKERS.some((marker) => marker.test(markerSearchText))) {
         return null;
     }

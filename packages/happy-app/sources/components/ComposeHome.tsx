@@ -28,7 +28,7 @@ import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
 import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
-import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
+import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 
@@ -79,7 +79,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
-    const [selectedImageStyleId, setSelectedImageStyleId] = React.useState<string | null>(null);
+    const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
@@ -96,8 +96,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeAgent, mode],
     );
     const effectiveImageAgent = React.useMemo(
-        () => (imageAgent && selectedImageStyleId ? selectImageAgentStyle(imageAgent, selectedImageStyleId) : imageAgent),
-        [imageAgent, selectedImageStyleId],
+        () => (imageAgent ? setImageAgentStyles(imageAgent, selectedImageStyleIds) : null),
+        [imageAgent, selectedImageStyleIds],
     );
     const activeImageAgent = !!imageAgent;
     const galleryImageStyles = React.useMemo(
@@ -105,19 +105,29 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [imageAgent],
     );
     const activeImageStyles = React.useMemo(
-        () => (effectiveImageAgent ? getImageAgentStylesForAgent(effectiveImageAgent) : []),
-        [effectiveImageAgent],
+        () => (effectiveImageAgent && selectedImageStyleIds.length > 0
+            ? getImageAgentStylesForAgent(effectiveImageAgent)
+            : []),
+        [effectiveImageAgent, selectedImageStyleIds.length],
     );
     const activeImageVariants = effectiveImageAgent ? getImageAgentVariantCount(effectiveImageAgent) : 1;
-    const selectedImageStyle = React.useMemo(
-        () => (selectedImageStyleId ? galleryImageStyles.find((style) => style.id === selectedImageStyleId) ?? null : null),
-        [galleryImageStyles, selectedImageStyleId],
-    );
+    const imageEffectTitle = React.useMemo(() => {
+        if (activeImageStyles.length === 1) {
+            return getImageAgentStyleLabel(activeImageStyles[0]);
+        }
+        if (activeImageStyles.length > 1) {
+            return t('agents.imageAgentSummary', { count: activeImageStyles.length, variants: activeImageVariants });
+        }
+        return t('agents.imageEffectChoose');
+    }, [activeImageStyles, activeImageVariants]);
 
     React.useEffect(() => {
-        setSelectedImageStyleId(null);
+        const initialStyleIds = activeAgent?.kind === 'image-styles' && imageAgent
+            ? getImageAgentStylesForAgent(imageAgent).map((style) => style.id)
+            : [];
+        setSelectedImageStyleIds(initialStyleIds);
         setImageGalleryOpen(false);
-    }, [imageAgent?.id]);
+    }, [activeAgent?.id, imageAgent?.id, imageAgent?.imageStyleIds]);
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -200,11 +210,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setImageGalleryOpen(false);
     }, []);
 
-    const selectImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
-        setSelectedImageStyleId(style.id);
-        setImageGalleryOpen(false);
-        fillPreset(createImageStyleSelectionPrompt(style));
-    }, [fillPreset]);
+    const toggleImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
+        hapticsLight();
+        setSelectedImageStyleIds((current) => (
+            toggleImageAgentStyle(setImageAgentStyles(imageAgent!, current), style.id).imageStyleIds
+        ));
+    }, [imageAgent]);
 
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
@@ -224,6 +235,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
         if ((!trimmed && !images) || sending) return;
+        if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
         const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
                 agent: effectiveImageAgent,
@@ -273,12 +285,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
     // isSendDisabled) instead of letting a doomed spawn through.
     const canSpawn = online && worktreeKey !== '__new__';
+    const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
 
     const modelChip = (
         <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
@@ -392,7 +405,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 </View>
                                 <View style={styles.imageEffectCopy}>
                                     <Text style={styles.imageEffectTitle} numberOfLines={1}>
-                                        {selectedImageStyle ? getImageAgentStyleLabel(selectedImageStyle) : t('agents.imageEffectChoose')}
+                                        {imageEffectTitle}
                                     </Text>
                                     <Text style={styles.imageEffectSubtitle} numberOfLines={1}>
                                         {t('agents.imageEffectChooseHint')}
@@ -470,7 +483,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onChangeText={setText}
                         onSend={handleSend}
                         isSending={sending}
-                        isSendDisabled={!canSpawn}
+                        isSendDisabled={!canSubmit}
                         selectedImages={hasImages ? selectedImages : undefined}
                         onPickImages={canAttach ? pickImages : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
@@ -498,8 +511,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 <ImageStyleGallerySheet
                     visible={imageGalleryOpen}
                     styles={galleryImageStyles}
-                    selectedStyleId={selectedImageStyleId}
-                    onSelect={selectImageStyleFromGallery}
+                    selectedStyleIds={selectedImageStyleIds}
+                    onToggle={toggleImageStyleFromGallery}
                     onClose={closeImageStyleGallery}
                 />
             )}

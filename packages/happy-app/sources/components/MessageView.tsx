@@ -136,6 +136,22 @@ function UserTextBlock(props: {
     );
   }
 
+  const autoFoldPrompt = getAutoFoldPromptInfo(parsed.text);
+  if (autoFoldPrompt) {
+    return (
+      <View style={styles.userMessageContainer}>
+        <View style={styles.userAutoFoldWrap}>
+          <AutoFoldPromptBlock
+            text={parsed.text}
+            info={autoFoldPrompt}
+            onOptionPress={handleOptionPress}
+            sessionId={props.sessionId}
+          />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.userMessageContainer}>
       <Pressable
@@ -336,6 +352,11 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.input.text,
     fontSize: 13,
     fontFamily: 'monospace',
+  },
+  userAutoFoldWrap: {
+    width: '100%',
+    maxWidth: 520,
+    marginBottom: 12,
   },
   agentMessageContainer: {
     marginHorizontal: 16,

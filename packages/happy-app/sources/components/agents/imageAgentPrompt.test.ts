@@ -94,4 +94,16 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('mcp__happy__send_image');
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
+
+    it('keeps generated images visible without asking the agent to print path checklists', () => {
+        const prompt = buildImageAgentPrompt({
+            agent,
+            userPrompt: '生成漫画头像。',
+            imageCount: 1,
+        });
+
+        expect(prompt).toContain('最终回复');
+        expect(prompt).toContain('不要输出 prompt 文件路径、图片文件路径或清单');
+        expect(prompt).not.toContain('结束时给出一份简洁清单');
+    });
 });

@@ -26,6 +26,27 @@ describe('getAutoFoldPromptInfo', () => {
         expect(getAutoFoldPromptInfo(text)).not.toBeNull();
     });
 
+    it('folds generated GPT Image 2 batch task prompts even when they are short', () => {
+        const text = [
+            '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
+            '',
+            '生成锁：',
+            '- 将这次请求视为一个已锁定的图片生成任务。',
+            '',
+            '输入：已上传 1 张参考图。',
+            '用户目标：做成漫画风格头像。',
+            '',
+            '输出要求：',
+            '- 对下面每个选中的风格，各生成 1 张变体。',
+            '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。',
+        ].join('\n');
+
+        const info = getAutoFoldPromptInfo(text);
+
+        expect(info).not.toBeNull();
+        expect(info?.preview).toContain('$gpt-image-2');
+    });
+
     it('does not fold long prose without prompt markers', () => {
         const text = Array.from({ length: 30 }, (_, index) => `This is a detailed implementation note line ${index} with normal explanatory content.`).join('\n');
 

@@ -19,8 +19,8 @@ import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 type Props = {
     visible: boolean;
     styles: ImageAgentStylePreset[];
-    selectedStyleId: string | null;
-    onSelect: (style: ImageAgentStylePreset) => void;
+    selectedStyleIds: string[];
+    onToggle: (style: ImageAgentStylePreset) => void;
     onClose: () => void;
 };
 
@@ -61,6 +61,7 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         [windowDimensions.height],
     );
     const visibleCategoryIds = React.useMemo(() => new Set(props.styles.map((style) => style.categoryId)), [props.styles]);
+    const selectedStyleIds = React.useMemo(() => new Set(props.selectedStyleIds), [props.selectedStyleIds]);
     const categoryOptions = React.useMemo(
         () => IMAGE_AGENT_STYLE_CATEGORIES.filter((category) => visibleCategoryIds.has(category.id)),
         [visibleCategoryIds],
@@ -87,11 +88,11 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
     }, [categoryId, visibleCategoryIds]);
 
     const renderStyle = React.useCallback((style: ImageAgentStylePreset) => {
-        const selected = props.selectedStyleId === style.id;
+        const selected = selectedStyleIds.has(style.id);
         return (
             <View key={style.id} style={styles.cell}>
                 <Pressable
-                    onPress={() => props.onSelect(style)}
+                    onPress={() => props.onToggle(style)}
                     style={({ pressed }) => [
                         styles.card,
                         selected && styles.cardSelected,
@@ -121,7 +122,7 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                 </Pressable>
             </View>
         );
-    }, [cardWidth, props, styles]);
+    }, [cardWidth, props, selectedStyleIds, styles]);
 
     return (
         <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
@@ -134,6 +135,9 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             <Text style={styles.title} numberOfLines={1}>{t('agents.imageEffectGalleryTitle')}</Text>
                             <Text style={styles.subtitle} numberOfLines={1}>{t('agents.imageEffectGallerySubtitle')}</Text>
                         </View>
+                        <Pressable onPress={props.onClose} hitSlop={8} style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}>
+                            <Text style={styles.doneText}>{t('common.ok')}</Text>
+                        </Pressable>
                         <Pressable onPress={props.onClose} hitSlop={8} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
                             <Ionicons name="close" size={18} color={styles.closeIcon.color} />
                         </Pressable>
@@ -267,6 +271,20 @@ const galleryStyles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.colors.surface,
+    },
+    doneButton: {
+        minWidth: 54,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        backgroundColor: theme.colors.surface,
+    },
+    doneText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.text,
     },
     closeIcon: {
         color: theme.colors.textSecondary,
