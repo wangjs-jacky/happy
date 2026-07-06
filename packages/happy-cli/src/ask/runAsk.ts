@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import { query, type Options as ClaudeAgentOptions, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { createEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
 
 import { ApiClient } from '@/api/api';
@@ -16,35 +15,44 @@ import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import { logger } from '@/ui/logger';
 import { connectionState } from '@/utils/serverConnectionErrors';
+import {
+  DEEPSEEK_DEFAULT_BASE_URL,
+  DEEPSEEK_FAST_MODEL,
+  DEEPSEEK_PRO_MODEL,
+  type DeepSeekChatMessage,
+  type DeepSeekThinkingMode,
+  streamDeepSeekChat,
+} from '@/deepseek/deepseekClient';
+import { resolveDeepSeekApiKey } from '@/deepseek/deepseekCredentials';
 
 type AskEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-type AskClaudeOptions = Pick<ClaudeAgentOptions, 'model' | 'effort' | 'permissionMode' | 'settingSources' | 'includePartialMessages' | 'systemPrompt'> & {
+type AskDeepSeekOptions = {
+  model: string;
+  baseUrl: string;
+  thinking: DeepSeekThinkingMode;
+  reasoningEffort?: 'high' | 'max';
   permissionMode: 'default';
-  settingSources: [];
   includePartialMessages: true;
+  systemPrompt: string;
 };
 
-type InputStream = {
-  iterable: AsyncIterable<SDKUserMessage>;
-  push(message: SDKUserMessage): void;
-  close(): void;
-};
-
-const DEFAULT_ASK_MODEL = 'sonnet';
+const DEFAULT_MAX_HISTORY_MESSAGES = 20;
 const DEFAULT_SYSTEM_PROMPT = 'You are Happy Ask mode. Answer questions directly. Do not use tools, inspect local files, run commands, or claim to have modified the user\'s machine.';
 
-export function buildAskClaudeOptions(args: {
+export function buildAskDeepSeekOptions(args: {
   model?: string | null;
   effort?: string | null;
   systemPrompt?: string;
-}): AskClaudeOptions {
+}): AskDeepSeekOptions {
   const effort = normalizeEffort(args.effort);
+  const model = normalizeAskDeepSeekModel(args.model);
   return {
-    model: args.model || DEFAULT_ASK_MODEL,
-    ...(effort ? { effort } : {}),
+    model,
+    baseUrl: resolveAskDeepSeekBaseUrl(),
+    thinking: resolveAskDeepSeekThinkingMode(model),
+    ...(effort === 'high' || effort === 'max' ? { reasoningEffort: effort } : {}),
     permissionMode: 'default',
-    settingSources: [],
     includePartialMessages: true,
     systemPrompt: args.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
   };
@@ -102,12 +110,16 @@ export async function runAsk(opts: {
     });
   }
 
-  let input: InputStream | null = null;
-  let activeQuery: Query | null = null;
+  const apiKey = resolveDeepSeekApiKey();
+  let activeAbortController: AbortController | null = null;
   let currentTurnId: string | null = null;
   let currentTurnHadDelta = false;
   let thinking = false;
   let stopped = false;
+  let processing = false;
+  const pendingMessages: UserMessage[] = [];
+  const history: DeepSeekChatMessage[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }];
+  const maxHistoryMessages = resolveAskMaxHistoryMessages();
 
   const keepAliveTimer = setInterval(() => {
     session.keepAlive(thinking, 'remote');
@@ -144,66 +156,90 @@ export async function runAsk(opts: {
     session.sendSessionEvent({ type: 'ready' });
   };
 
-  const startQuery = (message: UserMessage) => {
-    input = createInputStream();
-    input.push(makeUserMessage(message.content.text));
-
-    const options = buildAskClaudeOptions({
+  const processMessage = async (message: UserMessage) => {
+    const options = buildAskDeepSeekOptions({
       model: message.meta?.model,
       effort: message.meta?.effort,
       systemPrompt: message.meta?.customSystemPrompt ?? undefined,
     });
 
-    activeQuery = query({
-      prompt: input.iterable,
-      options,
-    });
+    if (!apiKey.key) {
+      sendText('DeepSeek API key is not configured. Set HAPPY_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY, or configure OpenCode deepseek auth.');
+      closeTurn('failed');
+      return;
+    }
 
-    void consumeQuery(activeQuery)
-      .catch((error) => {
-        logger.debug('[ask] Query failed:', error);
-        sendText(error instanceof Error ? error.message : String(error));
-        closeTurn('failed');
-      })
-      .finally(() => {
-        activeQuery = null;
-        input = null;
-        if (!stopped) {
-          session.sendSessionEvent({ type: 'ready' });
-        }
+    if (history[0]?.role === 'system') {
+      history[0] = { role: 'system', content: options.systemPrompt };
+    }
+    history.push({ role: 'user', content: message.content.text });
+    trimAskHistory(history, maxHistoryMessages);
+
+    activeAbortController = new AbortController();
+    thinking = true;
+    session.keepAlive(true, 'remote');
+    ensureTurn();
+
+    let assistantText = '';
+    try {
+      logger.debug('[ask] Starting DeepSeek request:', {
+        model: options.model,
+        baseUrl: options.baseUrl,
+        thinking: options.thinking,
+        apiKeySource: apiKey.source,
       });
-  };
-
-  const consumeQuery = async (q: Query) => {
-    for await (const sdkMessage of q) {
-      for (const action of mapAskSdkMessage(sdkMessage)) {
-        if (action.type === 'turn-start') {
-          thinking = true;
-          session.keepAlive(true, 'remote');
-          ensureTurn();
-        } else if (action.type === 'text') {
-          sendText(action.text, action.thinking);
-        } else if (action.type === 'assistant-complete') {
-          if (!currentTurnHadDelta) {
-            sendText(action.text);
-            if (action.thinking) {
-              sendText(action.thinking, true);
-            }
-          }
-        } else if (action.type === 'turn-end') {
-          closeTurn(action.status);
+      for await (const delta of streamDeepSeekChat({
+        apiKey: apiKey.key,
+        baseUrl: options.baseUrl,
+        model: options.model,
+        messages: history,
+        thinking: options.thinking,
+        reasoningEffort: options.reasoningEffort,
+        signal: activeAbortController.signal,
+      })) {
+        if (delta.reasoningDelta) {
+          sendText(delta.reasoningDelta, true);
+        }
+        if (delta.contentDelta) {
+          assistantText += delta.contentDelta;
+          sendText(delta.contentDelta);
         }
       }
+      if (assistantText) {
+        history.push({ role: 'assistant', content: assistantText });
+        trimAskHistory(history, maxHistoryMessages);
+      }
+      closeTurn('completed');
+    } catch (error) {
+      logger.debug('[ask] DeepSeek query failed:', error);
+      const aborted = activeAbortController.signal.aborted;
+      sendText(aborted ? 'Cancelled.' : error instanceof Error ? error.message : String(error));
+      closeTurn(aborted ? 'cancelled' : 'failed');
+    } finally {
+      activeAbortController = null;
+      if (!stopped) {
+        session.sendSessionEvent({ type: 'ready' });
+      }
+    }
+  };
+
+  const drainQueue = async () => {
+    if (processing) return;
+    processing = true;
+    try {
+      while (!stopped && pendingMessages.length > 0) {
+        const message = pendingMessages.shift()!;
+        await processMessage(message);
+      }
+    } finally {
+      processing = false;
     }
   };
 
   const handleUserMessage = (message: UserMessage) => {
     if (stopped) return;
-    if (!activeQuery || !input) {
-      startQuery(message);
-      return;
-    }
-    input.push(makeUserMessage(message.content.text));
+    pendingMessages.push(message);
+    void drainQueue();
   };
 
   const stop = async (archiveReason = 'User terminated') => {
@@ -211,7 +247,7 @@ export async function runAsk(opts: {
     stopped = true;
     clearInterval(keepAliveTimer);
     try {
-      input?.close();
+      activeAbortController?.abort();
       if (currentTurnId) {
         closeTurn('cancelled');
       }
@@ -236,12 +272,7 @@ export async function runAsk(opts: {
     void stop('Archived from app');
   });
   session.rpcHandlerManager.registerHandler('abort', async () => {
-    try {
-      await activeQuery?.interrupt();
-    } catch (error) {
-      logger.debug('[ask] Interrupt failed:', error);
-    }
-    closeTurn('cancelled');
+    activeAbortController?.abort();
   });
   registerKillSessionHandler(session.rpcHandlerManager, stop);
 
@@ -252,113 +283,52 @@ export async function runAsk(opts: {
   });
 }
 
-type AskAction =
-  | { type: 'turn-start' }
-  | { type: 'text'; text: string; thinking?: boolean }
-  | { type: 'assistant-complete'; text: string; thinking?: string }
-  | { type: 'turn-end'; status: SessionTurnEndStatus };
-
-export function mapAskSdkMessage(message: SDKMessage): AskAction[] {
-  const raw = message as any;
-  if (raw.type === 'stream_event') {
-    const event = raw.event;
-    if (event?.type === 'message_start') {
-      return [{ type: 'turn-start' }];
-    }
-    if (event?.type === 'content_block_delta') {
-      if (event.delta?.type === 'text_delta' && typeof event.delta.text === 'string') {
-        return [{ type: 'text', text: event.delta.text }];
-      }
-      if (event.delta?.type === 'thinking_delta' && typeof event.delta.thinking === 'string') {
-        return [{ type: 'text', text: event.delta.thinking, thinking: true }];
-      }
-    }
-    return [];
-  }
-
-  if (raw.type === 'assistant') {
-    const text: string[] = [];
-    const thinking: string[] = [];
-    for (const block of raw.message?.content ?? []) {
-      if (block?.type === 'text' && typeof block.text === 'string') {
-        text.push(block.text);
-      } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
-        thinking.push(block.thinking);
-      }
-    }
-    return [{ type: 'assistant-complete', text: text.join(''), thinking: thinking.join('') || undefined }];
-  }
-
-  if (raw.type === 'result') {
-    return [{ type: 'turn-end', status: raw.subtype === 'success' ? 'completed' : 'failed' }];
-  }
-
-  return [];
-}
-
-function createInputStream(): InputStream {
-  const buffer: SDKUserMessage[] = [];
-  let pending: ((result: IteratorResult<SDKUserMessage>) => void) | null = null;
-  let closed = false;
-
-  return {
-    iterable: {
-      [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-        return {
-          next(): Promise<IteratorResult<SDKUserMessage>> {
-            if (buffer.length > 0) {
-              return Promise.resolve({ value: buffer.shift()!, done: false });
-            }
-            if (closed) {
-              return Promise.resolve({ value: undefined, done: true });
-            }
-            return new Promise((resolve) => {
-              pending = resolve;
-            });
-          },
-          return(): Promise<IteratorResult<SDKUserMessage>> {
-            closed = true;
-            return Promise.resolve({ value: undefined, done: true });
-          },
-        };
-      },
-    },
-    push(message) {
-      if (closed) return;
-      if (pending) {
-        const resolve = pending;
-        pending = null;
-        resolve({ value: message, done: false });
-      } else {
-        buffer.push(message);
-      }
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      if (pending) {
-        const resolve = pending;
-        pending = null;
-        resolve({ value: undefined, done: true });
-      }
-    },
-  };
-}
-
-function makeUserMessage(text: string): SDKUserMessage {
-  return {
-    type: 'user',
-    parent_tool_use_id: null,
-    message: {
-      role: 'user',
-      content: [{ type: 'text', text }],
-    },
-  } as SDKUserMessage;
-}
-
 function normalizeEffort(effort: string | null | undefined): AskEffort | undefined {
   if (effort === 'low' || effort === 'medium' || effort === 'high' || effort === 'xhigh' || effort === 'max') {
     return effort;
   }
   return undefined;
+}
+
+export function normalizeAskDeepSeekModel(model: string | null | undefined): string {
+  const fallback = process.env.HAPPY_ASK_MODEL || process.env.HAPPY_DEEPSEEK_MODEL || process.env.DEEPSEEK_MODEL || DEEPSEEK_FAST_MODEL;
+  if (!model || model === 'default') {
+    return fallback;
+  }
+  if (model.startsWith('deepseek/')) {
+    return model.slice('deepseek/'.length);
+  }
+  if (model.startsWith('deepseek-')) {
+    return model;
+  }
+  return fallback;
+}
+
+export function resolveAskDeepSeekBaseUrl(): string {
+  return process.env.HAPPY_ASK_BASE_URL
+    || process.env.HAPPY_DEEPSEEK_BASE_URL
+    || process.env.DEEPSEEK_BASE_URL
+    || DEEPSEEK_DEFAULT_BASE_URL;
+}
+
+export function resolveAskDeepSeekThinkingMode(model: string): DeepSeekThinkingMode {
+  const configured = process.env.HAPPY_ASK_THINKING || process.env.HAPPY_DEEPSEEK_THINKING || process.env.DEEPSEEK_THINKING;
+  if (configured === 'enabled' || configured === 'disabled') {
+    return configured;
+  }
+  return model === DEEPSEEK_PRO_MODEL ? 'enabled' : 'disabled';
+}
+
+export function resolveAskMaxHistoryMessages(): number {
+  const raw = process.env.HAPPY_ASK_MAX_HISTORY_MESSAGES || process.env.HAPPY_DEEPSEEK_MAX_HISTORY_MESSAGES || process.env.DEEPSEEK_MAX_HISTORY_MESSAGES;
+  const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_MAX_HISTORY_MESSAGES;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_HISTORY_MESSAGES;
+}
+
+export function trimAskHistory(history: DeepSeekChatMessage[], maxHistoryMessages: number): void {
+  const maxLength = maxHistoryMessages + 1;
+  if (history.length <= maxLength) {
+    return;
+  }
+  history.splice(1, history.length - maxLength);
 }
