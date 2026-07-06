@@ -25,6 +25,8 @@ export interface SpawnSessionArgs {
     effortLevel?: string | null;
     /** Initial prompt to send into the freshly spawned session. */
     prompt: string;
+    /** Optional short text shown in chat instead of the full initial prompt. */
+    displayText?: string;
     /** Image attachments to send with the initial message (claude-only). */
     images?: AttachmentPreview[];
 }
@@ -47,7 +49,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, images } = args;
+        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, displayText, images } = args;
         if (!isMachineOnline(machine)) {
             Modal.alert(t('common.error'), t('newSession.machineOffline'));
             return false;
@@ -86,7 +88,7 @@ export function useSpawnSession() {
                     }
                     const attachments = images && images.length > 0 ? images : undefined;
                     if (prompt || attachments) {
-                        await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', attachments });
+                        await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', displayText, attachments });
                     }
                     navigateToSession(result.sessionId);
                     return true;

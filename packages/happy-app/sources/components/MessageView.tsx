@@ -167,7 +167,6 @@ function AgentTextBlock(props: {
     return (
       <View style={styles.agentMessageContainer}>
         <AutoFoldPromptBlock
-          text={props.message.text}
           info={autoFoldPrompt}
           onOptionPress={handleOptionPress}
           sessionId={props.sessionId}
@@ -184,7 +183,6 @@ function AgentTextBlock(props: {
 }
 
 function AutoFoldPromptBlock(props: {
-  text: string;
   info: NonNullable<ReturnType<typeof getAutoFoldPromptInfo>>;
   onOptionPress: (option: Option) => void;
   sessionId: string;
@@ -195,8 +193,8 @@ function AutoFoldPromptBlock(props: {
     setExpanded((value) => !value);
   }, []);
   const copyPrompt = React.useCallback(() => {
-    void Clipboard.setStringAsync(props.text);
-  }, [props.text]);
+    void Clipboard.setStringAsync(props.info.content);
+  }, [props.info.content]);
 
   return (
     <View style={styles.autoFoldCard}>
@@ -221,7 +219,7 @@ function AutoFoldPromptBlock(props: {
       </View>
       {expanded ? (
         <View style={styles.autoFoldExpanded}>
-          <MarkdownView markdown={props.text} onOptionPress={props.onOptionPress} sessionId={props.sessionId} />
+          <MarkdownView markdown={props.info.content} onOptionPress={props.onOptionPress} sessionId={props.sessionId} />
         </View>
       ) : (
         <Text style={styles.autoFoldPreview} numberOfLines={8}>{props.info.preview}</Text>

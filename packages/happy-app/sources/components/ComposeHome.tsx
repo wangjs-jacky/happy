@@ -30,7 +30,7 @@ import { hapticsLight } from './haptics';
 import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
-import { createAppBuilderAgent } from './agents/builtinAgents';
+import { APP_BUILDER_AGENT_ID, createAppBuilderAgent } from './agents/builtinAgents';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -231,6 +231,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 imageCount: images?.length ?? 0,
             })
             : trimmed;
+        const matchedBuiltinPreset = displayAgent?.id === APP_BUILDER_AGENT_ID
+            ? displayAgent.presets.find((preset) => preset.prompt.trim() === trimmed)
+            : undefined;
+        const displayText = activeImageAgent
+            ? [
+                t('agents.imageAgentReady'),
+                t('agents.imageAgentSummary', { count: activeImageStyles.length, variants: activeImageVariants }),
+            ].join('\n')
+            : matchedBuiltinPreset?.label;
 
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
@@ -265,6 +274,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
             effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt,
+            displayText,
             images,
         }).then((ok) => {
             if (ok) {
@@ -273,7 +283,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, displayAgent, activeImageStyles.length, activeImageVariants, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via

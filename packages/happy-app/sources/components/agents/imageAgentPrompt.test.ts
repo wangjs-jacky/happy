@@ -6,6 +6,7 @@ import {
 } from './imageAgentPrompt';
 import { createImageStyleSelectionPrompt } from './imageAgentMode';
 import type { AgentLauncher } from './launchAgent';
+import { FOLD_PROMPT_CLOSE_TAG, FOLD_PROMPT_OPEN_TAG } from '@/utils/autoFoldPrompt';
 
 const agent: AgentLauncher = {
     id: 'img1',
@@ -92,6 +93,8 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('各生成 2 张变体');
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
+        expect(prompt).toContain(FOLD_PROMPT_OPEN_TAG);
+        expect(prompt).toContain(FOLD_PROMPT_CLOSE_TAG);
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
 });

@@ -1,4 +1,5 @@
 import type { AgentLauncher } from './launchAgent';
+import { FOLD_PROMPT_CLOSE_TAG, FOLD_PROMPT_OPEN_TAG } from '@/utils/autoFoldPrompt';
 import {
     IMAGE_AGENT_STYLE_CATEGORIES as BASE_IMAGE_AGENT_STYLE_CATEGORIES,
     IMAGE_AGENT_STYLE_PRESETS as BASE_IMAGE_AGENT_STYLE_PRESETS,
@@ -87,6 +88,7 @@ export function buildImageAgentPrompt(args: {
         `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
         '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
         '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。不要对本地文件使用 Markdown 图片语法。',
+        `- 如果需要在对话中展示完整的生成 prompt 或风格 prompt，请把每段完整 prompt 包在 ${FOLD_PROMPT_OPEN_TAG} 和 ${FOLD_PROMPT_CLOSE_TAG} 之间。`,
         '- 结束时给出一份简洁清单，列出风格 id、输出路径；如有失败的风格，也列出失败原因。',
         '',
         '已选择的 GPT Image 2 风格：',
