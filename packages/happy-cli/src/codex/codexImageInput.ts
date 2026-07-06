@@ -94,3 +94,20 @@ export function buildCodexInput(
     const images = attachments && attachments.length > 0 ? materializeCodexImageItems(attachments) : [];
     return [...images, { type: 'text', text: prompt }];
 }
+
+export function buildCodexImageAttachmentNotice(
+    images: Array<{ type: 'localImage'; path: string }>,
+): string | null {
+    if (images.length === 0) return null;
+
+    const imageList = images
+        .map((image, index) => `- Image ${index + 1}: ${image.path}`)
+        .join('\n');
+
+    return [
+        `Happy attached ${images.length} user-uploaded image${images.length === 1 ? '' : 's'} to this Codex turn.`,
+        'Use these exact localImage paths as the visual reference for the user request.',
+        'Do not infer the intended upload by scanning ~/.happy/attachments, sorting recent files, or choosing files from previous turns.',
+        imageList,
+    ].join('\n');
+}

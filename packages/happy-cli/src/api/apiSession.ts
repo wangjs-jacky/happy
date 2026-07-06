@@ -27,6 +27,43 @@ import { InvalidateSync } from '@/utils/sync';
 import { readImageSize } from './imageSize';
 import axios from 'axios';
 
+function redactPresignedUrl(url: string): string {
+    return url.replace(/([?&](?:X-Amz-Signature|Signature)=)[^&]+/g, '$1<redacted>');
+}
+
+function responsePreview(data: unknown): string | undefined {
+    if (!data) return undefined;
+    const text = Buffer.isBuffer(data)
+        ? data.toString('utf8')
+        : data instanceof ArrayBuffer
+            ? Buffer.from(data).toString('utf8')
+            : ArrayBuffer.isView(data)
+                ? Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8')
+                : typeof data === 'string'
+                    ? data
+                    : JSON.stringify(data);
+    return text.slice(0, 500);
+}
+
+function enrichAttachmentDownloadError(error: unknown, phase: string, url: string): Error {
+    if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const statusText = error.response?.statusText;
+        const preview = responsePreview(error.response?.data);
+        const details = [
+            `attachment ${phase} failed`,
+            status ? `status=${status}` : undefined,
+            statusText ? `statusText=${statusText}` : undefined,
+            `url=${url}`,
+            preview ? `body=${preview}` : undefined,
+        ].filter(Boolean).join(' ');
+        const enriched = new Error(details);
+        enriched.cause = error;
+        return enriched;
+    }
+    return error instanceof Error ? error : new Error(String(error));
+}
+
 /**
  * ACP (Agent Communication Protocol) message data types.
  * This is the unified format for all agent messages - CLI adapts each provider's format to ACP.
@@ -302,14 +339,19 @@ export class ApiSessionClient extends EventEmitter {
      */
     async downloadAttachment(ref: string): Promise<Uint8Array> {
         const requestUrl = `${configuration.serverUrl}/v1/sessions/${this.sessionId}/attachments/request-download`;
-        const requestRes = await axios.post(
-            requestUrl,
-            { ref },
-            {
-                headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-                timeout: 30000,
-            },
-        );
+        let requestRes;
+        try {
+            requestRes = await axios.post(
+                requestUrl,
+                { ref },
+                {
+                    headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+                    timeout: 30000,
+                },
+            );
+        } catch (error) {
+            throw enrichAttachmentDownloadError(error, 'request-download', requestUrl);
+        }
         const downloadUrl = requestRes.data?.downloadUrl;
         if (typeof downloadUrl !== 'string') {
             throw new Error('request-download returned no downloadUrl');
@@ -328,13 +370,22 @@ export class ApiSessionClient extends EventEmitter {
         if (!isPresignedS3) {
             headers['Authorization'] = `Bearer ${this.token}`;
         }
-        const response = await axios.get(downloadUrl, {
-            headers,
-            responseType: 'arraybuffer',
-            timeout: 60000,
-            maxRedirects: 5,
-            maxContentLength: 50 * 1024 * 1024,
-        });
+        let response;
+        try {
+            response = await axios.get(downloadUrl, {
+                headers,
+                responseType: 'arraybuffer',
+                timeout: 60000,
+                maxRedirects: 5,
+                maxContentLength: 50 * 1024 * 1024,
+                // Axios' env-proxy handling sends HTTPS presigned OSS URLs as a
+                // plain absolute-form GET through the HTTP proxy on this stack,
+                // which OSS rejects before it can serve the signed object.
+                ...(isPresignedS3 ? { proxy: false } : {}),
+            });
+        } catch (error) {
+            throw enrichAttachmentDownloadError(error, 'blob-download', redactPresignedUrl(downloadUrl));
+        }
         return new Uint8Array(response.data);
     }
 
