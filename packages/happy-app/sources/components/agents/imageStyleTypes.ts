@@ -18,7 +18,7 @@ export interface ImageAgentStylePreset {
     promptContent: string;
     promptPath: string;
     sourceCaseId: string;
-    sourceRepository: 'ConardLi/gpt-image-2-101' | 'local-obsidian-oba';
+    sourceRepository: 'ConardLi/gpt-image-2-101' | 'curated-reference-examples';
 }
 
 export type ImageAgentStyleLabelKey =

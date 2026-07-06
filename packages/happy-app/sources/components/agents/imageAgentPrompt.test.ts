@@ -43,16 +43,32 @@ describe('imageAgentPrompt', () => {
         expect(prompt).not.toContain('"typography"');
     });
 
-    it('includes local OBA article styles in the image style gallery catalog', () => {
-        const tiramisuStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'oba-tiramisu/vintage-film-cafe/1');
-        const dogStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'oba-dog/healing-watercolor/1');
+    it('includes curated reference article styles without local Obsidian labels', () => {
+        const tiramisuStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-tiramisu/vintage-film-cafe/1');
+        const dogStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-dog/healing-watercolor/1');
 
-        expect(tiramisuStyle?.sourceRepository).toBe('local-obsidian-oba');
+        expect(tiramisuStyle?.sourceRepository).toBe('curated-reference-examples');
         expect(tiramisuStyle?.promptPath).toContain('tiramisu-vintage-film-cafe');
         expect(tiramisuStyle?.promptContent).toContain('nostalgic 35mm film');
-        expect(dogStyle?.sourceRepository).toBe('local-obsidian-oba');
+        expect(tiramisuStyle?.templateRef).not.toContain('local-obsidian');
+        expect(tiramisuStyle?.promptHint).not.toMatch(/OBA|Obsidian/i);
+        expect(dogStyle?.sourceRepository).toBe('curated-reference-examples');
         expect(dogStyle?.promptPath).toContain('dog-healing-watercolor');
         expect(dogStyle?.promptContent).toContain('cream-colored curly dog');
+        expect(dogStyle?.templateRef).not.toContain('local-obsidian');
+        expect(dogStyle?.promptHint).not.toMatch(/OBA|Obsidian/i);
+    });
+
+    it('resolves legacy reference ids to the renamed reference styles for saved agents', () => {
+        const styles = getImageAgentStylesForAgent({
+            ...agent,
+            imageStyleIds: ['oba-tiramisu/vintage-film-cafe/1', 'oba-dog/healing-watercolor/1'],
+        });
+
+        expect(styles.map((style) => style.id)).toEqual([
+            'reference-tiramisu/vintage-film-cafe/1',
+            'reference-dog/healing-watercolor/1',
+        ]);
     });
 
     it('builds a locked multi-image GPT Image 2 batch prompt', () => {
