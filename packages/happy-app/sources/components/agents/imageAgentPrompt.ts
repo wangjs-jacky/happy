@@ -1,17 +1,30 @@
 import type { AgentLauncher } from './launchAgent';
 import {
-    IMAGE_AGENT_STYLE_CATEGORIES,
-    IMAGE_AGENT_STYLE_PRESETS,
+    IMAGE_AGENT_STYLE_CATEGORIES as BASE_IMAGE_AGENT_STYLE_CATEGORIES,
+    IMAGE_AGENT_STYLE_PRESETS as BASE_IMAGE_AGENT_STYLE_PRESETS,
     LEGACY_IMAGE_STYLE_ID_ALIASES,
 } from './imageStyleCatalog';
+import {
+    EXTRA_IMAGE_AGENT_STYLE_CATEGORIES,
+    EXTRA_IMAGE_AGENT_STYLE_PRESETS,
+} from './imageStyleCatalogExtras';
 import type {
     ImageAgentStyleCategory,
     ImageAgentStyleLabelKey,
     ImageAgentStylePreset,
 } from './imageStyleTypes';
 
-export { IMAGE_AGENT_STYLE_CATEGORIES, IMAGE_AGENT_STYLE_PRESETS };
 export type { ImageAgentStyleCategory, ImageAgentStyleLabelKey, ImageAgentStylePreset };
+
+export const IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
+    ...EXTRA_IMAGE_AGENT_STYLE_CATEGORIES,
+    ...BASE_IMAGE_AGENT_STYLE_CATEGORIES,
+];
+
+export const IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
+    ...EXTRA_IMAGE_AGENT_STYLE_PRESETS,
+    ...BASE_IMAGE_AGENT_STYLE_PRESETS,
+];
 
 const STYLE_BY_ID = new Map(IMAGE_AGENT_STYLE_PRESETS.map((style) => [style.id, style]));
 

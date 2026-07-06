@@ -1,14 +1,16 @@
 // Generated from ConardLi/gpt-image-2-101. Do not edit entries by hand.
+import { EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifestExtras';
+
 export type ImageStylePreviewEntry = {
-    fileName: `${string}.jpg`;
-    sourceSet: 'gpt-image-2-101';
+    fileName: `${string}.jpg` | `${string}.png`;
+    sourceSet: 'gpt-image-2-101' | 'local-obsidian-oba';
     sourceCaseId: string;
     sourceIndex: number;
     width: number;
     height: number;
 };
 
-export const IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry> = {
+const BASE_IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry> = {
     "academic-figures/graphical-abstract/1": {
         "fileName": "academic-figures--graphical-abstract--1.jpg",
         "sourceSet": "gpt-image-2-101",
@@ -1305,4 +1307,9 @@ export const IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry
         "width": 296,
         "height": 640
     }
+};
+
+export const IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry> = {
+    ...EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST,
+    ...BASE_IMAGE_STYLE_PREVIEW_MANIFEST,
 };

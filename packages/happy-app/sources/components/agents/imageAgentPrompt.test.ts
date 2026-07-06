@@ -41,6 +41,18 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain(style!.promptContent.slice(0, 120));
     });
 
+    it('includes local OBA article styles in the image style gallery catalog', () => {
+        const tiramisuStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'oba-tiramisu/vintage-film-cafe/1');
+        const dogStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'oba-dog/healing-watercolor/1');
+
+        expect(tiramisuStyle?.sourceRepository).toBe('local-obsidian-oba');
+        expect(tiramisuStyle?.promptPath).toContain('tiramisu-vintage-film-cafe');
+        expect(tiramisuStyle?.promptContent).toContain('nostalgic 35mm film');
+        expect(dogStyle?.sourceRepository).toBe('local-obsidian-oba');
+        expect(dogStyle?.promptPath).toContain('dog-healing-watercolor');
+        expect(dogStyle?.promptContent).toContain('cream-colored curly dog');
+    });
+
     it('builds a locked multi-image GPT Image 2 batch prompt', () => {
         const prompt = buildImageAgentPrompt({
             agent,
