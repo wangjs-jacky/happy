@@ -524,6 +524,7 @@ export class ApiMachineClient {
             const newResumeSupport = detectResumeSupport();
             const prevResume = this.lastKnownResumeSupport;
             const cliAvailabilityChanged = !prev
+                || prev.ask !== newAvailability.ask
                 || prev.claude !== newAvailability.claude
                 || prev.codex !== newAvailability.codex
                 || prev.gemini !== newAvailability.gemini

@@ -37,6 +37,7 @@ import {
 
 // Agent icon assets
 const agentIcons = {
+    ask: require('@/assets/images/icon-claude.png'),
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
     opencode: require('@/assets/images/icon-gpt.png'),
@@ -44,8 +45,9 @@ const agentIcons = {
     gemini: require('@/assets/images/icon-gemini.png'),
 };
 
-type AgentKey = 'claude' | 'codex' | 'opencode' | 'openclaw' | 'gemini';
+type AgentKey = 'ask' | 'claude' | 'codex' | 'opencode' | 'openclaw' | 'gemini';
 const AGENTS: { key: AgentKey; label: string }[] = [
+    { key: 'ask', label: 'ask' },
     { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },

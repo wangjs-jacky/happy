@@ -20,6 +20,7 @@ import * as Clipboard from 'expo-clipboard';
 
 // Agent icon assets — mirrors SessionConfigPanel so the panel reads identically.
 const agentIcons = {
+    ask: require('@/assets/images/icon-claude.png'),
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
     opencode: require('@/assets/images/icon-gpt.png'),
@@ -28,6 +29,7 @@ const agentIcons = {
 } as const;
 
 const AGENT_LABELS: Record<string, string> = {
+    ask: 'ask',
     claude: 'claude code',
     codex: 'codex',
     opencode: 'opencode',

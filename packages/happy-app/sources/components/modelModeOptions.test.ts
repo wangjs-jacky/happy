@@ -48,9 +48,21 @@ describe('modelModeOptions', () => {
         expect(getDefaultPermissionModeKey('claude')).toBe('bypassPermissions');
         expect(getDefaultModelKey('claude')).toBe('opus');
         expect(getDefaultEffortKey('claude')).toBe('medium');
+        expect(getDefaultPermissionModeKey('ask')).toBe('default');
+        expect(getDefaultModelKey('ask')).toBe('sonnet');
+        expect(getDefaultEffortKey('ask')).toBe('medium');
         expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('default');
         expect(getDefaultEffortKey('codex')).toBeNull();
+    });
+
+    it('builds ask model fallbacks for Claude SDK chat mode', () => {
+        const models = getAvailableModels('ask', null, translate);
+        expect(models).toEqual([
+            { key: 'sonnet', name: 'sonnet 4.6', description: 'fast chat' },
+            { key: 'opus', name: 'opus 4.8', description: 'deep chat' },
+            { key: 'haiku', name: 'haiku 4.5', description: 'quick chat' },
+        ]);
     });
 
     it('prefers metadata models over hardcoded fallbacks', () => {

@@ -63,7 +63,7 @@ interface MessageComposerProps {
     };
     alwaysShowContextSize?: boolean;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+    agentType?: 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;

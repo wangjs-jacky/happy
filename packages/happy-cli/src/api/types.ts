@@ -135,6 +135,7 @@ export const MachineMetadataSchema = z.object({
   happyHomeDir: z.string(),
   happyLibDir: z.string(),
   cliAvailability: z.object({
+    ask: z.boolean().optional(),
     claude: z.boolean(),
     codex: z.boolean(),
     gemini: z.boolean(),

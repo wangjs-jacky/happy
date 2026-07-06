@@ -44,6 +44,7 @@ vi.mock('@/api/rpc/RpcHandlerManager', () => ({
 
 vi.mock('@/utils/detectCLI', () => ({
     detectCLIAvailability: vi.fn(() => ({
+        ask: true,
         claude: false,
         codex: false,
         gemini: false,
