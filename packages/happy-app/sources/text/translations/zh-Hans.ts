@@ -1881,6 +1881,7 @@ export const zhHans: TranslationStructure = {
         imageEffectChooseHint: '预览效果并填入提示词',
         imageEffectGalleryTitle: '效果画廊',
         imageEffectGallerySubtitle: '选择一种效果，自动填入输入框。',
+        imageEffectAll: "全部",
         imageEffectApply: '填入这个效果',
         imageEffectSelected: '已选择',
         imageStyleVintageFilm: '复古胶片',

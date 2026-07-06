@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildImageAgentPrompt, getImageAgentStylesForAgent } from './imageAgentPrompt';
+import {
+    IMAGE_AGENT_STYLE_PRESETS,
+    buildImageAgentPrompt,
+    getImageAgentStylesForAgent,
+} from './imageAgentPrompt';
+import { createImageStyleSelectionPrompt } from './imageAgentMode';
 import type { AgentLauncher } from './launchAgent';
 
 const agent: AgentLauncher = {
@@ -16,11 +21,24 @@ const agent: AgentLauncher = {
 };
 
 describe('imageAgentPrompt', () => {
-    it('resolves selected GPT Image 2 styles for an image agent', () => {
-        expect(getImageAgentStylesForAgent(agent).map((style) => style.id)).toEqual([
-            'premium-studio',
-            'white-product',
-        ]);
+    it('resolves legacy GPT Image 2 style ids to Garden case styles for saved agents', () => {
+        const styles = getImageAgentStylesForAgent(agent);
+
+        expect(styles).toHaveLength(2);
+        expect(styles[0].templateRef).toBe('product-visuals/premium-studio-product.md');
+        expect(styles[1].templateRef).toBe('product-visuals/white-background-product.md');
+        expect(styles.map((style) => style.promptContent ?? '').every((prompt) => prompt.length > 200)).toBe(true);
+    });
+
+    it('builds a composer prompt from the selected Garden case prompt', () => {
+        const style = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'product-visuals/white-background-product/1');
+        expect(style).toBeTruthy();
+
+        const prompt = createImageStyleSelectionPrompt(style!);
+
+        expect(prompt).toContain('Use the $gpt-image-2 skill');
+        expect(prompt).toContain('Selected Garden case: product-visuals/white-background-product/1');
+        expect(prompt).toContain(style!.promptContent.slice(0, 120));
     });
 
     it('builds a locked multi-image GPT Image 2 batch prompt', () => {
@@ -33,8 +51,8 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('$gpt-image-2');
         expect(prompt).toContain('Generation lock');
         expect(prompt).toContain('3 uploaded reference image(s)');
-        expect(prompt).toContain('premium-studio');
-        expect(prompt).toContain('white-product');
+        expect(prompt).toContain('product-visuals/premium-studio-product/1');
+        expect(prompt).toContain('product-visuals/white-background-product/1');
         expect(prompt).toContain('2 variant(s) per style');
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');

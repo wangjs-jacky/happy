@@ -58,8 +58,16 @@ export function selectImageAgentStyle(agent: AgentLauncher, styleId: string): Ag
 
 export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): string {
     return [
-        `Apply the ${style.id} GPT Image 2 effect.`,
-        `Effect direction: ${style.promptHint}.`,
+        'Use the $gpt-image-2 skill to generate or edit image(s) with this selected Garden case as the style target.',
+        '',
+        `Selected Garden case: ${style.id}`,
+        `Case title: ${style.title}`,
+        `Template: ${style.templateRef}`,
+        `Category: ${style.categoryLabel}`,
+        '',
         'Preserve the uploaded subject identity, key geometry, important text, and any user-provided constraints unless I explicitly ask to change them.',
+        '',
+        'Garden case prompt:',
+        style.promptContent,
     ].join('\n');
 }

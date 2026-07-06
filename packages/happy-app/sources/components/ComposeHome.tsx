@@ -27,7 +27,7 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
-import { buildImageAgentPrompt, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
+import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 
@@ -377,7 +377,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 </View>
                                 <View style={styles.imageEffectCopy}>
                                     <Text style={styles.imageEffectTitle} numberOfLines={1}>
-                                        {selectedImageStyle ? t(selectedImageStyle.labelKey) : t('agents.imageEffectChoose')}
+                                        {selectedImageStyle ? getImageAgentStyleLabel(selectedImageStyle) : t('agents.imageEffectChoose')}
                                     </Text>
                                     <Text style={styles.imageEffectSubtitle} numberOfLines={1}>
                                         {t('agents.imageEffectChooseHint')}
@@ -402,7 +402,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                         hitSlop={6}
                                     >
                                         <Text style={styles.imageStyleChipText} numberOfLines={1}>
-                                            {t(style.labelKey)}
+                                            {getImageAgentStyleLabel(style)}
                                         </Text>
                                     </Pressable>
                                 ))}

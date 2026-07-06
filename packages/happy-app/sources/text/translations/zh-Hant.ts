@@ -1412,6 +1412,7 @@ export const zhHant: TranslationStructure = {
         imageEffectChooseHint: '預覽效果並填入提示詞',
         imageEffectGalleryTitle: '效果畫廊',
         imageEffectGallerySubtitle: '選擇一種效果，自動填入輸入框。',
+        imageEffectAll: "全部",
         imageEffectApply: '填入這個效果',
         imageEffectSelected: '已選擇',
         imageStyleVintageFilm: '復古膠片',

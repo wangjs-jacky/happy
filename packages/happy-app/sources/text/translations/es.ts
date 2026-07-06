@@ -1314,6 +1314,7 @@ export const es: TranslationStructure = {
         imageEffectChooseHint: 'Preview effects and insert the prompt',
         imageEffectGalleryTitle: 'Effect gallery',
         imageEffectGallerySubtitle: 'Pick one style to fill the composer.',
+        imageEffectAll: "Todo",
         imageEffectApply: 'Use this effect',
         imageEffectSelected: 'Selected',
         imageStyleVintageFilm: 'Vintage film',

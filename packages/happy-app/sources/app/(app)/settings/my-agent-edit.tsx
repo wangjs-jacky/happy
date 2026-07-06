@@ -18,7 +18,7 @@ import { t } from '@/text';
 import type { AgentLauncher, AgentPreset } from '@/components/agents/launchAgent';
 import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
-import { IMAGE_AGENT_STYLE_PRESETS } from '@/components/agents/imageAgentPrompt';
+import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
 
 type AgentKind = 'standard' | 'image-styles';
 const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
@@ -288,7 +288,7 @@ export default React.memo(function AgentEditScreen() {
                                                 style={[styles.styleChipText, selected && styles.styleChipTextSelected]}
                                                 numberOfLines={1}
                                             >
-                                                {t(style.labelKey)}
+                                                {getImageAgentStyleLabel(style)}
                                             </Text>
                                             {selected && (
                                                 <Ionicons name="checkmark" size={14} color={theme.colors.button.primary.tint} />

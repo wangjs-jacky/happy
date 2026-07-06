@@ -1343,6 +1343,7 @@ export const pl: TranslationStructure = {
         imageEffectChooseHint: 'Preview effects and insert the prompt',
         imageEffectGalleryTitle: 'Effect gallery',
         imageEffectGallerySubtitle: 'Pick one style to fill the composer.',
+        imageEffectAll: "Wszystkie",
         imageEffectApply: 'Use this effect',
         imageEffectSelected: 'Selected',
         imageStyleVintageFilm: 'Vintage film',

@@ -60,13 +60,13 @@ describe('imageAgentMode', () => {
     });
 
     it('builds a style prompt that can be inserted into the composer', () => {
-        const style = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'white-product');
+        const style = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'product-visuals/white-background-product/1');
         expect(style).toBeTruthy();
 
         const prompt = createImageStyleSelectionPrompt(style!);
 
-        expect(prompt).toContain('white-product');
-        expect(prompt).toContain(style!.promptHint);
+        expect(prompt).toContain('product-visuals/white-background-product/1');
+        expect(prompt).toContain(style!.promptContent.slice(0, 120));
         expect(prompt).toContain('Preserve the uploaded subject');
     });
 });
