@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     getCodingAgentPickerItems,
     getComposeHomeExperience,
+    getHeaderModeSwitchExperience,
     getRunningSessionInfoExperience,
     getSessionConfigExperience,
     getTopLevelModeForAgent,
@@ -42,6 +43,21 @@ describe('new session experience', () => {
             displayAgentType: 'codex',
             canAttach: true,
             showCreationRail: false,
+        });
+    });
+
+    it('drives a compact header mode switch outside image-agent flows', () => {
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false })).toEqual({
+            visible: true,
+            selectedMode: 'ask',
+        });
+        expect(getHeaderModeSwitchExperience({ agentType: 'codex', activeImageAgent: false })).toEqual({
+            visible: true,
+            selectedMode: 'agent',
+        });
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: true })).toEqual({
+            visible: false,
+            selectedMode: 'agent',
         });
     });
 

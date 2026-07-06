@@ -41,9 +41,6 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import {
     getCodingAgentPickerItems,
     getSessionConfigExperience,
-    getTopLevelModeForAgent,
-    selectAgentForTopLevelMode,
-    type NewSessionTopLevelMode,
 } from '@/utils/newSessionExperience';
 import { isRunningOnMac } from '@/utils/platform';
 
@@ -633,11 +630,6 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
     { key: '__new__', label: 'new worktree' },
 ];
 
-const TOP_LEVEL_MODES: { key: NewSessionTopLevelMode }[] = [
-    { key: 'ask' },
-    { key: 'agent' },
-];
-
 /**
  * The selection keys the consumer (e.g. /new's handleSend) needs at send time.
  * These mirror the panel's local index-based selection — which can legitimately
@@ -880,16 +872,6 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getSessionConfigExperience(selectedAgent),
             [selectedAgent],
         );
-        const topLevelMode = getTopLevelModeForAgent(selectedAgent);
-        const handleTopLevelModeSelect = React.useCallback((mode: NewSessionTopLevelMode) => {
-            const nextAgent = selectAgentForTopLevelMode({
-                mode,
-                currentAgent: selectedAgent,
-                availableCodingAgents: availableAgents,
-            });
-            setSelectedAgent(nextAgent);
-            setActivePicker(null);
-        }, [availableAgents, selectedAgent, setSelectedAgent]);
 
         const currentModel = modelModes[modelIndex] ?? modelModes[0];
         const currentModelKey = currentModel?.key ?? 'default';
@@ -1198,34 +1180,6 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 )}
                             </View>
                             {renderActivePickerPopover('machine')}
-
-                            <View style={styles.modeSegment}>
-                                {TOP_LEVEL_MODES.map((mode) => {
-                                    const selected = mode.key === topLevelMode;
-                                    const label = mode.key === 'ask' ? t('newSession.askMode') : t('newSession.agentMode');
-                                    return (
-                                        <Pressable
-                                            key={mode.key}
-                                            onPress={() => handleTopLevelModeSelect(mode.key)}
-                                            style={(p) => [
-                                                styles.modeSegmentButton,
-                                                selected && styles.modeSegmentButtonSelected,
-                                                p.pressed && styles.configRowPressed,
-                                            ]}
-                                        >
-                                            <Text
-                                                style={[
-                                                    styles.modeSegmentText,
-                                                    selected && styles.modeSegmentTextSelected,
-                                                ]}
-                                                numberOfLines={1}
-                                            >
-                                                {label}
-                                            </Text>
-                                        </Pressable>
-                                    );
-                                })}
-                            </View>
 
                             {isOffline && (
                                 <View style={styles.offlineHelp}>
@@ -1567,36 +1521,6 @@ const styles = StyleSheet.create((theme) => ({
     configRowWithToggle: {
         flexDirection: 'row',
         alignItems: 'center',
-    },
-    modeSegment: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        marginHorizontal: 8,
-        marginTop: 2,
-        marginBottom: 6,
-        padding: 3,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surface,
-    },
-    modeSegmentButton: {
-        flex: 1,
-        minHeight: 34,
-        borderRadius: 9,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 10,
-    },
-    modeSegmentButtonSelected: {
-        backgroundColor: theme.colors.button.primary.background,
-    },
-    modeSegmentText: {
-        ...Typography.default('semiBold'),
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-    },
-    modeSegmentTextSelected: {
-        color: theme.colors.button.primary.tint,
     },
     collapseToggle: {
         paddingHorizontal: 12,
