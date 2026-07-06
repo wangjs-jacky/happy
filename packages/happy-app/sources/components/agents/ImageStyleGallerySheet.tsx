@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Image, Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { FlashList } from '@shopify/flash-list';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
@@ -10,9 +9,8 @@ import type { ImageAgentStylePreset } from './imageAgentPrompt';
 import { IMAGE_AGENT_STYLE_CATEGORIES, getImageAgentStyleLabel } from './imageAgentPrompt';
 import { getImageStylePreviewAsset } from './imageStylePreviewAssets';
 import {
-    IMAGE_STYLE_GALLERY_COLUMN_COUNT,
     IMAGE_STYLE_GALLERY_COLUMN_GAP,
-    getImageStyleGalleryItemType,
+    createImageStyleGalleryColumns,
     getImageStylePreviewHeight,
 } from './imageStyleGalleryLayout';
 import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
@@ -68,6 +66,14 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
             : props.styles.filter((style) => style.categoryId === categoryId),
         [categoryId, props.styles],
     );
+    const styleColumns = React.useMemo(
+        () => createImageStyleGalleryColumns(
+            filteredStyles,
+            cardWidth,
+            (style) => IMAGE_STYLE_PREVIEW_MANIFEST[style.id],
+        ),
+        [cardWidth, filteredStyles],
+    );
 
     React.useEffect(() => {
         if (categoryId !== ALL_CATEGORY_ID && !visibleCategoryIds.has(categoryId)) {
@@ -75,15 +81,10 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         }
     }, [categoryId, visibleCategoryIds]);
 
-    const getItemType = React.useCallback((style: ImageAgentStylePreset) => {
-        const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
-        return preview ? getImageStyleGalleryItemType(preview) : 'fallback';
-    }, []);
-
-    const renderStyle = React.useCallback(({ item: style }: { item: ImageAgentStylePreset }) => {
+    const renderStyle = React.useCallback((style: ImageAgentStylePreset) => {
         const selected = props.selectedStyleId === style.id;
         return (
-            <View style={styles.cell}>
+            <View key={style.id} style={styles.cell}>
                 <Pressable
                     onPress={() => props.onSelect(style)}
                     style={({ pressed }) => [
@@ -119,95 +120,106 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
 
     return (
         <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
-            <Pressable style={styles.scrim} onPress={props.onClose} />
-            <View style={[styles.sheet, { paddingBottom: safeArea.bottom + 12 }]}>
-                <View style={styles.handle} />
-                <View style={styles.header}>
-                    <View style={styles.headerCopy}>
-                        <Text style={styles.title} numberOfLines={1}>{t('agents.imageEffectGalleryTitle')}</Text>
-                        <Text style={styles.subtitle} numberOfLines={1}>{t('agents.imageEffectGallerySubtitle')}</Text>
+            <View style={styles.modalRoot}>
+                <Pressable style={styles.scrim} onPress={props.onClose} />
+                <View style={[styles.sheet, { paddingBottom: safeArea.bottom + 12 }]}>
+                    <View style={styles.handle} />
+                    <View style={styles.header}>
+                        <View style={styles.headerCopy}>
+                            <Text style={styles.title} numberOfLines={1}>{t('agents.imageEffectGalleryTitle')}</Text>
+                            <Text style={styles.subtitle} numberOfLines={1}>{t('agents.imageEffectGallerySubtitle')}</Text>
+                        </View>
+                        <Pressable onPress={props.onClose} hitSlop={8} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
+                            <Ionicons name="close" size={18} color={styles.closeIcon.color} />
+                        </Pressable>
                     </View>
-                    <Pressable onPress={props.onClose} hitSlop={8} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
-                        <Ionicons name="close" size={18} color={styles.closeIcon.color} />
-                    </Pressable>
-                </View>
 
-                <ScrollView
-                    horizontal
-                    style={styles.categoryScroller}
-                    contentContainerStyle={styles.categoryContent}
-                    showsHorizontalScrollIndicator={false}
-                >
-                    <Pressable
-                        onPress={() => setCategoryId(ALL_CATEGORY_ID)}
-                        style={({ pressed }) => [
-                            styles.categoryChip,
-                            categoryId === ALL_CATEGORY_ID && styles.categoryChipSelected,
-                            pressed && styles.pressed,
-                        ]}
+                    <ScrollView
+                        horizontal
+                        style={styles.categoryScroller}
+                        contentContainerStyle={styles.categoryContent}
+                        showsHorizontalScrollIndicator={false}
                     >
-                        <Text
-                            style={[
-                                styles.categoryLabel,
-                                categoryId === ALL_CATEGORY_ID && styles.categoryLabelSelected,
+                        <Pressable
+                            onPress={() => setCategoryId(ALL_CATEGORY_ID)}
+                            style={({ pressed }) => [
+                                styles.categoryChip,
+                                categoryId === ALL_CATEGORY_ID && styles.categoryChipSelected,
+                                pressed && styles.pressed,
                             ]}
-                            numberOfLines={1}
                         >
-                            {t('agents.imageEffectAll')}
-                        </Text>
-                    </Pressable>
-                    {categoryOptions.map((category) => {
-                        const selected = categoryId === category.id;
-                        return (
-                            <Pressable
-                                key={category.id}
-                                onPress={() => setCategoryId(category.id)}
-                                style={({ pressed }) => [
-                                    styles.categoryChip,
-                                    selected && styles.categoryChipSelected,
-                                    pressed && styles.pressed,
+                            <Text
+                                style={[
+                                    styles.categoryLabel,
+                                    categoryId === ALL_CATEGORY_ID && styles.categoryLabelSelected,
                                 ]}
+                                numberOfLines={1}
                             >
-                                <View style={[styles.categoryDot, { backgroundColor: category.accent }]} />
-                                <Text
-                                    style={[
-                                        styles.categoryLabel,
-                                        selected && styles.categoryLabelSelected,
+                                {t('agents.imageEffectAll')}
+                            </Text>
+                        </Pressable>
+                        {categoryOptions.map((category) => {
+                            const selected = categoryId === category.id;
+                            return (
+                                <Pressable
+                                    key={category.id}
+                                    onPress={() => setCategoryId(category.id)}
+                                    style={({ pressed }) => [
+                                        styles.categoryChip,
+                                        selected && styles.categoryChipSelected,
+                                        pressed && styles.pressed,
                                     ]}
-                                    numberOfLines={1}
                                 >
-                                    {category.label}
-                                </Text>
-                                <Text style={styles.categoryCount} numberOfLines={1}>{category.count}</Text>
-                            </Pressable>
-                        );
-                    })}
-                </ScrollView>
+                                    <View style={[styles.categoryDot, { backgroundColor: category.accent }]} />
+                                    <Text
+                                        style={[
+                                            styles.categoryLabel,
+                                            selected && styles.categoryLabelSelected,
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {category.label}
+                                    </Text>
+                                    <Text style={styles.categoryCount} numberOfLines={1}>{category.count}</Text>
+                                </Pressable>
+                            );
+                        })}
+                    </ScrollView>
 
-                <FlashList
-                    style={styles.list}
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
-                    data={filteredStyles}
-                    keyExtractor={(style) => style.id}
-                    numColumns={IMAGE_STYLE_GALLERY_COLUMN_COUNT}
-                    masonry
-                    getItemType={getItemType}
-                    renderItem={renderStyle}
-                    extraData={{ selectedStyleId: props.selectedStyleId, cardWidth }}
-                />
+                    <ScrollView
+                        style={styles.list}
+                        contentContainerStyle={styles.listContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <View style={styles.masonryColumns}>
+                            {styleColumns.map((column, columnIndex) => (
+                                <View key={columnIndex} style={styles.masonryColumn}>
+                                    {column.map(renderStyle)}
+                                </View>
+                            ))}
+                        </View>
+                    </ScrollView>
+                </View>
             </View>
         </Modal>
     );
 });
 
 const galleryStyles = StyleSheet.create((theme) => ({
-    scrim: {
+    modalRoot: {
         flex: 1,
+        justifyContent: 'flex-end',
+    },
+    scrim: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.48)',
     },
     sheet: {
-        maxHeight: '82%',
+        height: '82%',
         backgroundColor: theme.colors.groupped.background,
         borderTopLeftRadius: 18,
         borderTopRightRadius: 18,
@@ -256,7 +268,7 @@ const galleryStyles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
     },
     list: {
-        flexGrow: 0,
+        flex: 1,
     },
     listContent: {
         paddingBottom: 8,
@@ -306,8 +318,14 @@ const galleryStyles = StyleSheet.create((theme) => ({
         lineHeight: 18,
         color: theme.colors.textSecondary,
     },
+    masonryColumns: {
+        flexDirection: 'row',
+        gap: IMAGE_STYLE_GALLERY_COLUMN_GAP,
+    },
+    masonryColumn: {
+        flex: 1,
+    },
     cell: {
-        paddingHorizontal: 5,
         paddingBottom: 12,
     },
     card: {
