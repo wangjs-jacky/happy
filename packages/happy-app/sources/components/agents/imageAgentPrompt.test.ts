@@ -44,9 +44,15 @@ describe('imageAgentPrompt', () => {
     });
 
     it('includes curated reference article styles without local Obsidian labels', () => {
+        const mountainStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-voxcat/wild-mountain-sketchbook/1');
         const tiramisuStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-tiramisu/vintage-film-cafe/1');
         const dogStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-dog/healing-watercolor/1');
 
+        expect(mountainStyle?.sourceRepository).toBe('curated-reference-examples');
+        expect(mountainStyle?.promptPath).toContain('voxcat-wild-mountain-sketchbook');
+        expect(mountainStyle?.promptContent).toContain('outdoor travel sketchbook');
+        expect(mountainStyle?.templateRef).not.toContain('local-obsidian');
+        expect(mountainStyle?.promptHint).not.toMatch(/OBA|Obsidian/i);
         expect(tiramisuStyle?.sourceRepository).toBe('curated-reference-examples');
         expect(tiramisuStyle?.promptPath).toContain('tiramisu-vintage-film-cafe');
         expect(tiramisuStyle?.promptContent).toContain('nostalgic 35mm film');

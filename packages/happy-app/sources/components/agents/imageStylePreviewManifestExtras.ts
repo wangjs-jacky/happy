@@ -2,6 +2,14 @@
 import type { ImageStylePreviewEntry } from './imageStylePreviewManifest';
 
 export const EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry> = {
+    "reference-voxcat/wild-mountain-sketchbook/1": {
+        "fileName": "voxcat-wild-mountain-sketchbook.jpg",
+        "sourceSet": "curated-reference-examples",
+        "sourceCaseId": "voxcat-reference/01-wild-mountain-sketchbook",
+        "sourceIndex": 1,
+        "width": 480,
+        "height": 640
+    },
     "reference-tiramisu/vintage-film-cafe/1": {
         "fileName": "tiramisu-vintage-film-cafe-20260706-025730.jpg",
         "sourceSet": "curated-reference-examples",
