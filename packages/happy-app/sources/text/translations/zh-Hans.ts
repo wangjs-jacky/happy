@@ -22,6 +22,7 @@ export const zhHans: TranslationStructure = {
         greetingNoName: '今天和 Paws 做点什么',
         greetingAgent: ({ name }: { name: string }) => `进入 ${name}，今天想做点什么？`,
         placeholder: '尽管问，带图也行',
+        askPlaceholder: '尽管问',
         byline: '内容由 AI 生成 · 端到端加密',
         createDirectoryTitle: '创建目录？',
         createDirectoryMessage: ({ path }: { path: string }) => `目录 "${path}" 不存在，是否创建？`,

@@ -38,6 +38,7 @@ import {
 } from '@/components/modelModeOptions';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
+import { getSessionConfigExperience } from '@/utils/newSessionExperience';
 import { isRunningOnMac } from '@/utils/platform';
 
 // Agent icon assets
@@ -861,6 +862,10 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getHardcodedModelModes(selectedAgent, t),
             [selectedAgent],
         );
+        const configExperience = React.useMemo(
+            () => getSessionConfigExperience(selectedAgent),
+            [selectedAgent],
+        );
 
         const currentModel = modelModes[modelIndex] ?? modelModes[0];
         const currentModelKey = currentModel?.key ?? 'default';
@@ -879,10 +884,19 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             })
         ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, selectedAgent]);
 
-        const supportsWorktree = getSupportsWorktree(selectedAgent);
-        const showModel = modelModes.length > 1;
-        const showEffort = effortLevels.length > 0;
-        const showPermission = permissionModes.length > 1;
+        const supportsWorktree = configExperience.showWorktree && getSupportsWorktree(selectedAgent);
+        const showModel = configExperience.showModeDetails && modelModes.length > 1;
+        const showEffort = configExperience.showModeDetails && effortLevels.length > 0;
+        const showPermission = configExperience.showPermission && permissionModes.length > 1;
+
+        React.useEffect(() => {
+            if (!configExperience.isAskMode) {
+                return;
+            }
+            if (activePicker && activePicker !== 'machine' && activePicker !== 'agent') {
+                setActivePicker(null);
+            }
+        }, [activePicker, configExperience.isAskMode]);
 
         // Reset indices when agent/default settings change.
         React.useEffect(() => {
@@ -1177,17 +1191,21 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             )}
 
                             <View style={{ opacity: isOffline ? 0.4 : 1 }} pointerEvents={isOffline ? 'none' : 'auto'}>
-                                <Pressable
-                                    style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
-                                    onPress={() => togglePicker('path')}
-                                >
-                                    <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
-                                    <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
-                                        {pathName}
-                                    </Text>
-                                    <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
-                                </Pressable>
-                                {renderActivePickerPopover('path')}
+                                {configExperience.showPath && (
+                                    <>
+                                        <Pressable
+                                            style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
+                                            onPress={() => togglePicker('path')}
+                                        >
+                                            <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
+                                            <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
+                                                {pathName}
+                                            </Text>
+                                            <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
+                                        </Pressable>
+                                        {renderActivePickerPopover('path')}
+                                    </>
+                                )}
 
                                 <View style={styles.configRow}>
                                     <Pressable
@@ -1273,11 +1291,15 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             <View style={styles.configRowWithToggle}>
                                 <Pressable
                                     style={(p) => [styles.collapsedRow, { flex: 1 }, p.pressed && styles.configRowPressed]}
-                                    onPress={() => togglePicker('path')}
+                                    onPress={() => togglePicker(configExperience.isAskMode ? 'machine' : 'path')}
                                 >
-                                    <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
+                                    <Ionicons
+                                        name={configExperience.isAskMode ? 'desktop-outline' : 'folder-outline'}
+                                        size={15}
+                                        color={theme.colors.textSecondary}
+                                    />
                                     <Text style={[styles.configLabel, { flex: 1 }]} numberOfLines={1}>
-                                        {pathName}
+                                        {configExperience.isAskMode ? machineName : pathName}
                                     </Text>
                                 </Pressable>
                                 <Pressable
@@ -1288,7 +1310,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
                                 </Pressable>
                             </View>
-                            {renderActivePickerPopover('path')}
+                            {configExperience.showPath && renderActivePickerPopover('path')}
 
                             <View style={styles.collapsedIconsRow}>
                                 <Pressable

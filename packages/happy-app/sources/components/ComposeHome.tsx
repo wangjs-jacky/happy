@@ -24,6 +24,7 @@ import { RightSwipePanelHost } from './RightSwipePanelHost';
 import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
+import { getComposeHomeExperience } from '@/utils/newSessionExperience';
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
@@ -148,7 +149,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
     // supportsAttachments），其余 runner（gemini / openclaw）会静默丢弃，故不显示。
     // compact horizontal strip keeps the footprint to one row.
-    const canAttach = activeImageAgent || agentType === 'claude' || agentType === 'codex';
+    const composeExperience = React.useMemo(
+        () => getComposeHomeExperience({ agentType, activeImageAgent }),
+        [activeImageAgent, agentType],
+    );
+    const canAttach = composeExperience.canAttach;
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
 
@@ -171,7 +176,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [agentId, agents, builtinAppAgent]);
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
-    const displayAgentType = activeImageAgent ? 'codex' : agentType;
+    const displayAgentType = composeExperience.displayAgentType;
     const agentLabel = AGENT_LABELS[displayAgentType] ?? displayAgentType;
 
     const openDrawer = React.useCallback(() => {
@@ -424,7 +429,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             </ScrollView>
                         </View>
                     )}
-                    {!activeImageAgent && (
+                    {composeExperience.showCreationRail && (
                         <View style={styles.creationRail}>
                             <Pressable
                                 onPress={openImageStyleMode}
@@ -465,7 +470,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
-                        placeholder={activeImageAgent ? t('agents.imagePromptPlaceholder') : t('composeHome.placeholder')}
+                        placeholder={activeImageAgent
+                            ? t('agents.imagePromptPlaceholder')
+                            : agentType === 'ask'
+                                ? t('composeHome.askPlaceholder')
+                                : t('composeHome.placeholder')}
                         initialValue={text}
                         onChangeText={setText}
                         onSend={handleSend}

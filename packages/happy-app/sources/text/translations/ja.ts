@@ -23,6 +23,7 @@ export const ja: TranslationStructure = {
         greetingNoName: '今日は何をしますか？',
         greetingAgent: ({ name }: { name: string }) => `${name} に入ります。今日は何をしましょうか？`,
         placeholder: '何でも聞いてください、画像もOK',
+        askPlaceholder: '何でも聞いてください',
         byline: 'AI生成 · エンドツーエンド暗号化',
         createDirectoryTitle: 'フォルダを作成しますか？',
         createDirectoryMessage: ({ path }: { path: string }) => `フォルダ "${path}" は存在しません。作成しますか？`,
