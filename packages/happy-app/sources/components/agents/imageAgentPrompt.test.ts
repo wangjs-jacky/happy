@@ -36,8 +36,8 @@ describe('imageAgentPrompt', () => {
 
         const prompt = createImageStyleSelectionPrompt(style!);
 
-        expect(prompt).toContain('Use the $gpt-image-2 skill');
-        expect(prompt).toContain('Selected Garden case: product-visuals/white-background-product/1');
+        expect(prompt).toContain('使用 $gpt-image-2 skill');
+        expect(prompt).toContain('已选择的 Garden 案例：product-visuals/white-background-product/1');
         expect(prompt).toContain(style!.promptContent.slice(0, 120));
     });
 
@@ -61,11 +61,11 @@ describe('imageAgentPrompt', () => {
         });
 
         expect(prompt).toContain('$gpt-image-2');
-        expect(prompt).toContain('Generation lock');
-        expect(prompt).toContain('3 uploaded reference image(s)');
+        expect(prompt).toContain('生成锁');
+        expect(prompt).toContain('已上传 3 张参考图');
         expect(prompt).toContain('product-visuals/premium-studio-product/1');
         expect(prompt).toContain('product-visuals/white-background-product/1');
-        expect(prompt).toContain('2 variant(s) per style');
+        expect(prompt).toContain('各生成 2 张变体');
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
         expect(prompt).toContain('Use the dairy reference photo and keep the plate shape.');

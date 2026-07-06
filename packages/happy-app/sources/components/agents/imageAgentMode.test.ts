@@ -67,6 +67,6 @@ describe('imageAgentMode', () => {
 
         expect(prompt).toContain('product-visuals/white-background-product/1');
         expect(prompt).toContain(style!.promptContent.slice(0, 120));
-        expect(prompt).toContain('Preserve the uploaded subject');
+        expect(prompt).toContain('保留上传主体的身份特征');
     });
 });

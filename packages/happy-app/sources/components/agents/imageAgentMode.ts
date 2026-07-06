@@ -58,16 +58,16 @@ export function selectImageAgentStyle(agent: AgentLauncher, styleId: string): Ag
 
 export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): string {
     return [
-        'Use the $gpt-image-2 skill to generate or edit image(s) with this selected Garden case as the style target.',
+        '使用 $gpt-image-2 skill 生成或编辑图片，并以下面选中的 Garden 案例作为目标风格。',
         '',
-        `Selected Garden case: ${style.id}`,
-        `Case title: ${style.title}`,
-        `Template: ${style.templateRef}`,
-        `Category: ${style.categoryLabel}`,
+        `已选择的 Garden 案例：${style.id}`,
+        `案例标题：${style.title}`,
+        `模板：${style.templateRef}`,
+        `分类：${style.categoryLabel}`,
         '',
-        'Preserve the uploaded subject identity, key geometry, important text, and any user-provided constraints unless I explicitly ask to change them.',
+        '除非我明确要求改变，否则请保留上传主体的身份特征、关键几何结构、重要文字，以及用户提供的所有约束。',
         '',
-        'Garden case prompt:',
+        'Garden 案例 prompt：',
         style.promptContent,
     ].join('\n');
 }
