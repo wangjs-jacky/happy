@@ -135,6 +135,7 @@ export function getOpenClawModelModes(): ModelMode[] {
 export function getOpenCodeModelModes(): ModelMode[] {
     return [
         { key: 'default', name: 'default model', description: null },
+        { key: 'sub2api/gpt-5.5', name: 'sub2api gpt-5.5', description: 'local codex proxy' },
         { key: 'deepseek/deepseek-v4-pro', name: 'deepseek v4 pro', description: 'most capable' },
         { key: 'deepseek/deepseek-v4-flash', name: 'deepseek v4 flash', description: 'fast' },
         { key: 'deepseek/deepseek-chat', name: 'deepseek chat', description: null },
