@@ -27,8 +27,9 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
-import { buildImageAgentPrompt, getImageAgentStylesForAgent, getImageAgentVariantCount } from './agents/imageAgentPrompt';
-import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent } from './agents/imageAgentMode';
+import { buildImageAgentPrompt, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
+import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
+import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -75,6 +76,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
+    const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
+    const [selectedImageStyleId, setSelectedImageStyleId] = React.useState<string | null>(null);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
@@ -90,12 +93,29 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         () => resolveComposeImageAgent({ routeMode: mode, agent: activeAgent }),
         [activeAgent, mode],
     );
+    const effectiveImageAgent = React.useMemo(
+        () => (imageAgent && selectedImageStyleId ? selectImageAgentStyle(imageAgent, selectedImageStyleId) : imageAgent),
+        [imageAgent, selectedImageStyleId],
+    );
     const activeImageAgent = !!imageAgent;
-    const activeImageStyles = React.useMemo(
+    const galleryImageStyles = React.useMemo(
         () => (imageAgent ? getImageAgentStylesForAgent(imageAgent) : []),
         [imageAgent],
     );
-    const activeImageVariants = imageAgent ? getImageAgentVariantCount(imageAgent) : 1;
+    const activeImageStyles = React.useMemo(
+        () => (effectiveImageAgent ? getImageAgentStylesForAgent(effectiveImageAgent) : []),
+        [effectiveImageAgent],
+    );
+    const activeImageVariants = effectiveImageAgent ? getImageAgentVariantCount(effectiveImageAgent) : 1;
+    const selectedImageStyle = React.useMemo(
+        () => (selectedImageStyleId ? galleryImageStyles.find((style) => style.id === selectedImageStyleId) ?? null : null),
+        [galleryImageStyles, selectedImageStyleId],
+    );
+
+    React.useEffect(() => {
+        setSelectedImageStyleId(null);
+        setImageGalleryOpen(false);
+    }, [imageAgent?.id]);
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -156,6 +176,21 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         router.push(IMAGE_STYLE_COMPOSE_ROUTE as any);
     }, [router]);
 
+    const openImageStyleGallery = React.useCallback(() => {
+        hapticsLight();
+        setImageGalleryOpen(true);
+    }, []);
+
+    const closeImageStyleGallery = React.useCallback(() => {
+        setImageGalleryOpen(false);
+    }, []);
+
+    const selectImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
+        setSelectedImageStyleId(style.id);
+        setImageGalleryOpen(false);
+        fillPreset(createImageStyleSelectionPrompt(style));
+    }, [fillPreset]);
+
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
     // outside — collapses it. The panel writes straight to the shared draft
@@ -174,9 +209,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
         if ((!trimmed && !images) || sending) return;
-        const prompt = activeImageAgent && imageAgent
+        const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
-                agent: imageAgent,
+                agent: effectiveImageAgent,
                 userPrompt: trimmed,
                 imageCount: images?.length ?? 0,
             })
@@ -223,7 +258,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, imageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -329,6 +364,27 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                     <Ionicons name="images-outline" size={18} color={theme.colors.textSecondary} />
                                 </Pressable>
                             )}
+                            <Pressable
+                                onPress={openImageStyleGallery}
+                                style={({ pressed }) => [
+                                    styles.imageEffectAction,
+                                    pressed && styles.imageEffectActionPressed,
+                                ]}
+                                hitSlop={6}
+                            >
+                                <View style={styles.imageEffectIcon}>
+                                    <Ionicons name="color-filter-outline" size={18} color={theme.colors.text} />
+                                </View>
+                                <View style={styles.imageEffectCopy}>
+                                    <Text style={styles.imageEffectTitle} numberOfLines={1}>
+                                        {selectedImageStyle ? t(selectedImageStyle.labelKey) : t('agents.imageEffectChoose')}
+                                    </Text>
+                                    <Text style={styles.imageEffectSubtitle} numberOfLines={1}>
+                                        {t('agents.imageEffectChooseHint')}
+                                    </Text>
+                                </View>
+                                <Ionicons name="chevron-up" size={17} color={theme.colors.textSecondary} />
+                            </Pressable>
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
@@ -336,11 +392,19 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 keyboardShouldPersistTaps="always"
                             >
                                 {activeImageStyles.map((style) => (
-                                    <View key={style.id} style={styles.imageStyleChip}>
+                                    <Pressable
+                                        key={style.id}
+                                        onPress={openImageStyleGallery}
+                                        style={({ pressed }) => [
+                                            styles.imageStyleChip,
+                                            pressed && styles.imageStyleChipPressed,
+                                        ]}
+                                        hitSlop={6}
+                                    >
                                         <Text style={styles.imageStyleChipText} numberOfLines={1}>
                                             {t(style.labelKey)}
                                         </Text>
-                                    </View>
+                                    </Pressable>
                                 ))}
                             </ScrollView>
                         </View>
@@ -414,6 +478,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
                     </View>
                 </>
+            )}
+            {activeImageAgent && (
+                <ImageStyleGallerySheet
+                    visible={imageGalleryOpen}
+                    styles={galleryImageStyles}
+                    selectedStyleId={selectedImageStyleId}
+                    onSelect={selectImageStyleFromGallery}
+                    onClose={closeImageStyleGallery}
+                />
             )}
             </View>
         </RightSwipePanelHost>
@@ -560,6 +633,43 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         marginTop: 2,
     },
+    imageEffectAction: {
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageEffectActionPressed: {
+        opacity: 0.78,
+    },
+    imageEffectIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    imageEffectCopy: {
+        flex: 1,
+    },
+    imageEffectTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    imageEffectSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
+    },
     imageStyleRow: {
         gap: 6,
         paddingRight: 8,
@@ -572,6 +682,9 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.colors.surfacePressed,
+    },
+    imageStyleChipPressed: {
+        opacity: 0.75,
     },
     imageStyleChipText: {
         ...Typography.default('semiBold'),

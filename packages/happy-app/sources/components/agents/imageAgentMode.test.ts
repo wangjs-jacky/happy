@@ -4,6 +4,8 @@ import type { AgentLauncher } from './launchAgent';
 import {
     IMAGE_STYLE_COMPOSE_ROUTE,
     createBuiltinImageStyleAgent,
+    createImageStyleSelectionPrompt,
+    selectImageAgentStyle,
     resolveComposeImageAgent,
 } from './imageAgentMode';
 
@@ -48,5 +50,23 @@ describe('imageAgentMode', () => {
         });
 
         expect(resolved).toBe(savedImageAgent);
+    });
+
+    it('selects one style for the current image generation batch', () => {
+        const selected = selectImageAgentStyle(createBuiltinImageStyleAgent(), 'white-product');
+
+        expect(selected.imageStyleIds).toEqual(['white-product']);
+        expect(selected.imageVariantsPerStyle).toBe(1);
+    });
+
+    it('builds a style prompt that can be inserted into the composer', () => {
+        const style = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'white-product');
+        expect(style).toBeTruthy();
+
+        const prompt = createImageStyleSelectionPrompt(style!);
+
+        expect(prompt).toContain('white-product');
+        expect(prompt).toContain(style!.promptHint);
+        expect(prompt).toContain('Preserve the uploaded subject');
     });
 });

@@ -1,4 +1,4 @@
-import { IMAGE_AGENT_STYLE_PRESETS } from './imageAgentPrompt';
+import { IMAGE_AGENT_STYLE_PRESETS, type ImageAgentStylePreset } from './imageAgentPrompt';
 import type { AgentLauncher } from './launchAgent';
 
 export const IMAGE_STYLE_MODE_PARAM = 'image-styles';
@@ -47,4 +47,19 @@ export function resolveComposeImageAgent(args: {
         return createBuiltinImageStyleAgent();
     }
     return null;
+}
+
+export function selectImageAgentStyle(agent: AgentLauncher, styleId: string): AgentLauncher {
+    return {
+        ...agent,
+        imageStyleIds: [styleId],
+    };
+}
+
+export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): string {
+    return [
+        `Apply the ${style.id} GPT Image 2 effect.`,
+        `Effect direction: ${style.promptHint}.`,
+        'Preserve the uploaded subject identity, key geometry, important text, and any user-provided constraints unless I explicitly ask to change them.',
+    ].join('\n');
 }
