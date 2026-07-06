@@ -30,6 +30,7 @@ import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
+import { OtaPreviewFloatingButton } from '@/components/OtaPreviewFloatingButton';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -115,26 +116,9 @@ export const SessionView = React.memo((props: { id: string }) => {
         () => extractSessionOtaPreviews(messages),
         [messages],
     );
-    const latestOtaPreviewId = otaPreviews[0]?.id ?? null;
-    const latestOtaPreviewIdRef = React.useRef(latestOtaPreviewId);
     const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
         sessionComposerHandleRef.current?.setMessage(prompt);
     }, []);
-
-    React.useEffect(() => {
-        if (sidebarMode === 'otaPreview' && otaPreviews.length === 0) {
-            setSidebarMode('changes');
-        }
-    }, [otaPreviews.length, sidebarMode]);
-
-    React.useEffect(() => {
-        const previousId = latestOtaPreviewIdRef.current;
-        latestOtaPreviewIdRef.current = latestOtaPreviewId;
-        if (!showSidebar || !latestOtaPreviewId || latestOtaPreviewId === previousId) {
-            return;
-        }
-        setSidebarMode((current) => (current === 'changes' ? 'otaPreview' : current));
-    }, [latestOtaPreviewId, showSidebar]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -347,6 +331,16 @@ export const SessionView = React.memo((props: { id: string }) => {
                     }}
                 />
             )}
+
+            <OtaPreviewFloatingButton
+                previews={otaPreviews}
+                topOffset={
+                    (isLandscape && deviceType === 'phone' && Platform.OS !== 'web')
+                        ? safeArea.top + 12
+                        : safeArea.top + headerHeight + 12
+                }
+                bottomOffset={safeArea.bottom + 104}
+            />
         </>
     );
 
@@ -423,7 +417,6 @@ export const SessionView = React.memo((props: { id: string }) => {
                         mode={sidebarMode}
                         onModeChange={setSidebarMode}
                         onAllFilesFilePress={handleAllFilesFilePress}
-                        otaPreviews={otaPreviews}
                     />
                 </View>
             </Animated.View>
