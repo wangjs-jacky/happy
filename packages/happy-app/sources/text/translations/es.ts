@@ -519,6 +519,24 @@ export const es: TranslationStructure = {
             scanQrCode: 'Escanee el código QR',
             openCamera: 'Abrir cámara',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Captura de pantalla',
+            screenshotDesktop: 'Escritorio completo',
+            screenshotBrowser: 'Ventana del navegador al frente',
+            screenshotGallery: 'Galería',
+            screenshotFailedTitle: 'Error en la captura de pantalla',
+            screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
+            screenshotUnsupportedPlatform: 'Las capturas de pantalla solo se admiten en macOS por ahora.',
+        },
+        screenshotGallery: {
+            title: 'Capturas de pantalla',
+            empty: 'Aún no hay capturas',
+            emptyHint: 'Las capturas que hagas aparecerán aquí',
+            attach: 'Adjuntar a la entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {
@@ -1183,6 +1201,13 @@ export const es: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Descargar imagen',
+        close: 'Cerrar visor de imagen',
+        downloadFailedTitle: 'Error al descargar',
+        downloadFailedMessage: 'No se pudo preparar esta imagen para descargarla.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} te envió una solicitud de amistad`,
@@ -1273,6 +1298,10 @@ export const es: TranslationStructure = {
         cardTitle: 'Mis agentes',
         add: 'Añadir',
         manage: 'Gestionar',
+        builtinTitle: 'Integrados',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Crear app',
+        appBuilderPresetBugfix: 'Corregir bug',
         machineOffline: 'Máquina desconectada',
         machineMissing: 'Máquina no encontrada',
         empty: 'Aún no hay agentes. Toca para añadir uno.',

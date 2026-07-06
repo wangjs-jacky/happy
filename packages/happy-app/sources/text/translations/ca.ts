@@ -519,6 +519,24 @@ export const ca: TranslationStructure = {
             scanQrCode: 'Escaneja el codi QR',
             openCamera: 'Obre la càmera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Captura de pantalla',
+            screenshotDesktop: 'Escriptori complet',
+            screenshotBrowser: 'Finestra del navegador en primer pla',
+            screenshotGallery: 'Galeria',
+            screenshotFailedTitle: 'La captura de pantalla ha fallat',
+            screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
+            screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
+        },
+        screenshotGallery: {
+            title: 'Captures de pantalla',
+            empty: 'Encara no hi ha captures',
+            emptyHint: 'Les captures que facis apareixeran aquí',
+            attach: 'Adjunta a l\'entrada',
+            sourceManual: 'Manual',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {
@@ -1182,6 +1200,13 @@ export const ca: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Baixa la imatge',
+        close: 'Tanca el visor d’imatges',
+        downloadFailedTitle: 'Error de baixada',
+        downloadFailedMessage: 'No s’ha pogut preparar aquesta imatge per baixar-la.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} t'ha enviat una sol·licitud d'amistat`,
@@ -1272,6 +1297,10 @@ export const ca: TranslationStructure = {
         cardTitle: 'Els meus agents',
         add: 'Afegeix',
         manage: 'Gestiona',
+        builtinTitle: 'Integrats',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Crea app',
+        appBuilderPresetBugfix: 'Corregeix bug',
         machineOffline: 'Màquina fora de línia',
         machineMissing: 'Màquina no trobada',
         empty: 'Encara no hi ha agents. Toca per afegir-ne un.',

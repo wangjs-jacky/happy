@@ -520,6 +520,24 @@ export const ja: TranslationStructure = {
             scanQrCode: 'QRコードをスキャン',
             openCamera: 'カメラを開く',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'スクリーンショット',
+            screenshotDesktop: 'デスクトップ全体',
+            screenshotBrowser: '最前面のブラウザウィンドウ',
+            screenshotGallery: 'ギャラリー',
+            screenshotFailedTitle: 'スクリーンショットに失敗しました',
+            screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
+            screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
+        },
+        screenshotGallery: {
+            title: 'スクリーンショット',
+            empty: 'スクリーンショットはまだありません',
+            emptyHint: '撮影したスクリーンショットがここに表示されます',
+            attach: '入力欄に添付',
+            sourceManual: '手動',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {
@@ -1184,6 +1202,13 @@ export const ja: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: '画像をダウンロード',
+        close: '画像ビューアを閉じる',
+        downloadFailedTitle: 'ダウンロードに失敗しました',
+        downloadFailedMessage: 'この画像をダウンロード用に準備できませんでした。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name}さんから友達リクエストが届きました`,
@@ -1274,6 +1299,10 @@ export const ja: TranslationStructure = {
         cardTitle: 'マイエージェント',
         add: '追加',
         manage: '管理',
+        builtinTitle: '組み込み',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'アプリを作成',
+        appBuilderPresetBugfix: 'バグ修正',
         machineOffline: 'マシンがオフライン',
         machineMissing: 'マシンが見つかりません',
         empty: 'エージェントがありません。タップして追加。',

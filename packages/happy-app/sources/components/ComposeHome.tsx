@@ -30,6 +30,7 @@ import { hapticsLight } from './haptics';
 import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
+import { createAppBuilderAgent } from './agents/builtinAgents';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -134,6 +135,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         worktreeKey: s.worktreeKey,
         setAgentType: s.setAgentType,
     })));
+    const selectedPath = useNewSessionDraft(s => s.selectedPath);
 
     React.useEffect(() => {
         if (activeImageAgent && agentType !== 'codex') {
@@ -154,6 +156,18 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         () => machines.find((m) => m.id === selectedMachineId),
         [machines, selectedMachineId],
     );
+    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
+        machines,
+        preferredMachineId: selectedMachineId,
+        preferredPath: selectedPath,
+        title: t('agents.appBuilderTitle'),
+        presetBuildLabel: t('agents.appBuilderPresetBuild'),
+        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+    }), [machines, selectedMachineId, selectedPath]);
+    const displayAgent = React.useMemo(() => {
+        if (!agentId) return null;
+        return agents.find((a) => a.id === agentId) ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
+    }, [agentId, agents, builtinAppAgent]);
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const displayAgentType = activeImageAgent ? 'codex' : agentType;
@@ -313,8 +327,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
                     <Text style={styles.greeting}>
-                        {activeAgent
-                            ? t('composeHome.greetingAgent', { name: activeAgent.name })
+                        {displayAgent
+                            ? t('composeHome.greetingAgent', { name: displayAgent.name })
                             : activeImageAgent
                                 ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
                                 : name
@@ -433,9 +447,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             </Pressable>
                         </View>
                     )}
-                    {activeAgent && activeAgent.presets.length > 0 && (
+                    {displayAgent && displayAgent.presets.length > 0 && (
                         <View style={styles.presetRow}>
-                            {activeAgent.presets.map((preset, i) => (
+                            {displayAgent.presets.map((preset, i) => (
                                 <Pressable
                                     key={`${preset.label}-${i}`}
                                     onPress={() => fillPreset(preset.prompt)}

@@ -472,6 +472,24 @@ export const ru: TranslationStructure = {
             scanQrCode: 'Отсканируйте QR-код',
             openCamera: 'Открыть камеру',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Снимок экрана',
+            screenshotDesktop: 'Весь рабочий стол',
+            screenshotBrowser: 'Активное окно браузера',
+            screenshotGallery: 'Галерея',
+            screenshotFailedTitle: 'Не удалось сделать снимок экрана',
+            screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
+            screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
+        },
+        screenshotGallery: {
+            title: 'Снимки экрана',
+            empty: 'Пока нет снимков',
+            emptyHint: 'Сделанные снимки появятся здесь',
+            attach: 'Прикрепить к вводу',
+            sourceManual: 'Вручную',
+            sourceAi: 'ИИ',
+        },
     },
 
     profile: {
@@ -1211,6 +1229,13 @@ export const ru: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Скачать изображение',
+        close: 'Закрыть просмотр изображения',
+        downloadFailedTitle: 'Ошибка скачивания',
+        downloadFailedMessage: 'Не удалось подготовить это изображение для скачивания.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} отправил вам запрос в друзья`,
@@ -1301,6 +1326,10 @@ export const ru: TranslationStructure = {
         cardTitle: 'Мои агенты',
         add: 'Добавить',
         manage: 'Управление',
+        builtinTitle: 'Встроенные',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Создать приложение',
+        appBuilderPresetBugfix: 'Исправить баг',
         machineOffline: 'Машина офлайн',
         machineMissing: 'Машина не найдена',
         empty: 'Пока нет агентов. Нажмите, чтобы добавить.',

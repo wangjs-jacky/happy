@@ -36,6 +36,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ImageViewerSource } from '@/sync/imageViewer';
+import { downloadImage } from '@/utils/imageDownload';
+import { Modal } from '@/modal';
+import { t } from '@/text';
 
 const MAX_SCALE = 4;
 const DOUBLE_TAP_SCALE = 2.5;
@@ -58,6 +61,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     const [pagingEnabled, setPagingEnabled] = React.useState(true);
     // Shared backdrop opacity — the active page's swipe-down drives the fade.
     const backdropOpacity = useSharedValue(1);
+    const [downloadBusy, setDownloadBusy] = React.useState(false);
 
     // Android honors contentOffset unreliably; jump to the tapped image once we
     // know the screen width.
@@ -76,6 +80,20 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
 
     const single = sources.length === 1;
     const currentSource = sources[currentIndex];
+
+    const handleDownload = React.useCallback(() => {
+        if (!currentSource || downloadBusy) return;
+        setDownloadBusy(true);
+        void downloadImage(currentSource, { dialogTitle: t('imageViewer.download') })
+            .catch((error) => {
+                Modal.alert(
+                    t('imageViewer.downloadFailedTitle'),
+                    error instanceof Error ? error.message : t('imageViewer.downloadFailedMessage'),
+                    [{ text: t('common.ok') }],
+                );
+            })
+            .finally(() => setDownloadBusy(false));
+    }, [currentSource, downloadBusy]);
 
     return (
         <View style={styles.root}>
@@ -113,13 +131,28 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                 </View>
             )}
 
-            <Pressable
-                onPress={onClose}
-                hitSlop={8}
-                style={[styles.closeButton, { top: insets.top + 8 }]}
-            >
-                <Ionicons name="close" size={24} color="#fff" />
-            </Pressable>
+            <View style={[styles.topActions, { top: insets.top + 8 }]}>
+                <Pressable
+                    onPress={handleDownload}
+                    hitSlop={8}
+                    disabled={downloadBusy || !currentSource}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('imageViewer.download')}
+                    style={[styles.iconButton, downloadBusy && styles.iconButtonDisabled]}
+                >
+                    <Ionicons name={downloadBusy ? 'hourglass-outline' : 'download-outline'} size={22} color="#fff" />
+                </Pressable>
+
+                <Pressable
+                    onPress={onClose}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('imageViewer.close')}
+                    style={styles.iconButton}
+                >
+                    <Ionicons name="close" size={24} color="#fff" />
+                </Pressable>
+            </View>
 
             {currentSource?.onAction && currentSource.actionLabel && (
                 <Pressable
@@ -327,15 +360,23 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontVariant: ['tabular-nums'],
     },
-    closeButton: {
+    topActions: {
         position: 'absolute',
         right: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    iconButton: {
         width: 40,
         height: 40,
         borderRadius: 20,
         backgroundColor: 'rgba(0,0,0,0.4)',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    iconButtonDisabled: {
+        opacity: 0.55,
     },
     actionButton: {
         position: 'absolute',

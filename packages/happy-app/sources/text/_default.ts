@@ -327,6 +327,13 @@ export const en = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Download image',
+        close: 'Close image viewer',
+        downloadFailedTitle: 'Download Failed',
+        downloadFailedMessage: 'Could not prepare this image for download.',
+    },
+
     errors: {
         networkError: 'Network error occurred',
         serverError: 'Server error occurred',
@@ -537,6 +544,25 @@ export const en = {
             runIt: 'Run it',
             scanQrCode: 'Scan the QR code',
             openCamera: 'Open Camera',
+        },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Screenshot',
+            screenshotDesktop: 'Full desktop',
+            screenshotBrowser: 'Frontmost browser window',
+            screenshotGallery: 'Gallery',
+            screenshotFailedTitle: 'Screenshot failed',
+            screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
+            screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
+        },
+        screenshotGallery: {
+            // Bottom drawer showing all screenshots captured in this session
+            title: 'Screenshots',
+            empty: 'No screenshots yet',
+            emptyHint: 'Screenshots you capture will show up here',
+            attach: 'Attach to input',
+            sourceManual: 'Manual',
+            sourceAi: 'AI',
         },
     },
 
@@ -1846,6 +1872,10 @@ export const en = {
         cardTitle: 'My Agents',
         add: 'Add',
         manage: 'Manage',
+        builtinTitle: 'Built-in',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Build app',
+        appBuilderPresetBugfix: 'Fix bug',
         machineOffline: 'Machine offline',
         machineMissing: 'Machine not found',
         empty: 'No agents yet. Tap to add one.',

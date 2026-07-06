@@ -517,6 +517,24 @@ export const it: TranslationStructure = {
             scanQrCode: 'Scansiona il codice QR',
             openCamera: 'Apri fotocamera',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Screenshot',
+            screenshotDesktop: 'Intero desktop',
+            screenshotBrowser: 'Finestra del browser in primo piano',
+            screenshotGallery: 'Galleria',
+            screenshotFailedTitle: 'Screenshot non riuscito',
+            screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
+            screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
+        },
+        screenshotGallery: {
+            title: 'Screenshot',
+            empty: 'Nessuno screenshot',
+            emptyHint: 'Gli screenshot che acquisisci appariranno qui',
+            attach: 'Allega all\'input',
+            sourceManual: 'Manuale',
+            sourceAi: 'IA',
+        },
     },
 
     agentInput: {
@@ -1181,6 +1199,13 @@ export const it: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Scarica immagine',
+        close: 'Chiudi visualizzatore immagine',
+        downloadFailedTitle: 'Download non riuscito',
+        downloadFailedMessage: 'Impossibile preparare questa immagine per il download.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} ti ha inviato una richiesta di amicizia`,
@@ -1271,6 +1296,10 @@ export const it: TranslationStructure = {
         cardTitle: 'I miei agenti',
         add: 'Aggiungi',
         manage: 'Gestisci',
+        builtinTitle: 'Integrati',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Crea app',
+        appBuilderPresetBugfix: 'Correggi bug',
         machineOffline: 'Macchina offline',
         machineMissing: 'Macchina non trovata',
         empty: 'Ancora nessun agente. Tocca per aggiungerne uno.',

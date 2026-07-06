@@ -535,6 +535,24 @@ export const pl: TranslationStructure = {
             scanQrCode: 'Zeskanuj kod QR',
             openCamera: 'Otwórz kamerę',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: 'Zrzut ekranu',
+            screenshotDesktop: 'Cały pulpit',
+            screenshotBrowser: 'Aktywne okno przeglądarki',
+            screenshotGallery: 'Galeria',
+            screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
+            screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
+            screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
+        },
+        screenshotGallery: {
+            title: 'Zrzuty ekranu',
+            empty: 'Brak zrzutów ekranu',
+            emptyHint: 'Zrobione zrzuty pojawią się tutaj',
+            attach: 'Dołącz do pola tekstowego',
+            sourceManual: 'Ręcznie',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {
@@ -1212,6 +1230,13 @@ export const pl: TranslationStructure = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Pobierz obraz',
+        close: 'Zamknij podgląd obrazu',
+        downloadFailedTitle: 'Pobieranie nie powiodło się',
+        downloadFailedMessage: 'Nie udało się przygotować tego obrazu do pobrania.',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} wysłał Ci zaproszenie do znajomych`,
@@ -1302,6 +1327,10 @@ export const pl: TranslationStructure = {
         cardTitle: 'Moi agenci',
         add: 'Dodaj',
         manage: 'Zarządzaj',
+        builtinTitle: 'Wbudowane',
+        appBuilderTitle: 'App Builder',
+        appBuilderPresetBuild: 'Zbuduj aplikację',
+        appBuilderPresetBugfix: 'Napraw błąd',
         machineOffline: 'Maszyna offline',
         machineMissing: 'Nie znaleziono maszyny',
         empty: 'Brak agentów. Dotknij, aby dodać.',

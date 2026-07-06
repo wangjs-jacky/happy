@@ -520,6 +520,24 @@ export const zhHans: TranslationStructure = {
             scanQrCode: '扫描二维码',
             openCamera: '打开相机',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: '截屏',
+            screenshotDesktop: '桌面整屏',
+            screenshotBrowser: '最前浏览器窗口',
+            screenshotGallery: '图库',
+            screenshotFailedTitle: '截屏失败',
+            screenshotFailedBody: '无法截取屏幕，请重试。',
+            screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
+        },
+        screenshotGallery: {
+            title: '截图',
+            empty: '暂无截图',
+            emptyHint: '你截取的截图会显示在这里',
+            attach: '添加到输入栏',
+            sourceManual: '手动',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {
@@ -1750,6 +1768,13 @@ export const zhHans: TranslationStructure = {
         avatarUploadFailedMessage: '无法更新您的头像。',
     },
 
+    imageViewer: {
+        download: '下载图片',
+        close: '关闭图片预览',
+        downloadFailedTitle: '下载失败',
+        downloadFailedMessage: '无法准备这张图片用于下载。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} 向您发送了好友请求`,
@@ -1840,6 +1865,10 @@ export const zhHans: TranslationStructure = {
         cardTitle: '我的 Agent',
         add: '添加',
         manage: '管理',
+        builtinTitle: '内置',
+        appBuilderTitle: 'App 生成',
+        appBuilderPresetBuild: '生成 App',
+        appBuilderPresetBugfix: '修 Bug',
         machineOffline: '机器离线',
         machineMissing: '机器不存在',
         empty: '还没有 Agent，点击添加',

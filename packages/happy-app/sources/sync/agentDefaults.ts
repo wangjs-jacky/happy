@@ -33,7 +33,7 @@ const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
     claude: { permissionMode: 'bypassPermissions', modelMode: 'opus', effortLevel: 'medium' },
     codex: { permissionMode: 'yolo', modelMode: 'default', effortLevel: null },
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
-    opencode: { permissionMode: 'default', modelMode: 'deepseek/deepseek-v4-pro', effortLevel: null },
+    opencode: { permissionMode: 'default', modelMode: 'sub2api/gpt-5.5', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
 };
 

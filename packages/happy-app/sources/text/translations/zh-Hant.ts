@@ -519,6 +519,24 @@ export const zhHant: TranslationStructure = {
             scanQrCode: '掃描 QR Code',
             openCamera: '開啟相機',
         },
+        messageComposer: {
+            // Used by the screenshot button + dropdown in MessageComposer
+            screenshot: '截圖',
+            screenshotDesktop: '桌面整螢幕',
+            screenshotBrowser: '最前瀏覽器視窗',
+            screenshotGallery: '圖庫',
+            screenshotFailedTitle: '截圖失敗',
+            screenshotFailedBody: '無法擷取截圖，請再試一次。',
+            screenshotUnsupportedPlatform: '截圖目前僅支援 macOS。',
+        },
+        screenshotGallery: {
+            title: '截圖',
+            empty: '尚無截圖',
+            emptyHint: '你擷取的截圖會顯示在這裡',
+            attach: '加入輸入欄',
+            sourceManual: '手動',
+            sourceAi: 'AI',
+        },
     },
 
     agentInput: {
@@ -1281,6 +1299,13 @@ export const zhHant: TranslationStructure = {
         avatarUploadFailedMessage: '無法更新您的頭像。',
     },
 
+    imageViewer: {
+        download: '下載圖片',
+        close: '關閉圖片預覽',
+        downloadFailedTitle: '下載失敗',
+        downloadFailedMessage: '無法準備這張圖片以下載。',
+    },
+
     feed: {
         // Feed notifications for friend requests and acceptances
         friendRequestFrom: ({ name }: { name: string }) => `${name} 向您傳送了好友請求`,
@@ -1371,6 +1396,10 @@ export const zhHant: TranslationStructure = {
         cardTitle: '我的 Agent',
         add: '新增',
         manage: '管理',
+        builtinTitle: '內建',
+        appBuilderTitle: 'App 生成',
+        appBuilderPresetBuild: '生成 App',
+        appBuilderPresetBugfix: '修 Bug',
         machineOffline: '機器離線',
         machineMissing: '機器不存在',
         empty: '還沒有 Agent，點擊新增',
