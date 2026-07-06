@@ -3,6 +3,12 @@ import type { ImageAgentStyleCategory, ImageAgentStylePreset } from './imageStyl
 
 export const EXTRA_IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
     {
+        "id": "reference-voxcat",
+        "label": "山野速写案例",
+        "accent": "#7B8F72",
+        "count": 1
+    },
+    {
         "id": "reference-tiramisu",
         "label": "提拉米苏案例",
         "accent": "#A66A3F",
@@ -17,6 +23,20 @@ export const EXTRA_IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
 ];
 
 export const EXTRA_IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
+    {
+        "id": "reference-voxcat/wild-mountain-sketchbook/1",
+        "title": "山野旅行速写手帐",
+        "categoryId": "reference-voxcat",
+        "categoryLabel": "山野速写案例",
+        "categoryAccent": "#7B8F72",
+        "templateRef": "reference-examples/voxcat-reference/voxcat-wild-mountain-sketchbook.md",
+        "templateLabel": "Wild Mountain Sketchbook",
+        "promptHint": "山野旅行手帐风格 prompt：白底留白、黑色钢笔速写、干刷水彩色块、手写批注、箭头和符号，适合山地、草原、冰川、旅人、摄影师与荒野光线主题。",
+        "promptContent": "Create an outdoor travel sketchbook field-note illustration inspired by a 12-image mountain reference set. Use warm off-white paper with generous blank margins, loose black ink contour drawing, scratchy construction lines, rough hatch marks, broken dry-brush edges, and broad watercolor-like paint swipes rather than fully filled surfaces. Subject can be a wild mountain ridgeline, high plateau grassland, glacier, winding road above clouds, alpine lake, train passing mountains, ancient stone ruins, small hiker, or photographer chasing light. Palette must stay restrained: glacier blue, pale sky blue, ochre, dry grass gold, olive green, warm beige, slate gray, carbon black, plus one small orange sunlight accent. Add sparse handwritten field-note marks around the scene: arrows, underlines, tiny sun, stars, crosses, compass marks, check marks, palette dots, wind marks, and short handwritten words like wind, wild mountain, golden hour, above the clouds, chase the light, or take time to breathe. Keep the text casual and sparse, not a dense infographic. The main landscape should sit in the center or lower two-thirds and fade into the paper at the edges. Mood: windy, open, free, rugged, contemplative, high-altitude air, rock, grass, snow, and distance. If people appear, keep them small and atmospheric, used for scale rather than portrait detail. Avoid photorealism, smooth vector art, polished anime, glossy 3D, crowded typography, UI labels, realistic map accuracy, corporate poster design, heavy gradients, neon colors, random logos, QR codes, watermarks, social media marks, or dense readable paragraphs.",
+        "promptPath": "garden-gpt-image-2/prompt/voxcat-wild-mountain-sketchbook-style.md",
+        "sourceCaseId": "voxcat-reference/01-wild-mountain-sketchbook",
+        "sourceRepository": "curated-reference-examples"
+    },
     {
         "id": "reference-tiramisu/vintage-film-cafe/1",
         "title": "复古胶片咖啡馆",
