@@ -16,7 +16,9 @@ if (!useLocalStorage) {
     const s3Port = process.env.S3_PORT ? parseInt(process.env.S3_PORT, 10) : undefined;
     const s3UseSSL = process.env.S3_USE_SSL ? process.env.S3_USE_SSL === 'true' : true;
     const s3Region = process.env.S3_REGION || 'us-east-1';
-    const s3PathStyle = process.env.S3_PATH_STYLE ? process.env.S3_PATH_STYLE === 'true' : true;
+    const s3PathStyle = process.env.S3_PATH_STYLE === undefined
+        ? undefined
+        : process.env.S3_PATH_STYLE === 'true';
     s3client = new Client({
         endPoint: process.env.S3_HOST!,
         port: s3Port,

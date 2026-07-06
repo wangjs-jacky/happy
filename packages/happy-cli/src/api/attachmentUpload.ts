@@ -57,12 +57,20 @@ export async function uploadEncryptedBlob(
         form.append(k, v);
     }
     form.append('file', new Blob([encrypted], { type: 'application/octet-stream' }), 'blob');
-    const res = await axios.post(descriptor.uploadUrl, form, {
-        timeout: 60000,
-        maxContentLength: 50 * 1024 * 1024,
-        maxBodyLength: 50 * 1024 * 1024,
-    });
-    if (res.status < 200 || res.status >= 300) {
-        throw new Error(`attachment POST failed: ${res.status}`);
+    const abort = AbortSignal.timeout(60000);
+    let res: Response;
+    try {
+        res = await fetch(descriptor.uploadUrl, {
+            method: 'POST',
+            body: form,
+            signal: abort,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`attachment POST network error: ${message}`);
+    }
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`attachment POST failed: ${res.status}${body ? ` ${body}` : ''}`);
     }
 }
