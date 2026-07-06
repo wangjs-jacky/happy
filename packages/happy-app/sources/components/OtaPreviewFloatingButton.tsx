@@ -172,7 +172,7 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
     }
 
     return (
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        <View pointerEvents="box-none" style={styles.overlay}>
             <GestureDetector gesture={gesture}>
                 <Animated.View
                     accessible
@@ -198,6 +198,11 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
 });
 
 const styles = StyleSheet.create((theme) => ({
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 1200,
+        elevation: 1200,
+    },
     ball: {
         position: 'absolute',
         left: 0,
@@ -211,8 +216,8 @@ const styles = StyleSheet.create((theme) => ({
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: theme.colors.shadow.opacity * 1.6,
         shadowRadius: 10,
-        elevation: 9,
-        zIndex: 900,
+        elevation: 10,
+        zIndex: 1201,
     },
     iconWrap: {
         width: 22,

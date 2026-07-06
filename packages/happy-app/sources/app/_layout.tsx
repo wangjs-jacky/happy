@@ -5,6 +5,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Fonts from 'expo-font';
 import { Fredoka_600SemiBold, Fredoka_700Bold } from '@expo-google-fonts/fredoka';
 import * as Notifications from 'expo-notifications';
+import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
@@ -40,6 +42,7 @@ import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { OtaPreviewFloatingButton } from '@/components/OtaPreviewFloatingButton';
 import { loadAppConfig } from '@/sync/appConfig';
+import { shouldShowOtaFloatingSwitcher } from '@/utils/otaFloatingSwitcher';
 
 // Configure notification handler — by default suppress push display when the
 // app is in foreground, EXCEPT for session-event pushes (Claude done /
@@ -228,7 +231,12 @@ export default function RootLayout() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const appConfig = React.useMemo(() => loadAppConfig(), []);
-    const showOtaFloatingSwitcher = appConfig.otaChannel === 'preview';
+    const showOtaFloatingSwitcher = shouldShowOtaFloatingSwitcher({
+        appConfigChannel: appConfig.otaChannel,
+        updatesChannel: Updates.channel,
+        applicationId: Application.applicationId,
+        isDev: __DEV__,
+    });
     const navigationTheme = React.useMemo(() => {
         if (theme.dark) {
             return {
