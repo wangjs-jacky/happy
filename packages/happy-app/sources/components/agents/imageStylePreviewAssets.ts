@@ -1,5 +1,6 @@
 // Generated from ConardLi/gpt-image-2-101. Do not edit entries by hand.
 import type { ImageSourcePropType } from 'react-native';
+import { EXTRA_IMAGE_STYLE_PREVIEW_ASSETS } from './imageStylePreviewAssetsExtras';
 
 const IMAGE_STYLE_PREVIEW_ASSETS: Record<string, ImageSourcePropType> = {
     "academic-figures/graphical-abstract/1": require('@/assets/images/gpt-image-2/skill-examples/academic-figures--graphical-abstract--1.jpg'),
@@ -167,5 +168,5 @@ const IMAGE_STYLE_PREVIEW_ASSETS: Record<string, ImageSourcePropType> = {
 };
 
 export function getImageStylePreviewAsset(styleId: string): ImageSourcePropType | undefined {
-    return IMAGE_STYLE_PREVIEW_ASSETS[styleId];
+    return EXTRA_IMAGE_STYLE_PREVIEW_ASSETS[styleId] ?? IMAGE_STYLE_PREVIEW_ASSETS[styleId];
 }
