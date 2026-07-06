@@ -64,10 +64,9 @@ export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): s
         `案例标题：${style.title}`,
         `模板：${style.templateRef}`,
         `分类：${style.categoryLabel}`,
+        `风格说明：${style.promptHint}`,
         '',
         '除非我明确要求改变，否则请保留上传主体的身份特征、关键几何结构、重要文字，以及用户提供的所有约束。',
-        '',
-        'Garden 案例 prompt：',
-        style.promptContent,
+        '请把上面的案例风格转写成中文图像生成 prompt 后执行，不要在最终 prompt 中保留英文 JSON 字段名。',
     ].join('\n');
 }
