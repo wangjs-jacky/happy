@@ -914,14 +914,16 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect(mockAxiosGet.mock.calls[0][1].params.after_seq).toBe(0);
     });
 
-    it('bypasses inherited HTTP proxy when downloading a presigned S3 attachment URL', async () => {
+    it('downloads a presigned S3 attachment URL without bearer auth', async () => {
         const client = new ApiSessionClient('fake-token', session);
         const presignedUrl = 'https://bucket.oss-cn-hangzhou.aliyuncs.com/sessions/test-session-id/attachments/a.enc?X-Amz-Signature=sig';
+        const mockFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+            new Response(new Uint8Array([1, 2, 3])),
+        );
 
         mockAxiosPost.mockResolvedValueOnce({ data: { downloadUrl: presignedUrl } });
-        mockAxiosGet.mockResolvedValueOnce({ data: new ArrayBuffer(3) });
 
-        await client.downloadAttachment('sessions/test-session-id/attachments/a.enc');
+        const data = await client.downloadAttachment('sessions/test-session-id/attachments/a.enc');
 
         expect(mockAxiosPost).toHaveBeenCalledWith(
             'https://server.test/v1/sessions/test-session-id/attachments/request-download',
@@ -930,11 +932,13 @@ describe('ApiSessionClient v3 messages API migration', () => {
                 headers: expect.objectContaining({ Authorization: 'Bearer fake-token' }),
             }),
         );
-        expect(mockAxiosGet).toHaveBeenCalledWith(
+        expect(data).toEqual(new Uint8Array([1, 2, 3]));
+        expect(mockAxiosGet).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledWith(
             presignedUrl,
             expect.objectContaining({
                 headers: {},
-                proxy: false,
+                signal: expect.any(AbortSignal),
             }),
         );
     });
@@ -942,19 +946,23 @@ describe('ApiSessionClient v3 messages API migration', () => {
     it('keeps bearer auth and normal proxy behavior for server-hosted attachment downloads', async () => {
         const client = new ApiSessionClient('fake-token', session);
         const downloadUrl = 'https://server.test/v1/sessions/test-session-id/attachments/a.enc';
+        const mockFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+            new Response(new Uint8Array([1, 2, 3])),
+        );
 
         mockAxiosPost.mockResolvedValueOnce({ data: { downloadUrl } });
-        mockAxiosGet.mockResolvedValueOnce({ data: new Uint8Array([1, 2, 3]).buffer });
 
-        await client.downloadAttachment('sessions/test-session-id/attachments/a.enc');
+        const data = await client.downloadAttachment('sessions/test-session-id/attachments/a.enc');
 
-        expect(mockAxiosGet).toHaveBeenCalledWith(
+        expect(data).toEqual(new Uint8Array([1, 2, 3]));
+        expect(mockAxiosGet).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledWith(
             downloadUrl,
             expect.objectContaining({
                 headers: { Authorization: 'Bearer fake-token' },
+                signal: expect.any(AbortSignal),
             }),
         );
-        expect(mockAxiosGet.mock.calls[0][1]).not.toHaveProperty('proxy');
     });
 
     it('stops send and receive sync loops on close', async () => {

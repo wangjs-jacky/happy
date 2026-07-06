@@ -370,23 +370,23 @@ export class ApiSessionClient extends EventEmitter {
         if (!isPresignedS3) {
             headers['Authorization'] = `Bearer ${this.token}`;
         }
-        let response;
+        const abort = AbortSignal.timeout(60000);
+        let response: Response;
         try {
-            response = await axios.get(downloadUrl, {
+            response = await fetch(downloadUrl, {
                 headers,
-                responseType: 'arraybuffer',
-                timeout: 60000,
-                maxRedirects: 5,
-                maxContentLength: 50 * 1024 * 1024,
-                // Axios' env-proxy handling sends HTTPS presigned OSS URLs as a
-                // plain absolute-form GET through the HTTP proxy on this stack,
-                // which OSS rejects before it can serve the signed object.
-                ...(isPresignedS3 ? { proxy: false } : {}),
+                signal: abort,
             });
         } catch (error) {
-            throw enrichAttachmentDownloadError(error, 'blob-download', redactPresignedUrl(downloadUrl));
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`attachment download network error: ${message}`);
         }
-        return new Uint8Array(response.data);
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            throw new Error(`attachment download failed: ${response.status}${body ? ` ${body}` : ''}`);
+        }
+        const buffer = await response.arrayBuffer();
+        return new Uint8Array(buffer);
     }
 
     /**

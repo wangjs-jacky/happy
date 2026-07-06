@@ -68,6 +68,14 @@ function checkUploadRate(userId: string): boolean {
     return true;
 }
 
+function getLocalAttachmentPath(ref: string): string {
+    return path.join(getLocalFilesDir(), ref);
+}
+
+function hasLocalAttachment(ref: string): boolean {
+    return fs.existsSync(getLocalAttachmentPath(ref));
+}
+
 export function attachmentRoutes(app: Fastify) {
 
     /**
@@ -245,7 +253,7 @@ export function attachmentRoutes(app: Fastify) {
             return reply.code(400).send({ error: 'Invalid attachment ref' });
         }
 
-        if (isLocalStorage()) {
+        if (isLocalStorage() || hasLocalAttachment(ref)) {
             const baseUrl = resolveBaseUrl(request);
             const downloadUrl = `${baseUrl}/v1/sessions/${sessionId}/attachments/${attachmentFile}`;
             return reply.send({ downloadUrl });
@@ -286,8 +294,8 @@ export function attachmentRoutes(app: Fastify) {
 
         const ref = `sessions/${sessionId}/attachments/${attachmentFile}`;
 
-        if (isLocalStorage()) {
-            const fullPath = path.join(getLocalFilesDir(), ref);
+        if (isLocalStorage() || hasLocalAttachment(ref)) {
+            const fullPath = getLocalAttachmentPath(ref);
             if (!fs.existsSync(fullPath)) {
                 return reply.code(404).send({ error: 'Attachment not found' });
             }
