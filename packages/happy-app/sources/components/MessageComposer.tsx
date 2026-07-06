@@ -410,9 +410,10 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     // never blocks the next character from landing in the textarea.
     const [hasText, setHasText] = React.useState(() => props.initialValue.trim().length > 0);
     const hasImages = (props.selectedImages?.length ?? 0) > 0;
+    const hasPayload = hasText || hasImages;
     const canPressSendButton = !props.isSending
         && !props.isSendDisabled
-        && (hasText || hasImages);
+        && hasPayload;
 
     // Calculate context warning
     const contextWarning = props.usageData?.contextSize
@@ -862,7 +863,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 <View
                                     style={[
                                         styles.sendButton,
-                                        (hasText || props.isSending)
+                                        (hasPayload || props.isSending)
                                             ? styles.sendButtonActive
                                             : styles.sendButtonInactive
                                     ]}

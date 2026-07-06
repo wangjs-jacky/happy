@@ -28,6 +28,7 @@ import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
 import { buildImageAgentPrompt, getImageAgentStylesForAgent, getImageAgentVariantCount } from './agents/imageAgentPrompt';
+import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent } from './agents/imageAgentMode';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -79,18 +80,22 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
     // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
-    const { agentId } = useLocalSearchParams<{ agentId?: string }>();
+    const { agentId, mode } = useLocalSearchParams<{ agentId?: string; mode?: string }>();
     const agents = useSetting('agents');
     const activeAgent = React.useMemo(
         () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
         [agentId, agents],
     );
-    const activeImageAgent = activeAgent?.kind === 'image-styles';
-    const activeImageStyles = React.useMemo(
-        () => (activeImageAgent && activeAgent ? getImageAgentStylesForAgent(activeAgent) : []),
-        [activeAgent, activeImageAgent],
+    const imageAgent = React.useMemo(
+        () => resolveComposeImageAgent({ routeMode: mode, agent: activeAgent }),
+        [activeAgent, mode],
     );
-    const activeImageVariants = activeAgent ? getImageAgentVariantCount(activeAgent) : 1;
+    const activeImageAgent = !!imageAgent;
+    const activeImageStyles = React.useMemo(
+        () => (imageAgent ? getImageAgentStylesForAgent(imageAgent) : []),
+        [imageAgent],
+    );
+    const activeImageVariants = imageAgent ? getImageAgentVariantCount(imageAgent) : 1;
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -103,11 +108,18 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         composerInputRef.current?.focus();
     }, []);
 
-    const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
+    const { agentType, selectedMachineId, worktreeKey, setAgentType } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
         selectedMachineId: s.selectedMachineId,
         worktreeKey: s.worktreeKey,
+        setAgentType: s.setAgentType,
     })));
+
+    React.useEffect(() => {
+        if (activeImageAgent && agentType !== 'codex') {
+            setAgentType('codex');
+        }
+    }, [activeImageAgent, agentType, setAgentType]);
 
     // Inline image attachments (claude / codex). 图片上传已转正：Claude、Codex 会话默认
     // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
@@ -124,7 +136,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
-    const agentLabel = AGENT_LABELS[agentType] ?? agentType;
+    const displayAgentType = activeImageAgent ? 'codex' : agentType;
+    const agentLabel = AGENT_LABELS[displayAgentType] ?? displayAgentType;
 
     const openDrawer = React.useCallback(() => {
         navigation.dispatch(DrawerActions.openDrawer());
@@ -136,6 +149,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
     const goBack = React.useCallback(() => {
         router.back();
+    }, [router]);
+
+    const openImageStyleMode = React.useCallback(() => {
+        hapticsLight();
+        router.push(IMAGE_STYLE_COMPOSE_ROUTE as any);
     }, [router]);
 
     // The machine/agent chip drops the full session-config panel down in place
@@ -156,9 +174,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
         if ((!trimmed && !images) || sending) return;
-        const prompt = activeImageAgent && activeAgent
+        const prompt = activeImageAgent && imageAgent
             ? buildImageAgentPrompt({
-                agent: activeAgent,
+                agent: imageAgent,
                 userPrompt: trimmed,
                 imageCount: images?.length ?? 0,
             })
@@ -167,8 +185,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
+        const spawnAgent = activeImageAgent ? 'codex' : draft.agentType;
         const resolvedModes = resolveNewSessionModeSelection({
-            agent: draft.agentType,
+            agent: spawnAgent,
             permissionMode: draft.permissionMode,
             modelMode: draft.modelMode,
             effortLevel: draft.effortLevel,
@@ -190,7 +209,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             machineId: draft.selectedMachineId!,
             machine: machine!,
             path: draft.selectedPath,
-            agent: draft.agentType,
+            agent: spawnAgent,
             worktreeKey: draft.worktreeKey,
             permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
             modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
@@ -204,7 +223,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeAgent, activeImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, imageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -261,9 +280,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <Text style={styles.greeting}>
                         {activeAgent
                             ? t('composeHome.greetingAgent', { name: activeAgent.name })
-                            : name
-                                ? t('composeHome.greeting', { name })
-                                : t('composeHome.greetingNoName')}
+                            : activeImageAgent
+                                ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
+                                : name
+                                    ? t('composeHome.greeting', { name })
+                                    : t('composeHome.greetingNoName')}
                     </Text>
                 </View>
 
@@ -285,6 +306,29 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                     </Text>
                                 </View>
                             </View>
+                            {!hasImages && (
+                                <Pressable
+                                    onPress={pickImages}
+                                    style={({ pressed }) => [
+                                        styles.imageUploadAction,
+                                        pressed && styles.imageUploadActionPressed,
+                                    ]}
+                                    hitSlop={6}
+                                >
+                                    <View style={styles.imageUploadIcon}>
+                                        <Ionicons name="add" size={22} color={theme.colors.text} />
+                                    </View>
+                                    <View style={styles.imageUploadCopy}>
+                                        <Text style={styles.imageUploadTitle} numberOfLines={1}>
+                                            {t('agents.imageUploadCta')}
+                                        </Text>
+                                        <Text style={styles.imageUploadSubtitle} numberOfLines={1}>
+                                            {t('agents.imageUploadHint')}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="images-outline" size={18} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            )}
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
@@ -299,6 +343,30 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                     </View>
                                 ))}
                             </ScrollView>
+                        </View>
+                    )}
+                    {!activeImageAgent && (
+                        <View style={styles.creationRail}>
+                            <Pressable
+                                onPress={openImageStyleMode}
+                                style={({ pressed }) => [
+                                    styles.creationAction,
+                                    pressed && styles.creationActionPressed,
+                                ]}
+                                hitSlop={6}
+                            >
+                                <View style={styles.creationActionIcon}>
+                                    <Ionicons name="sparkles-outline" size={17} color={theme.colors.text} />
+                                </View>
+                                <View style={styles.creationActionCopy}>
+                                    <Text style={styles.creationActionTitle} numberOfLines={1}>
+                                        {t('agents.imageCreationAction')}
+                                    </Text>
+                                    <Text style={styles.creationActionSubtitle} numberOfLines={1}>
+                                        {t('agents.imageCreationActionSubtitle')}
+                                    </Text>
+                                </View>
+                            </Pressable>
                         </View>
                     )}
                     {activeAgent && activeAgent.presets.length > 0 && (
@@ -455,6 +523,43 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         marginTop: 1,
     },
+    imageUploadAction: {
+        minHeight: 58,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 9,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageUploadActionPressed: {
+        opacity: 0.78,
+    },
+    imageUploadIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    imageUploadCopy: {
+        flex: 1,
+    },
+    imageUploadTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    imageUploadSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+    },
     imageStyleRow: {
         gap: 6,
         paddingRight: 8,
@@ -472,6 +577,50 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
         fontSize: 12,
         color: theme.colors.text,
+    },
+    creationRail: {
+        flexDirection: 'row',
+        paddingHorizontal: 4,
+        paddingBottom: 10,
+    },
+    creationAction: {
+        minHeight: 46,
+        maxWidth: 220,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+        paddingLeft: 9,
+        paddingRight: 14,
+        borderRadius: 23,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    creationActionPressed: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    creationActionIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    creationActionCopy: {
+        flexShrink: 1,
+    },
+    creationActionTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    creationActionSubtitle: {
+        ...Typography.default(),
+        fontSize: 11,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
     },
     presetRow: {
         flexDirection: 'row',
