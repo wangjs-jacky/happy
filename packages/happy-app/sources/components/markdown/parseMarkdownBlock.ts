@@ -77,6 +77,50 @@ function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock
     return { table, nextIndex: index };
 }
 
+function isMarkdownBlockStart(lines: string[], index: number): boolean {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (trimmed.length === 0) {
+        return true;
+    }
+    if (/^#{1,6} /.test(line)) {
+        return true;
+    }
+    if (trimmed.startsWith('```')) {
+        return true;
+    }
+    if (trimmed === '---') {
+        return true;
+    }
+    if (trimmed.startsWith('<options>')) {
+        return true;
+    }
+    if (isHappyOtaPreviewBlock(trimmed)) {
+        return true;
+    }
+    if (isHappyFinanceChartBlock(trimmed)) {
+        return true;
+    }
+    if (looksLikeOtaPreviewLegacyStart(trimmed)) {
+        return true;
+    }
+    if (/^!\[([^\]]*)\]\(([^)]+)\)$/.test(trimmed)) {
+        return true;
+    }
+    if (/^(\d+)\.\s+/.test(trimmed)) {
+        return true;
+    }
+    if (/^([-*+])\s+/.test(trimmed)) {
+        return true;
+    }
+    if (trimmed.includes('|') && parseTable(lines, index).table) {
+        return true;
+    }
+
+    return false;
+}
+
 export function parseMarkdownBlock(markdown: string) {
     const blocks: MarkdownBlock[] = [];
     const lines = markdown.split('\n');
@@ -260,7 +304,12 @@ export function parseMarkdownBlock(markdown: string) {
 
         // Fallback
         if (trimmed.length > 0) {
-            blocks.push({ type: 'text', content: parseMarkdownSpans(trimmed, false) });
+            const textLines = [line];
+            while (index < lines.length && !isMarkdownBlockStart(lines, index)) {
+                textLines.push(lines[index]);
+                index++;
+            }
+            blocks.push({ type: 'text', content: parseMarkdownSpans(textLines.join('\n'), false) });
         }
     }
     return blocks;

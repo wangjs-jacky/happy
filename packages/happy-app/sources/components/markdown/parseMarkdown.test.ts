@@ -61,4 +61,31 @@ describe('parseMarkdown', () => {
             { styles: [], text: ' for more.', url: null },
         ]);
     });
+
+    it('keeps consecutive plain text lines in one block with indentation intact', () => {
+        const blocks = parseMarkdown([
+            'Garden case prompt:',
+            '{',
+            '  "type": "拟物风应用图标集",',
+            '  "style": {',
+            '    "rendering": "skeuomorphic 3D + 柔光"',
+            '  }',
+            '}',
+        ].join('\n'));
+
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0]?.type).toBe('text');
+
+        if (blocks[0]?.type !== 'text') {
+            throw new Error('Expected markdown text block');
+        }
+
+        expect(blocks[0].content).toEqual([
+            {
+                styles: [],
+                text: 'Garden case prompt:\n{\n  "type": "拟物风应用图标集",\n  "style": {\n    "rendering": "skeuomorphic 3D + 柔光"\n  }\n}',
+                url: null,
+            },
+        ]);
+    });
 });
