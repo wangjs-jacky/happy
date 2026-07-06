@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { ImageAgentStylePreset } from './imageAgentPrompt';
+import { getImageStylePreviewAsset } from './imageStylePreviewAssets';
 
 type Props = {
     visible: boolean;
@@ -15,46 +16,22 @@ type Props = {
     onClose: () => void;
 };
 
-const PREVIEW_PALETTES: Record<string, [string, string, string]> = {
-    'vintage-film': ['#4B2D1F', '#D9A36A', '#F2D8A5'],
-    'premium-studio': ['#171717', '#A47148', '#F0E3D0'],
-    'white-product': ['#F7F4EE', '#CFC7BC', '#7D7163'],
-    'lifestyle-scene': ['#2F4B3A', '#B6854D', '#F0D7A6'],
-    packaging: ['#6E4A2A', '#E9D9C3', '#B3834E'],
-    'recipe-flow': ['#8A5A2B', '#EFE4C8', '#C89D64'],
-    'step-infographic': ['#6C5137', '#F3E7D3', '#D0A85F'],
-    'hand-drawn-info': ['#E8D9B5', '#725033', '#2D4057'],
-    'bento-grid': ['#2A2018', '#B78B5E', '#F1E2CF'],
-    'tvc-storyboard': ['#1C1815', '#D0A16B', '#5B3A24'],
-    'cinematic-storyboard': ['#11151B', '#9B6A41', '#D8C5A6'],
-    'mixed-styles': ['#2F241D', '#C88A4A', '#E8DCC9'],
-    'brand-poster': ['#1E1714', '#C47C43', '#F3E7DA'],
-    'campaign-kv': ['#211612', '#9E6B3D', '#DCC7AC'],
-    'web-hero': ['#2B1D14', '#D4A15F', '#F3E0C7'],
-    'editorial-cover': ['#3A261B', '#D5B382', '#F4E9D8'],
-    'vintage-editorial': ['#7A5836', '#E5D1A8', '#2E241B'],
-    'food-map': ['#355142', '#D0A364', '#EAD7B3'],
-    'lookbook-grid': ['#211A16', '#B98755', '#EEE1CF'],
-    'banner-grid': ['#402819', '#C69058', '#F0DFCB'],
-    'retro-icons': ['#5A351F', '#C69A62', '#F4E1C5'],
-};
-
-function paletteForStyle(styleId: string): [string, string, string] {
-    return PREVIEW_PALETTES[styleId] ?? ['#2A211A', '#A8794C', '#E7D5BD'];
-}
-
 function StylePreview({ styleId }: { styleId: string }) {
-    const [dark, mid, light] = paletteForStyle(styleId);
-    return (
-        <View style={[galleryStyles.preview, { backgroundColor: dark }]}>
-            <View style={[galleryStyles.previewGlow, { backgroundColor: mid }]} />
-            <View style={[galleryStyles.previewPlate, { backgroundColor: light }]} />
-            <View style={[galleryStyles.previewSubject, { backgroundColor: mid }]} />
-            <View style={galleryStyles.previewDustRow}>
-                <View style={[galleryStyles.previewDust, { backgroundColor: light }]} />
-                <View style={[galleryStyles.previewDust, { backgroundColor: mid }]} />
-                <View style={[galleryStyles.previewDust, { backgroundColor: light }]} />
+    const source = getImageStylePreviewAsset(styleId);
+
+    if (!source) {
+        return (
+            <View style={galleryStyles.previewFallback}>
+                <Ionicons name="image-outline" size={24} color={galleryStyles.previewFallbackIcon.color} />
             </View>
+        );
+    }
+
+    return (
+        <View style={galleryStyles.preview}>
+            <Image source={source} resizeMode="cover" blurRadius={12} style={galleryStyles.previewBackdrop} />
+            <View pointerEvents="none" style={galleryStyles.previewTint} />
+            <Image source={source} resizeMode="contain" style={galleryStyles.previewImage} />
         </View>
     );
 }
@@ -198,48 +175,39 @@ const galleryStyles = StyleSheet.create((theme) => ({
         opacity: 0.76,
     },
     preview: {
-        height: 92,
+        height: 124,
         overflow: 'hidden',
-        justifyContent: 'flex-end',
-        padding: 10,
+        backgroundColor: theme.colors.groupped.background,
     },
-    previewGlow: {
+    previewBackdrop: {
         position: 'absolute',
-        width: 78,
-        height: 78,
-        borderRadius: 39,
-        right: -10,
-        top: -18,
-        opacity: 0.48,
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        opacity: 0.72,
+        transform: [{ scale: 1.08 }],
     },
-    previewPlate: {
-        width: '82%',
-        height: 19,
-        borderRadius: 10,
-        alignSelf: 'center',
-        opacity: 0.92,
-    },
-    previewSubject: {
+    previewTint: {
         position: 'absolute',
-        left: 26,
-        right: 26,
-        bottom: 24,
-        height: 28,
-        borderRadius: 8,
-        opacity: 0.95,
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'rgba(0, 0, 0, 0.18)',
     },
-    previewDustRow: {
-        position: 'absolute',
-        top: 12,
-        left: 12,
-        flexDirection: 'row',
-        gap: 4,
+    previewImage: {
+        width: '100%',
+        height: '100%',
     },
-    previewDust: {
-        width: 5,
-        height: 5,
-        borderRadius: 3,
-        opacity: 0.85,
+    previewFallback: {
+        height: 124,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    previewFallbackIcon: {
+        color: theme.colors.textSecondary,
     },
     cardCopy: {
         paddingHorizontal: 10,
