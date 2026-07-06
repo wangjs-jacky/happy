@@ -363,6 +363,8 @@ export const zhHans: TranslationStructure = {
 
     newSession: {
         title: '开始新会话',
+        askMode: '问答',
+        agentMode: 'Agent',
         machineOffline: '设备离线',
         switchMachinesHint: '• 点击上方的设备来切换设备',
     },

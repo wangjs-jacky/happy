@@ -362,6 +362,8 @@ export const zhHant: TranslationStructure = {
 
     newSession: {
         title: '開始新工作階段',
+        askMode: '問答',
+        agentMode: 'Agent',
         machineOffline: '裝置離線',
         switchMachinesHint: '• 點擊上方的裝置來切換裝置',
     },

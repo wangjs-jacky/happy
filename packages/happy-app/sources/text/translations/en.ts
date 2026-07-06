@@ -376,6 +376,8 @@ export const en: TranslationStructure = {
 
     newSession: {
         title: 'Start New Session',
+        askMode: 'Ask',
+        agentMode: 'Agent',
         machineOffline: 'Machine is offline',
         switchMachinesHint: '• Switch machines by clicking on the machine above',
     },

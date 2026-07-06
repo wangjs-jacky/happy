@@ -38,7 +38,13 @@ import {
 } from '@/components/modelModeOptions';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
-import { getSessionConfigExperience } from '@/utils/newSessionExperience';
+import {
+    getCodingAgentPickerItems,
+    getSessionConfigExperience,
+    getTopLevelModeForAgent,
+    selectAgentForTopLevelMode,
+    type NewSessionTopLevelMode,
+} from '@/utils/newSessionExperience';
 import { isRunningOnMac } from '@/utils/platform';
 
 // Agent icon assets
@@ -627,6 +633,11 @@ const WORKTREE_FIXED_ITEMS: PickerItem[] = [
     { key: '__new__', label: 'new worktree' },
 ];
 
+const TOP_LEVEL_MODES: { key: NewSessionTopLevelMode }[] = [
+    { key: 'ask' },
+    { key: 'agent' },
+];
+
 /**
  * The selection keys the consumer (e.g. /new's handleSend) needs at send time.
  * These mirror the panel's local index-based selection — which can legitimately
@@ -839,16 +850,19 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             }
         }, [worktreeItems, worktreeKey]);
 
-        // Filter available agents based on CLI availability from machine metadata
+        // Filter available coding agents based on CLI availability from machine metadata.
+        // Ask is a top-level mode, not a coding-agent picker item.
         const availableAgents = React.useMemo(() => {
             const availability = selectedMachine?.metadata?.cliAvailability;
-            if (!availability) return ALL_AGENTS;
-            return ALL_AGENTS.filter(a => a.key === 'ask' || availability[a.key]);
+            const codingAgents = getCodingAgentPickerItems(ALL_AGENTS);
+            if (!availability) return codingAgents;
+            return codingAgents.filter(a => availability[a.key]);
         }, [selectedMachine]);
 
-        // If current agent not available on this machine, switch to first available
+        // If current coding agent is not available on this machine, switch to the
+        // first available coding agent. Ask mode stays independent of CLI availability.
         React.useEffect(() => {
-            if (availableAgents.length > 0 && !availableAgents.find(a => a.key === selectedAgent)) {
+            if (selectedAgent !== 'ask' && availableAgents.length > 0 && !availableAgents.find(a => a.key === selectedAgent)) {
                 setSelectedAgent(availableAgents[0].key);
             }
         }, [availableAgents, selectedAgent, setSelectedAgent]);
@@ -866,6 +880,16 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getSessionConfigExperience(selectedAgent),
             [selectedAgent],
         );
+        const topLevelMode = getTopLevelModeForAgent(selectedAgent);
+        const handleTopLevelModeSelect = React.useCallback((mode: NewSessionTopLevelMode) => {
+            const nextAgent = selectAgentForTopLevelMode({
+                mode,
+                currentAgent: selectedAgent,
+                availableCodingAgents: availableAgents,
+            });
+            setSelectedAgent(nextAgent);
+            setActivePicker(null);
+        }, [availableAgents, selectedAgent, setSelectedAgent]);
 
         const currentModel = modelModes[modelIndex] ?? modelModes[0];
         const currentModelKey = currentModel?.key ?? 'default';
@@ -893,7 +917,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             if (!configExperience.isAskMode) {
                 return;
             }
-            if (activePicker && activePicker !== 'machine' && activePicker !== 'agent') {
+            if (activePicker && activePicker !== 'machine') {
                 setActivePicker(null);
             }
         }, [activePicker, configExperience.isAskMode]);
@@ -965,7 +989,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         }, []);
 
         const isOffline = selectedMachine ? !isMachineOnline(selectedMachine) : false;
-        const agent = availableAgents.find(a => a.key === selectedAgent) ?? ALL_AGENTS[0];
+        const agent = availableAgents.find(a => a.key === selectedAgent) ?? ALL_AGENTS.find(a => a.key === selectedAgent) ?? availableAgents[0] ?? ALL_AGENTS[0];
         const currentPermission = permissionModes[permissionIndex] ?? permissionModes[0];
         const currentEffort = effortLevels[effortIndex] ?? effortLevels[0];
         const permissionStyle = currentPermission?.key !== 'default' ? getPermissionStyle(currentPermission.key) : null;
@@ -989,7 +1013,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 case 'worktree':
                     return { title: 'Worktree', fixedItems: WORKTREE_FIXED_ITEMS, items: worktreeItems, selectedKey: worktreeKey, searchPlaceholder: 'search worktrees...' };
                 case 'agent':
-                    return { title: 'Agent', items: getAgentPickerItems(availableAgents), selectedKey: selectedAgent, searchPlaceholder: 'search agents...' };
+                    return { title: 'Agent', items: getAgentPickerItems(availableAgents), selectedKey: selectedAgent === 'ask' ? null : selectedAgent, searchPlaceholder: 'search agents...' };
                 case 'model':
                     return { title: 'Model', items: getModePickerItems(modelModes), selectedKey: currentModelKey, searchPlaceholder: 'search models...' };
                 case 'effort':
@@ -1175,6 +1199,34 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             </View>
                             {renderActivePickerPopover('machine')}
 
+                            <View style={styles.modeSegment}>
+                                {TOP_LEVEL_MODES.map((mode) => {
+                                    const selected = mode.key === topLevelMode;
+                                    const label = mode.key === 'ask' ? t('newSession.askMode') : t('newSession.agentMode');
+                                    return (
+                                        <Pressable
+                                            key={mode.key}
+                                            onPress={() => handleTopLevelModeSelect(mode.key)}
+                                            style={(p) => [
+                                                styles.modeSegmentButton,
+                                                selected && styles.modeSegmentButtonSelected,
+                                                p.pressed && styles.configRowPressed,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.modeSegmentText,
+                                                    selected && styles.modeSegmentTextSelected,
+                                                ]}
+                                                numberOfLines={1}
+                                            >
+                                                {label}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
+
                             {isOffline && (
                                 <View style={styles.offlineHelp}>
                                     <Ionicons name="cloud-offline-outline" size={14} color={theme.colors.status.disconnected} />
@@ -1207,49 +1259,53 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     </>
                                 )}
 
-                                <View style={styles.configRow}>
-                                    <Pressable
-                                        onPress={() => togglePicker('agent')}
-                                        style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
-                                    >
-                                        <RNImage
-                                            source={agentIcons[agent.key]}
-                                            style={[styles.agentIcon, { tintColor: theme.colors.textSecondary }]}
-                                            resizeMode="contain"
-                                        />
-                                        <Text style={[styles.configLabel, styles.configInlineText]} numberOfLines={1}>
-                                            {agent.label}
-                                        </Text>
-                                        <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
-                                    </Pressable>
-
-                                    {showModel && (
-                                        <>
-                                            <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                            <Pressable onPress={() => togglePicker('model')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
-                                                <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                                                    {currentModel.name}
+                                {!configExperience.isAskMode && (
+                                    <>
+                                        <View style={styles.configRow}>
+                                            <Pressable
+                                                onPress={() => togglePicker('agent')}
+                                                style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                            >
+                                                <RNImage
+                                                    source={agentIcons[agent.key]}
+                                                    style={[styles.agentIcon, { tintColor: theme.colors.textSecondary }]}
+                                                    resizeMode="contain"
+                                                />
+                                                <Text style={[styles.configLabel, styles.configInlineText]} numberOfLines={1}>
+                                                    {agent.label}
                                                 </Text>
                                                 <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
                                             </Pressable>
-                                        </>
-                                    )}
 
-                                    {showEffort && (
-                                        <>
-                                            <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                            <Pressable onPress={() => togglePicker('effort')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
-                                                <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                                                    {currentEffort?.name}
-                                                </Text>
-                                                <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
-                                            </Pressable>
-                                        </>
-                                    )}
-                                </View>
-                                {renderActivePickerPopover('agent')}
-                                {renderActivePickerPopover('model')}
-                                {renderActivePickerPopover('effort')}
+                                            {showModel && (
+                                                <>
+                                                    <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
+                                                    <Pressable onPress={() => togglePicker('model')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                                        <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                                            {currentModel.name}
+                                                        </Text>
+                                                        <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
+                                                    </Pressable>
+                                                </>
+                                            )}
+
+                                            {showEffort && (
+                                                <>
+                                                    <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
+                                                    <Pressable onPress={() => togglePicker('effort')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                                        <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                                                            {currentEffort?.name}
+                                                        </Text>
+                                                        <Ionicons name="chevron-down" size={12} color={theme.colors.textSecondary} />
+                                                    </Pressable>
+                                                </>
+                                            )}
+                                        </View>
+                                        {renderActivePickerPopover('agent')}
+                                        {renderActivePickerPopover('model')}
+                                        {renderActivePickerPopover('effort')}
+                                    </>
+                                )}
 
                                 {showPermission && (
                                     <Pressable
@@ -1321,17 +1377,19 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Ionicons name="desktop-outline" size={14} color={isOffline ? theme.colors.status.disconnected : theme.colors.textSecondary} />
                                 </Pressable>
 
-                                <Pressable
-                                    onPress={() => togglePicker('agent')}
-                                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                    style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
-                                >
-                                    <RNImage
-                                        source={agentIcons[agent.key]}
-                                        style={[styles.collapsedAgentIcon, { tintColor: theme.colors.textSecondary }]}
-                                        resizeMode="contain"
-                                    />
-                                </Pressable>
+                                {!configExperience.isAskMode && (
+                                    <Pressable
+                                        onPress={() => togglePicker('agent')}
+                                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                        style={(p) => [styles.collapsedIconButton, p.pressed && styles.configRowPressed]}
+                                    >
+                                        <RNImage
+                                            source={agentIcons[agent.key]}
+                                            style={[styles.collapsedAgentIcon, { tintColor: theme.colors.textSecondary }]}
+                                            resizeMode="contain"
+                                        />
+                                    </Pressable>
+                                )}
 
                                 {showModel && (
                                     <Pressable
@@ -1378,7 +1436,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 )}
                             </View>
                             {renderActivePickerPopover('machine')}
-                            {renderActivePickerPopover('agent')}
+                            {!configExperience.isAskMode && renderActivePickerPopover('agent')}
                             {renderActivePickerPopover('model')}
                             {renderActivePickerPopover('effort')}
                             {renderActivePickerPopover('permission')}
@@ -1509,6 +1567,36 @@ const styles = StyleSheet.create((theme) => ({
     configRowWithToggle: {
         flexDirection: 'row',
         alignItems: 'center',
+    },
+    modeSegment: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginHorizontal: 8,
+        marginTop: 2,
+        marginBottom: 6,
+        padding: 3,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+    },
+    modeSegmentButton: {
+        flex: 1,
+        minHeight: 34,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 10,
+    },
+    modeSegmentButtonSelected: {
+        backgroundColor: theme.colors.button.primary.background,
+    },
+    modeSegmentText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+    },
+    modeSegmentTextSelected: {
+        color: theme.colors.button.primary.tint,
     },
     collapseToggle: {
         paddingHorizontal: 12,

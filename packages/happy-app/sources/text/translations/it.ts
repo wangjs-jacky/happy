@@ -360,6 +360,8 @@ export const it: TranslationStructure = {
 
     newSession: {
         title: 'Avvia nuova sessione',
+        askMode: 'Chiedi',
+        agentMode: 'Agente',
         machineOffline: 'La macchina è offline',
         switchMachinesHint: '• Cambia macchina cliccando sulla macchina sopra',
     },
