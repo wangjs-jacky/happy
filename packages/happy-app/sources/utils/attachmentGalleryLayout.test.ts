@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { computeAttachmentGalleryImageSize, computeInputAttachmentImageSize } from './attachmentGalleryLayout';
+import {
+    computeAttachmentGalleryImageSize,
+    computeInputAttachmentImageSize,
+    formatPendingImageElapsed,
+} from './attachmentGalleryLayout';
 
 describe('computeAttachmentGalleryImageSize', () => {
     it('keeps compact gallery images as square thumbnails', () => {
@@ -56,5 +60,12 @@ describe('computeAttachmentGalleryImageSize', () => {
             maxWidth: 320,
             maxHeight: 220,
         })).toEqual({ width: 320, height: 180 });
+    });
+
+    it('formats pending image elapsed time for loading placeholders', () => {
+        expect(formatPendingImageElapsed(0)).toBe('0s');
+        expect(formatPendingImageElapsed(56_400)).toBe('56s');
+        expect(formatPendingImageElapsed(83_000)).toBe('1m23s');
+        expect(formatPendingImageElapsed(3_660_000)).toBe('1h01m');
     });
 });

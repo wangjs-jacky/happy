@@ -27,11 +27,12 @@ describe('imageStyleOptions', () => {
     it('builds one continuation prompt for multiple selected Gallery styles', () => {
         const styles = IMAGE_AGENT_STYLE_PRESETS.slice(0, 3);
 
-        const prompt = buildImageStyleContinuationPrompt(styles);
+        const prompt = buildImageStyleContinuationPrompt(styles, { variantsPerStyle: 3 });
 
         expect(prompt).toContain('$gpt-image-2');
         expect(prompt).toContain('同一个批处理');
         expect(prompt).toContain('不限制多风格');
+        expect(prompt).toContain('各生成 3 张变体');
         expect(prompt).toContain('<options>');
         expect(prompt).toContain('[[gpt-image-style:');
         for (const style of styles) {

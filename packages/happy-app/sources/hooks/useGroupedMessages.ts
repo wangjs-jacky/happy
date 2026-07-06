@@ -41,6 +41,7 @@ export type ImageGroupItem = {
     messages: Message[];
     presentation: AttachmentGalleryPresentation;
     pendingCount: number;
+    pendingStartedAt?: number | null;
 };
 
 export type ToolDisplayItem = TextItem | ToolGroupItem;
@@ -53,7 +54,7 @@ type CollectedAgentWorkGroup = {
 };
 type ImageAgentPresentationState = {
     featuredAttachmentIds: Set<string>;
-    pendingCountByAnchorAttachmentId: Map<string, number>;
+    pendingStateByAnchorAttachmentId: Map<string, { count: number; startedAt: number | null }>;
     pendingGroupByWorkOldestIndex: Map<number, ImageGroupItem>;
 };
 
@@ -127,7 +128,7 @@ export function groupMessagesForDisplay(
                         id: `images-${chronological[0].id}`,
                         messages: chronological,
                         presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
-                        pendingCount: getPendingCountForImageGroup(chronological, imageAgentPresentation),
+                        ...getPendingStateForImageGroup(chronological, imageAgentPresentation),
                     });
                 }
                 continue;
@@ -192,7 +193,7 @@ export function groupMessagesForDisplay(
                     id: `images-${chronological[0].id}`,
                     messages: chronological,
                     presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
-                    pendingCount: getPendingCountForImageGroup(chronological, imageAgentPresentation),
+                    ...getPendingStateForImageGroup(chronological, imageAgentPresentation),
                 });
             }
             continue;
@@ -236,7 +237,7 @@ function getImageAgentPresentationState(
     collapseCurrentTurn: boolean,
 ): ImageAgentPresentationState {
     const featuredAttachmentIds = new Set<string>();
-    const pendingCountByAnchorAttachmentId = new Map<string, number>();
+    const pendingStateByAnchorAttachmentId = new Map<string, { count: number; startedAt: number | null }>();
     const pendingGroupByWorkOldestIndex = new Map<number, ImageGroupItem>();
     const workGroupByTurn = new Map<number, CollectedAgentWorkGroup>();
 
@@ -272,12 +273,17 @@ function getImageAgentPresentationState(
             : 0;
         if (pendingCount === 0) continue;
 
+        const workGroup = workGroupByTurn.get(turn);
+        const pendingStartedAt = workGroup?.item.startedAt ?? null;
+
         if (generatedIndexes.length > 0) {
-            pendingCountByAnchorAttachmentId.set(messages[generatedIndexes[0]].id, pendingCount);
+            pendingStateByAnchorAttachmentId.set(messages[generatedIndexes[0]].id, {
+                count: pendingCount,
+                startedAt: pendingStartedAt,
+            });
             continue;
         }
 
-        const workGroup = workGroupByTurn.get(turn);
         if (workGroup) {
             pendingGroupByWorkOldestIndex.set(workGroup.oldestIdx, {
                 type: 'image-group',
@@ -285,23 +291,32 @@ function getImageAgentPresentationState(
                 messages: [],
                 presentation: 'featured',
                 pendingCount,
+                pendingStartedAt,
             });
         }
     }
 
-    return { featuredAttachmentIds, pendingCountByAnchorAttachmentId, pendingGroupByWorkOldestIndex };
+    return { featuredAttachmentIds, pendingStateByAnchorAttachmentId, pendingGroupByWorkOldestIndex };
 }
 
 function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
     return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
 }
 
-function getPendingCountForImageGroup(messages: Message[], state: ImageAgentPresentationState): number {
+function getPendingStateForImageGroup(
+    messages: Message[],
+    state: ImageAgentPresentationState,
+): { pendingCount: number; pendingStartedAt?: number | null } {
     for (const message of messages) {
-        const pendingCount = state.pendingCountByAnchorAttachmentId.get(message.id);
-        if (pendingCount !== undefined) return pendingCount;
+        const pendingState = state.pendingStateByAnchorAttachmentId.get(message.id);
+        if (pendingState !== undefined) {
+            return {
+                pendingCount: pendingState.count,
+                pendingStartedAt: pendingState.startedAt,
+            };
+        }
     }
-    return 0;
+    return { pendingCount: 0 };
 }
 
 function getExpectedImageAgentOutputCount(text: string): number {

@@ -408,7 +408,7 @@ describe('useGroupedMessages', () => {
         const items = groupMessagesForDisplay(messages, true, { collapseCurrentTurn: false });
 
         expect(items).toMatchObject([
-            { type: 'image-group', id: 'images-pending-user', presentation: 'featured', messages: [], pendingCount: 3 },
+            { type: 'image-group', id: 'images-pending-user', presentation: 'featured', messages: [], pendingCount: 3, pendingStartedAt: 4 },
             { type: 'agent-work-group', id: 'work-image-tool-running', hasRunning: true },
             { type: 'message', id: 'user' },
             { type: 'image-group', id: 'images-reference-image', presentation: 'featured', pendingCount: 0 },
@@ -436,6 +436,7 @@ describe('useGroupedMessages', () => {
             id: 'images-generated-image',
             presentation: 'featured',
             pendingCount: 2,
+            pendingStartedAt: 4,
         });
     });
 
@@ -483,6 +484,7 @@ describe('useGroupedMessages', () => {
             type: 'image-group',
             id: 'images-pending-user',
             pendingCount: 1,
+            pendingStartedAt: 3,
             presentation: 'featured',
         });
         expect(items[1]).toMatchObject({

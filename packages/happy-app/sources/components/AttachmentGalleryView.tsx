@@ -14,7 +14,7 @@
  * zoomable viewer on tap.
  */
 import * as React from 'react';
-import { View, Pressable, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { View, Pressable, useWindowDimensions, ActivityIndicator, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -24,7 +24,7 @@ import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
-import { computeAttachmentGalleryImageSize } from '@/utils/attachmentGalleryLayout';
+import { computeAttachmentGalleryImageSize, formatPendingImageElapsed } from '@/utils/attachmentGalleryLayout';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 const THUMB_SIZE = 100;
@@ -78,9 +78,14 @@ export const AttachmentGalleryView = React.memo<{
     sessionId: string;
     presentation?: AttachmentGalleryPresentation;
     pendingCount?: number;
-}>(({ messages, sessionId, presentation = 'compact', pendingCount = 0 }) => {
+    pendingStartedAt?: number | null;
+}>(({ messages, sessionId, presentation = 'compact', pendingCount = 0, pendingStartedAt = null }) => {
     const images = React.useMemo(() => toGalleryImages(messages), [messages]);
     const placeholderCount = Math.max(0, pendingCount);
+    const now = useClock(placeholderCount > 0 && !!pendingStartedAt);
+    const pendingElapsedLabel = pendingStartedAt
+        ? formatPendingImageElapsed(Math.max(0, now - pendingStartedAt))
+        : null;
 
     // Decrypted URIs resolve lazily inside each thumbnail. We collect them here
     // (in a ref, so resolution doesn't re-render the strip) so that tapping any
@@ -120,7 +125,7 @@ export const AttachmentGalleryView = React.memo<{
                     />
                 ))}
                 {Array.from({ length: placeholderCount }, (_, index) => (
-                    <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} />
+                    <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} elapsedLabel={pendingElapsedLabel} />
                 ))}
             </View>
         );
@@ -148,11 +153,24 @@ export const AttachmentGalleryView = React.memo<{
                 />
             ))}
             {Array.from({ length: placeholderCount }, (_, index) => (
-                <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} />
+                <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} elapsedLabel={pendingElapsedLabel} />
             ))}
         </HorizontalScrollView>
     );
 });
+
+function useClock(enabled: boolean): number {
+    const [now, setNow] = React.useState(() => Date.now());
+
+    React.useEffect(() => {
+        if (!enabled) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [enabled]);
+
+    return now;
+}
 
 const GalleryThumbnail = React.memo<{
     image: GalleryImage;
@@ -215,7 +233,8 @@ const GalleryThumbnail = React.memo<{
 
 const GalleryPlaceholder = React.memo<{
     presentation: AttachmentGalleryPresentation;
-}>(({ presentation }) => {
+    elapsedLabel: string | null;
+}>(({ presentation, elapsedLabel }) => {
     const { theme } = useUnistyles();
     const windowDimensions = useWindowDimensions();
     const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 56));
@@ -241,6 +260,9 @@ const GalleryPlaceholder = React.memo<{
             <View style={styles.placeholderCenter}>
                 <Ionicons name="image-outline" size={isFeatured ? 28 : 20} color={theme.colors.textSecondary} />
                 <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                {elapsedLabel ? (
+                    <Text style={[styles.placeholderElapsed, { color: theme.colors.textSecondary }]}>{elapsedLabel}</Text>
+                ) : null}
             </View>
             <View style={[styles.placeholderProgressTrack, { backgroundColor: theme.colors.divider }]}>
                 <View style={[styles.placeholderProgressBar, { backgroundColor: theme.colors.textSecondary }]} />
@@ -291,7 +313,12 @@ const styles = StyleSheet.create(() => ({
     placeholderCenter: {
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 10,
+        gap: 8,
+    },
+    placeholderElapsed: {
+        fontSize: 13,
+        fontWeight: '600',
+        fontVariant: ['tabular-nums'],
     },
     placeholderProgressTrack: {
         position: 'absolute',

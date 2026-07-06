@@ -44,3 +44,20 @@ export function computeInputAttachmentImageSize(args: {
 
     return computeAttachmentGalleryImageSize(args);
 }
+
+export function formatPendingImageElapsed(elapsedMs: number): string {
+    const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (totalMinutes < 60) {
+        return `${totalMinutes}m${seconds.toString().padStart(2, '0')}s`;
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h${minutes.toString().padStart(2, '0')}m`;
+}

@@ -6,6 +6,7 @@ import {
     createBuiltinImageStyleAgent,
     createImageStyleSelectionPrompt,
     selectImageAgentStyle,
+    setImageAgentVariantCount,
     toggleImageAgentStyle,
     resolveComposeImageAgent,
 } from './imageAgentMode';
@@ -72,6 +73,14 @@ describe('imageAgentMode', () => {
         ]);
         expect(third.imageStyleIds).toEqual(['avatars-and-profile/character-grid-portrait/1']);
         expect(third.imageVariantsPerStyle).toBe(1);
+    });
+
+    it('sets the image draw count for the current batch and clamps it to supported values', () => {
+        const agent = createBuiltinImageStyleAgent();
+
+        expect(setImageAgentVariantCount(agent, 3).imageVariantsPerStyle).toBe(3);
+        expect(setImageAgentVariantCount(agent, 99).imageVariantsPerStyle).toBe(4);
+        expect(setImageAgentVariantCount(agent, 0).imageVariantsPerStyle).toBe(1);
     });
 
     it('builds a style prompt that can be inserted into the composer', () => {

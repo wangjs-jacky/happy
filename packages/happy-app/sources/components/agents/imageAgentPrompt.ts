@@ -28,6 +28,8 @@ export const IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
 
 const STYLE_BY_ID = new Map(IMAGE_AGENT_STYLE_PRESETS.map((style) => [style.id, style]));
 const MAX_RECOMMENDED_CONTINUATION_STYLES = 10;
+export const MIN_IMAGE_AGENT_VARIANTS_PER_STYLE = 1;
+export const MAX_IMAGE_AGENT_VARIANTS_PER_STYLE = 4;
 
 function normalizeLegacyReferenceStyleId(styleId: string): string {
     if (styleId.startsWith('oba-tiramisu/')) {
@@ -56,10 +58,13 @@ export function getImageAgentStylesForAgent(agent: Pick<AgentLauncher, 'imageSty
     return selected.length > 0 ? selected : IMAGE_AGENT_STYLE_PRESETS;
 }
 
+export function normalizeImageAgentVariantCount(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return MIN_IMAGE_AGENT_VARIANTS_PER_STYLE;
+    return Math.max(MIN_IMAGE_AGENT_VARIANTS_PER_STYLE, Math.min(MAX_IMAGE_AGENT_VARIANTS_PER_STYLE, Math.floor(value)));
+}
+
 export function getImageAgentVariantCount(agent: Pick<AgentLauncher, 'imageVariantsPerStyle'>): number {
-    const value = agent.imageVariantsPerStyle ?? 1;
-    if (!Number.isFinite(value)) return 1;
-    return Math.max(1, Math.min(4, Math.floor(value)));
+    return normalizeImageAgentVariantCount(agent.imageVariantsPerStyle);
 }
 
 export function buildImageAgentPrompt(args: {

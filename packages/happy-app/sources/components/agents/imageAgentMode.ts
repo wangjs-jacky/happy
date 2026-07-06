@@ -1,4 +1,4 @@
-import { IMAGE_AGENT_STYLE_PRESETS, type ImageAgentStylePreset } from './imageAgentPrompt';
+import { IMAGE_AGENT_STYLE_PRESETS, normalizeImageAgentVariantCount, type ImageAgentStylePreset } from './imageAgentPrompt';
 import type { AgentLauncher } from './launchAgent';
 
 export const IMAGE_STYLE_MODE_PARAM = 'image-styles';
@@ -60,6 +60,13 @@ export function setImageAgentStyles(agent: AgentLauncher, styleIds: string[]): A
     return {
         ...agent,
         imageStyleIds: [...new Set(styleIds)],
+    };
+}
+
+export function setImageAgentVariantCount(agent: AgentLauncher, count: number): AgentLauncher {
+    return {
+        ...agent,
+        imageVariantsPerStyle: normalizeImageAgentVariantCount(count),
     };
 }
 

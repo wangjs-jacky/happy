@@ -28,6 +28,7 @@ import {
     parseImageStyleOptions,
     type ParsedImageStyleOption,
 } from '@/components/agents/imageStyleOptions';
+import { MAX_IMAGE_AGENT_VARIANTS_PER_STYLE } from '@/components/agents/imageAgentPrompt';
 
 // Option type for callback
 export type Option = {
@@ -388,6 +389,7 @@ function RenderImageStyleOptionsBlock(props: {
     variant: MarkdownViewVariant;
 }) {
     const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+    const [drawCount, setDrawCount] = React.useState(1);
     const selectedStyles = React.useMemo(() => {
         const selected = new Set(selectedIds);
         return props.items
@@ -410,8 +412,8 @@ function RenderImageStyleOptionsBlock(props: {
 
     const submit = React.useCallback(() => {
         if (selectedStyles.length === 0) return;
-        props.onOptionPress({ title: buildImageStyleContinuationPrompt(selectedStyles) });
-    }, [props, selectedStyles]);
+        props.onOptionPress({ title: buildImageStyleContinuationPrompt(selectedStyles, { variantsPerStyle: drawCount }) });
+    }, [drawCount, props, selectedStyles]);
 
     return (
         <View style={[style.optionsContainer, style.imageStyleOptionsContainer, props.variant === 'foldedPrompt' && style.foldedImageStyleOptionsContainer, props.first && style.first, props.last && style.last]}>
@@ -446,6 +448,34 @@ function RenderImageStyleOptionsBlock(props: {
                         </Pressable>
                     );
                 })}
+            </View>
+            <View style={style.imageStyleDrawRow}>
+                <View style={style.imageStyleDrawLabel}>
+                    <Ionicons name="dice-outline" size={15} color={style.imageStyleDrawLabelText.color} />
+                    <Text style={style.imageStyleDrawLabelText} numberOfLines={1}>
+                        {t('agents.imageVariantsPerStyle', { count: drawCount })}
+                    </Text>
+                </View>
+                <View style={style.imageStyleDrawOptions}>
+                    {Array.from({ length: MAX_IMAGE_AGENT_VARIANTS_PER_STYLE }, (_, index) => index + 1).map((count) => {
+                        const selected = drawCount === count;
+                        return (
+                            <Pressable
+                                key={count}
+                                onPress={() => setDrawCount(count)}
+                                style={({ pressed }) => [
+                                    style.imageStyleDrawOption,
+                                    selected && style.imageStyleDrawOptionSelected,
+                                    pressed && style.optionItemPressed,
+                                ]}
+                            >
+                                <Text style={[style.imageStyleDrawOptionText, selected && style.imageStyleDrawOptionTextSelected]}>
+                                    {count}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
             </View>
             <Pressable
                 style={({ pressed }) => [
@@ -925,6 +955,53 @@ const style = StyleSheet.create((theme) => ({
     },
     imageStyleOptionCheck: {
         color: theme.colors.accent,
+    },
+    imageStyleDrawRow: {
+        minHeight: 34,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        paddingHorizontal: 2,
+    },
+    imageStyleDrawLabel: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    imageStyleDrawLabelText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageStyleDrawOptions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    imageStyleDrawOption: {
+        width: 28,
+        height: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHighest,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    imageStyleDrawOptionSelected: {
+        backgroundColor: theme.colors.text,
+        borderColor: theme.colors.text,
+    },
+    imageStyleDrawOptionText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageStyleDrawOptionTextSelected: {
+        color: theme.colors.surface,
     },
     imageStyleOptionSend: {
         marginTop: 2,

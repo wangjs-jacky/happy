@@ -1,4 +1,9 @@
-import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel, type ImageAgentStylePreset } from './imageAgentPrompt';
+import {
+    IMAGE_AGENT_STYLE_PRESETS,
+    getImageAgentStyleLabel,
+    normalizeImageAgentVariantCount,
+    type ImageAgentStylePreset,
+} from './imageAgentPrompt';
 
 export const IMAGE_STYLE_OPTION_PREFIX = 'gpt-image-style:';
 export const MAX_IMAGE_STYLE_OPTION_COUNT = 10;
@@ -37,7 +42,11 @@ export function parseImageStyleOptions(items: string[], limit: number = MAX_IMAG
     return result;
 }
 
-export function buildImageStyleContinuationPrompt(styles: ImageAgentStylePreset[]): string {
+export function buildImageStyleContinuationPrompt(
+    styles: ImageAgentStylePreset[],
+    options: { variantsPerStyle?: number } = {},
+): string {
+    const variants = normalizeImageAgentVariantCount(options.variantsPerStyle ?? 1);
     const styleList = styles.map((style, index) => (
         `${index + 1}. ${style.id} (${style.templateRef}) - ${getImageAgentStyleLabel(style)}: ${style.promptHint}`
     )).join('\n');
@@ -55,7 +64,7 @@ export function buildImageStyleContinuationPrompt(styles: ImageAgentStylePreset[
         '用户目标：基于当前结果继续生成下面选中的 GPT Image Gallery 风格。',
         '',
         '输出要求：',
-        '- 对下面每个选中的风格，各生成 1 张变体。',
+        `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
         '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
         '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。不要对本地文件使用 Markdown 图片语法。',
         '- 不要在对话里展示生成过程、命令输出、完整 prompt 或路径清单。',

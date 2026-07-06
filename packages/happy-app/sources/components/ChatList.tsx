@@ -265,6 +265,7 @@ const ChatListInternal = React.memo((props: {
                     sessionId={props.sessionId}
                     presentation={item.presentation}
                     pendingCount={item.pendingCount}
+                    pendingStartedAt={item.pendingStartedAt}
                 />
             );
         }

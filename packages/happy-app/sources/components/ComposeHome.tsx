@@ -27,8 +27,15 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
-import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
-import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, toggleImageAgentStyle } from './agents/imageAgentMode';
+import {
+    MAX_IMAGE_AGENT_VARIANTS_PER_STYLE,
+    buildImageAgentPrompt,
+    getImageAgentStyleLabel,
+    getImageAgentStylesForAgent,
+    getImageAgentVariantCount,
+    type ImageAgentStylePreset,
+} from './agents/imageAgentPrompt';
+import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 
@@ -80,6 +87,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const [text, setText] = React.useState('');
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
+    const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
@@ -96,8 +104,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeAgent, mode],
     );
     const effectiveImageAgent = React.useMemo(
-        () => (imageAgent ? setImageAgentStyles(imageAgent, selectedImageStyleIds) : null),
-        [imageAgent, selectedImageStyleIds],
+        () => (imageAgent
+            ? setImageAgentVariantCount(setImageAgentStyles(imageAgent, selectedImageStyleIds), selectedImageVariantCount)
+            : null),
+        [imageAgent, selectedImageStyleIds, selectedImageVariantCount],
     );
     const activeImageAgent = !!imageAgent;
     const galleryImageStyles = React.useMemo(
@@ -126,8 +136,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             ? getImageAgentStylesForAgent(imageAgent).map((style) => style.id)
             : [];
         setSelectedImageStyleIds(initialStyleIds);
+        setSelectedImageVariantCount(imageAgent ? getImageAgentVariantCount(imageAgent) : 1);
         setImageGalleryOpen(false);
-    }, [activeAgent?.id, imageAgent?.id, imageAgent?.imageStyleIds]);
+    }, [activeAgent?.id, imageAgent?.id, imageAgent?.imageStyleIds, imageAgent?.imageVariantsPerStyle]);
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -216,6 +227,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             toggleImageAgentStyle(setImageAgentStyles(imageAgent!, current), style.id).imageStyleIds
         ));
     }, [imageAgent]);
+
+    const setImageDrawCount = React.useCallback((count: number) => {
+        hapticsLight();
+        setSelectedImageVariantCount(count);
+    }, []);
 
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
@@ -413,6 +429,40 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 </View>
                                 <Ionicons name="chevron-up" size={17} color={theme.colors.textSecondary} />
                             </Pressable>
+                            <View style={styles.imageDrawControl}>
+                                <View style={styles.imageDrawLabel}>
+                                    <Ionicons name="dice-outline" size={16} color={theme.colors.textSecondary} />
+                                    <Text style={styles.imageDrawLabelText} numberOfLines={1}>
+                                        {t('agents.imageVariantsPerStyle', { count: activeImageVariants })}
+                                    </Text>
+                                </View>
+                                <View style={styles.imageDrawOptions}>
+                                    {Array.from({ length: MAX_IMAGE_AGENT_VARIANTS_PER_STYLE }, (_, index) => index + 1).map((count) => {
+                                        const selected = activeImageVariants === count;
+                                        return (
+                                            <Pressable
+                                                key={count}
+                                                onPress={() => setImageDrawCount(count)}
+                                                style={({ pressed }) => [
+                                                    styles.imageDrawOption,
+                                                    selected && styles.imageDrawOptionSelected,
+                                                    pressed && styles.imageDrawOptionPressed,
+                                                ]}
+                                                hitSlop={4}
+                                            >
+                                                <Text
+                                                    style={[
+                                                        styles.imageDrawOptionText,
+                                                        selected && styles.imageDrawOptionTextSelected,
+                                                    ]}
+                                                >
+                                                    {count}
+                                                </Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </View>
+                            </View>
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
@@ -698,6 +748,59 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 12,
         color: theme.colors.textSecondary,
         marginTop: 1,
+    },
+    imageDrawControl: {
+        minHeight: 38,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        paddingVertical: 6,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    imageDrawLabel: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    imageDrawLabelText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageDrawOptions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    imageDrawOption: {
+        width: 30,
+        height: 26,
+        borderRadius: 13,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageDrawOptionSelected: {
+        backgroundColor: theme.colors.text,
+        borderColor: theme.colors.text,
+    },
+    imageDrawOptionPressed: {
+        opacity: 0.72,
+    },
+    imageDrawOptionText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageDrawOptionTextSelected: {
+        color: theme.colors.surface,
     },
     imageStyleRow: {
         gap: 6,
