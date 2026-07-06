@@ -57,28 +57,28 @@ export function buildImageAgentPrompt(args: {
 }): string {
     const styles = getImageAgentStylesForAgent(args.agent);
     const variants = getImageAgentVariantCount(args.agent);
-    const userPrompt = args.userPrompt.trim() || 'Use the uploaded reference image(s) as the subject reference and generate a reusable style overview.';
+    const userPrompt = args.userPrompt.trim() || '请把上传的参考图作为主体参考，生成一组可复用的风格效果总览。';
     const styleList = styles.map((style, index) => (
         `${index + 1}. ${style.id} (${style.templateRef}) - ${style.title}: ${style.promptHint}`
     )).join('\n');
 
     return [
-        'Use the $gpt-image-2 skill to run a GPT Image 2 image editing/generation batch.',
+        '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
         '',
-        'Generation lock:',
-        '- Treat this as one locked image generation job. Do not start a second batch until every requested output is saved or the job fails.',
-        '- If another generation job is already active in this session, report that the image generator is locked instead of starting a duplicate.',
+        '生成锁：',
+        '- 将这次请求视为一个已锁定的图片生成任务。在每个请求的输出都保存完成，或任务明确失败之前，不要启动第二个批处理。',
+        '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
         '',
-        `Input: ${args.imageCount} uploaded reference image(s). Use all uploaded images as visual references unless the user explicitly says otherwise.`,
-        `User goal: ${userPrompt}`,
+        `输入：已上传 ${args.imageCount} 张参考图。除非用户明确说明不使用，否则请把所有上传图片都作为视觉参考。`,
+        `用户目标：${userPrompt}`,
         '',
-        'Output contract:',
-        `- Generate ${variants} variant(s) per style for every selected style below.`,
-        '- Save prompts under garden-gpt-image-2/prompt/ and images under garden-gpt-image-2/image/.',
-        '- After each PNG/JPEG is saved, send it inline with mcp__happy__send_image using the absolute local path. Do not use Markdown image syntax for local files.',
-        '- Finish with a concise manifest listing style id, output path, and any failed style with the reason.',
+        '输出要求：',
+        `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
+        '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
+        '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。不要对本地文件使用 Markdown 图片语法。',
+        '- 结束时给出一份简洁清单，列出风格 id、输出路径；如有失败的风格，也列出失败原因。',
         '',
-        'Selected GPT Image 2 styles:',
+        '已选择的 GPT Image 2 风格：',
         styleList,
     ].join('\n');
 }
