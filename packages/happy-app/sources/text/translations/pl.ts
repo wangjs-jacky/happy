@@ -1066,6 +1066,10 @@ export const pl: TranslationStructure = {
         unknownEvent: 'Nieznane zdarzenie',
         usageLimitUntil: ({ time }: { time: string }) => `Osiągnięto limit użycia do ${time}`,
         unknownTime: 'nieznany czas',
+        foldedPromptTitle: 'Prompt zwinięty',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} wierszy · ${chars} znaków`,
+        showPrompt: 'Pokaż',
+        hidePrompt: 'Ukryj',
     },
 
     codex: {

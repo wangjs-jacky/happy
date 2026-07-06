@@ -1618,6 +1618,10 @@ export const zhHans: TranslationStructure = {
         unknownEvent: '未知事件',
         usageLimitUntil: ({ time }: { time: string }) => `使用限制到 ${time}`,
         unknownTime: '未知时间',
+        foldedPromptTitle: '提示词已折叠',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} 行 · ${chars} 字符`,
+        showPrompt: '展开',
+        hidePrompt: '收起',
     },
 
     codex: {

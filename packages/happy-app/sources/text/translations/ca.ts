@@ -1050,6 +1050,10 @@ export const ca: TranslationStructure = {
         unknownEvent: 'Esdeveniment desconegut',
         usageLimitUntil: ({ time }: { time: string }) => `Límit d'ús assolit fins a ${time}`,
         unknownTime: 'temps desconegut',
+        foldedPromptTitle: 'Prompt plegat',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} línies · ${chars} caràcters`,
+        showPrompt: 'Mostra',
+        hidePrompt: 'Amaga',
     },
 
     codex: {

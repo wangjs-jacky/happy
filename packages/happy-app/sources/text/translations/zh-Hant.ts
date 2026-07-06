@@ -1149,6 +1149,10 @@ export const zhHant: TranslationStructure = {
         unknownEvent: '未知事件',
         usageLimitUntil: ({ time }: { time: string }) => `使用限制到 ${time}`,
         unknownTime: '未知時間',
+        foldedPromptTitle: '提示詞已摺疊',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} 行 · ${chars} 字元`,
+        showPrompt: '展開',
+        hidePrompt: '收起',
     },
 
     codex: {

@@ -1651,6 +1651,10 @@ export const en = {
         unknownEvent: 'Unknown event',
         usageLimitUntil: ({ time }: { time: string }) => `Usage limit reached until ${time}`,
         unknownTime: 'unknown time',
+        foldedPromptTitle: 'Prompt folded',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} lines · ${chars} chars`,
+        showPrompt: 'Show',
+        hidePrompt: 'Hide',
     },
 
     codex: {
