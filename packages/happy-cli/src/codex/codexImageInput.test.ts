@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { configuration } from '@/configuration';
 import type { PendingAttachment } from '@/utils/MessageQueue2';
-import { detectCodexImage, materializeCodexImageItems, buildCodexInput } from './codexImageInput';
+import {
+    buildCodexImageAttachmentNotice,
+    buildCodexInput,
+    detectCodexImage,
+    materializeCodexImageItems,
+} from './codexImageInput';
 
 // Minimal valid magic-byte headers padded out to a few bytes.
 const PNG = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
@@ -77,5 +82,21 @@ describe('buildCodexInput', () => {
     it('returns just the text item when there are no attachments', () => {
         expect(buildCodexInput('hi', undefined)).toEqual([{ type: 'text', text: 'hi' }]);
         expect(buildCodexInput('hi', [])).toEqual([{ type: 'text', text: 'hi' }]);
+    });
+});
+
+describe('buildCodexImageAttachmentNotice', () => {
+    it('tells Codex to use the exact staged image paths instead of guessing recent files', () => {
+        const notice = buildCodexImageAttachmentNotice([
+            { type: 'localImage', path: '/Users/jacky/.happy/attachments/current-upload.png' },
+        ]);
+
+        expect(notice).toContain('Happy attached 1 user-uploaded image');
+        expect(notice).toContain('/Users/jacky/.happy/attachments/current-upload.png');
+        expect(notice).toContain('Do not infer the intended upload by scanning ~/.happy/attachments');
+    });
+
+    it('returns null when no image is attached', () => {
+        expect(buildCodexImageAttachmentNotice([])).toBeNull();
     });
 });

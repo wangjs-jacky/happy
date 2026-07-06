@@ -21,7 +21,7 @@ import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import type { PendingAttachment } from '@/utils/MessageQueue2';
-import { buildCodexInput } from './codexImageInput';
+import { buildCodexImageAttachmentNotice, buildCodexInput } from './codexImageInput';
 import { projectPath } from '@/projectPath';
 import { join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
@@ -1338,8 +1338,12 @@ export async function runCodex(opts: {
             if (turnImages.length > 0) {
                 logger.debug(`[Codex] Attaching ${turnImages.length} image(s) to turn`);
             }
+            const attachmentNotice = buildCodexImageAttachmentNotice(turnImages);
+            const promptForCodex = attachmentNotice
+                ? `${attachmentNotice}\n\n${turnPrompt}`
+                : turnPrompt;
 
-            const result = await client.sendTurnAndWait(turnPrompt, {
+            const result = await client.sendTurnAndWait(promptForCodex, {
                 model: opts.mode.model,
                 approvalPolicy: executionPolicy.approvalPolicy,
                 sandbox: executionPolicy.sandbox,
