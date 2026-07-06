@@ -27,8 +27,8 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
-import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
-import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
+import { buildImageAgentDisplayText, buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
+import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 
@@ -201,10 +201,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, []);
 
     const selectImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
+        hapticsLight();
         setSelectedImageStyleId(style.id);
         setImageGalleryOpen(false);
-        fillPreset(createImageStyleSelectionPrompt(style));
-    }, [fillPreset]);
+        composerInputRef.current?.focus();
+    }, []);
 
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
@@ -231,6 +232,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 imageCount: images?.length ?? 0,
             })
             : trimmed;
+        const displayText = activeImageAgent && effectiveImageAgent
+            ? buildImageAgentDisplayText({
+                agent: effectiveImageAgent,
+                userPrompt: trimmed,
+                imageCount: images?.length ?? 0,
+            })
+            : undefined;
 
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
@@ -265,6 +273,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
             effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt,
+            displayText,
             images,
         }).then((ok) => {
             if (ok) {

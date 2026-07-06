@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     IMAGE_AGENT_STYLE_PRESETS,
+    buildImageAgentDisplayText,
     buildImageAgentPrompt,
     getImageAgentStylesForAgent,
 } from './imageAgentPrompt';
@@ -93,5 +94,23 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
+    });
+
+    it('builds a compact display summary without replacing the raw generation prompt', () => {
+        const displayText = buildImageAgentDisplayText({
+            agent,
+            userPrompt: '使用乳制品参考照片，并保留盘子的形状。',
+            imageCount: 3,
+        });
+
+        expect(displayText).toContain('GPT Image 2 批处理请求');
+        expect(displayText).toContain('目标：使用乳制品参考照片，并保留盘子的形状。');
+        expect(displayText).toContain('参考图：3 张');
+        expect(displayText).toContain('数量：2 种风格，每种 2 张');
+        expect(displayText).toContain('product-visuals/premium-studio-product/1');
+        expect(displayText).toContain('product-visuals/white-background-product/1');
+        expect(displayText).toContain('完整生成 prompt 已发送给 Codex');
+        expect(displayText).not.toContain('生成锁');
+        expect(displayText).not.toContain('mcp__happy__send_image');
     });
 });

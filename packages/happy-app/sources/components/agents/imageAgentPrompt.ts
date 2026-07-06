@@ -93,3 +93,29 @@ export function buildImageAgentPrompt(args: {
         styleList,
     ].join('\n');
 }
+
+export function buildImageAgentDisplayText(args: {
+    agent: AgentLauncher;
+    userPrompt: string;
+    imageCount: number;
+}): string {
+    const styles = getImageAgentStylesForAgent(args.agent);
+    const variants = getImageAgentVariantCount(args.agent);
+    const userPrompt = args.userPrompt.trim() || '把上传的参考图作为主体参考，生成所选风格效果。';
+    const styleList = styles
+        .map((style, index) => `${index + 1}. ${style.title} (${style.id})`)
+        .join('\n');
+
+    return [
+        'GPT Image 2 批处理请求',
+        '',
+        `目标：${userPrompt}`,
+        `参考图：${args.imageCount} 张`,
+        `数量：${styles.length} 种风格，每种 ${variants} 张`,
+        '',
+        '已选择风格：',
+        styleList,
+        '',
+        '完整生成 prompt 已发送给 Codex，聊天里只显示这份摘要。',
+    ].join('\n');
+}
