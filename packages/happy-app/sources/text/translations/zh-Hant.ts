@@ -1395,6 +1395,7 @@ export const zhHant: TranslationStructure = {
         standardAgentSubtitle: '啟動已配置的編碼 Agent，可附帶預設指令。',
         imageStyleAgent: 'GPT Image 2 風格',
         imageStyleAgentSubtitle: '上傳參考圖，一次生成多種風格結果。',
+        imageStyleAgentEntrySubtitle: '建立用於多風格 GPT Image 2 批次處理的圖片 Agent。',
         imageStyles: '圖片風格',
         imageStyleFooter: '選中的風格會作為一個鎖定的 GPT Image 2 批次處理送出。',
         imageVariants: '生成張數',

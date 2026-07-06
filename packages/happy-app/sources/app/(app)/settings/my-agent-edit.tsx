@@ -39,7 +39,7 @@ export default React.memo(function AgentEditScreen() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const router = useRouter();
-    const params = useLocalSearchParams<{ id?: string }>();
+    const params = useLocalSearchParams<{ id?: string; kind?: string }>();
     const editingId = typeof params.id === 'string' && params.id.length > 0 ? params.id : null;
 
     const [agents, setAgents] = useSettingMutable('agents');
@@ -51,8 +51,11 @@ export default React.memo(function AgentEditScreen() {
         [agents, editingId],
     );
 
-    const [name, setName] = React.useState(existing?.name ?? '');
-    const [kind, setKind] = React.useState<AgentKind>(existing?.kind ?? 'standard');
+    const initialKind: AgentKind = !editingId && params.kind === 'image-styles'
+        ? 'image-styles'
+        : existing?.kind ?? 'standard';
+    const [name, setName] = React.useState(existing?.name ?? (initialKind === 'image-styles' ? t('agents.imageStyleAgent') : ''));
+    const [kind, setKind] = React.useState<AgentKind>(initialKind);
     const [machineId, setMachineId] = React.useState<string | null>(existing?.machineId ?? null);
     const [path, setPath] = React.useState(existing?.path ?? '~');
     const [imageStyleIds, setImageStyleIds] = React.useState<string[]>(

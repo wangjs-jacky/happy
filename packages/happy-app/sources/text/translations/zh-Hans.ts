@@ -1864,6 +1864,7 @@ export const zhHans: TranslationStructure = {
         standardAgentSubtitle: '启动已配置的编码 Agent，可附带预设指令。',
         imageStyleAgent: 'GPT Image 2 风格',
         imageStyleAgentSubtitle: '上传参考图，一次生成多种风格结果。',
+        imageStyleAgentEntrySubtitle: '创建用于多风格 GPT Image 2 批处理的图片 Agent。',
         imageStyles: '图片风格',
         imageStyleFooter: '选中的风格会作为一个锁定的 GPT Image 2 批处理发送。',
         imageVariants: '生成张数',

@@ -1298,6 +1298,7 @@ export const ja: TranslationStructure = {
         standardAgentSubtitle: 'Launch a configured coding agent with optional prompt presets.',
         imageStyleAgent: 'GPT Image 2 Styles',
         imageStyleAgentSubtitle: 'Upload reference images and generate many styled outputs.',
+        imageStyleAgentEntrySubtitle: 'Create an image agent for multi-style GPT Image 2 batches.',
         imageStyles: 'Image styles',
         imageStyleFooter: 'Selected styles are sent as one locked GPT Image 2 batch.',
         imageVariants: 'Variants',
