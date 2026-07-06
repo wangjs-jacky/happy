@@ -10,11 +10,11 @@ import {
 } from './newSessionExperience';
 
 describe('new session experience', () => {
-    it('makes ask a lightweight chat mode instead of a coding-agent setup', () => {
+    it('makes ask a lightweight chat mode with provider model selection', () => {
         expect(getSessionConfigExperience('ask')).toEqual({
             isAskMode: true,
             showPath: false,
-            showModeDetails: false,
+            showModeDetails: true,
             showPermission: false,
             showWorktree: false,
         });
@@ -47,15 +47,19 @@ describe('new session experience', () => {
     });
 
     it('drives a compact header mode switch outside image-agent flows', () => {
-        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false, askConfigured: true })).toEqual({
             visible: true,
             selectedMode: 'ask',
         });
-        expect(getHeaderModeSwitchExperience({ agentType: 'codex', activeImageAgent: false })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'codex', activeImageAgent: false, askConfigured: true })).toEqual({
             visible: true,
             selectedMode: 'agent',
         });
-        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: true })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false, askConfigured: false })).toEqual({
+            visible: false,
+            selectedMode: 'agent',
+        });
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: true, askConfigured: true })).toEqual({
             visible: false,
             selectedMode: 'agent',
         });

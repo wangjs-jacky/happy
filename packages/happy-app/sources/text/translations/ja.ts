@@ -132,6 +132,8 @@ export const ja: TranslationStructure = {
         language: '言語',
         voiceAssistant: '音声アシスタント',
         voiceAssistantSubtitle: '音声操作の設定',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Ask モードの API キーとエンドポイントを設定',
         featuresTitle: '機能',
         featuresSubtitle: 'アプリ機能の有効/無効を切り替え',
         developer: '開発者',
@@ -164,6 +166,22 @@ export const ja: TranslationStructure = {
             `${name}は${status === 'online' ? 'オンライン' : 'オフライン'}です`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature}を${enabled ? '有効' : '無効'}にしました`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {

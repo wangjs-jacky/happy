@@ -25,6 +25,7 @@ import {
   streamDeepSeekChat,
 } from '@/deepseek/deepseekClient';
 import { resolveDeepSeekApiKey } from '@/deepseek/deepseekCredentials';
+import { buildAskAugmentedUserContent } from './askTools';
 
 type AskEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
@@ -39,7 +40,7 @@ type AskDeepSeekOptions = {
 };
 
 const DEFAULT_MAX_HISTORY_MESSAGES = 20;
-const DEFAULT_SYSTEM_PROMPT = 'You are Happy Ask mode. Answer questions directly. Do not use tools, inspect local files, run commands, or claim to have modified the user\'s machine.';
+const DEFAULT_SYSTEM_PROMPT = 'You are Happy Ask mode. Answer questions directly. Use the provided runtime or web context when relevant. Do not inspect local files, run commands, modify the user\'s machine, or claim access beyond the provided context.';
 
 export function buildAskDeepSeekOptions(args: {
   model?: string | null;
@@ -166,7 +167,7 @@ export async function runAsk(opts: {
     if (history[0]?.role === 'system') {
       history[0] = { role: 'system', content: options.systemPrompt };
     }
-    history.push({ role: 'user', content: message.content.text });
+    history.push({ role: 'user', content: await buildAskAugmentedUserContent(message.content.text) });
     trimAskHistory(history, maxHistoryMessages);
 
     activeAbortController = new AbortController();

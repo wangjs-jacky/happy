@@ -132,6 +132,8 @@ export const zhHans: TranslationStructure = {
         language: '语言切换',
         voiceAssistant: '语音助手',
         voiceAssistantSubtitle: '配置语音交互偏好',
+        askApi: 'Ask API',
+        askApiSubtitle: '配置问答模式的 API Key 和接口地址',
         featuresTitle: '功能',
         featuresSubtitle: '启用或禁用应用功能',
         developer: '开发者',
@@ -164,6 +166,22 @@ export const zhHans: TranslationStructure = {
             `${name} ${status === 'online' ? '在线' : '离线'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} 已${enabled ? '启用' : '禁用'}`,
+    },
+
+    askApiSettings: {
+        connection: '连接',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: '保存 API Key 后，首页才会显示问答模式切换。URL 可选，留空默认使用 DeepSeek。',
+        status: '状态',
+        configured: '已配置',
+        configuredSubtitle: '这台设备可以使用问答模式',
+        notConfigured: '未配置',
+        notConfiguredSubtitle: '保存 API Key 前不会显示问答模式',
+        clear: '清除 Ask API',
+        clearSubtitle: '从这台设备移除本地 Key 和接口地址',
     },
 
     settingsSkills: {

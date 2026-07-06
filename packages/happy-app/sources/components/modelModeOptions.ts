@@ -91,7 +91,8 @@ export function getClaudeModelModes(): ModelMode[] {
 
 export function getAskModelModes(): ModelMode[] {
     return [
-        { key: 'deepseek', name: 'DeepSeek', description: 'API chat' },
+        { key: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'fast answers' },
+        { key: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'stronger answers' },
     ];
 }
 

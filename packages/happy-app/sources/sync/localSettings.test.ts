@@ -16,3 +16,26 @@ describe('localSettings hapticFeedbackEnabled', () => {
         expect(parsed.hapticFeedbackEnabled).toBe(false);
     });
 });
+
+describe('localSettings ask API config', () => {
+    it('defaults to an unconfigured ask API', () => {
+        expect(localSettingsDefaults.askApi).toEqual({
+            apiKey: '',
+            baseUrl: '',
+        });
+    });
+
+    it('preserves stored ask API credentials locally', () => {
+        const parsed = localSettingsParse({
+            askApi: {
+                apiKey: ' sk-deepseek ',
+                baseUrl: ' https://api.deepseek.com ',
+            },
+        });
+
+        expect(parsed.askApi).toEqual({
+            apiKey: ' sk-deepseek ',
+            baseUrl: ' https://api.deepseek.com ',
+        });
+    });
+});
