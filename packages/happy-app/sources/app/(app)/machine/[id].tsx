@@ -698,6 +698,15 @@ export default function MachineDetailScreen() {
                             }
                         />
                         <Item
+                            title="DeepSeek"
+                            showChevron={false}
+                            rightElement={
+                                <Text style={{ color: metadata.cliAvailability.deepseek ? '#34C759' : theme.colors.textSecondary, fontSize: 14 }}>
+                                    {metadata.cliAvailability.deepseek ? 'API key configured' : 'API key missing'}
+                                </Text>
+                            }
+                        />
+                        <Item
                             title={t('machine.lastDetected')}
                             subtitle={new Date(metadata.cliAvailability.detectedAt).toLocaleString()}
                             showChevron={false}

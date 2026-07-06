@@ -9,6 +9,7 @@ export interface CLIAvailability {
   gemini: boolean;
   opencode: boolean;
   openclaw: boolean;
+  deepseek: boolean;
   detectedAt: number;
 }
 
@@ -39,6 +40,7 @@ function detectPosix(): CLIAvailability {
   const codex = commandExists('codex');
   const gemini = commandExists('gemini');
   const opencode = commandExists('opencode');
+  const deepseek = hasDeepSeekApiKey();
 
   // OpenClaw: check command, config file, or env var
   const openclawCommand = commandExists('openclaw');
@@ -46,7 +48,7 @@ function detectPosix(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, opencode, openclaw, detectedAt: Date.now() };
+  return { claude, codex, gemini, opencode, openclaw, deepseek, detectedAt: Date.now() };
 }
 
 function detectWindows(): CLIAvailability {
@@ -63,6 +65,7 @@ function detectWindows(): CLIAvailability {
   const codex = checkCommand('codex');
   const gemini = checkCommand('gemini');
   const opencode = checkCommand('opencode');
+  const deepseek = hasDeepSeekApiKey();
 
   // OpenClaw: check command, config file, or env var
   const openclawCommand = checkCommand('openclaw');
@@ -70,5 +73,9 @@ function detectWindows(): CLIAvailability {
   const openclawEnv = !!process.env.OPENCLAW_GATEWAY_URL;
   const openclaw = openclawCommand || openclawConfig || openclawEnv;
 
-  return { claude, codex, gemini, opencode, openclaw, detectedAt: Date.now() };
+  return { claude, codex, gemini, opencode, openclaw, deepseek, detectedAt: Date.now() };
+}
+
+function hasDeepSeekApiKey(): boolean {
+  return !!(process.env.DEEPSEEK_API_KEY || process.env.HAPPY_DEEPSEEK_API_KEY);
 }

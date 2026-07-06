@@ -47,10 +47,12 @@ const agentIcons = {
     opencode: require('@/assets/images/icon-gpt.png'),
     openclaw: require('@/assets/images/icon-openclaw.png'),
     gemini: require('@/assets/images/icon-gemini.png'),
+    deepseek: require('@/assets/images/icon-gpt.png'),
 };
 
 type AgentKey = NewSessionAgentType;
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
+    { key: 'deepseek', label: 'deepseek fast' },
     { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },

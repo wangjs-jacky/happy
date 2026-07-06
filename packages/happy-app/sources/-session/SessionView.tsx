@@ -57,6 +57,7 @@ const AGENT_LABELS: Record<string, string> = {
     opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
+    deepseek: 'deepseek fast',
 };
 
 const CAN_COPY_SESSION_ID = Application.applicationId === 'build.paws.preview';

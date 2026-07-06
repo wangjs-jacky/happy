@@ -48,7 +48,8 @@ vi.mock('@/utils/detectCLI', () => ({
         codex: false,
         gemini: false,
         opencode: false,
-        openclaw: false
+        openclaw: false,
+        deepseek: false,
     }))
 }));
 

@@ -63,7 +63,7 @@ interface MessageComposerProps {
     };
     alwaysShowContextSize?: boolean;
     onFileViewerPress?: () => void;
-    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+    agentType?: 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'deepseek';
     onAgentClick?: () => void;
     machineName?: string | null;
     onMachineClick?: () => void;
@@ -880,6 +880,8 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                         ? 'OpenCode'
                                                     : props.agentType === 'openclaw'
                                                         ? t('agentInput.agent.openclaw')
+                                                    : props.agentType === 'deepseek'
+                                                        ? 'DeepSeek'
                                                         : t('agentInput.agent.gemini')}
                                         </Text>
                                     </Pressable>

@@ -35,6 +35,7 @@ const AGENT_LABELS: Record<string, string> = {
     opencode: 'opencode',
     openclaw: 'openclaw',
     gemini: 'gemini',
+    deepseek: 'deepseek fast',
 };
 
 function getMachineName(machine: Machine | undefined): string | null {

@@ -42,6 +42,7 @@ const agentLabels: Record<AgentKey, string> = {
     gemini: 'Gemini',
     opencode: 'OpenCode',
     openclaw: 'OpenClaw',
+    deepseek: 'DeepSeek Fast',
 };
 
 function optionName(options: ModeOption[], key: string | null | undefined): string {

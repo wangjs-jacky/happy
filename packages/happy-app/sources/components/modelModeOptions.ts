@@ -110,6 +110,12 @@ export function getOpenCodePermissionModes(translate: Translate): PermissionMode
     ];
 }
 
+export function getDeepSeekPermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: translate('agentInput.permissionMode.default'), description: 'fast chat, no tools' },
+    ];
+}
+
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
@@ -122,6 +128,9 @@ export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Tran
     }
     if (flavor === 'openclaw') {
         return getOpenClawPermissionModes(translate);
+    }
+    if (flavor === 'deepseek') {
+        return getDeepSeekPermissionModes(translate);
     }
     return getClaudePermissionModes(translate);
 }
@@ -142,6 +151,13 @@ export function getOpenCodeModelModes(): ModelMode[] {
     ];
 }
 
+export function getDeepSeekModelModes(): ModelMode[] {
+    return [
+        { key: 'deepseek-v4-flash', name: 'deepseek v4 flash', description: 'fastest' },
+        { key: 'deepseek-v4-pro', name: 'deepseek v4 pro', description: 'higher quality' },
+    ];
+}
+
 export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translate): ModelMode[] {
     if (flavor === 'codex') {
         return getCodexModelModes();
@@ -154,6 +170,9 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     }
     if (flavor === 'openclaw') {
         return getOpenClawModelModes();
+    }
+    if (flavor === 'deepseek') {
+        return getDeepSeekModelModes();
     }
     return getClaudeModelModes();
 }
@@ -178,7 +197,7 @@ export function getAvailablePermissionModes(
     metadata: Metadata | null | undefined,
     translate: Translate,
 ): PermissionMode[] {
-    if (flavor === 'claude' || flavor === 'codex' || flavor === 'opencode' || flavor === 'openclaw') {
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'opencode' || flavor === 'openclaw' || flavor === 'deepseek') {
         return hackModes(getHardcodedPermissionModes(flavor, translate));
     }
 
@@ -281,6 +300,7 @@ export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: strin
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {
+    if (flavor === 'deepseek') return false;
     if (flavor === 'openclaw') return false;
     return true;
 }

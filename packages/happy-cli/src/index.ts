@@ -148,6 +148,40 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'deepseek') {
+    try {
+      const { runDeepSeek } = await import('@/deepseek/runDeepSeek');
+
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let model: string | undefined;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--model') {
+          model = args[++i];
+        } else if (args[i] === '--happy-starting-mode') {
+          i++;
+        }
+      }
+
+      const { credentials } = await authAndSetupMachineIfNeeded();
+      if (startedBy !== 'daemon') {
+        await ensureDaemonRunning();
+      }
+
+      await runDeepSeek({
+        credentials,
+        startedBy,
+        model,
+      });
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'gemini') {
     // Handle gemini subcommands
     const geminiSubcommand = args[1];
@@ -682,6 +716,7 @@ ${chalk.bold('Usage:')}
   happy auth              Manage authentication
   happy resume            Resume a previous Happy session by Happy session ID
   happy codex             Start Codex mode
+  happy deepseek          Start DeepSeek fast mode
   happy gemini            Start Gemini mode (ACP)
   happy acp               Start a generic ACP-compatible agent
   happy acp opencode      Start OpenCode mode (ACP)

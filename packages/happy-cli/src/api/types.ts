@@ -140,6 +140,7 @@ export const MachineMetadataSchema = z.object({
     gemini: z.boolean(),
     opencode: z.boolean(),
     openclaw: z.boolean(),
+    deepseek: z.boolean().optional(),
     detectedAt: z.number(),
   }).optional(),
   resumeSupport: z.object({
