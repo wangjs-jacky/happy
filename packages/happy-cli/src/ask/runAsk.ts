@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { createEnvelope, type SessionTurnEndStatus } from '@slopus/happy-wire';
+import type { SessionEnvelope, SessionTurnEndStatus } from '@slopus/happy-wire';
 
 import { ApiClient } from '@/api/api';
 import type { ApiSessionClient } from '@/api/apiSession';
 import type { UserMessage } from '@/api/types';
+import { AcpSessionManager } from '@/agent/acp/AcpSessionManager';
 import { initialMachineMetadata } from '@/daemon/run';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
@@ -111,9 +112,8 @@ export async function runAsk(opts: {
   }
 
   const apiKey = resolveDeepSeekApiKey();
+  const sessionManager = new AcpSessionManager();
   let activeAbortController: AbortController | null = null;
-  let currentTurnId: string | null = null;
-  let currentTurnHadDelta = false;
   let thinking = false;
   let stopped = false;
   let processing = false;
@@ -125,32 +125,26 @@ export async function runAsk(opts: {
     session.keepAlive(thinking, 'remote');
   }, 5_000);
 
-  const ensureTurn = () => {
-    if (currentTurnId) {
-      return currentTurnId;
+  const sendEnvelopes = (envelopes: SessionEnvelope[]) => {
+    for (const envelope of envelopes) {
+      session.sendSessionProtocolMessage(envelope);
     }
-    currentTurnHadDelta = false;
-    currentTurnId = randomUUID();
-    session.sendSessionProtocolMessage(createEnvelope('agent', { t: 'turn-start' }, { turn: currentTurnId }));
-    return currentTurnId;
+  };
+
+  const ensureTurn = () => {
+    sendEnvelopes(sessionManager.startTurn());
   };
 
   const sendText = (text: string, isThinking = false) => {
     if (!text) return;
-    const turn = ensureTurn();
-    currentTurnHadDelta = true;
-    session.sendSessionProtocolMessage(createEnvelope('agent', {
-      t: 'text',
-      text,
-      ...(isThinking ? { thinking: true } : {}),
-    }, { turn }));
+    ensureTurn();
+    sendEnvelopes(sessionManager.mapMessage(isThinking
+      ? { type: 'event', name: 'thinking', payload: { text, streaming: true } }
+      : { type: 'model-output', textDelta: text }));
   };
 
   const closeTurn = (status: SessionTurnEndStatus) => {
-    if (!currentTurnId) return;
-    session.sendSessionProtocolMessage(createEnvelope('agent', { t: 'turn-end', status }, { turn: currentTurnId }));
-    currentTurnId = null;
-    currentTurnHadDelta = false;
+    sendEnvelopes(sessionManager.endTurn(status));
     thinking = false;
     session.keepAlive(false, 'remote');
     session.sendSessionEvent({ type: 'ready' });
@@ -248,9 +242,7 @@ export async function runAsk(opts: {
     clearInterval(keepAliveTimer);
     try {
       activeAbortController?.abort();
-      if (currentTurnId) {
-        closeTurn('cancelled');
-      }
+      closeTurn('cancelled');
       session.updateMetadata((currentMetadata) => ({
         ...currentMetadata,
         lifecycleState: 'archived',
