@@ -1051,6 +1051,10 @@ export const ja: TranslationStructure = {
         unknownEvent: '不明なイベント',
         usageLimitUntil: ({ time }: { time: string }) => `${time}まで使用制限中`,
         unknownTime: '不明な時間',
+        foldedPromptTitle: 'プロンプトを折りたたみました',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines}行 · ${chars}文字`,
+        showPrompt: '表示',
+        hidePrompt: '隠す',
     },
 
     codex: {

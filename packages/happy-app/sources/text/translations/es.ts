@@ -1050,6 +1050,10 @@ export const es: TranslationStructure = {
         unknownEvent: 'Evento desconocido',
         usageLimitUntil: ({ time }: { time: string }) => `Límite de uso alcanzado hasta ${time}`,
         unknownTime: 'tiempo desconocido',
+        foldedPromptTitle: 'Prompt plegado',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} líneas · ${chars} caracteres`,
+        showPrompt: 'Mostrar',
+        hidePrompt: 'Ocultar',
     },
 
     codex: {

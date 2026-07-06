@@ -1,6 +1,8 @@
 import * as React from "react";
 import { View, Text, Pressable, Platform } from "react-native";
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { MarkdownView } from "./markdown/MarkdownView";
 import { t } from '@/text';
 import { Message, UserTextMessage, AgentTextMessage, ToolCallMessage } from "@/sync/typesMessage";
@@ -11,6 +13,7 @@ import { sync } from '@/sync/sync';
 import { Option } from './markdown/MarkdownView';
 import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
+import { getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
 
 
 export const MessageView = React.memo((props: {
@@ -159,9 +162,70 @@ function AgentTextBlock(props: {
     return null;
   }
 
+  const autoFoldPrompt = getAutoFoldPromptInfo(props.message.text);
+  if (autoFoldPrompt) {
+    return (
+      <View style={styles.agentMessageContainer}>
+        <AutoFoldPromptBlock
+          text={props.message.text}
+          info={autoFoldPrompt}
+          onOptionPress={handleOptionPress}
+          sessionId={props.sessionId}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.agentMessageContainer}>
       <MarkdownView markdown={props.message.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+    </View>
+  );
+}
+
+function AutoFoldPromptBlock(props: {
+  text: string;
+  info: NonNullable<ReturnType<typeof getAutoFoldPromptInfo>>;
+  onOptionPress: (option: Option) => void;
+  sessionId: string;
+}) {
+  const { theme } = useUnistyles();
+  const [expanded, setExpanded] = React.useState(false);
+  const toggleExpanded = React.useCallback(() => {
+    setExpanded((value) => !value);
+  }, []);
+  const copyPrompt = React.useCallback(() => {
+    void Clipboard.setStringAsync(props.text);
+  }, [props.text]);
+
+  return (
+    <View style={styles.autoFoldCard}>
+      <View style={styles.autoFoldHeader}>
+        <Pressable style={styles.autoFoldHeaderMain} onPress={toggleExpanded}>
+          <Ionicons name="document-text-outline" size={17} color={theme.colors.textSecondary} />
+          <View style={styles.autoFoldTitleGroup}>
+            <Text style={styles.autoFoldTitle} numberOfLines={1}>{t('message.foldedPromptTitle')}</Text>
+            <Text style={styles.autoFoldSummary} numberOfLines={1}>
+              {t('message.foldedPromptSummary', { lines: props.info.lineCount, chars: props.info.charCount })}
+            </Text>
+          </View>
+        </Pressable>
+        <Pressable style={styles.autoFoldAction} onPress={copyPrompt}>
+          <Ionicons name="copy-outline" size={16} color={theme.colors.textSecondary} />
+          <Text style={styles.autoFoldActionText}>{t('common.copy')}</Text>
+        </Pressable>
+        <Pressable style={styles.autoFoldAction} onPress={toggleExpanded}>
+          <Text style={styles.autoFoldActionText}>{expanded ? t('message.hidePrompt') : t('message.showPrompt')}</Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textSecondary} />
+        </Pressable>
+      </View>
+      {expanded ? (
+        <View style={styles.autoFoldExpanded}>
+          <MarkdownView markdown={props.text} onOptionPress={props.onOptionPress} sessionId={props.sessionId} />
+        </View>
+      ) : (
+        <Text style={styles.autoFoldPreview} numberOfLines={8}>{props.info.preview}</Text>
+      )}
     </View>
   );
 }
@@ -292,6 +356,67 @@ const styles = StyleSheet.create((theme) => ({
     marginHorizontal: 8,
     maxWidth: '100%',
     overflow: 'hidden',
+  },
+  autoFoldCard: {
+    backgroundColor: theme.colors.surfaceHigh,
+    borderColor: theme.colors.divider,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  autoFoldHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomColor: theme.colors.divider,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  autoFoldHeaderMain: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  autoFoldTitleGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  autoFoldTitle: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  autoFoldSummary: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    marginTop: 1,
+  },
+  autoFoldAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  autoFoldActionText: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+  },
+  autoFoldPreview: {
+    color: theme.colors.textSecondary,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  autoFoldExpanded: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
   },
   debugText: {
     color: theme.colors.agentEventText,

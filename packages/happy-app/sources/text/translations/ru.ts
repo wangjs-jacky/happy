@@ -1054,6 +1054,10 @@ export const ru: TranslationStructure = {
         unknownEvent: 'Неизвестное событие',
         usageLimitUntil: ({ time }: { time: string }) => `Лимит использования достигнут до ${time}`,
         unknownTime: 'неизвестное время',
+        foldedPromptTitle: 'Промпт свернут',
+        foldedPromptSummary: ({ lines, chars }: { lines: number; chars: number }) => `${lines} строк · ${chars} симв.`,
+        showPrompt: 'Показать',
+        hidePrompt: 'Скрыть',
     },
 
     codex: {
