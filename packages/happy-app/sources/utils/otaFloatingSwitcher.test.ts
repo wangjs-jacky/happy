@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { shouldShowOtaFloatingSwitcher } from './otaFloatingSwitcher';
 
 describe('shouldShowOtaFloatingSwitcher', () => {
+    it('shows whenever developer mode is enabled', () => {
+        expect(shouldShowOtaFloatingSwitcher({
+            appConfigChannel: 'production',
+            updatesChannel: 'production',
+            applicationId: 'build.paws',
+            devModeEnabled: true,
+        })).toBe(true);
+    });
+
     it('shows for preview channels from app config or expo-updates', () => {
         expect(shouldShowOtaFloatingSwitcher({ appConfigChannel: 'preview' })).toBe(true);
         expect(shouldShowOtaFloatingSwitcher({ updatesChannel: 'preview' })).toBe(true);

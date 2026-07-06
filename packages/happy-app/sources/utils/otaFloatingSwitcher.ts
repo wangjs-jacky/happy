@@ -3,6 +3,7 @@ export interface OtaFloatingSwitcherRuntime {
     updatesChannel?: string | null;
     applicationId?: string | null;
     isDev?: boolean;
+    devModeEnabled?: boolean;
 }
 
 const PREVIEW_APPLICATION_IDS = new Set(['build.paws.preview', 'build.paws.dev']);
@@ -15,6 +16,10 @@ export function shouldShowOtaFloatingSwitcher(runtime: OtaFloatingSwitcherRuntim
     const appConfigChannel = normalize(runtime.appConfigChannel);
     const updatesChannel = normalize(runtime.updatesChannel);
     const applicationId = normalize(runtime.applicationId);
+
+    if (runtime.devModeEnabled) {
+        return true;
+    }
 
     if (appConfigChannel === 'preview' || updatesChannel === 'preview') {
         return true;

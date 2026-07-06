@@ -231,11 +231,13 @@ export default function RootLayout() {
     const router = useRouter();
     const { theme } = useUnistyles();
     const appConfig = React.useMemo(() => loadAppConfig(), []);
+    const devModeEnabled = __DEV__ || useLocalSetting('devModeEnabled');
     const showOtaFloatingSwitcher = shouldShowOtaFloatingSwitcher({
         appConfigChannel: appConfig.otaChannel,
         updatesChannel: Updates.channel,
         applicationId: Application.applicationId,
         isDev: __DEV__,
+        devModeEnabled,
     });
     const navigationTheme = React.useMemo(() => {
         if (theme.dark) {
@@ -390,7 +392,6 @@ export default function RootLayout() {
 
     // Sync console output toggle from Dev screen
     const consoleLoggingEnabled = useLocalSetting('consoleLoggingEnabled');
-    const devModeEnabled = __DEV__ || useLocalSetting('devModeEnabled');
     const voiceUpsellOverride = useLocalSetting('voiceUpsellOverride');
     React.useEffect(() => {
         setConsoleOutputEnabled(consoleLoggingEnabled);
