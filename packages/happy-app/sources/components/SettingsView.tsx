@@ -31,6 +31,7 @@ import { MascotSwitcher } from '@/components/MascotSwitcher';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 import * as Localization from 'expo-localization';
 import { loadAppConfig } from '@/sync/appConfig';
+import { getSettingsFeatureEntries } from '@/components/settingsFeatureEntries';
 
 type BuildConfig = {
     repositoryUrl?: unknown;
@@ -145,6 +146,10 @@ export const SettingsView = React.memo(function SettingsView() {
         : `${repositoryUrl.replace(/\/$/, '')}/issues`;
     const termsUrl = `${repositoryUrl.replace(/\/$/, '').replace(/\.git$/, '')}/blob/main/packages/happy-app/TERMS.md`;
     const repositoryDetail = getGitHubRepoDetail(repositoryUrl);
+    const featureEntries = React.useMemo(
+        () => getSettingsFeatureEntries({ experiments }),
+        [experiments],
+    );
 
     const handleGitHub = async () => {
         await openExternalUrl(repositoryUrl);
@@ -416,50 +421,15 @@ export const SettingsView = React.memo(function SettingsView() {
 
             {/* Features */}
             <ItemGroup title={t('settings.features')}>
-                <Item
-                    title={t('settings.voiceAssistant')}
-                    subtitle={t('settings.voiceAssistantSubtitle')}
-                    icon={<Ionicons name="mic-outline" size={29} color="#34C759" />}
-                    onPress={() => router.push('/settings/voice')}
-                />
-                <Item
-                    title={t('agents.title')}
-                    subtitle={t('agents.entrySubtitle')}
-                    icon={<Ionicons name="people-outline" size={29} color="#FF9500" />}
-                    onPress={() => router.push('/settings/my-agents' as any)}
-                />
-                <Item
-                    title={t('settings.agentDefaults')}
-                    subtitle={t('settings.agentDefaultsSubtitle')}
-                    icon={<Ionicons name="options-outline" size={29} color="#5AC8FA" />}
-                    onPress={() => router.push('/settings/agents' as any)}
-                />
-                <Item
-                    title={t('settings.customInstructions')}
-                    subtitle={t('settings.customInstructionsSubtitle')}
-                    icon={<Ionicons name="document-text-outline" size={29} color="#FF2D55" />}
-                    onPress={() => router.push('/settings/custom-instructions' as any)}
-                />
-                <Item
-                    title={t('settingsSkills.title')}
-                    subtitle={t('settingsSkills.entrySubtitle')}
-                    icon={<Ionicons name="cube-outline" size={29} color="#34C759" />}
-                    onPress={() => router.push('/settings/skills' as any)}
-                />
-                <Item
-                    title={t('settings.featuresTitle')}
-                    subtitle={t('settings.featuresSubtitle')}
-                    icon={<Ionicons name="flask-outline" size={29} color="#FF9500" />}
-                    onPress={() => router.push('/settings/features')}
-                />
-                {experiments && (
+                {featureEntries.map((entry) => (
                     <Item
-                        title={t('settings.usage')}
-                        subtitle={t('settings.usageSubtitle')}
-                        icon={<Ionicons name="analytics-outline" size={29} color={theme.colors.accent} />}
-                        onPress={() => router.push('/settings/usage')}
+                        key={entry.key}
+                        title={t(entry.titleKey)}
+                        subtitle={t(entry.subtitleKey)}
+                        icon={<Ionicons name={entry.icon} size={29} color={entry.color === 'accent' ? theme.colors.accent : entry.color} />}
+                        onPress={() => router.push(entry.route as any)}
                     />
-                )}
+                ))}
             </ItemGroup>
 
             {/* Developer */}

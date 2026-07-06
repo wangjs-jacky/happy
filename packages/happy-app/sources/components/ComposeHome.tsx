@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, LayoutAnimation } from 'react-native';
+import { View, Text, Pressable, LayoutAnimation, ScrollView } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -27,6 +27,9 @@ import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection'
 import type { Machine } from '@/sync/storageTypes';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
+import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForAgent, getImageAgentVariantCount, type ImageAgentStylePreset } from './agents/imageAgentPrompt';
+import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
+import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
@@ -74,13 +77,46 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
+    const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
+    const [selectedImageStyleId, setSelectedImageStyleId] = React.useState<string | null>(null);
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
     // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
-    const { agentId } = useLocalSearchParams<{ agentId?: string }>();
+    const { agentId, mode } = useLocalSearchParams<{ agentId?: string; mode?: string }>();
     const agents = useSetting('agents');
+    const activeAgent = React.useMemo(
+        () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
+        [agentId, agents],
+    );
+    const imageAgent = React.useMemo(
+        () => resolveComposeImageAgent({ routeMode: mode, agent: activeAgent }),
+        [activeAgent, mode],
+    );
+    const effectiveImageAgent = React.useMemo(
+        () => (imageAgent && selectedImageStyleId ? selectImageAgentStyle(imageAgent, selectedImageStyleId) : imageAgent),
+        [imageAgent, selectedImageStyleId],
+    );
+    const activeImageAgent = !!imageAgent;
+    const galleryImageStyles = React.useMemo(
+        () => (imageAgent ? getImageAgentStylesForAgent(imageAgent) : []),
+        [imageAgent],
+    );
+    const activeImageStyles = React.useMemo(
+        () => (effectiveImageAgent ? getImageAgentStylesForAgent(effectiveImageAgent) : []),
+        [effectiveImageAgent],
+    );
+    const activeImageVariants = effectiveImageAgent ? getImageAgentVariantCount(effectiveImageAgent) : 1;
+    const selectedImageStyle = React.useMemo(
+        () => (selectedImageStyleId ? galleryImageStyles.find((style) => style.id === selectedImageStyleId) ?? null : null),
+        [galleryImageStyles, selectedImageStyleId],
+    );
+
+    React.useEffect(() => {
+        setSelectedImageStyleId(null);
+        setImageGalleryOpen(false);
+    }, [imageAgent?.id]);
 
     // 预设提示词「填充」走 MessageComposer 转发出来的命令式 ref：输入框是非受控的
     // （MultiTextInput 用 defaultValue 播种），setText 只改父级状态、看不见。调用
@@ -93,19 +129,26 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         composerInputRef.current?.focus();
     }, []);
 
-    const { agentType, selectedMachineId, worktreeKey } = useNewSessionDraft(useShallow((s) => ({
+    const { agentType, selectedMachineId, worktreeKey, setAgentType } = useNewSessionDraft(useShallow((s) => ({
         agentType: s.agentType,
         selectedMachineId: s.selectedMachineId,
         worktreeKey: s.worktreeKey,
+        setAgentType: s.setAgentType,
     })));
     const selectedPath = useNewSessionDraft(s => s.selectedPath);
+
+    React.useEffect(() => {
+        if (activeImageAgent && agentType !== 'codex') {
+            setAgentType('codex');
+        }
+    }, [activeImageAgent, agentType, setAgentType]);
 
     // Inline image attachments (claude / codex). 图片上传已转正：Claude、Codex 会话默认
     // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
     // supportsAttachments），其余 runner（gemini / openclaw）会静默丢弃，故不显示。
     // compact horizontal strip keeps the footprint to one row.
-    const canAttach = agentType === 'claude' || agentType === 'codex';
-    const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
+    const canAttach = activeImageAgent || agentType === 'claude' || agentType === 'codex';
+    const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
 
     const name = getDisplayName(profile);
@@ -127,7 +170,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [agentId, agents, builtinAppAgent]);
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
-    const agentLabel = AGENT_LABELS[agentType] ?? agentType;
+    const displayAgentType = activeImageAgent ? 'codex' : agentType;
+    const agentLabel = AGENT_LABELS[displayAgentType] ?? displayAgentType;
 
     const openDrawer = React.useCallback(() => {
         navigation.dispatch(DrawerActions.openDrawer());
@@ -140,6 +184,26 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const goBack = React.useCallback(() => {
         router.back();
     }, [router]);
+
+    const openImageStyleMode = React.useCallback(() => {
+        hapticsLight();
+        router.push(IMAGE_STYLE_COMPOSE_ROUTE as any);
+    }, [router]);
+
+    const openImageStyleGallery = React.useCallback(() => {
+        hapticsLight();
+        setImageGalleryOpen(true);
+    }, []);
+
+    const closeImageStyleGallery = React.useCallback(() => {
+        setImageGalleryOpen(false);
+    }, []);
+
+    const selectImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
+        setSelectedImageStyleId(style.id);
+        setImageGalleryOpen(false);
+        fillPreset(createImageStyleSelectionPrompt(style));
+    }, [fillPreset]);
 
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
@@ -159,12 +223,20 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
         if ((!trimmed && !images) || sending) return;
+        const prompt = activeImageAgent && effectiveImageAgent
+            ? buildImageAgentPrompt({
+                agent: effectiveImageAgent,
+                userPrompt: trimmed,
+                imageCount: images?.length ?? 0,
+            })
+            : trimmed;
 
         const draft = useNewSessionDraft.getState();
         const liveSelection = configPanelRef.current?.getSelection();
         const machine = machines.find((m) => m.id === draft.selectedMachineId);
+        const spawnAgent = activeImageAgent ? 'codex' : draft.agentType;
         const resolvedModes = resolveNewSessionModeSelection({
-            agent: draft.agentType,
+            agent: spawnAgent,
             permissionMode: draft.permissionMode,
             modelMode: draft.modelMode,
             effortLevel: draft.effortLevel,
@@ -186,12 +258,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             machineId: draft.selectedMachineId!,
             machine: machine!,
             path: draft.selectedPath,
-            agent: draft.agentType,
+            agent: spawnAgent,
             worktreeKey: draft.worktreeKey,
             permissionMode: liveSelection?.permissionKey ?? resolvedModes.permissionMode,
             modelMode: liveSelection?.modelKey ?? resolvedModes.modelMode,
             effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
-            prompt: trimmed,
+            prompt,
             images,
         }).then((ok) => {
             if (ok) {
@@ -200,7 +272,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -257,13 +329,124 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <Text style={styles.greeting}>
                         {displayAgent
                             ? t('composeHome.greetingAgent', { name: displayAgent.name })
-                            : name
-                                ? t('composeHome.greeting', { name })
-                                : t('composeHome.greetingNoName')}
+                            : activeImageAgent
+                                ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
+                                : name
+                                    ? t('composeHome.greeting', { name })
+                                    : t('composeHome.greetingNoName')}
                     </Text>
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
+                    {activeImageAgent && (
+                        <View style={styles.imageAgentPanel}>
+                            <View style={styles.imageAgentHeader}>
+                                <Ionicons
+                                    name={sending ? 'lock-closed-outline' : 'sparkles-outline'}
+                                    size={18}
+                                    color={theme.colors.accent}
+                                />
+                                <View style={styles.imageAgentCopy}>
+                                    <Text style={styles.imageAgentTitle} numberOfLines={1}>
+                                        {sending ? t('agents.imageAgentLocked') : t('agents.imageAgentReady')}
+                                    </Text>
+                                    <Text style={styles.imageAgentSubtitle} numberOfLines={1}>
+                                        {t('agents.imageAgentSummary', { count: activeImageStyles.length, variants: activeImageVariants })}
+                                    </Text>
+                                </View>
+                            </View>
+                            {!hasImages && (
+                                <Pressable
+                                    onPress={pickImages}
+                                    style={({ pressed }) => [
+                                        styles.imageUploadAction,
+                                        pressed && styles.imageUploadActionPressed,
+                                    ]}
+                                    hitSlop={6}
+                                >
+                                    <View style={styles.imageUploadIcon}>
+                                        <Ionicons name="add" size={22} color={theme.colors.text} />
+                                    </View>
+                                    <View style={styles.imageUploadCopy}>
+                                        <Text style={styles.imageUploadTitle} numberOfLines={1}>
+                                            {t('agents.imageUploadCta')}
+                                        </Text>
+                                        <Text style={styles.imageUploadSubtitle} numberOfLines={1}>
+                                            {t('agents.imageUploadHint')}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="images-outline" size={18} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            )}
+                            <Pressable
+                                onPress={openImageStyleGallery}
+                                style={({ pressed }) => [
+                                    styles.imageEffectAction,
+                                    pressed && styles.imageEffectActionPressed,
+                                ]}
+                                hitSlop={6}
+                            >
+                                <View style={styles.imageEffectIcon}>
+                                    <Ionicons name="color-filter-outline" size={18} color={theme.colors.text} />
+                                </View>
+                                <View style={styles.imageEffectCopy}>
+                                    <Text style={styles.imageEffectTitle} numberOfLines={1}>
+                                        {selectedImageStyle ? getImageAgentStyleLabel(selectedImageStyle) : t('agents.imageEffectChoose')}
+                                    </Text>
+                                    <Text style={styles.imageEffectSubtitle} numberOfLines={1}>
+                                        {t('agents.imageEffectChooseHint')}
+                                    </Text>
+                                </View>
+                                <Ionicons name="chevron-up" size={17} color={theme.colors.textSecondary} />
+                            </Pressable>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.imageStyleRow}
+                                keyboardShouldPersistTaps="always"
+                            >
+                                {activeImageStyles.map((style) => (
+                                    <Pressable
+                                        key={style.id}
+                                        onPress={openImageStyleGallery}
+                                        style={({ pressed }) => [
+                                            styles.imageStyleChip,
+                                            pressed && styles.imageStyleChipPressed,
+                                        ]}
+                                        hitSlop={6}
+                                    >
+                                        <Text style={styles.imageStyleChipText} numberOfLines={1}>
+                                            {getImageAgentStyleLabel(style)}
+                                        </Text>
+                                    </Pressable>
+                                ))}
+                            </ScrollView>
+                        </View>
+                    )}
+                    {!activeImageAgent && (
+                        <View style={styles.creationRail}>
+                            <Pressable
+                                onPress={openImageStyleMode}
+                                style={({ pressed }) => [
+                                    styles.creationAction,
+                                    pressed && styles.creationActionPressed,
+                                ]}
+                                hitSlop={6}
+                            >
+                                <View style={styles.creationActionIcon}>
+                                    <Ionicons name="sparkles-outline" size={17} color={theme.colors.text} />
+                                </View>
+                                <View style={styles.creationActionCopy}>
+                                    <Text style={styles.creationActionTitle} numberOfLines={1}>
+                                        {t('agents.imageCreationAction')}
+                                    </Text>
+                                    <Text style={styles.creationActionSubtitle} numberOfLines={1}>
+                                        {t('agents.imageCreationActionSubtitle')}
+                                    </Text>
+                                </View>
+                            </Pressable>
+                        </View>
+                    )}
                     {displayAgent && displayAgent.presets.length > 0 && (
                         <View style={styles.presetRow}>
                             {displayAgent.presets.map((preset, i) => (
@@ -281,7 +464,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
-                        placeholder={t('composeHome.placeholder')}
+                        placeholder={activeImageAgent ? t('agents.imagePromptPlaceholder') : t('composeHome.placeholder')}
                         initialValue={text}
                         onChangeText={setText}
                         onSend={handleSend}
@@ -290,6 +473,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         selectedImages={hasImages ? selectedImages : undefined}
                         onPickImages={canAttach ? pickImages : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
+                        onAddImages={canAttach ? addImages : undefined}
                     />
                     <Text style={styles.byline}>{t('composeHome.byline')}</Text>
                 </View>
@@ -308,6 +492,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         <SessionConfigPanel ref={configPanelRef} layout="inline" collapsible={false} />
                     </View>
                 </>
+            )}
+            {activeImageAgent && (
+                <ImageStyleGallerySheet
+                    visible={imageGalleryOpen}
+                    styles={galleryImageStyles}
+                    selectedStyleId={selectedImageStyleId}
+                    onSelect={selectImageStyleFromGallery}
+                    onClose={closeImageStyleGallery}
+                />
             )}
             </View>
         </RightSwipePanelHost>
@@ -388,6 +581,173 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
+    },
+    imageAgentPanel: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: 14,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        padding: 10,
+        gap: 8,
+        marginBottom: 10,
+    },
+    imageAgentHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    imageAgentCopy: {
+        flex: 1,
+    },
+    imageAgentTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    imageAgentSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
+    },
+    imageUploadAction: {
+        minHeight: 58,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 9,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageUploadActionPressed: {
+        opacity: 0.78,
+    },
+    imageUploadIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    imageUploadCopy: {
+        flex: 1,
+    },
+    imageUploadTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    imageUploadSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+    },
+    imageEffectAction: {
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageEffectActionPressed: {
+        opacity: 0.78,
+    },
+    imageEffectIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    imageEffectCopy: {
+        flex: 1,
+    },
+    imageEffectTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    imageEffectSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
+    },
+    imageStyleRow: {
+        gap: 6,
+        paddingRight: 8,
+    },
+    imageStyleChip: {
+        maxWidth: 180,
+        height: 28,
+        paddingHorizontal: 10,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    imageStyleChipPressed: {
+        opacity: 0.75,
+    },
+    imageStyleChipText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.text,
+    },
+    creationRail: {
+        flexDirection: 'row',
+        paddingHorizontal: 4,
+        paddingBottom: 10,
+    },
+    creationAction: {
+        minHeight: 46,
+        maxWidth: 220,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+        paddingLeft: 9,
+        paddingRight: 14,
+        borderRadius: 23,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    creationActionPressed: {
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    creationActionIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    creationActionCopy: {
+        flexShrink: 1,
+    },
+    creationActionTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.text,
+    },
+    creationActionSubtitle: {
+        ...Typography.default(),
+        fontSize: 11,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
     },
     presetRow: {
         flexDirection: 'row',

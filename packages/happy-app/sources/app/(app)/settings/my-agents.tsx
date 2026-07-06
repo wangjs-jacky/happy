@@ -81,7 +81,7 @@ export default React.memo(function MyAgentsSettingsScreen() {
                         <Item
                             key={agent.id}
                             title={agent.name}
-                            subtitle={`${machineName(agent.machineId)} · ${agent.path}`}
+                            subtitle={`${agent.kind === 'image-styles' ? `${t('agents.imageStyleAgent')} · ` : ''}${machineName(agent.machineId)} · ${agent.path}`}
                             leftElement={
                                 <View style={[styles.avatar, { backgroundColor: agent.color }]}>
                                     <Text style={styles.avatarGlyph}>{agent.glyph}</Text>

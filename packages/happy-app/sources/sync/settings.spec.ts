@@ -95,6 +95,22 @@ describe('settings', () => {
             });
             it('parses a valid agent entry', () => {
                 const a = { id: 'x1', name: '工作日程', glyph: '日', color: '#5e5791', machineId: 'm1', path: '~/work', presets: [{ label: '看今天', prompt: '列出今天事项' }] };
+                expect(settingsParse({ agents: [a] }).agents).toEqual([{ ...a, kind: 'standard', imageStyleIds: [], imageVariantsPerStyle: 1 }]);
+            });
+            it('parses GPT Image 2 style generator agents', () => {
+                const a = {
+                    id: 'img1',
+                    name: 'Tiramisu styles',
+                    glyph: 'T',
+                    color: '#8B5E3C',
+                    machineId: 'm1',
+                    path: '~/work',
+                    kind: 'image-styles',
+                    imageStyleIds: ['premium-studio', 'white-product'],
+                    imageVariantsPerStyle: 2,
+                    presets: [],
+                };
+
                 expect(settingsParse({ agents: [a] }).agents).toEqual([a]);
             });
             it('drops malformed agents back to default', () => {
@@ -268,6 +284,9 @@ describe('settings', () => {
             color: '#5e5791',
             machineId: 'machine-1',
             path: '~/jacky-github/happy',
+            kind: 'standard' as const,
+            imageStyleIds: [],
+            imageVariantsPerStyle: 1,
             presets: [{ label: 'Plan', prompt: 'Make a plan' }],
         };
 

@@ -5,6 +5,9 @@ export interface AgentPreset { label: string; prompt: string; }
 export interface AgentLauncher {
     id: string; name: string; glyph: string; color: string;
     machineId: string; path: string; presets: AgentPreset[];
+    kind: 'standard' | 'image-styles';
+    imageStyleIds: string[];
+    imageVariantsPerStyle: number;
     agentType?: NewSessionAgentType;
     permissionMode?: PermissionModeKey;
     modelMode?: string;
@@ -15,9 +18,9 @@ export interface AgentLauncher {
 interface DraftSetters {
     setMachineId: (id: string | null) => void;
     setPath: (path: string | null) => void;
+    setAgentType: (agent: NewSessionAgentType) => void;
     setSessionType: (t: NewSessionSessionType) => void;
     setInput: (s: string) => void;
-    setAgentType?: (agent: NewSessionAgentType) => void;
     setPermissionMode?: (mode: PermissionModeKey) => void;
     setModelMode?: (mode: string) => void;
     setEffortLevel?: (level: string | null) => void;
@@ -31,7 +34,8 @@ export function launchAgent(
 ): void {
     draft.setMachineId(agent.machineId);
     draft.setPath(agent.path);
-    if (agent.agentType) draft.setAgentType?.(agent.agentType);
+    const agentType = agent.agentType ?? (agent.kind === 'image-styles' ? 'codex' : undefined);
+    if (agentType) draft.setAgentType(agentType);
     if (agent.permissionMode) draft.setPermissionMode?.(agent.permissionMode);
     if (agent.modelMode) draft.setModelMode?.(agent.modelMode);
     if (agent.effortLevel !== undefined) draft.setEffortLevel?.(agent.effortLevel);

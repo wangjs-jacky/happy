@@ -18,6 +18,10 @@ import { t } from '@/text';
 import type { AgentLauncher, AgentPreset } from '@/components/agents/launchAgent';
 import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
+import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
+
+type AgentKind = 'standard' | 'image-styles';
+const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
 
 /** 取名称第一个字形（grapheme-safe）作为默认头像字符；空则回退 '?'。 */
 function firstGlyph(name: string): string {
@@ -35,7 +39,7 @@ export default React.memo(function AgentEditScreen() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const router = useRouter();
-    const params = useLocalSearchParams<{ id?: string }>();
+    const params = useLocalSearchParams<{ id?: string; kind?: string }>();
     const editingId = typeof params.id === 'string' && params.id.length > 0 ? params.id : null;
 
     const [agents, setAgents] = useSettingMutable('agents');
@@ -47,9 +51,19 @@ export default React.memo(function AgentEditScreen() {
         [agents, editingId],
     );
 
-    const [name, setName] = React.useState(existing?.name ?? '');
+    const initialKind: AgentKind = !editingId && params.kind === 'image-styles'
+        ? 'image-styles'
+        : existing?.kind ?? 'standard';
+    const [name, setName] = React.useState(existing?.name ?? (initialKind === 'image-styles' ? t('agents.imageStyleAgent') : ''));
+    const [kind, setKind] = React.useState<AgentKind>(initialKind);
     const [machineId, setMachineId] = React.useState<string | null>(existing?.machineId ?? null);
     const [path, setPath] = React.useState(existing?.path ?? '~');
+    const [imageStyleIds, setImageStyleIds] = React.useState<string[]>(
+        () => existing?.kind === 'image-styles'
+            ? (existing.imageStyleIds?.length ? existing.imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
+            : DEFAULT_IMAGE_STYLE_IDS,
+    );
+    const [imageVariantsPerStyle, setImageVariantsPerStyle] = React.useState(existing?.imageVariantsPerStyle ?? 1);
     // 编辑态预设：在持久化的 {label, prompt} 之外，为每行附加一个本地临时 _key（不落库），
     // 作为 React 列表的稳定 key——避免用数组下标做 key 时，删除非末行导致受控
     // TextInput 的光标/输入法状态串到错误的行上。保存时会剥离 _key。
@@ -95,6 +109,19 @@ export default React.memo(function AgentEditScreen() {
     const addPreset = React.useCallback(() => {
         setPresets((prev) => [...prev, { _key: randomUUID(), label: '', prompt: '' }]);
     }, []);
+    const selectKind = React.useCallback((nextKind: AgentKind) => {
+        setKind(nextKind);
+        if (nextKind === 'image-styles' && imageStyleIds.length === 0) {
+            setImageStyleIds(DEFAULT_IMAGE_STYLE_IDS);
+        }
+    }, [imageStyleIds.length]);
+    const toggleImageStyle = React.useCallback((styleId: string) => {
+        setImageStyleIds((prev) => (
+            prev.includes(styleId)
+                ? prev.filter((id) => id !== styleId)
+                : [...prev, styleId]
+        ));
+    }, []);
 
     const handleSave = React.useCallback(() => {
         const trimmedName = name.trim();
@@ -115,7 +142,12 @@ export default React.memo(function AgentEditScreen() {
             color: existing?.color ?? entityColor(id),
             machineId,
             path: path.trim() || '~',
-            presets: cleanedPresets,
+            kind,
+            imageStyleIds: kind === 'image-styles'
+                ? (imageStyleIds.length > 0 ? imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
+                : [],
+            imageVariantsPerStyle: kind === 'image-styles' ? imageVariantsPerStyle : 1,
+            presets: kind === 'image-styles' ? [] : cleanedPresets,
         };
 
         // Preserve order on edit (replace in place); append when new.
@@ -125,7 +157,7 @@ export default React.memo(function AgentEditScreen() {
                 : [...agents, agent],
         );
         router.back();
-    }, [name, machineId, path, presets, existing, agents, setAgents, router]);
+    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle]);
 
     const handleDelete = React.useCallback(() => {
         if (!existing) return;
@@ -173,6 +205,30 @@ export default React.memo(function AgentEditScreen() {
                     </View>
                 </ItemGroup>
 
+                {/* Agent 类型 */}
+                <ItemGroup title={t('agents.agentKind')}>
+                    <Item
+                        title={t('agents.standardAgent')}
+                        subtitle={t('agents.standardAgentSubtitle')}
+                        icon={<Ionicons name="terminal-outline" size={29} color={theme.colors.accent} />}
+                        onPress={() => selectKind('standard')}
+                        showChevron={false}
+                        rightElement={kind === 'standard' ? (
+                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                        ) : undefined}
+                    />
+                    <Item
+                        title={t('agents.imageStyleAgent')}
+                        subtitle={t('agents.imageStyleAgentSubtitle')}
+                        icon={<Ionicons name="images-outline" size={29} color={theme.colors.accent} />}
+                        onPress={() => selectKind('image-styles')}
+                        showChevron={false}
+                        rightElement={kind === 'image-styles' ? (
+                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                        ) : undefined}
+                    />
+                </ItemGroup>
+
                 {/* 机器 */}
                 <ItemGroup title={t('agents.machine')}>
                     {machines.length === 0 ? (
@@ -212,49 +268,95 @@ export default React.memo(function AgentEditScreen() {
                     />
                 </ItemGroup>
 
-                {/* 预设指令 */}
-                <ItemGroup title={t('agents.presets')}>
-                    {presets.map((preset, index) => (
-                        <View key={preset._key} style={styles.presetRow}>
-                            <View style={styles.presetInputs}>
-                                <TextInput
-                                    style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
-                                    value={preset.label}
-                                    onChangeText={(v) => updatePreset(index, { label: v })}
-                                    placeholder={t('agents.presetLabelPlaceholder')}
-                                    placeholderTextColor={theme.colors.input.placeholder}
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                />
-                                <TextInput
-                                    style={[styles.input, styles.presetPrompt, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
-                                    value={preset.prompt}
-                                    onChangeText={(v) => updatePreset(index, { prompt: v })}
-                                    placeholder={t('agents.presetPromptPlaceholder')}
-                                    placeholderTextColor={theme.colors.input.placeholder}
-                                    autoCapitalize="none"
-                                    autoCorrect={false}
-                                    multiline
-                                />
+                {kind === 'image-styles' ? (
+                    <>
+                        <ItemGroup title={t('agents.imageStyles')} footer={t('agents.imageStyleFooter')}>
+                            <View style={styles.styleGrid}>
+                                {IMAGE_AGENT_STYLE_PRESETS.map((style) => {
+                                    const selected = imageStyleIds.includes(style.id);
+                                    return (
+                                        <Pressable
+                                            key={style.id}
+                                            onPress={() => toggleImageStyle(style.id)}
+                                            style={({ pressed }) => [
+                                                styles.styleChip,
+                                                selected && styles.styleChipSelected,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[styles.styleChipText, selected && styles.styleChipTextSelected]}
+                                                numberOfLines={1}
+                                            >
+                                                {getImageAgentStyleLabel(style)}
+                                            </Text>
+                                            {selected && (
+                                                <Ionicons name="checkmark" size={14} color={theme.colors.button.primary.tint} />
+                                            )}
+                                        </Pressable>
+                                    );
+                                })}
                             </View>
-                            <Pressable
-                                onPress={() => removePreset(index)}
-                                hitSlop={8}
-                                accessibilityRole="button"
-                                accessibilityLabel={t('agents.delete')}
-                                style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
-                            >
-                                <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textDestructive} />
-                            </Pressable>
-                        </View>
-                    ))}
-                    <Item
-                        title={t('agents.addPreset')}
-                        icon={<Ionicons name="add-circle-outline" size={29} color={theme.colors.accent} />}
-                        onPress={addPreset}
-                        showChevron={false}
-                    />
-                </ItemGroup>
+                        </ItemGroup>
+
+                        <ItemGroup title={t('agents.imageVariants')}>
+                            {[1, 2, 3, 4].map((count) => (
+                                <Item
+                                    key={count}
+                                    title={t('agents.imageVariantsPerStyle', { count })}
+                                    onPress={() => setImageVariantsPerStyle(count)}
+                                    showChevron={false}
+                                    rightElement={imageVariantsPerStyle === count ? (
+                                        <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                    ) : undefined}
+                                />
+                            ))}
+                        </ItemGroup>
+                    </>
+                ) : (
+                    <ItemGroup title={t('agents.presets')}>
+                        {presets.map((preset, index) => (
+                            <View key={preset._key} style={styles.presetRow}>
+                                <View style={styles.presetInputs}>
+                                    <TextInput
+                                        style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
+                                        value={preset.label}
+                                        onChangeText={(v) => updatePreset(index, { label: v })}
+                                        placeholder={t('agents.presetLabelPlaceholder')}
+                                        placeholderTextColor={theme.colors.input.placeholder}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                    />
+                                    <TextInput
+                                        style={[styles.input, styles.presetPrompt, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
+                                        value={preset.prompt}
+                                        onChangeText={(v) => updatePreset(index, { prompt: v })}
+                                        placeholder={t('agents.presetPromptPlaceholder')}
+                                        placeholderTextColor={theme.colors.input.placeholder}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        multiline
+                                    />
+                                </View>
+                                <Pressable
+                                    onPress={() => removePreset(index)}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={t('agents.delete')}
+                                    style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
+                                >
+                                    <Ionicons name="remove-circle-outline" size={22} color={theme.colors.textDestructive} />
+                                </Pressable>
+                            </View>
+                        ))}
+                        <Item
+                            title={t('agents.addPreset')}
+                            icon={<Ionicons name="add-circle-outline" size={29} color={theme.colors.accent} />}
+                            onPress={addPreset}
+                            showChevron={false}
+                        />
+                    </ItemGroup>
+                )}
 
                 {/* 删除（仅编辑模式） */}
                 {existing && (
@@ -303,6 +405,39 @@ const stylesheet = StyleSheet.create((theme) => ({
     presetPrompt: {
         minHeight: 40,
         textAlignVertical: 'top',
+    },
+    styleGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        backgroundColor: theme.colors.surface,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    styleChip: {
+        maxWidth: '48%',
+        minHeight: 34,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        borderRadius: 17,
+        paddingHorizontal: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    styleChipSelected: {
+        backgroundColor: theme.colors.button.primary.background,
+        borderColor: theme.colors.button.primary.background,
+    },
+    styleChipText: {
+        flexShrink: 1,
+        fontSize: 13,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    styleChipTextSelected: {
+        color: theme.colors.button.primary.tint,
     },
     removeBtn: {
         paddingTop: 10,

@@ -108,7 +108,9 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                                     {/* Text block */}
                                     <View style={styles.rowText}>
                                         <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
-                                        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+                                        <Text style={styles.subtitle} numberOfLines={1}>
+                                            {agent.kind === 'image-styles' ? `${t('agents.imageStyleAgent')} · ${subtitle}` : subtitle}
+                                        </Text>
                                         {!online && (
                                             <Text style={styles.statusLabel} numberOfLines={1}>
                                                 {missing ? t('agents.machineMissing') : t('agents.machineOffline')}

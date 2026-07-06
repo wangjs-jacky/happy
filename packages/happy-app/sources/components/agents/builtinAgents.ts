@@ -115,6 +115,9 @@ export function createAppBuilderAgent(options: {
         color: '#0F766E',
         machineId: machine.id,
         path: options.preferredPath || machine.metadata?.homeDir || '~',
+        kind: 'standard',
+        imageStyleIds: [],
+        imageVariantsPerStyle: 1,
         presets: [
             { label: options.presetBuildLabel, prompt: APP_BUILDER_PROMPT },
             { label: options.presetBugfixLabel, prompt: APP_BUGFIX_PROMPT },
