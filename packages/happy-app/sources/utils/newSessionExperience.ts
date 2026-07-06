@@ -38,7 +38,7 @@ export function getSessionConfigExperience(agentType: NewSessionAgentType): Sess
     return {
         isAskMode,
         showPath: !isAskMode,
-        showModeDetails: !isAskMode,
+        showModeDetails: true,
         showPermission: !isAskMode,
         showWorktree: !isAskMode,
     };

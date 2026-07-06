@@ -49,19 +49,20 @@ describe('modelModeOptions', () => {
         expect(getDefaultModelKey('claude')).toBe('opus');
         expect(getDefaultEffortKey('claude')).toBe('medium');
         expect(getDefaultPermissionModeKey('ask')).toBe('default');
-        expect(getDefaultModelKey('ask')).toBe('deepseek');
+        expect(getDefaultModelKey('ask')).toBe('deepseek/deepseek-v4-flash');
         expect(getDefaultEffortKey('ask')).toBeNull();
         expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('default');
         expect(getDefaultEffortKey('codex')).toBeNull();
     });
 
-    it('keeps ask mode as provider-backed chat without model or effort pickers', () => {
+    it('keeps ask mode as provider-backed chat with DeepSeek strength choices', () => {
         const models = getAvailableModels('ask', null, translate);
         expect(models).toEqual([
-            { key: 'deepseek', name: 'DeepSeek', description: 'API chat' },
+            { key: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'fast answers' },
+            { key: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'stronger answers' },
         ]);
-        expect(getEffortLevelsForModel('ask', 'deepseek')).toEqual([]);
+        expect(getEffortLevelsForModel('ask', 'deepseek/deepseek-v4-pro')).toEqual([]);
         expect(getAvailablePermissionModes('ask', null, translate)).toEqual([
             { key: 'default', name: 'tr:agentInput.permissionMode.default', description: null },
         ]);

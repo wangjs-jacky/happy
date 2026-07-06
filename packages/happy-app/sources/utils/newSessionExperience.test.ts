@@ -10,11 +10,11 @@ import {
 } from './newSessionExperience';
 
 describe('new session experience', () => {
-    it('makes ask a lightweight chat mode instead of a coding-agent setup', () => {
+    it('makes ask a lightweight chat mode with provider model selection', () => {
         expect(getSessionConfigExperience('ask')).toEqual({
             isAskMode: true,
             showPath: false,
-            showModeDetails: false,
+            showModeDetails: true,
             showPermission: false,
             showWorktree: false,
         });
