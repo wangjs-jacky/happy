@@ -10,6 +10,18 @@ import { log } from "@/utils/log";
 import { AccountProfile } from "@/types";
 import { separateName } from "@/utils/separateName";
 
+function resolveBaseUrl(request: { headers: Record<string, string | string[] | undefined> }): string {
+    if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
+    const xfHost = request.headers['x-forwarded-host'];
+    const xfProto = request.headers['x-forwarded-proto'];
+    const host = (Array.isArray(xfHost) ? xfHost[0] : xfHost) ?? request.headers.host;
+    const proto = (Array.isArray(xfProto) ? xfProto[0] : xfProto) ?? 'http';
+    if (typeof host === 'string' && host.length > 0) {
+        return `${proto}://${host}`;
+    }
+    return `http://localhost:${process.env.PORT || '3005'}`;
+}
+
 export function accountRoutes(app: Fastify) {
     app.get('/v1/account/profile', {
         preHandler: app.authenticate,
@@ -32,7 +44,7 @@ export function accountRoutes(app: Fastify) {
             firstName: user.firstName,
             lastName: user.lastName,
             username: user.username,
-            avatar: user.avatar ? { ...user.avatar, url: getPublicUrl(user.avatar.path) } : null,
+            avatar: user.avatar ? { ...user.avatar, url: getPublicUrl(user.avatar.path, resolveBaseUrl(request)) } : null,
             github: user.githubUser ? user.githubUser.profile : null,
             connectedServices: Array.from(connectedVendors)
         });
@@ -161,7 +173,7 @@ export function accountRoutes(app: Fastify) {
             });
 
             return reply.send({
-                avatar: { ...avatar, url: getPublicUrl(avatar.path) }
+                avatar: { ...avatar, url: getPublicUrl(avatar.path, resolveBaseUrl(request)) }
             });
         } catch (error) {
             log({ module: 'api', level: 'error' }, `Failed to update avatar: ${error}`);
