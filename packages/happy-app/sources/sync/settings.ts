@@ -79,11 +79,14 @@ export const SettingsSchema = z.object({
         color: z.string(),
         machineId: z.string(),
         path: z.string(),
+        kind: z.enum(['standard', 'image-styles']).default('standard'),
+        imageStyleIds: z.array(z.string()).default([]),
+        imageVariantsPerStyle: z.number().int().min(1).max(4).default(1),
         presets: z.array(z.object({
             label: z.string(),
             prompt: z.string(),
         })).default([]),
-    })).default([]).describe('用户配置的「我的 Agent」快捷入口（机器+目录+预设指令）'),
+    })).default([]).describe('用户配置的「我的 Agent」快捷入口（机器+目录+预设指令/图片风格生成）'),
 });
 
 //

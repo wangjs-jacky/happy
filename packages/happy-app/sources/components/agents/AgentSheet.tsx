@@ -96,6 +96,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                                     <View style={styles.rowText}>
                                         <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
                                         <Text style={styles.subtitle} numberOfLines={1}>
+                                            {agent.kind === 'image-styles' ? `${t('agents.imageStyleAgent')} · ` : ''}
                                             {subtitleHost}
                                             {' · '}
                                             <Text style={styles.path}>{agent.path}</Text>
