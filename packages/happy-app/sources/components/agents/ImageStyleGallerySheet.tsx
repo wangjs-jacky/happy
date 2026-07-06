@@ -11,6 +11,7 @@ import { getImageStylePreviewAsset } from './imageStylePreviewAssets';
 import {
     IMAGE_STYLE_GALLERY_COLUMN_GAP,
     createImageStyleGalleryColumns,
+    getImageStyleGallerySheetHeight,
     getImageStylePreviewHeight,
 } from './imageStyleGalleryLayout';
 import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
@@ -55,6 +56,10 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         140,
         Math.floor((windowDimensions.width - SHEET_HORIZONTAL_PADDING - IMAGE_STYLE_GALLERY_COLUMN_GAP) / 2),
     ), [windowDimensions.width]);
+    const sheetHeight = React.useMemo(
+        () => getImageStyleGallerySheetHeight(windowDimensions.height),
+        [windowDimensions.height],
+    );
     const visibleCategoryIds = React.useMemo(() => new Set(props.styles.map((style) => style.categoryId)), [props.styles]);
     const categoryOptions = React.useMemo(
         () => IMAGE_AGENT_STYLE_CATEGORIES.filter((category) => visibleCategoryIds.has(category.id)),
@@ -120,9 +125,9 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
 
     return (
         <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
-            <View style={styles.modalRoot}>
+            <View style={[styles.modalRoot, { width: windowDimensions.width, height: windowDimensions.height }]}>
                 <Pressable style={styles.scrim} onPress={props.onClose} />
-                <View style={[styles.sheet, { paddingBottom: safeArea.bottom + 12 }]}>
+                <View style={[styles.sheet, { height: sheetHeight, paddingBottom: safeArea.bottom + 12 }]}>
                     <View style={styles.handle} />
                     <View style={styles.header}>
                         <View style={styles.headerCopy}>
@@ -219,7 +224,6 @@ const galleryStyles = StyleSheet.create((theme) => ({
         backgroundColor: 'rgba(0, 0, 0, 0.48)',
     },
     sheet: {
-        height: '82%',
         backgroundColor: theme.colors.groupped.background,
         borderTopLeftRadius: 18,
         borderTopRightRadius: 18,

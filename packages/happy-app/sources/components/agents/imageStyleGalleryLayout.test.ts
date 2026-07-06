@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     createImageStyleGalleryColumns,
     getImageStyleGalleryItemType,
+    getImageStyleGallerySheetHeight,
     getImageStylePreviewHeight,
 } from './imageStyleGalleryLayout';
 import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
@@ -36,5 +37,10 @@ describe('imageStyleGalleryLayout', () => {
         expect(columns).toHaveLength(2);
         expect(columns.flat().map((style) => style.id).sort()).toEqual(styles.map((style) => style.id).sort());
         expect(columns.every((column) => column.length > 0)).toBe(true);
+    });
+
+    it('uses an explicit sheet height so Android modals do not collapse to header content', () => {
+        expect(getImageStyleGallerySheetHeight(900)).toBe(738);
+        expect(getImageStyleGallerySheetHeight(420)).toBeLessThan(420);
     });
 });

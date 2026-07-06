@@ -4,6 +4,9 @@ export const IMAGE_STYLE_GALLERY_COLUMN_COUNT = 2;
 export const IMAGE_STYLE_GALLERY_COLUMN_GAP = 10;
 export const IMAGE_STYLE_GALLERY_MIN_PREVIEW_HEIGHT = 120;
 export const IMAGE_STYLE_GALLERY_MAX_PREVIEW_HEIGHT = 260;
+export const IMAGE_STYLE_GALLERY_SHEET_HEIGHT_RATIO = 0.82;
+export const IMAGE_STYLE_GALLERY_MIN_SHEET_HEIGHT = 440;
+export const IMAGE_STYLE_GALLERY_TOP_MARGIN = 24;
 const ESTIMATED_CARD_COPY_HEIGHT = 126;
 
 export type ImageStyleGalleryItemType = 'landscape' | 'portrait' | 'square';
@@ -52,4 +55,17 @@ export function createImageStyleGalleryColumns<T>(
     }
 
     return columns;
+}
+
+export function getImageStyleGallerySheetHeight(viewportHeight: number) {
+    const availableHeight = Math.max(0, viewportHeight - IMAGE_STYLE_GALLERY_TOP_MARGIN);
+
+    if (availableHeight <= IMAGE_STYLE_GALLERY_MIN_SHEET_HEIGHT) {
+        return availableHeight;
+    }
+
+    return Math.min(
+        Math.round(viewportHeight * IMAGE_STYLE_GALLERY_SHEET_HEIGHT_RATIO),
+        availableHeight,
+    );
 }
