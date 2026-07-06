@@ -20,6 +20,7 @@ export const es: TranslationStructure = {
         greetingNoName: '¿Qué hacemos hoy?',
         greetingAgent: ({ name }: { name: string }) => `Entrando en ${name}, ¿qué hacemos hoy?`,
         placeholder: 'Pregunta lo que sea, también con imágenes',
+        askPlaceholder: 'Pregunta lo que sea',
         byline: 'Generado por IA · cifrado de extremo a extremo',
         createDirectoryTitle: '¿Crear carpeta?',
         createDirectoryMessage: ({ path }: { path: string }) => `La carpeta "${path}" no existe. ¿Crearla?`,

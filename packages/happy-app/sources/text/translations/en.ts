@@ -35,6 +35,7 @@ export const en: TranslationStructure = {
         greetingNoName: 'What should we do today?',
         greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Ask anything, images too',
+        askPlaceholder: 'Ask anything',
         byline: 'AI-generated · end-to-end encrypted',
         createDirectoryTitle: 'Create directory?',
         createDirectoryMessage: ({ path }: { path: string }) => `The directory "${path}" doesn't exist. Create it?`,

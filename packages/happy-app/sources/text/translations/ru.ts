@@ -31,6 +31,7 @@ export const ru: TranslationStructure = {
         greetingNoName: 'Чем займёмся сегодня?',
         greetingAgent: ({ name }: { name: string }) => `Вход в ${name}, чем займёмся сегодня?`,
         placeholder: 'Спрашивайте что угодно, можно с фото',
+        askPlaceholder: 'Спрашивайте что угодно',
         byline: 'Сгенерировано ИИ · сквозное шифрование',
         createDirectoryTitle: 'Создать папку?',
         createDirectoryMessage: ({ path }: { path: string }) => `Папка "${path}" не существует. Создать её?`,
