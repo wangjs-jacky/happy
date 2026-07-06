@@ -68,7 +68,7 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
     return (
         <View style={styles.inlineContainer}>
             <Pressable
-                onPress={uri ? () => imageViewer.open({ uri, width: image?.width, height: image?.height }) : undefined}
+                onPress={uri ? () => imageViewer.open({ uri, width: image?.width, height: image?.height, filename: name }) : undefined}
                 disabled={!uri}
                 style={[styles.inlineWrapper, { borderColor: theme.colors.divider }]}
             >

@@ -327,6 +327,13 @@ export const en = {
         avatarUploadFailedMessage: 'Could not update your profile picture.',
     },
 
+    imageViewer: {
+        download: 'Download image',
+        close: 'Close image viewer',
+        downloadFailedTitle: 'Download Failed',
+        downloadFailedMessage: 'Could not prepare this image for download.',
+    },
+
     errors: {
         networkError: 'Network error occurred',
         serverError: 'Server error occurred',

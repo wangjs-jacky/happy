@@ -192,7 +192,7 @@ function ScreenshotGalleryDrawerImpl({
     }, [visible, sessionId, entries]);
 
     const handleView = React.useCallback((entry: ScreenshotEntry) => {
-        imageViewer.open({ uri: entry.uri });
+        imageViewer.open({ uri: entry.uri, filename: `screenshot-${entry.id}.png` });
     }, []);
 
     const handleAttach = React.useCallback((entry: ScreenshotEntry) => {

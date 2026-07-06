@@ -635,8 +635,8 @@ function SessionViewLoaded({
                     return;
                 }
                 const uri = await saveBase64Png(res.dataBase64);
-                addScreenshotEntry(sessionId, { uri, source: 'manual', target, createdAt: Date.now() });
-                imageViewer.open({ uri });
+                const entry = addScreenshotEntry(sessionId, { uri, source: 'manual', target, createdAt: Date.now() });
+                imageViewer.open({ uri, filename: `screenshot-${entry.id}.png` });
             } catch (e) {
                 Modal.alert(
                     t('components.messageComposer.screenshotFailedTitle'),

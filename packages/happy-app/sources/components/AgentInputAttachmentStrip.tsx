@@ -75,7 +75,7 @@ function AttachmentThumbnail({
             {/* Tap the image to open the fullscreen swipeable viewer at this one. */}
             <Pressable
                 onPress={() => imageViewer.open(
-                    images.map((it) => ({ uri: it.uri, width: it.width, height: it.height })),
+                    images.map((it) => ({ uri: it.uri, width: it.width, height: it.height, filename: it.name })),
                     index,
                 )}
                 style={[styles.thumbPressable, { borderColor: theme.colors.divider }]}
