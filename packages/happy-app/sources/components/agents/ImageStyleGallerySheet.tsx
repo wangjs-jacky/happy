@@ -1,13 +1,21 @@
 import * as React from 'react';
-import { FlatList, Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { ImageAgentStylePreset } from './imageAgentPrompt';
 import { IMAGE_AGENT_STYLE_CATEGORIES, getImageAgentStyleLabel } from './imageAgentPrompt';
 import { getImageStylePreviewAsset } from './imageStylePreviewAssets';
+import {
+    IMAGE_STYLE_GALLERY_COLUMN_COUNT,
+    IMAGE_STYLE_GALLERY_COLUMN_GAP,
+    getImageStyleGalleryItemType,
+    getImageStylePreviewHeight,
+} from './imageStyleGalleryLayout';
+import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 
 type Props = {
     visible: boolean;
@@ -18,31 +26,37 @@ type Props = {
 };
 
 const ALL_CATEGORY_ID = 'all';
+const SHEET_HORIZONTAL_PADDING = 28;
 
-function StylePreview({ styleId }: { styleId: string }) {
+function StylePreview({ styleId, cardWidth }: { styleId: string; cardWidth: number }) {
     const source = getImageStylePreviewAsset(styleId);
+    const preview = IMAGE_STYLE_PREVIEW_MANIFEST[styleId];
+    const previewHeight = preview ? getImageStylePreviewHeight(preview, cardWidth) : 140;
 
     if (!source) {
         return (
-            <View style={galleryStyles.previewFallback}>
+            <View style={[galleryStyles.previewFallback, { height: previewHeight }]}>
                 <Ionicons name="image-outline" size={24} color={galleryStyles.previewFallbackIcon.color} />
             </View>
         );
     }
 
     return (
-        <View style={galleryStyles.preview}>
-            <Image source={source} resizeMode="cover" blurRadius={12} style={galleryStyles.previewBackdrop} />
-            <View pointerEvents="none" style={galleryStyles.previewTint} />
-            <Image source={source} resizeMode="contain" style={galleryStyles.previewImage} />
+        <View style={[galleryStyles.preview, { height: previewHeight }]}>
+            <Image source={source} resizeMode="cover" style={galleryStyles.previewImage} />
         </View>
     );
 }
 
 export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet(props: Props) {
     const safeArea = useSafeAreaInsets();
+    const windowDimensions = useWindowDimensions();
     const styles = galleryStyles;
     const [categoryId, setCategoryId] = React.useState(ALL_CATEGORY_ID);
+    const cardWidth = React.useMemo(() => Math.max(
+        140,
+        Math.floor((windowDimensions.width - SHEET_HORIZONTAL_PADDING - IMAGE_STYLE_GALLERY_COLUMN_GAP) / 2),
+    ), [windowDimensions.width]);
     const visibleCategoryIds = React.useMemo(() => new Set(props.styles.map((style) => style.categoryId)), [props.styles]);
     const categoryOptions = React.useMemo(
         () => IMAGE_AGENT_STYLE_CATEGORIES.filter((category) => visibleCategoryIds.has(category.id)),
@@ -61,40 +75,47 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         }
     }, [categoryId, visibleCategoryIds]);
 
+    const getItemType = React.useCallback((style: ImageAgentStylePreset) => {
+        const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
+        return preview ? getImageStyleGalleryItemType(preview) : 'fallback';
+    }, []);
+
     const renderStyle = React.useCallback(({ item: style }: { item: ImageAgentStylePreset }) => {
         const selected = props.selectedStyleId === style.id;
         return (
-            <Pressable
-                onPress={() => props.onSelect(style)}
-                style={({ pressed }) => [
-                    styles.card,
-                    selected && styles.cardSelected,
-                    pressed && styles.pressed,
-                ]}
-            >
-                <StylePreview styleId={style.id} />
-                <View style={styles.cardCopy}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>{getImageAgentStyleLabel(style)}</Text>
-                    <Text style={styles.cardMeta} numberOfLines={1}>
-                        {style.categoryLabel}
-                        {' · '}
-                        {style.templateLabel}
-                    </Text>
-                    <Text style={styles.cardHint} numberOfLines={2}>{style.promptHint}</Text>
-                </View>
-                <View style={styles.cardFooter}>
-                    <Text style={styles.cardAction} numberOfLines={1}>
-                        {selected ? t('agents.imageEffectSelected') : t('agents.imageEffectApply')}
-                    </Text>
-                    <Ionicons
-                        name={selected ? 'checkmark-circle' : 'arrow-forward-circle-outline'}
-                        size={16}
-                        color={selected ? styles.selectedIcon.color : styles.cardAction.color}
-                    />
-                </View>
-            </Pressable>
+            <View style={styles.cell}>
+                <Pressable
+                    onPress={() => props.onSelect(style)}
+                    style={({ pressed }) => [
+                        styles.card,
+                        selected && styles.cardSelected,
+                        pressed && styles.pressed,
+                    ]}
+                >
+                    <StylePreview styleId={style.id} cardWidth={cardWidth} />
+                    <View style={styles.cardCopy}>
+                        <Text style={styles.cardTitle} numberOfLines={2}>{getImageAgentStyleLabel(style)}</Text>
+                        <Text style={styles.cardMeta} numberOfLines={1}>
+                            {style.categoryLabel}
+                            {' · '}
+                            {style.templateLabel}
+                        </Text>
+                        <Text style={styles.cardHint} numberOfLines={2}>{style.promptHint}</Text>
+                    </View>
+                    <View style={styles.cardFooter}>
+                        <Text style={styles.cardAction} numberOfLines={1}>
+                            {selected ? t('agents.imageEffectSelected') : t('agents.imageEffectApply')}
+                        </Text>
+                        <Ionicons
+                            name={selected ? 'checkmark-circle' : 'arrow-forward-circle-outline'}
+                            size={16}
+                            color={selected ? styles.selectedIcon.color : styles.cardAction.color}
+                        />
+                    </View>
+                </Pressable>
+            </View>
         );
-    }, [props, styles]);
+    }, [cardWidth, props, styles]);
 
     return (
         <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
@@ -163,16 +184,17 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                     })}
                 </ScrollView>
 
-                <FlatList
+                <FlashList
                     style={styles.list}
                     contentContainerStyle={styles.listContent}
-                    columnWrapperStyle={styles.cardRow}
                     showsVerticalScrollIndicator={false}
                     data={filteredStyles}
                     keyExtractor={(style) => style.id}
-                    numColumns={2}
+                    numColumns={IMAGE_STYLE_GALLERY_COLUMN_COUNT}
+                    masonry
+                    getItemType={getItemType}
                     renderItem={renderStyle}
-                    extraData={props.selectedStyleId}
+                    extraData={{ selectedStyleId: props.selectedStyleId, cardWidth }}
                 />
             </View>
         </Modal>
@@ -239,22 +261,20 @@ const galleryStyles = StyleSheet.create((theme) => ({
     listContent: {
         paddingBottom: 8,
     },
-    cardRow: {
-        justifyContent: 'space-between',
-        marginBottom: 10,
-    },
     categoryScroller: {
         flexGrow: 0,
+        overflow: 'visible',
         marginBottom: 12,
     },
     categoryContent: {
         gap: 8,
-        paddingRight: 4,
+        paddingRight: 24,
+        paddingVertical: 2,
     },
     categoryChip: {
-        height: 32,
-        borderRadius: 16,
-        paddingHorizontal: 10,
+        minHeight: 38,
+        borderRadius: 19,
+        paddingHorizontal: 12,
         alignItems: 'center',
         flexDirection: 'row',
         gap: 6,
@@ -273,8 +293,9 @@ const galleryStyles = StyleSheet.create((theme) => ({
     categoryLabel: {
         ...Typography.default('semiBold'),
         fontSize: 12,
+        lineHeight: 18,
         color: theme.colors.textSecondary,
-        maxWidth: 136,
+        maxWidth: 156,
     },
     categoryLabelSelected: {
         color: theme.colors.text,
@@ -282,11 +303,15 @@ const galleryStyles = StyleSheet.create((theme) => ({
     categoryCount: {
         ...Typography.mono(),
         fontSize: 11,
+        lineHeight: 18,
         color: theme.colors.textSecondary,
     },
+    cell: {
+        paddingHorizontal: 5,
+        paddingBottom: 12,
+    },
     card: {
-        width: '48%',
-        minHeight: 220,
+        width: '100%',
         borderRadius: 14,
         overflow: 'hidden',
         backgroundColor: theme.colors.surface,
@@ -300,33 +325,14 @@ const galleryStyles = StyleSheet.create((theme) => ({
         opacity: 0.76,
     },
     preview: {
-        height: 124,
         overflow: 'hidden',
         backgroundColor: theme.colors.groupped.background,
-    },
-    previewBackdrop: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        opacity: 0.72,
-        transform: [{ scale: 1.08 }],
-    },
-    previewTint: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.18)',
     },
     previewImage: {
         width: '100%',
         height: '100%',
     },
     previewFallback: {
-        height: 124,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.colors.surface,

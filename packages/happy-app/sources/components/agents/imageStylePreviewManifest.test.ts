@@ -28,6 +28,8 @@ describe('imageStylePreviewManifest', () => {
             expect(style.title.length).toBeGreaterThan(0);
             expect(style.templateRef).toMatch(/^.+\.md$/);
             expect(preview.sourceSet).toBe('gpt-image-2-101');
+            expect(preview.width).toBeGreaterThan(0);
+            expect(preview.height).toBeGreaterThan(0);
             expect(existsSync(resolve(previewAssetDir, preview.fileName))).toBe(true);
         }
     });
