@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { getComposeHomeExperience, getSessionConfigExperience } from './newSessionExperience';
+import {
+    getCodingAgentPickerItems,
+    getComposeHomeExperience,
+    getRunningSessionInfoExperience,
+    getSessionConfigExperience,
+    getTopLevelModeForAgent,
+    selectAgentForTopLevelMode,
+} from './newSessionExperience';
 
 describe('new session experience', () => {
     it('makes ask a lightweight chat mode instead of a coding-agent setup', () => {
@@ -35,6 +42,60 @@ describe('new session experience', () => {
             displayAgentType: 'codex',
             canAttach: true,
             showCreationRail: false,
+        });
+    });
+
+    it('treats ask as a top-level mode outside the coding-agent picker', () => {
+        expect(getTopLevelModeForAgent('ask')).toBe('ask');
+        expect(getTopLevelModeForAgent('codex')).toBe('agent');
+        expect(getCodingAgentPickerItems([
+            { key: 'ask', label: 'ask' },
+            { key: 'opencode', label: 'opencode' },
+            { key: 'claude', label: 'claude code' },
+        ])).toEqual([
+            { key: 'opencode', label: 'opencode' },
+            { key: 'claude', label: 'claude code' },
+        ]);
+    });
+
+    it('switches top-level mode without keeping ask in the agent list', () => {
+        expect(selectAgentForTopLevelMode({
+            mode: 'ask',
+            currentAgent: 'codex',
+            availableCodingAgents: [{ key: 'opencode', label: 'opencode' }],
+        })).toBe('ask');
+
+        expect(selectAgentForTopLevelMode({
+            mode: 'agent',
+            currentAgent: 'ask',
+            availableCodingAgents: [
+                { key: 'opencode', label: 'opencode' },
+                { key: 'codex', label: 'codex' },
+            ],
+        })).toBe('opencode');
+
+        expect(selectAgentForTopLevelMode({
+            mode: 'agent',
+            currentAgent: 'codex',
+            availableCodingAgents: [
+                { key: 'opencode', label: 'opencode' },
+                { key: 'codex', label: 'codex' },
+            ],
+        })).toBe('codex');
+    });
+
+    it('hides running-session path and permission rows for ask sessions', () => {
+        expect(getRunningSessionInfoExperience('ask')).toEqual({
+            isAskMode: true,
+            showPath: false,
+            showModelDetails: true,
+            showPermission: false,
+        });
+        expect(getRunningSessionInfoExperience('codex')).toEqual({
+            isAskMode: false,
+            showPath: true,
+            showModelDetails: true,
+            showPermission: true,
         });
     });
 });

@@ -363,6 +363,8 @@ export const ja: TranslationStructure = {
 
     newSession: {
         title: '新しいセッションを開始',
+        askMode: 'Ask',
+        agentMode: 'Agent',
         machineOffline: 'マシンがオフラインです',
         switchMachinesHint: '• 上のマシンをクリックしてマシンを切り替えてください',
     },

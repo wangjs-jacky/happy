@@ -348,6 +348,8 @@ export const ru: TranslationStructure = {
 
     newSession: {
         title: 'Начать новую сессию',
+        askMode: 'Спросить',
+        agentMode: 'Агент',
         machineOffline: 'Машина недоступна',
         switchMachinesHint: '• Переключите машину, нажав на неё выше',
     },
