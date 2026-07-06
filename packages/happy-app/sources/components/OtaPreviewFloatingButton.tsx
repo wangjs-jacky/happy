@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
     runOnJS,
     useAnimatedStyle,
@@ -15,11 +16,11 @@ import { Typography } from '@/constants/Typography';
 import { hapticsLight } from '@/components/haptics';
 import { ExternalHorizontalGestureContext } from '@/components/ExternalHorizontalGestureContext';
 import { t } from '@/text';
-import type { SessionOtaPreview } from '@/utils/sessionOtaPreviews';
 
-const BALL_SIZE = 62;
+const BALL_SIZE = 48;
 const EDGE_MARGIN = 14;
 const DECIDE_OFFSET = 4;
+const EDGE_SNAP_ZONE = 42;
 const SPRING = {
     damping: 24,
     stiffness: 320,
@@ -32,26 +33,22 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingButton(props: {
-    previews: SessionOtaPreview[];
-    topOffset: number;
-    bottomOffset: number;
+    visible: boolean;
 }) {
     const router = useRouter();
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
+    const safeArea = useSafeAreaInsets();
     const drawerPan = React.useContext(DrawerGestureContext);
     const externalHorizontalGestures = React.useContext(ExternalHorizontalGestureContext);
 
-    const preview = React.useMemo(
-        () => props.previews.find((item) => item.channel?.toLowerCase() === 'preview') ?? null,
-        [props.previews],
-    );
-
-    const minX = EDGE_MARGIN;
-    const maxX = Math.max(minX, width - BALL_SIZE - EDGE_MARGIN);
-    const minY = Math.max(EDGE_MARGIN, props.topOffset);
-    const maxY = Math.max(minY, height - BALL_SIZE - props.bottomOffset);
-    const initialX = maxX;
+    const leftDockX = -BALL_SIZE / 2;
+    const rightDockX = width - BALL_SIZE / 2;
+    const minVisibleX = EDGE_MARGIN;
+    const maxVisibleX = Math.max(minVisibleX, width - BALL_SIZE - EDGE_MARGIN);
+    const minY = Math.max(EDGE_MARGIN, safeArea.top + 76);
+    const maxY = Math.max(minY, height - BALL_SIZE - safeArea.bottom - 112);
+    const initialX = rightDockX;
     const initialY = maxY;
 
     const x = useSharedValue(initialX);
@@ -66,18 +63,29 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
     React.useEffect(() => {
         if (!initializedRef.current) {
             initializedRef.current = true;
-            x.value = initialX;
+            x.value = rightDockX;
             y.value = initialY;
             return;
         }
-        x.value = withSpring(clamp(x.value, minX, maxX), SPRING);
+        x.value = withSpring(clamp(x.value, leftDockX, rightDockX), SPRING);
         y.value = withSpring(clamp(y.value, minY, maxY), SPRING);
-    }, [initialX, initialY, maxX, maxY, minX, minY, x, y]);
+    }, [initialY, leftDockX, maxY, minY, rightDockX, x, y]);
 
     const openSwitcher = React.useCallback(() => {
         hapticsLight();
         router.push('/dev/ota-versions' as any);
     }, [router]);
+
+    const settleX = React.useCallback((projectedX: number): number => {
+        'worklet';
+        if (projectedX <= minVisibleX + EDGE_SNAP_ZONE) {
+            return leftDockX;
+        }
+        if (projectedX >= maxVisibleX - EDGE_SNAP_ZONE) {
+            return rightDockX;
+        }
+        return clamp(projectedX, minVisibleX, maxVisibleX);
+    }, [leftDockX, maxVisibleX, minVisibleX, rightDockX]);
 
     const gesture = React.useMemo(() => {
         const pan = Gesture.Pan()
@@ -110,12 +118,12 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
             })
             .onUpdate((event) => {
                 'worklet';
-                x.value = clamp(startX.value + event.translationX, minX, maxX);
+                x.value = clamp(startX.value + event.translationX, leftDockX, rightDockX);
                 y.value = clamp(startY.value + event.translationY, minY, maxY);
             })
             .onEnd((event) => {
                 'worklet';
-                x.value = withSpring(clamp(x.value + event.velocityX * 0.04, minX, maxX), SPRING);
+                x.value = withSpring(settleX(x.value + event.velocityX * 0.04), SPRING);
                 y.value = withSpring(clamp(y.value + event.velocityY * 0.04, minY, maxY), SPRING);
             });
 
@@ -138,11 +146,12 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
         decided,
         drawerPan,
         externalHorizontalGestures,
-        maxX,
         maxY,
-        minX,
         minY,
+        leftDockX,
         openSwitcher,
+        rightDockX,
+        settleX,
         startX,
         startY,
         touchStartX,
@@ -158,7 +167,7 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
         ],
     }));
 
-    if (!preview) {
+    if (!props.visible) {
         return null;
     }
 
@@ -179,8 +188,7 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
                     ]}
                 >
                     <View style={styles.iconWrap}>
-                        <Ionicons name="swap-horizontal" size={22} color={theme.colors.button.primary.tint} />
-                        <View style={[styles.dot, { backgroundColor: theme.colors.success ?? '#34C759' }]} />
+                        <Ionicons name="swap-horizontal" size={18} color={theme.colors.button.primary.tint} />
                     </View>
                     <Text style={[styles.label, { color: theme.colors.button.primary.tint }]}>OTA</Text>
                 </Animated.View>
@@ -199,33 +207,23 @@ const styles = StyleSheet.create((theme) => ({
         borderRadius: BALL_SIZE / 2,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 2,
-        shadowOffset: { width: 0, height: 5 },
-        shadowOpacity: theme.colors.shadow.opacity * 1.8,
-        shadowRadius: 12,
+        gap: 1,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: theme.colors.shadow.opacity * 1.6,
+        shadowRadius: 10,
         elevation: 9,
         zIndex: 900,
     },
     iconWrap: {
-        width: 27,
-        height: 24,
+        width: 22,
+        height: 19,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    dot: {
-        position: 'absolute',
-        right: 0,
-        top: 1,
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        borderWidth: 1.5,
-        borderColor: theme.colors.button.primary.tint,
-    },
     label: {
         ...Typography.default('semiBold'),
-        fontSize: 10,
-        lineHeight: 12,
-        letterSpacing: 0.4,
+        fontSize: 8,
+        lineHeight: 10,
+        letterSpacing: 0.3,
     },
 }));

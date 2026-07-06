@@ -30,14 +30,12 @@ import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
-import { OtaPreviewFloatingButton } from '@/components/OtaPreviewFloatingButton';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import { formatPathRelativeToHome, getResumeCommandBlock, getSessionName, useSessionStatus } from '@/utils/sessionUtils';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
-import { extractSessionOtaPreviews } from '@/utils/sessionOtaPreviews';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -85,7 +83,6 @@ export const SessionView = React.memo((props: { id: string }) => {
         && isDataReady && !!session;
 
     const showSidebar = canShowSidebar && !zenMode;
-    const { messages } = useSessionMessages(sessionId);
 
     // Match left sidebar width: 30% of window, clamped to 250–360px
     const sidebarWidth = Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
@@ -112,10 +109,6 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
-    const otaPreviews = React.useMemo(
-        () => extractSessionOtaPreviews(messages),
-        [messages],
-    );
     const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
         sessionComposerHandleRef.current?.setMessage(prompt);
     }, []);
@@ -331,16 +324,6 @@ export const SessionView = React.memo((props: { id: string }) => {
                     }}
                 />
             )}
-
-            <OtaPreviewFloatingButton
-                previews={otaPreviews}
-                topOffset={
-                    (isLandscape && deviceType === 'phone' && Platform.OS !== 'web')
-                        ? safeArea.top + 12
-                        : safeArea.top + headerHeight + 12
-                }
-                bottomOffset={safeArea.bottom + 104}
-            />
         </>
     );
 

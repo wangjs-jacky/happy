@@ -38,6 +38,8 @@ import { applyVoiceUpsellOverride } from '@/realtime/voiceExperiment';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
+import { OtaPreviewFloatingButton } from '@/components/OtaPreviewFloatingButton';
+import { loadAppConfig } from '@/sync/appConfig';
 
 // Configure notification handler — by default suppress push display when the
 // app is in foreground, EXCEPT for session-event pushes (Claude done /
@@ -225,6 +227,8 @@ export default function RootLayout() {
     useTauriDrag();
     const router = useRouter();
     const { theme } = useUnistyles();
+    const appConfig = React.useMemo(() => loadAppConfig(), []);
+    const showOtaFloatingSwitcher = appConfig.otaChannel === 'preview';
     const navigationTheme = React.useMemo(() => {
         if (theme.dark) {
             return {
@@ -418,6 +422,7 @@ export default function RootLayout() {
                                             <HorizontalSafeAreaWrapper>
                                                 <SidebarNavigator />
                                             </HorizontalSafeAreaWrapper>
+                                            <OtaPreviewFloatingButton visible={showOtaFloatingSwitcher} />
                                         </RealtimeProvider>
                                     </CommandPaletteProvider>
                                     <ImageViewerHost />
