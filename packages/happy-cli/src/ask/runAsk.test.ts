@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { buildAskClaudeOptions, mapAskSdkMessage } from './runAsk';
+import {
+  buildAskDeepSeekOptions,
+  normalizeAskDeepSeekModel,
+  resolveAskDeepSeekThinkingMode,
+  trimAskHistory,
+} from './runAsk';
 
-describe('buildAskClaudeOptions', () => {
-  it('builds Claude SDK options for ask-only mode without local tools', () => {
-    const options = buildAskClaudeOptions({
-      model: 'sonnet',
-      effort: 'medium',
+describe('buildAskDeepSeekOptions', () => {
+  it('builds DeepSeek options for ask-only mode without local tools', () => {
+    const options = buildAskDeepSeekOptions({
+      model: 'deepseek/deepseek-v4-flash',
+      effort: 'high',
       systemPrompt: 'Answer directly.',
     });
 
     expect(options).toMatchObject({
-      model: 'sonnet',
-      effort: 'medium',
+      model: 'deepseek-v4-flash',
+      baseUrl: 'https://api.deepseek.com',
+      thinking: 'disabled',
+      reasoningEffort: 'high',
       permissionMode: 'default',
-      settingSources: [],
       includePartialMessages: true,
       systemPrompt: 'Answer directly.',
     });
@@ -26,36 +32,41 @@ describe('buildAskClaudeOptions', () => {
   });
 });
 
-describe('mapAskSdkMessage', () => {
-  it('maps Claude SDK stream events to Happy turn actions', () => {
-    expect(mapAskSdkMessage({
-      type: 'stream_event',
-      event: { type: 'message_start' },
-    } as any)).toEqual([{ type: 'turn-start' }]);
-
-    expect(mapAskSdkMessage({
-      type: 'stream_event',
-      event: {
-        type: 'content_block_delta',
-        delta: { type: 'text_delta', text: 'hello' },
-      },
-    } as any)).toEqual([{ type: 'text', text: 'hello' }]);
-
-    expect(mapAskSdkMessage({
-      type: 'result',
-      subtype: 'success',
-    } as any)).toEqual([{ type: 'turn-end', status: 'completed' }]);
+describe('normalizeAskDeepSeekModel', () => {
+  it('accepts DeepSeek namespaced and direct model ids', () => {
+    expect(normalizeAskDeepSeekModel('deepseek/deepseek-v4-pro')).toBe('deepseek-v4-pro');
+    expect(normalizeAskDeepSeekModel('deepseek-v4-flash')).toBe('deepseek-v4-flash');
   });
 
-  it('maps non-stream assistant messages as a completed answer fallback', () => {
-    expect(mapAskSdkMessage({
-      type: 'assistant',
-      message: {
-        content: [
-          { type: 'thinking', thinking: 'reasoning' },
-          { type: 'text', text: 'answer' },
-        ],
-      },
-    } as any)).toEqual([{ type: 'assistant-complete', text: 'answer', thinking: 'reasoning' }]);
+  it('falls back when the app sends a non-DeepSeek model id', () => {
+    expect(normalizeAskDeepSeekModel('gpt-image-2')).toBe('deepseek-v4-flash');
+    expect(normalizeAskDeepSeekModel(null)).toBe('deepseek-v4-flash');
+  });
+});
+
+describe('resolveAskDeepSeekThinkingMode', () => {
+  it('enables thinking only for the pro model by default', () => {
+    expect(resolveAskDeepSeekThinkingMode('deepseek-v4-flash')).toBe('disabled');
+    expect(resolveAskDeepSeekThinkingMode('deepseek-v4-pro')).toBe('enabled');
+  });
+});
+
+describe('trimAskHistory', () => {
+  it('keeps the system prompt and the newest messages', () => {
+    const history = [
+      { role: 'system' as const, content: 'system' },
+      { role: 'user' as const, content: '1' },
+      { role: 'assistant' as const, content: '2' },
+      { role: 'user' as const, content: '3' },
+      { role: 'assistant' as const, content: '4' },
+    ];
+
+    trimAskHistory(history, 2);
+
+    expect(history).toEqual([
+      { role: 'system', content: 'system' },
+      { role: 'user', content: '3' },
+      { role: 'assistant', content: '4' },
+    ]);
   });
 });
