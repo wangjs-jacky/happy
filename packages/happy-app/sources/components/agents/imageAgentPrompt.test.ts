@@ -106,4 +106,16 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('不要输出 prompt 文件路径、图片文件路径或清单');
         expect(prompt).not.toContain('结束时给出一份简洁清单');
     });
+
+    it('asks the image agent to include encoded Gallery continuation options', () => {
+        const prompt = buildImageAgentPrompt({
+            agent,
+            userPrompt: '生成漫画头像。',
+            imageCount: 1,
+        });
+
+        expect(prompt).toContain('<options>');
+        expect(prompt).toContain('[[gpt-image-style:');
+        expect(prompt).toContain('客户端会把它们渲染成可多选风格推荐');
+    });
 });

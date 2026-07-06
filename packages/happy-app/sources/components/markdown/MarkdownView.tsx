@@ -22,6 +22,12 @@ import { t } from '@/text';
 import { isHttpMarkdownLink } from './linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { hapticsLight } from '../haptics';
+import {
+    MAX_IMAGE_STYLE_OPTION_COUNT,
+    buildImageStyleContinuationPrompt,
+    parseImageStyleOptions,
+    type ParsedImageStyleOption,
+} from '@/components/agents/imageStyleOptions';
 
 // Option type for callback
 export type Option = {
@@ -262,6 +268,19 @@ function RenderOptionsBlock(props: {
     onOptionPress?: (option: Option) => void
 }) {
     const { theme } = useUnistyles();
+    const imageStyleOptions = React.useMemo(() => parseImageStyleOptions(props.items), [props.items]);
+
+    if (props.onOptionPress && imageStyleOptions.length > 0) {
+        return (
+            <RenderImageStyleOptionsBlock
+                items={imageStyleOptions}
+                first={props.first}
+                last={props.last}
+                onOptionPress={props.onOptionPress}
+            />
+        );
+    }
+
     // When none of the preset options fit, the user can tap "Other…" to reveal an
     // inline text field and send a free-form reply through the same onOptionPress
     // channel as the preset cards.
@@ -345,6 +364,88 @@ function RenderOptionsBlock(props: {
                     </Pressable>
                 )
             ) : null}
+        </View>
+    );
+}
+
+function RenderImageStyleOptionsBlock(props: {
+    items: ParsedImageStyleOption[];
+    first: boolean;
+    last: boolean;
+    onOptionPress: (option: Option) => void;
+}) {
+    const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+    const selectedStyles = React.useMemo(() => {
+        const selected = new Set(selectedIds);
+        return props.items
+            .filter((item) => selected.has(item.style.id))
+            .map((item) => item.style);
+    }, [props.items, selectedIds]);
+    const selectedCount = selectedIds.length;
+
+    const toggle = React.useCallback((item: ParsedImageStyleOption) => {
+        setSelectedIds((current) => {
+            if (current.includes(item.style.id)) {
+                return current.filter((id) => id !== item.style.id);
+            }
+            if (current.length >= MAX_IMAGE_STYLE_OPTION_COUNT) {
+                return current;
+            }
+            return [...current, item.style.id];
+        });
+    }, []);
+
+    const submit = React.useCallback(() => {
+        if (selectedStyles.length === 0) return;
+        props.onOptionPress({ title: buildImageStyleContinuationPrompt(selectedStyles) });
+    }, [props, selectedStyles]);
+
+    return (
+        <View style={[style.optionsContainer, style.imageStyleOptionsContainer, props.first && style.first, props.last && style.last]}>
+            <View style={style.imageStyleOptionGrid}>
+                {props.items.map((item) => {
+                    const selected = selectedIds.includes(item.style.id);
+                    return (
+                        <Pressable
+                            key={item.style.id}
+                            style={({ pressed }) => [
+                                style.imageStyleOptionChip,
+                                selected && style.imageStyleOptionChipSelected,
+                                pressed && style.optionItemPressed,
+                            ]}
+                            onPress={() => toggle(item)}
+                        >
+                            <Text
+                                selectable={false}
+                                style={[
+                                    style.imageStyleOptionText,
+                                    selected && style.imageStyleOptionTextSelected,
+                                ]}
+                                numberOfLines={2}
+                            >
+                                {item.title}
+                            </Text>
+                            {selected && (
+                                <Ionicons name="checkmark-circle" size={15} color={style.imageStyleOptionCheck.color} />
+                            )}
+                        </Pressable>
+                    );
+                })}
+            </View>
+            <Pressable
+                style={({ pressed }) => [
+                    style.imageStyleOptionSend,
+                    selectedCount === 0 && style.imageStyleOptionSendDisabled,
+                    pressed && selectedCount > 0 && style.optionItemPressed,
+                ]}
+                disabled={selectedCount === 0}
+                onPress={submit}
+            >
+                <Text style={style.imageStyleOptionSendText}>
+                    {t('common.continue')} · {selectedCount}/{MAX_IMAGE_STYLE_OPTION_COUNT}
+                </Text>
+                <Ionicons name="arrow-up" size={16} color={style.imageStyleOptionSendIcon.color} />
+            </Pressable>
         </View>
     );
 }
@@ -686,6 +787,73 @@ const style = StyleSheet.create((theme) => ({
         flexDirection: 'column',
         gap: 8,
         marginVertical: 8,
+    },
+    imageStyleOptionsContainer: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        padding: 8,
+    },
+    imageStyleOptionGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    imageStyleOptionChip: {
+        minHeight: 42,
+        minWidth: 96,
+        maxWidth: 150,
+        flexGrow: 1,
+        flexBasis: '30%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 6,
+        backgroundColor: theme.colors.surfaceHighest,
+        borderRadius: 9,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    imageStyleOptionChipSelected: {
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.surface,
+    },
+    imageStyleOptionText: {
+        ...Typography.default('semiBold'),
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 17,
+        color: theme.colors.text,
+    },
+    imageStyleOptionTextSelected: {
+        color: theme.colors.text,
+    },
+    imageStyleOptionCheck: {
+        color: theme.colors.accent,
+    },
+    imageStyleOptionSend: {
+        marginTop: 2,
+        height: 38,
+        borderRadius: 19,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: theme.colors.text,
+    },
+    imageStyleOptionSendDisabled: {
+        opacity: 0.35,
+    },
+    imageStyleOptionSendText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.surface,
+    },
+    imageStyleOptionSendIcon: {
+        color: theme.colors.surface,
     },
     optionItem: {
         backgroundColor: theme.colors.surfaceHighest,
