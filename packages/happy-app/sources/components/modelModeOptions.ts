@@ -83,6 +83,14 @@ export function getClaudeModelModes(): ModelMode[] {
     ];
 }
 
+export function getAskModelModes(): ModelMode[] {
+    return [
+        { key: 'sonnet', name: 'sonnet 4.6', description: 'fast chat' },
+        { key: 'opus', name: 'opus 4.8', description: 'deep chat' },
+        { key: 'haiku', name: 'haiku 4.5', description: 'quick chat' },
+    ];
+}
+
 export function getCodexModelModes(): ModelMode[] {
     return [
         { key: 'default', name: 'default model', description: null },
@@ -144,6 +152,9 @@ export function getOpenCodeModelModes(): ModelMode[] {
 }
 
 export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translate): ModelMode[] {
+    if (flavor === 'ask') {
+        return getAskModelModes();
+    }
     if (flavor === 'codex') {
         return getCodexModelModes();
     }
@@ -258,7 +269,7 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, 
     // specific model is picked — the same low/medium/high/max scale applies
     // to the whole flavor (mirrors how Codex already worked, which the user
     // asked Claude to match).
-    if (flavor === 'claude') {
+    if (flavor === 'ask' || flavor === 'claude') {
         return getClaudeEffortLevels();
     }
     if (flavor === 'codex') {
@@ -282,6 +293,6 @@ export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: strin
 }
 
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {
-    if (flavor === 'openclaw') return false;
+    if (flavor === 'ask' || flavor === 'openclaw') return false;
     return true;
 }

@@ -51,6 +51,7 @@ import { useUnistyles } from 'react-native-unistyles';
 // Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
 // off the running session's `flavor` (an active session reports its agent there).
 const AGENT_LABELS: Record<string, string> = {
+    ask: 'ask',
     claude: 'claude code',
     codex: 'codex',
     opencode: 'opencode',

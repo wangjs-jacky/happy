@@ -34,6 +34,7 @@ import { createAppBuilderAgent } from './agents/builtinAgents';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
+    ask: 'ask',
     claude: 'claude code',
     codex: 'codex',
     opencode: 'opencode',

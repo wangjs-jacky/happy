@@ -42,6 +42,7 @@ import { isRunningOnMac } from '@/utils/platform';
 
 // Agent icon assets
 const agentIcons = {
+    ask: require('@/assets/images/icon-claude.png'),
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
     opencode: require('@/assets/images/icon-gpt.png'),
@@ -51,6 +52,7 @@ const agentIcons = {
 
 type AgentKey = NewSessionAgentType;
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
+    { key: 'ask', label: 'ask' },
     { key: 'opencode', label: 'opencode' },
     { key: 'claude', label: 'claude code' },
     { key: 'codex', label: 'codex' },
@@ -840,7 +842,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const availableAgents = React.useMemo(() => {
             const availability = selectedMachine?.metadata?.cliAvailability;
             if (!availability) return ALL_AGENTS;
-            return ALL_AGENTS.filter(a => availability[a.key]);
+            return ALL_AGENTS.filter(a => a.key === 'ask' || availability[a.key]);
         }, [selectedMachine]);
 
         // If current agent not available on this machine, switch to first available
