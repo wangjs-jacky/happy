@@ -28,6 +28,11 @@ export type ComposeHomeExperience = {
     showCreationRail: boolean;
 };
 
+export type HeaderModeSwitchExperience = {
+    visible: boolean;
+    selectedMode: NewSessionTopLevelMode;
+};
+
 export function getSessionConfigExperience(agentType: NewSessionAgentType): SessionConfigExperience {
     const isAskMode = agentType === 'ask';
     return {
@@ -59,6 +64,22 @@ export function getComposeHomeExperience(args: {
         displayAgentType,
         canAttach: activeImageAgent || agentType === 'claude' || agentType === 'codex',
         showCreationRail: !activeImageAgent && agentType !== 'ask',
+    };
+}
+
+export function getHeaderModeSwitchExperience(args: {
+    agentType: NewSessionAgentType;
+    activeImageAgent: boolean;
+}): HeaderModeSwitchExperience {
+    if (args.activeImageAgent) {
+        return {
+            visible: false,
+            selectedMode: 'agent',
+        };
+    }
+    return {
+        visible: true,
+        selectedMode: getTopLevelModeForAgent(args.agentType),
     };
 }
 
