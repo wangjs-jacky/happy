@@ -38,7 +38,9 @@ describe('imageAgentPrompt', () => {
 
         expect(prompt).toContain('使用 $gpt-image-2 skill');
         expect(prompt).toContain('已选择的 Garden 案例：product-visuals/white-background-product/1');
-        expect(prompt).toContain(style!.promptContent.slice(0, 120));
+        expect(prompt).toContain(`风格说明：${style!.promptHint}`);
+        expect(prompt).not.toContain(style!.promptContent.slice(0, 120));
+        expect(prompt).not.toContain('"typography"');
     });
 
     it('includes local OBA article styles in the image style gallery catalog', () => {
@@ -56,7 +58,7 @@ describe('imageAgentPrompt', () => {
     it('builds a locked multi-image GPT Image 2 batch prompt', () => {
         const prompt = buildImageAgentPrompt({
             agent,
-            userPrompt: 'Use the dairy reference photo and keep the plate shape.',
+            userPrompt: '使用乳制品参考照片，并保留盘子的形状。',
             imageCount: 3,
         });
 
@@ -68,6 +70,6 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('各生成 2 张变体');
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
-        expect(prompt).toContain('Use the dairy reference photo and keep the plate shape.');
+        expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
 });

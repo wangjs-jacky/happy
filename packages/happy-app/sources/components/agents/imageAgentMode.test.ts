@@ -66,7 +66,8 @@ describe('imageAgentMode', () => {
         const prompt = createImageStyleSelectionPrompt(style!);
 
         expect(prompt).toContain('product-visuals/white-background-product/1');
-        expect(prompt).toContain(style!.promptContent.slice(0, 120));
+        expect(prompt).toContain(`风格说明：${style!.promptHint}`);
+        expect(prompt).not.toContain(style!.promptContent.slice(0, 120));
         expect(prompt).toContain('保留上传主体的身份特征');
     });
 });
