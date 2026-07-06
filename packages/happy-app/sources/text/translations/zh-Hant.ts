@@ -131,6 +131,8 @@ export const zhHant: TranslationStructure = {
         language: '語言切換',
         voiceAssistant: '語音助理',
         voiceAssistantSubtitle: '設定語音互動偏好',
+        askApi: 'Ask API',
+        askApiSubtitle: '設定問答模式的 API Key 和介面位址',
         featuresTitle: '功能',
         featuresSubtitle: '啟用或停用應用程式功能',
         developer: '開發者',
@@ -163,6 +165,22 @@ export const zhHant: TranslationStructure = {
             `${name} ${status === 'online' ? '線上' : '離線'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} 已${enabled ? '啟用' : '停用'}`,
+    },
+
+    askApiSettings: {
+        connection: '連線',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: '儲存 API Key 後，首頁才會顯示問答模式切換。URL 可選，留空預設使用 DeepSeek。',
+        status: '狀態',
+        configured: '已設定',
+        configuredSubtitle: '這台裝置可以使用問答模式',
+        notConfigured: '未設定',
+        notConfiguredSubtitle: '儲存 API Key 前不會顯示問答模式',
+        clear: '清除 Ask API',
+        clearSubtitle: '從這台裝置移除本機 Key 和介面位址',
     },
 
     settingsSkills: {

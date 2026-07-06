@@ -44,6 +44,34 @@ describe('codex fork ops', () => {
         );
     });
 
+    it('forwards ask API environment variables when spawning a session', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-ask' });
+
+        const { machineSpawnNewSession } = await import('./ops');
+        const result = await machineSpawnNewSession({
+            machineId: 'machine-1',
+            directory: '/tmp/project',
+            agent: 'ask',
+            environmentVariables: {
+                HAPPY_DEEPSEEK_API_KEY: 'sk-local',
+                HAPPY_DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+            },
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'happy-ask' });
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'spawn-happy-session',
+            expect.objectContaining({
+                agent: 'ask',
+                environmentVariables: {
+                    HAPPY_DEEPSEEK_API_KEY: 'sk-local',
+                    HAPPY_DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+                },
+            }),
+        );
+    });
+
     it('forks a full Codex thread and spawns a Codex session resumed to the new thread', async () => {
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {

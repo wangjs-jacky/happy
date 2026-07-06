@@ -147,6 +147,8 @@ export const pl: TranslationStructure = {
         language: 'Język',
         voiceAssistant: 'Asystent głosowy',
         voiceAssistantSubtitle: 'Konfiguruj preferencje interakcji głosowej',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Skonfiguruj klucz API i endpoint dla trybu Ask',
         featuresTitle: 'Funkcje',
         featuresSubtitle: 'Włącz lub wyłącz funkcje aplikacji',
         developer: 'Deweloper',
@@ -180,6 +182,22 @@ export const pl: TranslationStructure = {
             `${name} jest ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'włączona' : 'wyłączona'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {

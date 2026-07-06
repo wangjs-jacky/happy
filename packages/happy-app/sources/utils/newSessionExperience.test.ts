@@ -47,15 +47,19 @@ describe('new session experience', () => {
     });
 
     it('drives a compact header mode switch outside image-agent flows', () => {
-        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false, askConfigured: true })).toEqual({
             visible: true,
             selectedMode: 'ask',
         });
-        expect(getHeaderModeSwitchExperience({ agentType: 'codex', activeImageAgent: false })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'codex', activeImageAgent: false, askConfigured: true })).toEqual({
             visible: true,
             selectedMode: 'agent',
         });
-        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: true })).toEqual({
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: false, askConfigured: false })).toEqual({
+            visible: false,
+            selectedMode: 'agent',
+        });
+        expect(getHeaderModeSwitchExperience({ agentType: 'ask', activeImageAgent: true, askConfigured: true })).toEqual({
             visible: false,
             selectedMode: 'agent',
         });

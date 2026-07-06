@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
+import { useProfile, useAllMachines, useLocalSetting, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -39,6 +39,7 @@ import { buildImageAgentPrompt, getImageAgentStyleLabel, getImageAgentStylesForA
 import { IMAGE_STYLE_COMPOSE_ROUTE, createImageStyleSelectionPrompt, resolveComposeImageAgent, selectImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
+import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -96,6 +97,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const headerHeight = useHeaderHeight();
     const profile = useProfile();
     const machines = useAllMachines();
+    const askApi = useLocalSetting('askApi');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
@@ -197,8 +199,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const headerModeSwitchExperience = React.useMemo(
-        () => getHeaderModeSwitchExperience({ agentType, activeImageAgent }),
-        [activeImageAgent, agentType],
+        () => getHeaderModeSwitchExperience({
+            agentType,
+            activeImageAgent,
+            askConfigured: isAskApiConfigured(askApi),
+        }),
+        [activeImageAgent, agentType, askApi],
     );
     const availableCodingAgents = React.useMemo(() => {
         const availability = selectedMachine?.metadata?.cliAvailability;
@@ -265,6 +271,17 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }
     }, [agentType, availableCodingAgents, setAgentType]);
 
+    React.useEffect(() => {
+        if (activeImageAgent || isAskApiConfigured(askApi) || agentType !== 'ask') {
+            return;
+        }
+        setAgentType(selectAgentForTopLevelMode({
+            mode: 'agent',
+            currentAgent: agentType,
+            availableCodingAgents,
+        }));
+    }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
+
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
@@ -311,6 +328,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt,
             images,
+            environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
         }).then((ok) => {
             if (ok) {
                 composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
@@ -318,7 +336,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages, askApi]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via

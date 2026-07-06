@@ -70,8 +70,9 @@ export function getComposeHomeExperience(args: {
 export function getHeaderModeSwitchExperience(args: {
     agentType: NewSessionAgentType;
     activeImageAgent: boolean;
+    askConfigured: boolean;
 }): HeaderModeSwitchExperience {
-    if (args.activeImageAgent) {
+    if (args.activeImageAgent || !args.askConfigured) {
         return {
             visible: false,
             selectedMode: 'agent',

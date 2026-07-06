@@ -134,6 +134,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/ask"
+                options={{
+                    headerTitle: t('settings.askApi'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/my-agents"
                 options={{
                     headerTitle: t('agents.title'),
