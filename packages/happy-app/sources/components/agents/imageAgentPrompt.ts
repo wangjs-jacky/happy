@@ -28,8 +28,19 @@ export const IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
 
 const STYLE_BY_ID = new Map(IMAGE_AGENT_STYLE_PRESETS.map((style) => [style.id, style]));
 
+function normalizeLegacyReferenceStyleId(styleId: string): string {
+    if (styleId.startsWith('oba-tiramisu/')) {
+        return styleId.replace('oba-tiramisu/', 'reference-tiramisu/');
+    }
+    if (styleId.startsWith('oba-dog/')) {
+        return styleId.replace('oba-dog/', 'reference-dog/');
+    }
+    return styleId;
+}
+
 function resolveImageAgentStyle(styleId: string): ImageAgentStylePreset | undefined {
-    return STYLE_BY_ID.get(styleId) ?? STYLE_BY_ID.get(LEGACY_IMAGE_STYLE_ID_ALIASES[styleId]);
+    const normalizedStyleId = normalizeLegacyReferenceStyleId(styleId);
+    return STYLE_BY_ID.get(normalizedStyleId) ?? STYLE_BY_ID.get(LEGACY_IMAGE_STYLE_ID_ALIASES[normalizedStyleId]);
 }
 
 export function getImageAgentStyleLabel(style: ImageAgentStylePreset): string {

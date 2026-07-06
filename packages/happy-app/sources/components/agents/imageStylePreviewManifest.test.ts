@@ -7,11 +7,11 @@ import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const previewAssetDir = resolve(currentDir, '../../assets/images/gpt-image-2/skill-examples');
-const obaPreviewAssetDir = resolve(currentDir, '../../assets/images/gpt-image-2/oba-examples');
+const referencePreviewAssetDir = resolve(currentDir, '../../assets/images/gpt-image-2/reference-examples');
 const IMAGE_STYLE_COUNT = 204;
 const IMAGE_STYLE_CATEGORY_COUNT = 19;
 const GARDEN_CASE_COUNT = 162;
-const OBA_CASE_COUNT = 42;
+const REFERENCE_CASE_COUNT = 42;
 
 describe('imageStylePreviewManifest', () => {
     it('defines one real preview asset for every GPT Image 2 case style', () => {
@@ -28,12 +28,12 @@ describe('imageStylePreviewManifest', () => {
         expect(previewStyleIds).toEqual(styleIds);
         expect(categoryIds.size).toBe(IMAGE_STYLE_CATEGORY_COUNT);
         expect(sourceSets['gpt-image-2-101']).toBe(GARDEN_CASE_COUNT);
-        expect(sourceSets['local-obsidian-oba']).toBe(OBA_CASE_COUNT);
+        expect(sourceSets['curated-reference-examples']).toBe(REFERENCE_CASE_COUNT);
 
         for (const style of IMAGE_AGENT_STYLE_PRESETS) {
             const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
-            const sourceDir = preview.sourceSet === 'local-obsidian-oba'
-                ? obaPreviewAssetDir
+            const sourceDir = preview.sourceSet === 'curated-reference-examples'
+                ? referencePreviewAssetDir
                 : previewAssetDir;
 
             expect(style.promptContent.length).toBeGreaterThan(200);
