@@ -23,6 +23,7 @@ import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildOpenBirdSessionMarkdown, hasOpenBirdShareContent, publishOpenBirdTempPage } from '@/utils/openBirdSessionShare';
+import { prepareOpenBirdAttachmentUrls } from '@/utils/openBirdShareAssets';
 import { loadLatestOpenBirdShare, rememberOpenBirdShare } from '@/utils/openBirdShareHistory';
 import type { Message } from '@/sync/typesMessage';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
@@ -58,6 +59,8 @@ function isRegenerateTitleRpcUnavailable(message: string | undefined): boolean {
 
 const OPENBIRD_SHARE_HISTORY_STEP_LIMIT = 1000;
 const OPENBIRD_SHARE_HISTORY_WAIT_MS = 150;
+const OPENBIRD_SHARE_MARKDOWN_SOFT_LIMIT = 2_400_000;
+const OPENBIRD_SHARE_IMAGE_DATA_URI_BUDGET = 1_800_000;
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -90,6 +93,14 @@ async function loadCompleteSessionMessagesForShare(sessionId: string): Promise<{
 
 function getErrorMessage(error: unknown, fallback: string): string {
     return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function shouldRetryOpenBirdWithoutInlineImages(error: unknown): boolean {
+    const message = getErrorMessage(error, '').toLowerCase();
+    return message.includes('413')
+        || message.includes('too large')
+        || message.includes('payload')
+        || message.includes('request entity');
 }
 
 function promptExistingOpenBirdShare(url: string): Promise<'copy' | 'publish' | 'cancel'> {
@@ -381,12 +392,32 @@ export function useSessionQuickActions(
             throw new HappyError(t('sessionInfo.shareOpenBirdNoMessages'), false);
         }
 
-        const markdown = buildOpenBirdSessionMarkdown(session, messages);
+        const baseMarkdown = buildOpenBirdSessionMarkdown(session, messages);
+        const imageBudget = Math.min(
+            OPENBIRD_SHARE_IMAGE_DATA_URI_BUDGET,
+            Math.max(0, OPENBIRD_SHARE_MARKDOWN_SOFT_LIMIT - baseMarkdown.length),
+        );
+        const attachmentUrls = imageBudget > 0
+            ? await prepareOpenBirdAttachmentUrls(session.id, messages, {
+                maxTotalDataUriLength: imageBudget,
+            })
+            : {};
+        const markdown = Object.keys(attachmentUrls).length > 0
+            ? buildOpenBirdSessionMarkdown(session, messages, { attachmentUrls })
+            : baseMarkdown;
         let result;
         try {
             result = await publishOpenBirdTempPage(markdown);
         } catch (error) {
-            throw new HappyError(getErrorMessage(error, t('sessionInfo.shareOpenBirdFailed')), false);
+            if (markdown !== baseMarkdown && shouldRetryOpenBirdWithoutInlineImages(error)) {
+                try {
+                    result = await publishOpenBirdTempPage(baseMarkdown);
+                } catch (fallbackError) {
+                    throw new HappyError(getErrorMessage(fallbackError, t('sessionInfo.shareOpenBirdFailed')), false);
+                }
+            } else {
+                throw new HappyError(getErrorMessage(error, t('sessionInfo.shareOpenBirdFailed')), false);
+            }
         }
 
         const savedShare = rememberOpenBirdShare(session.id, result);

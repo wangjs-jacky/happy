@@ -184,6 +184,44 @@ describe('buildOpenBirdSessionMarkdown', () => {
         expect(markdown).not.toContain('&quot;ref&quot;: &quot;sessions/session-1/attachments/image-one.enc&quot;');
     });
 
+    it('renders public or inlined attachment URLs as real images', () => {
+        const messages: Message[] = [
+            {
+                kind: 'tool-call',
+                id: 'image-1',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                tool: {
+                    name: 'file',
+                    state: 'completed',
+                    input: {
+                        ref: 'sessions/session-1/attachments/image-one.enc',
+                        name: 'image-one.png',
+                        size: 123456,
+                        image: {
+                            width: 900,
+                            height: 1200,
+                        },
+                    },
+                    createdAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                    startedAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                    completedAt: Date.parse('2026-01-01T10:00:01.000Z'),
+                    description: null,
+                },
+                children: [],
+            },
+        ];
+
+        const markdown = buildOpenBirdSessionMarkdown(session, messages, {
+            attachmentUrls: {
+                'sessions/session-1/attachments/image-one.enc': 'data:image/jpeg;base64,abc123',
+            },
+        });
+
+        expect(markdown).toContain('<img src="data:image/jpeg;base64,abc123" alt="image-one.png" loading="lazy">');
+        expect(markdown).not.toContain('<div class="happy-image-placeholder">');
+    });
+
     it('renders Happy options blocks and common Markdown structure as readable HTML', () => {
         const messages: Message[] = [
             {
