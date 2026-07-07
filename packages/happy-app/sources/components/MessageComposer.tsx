@@ -1,6 +1,6 @@
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import * as React from 'react';
-import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable } from 'react-native';
+import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, Modal as RNModal } from 'react-native';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
@@ -22,6 +22,7 @@ import { useSetting } from '@/sync/storage';
 import { Theme } from '@/theme';
 import { t } from '@/text';
 import type { ComposerAutocompleteSuggestion } from './autocomplete/types';
+import { getScreenshotMenuItems, type ScreenshotMenuItem } from './messageComposerScreenshotMenu';
 
 interface MessageComposerProps {
     // Drives layout differences between the home compose box and the in-session
@@ -97,7 +98,17 @@ interface MessageComposerProps {
     galleryHasNew?: boolean;
 }
 
+type ScreenshotMenuAnchorRect = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
 const MAX_CONTEXT_SIZE = 190000;
+const SCREENSHOT_MENU_WIDTH = 200;
+const SCREENSHOT_MENU_ITEM_HEIGHT = 44;
+const SCREENSHOT_MENU_MARGIN = 12;
 
 // Stable fallbacks so home mode (which has no autocomplete) can omit these
 // props without handing MessageComposer.memo a fresh ref on every render.
@@ -200,20 +211,20 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     screenshotAnchor: {
         position: 'relative',
     },
-    screenshotBackdrop: {
+    screenshotMenuModalRoot: {
+        flex: 1,
+    },
+    screenshotMenuBackdrop: {
         position: 'absolute',
-        top: -1000,
-        bottom: -1000,
-        left: -1000,
-        right: -1000,
-        zIndex: 1000,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'transparent',
     },
     screenshotMenu: {
         position: 'absolute',
-        bottom: '100%',
-        right: 0,
-        marginBottom: 8,
-        minWidth: 200,
+        width: SCREENSHOT_MENU_WIDTH,
         backgroundColor: theme.colors.input.background,
         borderRadius: Platform.select({ default: 16, android: 20 }),
         borderWidth: StyleSheet.hairlineWidth,
@@ -225,7 +236,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         shadowOpacity: theme.colors.shadow.opacity,
         shadowRadius: 12,
         elevation: 8,
-        zIndex: 1001,
     },
     screenshotMenuItem: {
         flexDirection: 'row',
@@ -492,7 +502,7 @@ const AgentInputContextChips = React.memo(function AgentInputContextChips(p: Con
 export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle, MessageComposerProps>((props, ref) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
-    const screenWidth = useWindowDimensions().width;
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const isSendBlocked = props.blockSend ?? false;
     const isSession = props.mode === 'session';
     const autocompletePrefixes = props.autocompletePrefixes ?? EMPTY_AUTOCOMPLETE_PREFIXES;
@@ -520,18 +530,82 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     // picker that pops up above the camera button; selecting a target closes it
     // and forwards the choice to the caller via onCaptureScreenshot.
     const [screenshotMenuOpen, setScreenshotMenuOpen] = React.useState(false);
+    const [screenshotMenuAnchor, setScreenshotMenuAnchor] = React.useState<ScreenshotMenuAnchorRect | null>(null);
+    const screenshotAnchorRef = React.useRef<View>(null);
     const onCaptureScreenshot = props.onCaptureScreenshot;
+    const closeScreenshotMenu = React.useCallback(() => {
+        setScreenshotMenuOpen(false);
+    }, []);
+    const openScreenshotMenu = React.useCallback(() => {
+        hapticsLight();
+
+        const anchor = screenshotAnchorRef.current;
+        if (!anchor) {
+            setScreenshotMenuAnchor(null);
+            setScreenshotMenuOpen(true);
+            return;
+        }
+
+        anchor.measureInWindow((x, y, width, height) => {
+            setScreenshotMenuAnchor({ x, y, width, height });
+            setScreenshotMenuOpen(true);
+        });
+    }, []);
     const handleCaptureTarget = React.useCallback((target: 'desktop' | 'browser') => {
         hapticsLight();
-        setScreenshotMenuOpen(false);
+        closeScreenshotMenu();
         onCaptureScreenshot?.(target);
-    }, [onCaptureScreenshot]);
+    }, [closeScreenshotMenu, onCaptureScreenshot]);
     const onOpenGallery = props.onOpenGallery;
     const handleOpenGallery = React.useCallback(() => {
         hapticsLight();
-        setScreenshotMenuOpen(false);
+        closeScreenshotMenu();
         onOpenGallery?.();
-    }, [onOpenGallery]);
+    }, [closeScreenshotMenu, onOpenGallery]);
+    const screenshotMenuItems = React.useMemo(() => (
+        getScreenshotMenuItems({ includeGallery: !!onOpenGallery })
+    ), [onOpenGallery]);
+    const screenshotMenuPosition = React.useMemo(() => {
+        const estimatedHeight = screenshotMenuItems.length * SCREENSHOT_MENU_ITEM_HEIGHT + 8;
+
+        if (!screenshotMenuAnchor) {
+            return {
+                left: Math.max(SCREENSHOT_MENU_MARGIN, screenWidth - SCREENSHOT_MENU_WIDTH - 56),
+                top: Math.max(SCREENSHOT_MENU_MARGIN, screenHeight - estimatedHeight - 96),
+            };
+        }
+
+        const leftBase = screenshotMenuAnchor.x + screenshotMenuAnchor.width - SCREENSHOT_MENU_WIDTH;
+        let topBase = screenshotMenuAnchor.y - estimatedHeight - 8;
+
+        if (topBase < SCREENSHOT_MENU_MARGIN) {
+            topBase = screenshotMenuAnchor.y + screenshotMenuAnchor.height + 8;
+        }
+
+        return {
+            left: Math.max(
+                SCREENSHOT_MENU_MARGIN,
+                Math.min(screenWidth - SCREENSHOT_MENU_WIDTH - SCREENSHOT_MENU_MARGIN, leftBase),
+            ),
+            top: Math.max(
+                SCREENSHOT_MENU_MARGIN,
+                Math.min(screenHeight - estimatedHeight - SCREENSHOT_MENU_MARGIN, topBase),
+            ),
+        };
+    }, [screenHeight, screenWidth, screenshotMenuAnchor, screenshotMenuItems.length]);
+    const handleScreenshotMenuItemPress = React.useCallback((item: ScreenshotMenuItem) => {
+        if (item.key === 'gallery') {
+            handleOpenGallery();
+            return;
+        }
+
+        handleCaptureTarget(item.target);
+    }, [handleCaptureTarget, handleOpenGallery]);
+    React.useEffect(() => {
+        if (!props.onCaptureScreenshot) {
+            closeScreenshotMenu();
+        }
+    }, [closeScreenshotMenu, props.onCaptureScreenshot]);
 
     // Abort button state
     const [isAborting, setIsAborting] = React.useState(false);
@@ -970,55 +1044,17 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                     </Pressable>
                                 )}
 
-                                {/* Screenshot button + target dropdown (能力 A) */}
+                                {/* Screenshot button (menu is rendered in a modal below) */}
                                 {props.onCaptureScreenshot && (
-                                    <View style={styles.screenshotAnchor}>
-                                        {screenshotMenuOpen && (
-                                            <>
-                                                {/* Full-screen backdrop: tap outside closes the menu */}
-                                                <Pressable
-                                                    style={styles.screenshotBackdrop}
-                                                    onPress={() => setScreenshotMenuOpen(false)}
-                                                />
-                                                <View style={styles.screenshotMenu}>
-                                                    <Pressable
-                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                        onPress={() => handleCaptureTarget('desktop')}
-                                                    >
-                                                        <Ionicons name="desktop-outline" size={15} color={theme.colors.text} />
-                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                            {t('components.messageComposer.screenshotDesktop')}
-                                                        </Text>
-                                                    </Pressable>
-                                                    <Pressable
-                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                        onPress={() => handleCaptureTarget('browser')}
-                                                    >
-                                                        <Ionicons name="globe-outline" size={15} color={theme.colors.text} />
-                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                            {t('components.messageComposer.screenshotBrowser')}
-                                                        </Text>
-                                                    </Pressable>
-                                                    {props.onOpenGallery && (
-                                                        <Pressable
-                                                            style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                            onPress={handleOpenGallery}
-                                                        >
-                                                            <Ionicons name="images-outline" size={15} color={theme.colors.text} />
-                                                            <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                                {t('components.messageComposer.screenshotGallery')}
-                                                            </Text>
-                                                            {props.galleryHasNew && <View style={styles.screenshotMenuDot} />}
-                                                        </Pressable>
-                                                    )}
-                                                </View>
-                                            </>
-                                        )}
+                                    <View ref={screenshotAnchorRef} style={styles.screenshotAnchor}>
                                         <Pressable
                                             accessibilityLabel={t('components.messageComposer.screenshot')}
                                             onPress={() => {
-                                                hapticsLight();
-                                                setScreenshotMenuOpen((v) => !v);
+                                                if (screenshotMenuOpen) {
+                                                    closeScreenshotMenu();
+                                                } else {
+                                                    openScreenshotMenu();
+                                                }
                                             }}
                                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                                             style={(p) => ({
@@ -1091,6 +1127,44 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                     </View>
                 </View>
                 </Shaker>
+                {props.onCaptureScreenshot && (
+                    <RNModal
+                        animationType="fade"
+                        onRequestClose={closeScreenshotMenu}
+                        transparent
+                        visible={screenshotMenuOpen}
+                    >
+                        <View style={styles.screenshotMenuModalRoot}>
+                            <Pressable
+                                style={styles.screenshotMenuBackdrop}
+                                onPress={closeScreenshotMenu}
+                            />
+                            <View
+                                style={[
+                                    styles.screenshotMenu,
+                                    {
+                                        left: screenshotMenuPosition.left,
+                                        top: screenshotMenuPosition.top,
+                                    },
+                                ]}
+                            >
+                                {screenshotMenuItems.map((item) => (
+                                    <Pressable
+                                        key={item.key}
+                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                        onPress={() => handleScreenshotMenuItemPress(item)}
+                                    >
+                                        <Ionicons name={item.icon} size={15} color={theme.colors.text} />
+                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                            {t(item.labelKey)}
+                                        </Text>
+                                        {item.key === 'gallery' && props.galleryHasNew && <View style={styles.screenshotMenuDot} />}
+                                    </Pressable>
+                                ))}
+                            </View>
+                        </View>
+                    </RNModal>
+                )}
             </View>
         </View>
     );

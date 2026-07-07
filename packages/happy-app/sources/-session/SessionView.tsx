@@ -1,5 +1,6 @@
 import { AgentContentView } from '@/components/AgentContentView';
 import { MessageComposer } from '@/components/MessageComposer';
+import { shouldShowScreenshotCapture } from '@/components/messageComposerScreenshotMenu';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
@@ -543,6 +544,7 @@ function SessionViewLoaded({
     const { hasNew: galleryHasNew } = useHasNewScreenshots(sessionId);
     const handleOpenGallery = React.useCallback(() => setGalleryOpen(true), []);
     const handleCloseGallery = React.useCallback(() => setGalleryOpen(false), []);
+    const showScreenshotCapture = shouldShowScreenshotCapture(session.metadata?.os);
     // Attach a gallery screenshot to the composer input. Intrinsic size is
     // unknown for screenshots (0/0 is accepted by the upload pipeline).
     const handleAttachScreenshot = React.useCallback((entry: ScreenshotEntry) => {
@@ -716,7 +718,7 @@ function SessionViewLoaded({
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            onCaptureScreenshot={handleCaptureScreenshot}
+            onCaptureScreenshot={showScreenshotCapture ? handleCaptureScreenshot : undefined}
             onOpenGallery={handleOpenGallery}
             galleryHasNew={galleryHasNew}
             autocompletePrefixes={autocompletePrefixes}
