@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines, useLocalSetting, useSetting } from '@/sync/storage';
+import { useProfile, useAllMachines, useLocalSetting, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -38,15 +38,20 @@ import { hapticsLight } from './haptics';
 import {
     MAX_IMAGE_AGENT_VARIANTS_PER_STYLE,
     buildImageAgentPrompt,
+    getImageAgentStyleOptionsForAgent,
     getImageAgentStyleLabel,
     getImageAgentStylesForAgent,
     getImageAgentVariantCount,
+    shouldUseUserImageStyleReferenceImages,
+    USER_IMAGE_STYLE_ID_PREFIX,
     type ImageAgentStylePreset,
 } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
+import { Modal } from '@/modal';
+import type { AttachmentPreview } from '@/sync/attachmentTypes';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -118,6 +123,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
     const { agentId, mode } = useLocalSearchParams<{ agentId?: string; mode?: string }>();
     const agents = useSetting('agents');
+    const [customImageStyles, setCustomImageStyles] = useSettingMutable('customImageStyles');
+    const [pendingCustomImageStyleReferences, setPendingCustomImageStyleReferences] = useSettingMutable('pendingCustomImageStyleReferences');
     const activeAgent = React.useMemo(
         () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
         [agentId, agents],
@@ -134,15 +141,31 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
     const activeImageAgent = !!imageAgent;
     const galleryImageStyles = React.useMemo(
-        () => (imageAgent ? getImageAgentStylesForAgent(imageAgent) : []),
-        [imageAgent],
+        () => (imageAgent ? getImageAgentStyleOptionsForAgent(imageAgent, customImageStyles) : []),
+        [imageAgent, customImageStyles],
     );
     const activeImageStyles = React.useMemo(
         () => (effectiveImageAgent && selectedImageStyleIds.length > 0
-            ? getImageAgentStylesForAgent(effectiveImageAgent)
+            ? getImageAgentStylesForAgent(effectiveImageAgent, customImageStyles)
             : []),
-        [effectiveImageAgent, selectedImageStyleIds.length],
+        [effectiveImageAgent, selectedImageStyleIds.length, customImageStyles],
     );
+    const selectedCustomReferenceImages = React.useMemo<AttachmentPreview[]>(() => {
+        const selectedIds = new Set(activeImageStyles.map((style) => style.id));
+        const references = customImageStyles
+            .filter((style) => selectedIds.has(style.id) && shouldUseUserImageStyleReferenceImages(style))
+            .flatMap((style) => style.referenceImages);
+        return references.map((image) => ({
+            id: `style_${image.id}`,
+            uri: image.uri,
+            width: image.width,
+            height: image.height,
+            mimeType: image.mimeType,
+            size: image.size,
+            name: image.name,
+            thumbhash: image.thumbhash,
+        }));
+    }, [activeImageStyles, customImageStyles]);
     const activeImageVariants = effectiveImageAgent ? getImageAgentVariantCount(effectiveImageAgent) : 1;
     const imageEffectTitle = React.useMemo(() => {
         if (activeImageStyles.length === 1) {
@@ -156,7 +179,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
     React.useEffect(() => {
         const initialStyleIds = activeAgent?.kind === 'image-styles' && imageAgent
-            ? getImageAgentStylesForAgent(imageAgent).map((style) => style.id)
+            ? getImageAgentStylesForAgent(imageAgent, customImageStyles).map((style) => style.id)
             : [];
         setSelectedImageStyleIds(initialStyleIds);
         setSelectedImageVariantCount(imageAgent ? getImageAgentVariantCount(imageAgent) : 1);
@@ -199,6 +222,40 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const canAttach = composeExperience.canAttach;
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
+    const pendingStyleImageRestoreState = React.useRef<'idle' | 'restoring' | 'done'>('idle');
+
+    React.useEffect(() => {
+        if (!activeImageAgent) {
+            pendingStyleImageRestoreState.current = 'idle';
+            return;
+        }
+        if (pendingStyleImageRestoreState.current === 'idle') {
+            if (pendingCustomImageStyleReferences.length > 0 && selectedImages.length === 0) {
+                pendingStyleImageRestoreState.current = 'restoring';
+                addImages(pendingCustomImageStyleReferences);
+                return;
+            }
+            pendingStyleImageRestoreState.current = 'done';
+            return;
+        }
+        if (pendingStyleImageRestoreState.current === 'restoring' && selectedImages.length > 0) {
+            pendingStyleImageRestoreState.current = 'done';
+        }
+    }, [activeImageAgent, pendingCustomImageStyleReferences, selectedImages.length, addImages]);
+
+    React.useEffect(() => {
+        if (!activeImageAgent || pendingStyleImageRestoreState.current !== 'done') return;
+        setPendingCustomImageStyleReferences(selectedImages.map((image) => ({
+            id: image.id,
+            uri: image.uri,
+            width: image.width,
+            height: image.height,
+            mimeType: image.mimeType,
+            size: image.size,
+            name: image.name,
+            thumbhash: image.thumbhash,
+        })));
+    }, [activeImageAgent, selectedImages, setPendingCustomImageStyleReferences]);
 
     const name = getDisplayName(profile);
     const selectedMachine = React.useMemo(
@@ -272,6 +329,69 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setSelectedImageVariantCount(count);
     }, []);
 
+    const createCustomImageStyle = React.useCallback(async () => {
+        if (!activeImageAgent || selectedImages.length === 0) return;
+        hapticsLight();
+        const defaultName = t('agents.customImageStyleDefaultName');
+        const title = (await Modal.prompt(
+            t('agents.customImageStyleCreateTitle'),
+            t('agents.customImageStyleCreateMessage'),
+            {
+                placeholder: defaultName,
+                defaultValue: defaultName,
+                confirmText: t('agents.customImageStyleCreateConfirm'),
+            },
+        ))?.trim();
+        if (!title) return;
+
+        const now = Date.now();
+        const id = `${USER_IMAGE_STYLE_ID_PREFIX}${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const referenceImages = selectedImages.slice(0, 6).map((image, index) => ({
+            id: `${id}-${index}`,
+            uri: image.uri,
+            width: image.width,
+            height: image.height,
+            mimeType: image.mimeType,
+            size: image.size,
+            name: image.name,
+            thumbhash: image.thumbhash,
+        }));
+        const promptHint = t('agents.customImageStylePromptHint', { name: title });
+        const newStyle = {
+            id,
+            title,
+            promptHint,
+            tags: [] as string[],
+            analysisStatus: 'reference-ready' as const,
+            promptSource: 'reference-image' as const,
+            referenceImages,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        setCustomImageStyles([
+            newStyle,
+            ...customImageStyles.filter((style) => style.id !== id),
+        ].slice(0, 24));
+        setSelectedImageStyleIds([id]);
+        setPendingCustomImageStyleReferences([]);
+        clearImages();
+        setImageGalleryOpen(false);
+    }, [activeImageAgent, selectedImages, setCustomImageStyles, customImageStyles, setPendingCustomImageStyleReferences, clearImages]);
+
+    const deleteCustomImageStyle = React.useCallback(async (style: ImageAgentStylePreset) => {
+        if (!style.custom) return;
+        hapticsLight();
+        const confirmed = await Modal.confirm(
+            t('agents.customImageStyleDeleteTitle'),
+            t('agents.customImageStyleDeleteMessage', { name: getImageAgentStyleLabel(style) }),
+            { confirmText: t('common.delete'), destructive: true },
+        );
+        if (!confirmed) return;
+        setCustomImageStyles(customImageStyles.filter((item) => item.id !== style.id));
+        setSelectedImageStyleIds((current) => current.filter((id) => id !== style.id));
+    }, [customImageStyles, setCustomImageStyles]);
+
     // The machine/agent chip drops the full session-config panel down in place
     // (instead of navigating to /new). Tapping the chip again — or anywhere
     // outside — collapses it. The panel writes straight to the shared draft
@@ -311,14 +431,20 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
-        const images = hasImages ? selectedImages : undefined;
+        const userImages = hasImages ? selectedImages : [];
+        const images = activeImageAgent
+            ? [...selectedCustomReferenceImages, ...userImages]
+            : userImages.length > 0 ? userImages : undefined;
         if ((!trimmed && !images) || sending) return;
         if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
         const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
                 agent: effectiveImageAgent,
+                customStyles: customImageStyles,
                 userPrompt: trimmed,
                 imageCount: images?.length ?? 0,
+                styleReferenceImageCount: selectedCustomReferenceImages.length,
+                userImageCount: userImages.length,
             })
             : trimmed;
 
@@ -361,10 +487,13 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             if (ok) {
                 composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
                 setText('');
+                if (activeImageAgent) {
+                    setPendingCustomImageStyleReferences([]);
+                }
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages, askApi]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, setPendingCustomImageStyleReferences, clearImages, askApi, customImageStyles, selectedCustomReferenceImages]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -498,6 +627,44 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                     </View>
                                     <Ionicons name="images-outline" size={18} color={theme.colors.textSecondary} />
                                 </Pressable>
+                            )}
+                            {hasImages && (
+                                <View style={styles.imageReferenceActions}>
+                                    <Pressable
+                                        onPress={pickImages}
+                                        style={({ pressed }) => [
+                                            styles.imageAddReferenceAction,
+                                            pressed && styles.imageAddReferenceActionPressed,
+                                        ]}
+                                        hitSlop={6}
+                                    >
+                                        <Ionicons name="add" size={18} color={theme.colors.text} />
+                                        <Text style={styles.imageAddReferenceText} numberOfLines={1}>
+                                            {t('agents.customImageStyleAddReferences')}
+                                        </Text>
+                                    </Pressable>
+                                    <Pressable
+                                        onPress={createCustomImageStyle}
+                                        style={({ pressed }) => [
+                                            styles.imagePinStyleAction,
+                                            pressed && styles.imagePinStyleActionPressed,
+                                        ]}
+                                        hitSlop={6}
+                                    >
+                                        <View style={styles.imagePinStyleIcon}>
+                                            <Ionicons name="sparkles-outline" size={18} color={theme.colors.button.primary.tint} />
+                                        </View>
+                                        <View style={styles.imagePinStyleCopy}>
+                                            <Text style={styles.imagePinStyleTitle} numberOfLines={1}>
+                                                {t('agents.customImageStyleCreateAction')}
+                                            </Text>
+                                            <Text style={styles.imagePinStyleSubtitle} numberOfLines={1}>
+                                                {t('agents.customImageStyleDraftStatus', { count: selectedImages.length })}
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={17} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                </View>
                             )}
                             <Pressable
                                 onPress={openImageStyleGallery}
@@ -658,6 +825,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     visible={imageGalleryOpen}
                     styles={galleryImageStyles}
                     selectedStyleIds={selectedImageStyleIds}
+                    canCreateCustomStyle={hasImages}
+                    onCreateCustomStyle={createCustomImageStyle}
+                    onDeleteCustomStyle={deleteCustomImageStyle}
+                    onPickImages={pickImages}
                     onToggle={toggleImageStyleFromGallery}
                     onClose={closeImageStyleGallery}
                 />
@@ -830,6 +1001,70 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 12,
         color: theme.colors.textSecondary,
         marginTop: 2,
+    },
+    imageReferenceActions: {
+        flexDirection: 'row',
+        alignItems: 'stretch',
+        gap: 8,
+    },
+    imageAddReferenceAction: {
+        minHeight: 52,
+        minWidth: 88,
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surfacePressed,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    imageAddReferenceActionPressed: {
+        opacity: 0.78,
+    },
+    imageAddReferenceText: {
+        ...Typography.default('semiBold'),
+        fontSize: 11,
+        lineHeight: 15,
+        color: theme.colors.text,
+    },
+    imagePinStyleAction: {
+        flex: 1,
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 9,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.button.primary.background,
+    },
+    imagePinStyleActionPressed: {
+        opacity: 0.82,
+    },
+    imagePinStyleIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    },
+    imagePinStyleCopy: {
+        flex: 1,
+    },
+    imagePinStyleTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.button.primary.tint,
+    },
+    imagePinStyleSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.button.primary.tint,
+        opacity: 0.78,
+        marginTop: 1,
     },
     imageEffectAction: {
         minHeight: 48,

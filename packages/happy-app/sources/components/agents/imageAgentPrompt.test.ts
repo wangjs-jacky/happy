@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     IMAGE_AGENT_STYLE_PRESETS,
     buildImageAgentPrompt,
+    getImageAgentStyleOptionsForAgent,
     getImageAgentStylesForAgent,
 } from './imageAgentPrompt';
 import { createImageStyleSelectionPrompt } from './imageAgentMode';
@@ -94,6 +95,87 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('mcp__happy__send_image');
         expect(prompt).toContain('完整 prompt 和 batchId');
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
+    });
+
+    it('puts user styles above built-in gallery styles and uses reference images until prompt extraction is ready', () => {
+        const customStyles = [{
+            id: 'user-reference/u1',
+            title: '山野速写',
+            promptHint: '用户参考照片风格：山野速写。',
+            tags: [],
+            analysisStatus: 'reference-ready' as const,
+            promptSource: 'reference-image' as const,
+            createdAt: 1,
+            updatedAt: 1,
+            referenceImages: [{
+                id: 'r1',
+                uri: 'file:///style.jpg',
+                width: 800,
+                height: 1000,
+                mimeType: 'image/jpeg',
+                size: 123,
+                name: 'style.jpg',
+            }],
+        }];
+
+        const options = getImageAgentStyleOptionsForAgent(agent, customStyles);
+        expect(options[0]).toMatchObject({
+            id: 'user-reference/u1',
+            title: '山野速写',
+            sourceRepository: 'user-reference',
+            custom: true,
+        });
+
+        const prompt = buildImageAgentPrompt({
+            agent: { ...agent, imageStyleIds: ['user-reference/u1'] },
+            customStyles,
+            userPrompt: '套到产品图上。',
+            imageCount: 2,
+            styleReferenceImageCount: 1,
+            userImageCount: 1,
+        });
+
+        expect(options[0].templateLabel).toBe('Reference Ready');
+        expect(prompt).toContain('前 1 张是自定义风格的临时参考图');
+        expect(prompt).toContain('后 1 张是本次用户素材');
+        expect(prompt).toContain('user-reference/photo-style');
+        expect(prompt).toContain('山野速写');
+    });
+
+    it('uses extracted prompts for prompt-ready user styles without requiring saved reference images', () => {
+        const customStyles = [{
+            id: 'user-reference/u2',
+            title: '低饱和胶片',
+            promptHint: '用户参考照片风格：低饱和胶片。',
+            promptContent: '低饱和暖色胶片、柔和窗光、轻微颗粒、自然阴影。',
+            negativePrompt: '过曝，高锐化',
+            tags: ['film', 'warm'],
+            analysisStatus: 'prompt-ready' as const,
+            promptSource: 'extracted-prompt' as const,
+            referenceImages: [],
+            createdAt: 1,
+            updatedAt: 2,
+        }];
+
+        const options = getImageAgentStyleOptionsForAgent(agent, customStyles);
+        expect(options[0]).toMatchObject({
+            id: 'user-reference/u2',
+            templateLabel: 'Prompt Ready',
+            referenceImages: [],
+        });
+
+        const prompt = buildImageAgentPrompt({
+            agent: { ...agent, imageStyleIds: ['user-reference/u2'] },
+            customStyles,
+            userPrompt: '套到产品图上。',
+            imageCount: 1,
+            styleReferenceImageCount: 0,
+            userImageCount: 1,
+        });
+
+        expect(prompt).toContain('低饱和暖色胶片');
+        expect(prompt).toContain('避免：过曝，高锐化');
+        expect(prompt).not.toContain('临时参考图');
     });
 
     it('keeps generated images visible without asking the agent to print path checklists', () => {

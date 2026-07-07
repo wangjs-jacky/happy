@@ -183,6 +183,18 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     sendButtonIcon: {
         color: theme.colors.button.primary.tint,
     },
+    imagePickerButton: {
+        width: 40,
+        height: 40,
+        borderRadius: Platform.select({ default: 20, android: 22 }),
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 4,
+        zIndex: 2,
+    },
+    imagePickerButtonActive: {
+        backgroundColor: theme.colors.surfaceHigh,
+    },
 
     // Screenshot target dropdown (能力 A)
     screenshotAnchor: {
@@ -935,18 +947,18 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 {/* Image picker button (expImageUpload) */}
                                 {props.onPickImages && (
                                     <Pressable
-                                        onPress={props.onPickImages}
-                                        hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                        style={(p) => ({
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            borderRadius: Platform.select({ default: 16, android: 20 }),
-                                            paddingHorizontal: 8,
-                                            paddingVertical: 6,
-                                            justifyContent: 'center',
-                                            height: 32,
-                                            opacity: p.pressed ? 0.7 : 1,
-                                        })}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={t('agents.imageUploadCta')}
+                                        onPress={() => {
+                                            hapticsLight();
+                                            props.onPickImages?.();
+                                        }}
+                                        hitSlop={8}
+                                        style={(p) => [
+                                            styles.imagePickerButton,
+                                            (props.selectedImages?.length ?? 0) > 0 && styles.imagePickerButtonActive,
+                                            p.pressed && { opacity: 0.7 },
+                                        ]}
                                     >
                                         <Ionicons
                                             name="image-outline"

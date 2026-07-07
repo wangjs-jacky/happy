@@ -20,6 +20,10 @@ type Props = {
     visible: boolean;
     styles: ImageAgentStylePreset[];
     selectedStyleIds: string[];
+    canCreateCustomStyle?: boolean;
+    onCreateCustomStyle?: () => void;
+    onDeleteCustomStyle?: (style: ImageAgentStylePreset) => void;
+    onPickImages?: () => void;
     onToggle: (style: ImageAgentStylePreset) => void;
     onClose: () => void;
 };
@@ -27,10 +31,15 @@ type Props = {
 const ALL_CATEGORY_ID = 'all';
 const SHEET_HORIZONTAL_PADDING = 28;
 
-function StylePreview({ styleId, cardWidth }: { styleId: string; cardWidth: number }) {
-    const source = getImageStylePreviewAsset(styleId);
-    const preview = IMAGE_STYLE_PREVIEW_MANIFEST[styleId];
-    const previewHeight = preview ? getImageStylePreviewHeight(preview, cardWidth) : 140;
+function StylePreview({ style, cardWidth }: { style: ImageAgentStylePreset; cardWidth: number }) {
+    const customReference = style.referenceImages?.[0];
+    const source = customReference ? { uri: customReference.uri } : getImageStylePreviewAsset(style.id);
+    const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
+    const previewHeight = preview
+        ? getImageStylePreviewHeight(preview, cardWidth)
+        : customReference && customReference.width > 0 && customReference.height > 0
+            ? Math.max(140, Math.min(280, cardWidth * (customReference.height / customReference.width)))
+            : 140;
 
     if (!source) {
         return (
@@ -87,6 +96,14 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         }
     }, [categoryId, visibleCategoryIds]);
 
+    const onPressPinAction = React.useCallback(() => {
+        if (props.canCreateCustomStyle) {
+            props.onCreateCustomStyle?.();
+            return;
+        }
+        props.onPickImages?.();
+    }, [props.canCreateCustomStyle, props.onCreateCustomStyle, props.onPickImages]);
+
     const renderStyle = React.useCallback((style: ImageAgentStylePreset) => {
         const selected = selectedStyleIds.has(style.id);
         return (
@@ -99,11 +116,11 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                         pressed && styles.pressed,
                     ]}
                 >
-                    <StylePreview styleId={style.id} cardWidth={cardWidth} />
+                    <StylePreview style={style} cardWidth={cardWidth} />
                     <View style={styles.cardCopy}>
                         <Text style={styles.cardTitle} numberOfLines={2}>{getImageAgentStyleLabel(style)}</Text>
                         <Text style={styles.cardMeta} numberOfLines={1}>
-                            {style.categoryLabel}
+                            {style.custom ? t(style.analysisStatus === 'prompt-ready' ? 'agents.customImageStylePromptReady' : 'agents.customImageStyleReferenceReady') : style.categoryLabel}
                             {' · '}
                             {style.templateLabel}
                         </Text>
@@ -119,6 +136,20 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             color={selected ? styles.selectedIcon.color : styles.cardAction.color}
                         />
                     </View>
+                    {style.custom && props.onDeleteCustomStyle && (
+                        <Pressable
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                props.onDeleteCustomStyle?.(style);
+                            }}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('agents.customImageStyleDeleteAction')}
+                            style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
+                        >
+                            <Ionicons name="trash-outline" size={15} color={styles.deleteIcon.color} />
+                        </Pressable>
+                    )}
                 </Pressable>
             </View>
         );
@@ -142,6 +173,32 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             <Ionicons name="close" size={18} color={styles.closeIcon.color} />
                         </Pressable>
                     </View>
+
+                    <Pressable
+                        onPress={onPressPinAction}
+                        style={({ pressed }) => [
+                            styles.pinAction,
+                            !props.canCreateCustomStyle && styles.pinActionDisabled,
+                            pressed && styles.pinActionPressed,
+                        ]}
+                    >
+                        <View style={styles.pinIcon}>
+                            <Ionicons
+                                name={props.canCreateCustomStyle ? 'sparkles-outline' : 'images-outline'}
+                                size={18}
+                                color={props.canCreateCustomStyle ? styles.pinIconEnabled.color : styles.pinIconDisabled.color}
+                            />
+                        </View>
+                        <View style={styles.pinCopy}>
+                            <Text style={[styles.pinTitle, !props.canCreateCustomStyle && styles.pinTitleDisabled]} numberOfLines={1}>
+                                {props.canCreateCustomStyle ? t('agents.customImageStyleCreateAction') : t('agents.customImageStyleNeedPhoto')}
+                            </Text>
+                            <Text style={styles.pinSubtitle} numberOfLines={1}>
+                                {props.canCreateCustomStyle ? t('agents.customImageStyleCreateHint') : t('agents.customImageStyleNeedPhotoHint')}
+                            </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={17} color={styles.pinChevron.color} />
+                    </Pressable>
 
                     <ScrollView
                         horizontal
@@ -252,6 +309,59 @@ const galleryStyles = StyleSheet.create((theme) => ({
     },
     headerCopy: {
         flex: 1,
+    },
+    pinAction: {
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 12,
+        backgroundColor: theme.colors.button.primary.background,
+    },
+    pinActionDisabled: {
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    pinActionPressed: {
+        opacity: 0.82,
+    },
+    pinIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    },
+    pinIconEnabled: {
+        color: theme.colors.button.primary.tint,
+    },
+    pinIconDisabled: {
+        color: theme.colors.textSecondary,
+    },
+    pinCopy: {
+        flex: 1,
+    },
+    pinTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 14,
+        color: theme.colors.button.primary.tint,
+    },
+    pinTitleDisabled: {
+        color: theme.colors.text,
+    },
+    pinSubtitle: {
+        ...Typography.default(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 1,
+    },
+    pinChevron: {
+        color: theme.colors.textSecondary,
     },
     title: {
         ...Typography.default('semiBold'),
@@ -421,5 +531,19 @@ const galleryStyles = StyleSheet.create((theme) => ({
     },
     selectedIcon: {
         color: theme.colors.accent,
+    },
+    deleteButton: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.46)',
+    },
+    deleteIcon: {
+        color: '#FFFFFF',
     },
 }));
