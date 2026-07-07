@@ -140,6 +140,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/public-image-gateway"
+                options={{
+                    headerTitle: t('settings.publicImageGateway'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/my-agents"
                 options={{
                     headerTitle: t('agents.title'),
@@ -218,6 +224,14 @@ export default function RootLayout() {
                 options={{
                     headerShown: true,
                     headerTitle: t('artifacts.title'),
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
+                name="generated-images"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('generatedImages.title'),
                     headerBackTitle: t('common.back'),
                 }}
             />

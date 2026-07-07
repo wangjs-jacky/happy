@@ -48,6 +48,8 @@ describe('registerHappyBridgeTools', () => {
             .toContain('current chat');
         expect(registrations.find((registration) => registration.name === 'send_image')?.config.inputSchema)
             .toHaveProperty('path');
+        expect(registrations.find((registration) => registration.name === 'send_image')?.config.inputSchema)
+            .toHaveProperty('prompt');
         expect(registrations.find((registration) => registration.name === 'finance_chart')?.config).toMatchObject({
             title: 'Fetch Finance Chart',
         });
@@ -67,11 +69,11 @@ describe('registerHappyBridgeTools', () => {
         const sendImage = registrations.find((registration) => registration.name === 'send_image');
         expect(sendImage).toBeDefined();
 
-        const result = await sendImage?.handler({ path: '/tmp/render.png' });
+        const result = await sendImage?.handler({ path: '/tmp/render.png', prompt: 'draw a cat', batchId: 'batch-1' });
 
         expect(callTool).toHaveBeenCalledWith({
             name: 'send_image',
-            arguments: { path: '/tmp/render.png' },
+            arguments: { path: '/tmp/render.png', prompt: 'draw a cat', batchId: 'batch-1' },
         });
         expect(result).toMatchObject({
             content: [{ type: 'text', text: 'ok send_image' }],

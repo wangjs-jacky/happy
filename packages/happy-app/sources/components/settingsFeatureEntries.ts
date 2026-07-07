@@ -4,7 +4,9 @@ import type { Ionicons } from '@expo/vector-icons';
 type SettingsFeatureEntryTitleKey =
     | 'settings.voiceAssistant'
     | 'settings.askApi'
+    | 'settings.publicImageGateway'
     | 'agents.imageStyleAgent'
+    | 'generatedImages.title'
     | 'agents.title'
     | 'settings.agentDefaults'
     | 'settings.customInstructions'
@@ -15,7 +17,9 @@ type SettingsFeatureEntryTitleKey =
 type SettingsFeatureEntrySubtitleKey =
     | 'settings.voiceAssistantSubtitle'
     | 'settings.askApiSubtitle'
+    | 'settings.publicImageGatewaySubtitle'
     | 'agents.imageStyleAgentEntrySubtitle'
+    | 'generatedImages.entrySubtitle'
     | 'agents.entrySubtitle'
     | 'settings.agentDefaultsSubtitle'
     | 'settings.customInstructionsSubtitle'
@@ -51,12 +55,28 @@ export function getSettingsFeatureEntries(args: { experiments: boolean }): Setti
             route: '/settings/ask',
         },
         {
+            key: 'public-image-gateway',
+            titleKey: 'settings.publicImageGateway',
+            subtitleKey: 'settings.publicImageGatewaySubtitle',
+            icon: 'earth-outline',
+            color: '#1F6F5B',
+            route: '/settings/public-image-gateway',
+        },
+        {
             key: 'image-style-agent',
             titleKey: 'agents.imageStyleAgent',
             subtitleKey: 'agents.imageStyleAgentEntrySubtitle',
             icon: 'images-outline',
             color: '#AF52DE',
             route: '/settings/my-agent-edit?kind=image-styles',
+        },
+        {
+            key: 'generated-images',
+            titleKey: 'generatedImages.title',
+            subtitleKey: 'generatedImages.entrySubtitle',
+            icon: 'albums-outline',
+            color: '#0A84FF',
+            route: '/generated-images',
         },
         {
             key: 'my-agents',

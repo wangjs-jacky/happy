@@ -435,10 +435,21 @@ export class ApiSessionClient extends EventEmitter {
      * When dims is null/undefined (non-image or unparseable) we omit image{} and the app
      * falls back to a 4:3 inline render. Use role 'user' to match the proven path.
      */
-    sendFileEvent(ref: string, name: string, size: number, dims?: { width: number; height: number } | null): void {
+    sendFileEvent(ref: string, name: string, size: number, dims?: { width: number; height: number } | null, options?: {
+        source?: 'user' | 'generated';
+        prompt?: string;
+        batchId?: string;
+        localPath?: string;
+    }): void {
+        const metadata = {
+            ...(options?.source ? { source: options.source } : {}),
+            ...(options?.prompt ? { prompt: options.prompt } : {}),
+            ...(options?.batchId ? { batchId: options.batchId } : {}),
+            ...(options?.localPath ? { localPath: options.localPath } : {}),
+        };
         const ev = dims
-            ? { t: 'file' as const, ref, name, size, image: { width: dims.width, height: dims.height, thumbhash: '' } }
-            : { t: 'file' as const, ref, name, size };
+            ? { t: 'file' as const, ref, name, size, ...metadata, image: { width: dims.width, height: dims.height, thumbhash: '' } }
+            : { t: 'file' as const, ref, name, size, ...metadata };
         this.sendSessionProtocolMessage(createEnvelope('user', ev));
     }
 

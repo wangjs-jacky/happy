@@ -61,11 +61,17 @@ export function registerHappyBridgeTools(
       title: 'Send Image To Chat',
       inputSchema: {
         path: z.string().describe('Absolute path to the local image file (PNG/JPEG)'),
+        prompt: z.string().optional().describe('Prompt used to generate this image. Required for GPT Image 2 gallery records when available.'),
+        batchId: z.string().optional().describe('Stable id shared by images from the same generation batch.'),
       },
     },
     async (args) => forwardHappyToolCall(
       'send_image',
-      { path: args.path },
+      {
+        path: args.path,
+        ...(args.prompt ? { prompt: args.prompt } : {}),
+        ...(args.batchId ? { batchId: args.batchId } : {}),
+      },
       ensureHttpClient,
       'Failed to send image'
     )

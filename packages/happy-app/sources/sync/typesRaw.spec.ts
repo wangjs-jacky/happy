@@ -1756,7 +1756,8 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                             t: 'file',
                             ref: 'upload-file-1',
                             name: 'report.pdf',
-                            size: 1234
+                            size: 1234,
+                            source: 'generated'
                         }
                     }
                 }
@@ -1770,7 +1771,8 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                     input: {
                         ref: 'upload-file-1',
                         name: 'report.pdf',
-                        size: 1234
+                        size: 1234,
+                        source: 'generated'
                     },
                     description: 'Attached file: report.pdf'
                 });
@@ -1802,6 +1804,10 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                             ref: 'upload-file-2',
                             name: 'photo.png',
                             size: 4567,
+                            source: 'generated',
+                            prompt: 'draw a mountain',
+                            batchId: 'batch-1',
+                            localPath: '/tmp/photo.png',
                             image: {
                                 width: 800,
                                 height: 600,
@@ -1821,13 +1827,17 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                         ref: 'upload-file-2',
                         name: 'photo.png',
                         size: 4567,
+                        source: 'generated',
+                        prompt: 'draw a mountain',
+                        batchId: 'batch-1',
+                        localPath: '/tmp/photo.png',
                         image: {
                             width: 800,
                             height: 600,
                             thumbhash: 'abc'
                         }
                     },
-                    description: 'Attached image: photo.png (800x600)'
+                    description: 'Generated image: photo.png (800x600)'
                 });
             }
         });

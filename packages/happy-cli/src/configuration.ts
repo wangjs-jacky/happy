@@ -19,6 +19,7 @@ class Configuration {
   public readonly happyHomeDir: string
   public readonly logsDir: string
   public readonly attachmentsDir: string
+  public readonly generatedImagesDir: string
   public readonly settingsFile: string
   public readonly privateKeyFile: string
   public readonly daemonStateFile: string
@@ -48,6 +49,7 @@ class Configuration {
     // the mobile client. The copy sent to the model gets downscaled by the SDK,
     // so we persist the originals here for archival (e.g. saving into Obsidian).
     this.attachmentsDir = join(this.happyHomeDir, 'attachments')
+    this.generatedImagesDir = join(this.happyHomeDir, 'generated-images')
     this.settingsFile = join(this.happyHomeDir, 'settings.json')
     this.privateKeyFile = join(this.happyHomeDir, 'access.key')
     this.daemonStateFile = join(this.happyHomeDir, 'daemon.state.json')
@@ -87,6 +89,9 @@ class Configuration {
     }
     if (!existsSync(this.attachmentsDir)) {
       mkdirSync(this.attachmentsDir, { recursive: true })
+    }
+    if (!existsSync(this.generatedImagesDir)) {
+      mkdirSync(this.generatedImagesDir, { recursive: true })
     }
   }
 }

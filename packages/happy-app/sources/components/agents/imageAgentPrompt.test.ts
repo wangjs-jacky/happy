@@ -92,6 +92,7 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('各生成 2 张变体');
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
+        expect(prompt).toContain('完整 prompt 和 batchId');
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
 
