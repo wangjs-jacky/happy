@@ -48,23 +48,29 @@ describe('collectGeneratedImagesFromMessages', () => {
         })]);
     });
 
-    it('keeps legacy send_image file events that predate source metadata', () => {
+    it('keeps only GPT Image 2 legacy file events that predate source metadata', () => {
         const entries = collectGeneratedImagesFromMessages('session-1', 'Legacy Session', [
             createFileMessage('older', {
                 ref: 'blob://legacy',
-                name: 'legacy.png',
+                name: 'gpt-image-2-2026-07-07.png',
                 image: { width: 800, height: 600 },
             }),
-            createFileMessage('not-image', {
-                ref: 'blob://document',
-                name: 'notes.txt',
+            createFileMessage('plain-image', {
+                ref: 'blob://plain',
+                name: '120540.jpg',
+                image: { width: 800, height: 600 },
+            }),
+            createFileMessage('public-gateway-image', {
+                ref: 'blob://public-gateway',
+                name: 'public-image-gateway.png',
+                image: { width: 800, height: 600 },
             }),
         ]);
 
         expect(entries).toEqual([expect.objectContaining({
             id: 'session-1:older',
             ref: 'blob://legacy',
-            name: 'legacy.png',
+            name: 'gpt-image-2-2026-07-07.png',
             width: 800,
             height: 600,
         })]);

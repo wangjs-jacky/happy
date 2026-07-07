@@ -21,14 +21,16 @@ export default React.memo(function GeneratedImagesScreen() {
     const contentWidth = Math.min(layout.maxWidth, dimensions.width);
     const columns = Math.max(2, Math.floor((contentWidth - 32 + CARD_GAP) / (MIN_CARD_WIDTH + CARD_GAP)));
     const cardWidth = Math.floor((contentWidth - 32 - CARD_GAP * (columns - 1)) / columns);
+    const cardHeight = Math.round(cardWidth * 1.92);
 
     const renderItem = React.useCallback(({ item, index }: { item: GeneratedImageEntry; index: number }) => (
         <GeneratedImageCard
             item={item}
             cardWidth={cardWidth}
+            cardHeight={cardHeight}
             isLastColumn={(index + 1) % columns === 0}
         />
-    ), [cardWidth, columns]);
+    ), [cardHeight, cardWidth, columns]);
 
     if (images.length === 0) {
         return (
@@ -71,11 +73,12 @@ export default React.memo(function GeneratedImagesScreen() {
 const GeneratedImageCard = React.memo(function GeneratedImageCard(props: {
     item: GeneratedImageEntry;
     cardWidth: number;
+    cardHeight: number;
     isLastColumn: boolean;
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
-    const { item, cardWidth } = props;
+    const { item, cardHeight, cardWidth } = props;
     const { uri } = useAttachmentImage(item.sessionId, item.ref);
     const placeholder = React.useMemo(() => {
         if (!item.thumbhash) return undefined;
@@ -83,8 +86,7 @@ const GeneratedImageCard = React.memo(function GeneratedImageCard(props: {
         return uri ? { uri } : undefined;
     }, [item.thumbhash]);
     const prompt = item.prompt?.trim();
-    const aspectRatio = item.width && item.height ? item.width / item.height : 1;
-    const imageHeight = Math.max(128, Math.min(260, cardWidth / Math.max(0.48, Math.min(1.8, aspectRatio))));
+    const imageHeight = Math.round(cardWidth * 1.15);
 
     const openImage = React.useCallback(() => {
         if (!uri) return;
@@ -102,6 +104,7 @@ const GeneratedImageCard = React.memo(function GeneratedImageCard(props: {
                 styles.card,
                 {
                     width: cardWidth,
+                    height: cardHeight,
                     marginRight: props.isLastColumn ? 0 : CARD_GAP,
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.divider,
@@ -129,11 +132,11 @@ const GeneratedImageCard = React.memo(function GeneratedImageCard(props: {
                 <Text numberOfLines={1} style={[styles.meta, { color: theme.colors.textSecondary }]}>
                     {new Date(item.createdAt).toLocaleString()} · {item.sessionTitle}
                 </Text>
-                <Text numberOfLines={prompt ? 4 : 2} style={[styles.prompt, { color: prompt ? theme.colors.text : theme.colors.textSecondary }]}>
+                <Text numberOfLines={2} style={[styles.prompt, { color: prompt ? theme.colors.text : theme.colors.textSecondary }]}>
                     {prompt || t('generatedImages.promptMissing')}
                 </Text>
                 <Pressable
-                    onPress={() => router.push(`/session/${item.sessionId}` as any)}
+                    onPress={() => router.push({ pathname: '/session/[id]', params: { id: item.sessionId } })}
                     style={({ pressed }) => [
                         styles.sessionButton,
                         {
@@ -198,6 +201,7 @@ const styles = StyleSheet.create(() => ({
         top: 0,
     },
     cardBody: {
+        flex: 1,
         gap: 6,
         padding: 10,
     },
@@ -210,6 +214,7 @@ const styles = StyleSheet.create(() => ({
         lineHeight: 15,
     },
     prompt: {
+        flex: 1,
         fontSize: 12,
         lineHeight: 17,
     },

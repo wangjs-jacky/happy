@@ -39,10 +39,11 @@ function parseGeneratedImageInput(input: unknown): FileImageInput | null {
     const ref = typeof input.ref === 'string' ? input.ref : null;
     if (!ref) return null;
     const image = isRecord(input.image) ? input.image : undefined;
-    if (input.source !== 'generated' && !image) return null;
+    const name = typeof input.name === 'string' ? input.name : undefined;
+    if (!isGptImage2FileInput({ ...input, name, image })) return null;
     return {
         ref,
-        name: typeof input.name === 'string' ? input.name : undefined,
+        name,
         source: input.source === 'generated' ? 'generated' : undefined,
         prompt: typeof input.prompt === 'string' ? input.prompt : undefined,
         batchId: typeof input.batchId === 'string' ? input.batchId : undefined,
@@ -53,6 +54,13 @@ function parseGeneratedImageInput(input: unknown): FileImageInput | null {
             thumbhash: typeof image.thumbhash === 'string' ? image.thumbhash : undefined,
         } : undefined,
     };
+}
+
+function isGptImage2FileInput(input: Record<string, unknown> & { name?: string; image?: Record<string, unknown> }): boolean {
+    if (typeof input.prompt === 'string' && input.prompt.trim()) return true;
+    if (typeof input.batchId === 'string' && input.batchId.trim()) return true;
+    if (typeof input.localPath === 'string' && input.localPath.includes('/generated-images/')) return true;
+    return !!input.image && !!input.name && /gpt[-_\s]?image[-_\s]?2/i.test(input.name);
 }
 
 export function collectGeneratedImagesFromMessages(sessionId: string, title: string, messages: Message[]): GeneratedImageEntry[] {
