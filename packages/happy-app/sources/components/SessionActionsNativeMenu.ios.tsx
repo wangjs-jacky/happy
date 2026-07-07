@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Button, ContextMenu, Host } from '@expo/ui/swift-ui';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { Session } from '@/sync/storageTypes';
-import { t } from '@/text';
 
 interface SessionActionsNativeMenuProps {
     children: React.ReactNode;
@@ -14,23 +13,27 @@ interface SessionActionsNativeMenuProps {
 const iosSymbol = (name: string) =>
     name as unknown as React.ComponentProps<typeof Button>['systemImage'];
 
+const IONICON_TO_SF_SYMBOL: Record<string, string> = {
+    'archive-outline': 'archivebox',
+    'checkmark-circle-outline': 'checkmark.circle',
+    'git-branch-outline': 'arrow.triangle.branch',
+    'information-circle-outline': 'info.circle',
+    'pencil-outline': 'pencil',
+    'pin': 'pin.fill',
+    'pin-outline': 'pin',
+    'play-circle-outline': 'play.circle',
+    'refresh-outline': 'arrow.clockwise',
+    'time-outline': 'clock',
+    'trash-outline': 'trash',
+};
+
 export function SessionActionsNativeMenu({
     children,
     onAfterArchive,
     onAfterDelete,
     session,
 }: SessionActionsNativeMenuProps) {
-    const {
-        archiveSession,
-        canArchive,
-        canRegenerateTitle,
-        deleteSession,
-        canShowResume,
-        openDetails,
-        regenerateTitle,
-        renameSession,
-        resumeSession,
-    } = useSessionQuickActions(session, {
+    const { actionItems } = useSessionQuickActions(session, {
         onAfterArchive,
         onAfterDelete,
     });
@@ -39,18 +42,15 @@ export function SessionActionsNativeMenu({
         <Host matchContents>
             <ContextMenu>
                 <ContextMenu.Items>
-                    <Button onPress={openDetails} systemImage={iosSymbol('info.circle')} label="Details" />
-                    <Button onPress={renameSession} systemImage={iosSymbol('pencil')} label={t('sessionInfo.renameSession')} />
-                    {canRegenerateTitle && (
-                        <Button onPress={regenerateTitle} systemImage={iosSymbol('arrow.clockwise')} label={t('sessionInfo.regenerateTitle')} />
-                    )}
-                    {canArchive && (
-                        <Button onPress={archiveSession} systemImage={iosSymbol('archivebox')} label={t('sessionInfo.archiveSession')} />
-                    )}
-                    <Button onPress={deleteSession} systemImage={iosSymbol('trash')} role="destructive" label={t('sessionInfo.deleteSession')} />
-                    {canShowResume && (
-                        <Button onPress={resumeSession} systemImage={iosSymbol('play.circle')} label="Resume" />
-                    )}
+                    {actionItems.map((action) => (
+                        <Button
+                            key={action.id}
+                            label={action.label}
+                            onPress={action.onPress}
+                            role={action.destructive ? 'destructive' : undefined}
+                            systemImage={iosSymbol(IONICON_TO_SF_SYMBOL[action.icon] ?? 'circle')}
+                        />
+                    ))}
                 </ContextMenu.Items>
                 <ContextMenu.Trigger>{children}</ContextMenu.Trigger>
             </ContextMenu>

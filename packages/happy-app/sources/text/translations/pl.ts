@@ -469,6 +469,8 @@ export const pl: TranslationStructure = {
         killSession: 'Zakończ sesję',
         killSessionConfirm: 'Czy na pewno chcesz zakończyć tę sesję?',
         archiveSession: 'Zarchiwizuj sesję',
+        pinSession: 'Przypnij sesję',
+        unpinSession: 'Odepnij sesję',
         archiveSessionConfirm: 'Czy na pewno chcesz zarchiwizować tę sesję?',
         happySessionIdCopied: 'ID sesji Paws skopiowane do schowka',
         failedToCopySessionId: 'Nie udało się skopiować ID sesji Paws',

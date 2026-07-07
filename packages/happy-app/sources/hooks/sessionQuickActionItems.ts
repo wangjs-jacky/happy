@@ -1,6 +1,8 @@
 import type { SessionActionItem } from './useSessionQuickActions';
 
 interface SessionQuickActionLabels {
+    pin: string;
+    unpin: string;
     details: string;
     resume: string;
     rename: string;
@@ -15,6 +17,7 @@ interface SessionQuickActionLabels {
 }
 
 interface SessionQuickActionCallbacks {
+    togglePinSession: () => void;
     openDetails: () => void;
     resumeSession: () => void;
     renameSession: () => void;
@@ -35,6 +38,7 @@ interface BuildSessionQuickActionItemsOptions {
     canRegenerateTitle: boolean;
     canFork: boolean;
     canCopySessionMetadata: boolean;
+    sessionPinned: boolean;
     sessionActive: boolean;
     canSelect?: boolean;
 }
@@ -46,6 +50,7 @@ export function buildSessionQuickActionItems({
     canRegenerateTitle,
     canFork,
     canCopySessionMetadata,
+    sessionPinned,
     sessionActive,
     canSelect,
 }: BuildSessionQuickActionItemsOptions): SessionActionItem[] {
@@ -54,6 +59,13 @@ export function buildSessionQuickActionItems({
     if (canSelect && callbacks.selectSession && labels.select) {
         items.push({ id: 'select', icon: 'checkmark-circle-outline', label: labels.select, onPress: callbacks.selectSession });
     }
+
+    items.push({
+        id: sessionPinned ? 'unpin' : 'pin',
+        icon: sessionPinned ? 'pin' : 'pin-outline',
+        label: sessionPinned ? labels.unpin : labels.pin,
+        onPress: callbacks.togglePinSession,
+    });
 
     items.push(
         { id: 'details', icon: 'information-circle-outline', label: labels.details, onPress: callbacks.openDetails },

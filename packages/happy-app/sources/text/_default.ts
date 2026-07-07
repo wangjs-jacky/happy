@@ -478,6 +478,8 @@ export const en = {
         killSession: 'Kill Session',
         killSessionConfirm: 'Are you sure you want to terminate this session?',
         archiveSession: 'Archive Session',
+        pinSession: 'Pin Session',
+        unpinSession: 'Unpin Session',
         archiveSessionConfirm: 'Are you sure you want to archive this session?',
         happySessionIdCopied: 'Paws Session ID copied to clipboard',
         failedToCopySessionId: 'Failed to copy Paws Session ID',

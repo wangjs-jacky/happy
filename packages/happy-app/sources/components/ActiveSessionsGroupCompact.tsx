@@ -17,6 +17,8 @@ import { hapticsLight } from './haptics';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
+import { useSessionManagementPreferences } from '@/hooks/useSessionManagementPreferences';
+import { sortSessionsForList } from '@/utils/sessionPinning';
 
 const STATUS_CONFIG: Record<SessionState, { color: string; dotColor: string; isPulsing: boolean; isConnected: boolean }> = {
     disconnected: { color: '#999', dotColor: '#999', isPulsing: false, isConnected: false },
@@ -173,6 +175,8 @@ export function ActiveSessionsGroupCompact({
 }: ActiveSessionsGroupProps) {
     const styles = stylesheet;
     const machines = useAllMachines();
+    const sessionIds = React.useMemo(() => sessions.map(session => session.id), [sessions]);
+    const sessionManagement = useSessionManagementPreferences(sessionIds, { prune: false });
 
     const machinesMap = React.useMemo(() => {
         const map: Record<string, Machine> = {};
@@ -221,7 +225,7 @@ export function ActiveSessionsGroupCompact({
         // Sort sessions within each project group
         byMachine.forEach(mg => {
             mg.projects.forEach(pg => {
-                pg.sessions.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+                pg.sessions = sortSessionsForList(pg.sessions, sessionManagement.preferences.pinnedOrder);
             });
         });
 
@@ -230,7 +234,7 @@ export function ActiveSessionsGroupCompact({
         );
 
         return { machineGroups: sorted, hasMultipleMachines: byMachine.size > 1 };
-    }, [sessions, machinesMap]);
+    }, [sessions, machinesMap, sessionManagement.preferences.pinnedOrder]);
 
     return (
         <View style={styles.container}>
@@ -266,6 +270,7 @@ export function ActiveSessionsGroupCompact({
                                                 bulkSelected={selectedIds?.has(session.id) ?? false}
                                                 selectionMode={selectionMode}
                                                 showBorder={index < projectGroup.sessions.length - 1}
+                                                pinned={sessionManagement.isPinned(session.id)}
                                                 onStartSelection={onStartSelection}
                                                 onToggleSelection={onToggleSelection}
                                             />
@@ -282,12 +287,13 @@ export function ActiveSessionsGroupCompact({
 }
 
 // Compact session row with status dot indicator
-const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selectionMode, showBorder, onStartSelection, onToggleSelection }: {
+const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selectionMode, showBorder, pinned, onStartSelection, onToggleSelection }: {
     session: SessionRowData;
     selected?: boolean;
     bulkSelected?: boolean;
     selectionMode?: boolean;
     showBorder?: boolean;
+    pinned?: boolean;
     onStartSelection?: (sessionId: string) => void;
     onToggleSelection?: (sessionId: string) => void;
 }) => {
@@ -350,6 +356,14 @@ const CompactSessionRow = React.memo(({ session, selected, bulkSelected, selecti
                         />
                     ) : null}
                 </View>
+            );
+        } else if (pinned) {
+            indicator = (
+                <Ionicons
+                    name="pin"
+                    size={14}
+                    color={theme.colors.textSecondary}
+                />
             );
         } else if (session.hasUnread) {
             indicator = <StatusDot color={status.dotColor} isPulsing={false} />;

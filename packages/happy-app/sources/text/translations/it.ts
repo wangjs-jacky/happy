@@ -450,6 +450,8 @@ export const it: TranslationStructure = {
         killSession: 'Termina sessione',
         killSessionConfirm: 'Sei sicuro di voler terminare questa sessione?',
         archiveSession: 'Archivia sessione',
+        pinSession: 'Fissa sessione',
+        unpinSession: 'Rimuovi fissaggio',
         archiveSessionConfirm: 'Sei sicuro di voler archiviare questa sessione?',
         happySessionIdCopied: 'ID sessione Paws copiato negli appunti',
         failedToCopySessionId: 'Impossibile copiare l\'ID sessione Paws',

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 
 const labels = {
+    pin: 'Pin',
+    unpin: 'Unpin',
     details: 'Details',
     resume: 'Resume',
     rename: 'Rename',
@@ -16,6 +18,7 @@ const labels = {
 };
 
 const callbacks = {
+    togglePinSession: vi.fn(),
     openDetails: vi.fn(),
     resumeSession: vi.fn(),
     renameSession: vi.fn(),
@@ -29,7 +32,7 @@ const callbacks = {
 };
 
 describe('buildSessionQuickActionItems', () => {
-    it('offers rename, archive, and delete for active sessions', () => {
+    it('offers pin, rename, archive, and delete for active unpinned sessions', () => {
         const items = buildSessionQuickActionItems({
             labels,
             callbacks: {
@@ -40,15 +43,38 @@ describe('buildSessionQuickActionItems', () => {
             canRegenerateTitle: false,
             canFork: false,
             canCopySessionMetadata: false,
+            sessionPinned: false,
             sessionActive: true,
             canSelect: true,
         });
 
         expect(items.map(item => item.id)).toEqual([
             'select',
+            'pin',
             'details',
             'rename',
             'archive',
+            'delete',
+        ]);
+    });
+
+    it('offers unpin for pinned sessions', () => {
+        const items = buildSessionQuickActionItems({
+            labels,
+            callbacks,
+            canShowResume: false,
+            canRegenerateTitle: false,
+            canFork: false,
+            canCopySessionMetadata: false,
+            sessionPinned: true,
+            sessionActive: false,
+            canSelect: false,
+        });
+
+        expect(items.map(item => item.id)).toEqual([
+            'unpin',
+            'details',
+            'rename',
             'delete',
         ]);
     });
@@ -64,11 +90,13 @@ describe('buildSessionQuickActionItems', () => {
             canRegenerateTitle: false,
             canFork: false,
             canCopySessionMetadata: false,
+            sessionPinned: false,
             sessionActive: false,
             canSelect: false,
         });
 
         expect(items.map(item => item.id)).toEqual([
+            'pin',
             'details',
             'rename',
             'delete',
@@ -83,10 +111,12 @@ describe('buildSessionQuickActionItems', () => {
             canRegenerateTitle: true,
             canFork: false,
             canCopySessionMetadata: false,
+            sessionPinned: false,
             sessionActive: true,
         });
 
         expect(items.map(item => item.id)).toEqual([
+            'pin',
             'details',
             'rename',
             'regenerate-title',

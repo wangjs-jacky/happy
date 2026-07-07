@@ -406,6 +406,8 @@ export const ru: TranslationStructure = {
         killSession: 'Завершить сессию',
         killSessionConfirm: 'Вы уверены, что хотите завершить эту сессию?',
         archiveSession: 'Архивировать сессию',
+        pinSession: 'Закрепить сессию',
+        unpinSession: 'Открепить сессию',
         archiveSessionConfirm: 'Вы уверены, что хотите архивировать эту сессию?',
         happySessionIdCopied: 'ID сессии Paws скопирован в буфер обмена',
         failedToCopySessionId: 'Не удалось скопировать ID сессии Paws',
