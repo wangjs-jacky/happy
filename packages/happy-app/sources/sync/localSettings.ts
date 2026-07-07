@@ -21,6 +21,7 @@ export const LocalSettingsSchema = z.object({
     askApi: z.object({
         apiKey: z.string().describe('DeepSeek-compatible API key for Ask mode'),
         baseUrl: z.string().describe('Optional DeepSeek-compatible API base URL for Ask mode'),
+        tavilyApiKey: z.string().optional().default('').describe('Optional Tavily API key for Ask mode web search'),
     }).describe('Device-local Ask mode API credentials'),
     // CLI version acknowledgments - keyed by machineId
     acknowledgedCliVersions: z.record(z.string(), z.string()).describe('Acknowledged CLI versions per machine'),
@@ -55,6 +56,7 @@ export const localSettingsDefaults: LocalSettings = {
     askApi: {
         apiKey: '',
         baseUrl: '',
+        tavilyApiKey: '',
     },
     acknowledgedCliVersions: {},
 };
@@ -69,7 +71,14 @@ export function localSettingsParse(settings: unknown): LocalSettings {
     if (!parsed.success) {
         return { ...localSettingsDefaults };
     }
-    return { ...localSettingsDefaults, ...parsed.data };
+    return {
+        ...localSettingsDefaults,
+        ...parsed.data,
+        askApi: {
+            ...localSettingsDefaults.askApi,
+            ...parsed.data.askApi,
+        },
+    };
 }
 
 //

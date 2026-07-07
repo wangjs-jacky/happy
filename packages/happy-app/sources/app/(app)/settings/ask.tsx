@@ -13,6 +13,7 @@ import { isAskApiConfigured } from '@/utils/askApiConfig';
 const EMPTY_ASK_API = {
     apiKey: '',
     baseUrl: '',
+    tavilyApiKey: '',
 };
 
 export default function AskApiSettingsScreen() {
@@ -26,6 +27,10 @@ export default function AskApiSettingsScreen() {
 
     const updateBaseUrl = React.useCallback((baseUrl: string) => {
         setAskApi({ ...askApi, baseUrl });
+    }, [askApi, setAskApi]);
+
+    const updateTavilyApiKey = React.useCallback((tavilyApiKey: string) => {
+        setAskApi({ ...askApi, tavilyApiKey });
     }, [askApi, setAskApi]);
 
     const clear = React.useCallback(() => {
@@ -84,6 +89,29 @@ export default function AskApiSettingsScreen() {
                         ]}
                     />
                 </View>
+                <View style={styles.fieldRow}>
+                    <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>
+                        {t('askApiSettings.tavilyApiKey')}
+                    </Text>
+                    <TextInput
+                        value={askApi.tavilyApiKey}
+                        onChangeText={updateTavilyApiKey}
+                        placeholder={t('askApiSettings.tavilyApiKeyPlaceholder')}
+                        placeholderTextColor={theme.colors.textSecondary}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                        textContentType="password"
+                        style={[
+                            styles.textInput,
+                            {
+                                color: theme.colors.text,
+                                borderColor: theme.colors.divider,
+                                backgroundColor: theme.colors.input.background,
+                            },
+                        ]}
+                    />
+                </View>
             </ItemGroup>
 
             <ItemGroup title={t('askApiSettings.status')}>
@@ -98,7 +126,7 @@ export default function AskApiSettingsScreen() {
                     subtitle={t('askApiSettings.clearSubtitle')}
                     icon={<Ionicons name="trash-outline" size={29} color="#FF3B30" />}
                     destructive
-                    disabled={!askApi.apiKey && !askApi.baseUrl}
+                    disabled={!askApi.apiKey && !askApi.baseUrl && !askApi.tavilyApiKey}
                     onPress={clear}
                     showChevron={false}
                 />

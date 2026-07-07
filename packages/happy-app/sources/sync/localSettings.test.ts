@@ -22,10 +22,27 @@ describe('localSettings ask API config', () => {
         expect(localSettingsDefaults.askApi).toEqual({
             apiKey: '',
             baseUrl: '',
+            tavilyApiKey: '',
         });
     });
 
     it('preserves stored ask API credentials locally', () => {
+        const parsed = localSettingsParse({
+            askApi: {
+                apiKey: ' sk-deepseek ',
+                baseUrl: ' https://api.deepseek.com ',
+                tavilyApiKey: ' tvly-local ',
+            },
+        });
+
+        expect(parsed.askApi).toEqual({
+            apiKey: ' sk-deepseek ',
+            baseUrl: ' https://api.deepseek.com ',
+            tavilyApiKey: ' tvly-local ',
+        });
+    });
+
+    it('defaults Tavily credentials when older stored ask API data is missing them', () => {
         const parsed = localSettingsParse({
             askApi: {
                 apiKey: ' sk-deepseek ',
@@ -36,6 +53,7 @@ describe('localSettings ask API config', () => {
         expect(parsed.askApi).toEqual({
             apiKey: ' sk-deepseek ',
             baseUrl: ' https://api.deepseek.com ',
+            tavilyApiKey: '',
         });
     });
 });
