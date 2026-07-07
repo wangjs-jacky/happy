@@ -6,14 +6,25 @@ export type AskWebSearchResult = {
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
+export type AskToolPlan = {
+  runtime: true;
+  webSearch: boolean;
+  webQuery: string | null;
+  reasons: string[];
+};
+
 export type AskToolContextOptions = {
   now?: Date;
   timeZone?: string;
   fetchImpl?: FetchLike;
   maxWebResults?: number;
+  webTimeoutMs?: number;
 };
 
-const FRESH_INFORMATION_PATTERN = /(?:latest|current|recent|news|weather|price|stock|search|web|internet|browse|lookup|breaking|最新|实时|新闻|天气|股价|搜索|查一下|联网|网页|近况|最近)/i;
+const DEFAULT_WEB_TIMEOUT_MS = 6_000;
+const FRESH_INFORMATION_PATTERN = /(?:latest|current|recent|news|weather|price|stock|search|web|internet|browse|lookup|breaking|最新|实时|新闻|天气|股价|搜索|查一下|联网|网页|近况|最近|下雨|降雨|气温|温度|汇率|价格|行情|多少)/i;
+const WEATHER_PATTERN = /(?:weather|temperature|rain|snow|forecast|天气|下雨|降雨|气温|温度|预报)/i;
+const FINANCE_PATTERN = /(?:stock|share price|market cap|crypto|bitcoin|btc|price|股价|股票|行情|币价|比特币|汇率)/i;
 const RUNTIME_ONLY_PATTERN = /(?:星期几|礼拜几|周几|几号|日期|几点|时间|today.*day|what day is it|current time)/i;
 
 export function getLocalTimeZone(): string {
@@ -33,7 +44,13 @@ export function formatAskRuntimeContext(now = new Date(), timeZone = getLocalTim
     hour12: false,
     timeZoneName: 'short',
   }).format(now);
-  return `Current date/time: ${formatted}\nTime zone: ${timeZone}`;
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(now);
+  return [
+    `Current date/time: ${formatted}`,
+    `ISO time: ${now.toISOString()}`,
+    `Weekday: ${weekday}`,
+    `Time zone: ${timeZone}`,
+  ].join('\n');
 }
 
 export function shouldUseWebSearch(text: string): boolean {
@@ -41,6 +58,36 @@ export function shouldUseWebSearch(text: string): boolean {
     return false;
   }
   return FRESH_INFORMATION_PATTERN.test(text);
+}
+
+export function resolveAskToolPlan(text: string): AskToolPlan {
+  const reasons = ['runtime_clock'];
+  const webSearch = shouldUseWebSearch(text);
+  if (!webSearch) {
+    return {
+      runtime: true,
+      webSearch: false,
+      webQuery: null,
+      reasons,
+    };
+  }
+
+  reasons.push('web_search');
+  let webQuery = text;
+  if (WEATHER_PATTERN.test(text)) {
+    reasons.push('weather');
+    webQuery = `${text} weather current conditions`;
+  } else if (FINANCE_PATTERN.test(text)) {
+    reasons.push('finance');
+    webQuery = `${text} market price latest`;
+  }
+
+  return {
+    runtime: true,
+    webSearch: true,
+    webQuery,
+    reasons,
+  };
 }
 
 export function parseDuckDuckGoHtml(html: string, maxResults = 3): AskWebSearchResult[] {
@@ -68,6 +115,7 @@ export async function searchWeb(query: string, options: AskToolContextOptions = 
       accept: 'text/html',
       'user-agent': 'HappyAsk/1.0',
     },
+    signal: AbortSignal.timeout(options.webTimeoutMs ?? DEFAULT_WEB_TIMEOUT_MS),
   });
   if (!response.ok) {
     return [];
@@ -80,22 +128,28 @@ export async function buildAskAugmentedUserContent(
   options: AskToolContextOptions = {},
 ): Promise<string> {
   const timeZone = options.timeZone ?? getLocalTimeZone();
+  const plan = resolveAskToolPlan(userText);
   const sections = [
+    `Tool plan:\nExecuted tools: ${plan.reasons.join(', ')}${plan.webQuery ? `\nWeb query: ${plan.webQuery}` : ''}`,
     `Runtime context:\n${formatAskRuntimeContext(options.now ?? new Date(), timeZone)}`,
   ];
 
-  if (shouldUseWebSearch(userText)) {
+  if (plan.webSearch && plan.webQuery) {
     try {
-      const results = await searchWeb(userText, options);
+      const results = await searchWeb(plan.webQuery, options);
       if (results.length > 0) {
         sections.push(`Web search results:\n${formatWebResults(results)}`);
       }
-    } catch {
-      // Ask should still work when network context is unavailable.
+    } catch (error) {
+      sections.push(`Web search unavailable:\n${formatUnknownError(error)}`);
     }
   }
 
   return `${sections.map((section) => `<context>\n${section}\n</context>`).join('\n\n')}\n\nUser question:\n${userText}`;
+}
+
+function formatUnknownError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function formatWebResults(results: AskWebSearchResult[]): string {
