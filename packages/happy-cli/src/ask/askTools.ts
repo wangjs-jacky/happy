@@ -1,4 +1,7 @@
 import { ProxyAgent, type Dispatcher } from 'undici';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export type AskWebSearchResult = {
   title: string;
@@ -22,9 +25,15 @@ export type AskToolContextOptions = {
   fetchImpl?: FetchLike;
   maxWebResults?: number;
   webTimeoutMs?: number;
+  tavilyApiKey?: string | null;
 };
 
 const DEFAULT_WEB_TIMEOUT_MS = 6_000;
+const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
+const DEFAULT_TAVILY_CONFIG_PATH = join(
+  homedir(),
+  'jacky-github/jacky-skills/plugins/dev-tools/web-search/config.local.json',
+);
 const proxyAgents = new Map<string, ProxyAgent>();
 const FRESH_INFORMATION_PATTERN = /(?:latest|current|recent|news|weather|price|stock|search|web|internet|browse|lookup|breaking|最新|实时|新闻|天气|股价|搜索|查一下|联网|网页|近况|最近|下雨|降雨|气温|温度|汇率|价格|行情|多少)/i;
 const WEATHER_PATTERN = /(?:weather|temperature|rain|snow|forecast|天气|下雨|降雨|气温|温度|预报)/i;
@@ -124,14 +133,118 @@ export function resolveAskWebProxyUrl(env: NodeJS.ProcessEnv | Record<string, st
     || null;
 }
 
+export function resolveTavilyApiKey(options: {
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+  configPath?: string;
+  readFile?: (path: string) => string;
+} = {}): string | null {
+  const env = options.env ?? process.env;
+  const envKey = env.HAPPY_ASK_TAVILY_API_KEY || env.TAVILY_API_KEY;
+  if (envKey?.trim()) {
+    return envKey.trim();
+  }
+
+  try {
+    const raw = (options.readFile ?? ((path) => readFileSync(path, 'utf8')))(
+      options.configPath ?? DEFAULT_TAVILY_CONFIG_PATH,
+    );
+    const parsed = JSON.parse(raw) as { tavily?: { apiKey?: unknown; enabled?: unknown } };
+    if (parsed.tavily?.enabled === false) {
+      return null;
+    }
+    return typeof parsed.tavily?.apiKey === 'string' && parsed.tavily.apiKey.trim()
+      ? parsed.tavily.apiKey.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function searchWeb(query: string, options: AskToolContextOptions = {}): Promise<AskWebSearchResult[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const tavilyApiKey = options.tavilyApiKey ?? (options.fetchImpl ? null : resolveTavilyApiKey());
+  if (tavilyApiKey) {
+    try {
+      const tavilyResults = await searchTavily(query, tavilyApiKey, options);
+      if (tavilyResults.length > 0) {
+        return tavilyResults;
+      }
+    } catch {
+      // Fall back to DuckDuckGo. The adapter suppresses failed search details from the model context.
+    }
+  }
+
   const init = buildWebSearchRequestInit(options);
   const response = await fetchImpl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`, init);
   if (!response.ok) {
     return [];
   }
   return parseDuckDuckGoHtml(await response.text(), options.maxWebResults ?? 3);
+}
+
+async function searchTavily(
+  query: string,
+  apiKey: string,
+  options: AskToolContextOptions,
+): Promise<AskWebSearchResult[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const response = await fetchImpl(TAVILY_SEARCH_URL, buildTavilyRequestInit(query, apiKey, options));
+  if (!response.ok) {
+    return [];
+  }
+  const payload = await response.json() as {
+    answer?: unknown;
+    results?: Array<{
+      title?: unknown;
+      url?: unknown;
+      content?: unknown;
+      raw_content?: unknown;
+    }>;
+  };
+  const results: AskWebSearchResult[] = [];
+  if (typeof payload.answer === 'string' && payload.answer.trim()) {
+    results.push({
+      title: 'Tavily answer',
+      url: TAVILY_SEARCH_URL,
+      snippet: payload.answer.trim(),
+    });
+  }
+  for (const item of payload.results ?? []) {
+    if (results.length >= (options.maxWebResults ?? 3)) {
+      break;
+    }
+    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    const snippet = typeof item.content === 'string' && item.content.trim()
+      ? item.content.trim()
+      : typeof item.raw_content === 'string' ? item.raw_content.trim() : '';
+    if (title && url) {
+      results.push({ title, url, snippet });
+    }
+  }
+  return results;
+}
+
+function buildTavilyRequestInit(
+  query: string,
+  apiKey: string,
+  options: AskToolContextOptions,
+): RequestInitWithDispatcher {
+  const init: RequestInitWithDispatcher = {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query,
+      max_results: options.maxWebResults ?? 3,
+      include_answer: true,
+    }),
+    signal: AbortSignal.timeout(options.webTimeoutMs ?? DEFAULT_WEB_TIMEOUT_MS),
+  };
+  attachProxyDispatcher(init, options);
+  return init;
 }
 
 function buildWebSearchRequestInit(options: AskToolContextOptions): RequestInitWithDispatcher {
@@ -142,13 +255,17 @@ function buildWebSearchRequestInit(options: AskToolContextOptions): RequestInitW
     },
     signal: AbortSignal.timeout(options.webTimeoutMs ?? DEFAULT_WEB_TIMEOUT_MS),
   };
+  attachProxyDispatcher(init, options);
+  return init;
+}
+
+function attachProxyDispatcher(init: RequestInitWithDispatcher, options: AskToolContextOptions): void {
   if (!options.fetchImpl) {
     const proxyUrl = resolveAskWebProxyUrl();
     if (proxyUrl) {
       init.dispatcher = getProxyAgent(proxyUrl);
     }
   }
-  return init;
 }
 
 function getProxyAgent(proxyUrl: string): ProxyAgent {
