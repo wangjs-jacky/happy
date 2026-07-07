@@ -344,7 +344,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setCustomImageStyles(next);
     }, [setCustomImageStyles]);
 
-    const customAnalysisSnapshots = storage(useShallow((state) => customImageStyles
+    const processedCustomAnalysisSessionsRef = React.useRef(new Set<string>());
+    const customAnalysisSnapshotText = storage((state) => JSON.stringify(customImageStyles
         .filter((style) => style.analysisStatus === 'analyzing' && !!style.analysisSessionId)
         .map((style) => {
             const sessionId = style.analysisSessionId!;
@@ -363,11 +364,20 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         })));
 
     React.useEffect(() => {
+        const customAnalysisSnapshots = JSON.parse(customAnalysisSnapshotText) as Array<{
+            styleId: string;
+            sessionId: string;
+            agentText: string;
+            thinking: boolean;
+            active: boolean;
+        }>;
         for (const snapshot of customAnalysisSnapshots) {
+            if (processedCustomAnalysisSessionsRef.current.has(snapshot.sessionId)) continue;
             if (!snapshot.agentText.trim()) continue;
             const extracted = parseStylePromptExtractionFromMessage(snapshot.agentText);
             if (!extracted) {
                 if (!snapshot.active && !snapshot.thinking) {
+                    processedCustomAnalysisSessionsRef.current.add(snapshot.sessionId);
                     updateCustomImageStyle(snapshot.styleId, (current) => ({
                         ...current,
                         analysisStatus: 'failed',
@@ -379,6 +389,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 continue;
             }
 
+            processedCustomAnalysisSessionsRef.current.add(snapshot.sessionId);
             updateCustomImageStyle(snapshot.styleId, (current) => ({
                 ...current,
                 promptHint: extracted.summary || current.promptHint,
@@ -393,7 +404,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             }));
             sessionArchive(snapshot.sessionId).catch(() => undefined);
         }
-    }, [customAnalysisSnapshots, updateCustomImageStyle]);
+    }, [customAnalysisSnapshotText, updateCustomImageStyle]);
 
     const analyzeCustomImageStyle = React.useCallback(async (style: UserImageStyle) => {
         updateCustomImageStyle(style.id, (current) => ({
