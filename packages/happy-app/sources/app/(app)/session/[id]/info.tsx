@@ -140,6 +140,8 @@ function SessionInfoContent({ session }: { session: Session }) {
         regeneratingTitle,
         resumeSession,
         resumeSessionSubtitle,
+        shareOpenBird,
+        sharingOpenBird,
     } = useSessionQuickActions(session);
 
     // Check if CLI version is outdated
@@ -394,6 +396,13 @@ function SessionInfoContent({ session }: { session: Session }) {
                             onPress={openDuplicateSheet}
                         />
                     )}
+                    <Item
+                        title={t('sessionInfo.shareOpenBird')}
+                        subtitle={t('sessionInfo.shareOpenBirdSubtitle')}
+                        icon={<Ionicons name="share-social-outline" size={29} color={theme.colors.accent} />}
+                        onPress={shareOpenBird}
+                        loading={sharingOpenBird}
+                    />
                     {session.metadata?.parentSessionId && (
                         <Item
                             title={t('session.forkedFromLabel')}

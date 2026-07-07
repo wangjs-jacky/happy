@@ -9,6 +9,7 @@ interface SessionQuickActionLabels {
     regenerateTitle: string;
     fork: string;
     duplicate: string;
+    shareOpenBird: string;
     copyMetadata: string;
     copyMetadataAndLogs: string;
     archive: string;
@@ -24,6 +25,7 @@ interface SessionQuickActionCallbacks {
     regenerateTitle: () => void;
     forkSession: () => void;
     openDuplicateSheet: () => void;
+    shareOpenBird: () => void;
     copySessionMetadata: () => void;
     copySessionMetadataAndLogs: () => void;
     archiveSession: () => void;
@@ -70,6 +72,7 @@ export function buildSessionQuickActionItems({
     items.push(
         { id: 'details', icon: 'information-circle-outline', label: labels.details, onPress: callbacks.openDetails },
         { id: 'rename', icon: 'pencil-outline', label: labels.rename, onPress: callbacks.renameSession },
+        { id: 'share-openbird', icon: 'share-social-outline', label: labels.shareOpenBird, onPress: callbacks.shareOpenBird },
     );
 
     if (canRegenerateTitle) {

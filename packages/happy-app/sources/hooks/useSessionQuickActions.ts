@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as Clipboard from 'expo-clipboard';
 import { useHappyAction } from '@/hooks/useHappyAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
@@ -21,6 +22,8 @@ import { hapticsSuccess } from '@/components/haptics';
 import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
+import { buildOpenBirdSessionMarkdown, hasOpenBirdShareContent, publishOpenBirdTempPage } from '@/utils/openBirdSessionShare';
+import type { Message } from '@/sync/typesMessage';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 import { useSessionManagementPreferences } from './useSessionManagementPreferences';
 
@@ -50,6 +53,42 @@ function isRegenerateTitleRpcUnavailable(message: string | undefined): boolean {
     return message === 'RPC call failed'
         || message === 'RPC method not available'
         || message === 'Method not found';
+}
+
+const OPENBIRD_SHARE_HISTORY_STEP_LIMIT = 1000;
+const OPENBIRD_SHARE_HISTORY_WAIT_MS = 150;
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function loadCompleteSessionMessagesForShare(sessionId: string): Promise<{ messages: Message[]; complete: boolean }> {
+    await sync.ensureMessagesLoaded(sessionId);
+
+    for (let step = 0; step < OPENBIRD_SHARE_HISTORY_STEP_LIMIT; step += 1) {
+        const sessionMessages = storage.getState().sessionMessages[sessionId];
+        if (!sessionMessages) {
+            return { messages: [], complete: true };
+        }
+        if (!sessionMessages.hasMoreOlder) {
+            return { messages: sessionMessages.messages, complete: true };
+        }
+        if (sessionMessages.isLoadingOlder) {
+            await delay(OPENBIRD_SHARE_HISTORY_WAIT_MS);
+            continue;
+        }
+        await sync.loadOlderMessages(sessionId);
+    }
+
+    const sessionMessages = storage.getState().sessionMessages[sessionId];
+    return {
+        messages: sessionMessages?.messages ?? [],
+        complete: !(sessionMessages?.hasMoreOlder ?? false),
+    };
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function getResumeAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
@@ -283,6 +322,56 @@ export function useSessionQuickActions(
         performRename();
     }, [performRename]);
 
+    const [sharingOpenBird, performShareOpenBird] = useHappyAction(async () => {
+        const confirmed = await Modal.confirm(
+            t('sessionInfo.shareOpenBirdConfirmTitle'),
+            t('sessionInfo.shareOpenBirdConfirmMessage'),
+            {
+                cancelText: t('common.cancel'),
+                confirmText: t('sessionInfo.shareOpenBirdPublish'),
+            },
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        const { messages, complete } = await loadCompleteSessionMessagesForShare(session.id);
+        if (!complete) {
+            throw new HappyError(t('sessionInfo.shareOpenBirdLoadFailed'), false);
+        }
+        if (!hasOpenBirdShareContent(messages)) {
+            throw new HappyError(t('sessionInfo.shareOpenBirdNoMessages'), false);
+        }
+
+        const markdown = buildOpenBirdSessionMarkdown(session, messages);
+        let result;
+        try {
+            result = await publishOpenBirdTempPage(markdown);
+        } catch (error) {
+            throw new HappyError(getErrorMessage(error, t('sessionInfo.shareOpenBirdFailed')), false);
+        }
+
+        await Clipboard.setStringAsync(result.url).catch(() => {});
+        hapticsSuccess();
+        Modal.alert(
+            t('sessionInfo.shareOpenBirdSuccess'),
+            result.url,
+            [
+                {
+                    text: t('common.copy'),
+                    onPress: () => {
+                        void Clipboard.setStringAsync(result.url);
+                    },
+                },
+                { text: t('common.ok'), style: 'cancel' },
+            ],
+        );
+    });
+
+    const shareOpenBird = React.useCallback(() => {
+        performShareOpenBird();
+    }, [performShareOpenBird]);
+
     const [regeneratingTitle, performRegenerateTitle] = useHappyAction(async () => {
         if (!session.metadata || !sessionStatus.isConnected) {
             throw new HappyError(t('sessionInfo.regenerateTitleUnavailable'), false);
@@ -400,6 +489,7 @@ export function useSessionQuickActions(
                 regenerateTitle: t('sessionInfo.regenerateTitle'),
                 fork: t('session.forkAction'),
                 duplicate: t('session.duplicateAction'),
+                shareOpenBird: t('sessionInfo.shareOpenBird'),
                 copyMetadata: t('sessionInfo.copyMetadata'),
                 copyMetadataAndLogs: t('sessionInfo.copyMetadata') + ' & Client Logs',
                 archive: t('sessionInfo.archiveSession'),
@@ -414,6 +504,7 @@ export function useSessionQuickActions(
                 regenerateTitle,
                 forkSession,
                 openDuplicateSheet,
+                shareOpenBird,
                 copySessionMetadata,
                 copySessionMetadataAndLogs,
                 archiveSession,
@@ -446,6 +537,7 @@ export function useSessionQuickActions(
         resumeSession,
         session.active,
         sessionPinned,
+        shareOpenBird,
         togglePinSession,
     ]);
 
@@ -487,6 +579,8 @@ export function useSessionQuickActions(
         resumeSession,
         resumeSessionSubtitle: resumeAvailability.subtitle,
         resumingSession,
+        shareOpenBird,
+        sharingOpenBird,
     };
 }
 
