@@ -189,14 +189,6 @@ export const zhHant: TranslationStructure = {
         notConfiguredSubtitle: '儲存 API Key 前不會顯示問答模式',
         clear: '清除 Ask API',
         clearSubtitle: '從這台裝置移除本機 Key 和介面位址',
-        imageStyleAnalysis: '圖片風格提煉',
-        imageStyleAnalysisFooter: '僅用於把 GPT Image 2 自訂風格參考圖提煉成可複用 Prompt。',
-        openAIKey: 'OpenAI API Key',
-        openAIKeyPlaceholder: 'sk-...',
-        imageStyleConfigured: '可提煉風格 Prompt',
-        imageStyleConfiguredSubtitle: '儲存的自訂風格會自動提煉成可複用 Prompt',
-        imageStyleNotConfigured: '暫不可提煉 Prompt',
-        imageStyleNotConfiguredSubtitle: '儲存 Key 前，自訂風格仍會先用參考圖臨時生效',
     },
 
     settingsSkills: {
@@ -1505,7 +1497,6 @@ export const zhHant: TranslationStructure = {
         customImageStylePromptReady: '自訂風格 · Prompt 已提煉',
         customImageStyleFailed: '自訂風格 · 提煉失敗',
         customImageStyleRetryAction: '重試 Prompt 提煉',
-        customImageStyleMissingOpenAIKey: '需要先設定 OpenAI API Key 才能提煉 Prompt。',
         customImageStyleMissingLocalAgent: '需要先選擇一台在線的 Codex 執行機才能提煉 Prompt。',
         customImageStyleInvalidLocalResult: 'Codex 已結束，但沒有返回可解析的 Prompt JSON，請重試提煉。',
         customImageStyleAnalysisTaskMessage: ({ name, count }: { name: string; count: number }) => `從 ${count} 張參考圖為「${name}」提煉風格 Prompt。`,
