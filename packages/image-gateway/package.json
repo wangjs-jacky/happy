@@ -5,7 +5,8 @@
     "type": "module",
     "bin": {
         "happy-image-gateway": "./dist/server.mjs",
-        "happy-image-worker": "./dist/worker.mjs"
+        "happy-image-worker": "./dist/worker.mjs",
+        "happy-image-native-codex": "./dist/nativeCodexCommand.mjs"
     },
     "scripts": {
         "typecheck": "tsc --noEmit",

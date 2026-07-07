@@ -8,6 +8,7 @@ The design goal is narrow: public users can submit image prompts, while the Mac 
 
 - `happy-image-gateway`: HTTP gateway for `/image`, admin review, budget mode, and worker APIs.
 - `happy-image-worker`: Mac mini polling worker that claims queued jobs and calls a fixed native image generation command.
+- `happy-image-native-codex`: local Mac mini command that asks Codex to use native image generation and returns the new image path.
 - Happy App Settings entry: Settings -> Features -> Public Image Gateway opens the public page and review console links.
 
 ## Local Smoke Test
@@ -108,8 +109,8 @@ The worker should run on Mac mini. It only makes outbound requests to the gatewa
 ```bash
 IMAGE_GATEWAY_URL=https://47.115.228.20:8443
 IMAGE_GATEWAY_WORKER_TOKEN=<same worker token as gateway>
-IMAGE_WORKER_NATIVE_COMMAND="<command that reads JSON stdin and writes JSON stdout>"
-IMAGE_WORKER_UPLOAD_COMMAND="<optional command: job_id image_path -> result url>"
+IMAGE_WORKER_NATIVE_COMMAND="node /Users/jacky/jacky-github/happy--public-image-gateway/packages/image-gateway/dist/nativeCodexCommand.mjs"
+IMAGE_WORKER_UPLOAD_COMMAND="<required command: job_id image_path -> result url>"
 IMAGE_WORKER_POLL_MS=5000
 IMAGE_WORKER_TIMEOUT_MS=300000
 ```
@@ -121,6 +122,64 @@ node packages/image-gateway/dist/worker.mjs
 ```
 
 Do not restart Happy daemon for this MVP. The worker is a separate process and should not use `happy daemon start`, `happy daemon restart`, or any direct daemon command.
+
+## Native Codex Command
+
+The included native command is:
+
+```bash
+node packages/image-gateway/dist/nativeCodexCommand.mjs
+```
+
+The worker calls it through `IMAGE_WORKER_NATIVE_COMMAND`. It reads the worker JSON from stdin, builds a fixed image-only Codex prompt, runs Codex, scans `~/.codex/generated_images` for a newly-created PNG/JPEG, and returns:
+
+```json
+{
+  "imagePath": "/Users/jacky/.codex/generated_images/.../ig_....png",
+  "actualCostCents": 40
+}
+```
+
+Configurable environment:
+
+```bash
+# Optional. Default:
+IMAGE_NATIVE_CODEX_COMMAND="codex exec --skip-git-repo-check --sandbox read-only --ask-for-approval never"
+
+# Optional. Default:
+IMAGE_NATIVE_CODEX_GENERATED_DIR="$HOME/.codex/generated_images"
+
+# Optional. Default:
+IMAGE_NATIVE_CODEX_TIMEOUT_MS=300000
+
+# Optional. Default:
+IMAGE_NATIVE_CODEX_COST_CENTS=40
+```
+
+The Codex command is fixed by the operator. Public users cannot pass Codex args, shell commands, tool names, model backend, or file paths.
+
+Smoke test the native command without real Codex by using a fake command that writes a PNG into a temp generated-images directory:
+
+```bash
+rm -rf /tmp/native-codex-images /tmp/native-codex-fake.js
+mkdir -p /tmp/native-codex-images
+printf '%s\n' "const fs=require('fs'); const path=require('path'); const root=process.env.IMAGE_NATIVE_CODEX_GENERATED_DIR; const dir=path.join(root, 'fake-session'); fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(path.join(dir, 'generated.png'), 'png');" > /tmp/native-codex-fake.js
+
+printf '%s' '{"jobId":"job_smoke","prompt":"draw a smoke test image","options":{"size":"1024x1024","output":"png","count":1}}' \
+  | IMAGE_NATIVE_CODEX_GENERATED_DIR=/tmp/native-codex-images \
+    IMAGE_NATIVE_CODEX_COMMAND='node /tmp/native-codex-fake.js' \
+    IMAGE_NATIVE_CODEX_COST_CENTS=12 \
+    node packages/image-gateway/dist/nativeCodexCommand.mjs
+```
+
+Expected output:
+
+```json
+{
+  "imagePath": "/tmp/native-codex-images/fake-session/generated.png",
+  "actualCostCents": 12
+}
+```
 
 ## Native Image Command Contract
 
