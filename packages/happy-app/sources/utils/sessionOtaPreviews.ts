@@ -30,6 +30,7 @@ export type OtaPreviewPrimaryAction =
 
 type OtaPreviewPrimaryActionOptions = {
     currentUpdateId?: string | null;
+    currentUpdateIds?: readonly (string | null | undefined)[];
 };
 
 type ParsedFields = {
@@ -44,6 +45,31 @@ type ParsedFields = {
     siteUrl?: string;
     summary?: string;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+function parseManifestRecord(value: unknown): Record<string, unknown> | null {
+    if (typeof value === 'string') {
+        try {
+            return asRecord(JSON.parse(value));
+        } catch {
+            return null;
+        }
+    }
+    return asRecord(value);
+}
+
+function addUpdateId(ids: string[], value: unknown) {
+    if (typeof value !== 'string') return;
+    const id = value.trim();
+    if (id && !ids.includes(id)) {
+        ids.push(id);
+    }
+}
 
 function stripMarkdown(value: string): string {
     return value
@@ -297,11 +323,43 @@ export function getOtaPreviewSwitchStamp(preview: SessionOtaPreview): string | n
     return stamp;
 }
 
+export function getOtaPreviewCurrentUpdateIds(input: {
+    updateId?: string | null;
+    manifest?: unknown;
+}): string[] {
+    const ids: string[] = [];
+    addUpdateId(ids, input.updateId);
+
+    const manifest = parseManifestRecord(input.manifest);
+    addUpdateId(ids, manifest?.id);
+
+    const extra = asRecord(manifest?.extra);
+    const otaTarget = asRecord(extra?.otaTarget);
+    addUpdateId(ids, otaTarget?.virtualUpdateId);
+    addUpdateId(ids, otaTarget?.originalUpdateId);
+
+    return ids;
+}
+
 export function getOtaPreviewPrimaryAction(
     preview: SessionOtaPreview,
     options?: OtaPreviewPrimaryActionOptions,
 ): OtaPreviewPrimaryAction {
-    if (preview.updateId && options?.currentUpdateId && preview.updateId === options.currentUpdateId) {
+    const currentUpdateIds = new Set<string>();
+    const addCurrentUpdateId = (value: unknown) => {
+        if (typeof value !== 'string') return;
+        const id = value.trim();
+        if (id) {
+            currentUpdateIds.add(id);
+        }
+    };
+
+    addCurrentUpdateId(options?.currentUpdateId);
+    for (const id of options?.currentUpdateIds ?? []) {
+        addCurrentUpdateId(id);
+    }
+
+    if (preview.updateId && currentUpdateIds.has(preview.updateId.trim())) {
         return { type: 'current' };
     }
 

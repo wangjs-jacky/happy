@@ -11,6 +11,7 @@ import {
     type SessionOtaPreview,
     formatOtaPreviewIdentity,
     formatOtaPreviewLabel,
+    getOtaPreviewCurrentUpdateIds,
     getOtaPreviewPrimaryAction,
     getOtaPreviewPrimaryLink,
 } from '@/utils/sessionOtaPreviews';
@@ -108,8 +109,13 @@ export const OtaPreviewCard = React.memo(function OtaPreviewCard(props: {
 }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const currentUpdateIds = getOtaPreviewCurrentUpdateIds({
+        updateId: Updates.updateId ?? null,
+        manifest: Updates.manifest,
+    });
     const primaryAction = getOtaPreviewPrimaryAction(props.preview, {
         currentUpdateId: Updates.updateId ?? null,
+        currentUpdateIds,
     });
     const primaryUrl = primaryAction?.type === 'link' ? primaryAction.url : null;
     const primarySwitchStamp = primaryAction?.type === 'switch' ? primaryAction.stamp : null;

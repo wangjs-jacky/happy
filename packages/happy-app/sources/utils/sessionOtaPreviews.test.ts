@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { extractMessageOtaPreviews, extractSessionOtaPreviews, getOtaPreviewPrimaryAction } from './sessionOtaPreviews';
+import {
+    extractMessageOtaPreviews,
+    extractSessionOtaPreviews,
+    getOtaPreviewCurrentUpdateIds,
+    getOtaPreviewPrimaryAction,
+} from './sessionOtaPreviews';
 import type { AgentTextMessage, Message } from '@/sync/typesMessage';
 
 function agentMessage(text: string, id: string = 'msg-1'): AgentTextMessage {
@@ -134,6 +139,50 @@ describe('sessionOtaPreviews', () => {
         })).toEqual({
             type: 'current',
         });
+    });
+
+    it('marks virtual locked OTA cards as current by their original update id', () => {
+        const [preview] = extractMessageOtaPreviews(agentMessage(`
+            <happy-ota-preview>
+            title: Preview OTA Current Version State
+            channel: preview
+            platform: android
+            runtimeVersion: 21
+            updateId: 1d013fbb-45c8-dec9-b226-fd68c6346717
+            stamp: 1783422454965
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/151
+            summary: 已核验 OSS latest manifest 与 FC manifest 都指向本次 preview OTA。
+            </happy-ota-preview>
+        `));
+
+        expect(getOtaPreviewPrimaryAction(preview, {
+            currentUpdateId: '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+            currentUpdateIds: [
+                '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+                '1d013fbb-45c8-dec9-b226-fd68c6346717',
+            ],
+        })).toEqual({
+            type: 'current',
+        });
+    });
+
+    it('derives current update ids from virtual OTA target manifest metadata', () => {
+        expect(getOtaPreviewCurrentUpdateIds({
+            updateId: '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+            manifest: {
+                id: '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+                extra: {
+                    otaTarget: {
+                        originalUpdateId: '1d013fbb-45c8-dec9-b226-fd68c6346717',
+                        virtualUpdateId: '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+                    },
+                },
+            },
+        })).toEqual([
+            '44814bcc-06b9-57cf-9c9b-8b814edda1ae',
+            '1d013fbb-45c8-dec9-b226-fd68c6346717',
+        ]);
     });
 
     it('keeps PR as the primary action when the OTA card cannot be switched directly', () => {
