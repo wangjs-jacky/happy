@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseDeepSeekSseData } from './deepseekClient';
+import { parseDeepSeekSseData, resolveDeepSeekChatEndpoint } from './deepseekClient';
+
+describe('resolveDeepSeekChatEndpoint', () => {
+  it('accepts a DeepSeek base URL', () => {
+    expect(resolveDeepSeekChatEndpoint('https://api.deepseek.com')).toBe('https://api.deepseek.com/chat/completions');
+  });
+
+  it('accepts a full DeepSeek chat completions URL without appending the path twice', () => {
+    expect(resolveDeepSeekChatEndpoint('https://api.deepseek.com/chat/completions')).toBe('https://api.deepseek.com/chat/completions');
+  });
+});
 
 describe('parseDeepSeekSseData', () => {
   it('parses content deltas', () => {
