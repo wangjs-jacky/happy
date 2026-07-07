@@ -79,27 +79,7 @@ describe('pushRegistration', () => {
         vi.restoreAllMocks();
     });
 
-    it('registers the Android native FCM token instead of an Expo push token', async () => {
-        const result = await syncCurrentPushToken({
-            token: 'auth-token',
-            secret: 'auth-secret',
-        });
-
-        expect(notificationsMock.getDevicePushTokenAsync).toHaveBeenCalled();
-        expect(notificationsMock.getExpoPushTokenAsync).not.toHaveBeenCalled();
-        expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
-            { token: 'auth-token', secret: 'auth-secret' },
-            'fcm-current-device',
-        );
-        expect(result).toMatchObject({
-            registered: true,
-            token: 'fcm-current-device',
-        });
-    });
-
-    it('falls back to the bundled Expo project ID when Android native token lookup fails', async () => {
-        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
-
+    it('registers the Android Expo push token before trying a native FCM token', async () => {
         const result = await syncCurrentPushToken({
             token: 'auth-token',
             secret: 'auth-secret',
@@ -108,6 +88,7 @@ describe('pushRegistration', () => {
         expect(notificationsMock.getExpoPushTokenAsync).toHaveBeenCalledWith({
             projectId: '4558dd3d-cd5a-47cd-bad9-e591a241cc06',
         });
+        expect(notificationsMock.getDevicePushTokenAsync).not.toHaveBeenCalled();
         expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
             { token: 'auth-token', secret: 'auth-secret' },
             'ExponentPushToken[current-device]',
@@ -118,7 +99,29 @@ describe('pushRegistration', () => {
         });
     });
 
-    it('prefers the Expo project ID from runtime constants for Expo fallback', async () => {
+    it('falls back to the Android native FCM token when Expo push token lookup fails', async () => {
+        notificationsMock.getExpoPushTokenAsync.mockRejectedValueOnce(new Error('Expo unavailable'));
+
+        const result = await syncCurrentPushToken({
+            token: 'auth-token',
+            secret: 'auth-secret',
+        });
+
+        expect(notificationsMock.getExpoPushTokenAsync).toHaveBeenCalledWith({
+            projectId: '4558dd3d-cd5a-47cd-bad9-e591a241cc06',
+        });
+        expect(notificationsMock.getDevicePushTokenAsync).toHaveBeenCalled();
+        expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
+            { token: 'auth-token', secret: 'auth-secret' },
+            'fcm-current-device',
+        );
+        expect(result).toMatchObject({
+            registered: true,
+            token: 'fcm-current-device',
+        });
+    });
+
+    it('prefers the Expo project ID from runtime constants', async () => {
         constantsMock.expoConfig = {
             extra: {
                 eas: {
@@ -126,7 +129,6 @@ describe('pushRegistration', () => {
                 },
             },
         };
-        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
 
         await syncCurrentPushToken({
             token: 'auth-token',
@@ -138,9 +140,9 @@ describe('pushRegistration', () => {
         });
     });
 
-    it('returns the token lookup error without registering a stale token when native and Expo lookup both fail', async () => {
-        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
+    it('returns the token lookup error without registering a stale token when Expo and native lookup both fail', async () => {
         notificationsMock.getExpoPushTokenAsync.mockRejectedValueOnce(new Error('Expo unavailable'));
+        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
         persistenceMock.loadRegisteredPushToken.mockReturnValue('ExponentPushToken[stale-device]');
 
         const result = await syncCurrentPushToken({
@@ -152,7 +154,7 @@ describe('pushRegistration', () => {
         expect(result).toMatchObject({
             registered: false,
             token: 'ExponentPushToken[stale-device]',
-            error: 'FCM unavailable; Expo fallback failed: Expo unavailable',
+            error: 'Expo unavailable; Android native fallback failed: FCM unavailable',
         });
     });
 });

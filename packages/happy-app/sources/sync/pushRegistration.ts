@@ -94,13 +94,13 @@ async function getPreferredPushToken(): Promise<string> {
     }
 
     try {
-        return await getAndroidDevicePushToken();
-    } catch (nativeError) {
-        console.log('Failed to get Android FCM push token, falling back to Expo:', nativeError);
+        return await getExpoPushToken();
+    } catch (expoError) {
+        console.log('Failed to get Expo push token, falling back to Android FCM:', expoError);
         try {
-            return await getExpoPushToken();
-        } catch (expoError) {
-            throw new Error(`${getErrorMessage(nativeError)}; Expo fallback failed: ${getErrorMessage(expoError)}`);
+            return await getAndroidDevicePushToken();
+        } catch (nativeError) {
+            throw new Error(`${getErrorMessage(expoError)}; Android native fallback failed: ${getErrorMessage(nativeError)}`);
         }
     }
 }
