@@ -1,0 +1,149 @@
+import { createServer } from 'node:http';
+import { createFileStore } from './store';
+import { createImageGatewayService } from './service';
+import { adminPage, jobPage, publicPage } from './pages';
+import { readInput, redirect, requireToken, sendHtml, sendJson } from './http';
+
+const port = Number(process.env.IMAGE_GATEWAY_PORT ?? 3010);
+const dataPath = process.env.IMAGE_GATEWAY_DATA ?? './data/image-gateway.json';
+const adminToken = process.env.IMAGE_GATEWAY_ADMIN_TOKEN;
+const workerToken = process.env.IMAGE_GATEWAY_WORKER_TOKEN;
+const hashSecret = process.env.IMAGE_GATEWAY_HASH_SECRET ?? workerToken ?? adminToken ?? 'dev-secret-change-me';
+
+const service = createImageGatewayService({
+    store: createFileStore(dataPath),
+    ipHashSecret: hashSecret,
+});
+
+const server = createServer(async (request, response) => {
+    try {
+        const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+        const pathname = url.pathname.replace(/\/$/, '') || '/';
+
+        if (request.method === 'GET' && pathname === '/health') {
+            sendJson(response, 200, { status: 'ok' });
+            return;
+        }
+
+        if (request.method === 'GET' && (pathname === '/image' || pathname === '/')) {
+            sendHtml(response, 200, publicPage(await service.getSettings()));
+            return;
+        }
+
+        if (request.method === 'POST' && pathname === '/image/jobs') {
+            const input = await readInput(request);
+            const job = await service.submitJob({
+                prompt: String(input.prompt ?? ''),
+                ip: getRequesterIp(request),
+                userAgent: String(request.headers['user-agent'] ?? ''),
+            });
+            if (acceptsHtml(request)) {
+                redirect(response, `/image/jobs/${job.id}`);
+            } else {
+                sendJson(response, 201, job);
+            }
+            return;
+        }
+
+        const jobMatch = pathname.match(/^\/image\/jobs\/([^/]+)$/);
+        if (request.method === 'GET' && jobMatch) {
+            const job = await service.getJob(jobMatch[1]!);
+            if (!job) {
+                sendJson(response, 404, { error: 'Job not found' });
+                return;
+            }
+            if (acceptsHtml(request)) {
+                sendHtml(response, 200, jobPage(job));
+            } else {
+                sendJson(response, 200, job);
+            }
+            return;
+        }
+
+        if (pathname === '/image/admin' && request.method === 'GET') {
+            if (!requireToken(request, adminToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Admin token required' });
+                return;
+            }
+            sendHtml(response, 200, adminPage(await service.getSettings(), await service.listJobs(), url.searchParams.get('token') ?? ''));
+            return;
+        }
+
+        if (pathname === '/image/admin/mode' && request.method === 'POST') {
+            if (!requireToken(request, adminToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Admin token required' });
+                return;
+            }
+            const input = await readInput(request);
+            const mode = input.mode;
+            if (mode !== 'open' && mode !== 'review' && mode !== 'closed') {
+                sendJson(response, 400, { error: 'Invalid mode' });
+                return;
+            }
+            await service.updateSettings({ mode });
+            redirect(response, `/image/admin?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}`);
+            return;
+        }
+
+        const adminActionMatch = pathname.match(/^\/image\/admin\/jobs\/([^/]+)\/(approve|reject)$/);
+        if (request.method === 'POST' && adminActionMatch) {
+            if (!requireToken(request, adminToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Admin token required' });
+                return;
+            }
+            if (adminActionMatch[2] === 'approve') {
+                await service.approveJob(adminActionMatch[1]!);
+            } else {
+                await service.rejectJob(adminActionMatch[1]!);
+            }
+            redirect(response, `/image/admin?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}`);
+            return;
+        }
+
+        if (pathname === '/image/worker/claim' && request.method === 'POST') {
+            if (!requireToken(request, workerToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Worker token required' });
+                return;
+            }
+            sendJson(response, 200, { job: await service.claimNextJob() });
+            return;
+        }
+
+        const workerReportMatch = pathname.match(/^\/image\/worker\/jobs\/([^/]+)\/(succeed|fail)$/);
+        if (request.method === 'POST' && workerReportMatch) {
+            if (!requireToken(request, workerToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Worker token required' });
+                return;
+            }
+            const input = await readInput(request);
+            const job = workerReportMatch[2] === 'succeed'
+                ? await service.reportSuccess(workerReportMatch[1]!, {
+                    resultUrl: String(input.resultUrl ?? ''),
+                    actualCostCents: input.actualCostCents ? Number(input.actualCostCents) : undefined,
+                })
+                : await service.reportFailure(workerReportMatch[1]!, String(input.error ?? 'Worker failed'));
+            sendJson(response, 200, job);
+            return;
+        }
+
+        sendJson(response, 404, { error: 'Not found' });
+    } catch (error) {
+        sendJson(response, 500, { error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+});
+
+server.listen(port, () => {
+    console.log(`image-gateway listening on :${port}`);
+});
+
+function getRequesterIp(request: import('node:http').IncomingMessage): string {
+    const forwarded = request.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded) {
+        return forwarded.split(',')[0]!.trim();
+    }
+    return request.socket.remoteAddress ?? 'unknown';
+}
+
+function acceptsHtml(request: import('node:http').IncomingMessage): boolean {
+    return String(request.headers.accept ?? '').includes('text/html');
+}

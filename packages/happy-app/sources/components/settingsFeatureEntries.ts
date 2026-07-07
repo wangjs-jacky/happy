@@ -4,6 +4,7 @@ import type { Ionicons } from '@expo/vector-icons';
 type SettingsFeatureEntryTitleKey =
     | 'settings.voiceAssistant'
     | 'settings.askApi'
+    | 'settings.publicImageGateway'
     | 'agents.imageStyleAgent'
     | 'agents.title'
     | 'settings.agentDefaults'
@@ -15,6 +16,7 @@ type SettingsFeatureEntryTitleKey =
 type SettingsFeatureEntrySubtitleKey =
     | 'settings.voiceAssistantSubtitle'
     | 'settings.askApiSubtitle'
+    | 'settings.publicImageGatewaySubtitle'
     | 'agents.imageStyleAgentEntrySubtitle'
     | 'agents.entrySubtitle'
     | 'settings.agentDefaultsSubtitle'
@@ -49,6 +51,14 @@ export function getSettingsFeatureEntries(args: { experiments: boolean }): Setti
             icon: 'chatbubble-ellipses-outline',
             color: '#5856D6',
             route: '/settings/ask',
+        },
+        {
+            key: 'public-image-gateway',
+            titleKey: 'settings.publicImageGateway',
+            subtitleKey: 'settings.publicImageGatewaySubtitle',
+            icon: 'earth-outline',
+            color: '#1F6F5B',
+            route: '/settings/public-image-gateway',
         },
         {
             key: 'image-style-agent',
