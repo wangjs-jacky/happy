@@ -453,6 +453,8 @@ export const zhHans: TranslationStructure = {
         killSession: '终止会话',
         killSessionConfirm: '您确定要终止此会话吗？',
         archiveSession: '归档会话',
+        pinSession: '置顶会话',
+        unpinSession: '取消置顶',
         archiveSessionConfirm: '您确定要归档此会话吗？',
         happySessionIdCopied: 'Paws 会话 ID 已复制到剪贴板',
         failedToCopySessionId: '复制 Paws 会话 ID 失败',

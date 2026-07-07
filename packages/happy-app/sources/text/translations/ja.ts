@@ -453,6 +453,8 @@ export const ja: TranslationStructure = {
         killSession: 'セッションを終了',
         killSessionConfirm: 'このセッションを終了してもよろしいですか？',
         archiveSession: 'セッションをアーカイブ',
+        pinSession: 'セッションをピン留め',
+        unpinSession: 'ピン留めを解除',
         archiveSessionConfirm: 'このセッションをアーカイブしてもよろしいですか？',
         happySessionIdCopied: 'Paws Session IDがクリップボードにコピーされました',
         failedToCopySessionId: 'Paws Session IDのコピーに失敗しました',

@@ -22,6 +22,7 @@ import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
+import { useSessionManagementPreferences } from './useSessionManagementPreferences';
 
 export interface SessionActionItem {
     id: string;
@@ -126,6 +127,8 @@ export function useSessionQuickActions(
     const machineId = session.metadata?.machineId ?? '';
     const machine = useMachine(machineId);
     const expResumeSession = useSetting('expResumeSession');
+    const sessionManagement = useSessionManagementPreferences([session.id], { prune: false });
+    const sessionPinned = sessionManagement.isPinned(session.id);
     const resumeAvailability = React.useMemo(
         () => expResumeSession ? getResumeAvailability(session, machine, sessionStatus.isConnected) : { canResume: false, canShowResume: false, subtitle: '', message: '' },
         [machine, session, sessionStatus.isConnected, expResumeSession],
@@ -172,6 +175,10 @@ export function useSessionQuickActions(
             }
         })();
     }, [onAfterCopySessionMetadata, session]);
+
+    const togglePinSession = React.useCallback(() => {
+        sessionManagement.togglePinned(session.id);
+    }, [session.id, sessionManagement]);
 
     const [resumingSession, performResume] = useHappyAction(async () => {
         if (!resumeAvailability.canResume) {
@@ -385,6 +392,8 @@ export function useSessionQuickActions(
     const actionItems = React.useMemo<SessionActionItem[]>(() => {
         return buildSessionQuickActionItems({
             labels: {
+                pin: t('sessionInfo.pinSession'),
+                unpin: t('sessionInfo.unpinSession'),
                 details: t('profile.details'),
                 resume: t('sessionInfo.resumeSession'),
                 rename: t('sessionInfo.renameSession'),
@@ -398,6 +407,7 @@ export function useSessionQuickActions(
                 select: t('sessionInfo.selectSession'),
             },
             callbacks: {
+                togglePinSession,
                 openDetails,
                 resumeSession,
                 renameSession,
@@ -414,6 +424,7 @@ export function useSessionQuickActions(
             canRegenerateTitle,
             canFork,
             canCopySessionMetadata,
+            sessionPinned,
             sessionActive: session.active,
             canSelect: Boolean(onSelectSession),
         });
@@ -434,6 +445,8 @@ export function useSessionQuickActions(
         resumeAvailability.canShowResume,
         resumeSession,
         session.active,
+        sessionPinned,
+        togglePinSession,
     ]);
 
     const showActionAlert = React.useCallback(() => {
@@ -460,6 +473,7 @@ export function useSessionQuickActions(
         canShowResume: resumeAvailability.canShowResume,
         canFork,
         canRegenerateTitle,
+        sessionPinned,
         copySessionMetadata,
         copySessionMetadataAndLogs,
         forkSession,

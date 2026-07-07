@@ -15,29 +15,60 @@ function unique(items: string[]): string[] {
     return Array.from(new Set(items));
 }
 
+let currentPreferences = loadSessionManagementPreferences();
+const listeners = new Set<() => void>();
+
+function emitPreferencesChanged() {
+    listeners.forEach((listener) => listener());
+}
+
+function subscribePreferences(listener: () => void) {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
+}
+
+export function getSessionManagementPreferencesSnapshot(): SessionManagementPreferences {
+    return currentPreferences;
+}
+
+function updateSessionManagementPreferences(updater: (current: SessionManagementPreferences) => SessionManagementPreferences) {
+    const next = updater(currentPreferences);
+    if (next === currentPreferences) {
+        return;
+    }
+    currentPreferences = next;
+    saveSessionManagementPreferences(next);
+    emitPreferencesChanged();
+}
+
 /**
  * Keeps the local session-management queues in sync with sessions that still
  * exist. The queue is intentionally local-only: pinning and focus ordering are
  * personal triage state, separate from encrypted session metadata.
  */
-export function useSessionManagementPreferences(validSessionIds: string[]) {
+export function useSessionManagementPreferences(
+    validSessionIds: string[],
+    options: { prune?: boolean } = {},
+) {
+    const prune = options.prune ?? true;
     const validSessionIdSet = React.useMemo(() => new Set(validSessionIds), [validSessionIds]);
-    const [preferences, setPreferencesState] = React.useState<SessionManagementPreferences>(() => (
-        loadSessionManagementPreferences()
-    ));
+    const preferences = React.useSyncExternalStore(
+        subscribePreferences,
+        getSessionManagementPreferencesSnapshot,
+        getSessionManagementPreferencesSnapshot,
+    );
 
     const setPreferences = React.useCallback((updater: (current: SessionManagementPreferences) => SessionManagementPreferences) => {
-        setPreferencesState((current) => {
-            const next = updater(current);
-            if (next === current) {
-                return current;
-            }
-            saveSessionManagementPreferences(next);
-            return next;
-        });
+        updateSessionManagementPreferences(updater);
     }, []);
 
     React.useEffect(() => {
+        if (!prune) {
+            return;
+        }
+
         setPreferences((current) => {
             const pinnedOrder = unique(current.pinnedOrder).filter((id) => validSessionIdSet.has(id));
             const pinnedSet = new Set(pinnedOrder);
@@ -49,7 +80,7 @@ export function useSessionManagementPreferences(validSessionIds: string[]) {
 
             return { pinnedOrder, focusOrder };
         });
-    }, [setPreferences, validSessionIdSet]);
+    }, [prune, setPreferences, validSessionIdSet]);
 
     const isPinned = React.useCallback((sessionId: string) => (
         preferences.pinnedOrder.includes(sessionId)
