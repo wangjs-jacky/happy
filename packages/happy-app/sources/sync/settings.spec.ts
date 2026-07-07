@@ -138,6 +138,25 @@ describe('settings', () => {
                     promptSource: 'reference-image',
                 }]);
             });
+            it('preserves extracted custom GPT Image 2 style prompt metadata', () => {
+                const customImageStyles = [{
+                    id: 'user-reference/u2',
+                    title: '胶片',
+                    promptHint: '低饱和胶片',
+                    promptContent: '低饱和暖色胶片、柔和窗光、轻微颗粒。',
+                    negativePrompt: '过曝',
+                    tags: ['胶片'],
+                    analysisStatus: 'prompt-ready',
+                    analysisError: undefined,
+                    analyzedAt: 2,
+                    promptSource: 'extracted-prompt',
+                    referenceImages: [],
+                    createdAt: 1,
+                    updatedAt: 2,
+                }];
+
+                expect(settingsParse({ customImageStyles }).customImageStyles).toEqual(customImageStyles);
+            });
             it('parses pending GPT Image 2 style reference drafts', () => {
                 const pendingCustomImageStyleReferences = [{
                     id: 'draft-r1',

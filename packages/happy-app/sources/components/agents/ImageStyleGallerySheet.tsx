@@ -23,6 +23,7 @@ type Props = {
     canCreateCustomStyle?: boolean;
     onCreateCustomStyle?: () => void;
     onDeleteCustomStyle?: (style: ImageAgentStylePreset) => void;
+    onRetryCustomStyleAnalysis?: (style: ImageAgentStylePreset) => void;
     onPickImages?: () => void;
     onToggle: (style: ImageAgentStylePreset) => void;
     onClose: () => void;
@@ -54,6 +55,20 @@ function StylePreview({ style, cardWidth }: { style: ImageAgentStylePreset; card
             <Image source={source} resizeMode="cover" style={galleryStyles.previewImage} />
         </View>
     );
+}
+
+function getCustomStyleStatusKey(status: ImageAgentStylePreset['analysisStatus']) {
+    if (status === 'prompt-ready') return 'agents.customImageStylePromptReady';
+    if (status === 'analyzing') return 'agents.customImageStyleAnalyzing';
+    if (status === 'failed') return 'agents.customImageStyleFailed';
+    return 'agents.customImageStyleReferenceReady';
+}
+
+function getCustomStyleStatusIcon(status: ImageAgentStylePreset['analysisStatus']): keyof typeof Ionicons.glyphMap {
+    if (status === 'prompt-ready') return 'checkmark-circle-outline';
+    if (status === 'analyzing') return 'time-outline';
+    if (status === 'failed') return 'alert-circle-outline';
+    return 'image-outline';
 }
 
 export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet(props: Props) {
@@ -120,7 +135,7 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                     <View style={styles.cardCopy}>
                         <Text style={styles.cardTitle} numberOfLines={2}>{getImageAgentStyleLabel(style)}</Text>
                         <Text style={styles.cardMeta} numberOfLines={1}>
-                            {style.custom ? t(style.analysisStatus === 'prompt-ready' ? 'agents.customImageStylePromptReady' : 'agents.customImageStyleReferenceReady') : style.categoryLabel}
+                            {style.custom ? t(getCustomStyleStatusKey(style.analysisStatus)) : style.categoryLabel}
                             {' · '}
                             {style.templateLabel}
                         </Text>
@@ -148,6 +163,32 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
                         >
                             <Ionicons name="trash-outline" size={15} color={styles.deleteIcon.color} />
+                        </Pressable>
+                    )}
+                    {style.custom && (
+                        <View style={styles.statusPill}>
+                            <Ionicons
+                                name={getCustomStyleStatusIcon(style.analysisStatus)}
+                                size={12}
+                                color={styles.statusPillText.color}
+                            />
+                            <Text style={styles.statusPillText} numberOfLines={1}>
+                                {t(getCustomStyleStatusKey(style.analysisStatus))}
+                            </Text>
+                        </View>
+                    )}
+                    {style.custom && style.analysisStatus === 'failed' && props.onRetryCustomStyleAnalysis && (
+                        <Pressable
+                            onPress={(event) => {
+                                event.stopPropagation();
+                                props.onRetryCustomStyleAnalysis?.(style);
+                            }}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('agents.customImageStyleRetryAction')}
+                            style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
+                        >
+                            <Ionicons name="refresh-outline" size={15} color={styles.retryIcon.color} />
                         </Pressable>
                     )}
                 </Pressable>
@@ -545,5 +586,38 @@ const galleryStyles = StyleSheet.create((theme) => ({
     },
     deleteIcon: {
         color: '#FFFFFF',
+    },
+    retryButton: {
+        position: 'absolute',
+        top: 8,
+        right: 44,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    },
+    retryIcon: {
+        color: theme.colors.accent,
+    },
+    statusPill: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        minHeight: 24,
+        maxWidth: 112,
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    },
+    statusPillText: {
+        ...Typography.default('semiBold'),
+        fontSize: 10,
+        color: '#17202A',
+        flexShrink: 1,
     },
 }));

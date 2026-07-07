@@ -49,6 +49,8 @@ import {
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
+import { extractCustomImageStylePrompt } from './agents/customImageStyleAnalysis';
+import type { UserImageStyle } from './agents/imageStyleTypes';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 import { Modal } from '@/modal';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
@@ -116,6 +118,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
+    const inferenceOpenAIKey = useSetting('inferenceOpenAIKey');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
@@ -125,6 +128,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const agents = useSetting('agents');
     const [customImageStyles, setCustomImageStyles] = useSettingMutable('customImageStyles');
     const [pendingCustomImageStyleReferences, setPendingCustomImageStyleReferences] = useSettingMutable('pendingCustomImageStyleReferences');
+    const customImageStylesRef = React.useRef(customImageStyles);
+    React.useEffect(() => {
+        customImageStylesRef.current = customImageStyles;
+    }, [customImageStyles]);
     const activeAgent = React.useMemo(
         () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
         [agentId, agents],
@@ -329,6 +336,59 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setSelectedImageVariantCount(count);
     }, []);
 
+    const updateCustomImageStyle = React.useCallback((id: string, updater: (style: UserImageStyle) => UserImageStyle) => {
+        const next = customImageStylesRef.current.map((style) => style.id === id ? updater(style) : style);
+        customImageStylesRef.current = next;
+        setCustomImageStyles(next);
+    }, [setCustomImageStyles]);
+
+    const analyzeCustomImageStyle = React.useCallback(async (style: UserImageStyle) => {
+        updateCustomImageStyle(style.id, (current) => ({
+            ...current,
+            analysisStatus: 'analyzing',
+            analysisError: undefined,
+            updatedAt: Date.now(),
+        }));
+
+        const apiKey = inferenceOpenAIKey?.trim();
+        if (!apiKey) {
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                analysisStatus: 'failed',
+                analysisError: t('agents.customImageStyleMissingOpenAIKey'),
+                updatedAt: Date.now(),
+            }));
+            return;
+        }
+
+        try {
+            const extracted = await extractCustomImageStylePrompt({
+                apiKey,
+                title: style.title,
+                images: style.referenceImages,
+            });
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                promptHint: extracted.summary || current.promptHint,
+                promptContent: extracted.promptContent,
+                negativePrompt: extracted.negativePrompt || undefined,
+                tags: extracted.tags,
+                analysisStatus: 'prompt-ready',
+                analysisError: undefined,
+                analyzedAt: Date.now(),
+                promptSource: 'extracted-prompt',
+                updatedAt: Date.now(),
+            }));
+        } catch (error) {
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                analysisStatus: 'failed',
+                analysisError: error instanceof Error ? error.message : t('agents.customImageStyleAnalysisFailed'),
+                updatedAt: Date.now(),
+            }));
+        }
+    }, [inferenceOpenAIKey, updateCustomImageStyle]);
+
     const createCustomImageStyle = React.useCallback(async () => {
         if (!activeImageAgent || selectedImages.length === 0) return;
         hapticsLight();
@@ -362,22 +422,32 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             title,
             promptHint,
             tags: [] as string[],
-            analysisStatus: 'reference-ready' as const,
+            analysisStatus: 'analyzing' as const,
             promptSource: 'reference-image' as const,
             referenceImages,
             createdAt: now,
             updatedAt: now,
         };
 
-        setCustomImageStyles([
+        const nextStyles = [
             newStyle,
             ...customImageStyles.filter((style) => style.id !== id),
-        ].slice(0, 24));
+        ].slice(0, 24);
+        customImageStylesRef.current = nextStyles;
+        setCustomImageStyles(nextStyles);
         setSelectedImageStyleIds([id]);
         setPendingCustomImageStyleReferences([]);
         clearImages();
         setImageGalleryOpen(false);
-    }, [activeImageAgent, selectedImages, setCustomImageStyles, customImageStyles, setPendingCustomImageStyleReferences, clearImages]);
+        analyzeCustomImageStyle(newStyle);
+    }, [activeImageAgent, selectedImages, setCustomImageStyles, customImageStyles, setPendingCustomImageStyleReferences, clearImages, analyzeCustomImageStyle]);
+
+    const retryCustomImageStyleAnalysis = React.useCallback((style: ImageAgentStylePreset) => {
+        const customStyle = customImageStylesRef.current.find((item) => item.id === style.id);
+        if (!customStyle) return;
+        hapticsLight();
+        analyzeCustomImageStyle(customStyle);
+    }, [analyzeCustomImageStyle]);
 
     const deleteCustomImageStyle = React.useCallback(async (style: ImageAgentStylePreset) => {
         if (!style.custom) return;
@@ -388,7 +458,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             { confirmText: t('common.delete'), destructive: true },
         );
         if (!confirmed) return;
-        setCustomImageStyles(customImageStyles.filter((item) => item.id !== style.id));
+        const nextStyles = customImageStyles.filter((item) => item.id !== style.id);
+        customImageStylesRef.current = nextStyles;
+        setCustomImageStyles(nextStyles);
         setSelectedImageStyleIds((current) => current.filter((id) => id !== style.id));
     }, [customImageStyles, setCustomImageStyles]);
 
@@ -828,6 +900,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     canCreateCustomStyle={hasImages}
                     onCreateCustomStyle={createCustomImageStyle}
                     onDeleteCustomStyle={deleteCustomImageStyle}
+                    onRetryCustomStyleAnalysis={retryCustomImageStyleAnalysis}
                     onPickImages={pickImages}
                     onToggle={toggleImageStyleFromGallery}
                     onClose={closeImageStyleGallery}

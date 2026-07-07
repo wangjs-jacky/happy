@@ -41,8 +41,10 @@ export interface UserImageStyle {
     promptHint: string;
     promptContent?: string;
     negativePrompt?: string;
-    tags?: string[];
+    tags: string[];
     analysisStatus: UserImageStyleAnalysisStatus;
+    analysisError?: string;
+    analyzedAt?: number;
     promptSource: UserImageStylePromptSource;
     referenceImages: ImageAgentStyleReferenceImage[];
     createdAt: number;
