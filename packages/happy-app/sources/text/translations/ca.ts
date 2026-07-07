@@ -1313,7 +1313,7 @@ export const ca: TranslationStructure = {
         requestAgainCanAsk: "Torna a mostrar l'avís del sistema si iOS encara ho permet.",
         requestAgainBlocked: "Obre la configuració del sistema quan iOS no torni a mostrar l'avís.",
         reRegister: "Torna a registrar aquest dispositiu",
-        reRegisterSubtitle: "Obté el token actual d'Expo i el torna a registrar.",
+        reRegisterSubtitle: "Obté el token push actual del dispositiu i el torna a registrar.",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `Token actual ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `Tokens registrats (${count})`,
         registeredTokensFooter: "Les metadades del dispositiu actual provenen d'aquest telèfon. Els tokens més antics utilitzen l'empremta del token i les marques de temps del servidor.",

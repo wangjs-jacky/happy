@@ -24,7 +24,7 @@ import { disconnectGitHub } from '@/sync/apiGithub';
 import { disconnectService } from '@/sync/apiServices';
 import { fetchPushTokens, type PushToken } from '@/sync/apiPush';
 import {
-    getCurrentExpoPushToken,
+    getCurrentPushToken,
     getCurrentPushDeviceMetadata,
     getPushPermissionInfo,
     requestPushPermissionOrOpenSettings,
@@ -66,7 +66,7 @@ function formatPushPermissionSubtitle(permission: PushPermissionInfo | null): st
 }
 
 function formatPushTokenFingerprint(token: string): string {
-    const rawValue = token.replace(/^ExponentPushToken\[/, '').replace(/\]$/, '');
+    const rawValue = token.replace(/^(ExponentPushToken|ExpoPushToken)\[/, '').replace(/\]$/, '');
     if (rawValue.length <= 12) {
         return rawValue;
     }
@@ -142,7 +142,7 @@ export default React.memo(() => {
             const [tokens, permission, liveToken] = await Promise.all([
                 fetchPushTokens(auth.credentials),
                 getPushPermissionInfo(),
-                getCurrentExpoPushToken(),
+                getCurrentPushToken(),
             ]);
             setPushTokens(tokens);
             setPushPermission(permission);

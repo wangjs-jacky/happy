@@ -29,7 +29,7 @@ async function fetchTokensAndSend(params: {
     data: Record<string, unknown>;
     channelId: string;
 }): Promise<void> {
-    // All push tokens are mobile — web/CLI never register Expo tokens.
+    // All push tokens are mobile — web/CLI never register notification tokens.
     const tokens = await db.accountPushToken.findMany({
         where: { accountId: params.userId }
     });

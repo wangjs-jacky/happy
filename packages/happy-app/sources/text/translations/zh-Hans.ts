@@ -1882,7 +1882,7 @@ export const zhHans: TranslationStructure = {
         requestAgainCanAsk: "如果 iOS 仍允许，会再次弹出系统提示。",
         requestAgainBlocked: "当 iOS 不再弹出提示时，打开系统设置。",
         reRegister: "重新注册此设备",
-        reRegisterSubtitle: "获取当前的 Expo 令牌并重新注册。",
+        reRegisterSubtitle: "获取当前设备的推送令牌并重新注册。",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `当前令牌 ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `已注册的令牌 (${count})`,
         registeredTokensFooter: "当前设备的元数据来自本机。较旧的令牌使用其令牌指纹加上服务器时间戳。",

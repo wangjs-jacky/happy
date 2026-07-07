@@ -1315,7 +1315,7 @@ export const ja: TranslationStructure = {
         requestAgainCanAsk: "iOS がまだ許可している場合、システムのプロンプトを再度表示します。",
         requestAgainBlocked: "iOS が再度プロンプトを表示しない場合、システム設定を開きます。",
         reRegister: "このデバイスを再登録",
-        reRegisterSubtitle: "現在の Expo トークンを取得して再登録します。",
+        reRegisterSubtitle: "現在のデバイスのプッシュトークンを取得して再登録します。",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `現在のトークン ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `登録済みトークン (${count})`,
         registeredTokensFooter: "現在のデバイスのメタデータはこの端末から取得されます。古いトークンはトークンのフィンガープリントとサーバーのタイムスタンプを使用します。",

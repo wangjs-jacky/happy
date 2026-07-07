@@ -1342,7 +1342,7 @@ export const ru: TranslationStructure = {
         requestAgainCanAsk: "Снова показывает системный запрос, если iOS это позволяет.",
         requestAgainBlocked: "Открывает системные настройки, когда iOS больше не показывает запрос.",
         reRegister: "Перерегистрировать это устройство",
-        reRegisterSubtitle: "Получает текущий токен Expo и регистрирует его заново.",
+        reRegisterSubtitle: "Получает текущий push-токен устройства и регистрирует его заново.",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `Текущий токен ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `Зарегистрированные токены (${count})`,
         registeredTokensFooter: "Метаданные текущего устройства берутся с этого телефона. Для более старых токенов используется отпечаток токена и серверные метки времени.",

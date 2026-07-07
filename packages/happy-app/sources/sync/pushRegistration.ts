@@ -72,6 +72,39 @@ function getErrorMessage(error: unknown): string {
     }
 }
 
+async function getExpoPushToken(): Promise<string> {
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: getExpoProjectId() });
+    if (!tokenData.data) {
+        throw new Error('Expo returned an empty push token.');
+    }
+    return tokenData.data;
+}
+
+async function getAndroidDevicePushToken(): Promise<string> {
+    const tokenData = await Notifications.getDevicePushTokenAsync();
+    if (!tokenData.data) {
+        throw new Error('Android returned an empty FCM push token.');
+    }
+    return tokenData.data;
+}
+
+async function getPreferredPushToken(): Promise<string> {
+    if (Platform.OS !== 'android') {
+        return getExpoPushToken();
+    }
+
+    try {
+        return await getAndroidDevicePushToken();
+    } catch (nativeError) {
+        console.log('Failed to get Android FCM push token, falling back to Expo:', nativeError);
+        try {
+            return await getExpoPushToken();
+        } catch (expoError) {
+            throw new Error(`${getErrorMessage(nativeError)}; Expo fallback failed: ${getErrorMessage(expoError)}`);
+        }
+    }
+}
+
 export async function getPushPermissionInfo(): Promise<PushPermissionInfo> {
     if (Platform.OS === 'web') {
         return {
@@ -132,7 +165,7 @@ export async function requestPushPermissionOrOpenSettings(): Promise<PushPermiss
     };
 }
 
-export async function getCurrentExpoPushToken(): Promise<string | null> {
+export async function getCurrentPushToken(): Promise<string | null> {
     if (Platform.OS === 'web') {
         return null;
     }
@@ -143,10 +176,9 @@ export async function getCurrentExpoPushToken(): Promise<string | null> {
     }
 
     try {
-        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: getExpoProjectId() });
-        return tokenData.data ?? loadRegisteredPushToken();
+        return await getPreferredPushToken();
     } catch (error) {
-        console.log('Failed to get Expo push token:', error);
+        console.log('Failed to get current push token:', error);
         return loadRegisteredPushToken();
     }
 }
@@ -185,8 +217,7 @@ export async function syncCurrentPushToken(credentials: AuthCredentials): Promis
     }
 
     try {
-        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: getExpoProjectId() });
-        const currentToken = tokenData.data;
+        const currentToken = await getPreferredPushToken();
         const previousToken = loadRegisteredPushToken();
 
         if (!currentToken) {
@@ -194,7 +225,7 @@ export async function syncCurrentPushToken(credentials: AuthCredentials): Promis
                 registered: false,
                 token: previousToken,
                 permission,
-                error: 'Expo returned an empty push token.',
+                error: 'Push provider returned an empty push token.',
             };
         }
 
@@ -215,7 +246,7 @@ export async function syncCurrentPushToken(credentials: AuthCredentials): Promis
             permission,
         };
     } catch (error) {
-        console.log('Failed to sync Expo push token:', error);
+        console.log('Failed to sync push token:', error);
         return {
             registered: false,
             token: loadRegisteredPushToken(),
