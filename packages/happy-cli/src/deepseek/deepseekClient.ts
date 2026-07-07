@@ -40,7 +40,9 @@ export const DEEPSEEK_FAST_MODEL = 'deepseek-v4-flash';
 export const DEEPSEEK_PRO_MODEL = 'deepseek-v4-pro';
 
 export function resolveDeepSeekChatEndpoint(baseUrl: string | undefined): string {
-  const normalized = (baseUrl?.trim() || DEEPSEEK_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const normalized = (baseUrl?.trim() || DEEPSEEK_DEFAULT_BASE_URL)
+    .replace(/\/+$/, '')
+    .replace(/\/anthropic$/i, '');
   return normalized.endsWith('/chat/completions')
     ? normalized
     : `${normalized}/chat/completions`;

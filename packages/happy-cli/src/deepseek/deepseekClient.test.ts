@@ -10,6 +10,10 @@ describe('resolveDeepSeekChatEndpoint', () => {
   it('accepts a full DeepSeek chat completions URL without appending the path twice', () => {
     expect(resolveDeepSeekChatEndpoint('https://api.deepseek.com/chat/completions')).toBe('https://api.deepseek.com/chat/completions');
   });
+
+  it('maps the DeepSeek Anthropic-compatible base URL to the OpenAI-compatible chat endpoint', () => {
+    expect(resolveDeepSeekChatEndpoint('https://api.deepseek.com/anthropic')).toBe('https://api.deepseek.com/chat/completions');
+  });
 });
 
 describe('parseDeepSeekSseData', () => {
