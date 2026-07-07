@@ -4,7 +4,7 @@
  * Uses thumbhash as a blurry placeholder while the full image loads.
  */
 import * as React from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -12,16 +12,21 @@ import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
+import { computeInputAttachmentImageSize } from '@/utils/attachmentGalleryLayout';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 const THUMB_SIZE = 72;
+const FEATURED_MAX_WIDTH = 320;
+const FEATURED_MAX_HEIGHT = 220;
 const BORDER_RADIUS = 12;
 
 interface AgentInputAttachmentStripProps {
     images: AttachmentPreview[];
     onRemove: (id: string) => void;
+    presentation?: AttachmentGalleryPresentation;
 }
 
-export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttachmentStripProps) {
+export function AgentInputAttachmentStrip({ images, onRemove, presentation = 'compact' }: AgentInputAttachmentStripProps) {
     const { theme } = useUnistyles();
 
     if (images.length === 0) return null;
@@ -43,6 +48,7 @@ export function AgentInputAttachmentStrip({ images, onRemove }: AgentInputAttach
                     index={index}
                     images={images}
                     onRemove={onRemove}
+                    presentation={presentation}
                     theme={theme}
                 />
             ))}
@@ -55,36 +61,48 @@ function AttachmentThumbnail({
     index,
     images,
     onRemove,
+    presentation,
     theme,
 }: {
     image: AttachmentPreview;
     index: number;
     images: AttachmentPreview[];
     onRemove: (id: string) => void;
+    presentation: AttachmentGalleryPresentation;
     theme: any;
 }) {
+    const windowDimensions = useWindowDimensions();
     // Build placeholder from thumbhash if available
     const placeholder = React.useMemo(() => {
         if (!image.thumbhash) return undefined;
         const uri = thumbhashToDataUri(image.thumbhash);
         return uri ? { uri } : undefined;
     }, [image.thumbhash]);
+    const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 64));
+    const displaySize = computeInputAttachmentImageSize({
+        presentation,
+        sourceWidth: image.width,
+        sourceHeight: image.height,
+        maxWidth: maxFeaturedWidth,
+        maxHeight: FEATURED_MAX_HEIGHT,
+    });
+    const isFeatured = presentation === 'featured';
 
     return (
-        <View style={styles.thumbContainer}>
+        <View style={[styles.thumbContainer, displaySize]}>
             {/* Tap the image to open the fullscreen swipeable viewer at this one. */}
             <Pressable
                 onPress={() => imageViewer.open(
                     images.map((it) => ({ uri: it.uri, width: it.width, height: it.height, filename: it.name })),
                     index,
                 )}
-                style={[styles.thumbPressable, { borderColor: theme.colors.divider }]}
+                style={[styles.thumbPressable, displaySize, { borderColor: theme.colors.divider }]}
             >
                 <Image
                     source={{ uri: image.uri }}
                     placeholder={placeholder}
-                    style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, styles.thumb]}
-                    contentFit="cover"
+                    style={[displaySize, styles.thumb]}
+                    contentFit={isFeatured ? 'contain' : 'cover'}
                     transition={150}
                 />
             </Pressable>

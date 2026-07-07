@@ -13,7 +13,7 @@ import { sync } from '@/sync/sync';
 import { Option } from './markdown/MarkdownView';
 import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
-import { getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
+import { getAutoFoldPromptBodyRenderState, getAutoFoldPromptInfo } from '@/utils/autoFoldPrompt';
 
 
 export const MessageView = React.memo((props: {
@@ -136,6 +136,22 @@ function UserTextBlock(props: {
     );
   }
 
+  const autoFoldPrompt = getAutoFoldPromptInfo(parsed.text);
+  if (autoFoldPrompt) {
+    return (
+      <View style={styles.userMessageContainer}>
+        <View style={styles.userAutoFoldWrap}>
+          <AutoFoldPromptBlock
+            text={parsed.text}
+            info={autoFoldPrompt}
+            onOptionPress={handleOptionPress}
+            sessionId={props.sessionId}
+          />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.userMessageContainer}>
       <Pressable
@@ -197,6 +213,11 @@ function AutoFoldPromptBlock(props: {
   const copyPrompt = React.useCallback(() => {
     void Clipboard.setStringAsync(props.text);
   }, [props.text]);
+  const bodyRenderState = getAutoFoldPromptBodyRenderState({
+    text: props.text,
+    info: props.info,
+    expanded,
+  });
 
   return (
     <View style={styles.autoFoldCard}>
@@ -219,13 +240,18 @@ function AutoFoldPromptBlock(props: {
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textSecondary} />
         </Pressable>
       </View>
-      {expanded ? (
-        <View style={styles.autoFoldExpanded}>
-          <MarkdownView markdown={props.text} onOptionPress={props.onOptionPress} sessionId={props.sessionId} />
-        </View>
-      ) : (
-        <Text style={styles.autoFoldPreview} numberOfLines={8}>{props.info.preview}</Text>
-      )}
+      <View style={styles.autoFoldBody}>
+        {bodyRenderState.kind === 'markdown' ? (
+          <MarkdownView
+            markdown={bodyRenderState.text}
+            onOptionPress={props.onOptionPress}
+            sessionId={props.sessionId}
+            variant={bodyRenderState.markdownVariant}
+          />
+        ) : (
+          <Text style={styles.autoFoldBodyText}>{bodyRenderState.text}</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -337,6 +363,11 @@ const styles = StyleSheet.create((theme) => ({
     fontSize: 13,
     fontFamily: 'monospace',
   },
+  userAutoFoldWrap: {
+    width: '100%',
+    maxWidth: 520,
+    marginBottom: 12,
+  },
   agentMessageContainer: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -406,17 +437,15 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.textSecondary,
     fontSize: 12,
   },
-  autoFoldPreview: {
+  autoFoldBodyText: {
     color: theme.colors.textSecondary,
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
     fontSize: 12,
     lineHeight: 18,
+  },
+  autoFoldBody: {
     paddingHorizontal: 10,
     paddingVertical: 8,
-  },
-  autoFoldExpanded: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
   },
   debugText: {
     color: theme.colors.agentEventText,

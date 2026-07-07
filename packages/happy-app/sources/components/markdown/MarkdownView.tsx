@@ -22,18 +22,29 @@ import { t } from '@/text';
 import { isHttpMarkdownLink } from './linkUtils';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { hapticsLight } from '../haptics';
+import {
+    MAX_IMAGE_STYLE_OPTION_COUNT,
+    buildImageStyleContinuationPrompt,
+    parseImageStyleOptions,
+    type ParsedImageStyleOption,
+} from '@/components/agents/imageStyleOptions';
+import { MAX_IMAGE_AGENT_VARIANTS_PER_STYLE } from '@/components/agents/imageAgentPrompt';
 
 // Option type for callback
 export type Option = {
     title: string;
 };
 
+export type MarkdownViewVariant = 'default' | 'foldedPrompt';
+
 export const MarkdownView = React.memo((props: { 
     markdown: string;
     onOptionPress?: (option: Option) => void;
     sessionId?: string;
+    variant?: MarkdownViewVariant;
 }) => {
     const blocks = React.useMemo(() => parseMarkdown(props.markdown), [props.markdown]);
+    const variant = props.variant ?? 'default';
     
     // Backwards compatibility: The original version just returned the view, wrapping the list of blocks.
     // It made each of the individual text elements selectable. When we enable the markdownCopyV2 feature,
@@ -66,21 +77,21 @@ export const MarkdownView = React.memo((props: {
             <View style={{ width: '100%' }}>
                 {blocks.map((block, index) => {
                     if (block.type === 'text') {
-                        return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
+                        return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} variant={variant} />;
                     } else if (block.type === 'header') {
-                        return <RenderHeaderBlock level={block.level} spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
+                        return <RenderHeaderBlock level={block.level} spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} variant={variant} />;
                     } else if (block.type === 'horizontal-rule') {
                         return <View style={style.horizontalRule} key={index} />;
                     } else if (block.type === 'list') {
-                        return <RenderListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
+                        return <RenderListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} variant={variant} />;
                     } else if (block.type === 'numbered-list') {
-                        return <RenderNumberedListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
+                        return <RenderNumberedListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} variant={variant} />;
                     } else if (block.type === 'code-block') {
                         return <RenderCodeBlock content={block.content} language={block.language} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} />;
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
                     } else if (block.type === 'options') {
-                        return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} />;
+                        return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} variant={variant} />;
                     } else if (block.type === 'table') {
                         return <RenderTableBlock headers={block.headers} rows={block.rows} onLinkPress={handleLinkPress} selectable={selectable} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'image') {
@@ -129,42 +140,46 @@ type RenderSpanProps = {
     baseStyle?: any;
     selectable: boolean;
     onLinkPress: (url: string) => void;
+    variant?: MarkdownViewVariant;
 };
 
-function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
-    return <Text selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
+function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
+    const textStyle = getTextStyle(props.variant);
+    return <Text selectable={props.selectable} style={[textStyle, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={textStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>;
 }
 
-function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
+function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
     const s = (style as any)[`header${props.level}`];
-    const headerStyle = [style.header, s, props.first && style.first, props.last && style.last];
-    return <Text selectable={props.selectable} style={headerStyle}><RenderSpans spans={props.spans} baseStyle={headerStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
+    const headerStyle = props.variant === 'foldedPrompt'
+        ? [style.foldedHeader, props.first && style.first, props.last && style.last]
+        : [style.header, s, props.first && style.first, props.last && style.last];
+    return <Text selectable={props.selectable} style={headerStyle}><RenderSpans spans={props.spans} baseStyle={headerStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>;
 }
 
 const BULLETS = ['•', '◦', '▪'] as const;
 
-function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
-    const listStyle = [style.text, style.list];
+function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
+    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList];
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
                     <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>
                 </View>
             ))}
         </View>
     );
 }
 
-function RenderNumberedListBlock(props: { items: { number: number, depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
-    const listStyle = [style.text, style.list];
+function RenderNumberedListBlock(props: { items: { number: number, depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void, variant: MarkdownViewVariant }) {
+    const listStyle = [getTextStyle(props.variant), style.list, props.variant === 'foldedPrompt' && style.foldedList];
     return (
         <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
                     <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} variant={props.variant} /></Text>
                 </View>
             ))}
         </View>
@@ -259,9 +274,24 @@ function RenderOptionsBlock(props: {
     first: boolean,
     last: boolean,
     selectable: boolean,
-    onOptionPress?: (option: Option) => void
+    onOptionPress?: (option: Option) => void,
+    variant: MarkdownViewVariant,
 }) {
     const { theme } = useUnistyles();
+    const imageStyleOptions = React.useMemo(() => parseImageStyleOptions(props.items), [props.items]);
+
+    if (props.onOptionPress && imageStyleOptions.length > 0) {
+        return (
+            <RenderImageStyleOptionsBlock
+                items={imageStyleOptions}
+                first={props.first}
+                last={props.last}
+                onOptionPress={props.onOptionPress}
+                variant={props.variant}
+            />
+        );
+    }
+
     // When none of the preset options fit, the user can tap "Other…" to reveal an
     // inline text field and send a free-form reply through the same onOptionPress
     // channel as the preset cards.
@@ -280,7 +310,7 @@ function RenderOptionsBlock(props: {
     }, [customText, props.onOptionPress]);
 
     return (
-        <View style={[style.optionsContainer, props.first && style.first, props.last && style.last]}>
+        <View style={[style.optionsContainer, props.variant === 'foldedPrompt' && style.foldedOptionsContainer, props.first && style.first, props.last && style.last]}>
             {props.items.map((item, index) => {
                 if (props.onOptionPress) {
                     return (
@@ -288,17 +318,18 @@ function RenderOptionsBlock(props: {
                             key={index}
                             style={({ pressed }) => [
                                 style.optionItem,
+                                props.variant === 'foldedPrompt' && style.foldedOptionItem,
                                 pressed && style.optionItemPressed
                             ]}
                             onPress={() => props.onOptionPress?.({ title: item })}
                         >
-                            <Text selectable={props.selectable} style={style.optionText}>{item}</Text>
+                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{item}</Text>
                         </Pressable>
                     );
                 } else {
                     return (
-                        <View key={index} style={style.optionItem}>
-                            <Text selectable={props.selectable} style={style.optionText}>{item}</Text>
+                        <View key={index} style={[style.optionItem, props.variant === 'foldedPrompt' && style.foldedOptionItem]}>
+                            <Text selectable={props.selectable} style={[style.optionText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{item}</Text>
                         </View>
                     );
                 }
@@ -308,7 +339,7 @@ function RenderOptionsBlock(props: {
                     <View style={style.optionCustomRow}>
                         <TextInput
                             ref={inputRef}
-                            style={style.optionCustomInput}
+                            style={[style.optionCustomInput, props.variant === 'foldedPrompt' && style.foldedOptionCustomInput]}
                             value={customText}
                             onChangeText={setCustomText}
                             placeholder={t('agentInput.customOptionPlaceholder')}
@@ -336,12 +367,13 @@ function RenderOptionsBlock(props: {
                         style={({ pressed }) => [
                             style.optionItem,
                             style.optionOtherItem,
+                            props.variant === 'foldedPrompt' && style.foldedOptionItem,
                             pressed && style.optionItemPressed,
                         ]}
                         onPress={() => setCustomMode(true)}
                     >
                         <Ionicons name="create-outline" size={16} color={theme.colors.textSecondary} />
-                        <Text style={[style.optionText, style.optionOtherText]}>{t('agentInput.customOption')}</Text>
+                        <Text style={[style.optionText, style.optionOtherText, props.variant === 'foldedPrompt' && style.foldedOptionText]}>{t('agentInput.customOption')}</Text>
                     </Pressable>
                 )
             ) : null}
@@ -349,7 +381,123 @@ function RenderOptionsBlock(props: {
     );
 }
 
+function RenderImageStyleOptionsBlock(props: {
+    items: ParsedImageStyleOption[];
+    first: boolean;
+    last: boolean;
+    onOptionPress: (option: Option) => void;
+    variant: MarkdownViewVariant;
+}) {
+    const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+    const [drawCount, setDrawCount] = React.useState(1);
+    const selectedStyles = React.useMemo(() => {
+        const selected = new Set(selectedIds);
+        return props.items
+            .filter((item) => selected.has(item.style.id))
+            .map((item) => item.style);
+    }, [props.items, selectedIds]);
+    const selectedCount = selectedIds.length;
+
+    const toggle = React.useCallback((item: ParsedImageStyleOption) => {
+        setSelectedIds((current) => {
+            if (current.includes(item.style.id)) {
+                return current.filter((id) => id !== item.style.id);
+            }
+            if (current.length >= MAX_IMAGE_STYLE_OPTION_COUNT) {
+                return current;
+            }
+            return [...current, item.style.id];
+        });
+    }, []);
+
+    const submit = React.useCallback(() => {
+        if (selectedStyles.length === 0) return;
+        props.onOptionPress({ title: buildImageStyleContinuationPrompt(selectedStyles, { variantsPerStyle: drawCount }) });
+    }, [drawCount, props, selectedStyles]);
+
+    return (
+        <View style={[style.optionsContainer, style.imageStyleOptionsContainer, props.variant === 'foldedPrompt' && style.foldedImageStyleOptionsContainer, props.first && style.first, props.last && style.last]}>
+            <View style={style.imageStyleOptionGrid}>
+                {props.items.map((item) => {
+                    const selected = selectedIds.includes(item.style.id);
+                    return (
+                        <Pressable
+                            key={item.style.id}
+                            style={({ pressed }) => [
+                                style.imageStyleOptionChip,
+                                props.variant === 'foldedPrompt' && style.foldedImageStyleOptionChip,
+                                selected && style.imageStyleOptionChipSelected,
+                                pressed && style.optionItemPressed,
+                            ]}
+                            onPress={() => toggle(item)}
+                        >
+                            <Text
+                                selectable={false}
+                                style={[
+                                    style.imageStyleOptionText,
+                                    props.variant === 'foldedPrompt' && style.foldedImageStyleOptionText,
+                                    selected && style.imageStyleOptionTextSelected,
+                                ]}
+                                numberOfLines={2}
+                            >
+                                {item.title}
+                            </Text>
+                            {selected && (
+                                <Ionicons name="checkmark-circle" size={15} color={style.imageStyleOptionCheck.color} />
+                            )}
+                        </Pressable>
+                    );
+                })}
+            </View>
+            <View style={style.imageStyleDrawRow}>
+                <View style={style.imageStyleDrawLabel}>
+                    <Ionicons name="dice-outline" size={15} color={style.imageStyleDrawLabelText.color} />
+                    <Text style={style.imageStyleDrawLabelText} numberOfLines={1}>
+                        {t('agents.imageVariantsPerStyle', { count: drawCount })}
+                    </Text>
+                </View>
+                <View style={style.imageStyleDrawOptions}>
+                    {Array.from({ length: MAX_IMAGE_AGENT_VARIANTS_PER_STYLE }, (_, index) => index + 1).map((count) => {
+                        const selected = drawCount === count;
+                        return (
+                            <Pressable
+                                key={count}
+                                onPress={() => setDrawCount(count)}
+                                style={({ pressed }) => [
+                                    style.imageStyleDrawOption,
+                                    selected && style.imageStyleDrawOptionSelected,
+                                    pressed && style.optionItemPressed,
+                                ]}
+                            >
+                                <Text style={[style.imageStyleDrawOptionText, selected && style.imageStyleDrawOptionTextSelected]}>
+                                    {count}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            </View>
+            <Pressable
+                style={({ pressed }) => [
+                    style.imageStyleOptionSend,
+                    props.variant === 'foldedPrompt' && style.foldedImageStyleOptionSend,
+                    selectedCount === 0 && style.imageStyleOptionSendDisabled,
+                    pressed && selectedCount > 0 && style.optionItemPressed,
+                ]}
+                disabled={selectedCount === 0}
+                onPress={submit}
+            >
+                <Text style={style.imageStyleOptionSendText}>
+                    {t('common.continue')} · {selectedCount}/{MAX_IMAGE_STYLE_OPTION_COUNT}
+                </Text>
+                <Ionicons name="arrow-up" size={16} color={style.imageStyleOptionSendIcon.color} />
+            </Pressable>
+        </View>
+    );
+}
+
 function RenderSpans(props: RenderSpanProps) {
+    const variant = props.variant ?? 'default';
     return (<>
         {props.spans.map((span, index) => {
             if (span.url) {
@@ -359,7 +507,7 @@ function RenderSpans(props: RenderSpanProps) {
                         key={index}
                         selectable={props.selectable}
                         accessibilityRole={isExternalLink ? 'link' : undefined}
-                        style={[props.baseStyle, isExternalLink && style.link, span.styles.map(s => style[s])]}
+                        style={[props.baseStyle, isExternalLink && getLinkStyle(variant), span.styles.map(s => getSpanStyle(s, variant))]}
                         {...(isExternalLink && Platform.OS === 'web' ? { onClick: () => props.onLinkPress(span.url!) } as any : {})}
                         onPress={isExternalLink && Platform.OS !== 'web'
                             ? () => props.onLinkPress(span.url!)
@@ -369,10 +517,25 @@ function RenderSpans(props: RenderSpanProps) {
                     </Text>
                 );
             } else {
-                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => style[s])]}>{span.text}</Text>
+                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => getSpanStyle(s, variant))]}>{span.text}</Text>
             }
         })}
     </>)
+}
+
+function getTextStyle(variant: MarkdownViewVariant) {
+    return variant === 'foldedPrompt' ? style.foldedText : style.text;
+}
+
+function getLinkStyle(variant: MarkdownViewVariant) {
+    return variant === 'foldedPrompt' ? style.foldedLink : style.link;
+}
+
+function getSpanStyle(spanStyle: MarkdownSpan['styles'][number], variant: MarkdownViewVariant) {
+    if (variant === 'foldedPrompt' && spanStyle === 'code') {
+        return style.foldedCode;
+    }
+    return style[spanStyle];
 }
 
 // Plain-text length of a span array — used to estimate column widths.
@@ -480,6 +643,15 @@ const style = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         fontWeight: '400',
     },
+    foldedText: {
+        ...Typography.mono(),
+        fontSize: 12,
+        lineHeight: 18,
+        marginTop: 4,
+        marginBottom: 4,
+        color: theme.colors.textSecondary,
+        fontWeight: '400',
+    },
 
     italic: {
         fontStyle: 'italic',
@@ -498,9 +670,24 @@ const style = StyleSheet.create((theme) => ({
         lineHeight: 24,
         color: theme.colors.text,
     },
+    foldedCode: {
+        ...Typography.mono(),
+        fontSize: 12,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+    },
     link: {
         ...Typography.default(),
         color: theme.colors.text,
+        fontWeight: '400',
+        textDecorationLine: 'underline',
+        cursor: 'pointer',
+    },
+    foldedLink: {
+        ...Typography.mono(),
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 18,
         fontWeight: '400',
         textDecorationLine: 'underline',
         cursor: 'pointer',
@@ -511,6 +698,15 @@ const style = StyleSheet.create((theme) => ({
     header: {
         ...Typography.default('semiBold'),
         color: theme.colors.text,
+    },
+    foldedHeader: {
+        ...Typography.mono(),
+        color: theme.colors.text,
+        fontSize: 13,
+        lineHeight: 18,
+        fontWeight: '600',
+        marginTop: 6,
+        marginBottom: 4,
     },
     header1: {
         fontSize: 16,
@@ -560,6 +756,12 @@ const style = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         marginTop: 0,
         marginBottom: 0,
+    },
+    foldedList: {
+        ...Typography.mono(),
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 18,
     },
 
     //
@@ -687,6 +889,145 @@ const style = StyleSheet.create((theme) => ({
         gap: 8,
         marginVertical: 8,
     },
+    foldedOptionsContainer: {
+        gap: 6,
+        marginVertical: 6,
+    },
+    imageStyleOptionsContainer: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        padding: 8,
+    },
+    foldedImageStyleOptionsContainer: {
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        borderRadius: 8,
+        padding: 0,
+    },
+    imageStyleOptionGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    imageStyleOptionChip: {
+        minHeight: 42,
+        minWidth: 96,
+        maxWidth: 150,
+        flexGrow: 1,
+        flexBasis: '30%',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 6,
+        backgroundColor: theme.colors.surfaceHighest,
+        borderRadius: 9,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    foldedImageStyleOptionChip: {
+        minHeight: 34,
+        minWidth: 86,
+        borderRadius: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+    },
+    imageStyleOptionChipSelected: {
+        borderColor: theme.colors.accent,
+        backgroundColor: theme.colors.surface,
+    },
+    imageStyleOptionText: {
+        ...Typography.default('semiBold'),
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 17,
+        color: theme.colors.text,
+    },
+    foldedImageStyleOptionText: {
+        fontSize: 12,
+        lineHeight: 16,
+    },
+    imageStyleOptionTextSelected: {
+        color: theme.colors.text,
+    },
+    imageStyleOptionCheck: {
+        color: theme.colors.accent,
+    },
+    imageStyleDrawRow: {
+        minHeight: 34,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        paddingHorizontal: 2,
+    },
+    imageStyleDrawLabel: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    imageStyleDrawLabelText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageStyleDrawOptions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    imageStyleDrawOption: {
+        width: 28,
+        height: 24,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surfaceHighest,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+    },
+    imageStyleDrawOptionSelected: {
+        backgroundColor: theme.colors.text,
+        borderColor: theme.colors.text,
+    },
+    imageStyleDrawOptionText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+    },
+    imageStyleDrawOptionTextSelected: {
+        color: theme.colors.surface,
+    },
+    imageStyleOptionSend: {
+        marginTop: 2,
+        height: 38,
+        borderRadius: 19,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: theme.colors.text,
+    },
+    foldedImageStyleOptionSend: {
+        height: 34,
+        borderRadius: 17,
+    },
+    imageStyleOptionSendDisabled: {
+        opacity: 0.35,
+    },
+    imageStyleOptionSendText: {
+        ...Typography.default('semiBold'),
+        fontSize: 13,
+        color: theme.colors.surface,
+    },
+    imageStyleOptionSendIcon: {
+        color: theme.colors.surface,
+    },
     optionItem: {
         backgroundColor: theme.colors.surfaceHighest,
         borderRadius: 8,
@@ -694,6 +1035,10 @@ const style = StyleSheet.create((theme) => ({
         paddingVertical: 12,
         borderWidth: 1,
         borderColor: theme.colors.divider,
+    },
+    foldedOptionItem: {
+        paddingHorizontal: 10,
+        paddingVertical: 8,
     },
     optionItemPressed: {
         opacity: 0.7,
@@ -704,6 +1049,11 @@ const style = StyleSheet.create((theme) => ({
         fontSize: 16,
         lineHeight: 24,
         color: theme.colors.text,
+    },
+    foldedOptionText: {
+        ...Typography.default(),
+        fontSize: 13,
+        lineHeight: 18,
     },
     optionOtherItem: {
         flexDirection: 'row',
@@ -734,6 +1084,10 @@ const style = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         paddingTop: Platform.OS === 'ios' ? 6 : 4,
         paddingBottom: Platform.OS === 'ios' ? 6 : 4,
+    },
+    foldedOptionCustomInput: {
+        fontSize: 13,
+        lineHeight: 18,
     },
     optionCustomSend: {
         width: 32,

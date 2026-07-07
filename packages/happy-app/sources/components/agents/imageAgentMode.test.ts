@@ -6,6 +6,8 @@ import {
     createBuiltinImageStyleAgent,
     createImageStyleSelectionPrompt,
     selectImageAgentStyle,
+    setImageAgentVariantCount,
+    toggleImageAgentStyle,
     resolveComposeImageAgent,
 } from './imageAgentMode';
 
@@ -57,6 +59,28 @@ describe('imageAgentMode', () => {
 
         expect(selected.imageStyleIds).toEqual(['white-product']);
         expect(selected.imageVariantsPerStyle).toBe(1);
+    });
+
+    it('toggles multiple styles for the current image generation batch', () => {
+        const first = selectImageAgentStyle(createBuiltinImageStyleAgent(), 'product-visuals/white-background-product/1');
+        const second = toggleImageAgentStyle(first, 'avatars-and-profile/character-grid-portrait/1');
+        const third = toggleImageAgentStyle(second, 'product-visuals/white-background-product/1');
+
+        expect(first.imageStyleIds).toEqual(['product-visuals/white-background-product/1']);
+        expect(second.imageStyleIds).toEqual([
+            'product-visuals/white-background-product/1',
+            'avatars-and-profile/character-grid-portrait/1',
+        ]);
+        expect(third.imageStyleIds).toEqual(['avatars-and-profile/character-grid-portrait/1']);
+        expect(third.imageVariantsPerStyle).toBe(1);
+    });
+
+    it('sets the image draw count for the current batch and clamps it to supported values', () => {
+        const agent = createBuiltinImageStyleAgent();
+
+        expect(setImageAgentVariantCount(agent, 3).imageVariantsPerStyle).toBe(3);
+        expect(setImageAgentVariantCount(agent, 99).imageVariantsPerStyle).toBe(4);
+        expect(setImageAgentVariantCount(agent, 0).imageVariantsPerStyle).toBe(1);
     });
 
     it('builds a style prompt that can be inserted into the composer', () => {

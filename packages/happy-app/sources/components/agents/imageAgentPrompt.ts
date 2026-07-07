@@ -27,6 +27,9 @@ export const IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
 ];
 
 const STYLE_BY_ID = new Map(IMAGE_AGENT_STYLE_PRESETS.map((style) => [style.id, style]));
+const MAX_RECOMMENDED_CONTINUATION_STYLES = 10;
+export const MIN_IMAGE_AGENT_VARIANTS_PER_STYLE = 1;
+export const MAX_IMAGE_AGENT_VARIANTS_PER_STYLE = 4;
 
 function normalizeLegacyReferenceStyleId(styleId: string): string {
     if (styleId.startsWith('oba-tiramisu/')) {
@@ -55,10 +58,13 @@ export function getImageAgentStylesForAgent(agent: Pick<AgentLauncher, 'imageSty
     return selected.length > 0 ? selected : IMAGE_AGENT_STYLE_PRESETS;
 }
 
+export function normalizeImageAgentVariantCount(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return MIN_IMAGE_AGENT_VARIANTS_PER_STYLE;
+    return Math.max(MIN_IMAGE_AGENT_VARIANTS_PER_STYLE, Math.min(MAX_IMAGE_AGENT_VARIANTS_PER_STYLE, Math.floor(value)));
+}
+
 export function getImageAgentVariantCount(agent: Pick<AgentLauncher, 'imageVariantsPerStyle'>): number {
-    const value = agent.imageVariantsPerStyle ?? 1;
-    if (!Number.isFinite(value)) return 1;
-    return Math.max(1, Math.min(4, Math.floor(value)));
+    return normalizeImageAgentVariantCount(agent.imageVariantsPerStyle);
 }
 
 export function buildImageAgentPrompt(args: {
@@ -72,12 +78,16 @@ export function buildImageAgentPrompt(args: {
     const styleList = styles.map((style, index) => (
         `${index + 1}. ${style.id} (${style.templateRef}) - ${style.title}: ${style.promptHint}`
     )).join('\n');
+    const recommendedOptions = getRecommendedContinuationStyles(styles)
+        .map((style) => `<option>[[gpt-image-style:${style.id}]] ${style.title}</option>`)
+        .join('\n');
 
     return [
         '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
         '',
         '生成锁：',
-        '- 将这次请求视为一个已锁定的图片生成任务。在每个请求的输出都保存完成，或任务明确失败之前，不要启动第二个批处理。',
+        '- 将这次请求视为一个已锁定的图片生成任务。这个锁只用于避免并发图片任务，不限制多风格或多图片输出。',
+        '- 在每个选中风格的输出都保存完成，或任务明确失败之前，不要启动第二个批处理。',
         '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
         '',
         `输入：已上传 ${args.imageCount} 张参考图。除非用户明确说明不使用，否则请把所有上传图片都作为视觉参考。`,
@@ -87,9 +97,36 @@ export function buildImageAgentPrompt(args: {
         `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
         '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
         '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。不要对本地文件使用 Markdown 图片语法。',
-        '- 结束时给出一份简洁清单，列出风格 id、输出路径；如有失败的风格，也列出失败原因。',
+        '- 不要在对话里展示生成过程、命令输出、完整 prompt 或路径清单。',
+        '- 最终回复：如果全部成功，先只写“完成。”；不要输出 prompt 文件路径、图片文件路径或清单。如有失败的风格，只简短说明失败的风格 id 和原因。',
+        '- 最终回复末尾附上下面这些 GPT Image Gallery 推荐选项，保持 option 内容原样，不要改写 style id；客户端会把它们渲染成可多选风格推荐。',
         '',
         '已选择的 GPT Image 2 风格：',
         styleList,
+        '',
+        '推荐续生成选项：',
+        '<options>',
+        recommendedOptions,
+        '</options>',
     ].join('\n');
+}
+
+function getRecommendedContinuationStyles(styles: ImageAgentStylePreset[]): ImageAgentStylePreset[] {
+    const selectedIds = new Set(styles.map((style) => style.id));
+    const selectedCategoryIds = new Set(styles.map((style) => style.categoryId));
+    const ordered: ImageAgentStylePreset[] = [];
+    const push = (style: ImageAgentStylePreset) => {
+        if (ordered.some((item) => item.id === style.id)) return;
+        ordered.push(style);
+    };
+
+    styles.forEach(push);
+    IMAGE_AGENT_STYLE_PRESETS
+        .filter((style) => !selectedIds.has(style.id) && selectedCategoryIds.has(style.categoryId))
+        .forEach(push);
+    IMAGE_AGENT_STYLE_PRESETS
+        .filter((style) => !selectedIds.has(style.id))
+        .forEach(push);
+
+    return ordered.slice(0, MAX_RECOMMENDED_CONTINUATION_STYLES);
 }

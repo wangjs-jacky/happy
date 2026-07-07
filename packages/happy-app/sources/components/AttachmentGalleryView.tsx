@@ -1,18 +1,20 @@
 /**
- * Horizontal gallery for consecutive user image attachments.
+ * Gallery for consecutive image attachments.
  *
  * The wire/sync format still stores each sent image as its own `file`
  * tool-call message (see sync.ts). useGroupedMessages collapses a run of
- * adjacent user attachments into a single `image-group` DisplayItem, which
- * this component renders as a Kimi-style horizontally scrollable row of
- * square thumbnails instead of a tall vertical stack of full-width images.
+ * adjacent attachments into a single `image-group` DisplayItem. Ordinary
+ * uploaded reference images render as a compact Kimi-style thumbnail strip;
+ * GPT Image Agent outputs render larger, preserving the image aspect ratio.
+ * Running GPT Image batches can also reserve pending slots so the user sees
+ * one loading placeholder per expected image before the file events arrive.
  *
  * Each thumbnail reuses the same decrypt/cache pipeline as FileView
  * (useAttachmentImage + thumbhash placeholder) and opens the fullscreen
  * zoomable viewer on tap.
  */
 import * as React from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, useWindowDimensions, ActivityIndicator, Text } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -22,8 +24,12 @@ import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { imageViewer } from '@/sync/imageViewer';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
+import { computeAttachmentGalleryImageSize, formatPendingImageElapsed } from '@/utils/attachmentGalleryLayout';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 const THUMB_SIZE = 100;
+const FEATURED_MAX_WIDTH = 360;
+const FEATURED_MAX_HEIGHT = 520;
 const BORDER_RADIUS = 10;
 
 // Same shape FileView parses out of a `file` tool call's input.
@@ -70,8 +76,16 @@ function toGalleryImages(messages: Message[]): GalleryImage[] {
 export const AttachmentGalleryView = React.memo<{
     messages: Message[];
     sessionId: string;
-}>(({ messages, sessionId }) => {
+    presentation?: AttachmentGalleryPresentation;
+    pendingCount?: number;
+    pendingStartedAt?: number | null;
+}>(({ messages, sessionId, presentation = 'compact', pendingCount = 0, pendingStartedAt = null }) => {
     const images = React.useMemo(() => toGalleryImages(messages), [messages]);
+    const placeholderCount = Math.max(0, pendingCount);
+    const now = useClock(placeholderCount > 0 && !!pendingStartedAt);
+    const pendingElapsedLabel = pendingStartedAt
+        ? formatPendingImageElapsed(Math.max(0, now - pendingStartedAt))
+        : null;
 
     // Decrypted URIs resolve lazily inside each thumbnail. We collect them here
     // (in a ref, so resolution doesn't re-render the strip) so that tapping any
@@ -95,7 +109,27 @@ export const AttachmentGalleryView = React.memo<{
         );
     }, [images]);
 
-    if (images.length === 0) return null;
+    if (images.length === 0 && placeholderCount === 0) return null;
+
+    if (presentation === 'featured') {
+        return (
+            <View style={styles.featuredList}>
+                {images.map((img) => (
+                    <GalleryThumbnail
+                        key={img.id}
+                        image={img}
+                        sessionId={sessionId}
+                        presentation={presentation}
+                        onResolved={handleResolved}
+                        onOpen={handleOpen}
+                    />
+                ))}
+                {Array.from({ length: placeholderCount }, (_, index) => (
+                    <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} elapsedLabel={pendingElapsedLabel} />
+                ))}
+            </View>
+        );
+    }
 
     return (
         // HorizontalScrollView (not a plain ScrollView): on mobile the drawer's
@@ -113,21 +147,40 @@ export const AttachmentGalleryView = React.memo<{
                     key={img.id}
                     image={img}
                     sessionId={sessionId}
+                    presentation={presentation}
                     onResolved={handleResolved}
                     onOpen={handleOpen}
                 />
+            ))}
+            {Array.from({ length: placeholderCount }, (_, index) => (
+                <GalleryPlaceholder key={`pending-${index}`} presentation={presentation} elapsedLabel={pendingElapsedLabel} />
             ))}
         </HorizontalScrollView>
     );
 });
 
+function useClock(enabled: boolean): number {
+    const [now, setNow] = React.useState(() => Date.now());
+
+    React.useEffect(() => {
+        if (!enabled) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [enabled]);
+
+    return now;
+}
+
 const GalleryThumbnail = React.memo<{
     image: GalleryImage;
     sessionId: string;
+    presentation: AttachmentGalleryPresentation;
     onResolved: (id: string, uri: string | null) => void;
     onOpen: (id: string) => void;
-}>(({ image, sessionId, onResolved, onOpen }) => {
+}>(({ image, sessionId, presentation, onResolved, onOpen }) => {
     const { theme } = useUnistyles();
+    const windowDimensions = useWindowDimensions();
 
     const placeholder = React.useMemo(() => {
         if (!image.thumbhash) return undefined;
@@ -142,17 +195,31 @@ const GalleryThumbnail = React.memo<{
         onResolved(image.id, uri ?? null);
     }, [image.id, uri, onResolved]);
 
+    const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 56));
+    const displaySize = computeAttachmentGalleryImageSize({
+        presentation,
+        sourceWidth: image.width,
+        sourceHeight: image.height,
+        maxWidth: maxFeaturedWidth,
+        maxHeight: FEATURED_MAX_HEIGHT,
+    });
+    const isFeatured = presentation === 'featured';
+
     return (
         <Pressable
             onPress={uri ? () => onOpen(image.id) : undefined}
             disabled={!uri}
-            style={[styles.thumbWrapper, { borderColor: theme.colors.divider }]}
+            style={[
+                isFeatured ? styles.featuredWrapper : styles.thumbWrapper,
+                displaySize,
+                { borderColor: theme.colors.divider },
+            ]}
         >
             <Image
                 source={uri ? { uri } : undefined}
                 placeholder={placeholder}
-                style={[{ width: THUMB_SIZE, height: THUMB_SIZE }, styles.thumb]}
-                contentFit="cover"
+                style={[displaySize, styles.thumb]}
+                contentFit={isFeatured ? 'contain' : 'cover'}
                 transition={150}
             />
             {error && !uri && (
@@ -161,6 +228,46 @@ const GalleryThumbnail = React.memo<{
                 </View>
             )}
         </Pressable>
+    );
+});
+
+const GalleryPlaceholder = React.memo<{
+    presentation: AttachmentGalleryPresentation;
+    elapsedLabel: string | null;
+}>(({ presentation, elapsedLabel }) => {
+    const { theme } = useUnistyles();
+    const windowDimensions = useWindowDimensions();
+    const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 56));
+    const displaySize = computeAttachmentGalleryImageSize({
+        presentation,
+        maxWidth: maxFeaturedWidth,
+        maxHeight: FEATURED_MAX_HEIGHT,
+    });
+    const isFeatured = presentation === 'featured';
+
+    return (
+        <View
+            style={[
+                isFeatured ? styles.featuredWrapper : styles.thumbWrapper,
+                displaySize,
+                styles.placeholder,
+                {
+                    borderColor: theme.colors.divider,
+                    backgroundColor: theme.colors.surfaceHigh,
+                },
+            ]}
+        >
+            <View style={styles.placeholderCenter}>
+                <Ionicons name="image-outline" size={isFeatured ? 28 : 20} color={theme.colors.textSecondary} />
+                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                {elapsedLabel ? (
+                    <Text style={[styles.placeholderElapsed, { color: theme.colors.textSecondary }]}>{elapsedLabel}</Text>
+                ) : null}
+            </View>
+            <View style={[styles.placeholderProgressTrack, { backgroundColor: theme.colors.divider }]}>
+                <View style={[styles.placeholderProgressBar, { backgroundColor: theme.colors.textSecondary }]} />
+            </View>
+        </View>
     );
 });
 
@@ -174,6 +281,13 @@ const styles = StyleSheet.create(() => ({
         gap: 8,
         paddingHorizontal: 4,
     },
+    featuredList: {
+        alignItems: 'flex-start',
+        gap: 12,
+        marginHorizontal: 8,
+        marginVertical: 8,
+        paddingHorizontal: 4,
+    },
     thumbWrapper: {
         width: THUMB_SIZE,
         height: THUMB_SIZE,
@@ -182,8 +296,44 @@ const styles = StyleSheet.create(() => ({
         overflow: 'hidden',
         position: 'relative',
     },
+    featuredWrapper: {
+        borderRadius: BORDER_RADIUS,
+        borderWidth: 1,
+        overflow: 'hidden',
+        position: 'relative',
+        alignSelf: 'flex-start',
+        backgroundColor: 'transparent',
+    },
     thumb: {
         borderRadius: BORDER_RADIUS,
+    },
+    placeholder: {
+        justifyContent: 'center',
+    },
+    placeholderCenter: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+    },
+    placeholderElapsed: {
+        fontSize: 13,
+        fontWeight: '600',
+        fontVariant: ['tabular-nums'],
+    },
+    placeholderProgressTrack: {
+        position: 'absolute',
+        left: 18,
+        right: 18,
+        bottom: 18,
+        height: 4,
+        borderRadius: 2,
+        overflow: 'hidden',
+        opacity: 0.7,
+    },
+    placeholderProgressBar: {
+        width: '45%',
+        height: '100%',
+        borderRadius: 2,
     },
     errorOverlay: {
         position: 'absolute',

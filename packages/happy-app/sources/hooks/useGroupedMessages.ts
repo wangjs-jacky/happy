@@ -2,6 +2,8 @@ import * as React from 'react';
 import { Message } from '@/sync/typesMessage';
 import { knownTools } from '@/components/tools/knownTools';
 import { t } from '@/text';
+import { isGeneratedImageBatchPromptText } from '@/utils/autoFoldPrompt';
+import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 
 // Display item types for the grouped message list
 export type TextItem = {
@@ -37,10 +39,24 @@ export type ImageGroupItem = {
     type: 'image-group';
     id: string;
     messages: Message[];
+    presentation: AttachmentGalleryPresentation;
+    pendingCount: number;
+    pendingStartedAt?: number | null;
 };
 
 export type ToolDisplayItem = TextItem | ToolGroupItem;
 export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem | ImageGroupItem;
+type CollectedAgentWorkGroup = {
+    item: AgentWorkGroupItem;
+    hiddenIndexes: number[];
+    oldestIdx: number;
+    turn: number;
+};
+type ImageAgentPresentationState = {
+    featuredAttachmentIds: Set<string>;
+    pendingStateByAnchorAttachmentId: Map<string, { count: number; startedAt: number | null }>;
+    pendingGroupByWorkOldestIndex: Map<number, ImageGroupItem>;
+};
 
 /**
  * The messages array is newest-first for the inverted FlatList.
@@ -66,16 +82,41 @@ export function groupMessagesForDisplay(
     enabled: boolean = true,
     options: { collapseCurrentTurn?: boolean } = {},
 ): DisplayItem[] {
+    const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
+
     if (!enabled) {
+        const turnOf = getTurnAssignments(messages);
+        const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, { imageOnly: true });
+        const imageAgentPresentation = getImageAgentPresentationState(
+            messages,
+            turnOf,
+            workGroups,
+            collapseCurrentTurn,
+        );
+        const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(workGroups);
         // Tool-call grouping is off, but user image attachments must STILL
         // collapse into a horizontal Kimi-style gallery — the thumbnail UI is
         // independent of the "Group Tool Calls" setting. Without this, images
         // fall back to full-width FileView rows whenever groupToolCalls is
         // false (which is the default), silently undoing the gallery feature.
-        const attachmentRuns = collectToolRuns(messages, (msg) => isUserAttachment(msg));
+        const attachmentRuns = collectToolRuns(
+            messages,
+            (msg, index) => !hiddenWorkIndexes.has(index) && isUserAttachment(msg),
+        );
         const result: DisplayItem[] = [];
         for (let i = 0; i < messages.length; i++) {
             const msg = messages[i];
+            if (hiddenWorkIndexes.has(i)) {
+                const pendingGroup = imageAgentPresentation.pendingGroupByWorkOldestIndex.get(i);
+                if (pendingGroup) {
+                    result.push(pendingGroup);
+                }
+                const workGroup = workGroupByOldestIndex.get(i);
+                if (workGroup) {
+                    result.push(workGroup);
+                }
+                continue;
+            }
             if (isUserAttachment(msg)) {
                 const run = attachmentRuns.get(i);
                 // Emit the whole run once, at its oldest member, so visual order
@@ -86,6 +127,8 @@ export function groupMessagesForDisplay(
                         type: 'image-group',
                         id: `images-${chronological[0].id}`,
                         messages: chronological,
+                        presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
+                        ...getPendingStateForImageGroup(chronological, imageAgentPresentation),
                     });
                 }
                 continue;
@@ -95,18 +138,15 @@ export function groupMessagesForDisplay(
         return result;
     }
 
-    const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
     const turnOf = getTurnAssignments(messages);
     const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn);
-    const hiddenWorkIndexes = new Set<number>();
-    const workGroupByOldestIndex = new Map<number, AgentWorkGroupItem>();
-
-    for (const group of workGroups) {
-        workGroupByOldestIndex.set(group.oldestIdx, group.item);
-        for (const index of group.hiddenIndexes) {
-            hiddenWorkIndexes.add(index);
-        }
-    }
+    const imageAgentPresentation = getImageAgentPresentationState(
+        messages,
+        turnOf,
+        workGroups,
+        collapseCurrentTurn,
+    );
+    const { hiddenWorkIndexes, workGroupByOldestIndex } = indexAgentWorkGroups(workGroups);
 
     const visibleForToolGrouping = (msg: Message, index: number): boolean => {
         if (hiddenWorkIndexes.has(index)) return false;
@@ -131,6 +171,10 @@ export function groupMessagesForDisplay(
         if (isInvisibleMessage(msg)) continue;
 
         if (hiddenWorkIndexes.has(i)) {
+            const pendingGroup = imageAgentPresentation.pendingGroupByWorkOldestIndex.get(i);
+            if (pendingGroup) {
+                result.push(pendingGroup);
+            }
             const workGroup = workGroupByOldestIndex.get(i);
             if (workGroup) {
                 result.push(workGroup);
@@ -148,6 +192,8 @@ export function groupMessagesForDisplay(
                     type: 'image-group',
                     id: `images-${chronological[0].id}`,
                     messages: chronological,
+                    presentation: getAttachmentPresentation(chronological, imageAgentPresentation.featuredAttachmentIds),
+                    ...getPendingStateForImageGroup(chronological, imageAgentPresentation),
                 });
             }
             continue;
@@ -182,6 +228,126 @@ export function groupMessagesForDisplay(
     }
 
     return result;
+}
+
+function getImageAgentPresentationState(
+    messages: Message[],
+    turnOf: number[],
+    workGroups: CollectedAgentWorkGroup[],
+    collapseCurrentTurn: boolean,
+): ImageAgentPresentationState {
+    const featuredAttachmentIds = new Set<string>();
+    const pendingStateByAnchorAttachmentId = new Map<string, { count: number; startedAt: number | null }>();
+    const pendingGroupByWorkOldestIndex = new Map<number, ImageGroupItem>();
+    const workGroupByTurn = new Map<number, CollectedAgentWorkGroup>();
+
+    for (const workGroup of workGroups) {
+        workGroupByTurn.set(workGroup.turn, workGroup);
+    }
+
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.kind !== 'user-text' || !isGeneratedImageBatchPromptText(msg.text)) continue;
+
+        const turn = turnOf[i];
+        for (let j = i + 1; j < messages.length && isUserAttachment(messages[j]); j++) {
+            featuredAttachmentIds.add(messages[j].id);
+        }
+
+        const generatedIndexes: number[] = [];
+        let hasRunning = turn === 0 && !collapseCurrentTurn;
+        for (let j = 0; j < messages.length; j++) {
+            const candidate = messages[j];
+            if (turnOf[j] !== turn) continue;
+            if (isUserAttachment(candidate)) {
+                featuredAttachmentIds.add(candidate.id);
+                generatedIndexes.push(j);
+            }
+            if (candidate.kind === 'tool-call' && candidate.tool.state === 'running') {
+                hasRunning = true;
+            }
+        }
+
+        const pendingCount = hasRunning
+            ? Math.max(0, getExpectedImageAgentOutputCount(msg.text) - generatedIndexes.length)
+            : 0;
+        if (pendingCount === 0) continue;
+
+        const workGroup = workGroupByTurn.get(turn);
+        const pendingStartedAt = workGroup?.item.startedAt ?? null;
+
+        if (generatedIndexes.length > 0) {
+            pendingStateByAnchorAttachmentId.set(messages[generatedIndexes[0]].id, {
+                count: pendingCount,
+                startedAt: pendingStartedAt,
+            });
+            continue;
+        }
+
+        if (workGroup) {
+            pendingGroupByWorkOldestIndex.set(workGroup.oldestIdx, {
+                type: 'image-group',
+                id: `images-pending-${msg.id}`,
+                messages: [],
+                presentation: 'featured',
+                pendingCount,
+                pendingStartedAt,
+            });
+        }
+    }
+
+    return { featuredAttachmentIds, pendingStateByAnchorAttachmentId, pendingGroupByWorkOldestIndex };
+}
+
+function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
+    return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
+}
+
+function getPendingStateForImageGroup(
+    messages: Message[],
+    state: ImageAgentPresentationState,
+): { pendingCount: number; pendingStartedAt?: number | null } {
+    for (const message of messages) {
+        const pendingState = state.pendingStateByAnchorAttachmentId.get(message.id);
+        if (pendingState !== undefined) {
+            return {
+                pendingCount: pendingState.count,
+                pendingStartedAt: pendingState.startedAt,
+            };
+        }
+    }
+    return { pendingCount: 0 };
+}
+
+function getExpectedImageAgentOutputCount(text: string): number {
+    const variantsMatch = text.match(/各生成\s*(\d+)\s*张变体/);
+    const variants = variantsMatch ? Math.max(1, Number.parseInt(variantsMatch[1], 10) || 1) : 1;
+    const styleSectionIndex = text.search(/已选择的\s+GPT Image(?: 2| Gallery)?\s*风格/);
+    if (styleSectionIndex < 0) return variants;
+
+    const styleCount = text
+        .slice(styleSectionIndex)
+        .split('\n')
+        .filter((line) => /^\s*\d+\.\s+/.test(line))
+        .length;
+    return Math.max(1, styleCount * variants);
+}
+
+function indexAgentWorkGroups(workGroups: CollectedAgentWorkGroup[]): {
+    hiddenWorkIndexes: Set<number>;
+    workGroupByOldestIndex: Map<number, AgentWorkGroupItem>;
+} {
+    const hiddenWorkIndexes = new Set<number>();
+    const workGroupByOldestIndex = new Map<number, AgentWorkGroupItem>();
+
+    for (const group of workGroups) {
+        workGroupByOldestIndex.set(group.oldestIdx, group.item);
+        for (const index of group.hiddenIndexes) {
+            hiddenWorkIndexes.add(index);
+        }
+    }
+
+    return { hiddenWorkIndexes, workGroupByOldestIndex };
 }
 
 export function groupToolCallsForDisplay(
@@ -292,11 +458,12 @@ function collectToolRuns(
     return runsByIndex;
 }
 
-function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseCurrentTurn: boolean): Array<{
-    item: AgentWorkGroupItem;
-    hiddenIndexes: number[];
-    oldestIdx: number;
-}> {
+function collectAgentWorkGroups(
+    messages: Message[],
+    turnOf: number[],
+    collapseCurrentTurn: boolean,
+    options: { imageOnly?: boolean } = {},
+): CollectedAgentWorkGroup[] {
     const segments = new Map<number, number[]>();
     for (let i = 0; i < messages.length; i++) {
         const turn = turnOf[i];
@@ -306,23 +473,62 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
         segments.get(turn)!.push(i);
     }
 
-    const groups: Array<{
-        item: AgentWorkGroupItem;
-        hiddenIndexes: number[];
-        oldestIdx: number;
-    }> = [];
+    const groups: CollectedAgentWorkGroup[] = [];
 
     for (const [turn, indexes] of segments) {
-        if (turn === 0 && !collapseCurrentTurn) {
-            continue;
-        }
-
         const visibleAgentIndexes = indexes.filter((index) => {
             const msg = messages[index];
             if (msg.kind === 'user-text') return false;
             if (isInvisibleMessage(msg) || isUserAttachment(msg)) return false;
             return true;
         });
+        if (visibleAgentIndexes.length === 0) continue;
+
+        const isImageAgentTurn = indexes.some((index) => {
+            const msg = messages[index];
+            return msg.kind === 'user-text' && isGeneratedImageBatchPromptText(msg.text);
+        });
+        const isCurrentTurn = turn === 0;
+
+        if (isImageAgentTurn) {
+            const hasGeneratedAttachment = indexes.some((index) => isUserAttachment(messages[index]));
+            const isActiveTurn = isCurrentTurn && !collapseCurrentTurn;
+            if (hasGeneratedAttachment || isActiveTurn) {
+                const hiddenIndexes = visibleAgentIndexes;
+                const oldestIdx = Math.max(...hiddenIndexes);
+                const hiddenMessages = hiddenIndexes.map((index) => messages[index]);
+                const startedAt = Math.min(...hiddenMessages.map((msg) => msg.createdAt));
+                const hasRunning = isActiveTurn
+                    || hiddenMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
+                const completedAt = hasRunning
+                    ? null
+                    : Math.max(...hiddenMessages.map((msg) => msg.createdAt));
+
+                groups.push({
+                    turn,
+                    hiddenIndexes,
+                    oldestIdx,
+                    item: {
+                        type: 'agent-work-group',
+                        id: `work-${messages[oldestIdx].id}`,
+                        messages: hiddenMessages,
+                        hasRunning,
+                        hasPendingPermission: hasPendingPermission(hiddenMessages),
+                        startedAt,
+                        completedAt,
+                    },
+                });
+                continue;
+            }
+        }
+
+        if (options.imageOnly) {
+            continue;
+        }
+
+        if (isCurrentTurn && !collapseCurrentTurn) {
+            continue;
+        }
 
         const finalTextIndex = visibleAgentIndexes.find((index) => messages[index].kind === 'agent-text');
         if (finalTextIndex === undefined) continue;
@@ -337,6 +543,7 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
         const hasRunning = hiddenMessages.some((msg) => msg.kind === 'tool-call' && msg.tool.state === 'running');
 
         groups.push({
+            turn,
             hiddenIndexes,
             oldestIdx,
             item: {
