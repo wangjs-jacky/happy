@@ -119,6 +119,27 @@ describe('sessionOtaPreviews', () => {
         });
     });
 
+    it('does not switch preview cards directly from production runtime', () => {
+        const [preview] = extractMessageOtaPreviews(agentMessage(`
+            <happy-ota-preview>
+            title: Tavily Ask dashboard setting
+            channel: preview
+            platform: android
+            runtimeVersion: 21
+            updateId: 4bd01435-71da-978d-19bb-0ec1743e088e
+            stamp: 1783435653713
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/1783435653713.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/159
+            summary: Dashboard now supports configuring Tavily API Key for Ask web search.
+            </happy-ota-preview>
+        `));
+
+        expect(getOtaPreviewPrimaryAction(preview, { runtimeChannel: 'production' })).toEqual({
+            type: 'link',
+            url: 'https://github.com/wangjs-jacky/happy/pull/159',
+        });
+    });
+
     it('marks the OTA card as current when its update id is already running', () => {
         const [preview] = extractMessageOtaPreviews(agentMessage(`
             <happy-ota-preview>

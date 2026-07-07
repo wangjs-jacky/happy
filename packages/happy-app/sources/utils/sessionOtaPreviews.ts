@@ -31,6 +31,7 @@ export type OtaPreviewPrimaryAction =
 type OtaPreviewPrimaryActionOptions = {
     currentUpdateId?: string | null;
     currentUpdateIds?: readonly (string | null | undefined)[];
+    runtimeChannel?: string | null;
 };
 
 type ParsedFields = {
@@ -117,6 +118,10 @@ function extractStamp(manifestUrl: string | undefined): string | null {
     if (!manifestUrl) return null;
     const match = manifestUrl.match(/\/(\d+)\.json(?:\?|#|$)/);
     return match?.[1] ?? null;
+}
+
+function isPreviewChannelName(channel: string | null | undefined): boolean {
+    return channel?.trim().toLowerCase() === 'preview';
 }
 
 function findSourceUrl(text: string): string | null {
@@ -363,7 +368,10 @@ export function getOtaPreviewPrimaryAction(
         return { type: 'current' };
     }
 
-    const switchStamp = getOtaPreviewSwitchStamp(preview);
+    const runtimeCanSwitch = options?.runtimeChannel === undefined
+        ? true
+        : isPreviewChannelName(options.runtimeChannel);
+    const switchStamp = runtimeCanSwitch ? getOtaPreviewSwitchStamp(preview) : null;
     if (switchStamp) {
         return { type: 'switch', stamp: switchStamp };
     }
