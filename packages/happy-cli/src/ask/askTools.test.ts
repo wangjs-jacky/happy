@@ -4,6 +4,7 @@ import {
   formatAskRuntimeContext,
   parseDuckDuckGoHtml,
   resolveAskWebProxyUrl,
+  resolveTavilyApiKey,
   resolveAskToolPlan,
   searchWeb,
   shouldUseWebSearch,
@@ -119,6 +120,63 @@ describe('searchWeb', () => {
 
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
+
+  it('uses Tavily before DuckDuckGo when a Tavily key is configured', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://api.tavily.com/search');
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        api_key: 'tvly-test',
+        query: 'world cup latest',
+        max_results: 3,
+        include_answer: true,
+      });
+      return Response.json({
+        answer: 'Latest World Cup summary.',
+        results: [
+          { title: 'FIFA update', url: 'https://example.com/fifa', content: 'Tournament details.' },
+        ],
+      });
+    });
+
+    await expect(searchWeb('world cup latest', {
+      fetchImpl,
+      tavilyApiKey: 'tvly-test',
+    })).resolves.toEqual([
+      {
+        title: 'Tavily answer',
+        url: 'https://api.tavily.com/search',
+        snippet: 'Latest World Cup summary.',
+      },
+      {
+        title: 'FIFA update',
+        url: 'https://example.com/fifa',
+        snippet: 'Tournament details.',
+      },
+    ]);
+  });
+
+  it('falls back to DuckDuckGo when Tavily fails', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input) === 'https://api.tavily.com/search') {
+        throw new Error('tavily down');
+      }
+      return new Response(`
+        <a rel="nofollow" class="result__a" href="https://example.com/news">Fallback</a>
+        <a class="result__snippet">DuckDuckGo result.</a>
+      `);
+    });
+
+    await expect(searchWeb('world cup latest', {
+      fetchImpl,
+      tavilyApiKey: 'tvly-test',
+    })).resolves.toEqual([
+      {
+        title: 'Fallback',
+        url: 'https://example.com/news',
+        snippet: 'DuckDuckGo result.',
+      },
+    ]);
+  });
 });
 
 describe('resolveAskWebProxyUrl', () => {
@@ -133,5 +191,22 @@ describe('resolveAskWebProxyUrl', () => {
     expect(resolveAskWebProxyUrl({
       HTTPS_PROXY: 'http://127.0.0.1:10802',
     })).toBe('http://127.0.0.1:10802');
+  });
+});
+
+describe('resolveTavilyApiKey', () => {
+  it('prefers environment variables over local skill config', () => {
+    expect(resolveTavilyApiKey({
+      env: { TAVILY_API_KEY: 'tvly-env' },
+      readFile: () => '{"tavily":{"apiKey":"tvly-local"}}',
+    })).toBe('tvly-env');
+  });
+
+  it('reads the web-search skill local config when no environment key is set', () => {
+    expect(resolveTavilyApiKey({
+      env: {},
+      configPath: '/tmp/config.local.json',
+      readFile: () => '{"tavily":{"apiKey":"tvly-local","enabled":true}}',
+    })).toBe('tvly-local');
   });
 });
