@@ -1,5 +1,6 @@
 import type { Machine } from '@/sync/storageTypes';
 import type { AgentLauncher } from './launchAgent';
+import { SCHEDULE_AGENT_ID, getScheduleAgentActionPrompt } from './scheduleAgentModel';
 
 export const APP_BUILDER_AGENT_ID = 'builtin:app-builder';
 
@@ -121,6 +122,41 @@ export function createAppBuilderAgent(options: {
         presets: [
             { label: options.presetBuildLabel, prompt: APP_BUILDER_PROMPT },
             { label: options.presetBugfixLabel, prompt: APP_BUGFIX_PROMPT },
+        ],
+        agentType: 'codex',
+        permissionMode: 'yolo',
+        modelMode: 'default',
+        effortLevel: null,
+        builtin: true,
+    };
+}
+
+export function createScheduleManagerAgent(options: {
+    machines: Machine[];
+    preferredMachineId?: string | null;
+    preferredPath?: string | null;
+    title: string;
+    presetPlanLabel: string;
+    presetPoolLabel: string;
+    presetResetLabel: string;
+}): AgentLauncher | null {
+    const machine = pickMachine(options.machines, options.preferredMachineId);
+    if (!machine) return null;
+
+    return {
+        id: SCHEDULE_AGENT_ID,
+        name: options.title,
+        glyph: '日',
+        color: '#2563EB',
+        machineId: machine.id,
+        path: options.preferredPath || machine.metadata?.homeDir || '~',
+        kind: 'standard',
+        imageStyleIds: [],
+        imageVariantsPerStyle: 1,
+        presets: [
+            { label: options.presetPlanLabel, prompt: getScheduleAgentActionPrompt('plan-today') },
+            { label: options.presetPoolLabel, prompt: getScheduleAgentActionPrompt('review-pool') },
+            { label: options.presetResetLabel, prompt: getScheduleAgentActionPrompt('weekly-reset') },
         ],
         agentType: 'codex',
         permissionMode: 'yolo',

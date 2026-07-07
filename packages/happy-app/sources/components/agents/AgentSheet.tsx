@@ -10,7 +10,7 @@ import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
-import { createAppBuilderAgent, getAgentSubtitle } from './builtinAgents';
+import { createAppBuilderAgent, createScheduleManagerAgent, getAgentSubtitle } from './builtinAgents';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -32,9 +32,22 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
         presetBuildLabel: t('agents.appBuilderPresetBuild'),
         presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
     }), [draft.selectedMachineId, draft.selectedPath, machines]);
+    const builtinScheduleAgent = React.useMemo(() => createScheduleManagerAgent({
+        machines,
+        preferredMachineId: draft.selectedMachineId,
+        preferredPath: draft.selectedPath,
+        title: t('agents.scheduleManagerTitle'),
+        presetPlanLabel: t('agents.scheduleManagerPresetPlan'),
+        presetPoolLabel: t('agents.scheduleManagerPresetReviewPool'),
+        presetResetLabel: t('agents.scheduleManagerPresetReset'),
+    }), [draft.selectedMachineId, draft.selectedPath, machines]);
     const visibleAgents = React.useMemo(
-        () => (builtinAppAgent ? [builtinAppAgent, ...agents] : agents),
-        [builtinAppAgent, agents],
+        () => [
+            ...(builtinScheduleAgent ? [builtinScheduleAgent] : []),
+            ...(builtinAppAgent ? [builtinAppAgent] : []),
+            ...agents,
+        ],
+        [builtinScheduleAgent, builtinAppAgent, agents],
     );
 
     const goManage = React.useCallback(() => {

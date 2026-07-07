@@ -48,7 +48,9 @@ import {
 } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
-import { createAppBuilderAgent } from './agents/builtinAgents';
+import { createAppBuilderAgent, createScheduleManagerAgent } from './agents/builtinAgents';
+import { ScheduleAgentDashboard } from './agents/ScheduleAgentDashboard';
+import { SCHEDULE_AGENT_ID } from './agents/scheduleAgentModel';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import type { UserImageStyle } from './agents/imageStyleTypes';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
@@ -279,10 +281,22 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         presetBuildLabel: t('agents.appBuilderPresetBuild'),
         presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
     }), [machines, selectedMachineId, selectedPath]);
+    const builtinScheduleAgent = React.useMemo(() => createScheduleManagerAgent({
+        machines,
+        preferredMachineId: selectedMachineId,
+        preferredPath: selectedPath,
+        title: t('agents.scheduleManagerTitle'),
+        presetPlanLabel: t('agents.scheduleManagerPresetPlan'),
+        presetPoolLabel: t('agents.scheduleManagerPresetReviewPool'),
+        presetResetLabel: t('agents.scheduleManagerPresetReset'),
+    }), [machines, selectedMachineId, selectedPath]);
     const displayAgent = React.useMemo(() => {
         if (!agentId) return null;
-        return agents.find((a) => a.id === agentId) ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
-    }, [agentId, agents, builtinAppAgent]);
+        return agents.find((a) => a.id === agentId)
+            ?? (builtinScheduleAgent?.id === agentId ? builtinScheduleAgent : null)
+            ?? (builtinAppAgent?.id === agentId ? builtinAppAgent : null);
+    }, [agentId, agents, builtinScheduleAgent, builtinAppAgent]);
+    const activeScheduleAgent = displayAgent?.id === SCHEDULE_AGENT_ID;
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
     const headerModeSwitchExperience = React.useMemo(
@@ -727,18 +741,27 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 style={styles.body}
                 behavior="padding"
             >
-                <View style={styles.greetWrap}>
-                    <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
-                    <Text style={styles.greeting}>
-                        {displayAgent
-                            ? t('composeHome.greetingAgent', { name: displayAgent.name })
-                            : activeImageAgent
-                                ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
-                                : name
-                                    ? t('composeHome.greeting', { name })
-                                    : t('composeHome.greetingNoName')}
-                    </Text>
-                </View>
+                {activeScheduleAgent ? (
+                    <ScheduleAgentDashboard
+                        machineName={machineName}
+                        online={online}
+                        canSubmit={canSubmit}
+                        onInsertPrompt={fillPreset}
+                    />
+                ) : (
+                    <View style={styles.greetWrap}>
+                        <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
+                        <Text style={styles.greeting}>
+                            {displayAgent
+                                ? t('composeHome.greetingAgent', { name: displayAgent.name })
+                                : activeImageAgent
+                                    ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
+                                    : name
+                                        ? t('composeHome.greeting', { name })
+                                        : t('composeHome.greetingNoName')}
+                        </Text>
+                    </View>
+                )}
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
                     {activeImageAgent && (
