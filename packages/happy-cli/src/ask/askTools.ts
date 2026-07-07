@@ -1,3 +1,5 @@
+import { ProxyAgent, type Dispatcher } from 'undici';
+
 export type AskWebSearchResult = {
   title: string;
   url: string;
@@ -5,6 +7,7 @@ export type AskWebSearchResult = {
 };
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+type RequestInitWithDispatcher = RequestInit & { dispatcher?: Dispatcher };
 
 export type AskToolPlan = {
   runtime: true;
@@ -22,6 +25,7 @@ export type AskToolContextOptions = {
 };
 
 const DEFAULT_WEB_TIMEOUT_MS = 6_000;
+const proxyAgents = new Map<string, ProxyAgent>();
 const FRESH_INFORMATION_PATTERN = /(?:latest|current|recent|news|weather|price|stock|search|web|internet|browse|lookup|breaking|最新|实时|新闻|天气|股价|搜索|查一下|联网|网页|近况|最近|下雨|降雨|气温|温度|汇率|价格|行情|多少)/i;
 const WEATHER_PATTERN = /(?:weather|temperature|rain|snow|forecast|天气|下雨|降雨|气温|温度|预报)/i;
 const FINANCE_PATTERN = /(?:stock|share price|market cap|crypto|bitcoin|btc|price|股价|股票|行情|币价|比特币|汇率)/i;
@@ -108,19 +112,53 @@ export function parseDuckDuckGoHtml(html: string, maxResults = 3): AskWebSearchR
   return results;
 }
 
+export function resolveAskWebProxyUrl(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): string | null {
+  return env.HAPPY_ASK_WEB_PROXY_URL
+    || env.HAPPY_WEB_PROXY_URL
+    || env.HTTPS_PROXY
+    || env.https_proxy
+    || env.HTTP_PROXY
+    || env.http_proxy
+    || env.ALL_PROXY
+    || env.all_proxy
+    || null;
+}
+
 export async function searchWeb(query: string, options: AskToolContextOptions = {}): Promise<AskWebSearchResult[]> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const response = await fetchImpl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+  const init = buildWebSearchRequestInit(options);
+  const response = await fetchImpl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`, init);
+  if (!response.ok) {
+    return [];
+  }
+  return parseDuckDuckGoHtml(await response.text(), options.maxWebResults ?? 3);
+}
+
+function buildWebSearchRequestInit(options: AskToolContextOptions): RequestInitWithDispatcher {
+  const init: RequestInitWithDispatcher = {
     headers: {
       accept: 'text/html',
       'user-agent': 'HappyAsk/1.0',
     },
     signal: AbortSignal.timeout(options.webTimeoutMs ?? DEFAULT_WEB_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    return [];
+  };
+  if (!options.fetchImpl) {
+    const proxyUrl = resolveAskWebProxyUrl();
+    if (proxyUrl) {
+      init.dispatcher = getProxyAgent(proxyUrl);
+    }
   }
-  return parseDuckDuckGoHtml(await response.text(), options.maxWebResults ?? 3);
+  return init;
+}
+
+function getProxyAgent(proxyUrl: string): ProxyAgent {
+  const cached = proxyAgents.get(proxyUrl);
+  if (cached) {
+    return cached;
+  }
+  const agent = new ProxyAgent(proxyUrl);
+  proxyAgents.set(proxyUrl, agent);
+  return agent;
 }
 
 export async function buildAskAugmentedUserContent(

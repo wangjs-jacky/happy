@@ -3,6 +3,7 @@ import {
   buildAskAugmentedUserContent,
   formatAskRuntimeContext,
   parseDuckDuckGoHtml,
+  resolveAskWebProxyUrl,
   resolveAskToolPlan,
   searchWeb,
   shouldUseWebSearch,
@@ -88,7 +89,7 @@ describe('buildAskAugmentedUserContent', () => {
     expect(content).toContain('User question:\n搜索一下 DeepSeek 最新消息');
   });
 
-  it('reports web search failure but still provides runtime context', async () => {
+  it('omits failed web search details but still provides runtime context', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('network down');
     });
@@ -100,8 +101,9 @@ describe('buildAskAugmentedUserContent', () => {
     });
 
     expect(content).toContain('Runtime context');
-    expect(content).toContain('Web search unavailable');
-    expect(content).toContain('network down');
+    expect(content).not.toContain('Web search unavailable');
+    expect(content).not.toContain('network down');
+    expect(content).not.toContain('web_search');
     expect(content).toContain('User question:\n搜索一下 DeepSeek 最新消息');
   });
 });
@@ -116,5 +118,20 @@ describe('searchWeb', () => {
     await searchWeb('latest news', { fetchImpl, webTimeoutMs: 1234 });
 
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+});
+
+describe('resolveAskWebProxyUrl', () => {
+  it('prefers explicit Ask web proxy over inherited proxies', () => {
+    expect(resolveAskWebProxyUrl({
+      HAPPY_ASK_WEB_PROXY_URL: 'http://127.0.0.1:10802',
+      HTTPS_PROXY: 'http://127.0.0.1:9999',
+    })).toBe('http://127.0.0.1:10802');
+  });
+
+  it('uses HTTPS proxy environment for web search fallback', () => {
+    expect(resolveAskWebProxyUrl({
+      HTTPS_PROXY: 'http://127.0.0.1:10802',
+    })).toBe('http://127.0.0.1:10802');
   });
 });
