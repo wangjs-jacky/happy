@@ -33,7 +33,7 @@ export interface SyncCurrentPushTokenResult {
     error?: string;
 }
 
-const BUNDLED_EXPO_PROJECT_ID = '4558dd3d-cd5a-47cd-bad9-e591a241cc06';
+const BUNDLED_EXPO_PROJECT_ID = '16941d72-39af-4e7e-8b91-9b0c11c46a56';
 
 function normalizePushPermission(result: {
     status: string;

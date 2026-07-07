@@ -86,7 +86,7 @@ describe('pushRegistration', () => {
         });
 
         expect(notificationsMock.getExpoPushTokenAsync).toHaveBeenCalledWith({
-            projectId: '4558dd3d-cd5a-47cd-bad9-e591a241cc06',
+            projectId: '16941d72-39af-4e7e-8b91-9b0c11c46a56',
         });
         expect(notificationsMock.getDevicePushTokenAsync).not.toHaveBeenCalled();
         expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
@@ -108,7 +108,7 @@ describe('pushRegistration', () => {
         });
 
         expect(notificationsMock.getExpoPushTokenAsync).toHaveBeenCalledWith({
-            projectId: '4558dd3d-cd5a-47cd-bad9-e591a241cc06',
+            projectId: '16941d72-39af-4e7e-8b91-9b0c11c46a56',
         });
         expect(notificationsMock.getDevicePushTokenAsync).toHaveBeenCalled();
         expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
