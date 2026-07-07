@@ -116,6 +116,7 @@ export const OtaPreviewCard = React.memo(function OtaPreviewCard(props: {
     const primaryAction = getOtaPreviewPrimaryAction(props.preview, {
         currentUpdateId: Updates.updateId ?? null,
         currentUpdateIds,
+        runtimeChannel: Updates.channel ?? null,
     });
     const primaryUrl = primaryAction?.type === 'link' ? primaryAction.url : null;
     const primarySwitchStamp = primaryAction?.type === 'switch' ? primaryAction.stamp : null;
