@@ -3,11 +3,13 @@
 // 收到 App 的检查请求 → 从 OSS 读 manifest → 按 multipart/mixed 协议回应。
 
 const http = require('http');
+const crypto = require('crypto');
 
 // ============ 配置区 ============
 const OSS_PUBLIC_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
 const BOUNDARY = 'expoupdatesboundaryhappyota20260626'; // 任意唯一串
 const PORT = process.env.FC_SERVER_PORT || 9000;
+const UUID_NAMESPACE = '62f03f7a-8691-4f44-b2ee-8efb8642d5e1';
 // ===============================
 
 // 组装 multipart/mixed 回应体（行尾必须 \r\n）
@@ -23,20 +25,116 @@ function buildMultipart(partName, jsonObj) {
   );
 }
 
-// 从 expo-extra-params 头里解析出 App 设置的 ota-target-stamp（定向版本锁定）。
+// 从 expo-extra-params 头里解析出 App 设置的 OTA 定向参数。
 //
 // expo-updates 客户端把 `Updates.setExtraParamAsync(key, value)` 设的参数，
 // 以 RFC 8941 structured-field dictionary 形式塞进 `Expo-Extra-Params` 请求头，
-// 形如：`ota-target-stamp="1782729144216", foo="bar"`。
-// 这里只关心 ota-target-stamp，且严格白名单：必须是纯数字串（毫秒时间戳），
-// 既防路径穿越（拼进 OSS key），也排除任何非法取值。解析失败一律返回 null（= 不锁定）。
-function parseTargetStamp(extraParamsHeader) {
+// 形如：`ota-target-stamp="1782729144216", ota-target-generation="1783449000000"`。
+// ota-target-stamp 支持纯数字历史 stamp，或 latest（解除历史锁定但仍强制拉 latest）。
+// 其他值一律忽略，防止路径穿越。
+function parseExtraParam(extraParamsHeader, key) {
   if (!extraParamsHeader) return null;
-  // 兼容带引号 ota-target-stamp="123" 与裸 token ota-target-stamp=123 两种写法
-  const m = /ota-target-stamp\s*=\s*"?(\d+)"?/.exec(extraParamsHeader);
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`${escaped}\\s*=\\s*"?([^",;\\s]+)"?`, 'i').exec(extraParamsHeader);
   if (!m) return null;
-  const stamp = m[1];
-  return /^\d+$/.test(stamp) ? stamp : null;
+  return m[1] || null;
+}
+
+function parseTargetDirective(extraParamsHeader, now = Date.now) {
+  const rawTarget = parseExtraParam(extraParamsHeader, 'ota-target-stamp');
+  if (!rawTarget) return null;
+
+  const rawGeneration = parseExtraParam(extraParamsHeader, 'ota-target-generation');
+  const generation = rawGeneration && /^\d+$/.test(rawGeneration) ? rawGeneration : null;
+  if (/^\d+$/.test(rawTarget)) {
+    return {
+      mode: 'locked',
+      stamp: rawTarget,
+      // Old App builds did not send generation. Use the target stamp as a stable fallback
+      // so repeated checks for the same locked version do not create endless virtual ids.
+      generation: generation || rawTarget,
+    };
+  }
+
+  if (rawTarget.toLowerCase() === 'latest') {
+    return {
+      mode: 'latest',
+      stamp: null,
+      generation: generation || String(now()),
+    };
+  }
+
+  return null;
+}
+
+function uuidToBytes(uuid) {
+  return Buffer.from(uuid.replace(/-/g, ''), 'hex');
+}
+
+function bytesToUuid(bytes) {
+  const hex = Buffer.from(bytes).toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
+}
+
+function createUuidV5(name) {
+  const hash = crypto.createHash('sha1')
+    .update(uuidToBytes(UUID_NAMESPACE))
+    .update(name)
+    .digest();
+  const bytes = Buffer.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytesToUuid(bytes);
+}
+
+function getVirtualCreatedAt(manifest, directive) {
+  const manifestTime = Date.parse(manifest.createdAt || '');
+  const generationTime = Number(directive.generation);
+  const bestTime = Number.isFinite(generationTime) && generationTime > manifestTime
+    ? generationTime
+    : manifestTime;
+  return Number.isFinite(bestTime) ? new Date(bestTime).toISOString() : new Date().toISOString();
+}
+
+function createVirtualManifest(manifest, directive) {
+  const originalUpdateId = manifest.id;
+  const targetLabel = directive.mode === 'latest' ? 'latest' : directive.stamp;
+  const virtualUpdateId = createUuidV5([
+    'happy-ota-target',
+    directive.mode,
+    targetLabel || '',
+    directive.generation,
+    originalUpdateId,
+  ].join(':'));
+
+  return {
+    ...manifest,
+    id: virtualUpdateId,
+    createdAt: getVirtualCreatedAt(manifest, directive),
+    metadata: {
+      ...(manifest.metadata || {}),
+      'happy-ota-mode': directive.mode,
+      'happy-ota-target-stamp': targetLabel || '',
+      'happy-ota-generation': directive.generation,
+      'happy-ota-original-id': originalUpdateId,
+    },
+    extra: {
+      ...(manifest.extra || {}),
+      otaTarget: {
+        mode: directive.mode,
+        stamp: targetLabel,
+        generation: directive.generation,
+        originalUpdateId,
+        virtualUpdateId,
+      },
+    },
+  };
 }
 
 const updatesHeaders = {
@@ -46,7 +144,7 @@ const updatesHeaders = {
   'cache-control': 'private, max-age=0',
 };
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   try {
     const h = req.headers; // FC/Node 里请求头都是小写
     const runtimeVersion = h['expo-runtime-version'] || '';
@@ -68,14 +166,18 @@ const server = http.createServer(async (req, res) => {
     // App 在「OTA 版本」选择器里锁定某个历史版本时，会 setExtraParamAsync('ota-target-stamp', <stamp>)，
     // 该值随 expo-extra-params 头传到这里。命中后取该 stamp 的历史 manifest 而非 latest。
     // production 频道一律忽略（永远跟随 latest），防止误把线上用户锁到旧包。
-    const targetStamp = channel === 'preview' ? parseTargetStamp(h['expo-extra-params']) : null;
+    const targetDirective = channel === 'preview' ? parseTargetDirective(h['expo-extra-params']) : null;
     const channelBase = `${OSS_PUBLIC_BASE}/manifests/${platform}/${runtimeVersion}/${channel}`;
 
     let r;
+    let effectiveDirective = targetDirective;
     // 锁定了具体版本 → 先取该历史 manifest；取不到（已被清理/拼错）则静默回退到 latest，
     // 符合「never show loading error，always retry」——宁可给最新也不报错。
-    if (targetStamp) {
-      r = await fetch(`${channelBase}/${targetStamp}.json`);
+    if (targetDirective && targetDirective.mode === 'locked') {
+      r = await fetch(`${channelBase}/${targetDirective.stamp}.json`);
+      if (!r.ok) {
+        effectiveDirective = null;
+      }
     }
     if (!r || !r.ok) {
       r = await fetch(`${channelBase}/latest.json`);
@@ -96,13 +198,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const manifest = await r.json();
+    const responseManifest = effectiveDirective
+      ? createVirtualManifest(manifest, effectiveDirective)
+      : manifest;
 
     // 已经是最新 → 回「无需更新」指令；否则回 manifest
     let body;
-    if (currentUpdateId && manifest.id === currentUpdateId) {
+    if (currentUpdateId && responseManifest.id === currentUpdateId) {
       body = buildMultipart('directive', { type: 'noUpdateAvailable' });
     } else {
-      body = buildMultipart('manifest', manifest);
+      body = buildMultipart('manifest', responseManifest);
     }
 
     res.writeHead(200, updatesHeaders);
@@ -111,8 +216,21 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('error: ' + (e && e.message));
   }
-});
+}
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('happy-ota-server listening on', PORT);
-});
+function createServer() {
+  return http.createServer(handleRequest);
+}
+
+if (require.main === module) {
+  createServer().listen(PORT, '0.0.0.0', () => {
+    console.log('happy-ota-server listening on', PORT);
+  });
+}
+
+module.exports = {
+  buildMultipart,
+  createServer,
+  createVirtualManifest,
+  parseTargetDirective,
+};

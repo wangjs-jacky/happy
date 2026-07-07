@@ -6,12 +6,13 @@ import * as Updates from 'expo-updates';
 // 原理：expo-updates 的 setExtraParamAsync(key, value) 设的参数会随每次更新检查，
 // 以 Expo-Extra-Params 请求头发给自建 FC。我们用 key='ota-target-stamp' 存一个历史版本的
 // 毫秒时间戳；FC（仅 preview 频道）据此返回该历史 manifest，从而把本设备锁定到指定版本。
-//   - 锁定：setExtraParamAsync('ota-target-stamp', stamp) → check/fetch → reloadAsync() 立即拉该版本
-//   - 解锁：setExtraParamAsync('ota-target-stamp', null)   → check/fetch → reloadAsync() 回到跟随 latest
+//   - 锁定：setExtraParamAsync('ota-target-stamp', stamp) + generation → check/fetch → reloadAsync() 立即拉该版本
+//   - 解锁：setExtraParamAsync('ota-target-stamp', 'latest') + generation → check/fetch → reloadAsync() 回到跟随 latest
 // 锁定只对本设备生效（extra-params 是端上持久化的），不影响其他设备。
 // 仅 preview 频道有意义；production 包发的是 production 频道，FC 会忽略该参数。
 
 const EXTRA_PARAM_KEY = 'ota-target-stamp';
+const EXTRA_PARAM_GENERATION_KEY = 'ota-target-generation';
 
 export type OtaTargetUpdatesApi = Pick<typeof Updates,
     'setExtraParamAsync' | 'checkForUpdateAsync' | 'fetchUpdateAsync' | 'reloadAsync'
@@ -30,7 +31,9 @@ export async function applyOtaTarget(
         throw new Error('OTA version switching is only available in preview builds. Production builds always follow latest.');
     }
 
-    await updates.setExtraParamAsync(EXTRA_PARAM_KEY, stamp);
+    const generation = String(Date.now());
+    await updates.setExtraParamAsync(EXTRA_PARAM_KEY, stamp ?? 'latest');
+    await updates.setExtraParamAsync(EXTRA_PARAM_GENERATION_KEY, generation);
     const update = await updates.checkForUpdateAsync();
     if (update.isAvailable) {
         await updates.fetchUpdateAsync();
@@ -62,7 +65,7 @@ export function useOtaTarget(): OtaTargetState {
         try {
             const params = await Updates.getExtraParamsAsync();
             const v = params?.[EXTRA_PARAM_KEY];
-            setLockedStamp(typeof v === 'string' && v.length > 0 ? v : null);
+            setLockedStamp(typeof v === 'string' && /^\d+$/.test(v) ? v : null);
         } catch {
             // never show loading error —— 读不到就当未锁定
             setLockedStamp(null);
