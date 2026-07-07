@@ -21,6 +21,12 @@ export interface ImageAgentStylePreset {
     sourceRepository: 'ConardLi/gpt-image-2-101' | 'curated-reference-examples' | 'user-reference';
     referenceImages?: ImageAgentStyleReferenceImage[];
     analysisStatus?: UserImageStyleAnalysisStatus;
+    analysisError?: string;
+    customPromptContent?: string;
+    customNegativePrompt?: string;
+    customCreatedAt?: number;
+    customUpdatedAt?: number;
+    customAnalyzedAt?: number;
     custom?: boolean;
 }
 

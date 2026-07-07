@@ -677,66 +677,28 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                     </Text>
                                 </View>
                             </View>
-                            {!hasImages && (
+                            {hasImages && (
                                 <Pressable
-                                    onPress={pickImages}
+                                    onPress={createCustomImageStyle}
                                     style={({ pressed }) => [
-                                        styles.imageUploadAction,
-                                        pressed && styles.imageUploadActionPressed,
+                                        styles.imagePinStyleAction,
+                                        pressed && styles.imagePinStyleActionPressed,
                                     ]}
                                     hitSlop={6}
                                 >
-                                    <View style={styles.imageUploadIcon}>
-                                        <Ionicons name="add" size={22} color={theme.colors.text} />
+                                    <View style={styles.imagePinStyleIcon}>
+                                        <Ionicons name="sparkles-outline" size={18} color={theme.colors.button.primary.tint} />
                                     </View>
-                                    <View style={styles.imageUploadCopy}>
-                                        <Text style={styles.imageUploadTitle} numberOfLines={1}>
-                                            {t('agents.imageUploadCta')}
+                                    <View style={styles.imagePinStyleCopy}>
+                                        <Text style={styles.imagePinStyleTitle} numberOfLines={1}>
+                                            {t('agents.customImageStyleCreateAction')}
                                         </Text>
-                                        <Text style={styles.imageUploadSubtitle} numberOfLines={1}>
-                                            {t('agents.imageUploadHint')}
+                                        <Text style={styles.imagePinStyleSubtitle} numberOfLines={1}>
+                                            {t('agents.customImageStyleDraftStatus', { count: selectedImages.length })}
                                         </Text>
                                     </View>
-                                    <Ionicons name="images-outline" size={18} color={theme.colors.textSecondary} />
+                                    <Ionicons name="chevron-forward" size={17} color={theme.colors.textSecondary} />
                                 </Pressable>
-                            )}
-                            {hasImages && (
-                                <View style={styles.imageReferenceActions}>
-                                    <Pressable
-                                        onPress={pickImages}
-                                        style={({ pressed }) => [
-                                            styles.imageAddReferenceAction,
-                                            pressed && styles.imageAddReferenceActionPressed,
-                                        ]}
-                                        hitSlop={6}
-                                    >
-                                        <Ionicons name="add" size={18} color={theme.colors.text} />
-                                        <Text style={styles.imageAddReferenceText} numberOfLines={1}>
-                                            {t('agents.customImageStyleAddReferences')}
-                                        </Text>
-                                    </Pressable>
-                                    <Pressable
-                                        onPress={createCustomImageStyle}
-                                        style={({ pressed }) => [
-                                            styles.imagePinStyleAction,
-                                            pressed && styles.imagePinStyleActionPressed,
-                                        ]}
-                                        hitSlop={6}
-                                    >
-                                        <View style={styles.imagePinStyleIcon}>
-                                            <Ionicons name="sparkles-outline" size={18} color={theme.colors.button.primary.tint} />
-                                        </View>
-                                        <View style={styles.imagePinStyleCopy}>
-                                            <Text style={styles.imagePinStyleTitle} numberOfLines={1}>
-                                                {t('agents.customImageStyleCreateAction')}
-                                            </Text>
-                                            <Text style={styles.imagePinStyleSubtitle} numberOfLines={1}>
-                                                {t('agents.customImageStyleDraftStatus', { count: selectedImages.length })}
-                                            </Text>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={17} color={theme.colors.textSecondary} />
-                                    </Pressable>
-                                </View>
                             )}
                             <Pressable
                                 onPress={openImageStyleGallery}

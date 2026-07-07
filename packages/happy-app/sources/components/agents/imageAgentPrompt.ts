@@ -82,6 +82,12 @@ export function createUserImageStylePreset(style: UserImageStyle): ImageAgentSty
         sourceRepository: 'user-reference',
         referenceImages: shouldUseUserImageStyleReferenceImages(style) ? style.referenceImages : [],
         analysisStatus: style.analysisStatus,
+        analysisError: style.analysisError,
+        customPromptContent: style.promptContent,
+        customNegativePrompt: style.negativePrompt,
+        customCreatedAt: style.createdAt,
+        customUpdatedAt: style.updatedAt,
+        customAnalyzedAt: style.analyzedAt,
         custom: true,
     };
 }

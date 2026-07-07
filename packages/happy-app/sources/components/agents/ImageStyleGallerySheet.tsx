@@ -71,11 +71,50 @@ function getCustomStyleStatusIcon(status: ImageAgentStylePreset['analysisStatus'
     return 'image-outline';
 }
 
+function getCustomStyleStatusLine(style: ImageAgentStylePreset, now: number) {
+    if (style.analysisStatus === 'analyzing' && style.customUpdatedAt) {
+        return t('agents.customImageStyleElapsed', { time: formatDuration(now - style.customUpdatedAt) });
+    }
+    if (style.analysisStatus === 'prompt-ready' && style.customCreatedAt && style.customAnalyzedAt) {
+        return t('agents.customImageStyleCompletedIn', { time: formatDuration(style.customAnalyzedAt - style.customCreatedAt) });
+    }
+    if (style.analysisStatus === 'failed' && style.customUpdatedAt) {
+        return t('agents.customImageStyleFailedAt', { time: formatClock(style.customUpdatedAt) });
+    }
+    if (style.customCreatedAt) {
+        return t('agents.customImageStyleCreatedAt', { time: formatClock(style.customCreatedAt) });
+    }
+    return t(getCustomStyleStatusKey(style.analysisStatus));
+}
+
+function getCustomStyleProgressPercent(style: ImageAgentStylePreset, now: number) {
+    const startedAt = style.customUpdatedAt ?? now;
+    const elapsedSeconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+    return Math.min(92, 12 + elapsedSeconds * 2);
+}
+
+function formatDuration(ms: number) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes <= 0) return t('agents.customImageStyleSeconds', { count: seconds });
+    return t('agents.customImageStyleMinutesSeconds', { minutes, seconds });
+}
+
+function formatClock(timestamp: number) {
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
 export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet(props: Props) {
     const safeArea = useSafeAreaInsets();
     const windowDimensions = useWindowDimensions();
     const styles = galleryStyles;
     const [categoryId, setCategoryId] = React.useState(ALL_CATEGORY_ID);
+    const [promptPreviewStyle, setPromptPreviewStyle] = React.useState<ImageAgentStylePreset | null>(null);
+    const [now, setNow] = React.useState(Date.now());
     const cardWidth = React.useMemo(() => Math.max(
         140,
         Math.floor((windowDimensions.width - SHEET_HORIZONTAL_PADDING - IMAGE_STYLE_GALLERY_COLUMN_GAP) / 2),
@@ -111,6 +150,12 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
         }
     }, [categoryId, visibleCategoryIds]);
 
+    React.useEffect(() => {
+        if (!props.visible || !props.styles.some((style) => style.custom && style.analysisStatus === 'analyzing')) return;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [props.visible, props.styles]);
+
     const onPressPinAction = React.useCallback(() => {
         if (props.canCreateCustomStyle) {
             props.onCreateCustomStyle?.();
@@ -121,6 +166,8 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
 
     const renderStyle = React.useCallback((style: ImageAgentStylePreset) => {
         const selected = selectedStyleIds.has(style.id);
+        const customStatusLine = style.custom ? getCustomStyleStatusLine(style, now) : undefined;
+        const promptPreviewAvailable = style.custom && style.analysisStatus === 'prompt-ready' && !!style.customPromptContent?.trim();
         return (
             <View key={style.id} style={styles.cell}>
                 <Pressable
@@ -140,6 +187,43 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             {style.templateLabel}
                         </Text>
                         <Text style={styles.cardHint} numberOfLines={2}>{style.promptHint}</Text>
+                        {customStatusLine && (
+                            <Text style={styles.cardStatusLine} numberOfLines={1}>
+                                {customStatusLine}
+                            </Text>
+                        )}
+                        {style.custom && style.analysisStatus === 'analyzing' && (
+                            <View style={styles.progressTrack}>
+                                <View style={[styles.progressFill, { width: `${getCustomStyleProgressPercent(style, now)}%` }]} />
+                            </View>
+                        )}
+                        {style.custom && (
+                            <Pressable
+                                onPress={(event) => {
+                                    event.stopPropagation();
+                                    setPromptPreviewStyle(style);
+                                }}
+                                disabled={!promptPreviewAvailable && style.analysisStatus !== 'failed' && style.analysisStatus !== 'analyzing'}
+                                style={({ pressed }) => [
+                                    styles.promptPreviewButton,
+                                    !promptPreviewAvailable && style.analysisStatus !== 'failed' && style.analysisStatus !== 'analyzing' && styles.promptPreviewButtonDisabled,
+                                    pressed && styles.pressed,
+                                ]}
+                            >
+                                <Ionicons
+                                    name={promptPreviewAvailable ? 'document-text-outline' : style.analysisStatus === 'failed' ? 'alert-circle-outline' : 'time-outline'}
+                                    size={13}
+                                    color={styles.promptPreviewText.color}
+                                />
+                                <Text style={styles.promptPreviewText} numberOfLines={1}>
+                                    {promptPreviewAvailable
+                                        ? t('agents.customImageStyleViewPrompt')
+                                        : style.analysisStatus === 'failed'
+                                            ? t('agents.customImageStyleViewFailure')
+                                            : t('agents.customImageStyleViewProgress')}
+                                </Text>
+                            </Pressable>
+                        )}
                     </View>
                     <View style={styles.cardFooter}>
                         <Text style={styles.cardAction} numberOfLines={1}>
@@ -194,7 +278,7 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                 </Pressable>
             </View>
         );
-    }, [cardWidth, props, selectedStyleIds, styles]);
+    }, [cardWidth, now, props, selectedStyleIds, styles]);
 
     return (
         <Modal visible={props.visible} transparent animationType="slide" onRequestClose={props.onClose}>
@@ -307,6 +391,63 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                         </View>
                     </ScrollView>
                 </View>
+                {promptPreviewStyle && (
+                    <Modal
+                        visible={true}
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setPromptPreviewStyle(null)}
+                    >
+                        <View style={styles.promptModalRoot}>
+                            <Pressable style={styles.promptModalScrim} onPress={() => setPromptPreviewStyle(null)} />
+                            <View style={styles.promptModalCard}>
+                                <View style={styles.promptModalHeader}>
+                                    <View style={styles.promptModalTitleWrap}>
+                                        <Text style={styles.promptModalTitle} numberOfLines={1}>
+                                            {getImageAgentStyleLabel(promptPreviewStyle)}
+                                        </Text>
+                                        <Text style={styles.promptModalSubtitle} numberOfLines={1}>
+                                            {getCustomStyleStatusLine(promptPreviewStyle, now)}
+                                        </Text>
+                                    </View>
+                                    <Pressable
+                                        onPress={() => setPromptPreviewStyle(null)}
+                                        hitSlop={8}
+                                        style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+                                    >
+                                        <Ionicons name="close" size={18} color={styles.closeIcon.color} />
+                                    </Pressable>
+                                </View>
+                                <ScrollView style={styles.promptModalBody} showsVerticalScrollIndicator={false}>
+                                    <Text style={styles.promptModalSectionTitle}>
+                                        {promptPreviewStyle.analysisStatus === 'prompt-ready'
+                                            ? t('agents.customImageStylePromptSection')
+                                            : promptPreviewStyle.analysisStatus === 'failed'
+                                                ? t('agents.customImageStyleFailureSection')
+                                                : t('agents.customImageStyleProgressSection')}
+                                    </Text>
+                                    <Text style={styles.promptModalText}>
+                                        {promptPreviewStyle.analysisStatus === 'prompt-ready'
+                                            ? promptPreviewStyle.customPromptContent?.trim()
+                                            : promptPreviewStyle.analysisStatus === 'failed'
+                                                ? promptPreviewStyle.analysisError || t('agents.customImageStyleAnalysisFailed')
+                                                : t('agents.customImageStyleProgressMessage')}
+                                    </Text>
+                                    {!!promptPreviewStyle.customNegativePrompt?.trim() && (
+                                        <>
+                                            <Text style={styles.promptModalSectionTitle}>
+                                                {t('agents.customImageStyleNegativeSection')}
+                                            </Text>
+                                            <Text style={styles.promptModalText}>
+                                                {promptPreviewStyle.customNegativePrompt.trim()}
+                                            </Text>
+                                        </>
+                                    )}
+                                </ScrollView>
+                            </View>
+                        </View>
+                    </Modal>
+                )}
             </View>
         </Modal>
     );
@@ -534,7 +675,7 @@ const galleryStyles = StyleSheet.create((theme) => ({
     cardCopy: {
         paddingHorizontal: 10,
         paddingTop: 9,
-        minHeight: 92,
+        minHeight: 132,
     },
     cardTitle: {
         ...Typography.default('semiBold'),
@@ -555,6 +696,44 @@ const galleryStyles = StyleSheet.create((theme) => ({
         lineHeight: 15,
         color: theme.colors.textSecondary,
         marginTop: 3,
+    },
+    cardStatusLine: {
+        ...Typography.default('semiBold'),
+        fontSize: 10,
+        lineHeight: 14,
+        color: theme.colors.text,
+        marginTop: 5,
+    },
+    progressTrack: {
+        height: 4,
+        borderRadius: 2,
+        overflow: 'hidden',
+        backgroundColor: theme.colors.surfacePressed,
+        marginTop: 6,
+    },
+    progressFill: {
+        height: '100%',
+        borderRadius: 2,
+        backgroundColor: theme.colors.accent,
+    },
+    promptPreviewButton: {
+        alignSelf: 'flex-start',
+        minHeight: 24,
+        marginTop: 7,
+        paddingHorizontal: 8,
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    promptPreviewButtonDisabled: {
+        opacity: 0.62,
+    },
+    promptPreviewText: {
+        ...Typography.default('semiBold'),
+        fontSize: 10,
+        color: theme.colors.text,
     },
     cardFooter: {
         flexDirection: 'row',
@@ -619,5 +798,72 @@ const galleryStyles = StyleSheet.create((theme) => ({
         fontSize: 10,
         color: '#17202A',
         flexShrink: 1,
+    },
+    promptModalRoot: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+    },
+    promptModalScrim: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.36)',
+    },
+    promptModalCard: {
+        width: '100%',
+        maxHeight: '72%',
+        borderRadius: 16,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        overflow: 'hidden',
+    },
+    promptModalHeader: {
+        minHeight: 58,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 14,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
+    },
+    promptModalTitleWrap: {
+        flex: 1,
+    },
+    promptModalTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 15,
+        color: theme.colors.text,
+    },
+    promptModalSubtitle: {
+        ...Typography.default(),
+        fontSize: 11,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+    },
+    promptModalBody: {
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    promptModalSectionTitle: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.text,
+        marginBottom: 6,
+    },
+    promptModalText: {
+        ...Typography.default(),
+        fontSize: 12,
+        lineHeight: 18,
+        color: theme.colors.textSecondary,
+        marginBottom: 14,
     },
 }));
