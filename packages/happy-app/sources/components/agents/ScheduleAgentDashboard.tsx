@@ -10,6 +10,7 @@ import {
     SCHEDULE_AGENT_MODULES,
     createScheduleAgentPanelState,
     getScheduleAgentActionPrompt,
+    getScheduleAgentWorkspaceLanes,
     reduceScheduleAgentPanelState,
     type ScheduleAgentActionId,
     type ScheduleAgentModuleId,
@@ -80,16 +81,35 @@ function actionCopy(id: ScheduleAgentActionId) {
     }
 }
 
+function primaryActionForModule(id: ScheduleAgentModuleId): ScheduleAgentActionId {
+    switch (id) {
+        case 'task-pool':
+            return 'review-pool';
+        case 'review':
+            return 'weekly-reset';
+        case 'today':
+        case 'calendar':
+            return 'plan-today';
+    }
+}
+
 export const ScheduleAgentDashboard = React.memo(function ScheduleAgentDashboard({
-    machineName,
     online,
     canSubmit,
     onInsertPrompt,
 }: ScheduleAgentDashboardProps) {
     const { theme } = useUnistyles();
     const [state, setState] = React.useState(createScheduleAgentPanelState);
+    const lanes = getScheduleAgentWorkspaceLanes(state);
+    const contextLane = lanes.find((lane) => lane.kind === 'modules');
+    const executeLane = lanes.find((lane) => lane.kind === 'actions');
+    const moduleIds = contextLane?.itemIds ?? [];
+    const actionIds = executeLane?.itemIds ?? [];
     const activeModule = SCHEDULE_AGENT_MODULES.find((item) => item.id === state.focusedModuleId) ?? SCHEDULE_AGENT_MODULES[0];
     const activeModuleCopy = moduleCopy(activeModule.id);
+    const primaryActionId = primaryActionForModule(activeModule.id);
+    const primaryAction = SCHEDULE_AGENT_ACTIONS.find((item) => item.id === primaryActionId) ?? SCHEDULE_AGENT_ACTIONS[0];
+    const primaryActionCopy = actionCopy(primaryAction.id);
     const selectedAction = state.selectedActionId ? actionCopy(state.selectedActionId) : null;
 
     const focusModule = React.useCallback((moduleId: ScheduleAgentModuleId) => {
@@ -109,6 +129,11 @@ export const ScheduleAgentDashboard = React.memo(function ScheduleAgentDashboard
         setState((current) => reduceScheduleAgentPanelState(current, { type: 'open-chat' }));
     }, []);
 
+    const closeChat = React.useCallback(() => {
+        hapticsLight();
+        setState((current) => reduceScheduleAgentPanelState(current, { type: 'close-chat' }));
+    }, []);
+
     return (
         <ScrollView
             style={styles.scroll}
@@ -116,154 +141,192 @@ export const ScheduleAgentDashboard = React.memo(function ScheduleAgentDashboard
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="always"
         >
-            <View style={styles.hero}>
-                <View style={styles.heroTop}>
-                    <View style={styles.agentMark}>
-                        <Ionicons name="calendar-clear-outline" size={22} color={theme.colors.button.primary.tint} />
-                    </View>
-                    <View style={styles.statusWrap}>
-                        <View style={[styles.statusDot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
-                        <Text style={styles.statusText} numberOfLines={1}>
-                            {online
-                                ? t('agents.scheduleStatusOnline', { machine: machineName ?? t('agentInput.noMachinesAvailable') })
-                                : t('agents.scheduleStatusOffline')}
-                        </Text>
-                    </View>
+            <View style={styles.agentHeader}>
+                <View style={styles.headerMark}>
+                    <Ionicons name="calendar-clear-outline" size={20} color={theme.colors.button.primary.tint} />
                 </View>
-                <Text style={styles.heroTitle} numberOfLines={2}>
-                    {t('agents.scheduleDashboardTitle')}
-                </Text>
-                <Text style={styles.heroBody} numberOfLines={3}>
-                    {t('agents.scheduleDashboardBody')}
-                </Text>
-                {!canSubmit && (
-                    <View style={styles.warningPill}>
-                        <Ionicons name="alert-circle-outline" size={15} color="#B45309" />
-                        <Text style={styles.warningText} numberOfLines={2}>
-                            {t('agents.scheduleOfflineHint')}
+                <View style={styles.agentHeaderCopy}>
+                    <View style={styles.titleRow}>
+                        <Text style={styles.agentTitle} numberOfLines={1}>
+                            {t('agents.scheduleDashboardTitle')}
                         </Text>
+                        <View style={[styles.liveDot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
                     </View>
-                )}
-            </View>
-
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.segmentRow}
-                keyboardShouldPersistTaps="always"
-            >
-                {SCHEDULE_AGENT_MODULES.map((module) => {
-                    const copy = moduleCopy(module.id);
-                    const selected = state.activeView === module.id;
-                    return (
-                        <Pressable
-                            key={module.id}
-                            onPress={() => focusModule(module.id)}
-                            style={({ pressed }) => [
-                                styles.segment,
-                                selected && { backgroundColor: module.accent, borderColor: module.accent },
-                                pressed && styles.pressed,
-                            ]}
-                        >
-                            <Text style={[styles.segmentText, selected && styles.segmentTextSelected]} numberOfLines={1}>
-                                {copy.label}
-                            </Text>
-                        </Pressable>
-                    );
-                })}
-            </ScrollView>
-
-            <View style={styles.focusPanel}>
-                <View style={[styles.focusAccent, { backgroundColor: activeModule.accent }]} />
-                <View style={styles.focusCopy}>
-                    <Text style={styles.focusEyebrow} numberOfLines={1}>
-                        {activeModuleCopy.metric}
-                    </Text>
-                    <Text style={styles.focusTitle} numberOfLines={2}>
-                        {activeModuleCopy.title}
-                    </Text>
-                    <Text style={styles.focusBody} numberOfLines={3}>
-                        {activeModuleCopy.body}
+                    <Text style={styles.agentBody} numberOfLines={2}>
+                        {t('agents.scheduleDashboardBody')}
                     </Text>
                 </View>
-            </View>
-
-            <View style={styles.moduleGrid}>
-                {SCHEDULE_AGENT_MODULES.map((module) => {
-                    const copy = moduleCopy(module.id);
-                    const selected = state.focusedModuleId === module.id;
-                    return (
-                        <Pressable
-                            key={module.id}
-                            onPress={() => focusModule(module.id)}
-                            style={({ pressed }) => [
-                                styles.moduleCard,
-                                selected && { borderColor: module.accent },
-                                pressed && styles.pressed,
-                            ]}
-                        >
-                            <View style={[styles.moduleIcon, { backgroundColor: `${module.accent}18` }]}>
-                                <Ionicons name={module.icon} size={20} color={module.accent} />
-                            </View>
-                            <Text style={styles.moduleTitle} numberOfLines={1}>{copy.title}</Text>
-                            <Text style={styles.moduleBody} numberOfLines={2}>{copy.body}</Text>
-                        </Pressable>
-                    );
-                })}
-            </View>
-
-            <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle} numberOfLines={1}>{t('agents.scheduleActionsTitle')}</Text>
-                <Pressable onPress={openChat} style={({ pressed }) => [styles.chatButton, pressed && styles.pressed]}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={15} color={theme.colors.text} />
-                    <Text style={styles.chatButtonText} numberOfLines={1}>{t('agents.scheduleOpenChat')}</Text>
+                <Pressable
+                    onPress={state.chatOpen ? closeChat : openChat}
+                    style={({ pressed }) => [styles.headerChatButton, pressed && styles.pressed]}
+                >
+                    <Ionicons
+                        name={state.chatOpen ? 'chevron-down-outline' : 'chatbubble-ellipses-outline'}
+                        size={18}
+                        color={theme.colors.text}
+                    />
                 </Pressable>
             </View>
 
-            <View style={styles.actionList}>
-                {SCHEDULE_AGENT_ACTIONS.map((action) => {
-                    const copy = actionCopy(action.id);
-                    const selected = state.selectedActionId === action.id;
-                    return (
-                        <Pressable
-                            key={action.id}
-                            onPress={() => selectCommand(action.id)}
-                            style={({ pressed }) => [
-                                styles.actionCard,
-                                selected && { borderColor: action.accent },
-                                pressed && styles.pressed,
-                            ]}
-                        >
-                            <View style={[styles.actionIcon, { backgroundColor: `${action.accent}18` }]}>
-                                <Ionicons name={action.icon} size={19} color={action.accent} />
-                            </View>
-                            <View style={styles.actionCopy}>
-                                <Text style={styles.actionTitle} numberOfLines={1}>{copy.title}</Text>
-                                <Text style={styles.actionBody} numberOfLines={2}>{copy.body}</Text>
-                            </View>
-                            <Ionicons name="arrow-down-circle-outline" size={19} color={theme.colors.textSecondary} />
-                        </Pressable>
-                    );
-                })}
+            {!canSubmit && (
+                <View style={styles.warningBanner}>
+                    <Ionicons name="alert-circle-outline" size={16} color="#B45309" />
+                    <Text style={styles.warningText} numberOfLines={2}>
+                        {t('agents.scheduleOfflineHint')}
+                    </Text>
+                </View>
+            )}
+
+            <View style={styles.workspace}>
+                <View style={styles.contextRail}>
+                    <Text style={styles.railTitle} numberOfLines={1}>
+                        {t('agents.scheduleContextRailTitle')}
+                    </Text>
+                    <View style={styles.contextStack}>
+                        {moduleIds.map((moduleId) => {
+                            const module = SCHEDULE_AGENT_MODULES.find((item) => item.id === moduleId);
+                            if (!module) {
+                                return null;
+                            }
+
+                            const copy = moduleCopy(module.id);
+                            const selected = state.focusedModuleId === module.id;
+                            return (
+                                <Pressable
+                                    key={module.id}
+                                    onPress={() => focusModule(module.id)}
+                                    style={({ pressed }) => [
+                                        styles.contextNode,
+                                        selected && { backgroundColor: `${module.accent}16`, borderColor: module.accent },
+                                        pressed && styles.pressed,
+                                    ]}
+                                >
+                                    <View style={[styles.contextIcon, { backgroundColor: `${module.accent}18` }]}>
+                                        <Ionicons name={module.icon} size={16} color={module.accent} />
+                                    </View>
+                                    <Text style={[styles.contextLabel, selected && { color: module.accent }]} numberOfLines={1}>
+                                        {copy.label}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                <View style={styles.planCanvas}>
+                    <View style={styles.planTopRow}>
+                        <Text style={styles.planKicker} numberOfLines={1}>
+                            {t('agents.schedulePlanLaneTitle')}
+                        </Text>
+                        <View style={styles.protocolPill}>
+                            <Text style={styles.protocolPillText} numberOfLines={1}>
+                                {t('agents.schedulePlanProtocolTitle')}
+                            </Text>
+                        </View>
+                    </View>
+                    <Text style={styles.planTitle} numberOfLines={2}>
+                        {activeModuleCopy.title}
+                    </Text>
+                    <Text style={styles.planMetric} numberOfLines={1}>
+                        {activeModuleCopy.metric}
+                    </Text>
+                    <Text style={styles.planBody} numberOfLines={4}>
+                        {activeModuleCopy.body}
+                    </Text>
+
+                    <View style={styles.protocolStack}>
+                        <View style={styles.protocolStep}>
+                            <Ionicons name="search-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={styles.protocolText} numberOfLines={1}>{t('agents.scheduleProtocolReadFirst')}</Text>
+                        </View>
+                        <View style={styles.protocolStep}>
+                            <Ionicons name="git-compare-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={styles.protocolText} numberOfLines={1}>{t('agents.scheduleProtocolJudge')}</Text>
+                        </View>
+                        <View style={styles.protocolStep}>
+                            <Ionicons name="lock-closed-outline" size={15} color={theme.colors.textSecondary} />
+                            <Text style={styles.protocolText} numberOfLines={1}>{t('agents.scheduleProtocolConfirmFirst')}</Text>
+                        </View>
+                    </View>
+
+                    <Pressable
+                        onPress={() => selectCommand(primaryAction.id)}
+                        style={({ pressed }) => [styles.primaryCommand, pressed && styles.pressed]}
+                    >
+                        <View style={styles.primaryCommandIcon}>
+                            <Ionicons name={primaryAction.icon} size={18} color={theme.colors.button.primary.tint} />
+                        </View>
+                        <View style={styles.primaryCommandCopy}>
+                            <Text style={styles.primaryCommandTitle} numberOfLines={1}>{primaryActionCopy.title}</Text>
+                            <Text style={styles.primaryCommandBody} numberOfLines={1}>{t('agents.scheduleRunInChat')}</Text>
+                        </View>
+                        <Ionicons name="arrow-down-outline" size={17} color={theme.colors.button.primary.tint} />
+                    </Pressable>
+                </View>
+
+                <View style={styles.executionRail}>
+                    <Text style={styles.railTitle} numberOfLines={1}>
+                        {t('agents.scheduleExecutionRailTitle')}
+                    </Text>
+                    <View style={styles.executionStack}>
+                        {actionIds.map((actionId) => {
+                            const action = SCHEDULE_AGENT_ACTIONS.find((item) => item.id === actionId);
+                            if (!action) {
+                                return null;
+                            }
+
+                            const copy = actionCopy(action.id);
+                            const selected = state.selectedActionId === action.id;
+                            return (
+                                <Pressable
+                                    key={action.id}
+                                    onPress={() => selectCommand(action.id)}
+                                    style={({ pressed }) => [
+                                        styles.executionNode,
+                                        selected && { backgroundColor: `${action.accent}16`, borderColor: action.accent },
+                                        pressed && styles.pressed,
+                                    ]}
+                                >
+                                    <Ionicons name={action.icon} size={18} color={action.accent} />
+                                    <Text style={[styles.executionLabel, selected && { color: action.accent }]} numberOfLines={2}>
+                                        {copy.title}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                </View>
             </View>
 
-            {state.chatOpen && (
-                <View style={styles.chatPanel}>
-                    <View style={styles.chatPanelHeader}>
-                        <Text style={styles.chatPanelTitle} numberOfLines={1}>{t('agents.scheduleChatPanelTitle')}</Text>
+            <View style={styles.chatPanel}>
+                <View style={styles.chatPanelHeader}>
+                    <Text style={styles.chatPanelTitle} numberOfLines={1}>{t('agents.scheduleChatPanelTitle')}</Text>
+                    <View style={styles.chatPanelActions}>
                         <View style={styles.chatReadyPill}>
                             <Text style={styles.chatReadyText} numberOfLines={1}>
                                 {selectedAction ? t('agents.schedulePromptReady') : t('agents.schedulePromptEmpty')}
                             </Text>
                         </View>
+                        <Pressable
+                            onPress={state.chatOpen ? closeChat : openChat}
+                            style={({ pressed }) => [styles.chatToggle, pressed && styles.pressed]}
+                        >
+                            <Ionicons
+                                name={state.chatOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                                size={16}
+                                color={theme.colors.text}
+                            />
+                        </Pressable>
                     </View>
-                    <Text style={styles.chatPanelBody} numberOfLines={4}>
-                        {selectedAction
-                            ? t('agents.scheduleChatPanelReady', { action: selectedAction.title })
-                            : t('agents.scheduleChatPanelEmpty')}
-                    </Text>
                 </View>
-            )}
+                <Text style={styles.chatPanelBody} numberOfLines={state.chatOpen ? 4 : 2}>
+                    {state.chatOpen
+                        ? selectedAction
+                            ? t('agents.scheduleChatPanelReady', { action: selectedAction.title })
+                            : t('agents.scheduleChatPanelEmpty')
+                        : t('agents.scheduleChatCollapsed')}
+                </Text>
+            </View>
         </ScrollView>
     );
 });
@@ -274,72 +337,68 @@ const styles = StyleSheet.create((theme) => ({
     },
     content: {
         paddingHorizontal: 16,
-        paddingTop: 18,
-        paddingBottom: 12,
-        gap: 12,
-    },
-    hero: {
-        backgroundColor: theme.colors.surface,
-        borderRadius: 12,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-        padding: 14,
+        paddingTop: 14,
+        paddingBottom: 14,
         gap: 10,
     },
-    heroTop: {
+    agentHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         gap: 10,
     },
-    agentMark: {
-        width: 40,
-        height: 40,
-        borderRadius: 10,
+    headerMark: {
+        width: 36,
+        height: 36,
+        borderRadius: 9,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: theme.colors.button.primary.background,
     },
-    statusWrap: {
-        flexShrink: 1,
+    agentHeaderCopy: {
+        flex: 1,
+        minWidth: 0,
+        gap: 2,
+    },
+    titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 7,
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        backgroundColor: theme.colors.input.background,
     },
-    statusDot: {
+    liveDot: {
         width: 7,
         height: 7,
         borderRadius: 4,
     },
-    statusText: {
+    agentTitle: {
         ...Typography.default('semiBold'),
-        fontSize: 12,
-        color: theme.colors.textSecondary,
         flexShrink: 1,
-    },
-    heroTitle: {
-        ...Typography.display('semiBold'),
-        fontSize: 25,
-        lineHeight: 31,
         color: theme.colors.text,
-        letterSpacing: 0,
+        fontSize: 18,
+        lineHeight: 23,
     },
-    heroBody: {
+    agentBody: {
         ...Typography.default(),
-        fontSize: 14,
-        lineHeight: 20,
         color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 17,
     },
-    warningPill: {
+    headerChatButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+    },
+    warningBanner: {
+        minHeight: 40,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 7,
+        gap: 8,
         borderRadius: 10,
-        paddingHorizontal: 10,
+        paddingHorizontal: 11,
         paddingVertical: 8,
         backgroundColor: '#FEF3C7',
     },
@@ -350,30 +409,8 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 12,
         lineHeight: 16,
     },
-    segmentRow: {
-        gap: 8,
-        paddingRight: 8,
-    },
-    segment: {
-        minWidth: 72,
-        minHeight: 34,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 13,
-        borderRadius: 999,
-        backgroundColor: theme.colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-    },
-    segmentText: {
-        ...Typography.default('semiBold'),
-        fontSize: 13,
-        color: theme.colors.textSecondary,
-    },
-    segmentTextSelected: {
-        color: theme.colors.button.primary.tint,
-    },
-    focusPanel: {
+    workspace: {
+        minHeight: 336,
         flexDirection: 'row',
         backgroundColor: theme.colors.surface,
         borderRadius: 12,
@@ -381,138 +418,188 @@ const styles = StyleSheet.create((theme) => ({
         borderColor: theme.colors.divider,
         overflow: 'hidden',
     },
-    focusAccent: {
-        width: 5,
-    },
-    focusCopy: {
-        flex: 1,
-        padding: 13,
-        gap: 5,
-    },
-    focusEyebrow: {
-        ...Typography.mono(),
-        fontSize: 11,
-        color: theme.colors.textSecondary,
-    },
-    focusTitle: {
-        ...Typography.default('semiBold'),
-        fontSize: 17,
-        lineHeight: 22,
-        color: theme.colors.text,
-    },
-    focusBody: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
-    },
-    moduleGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
+    contextRail: {
+        width: 78,
+        paddingHorizontal: 7,
+        paddingVertical: 10,
         gap: 9,
+        backgroundColor: theme.colors.input.background,
+        borderRightWidth: StyleSheet.hairlineWidth,
+        borderRightColor: theme.colors.divider,
     },
-    moduleCard: {
-        flexBasis: '47%',
-        flexGrow: 1,
-        minHeight: 116,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 12,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
-        padding: 11,
+    executionRail: {
+        width: 78,
+        paddingHorizontal: 7,
+        paddingVertical: 10,
+        gap: 9,
+        backgroundColor: theme.colors.input.background,
+        borderLeftWidth: StyleSheet.hairlineWidth,
+        borderLeftColor: theme.colors.divider,
+    },
+    railTitle: {
+        ...Typography.mono(),
+        fontSize: 10,
+        lineHeight: 13,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+    },
+    contextStack: {
         gap: 8,
     },
-    moduleIcon: {
-        width: 34,
-        height: 34,
-        borderRadius: 9,
+    contextNode: {
+        minHeight: 58,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        borderRadius: 10,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'transparent',
+        paddingHorizontal: 4,
+    },
+    contextIcon: {
+        width: 28,
+        height: 28,
+        borderRadius: 8,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    moduleTitle: {
+    contextLabel: {
         ...Typography.default('semiBold'),
-        color: theme.colors.text,
-        fontSize: 14,
-    },
-    moduleBody: {
-        ...Typography.default(),
         color: theme.colors.textSecondary,
-        fontSize: 12,
-        lineHeight: 16,
+        fontSize: 11,
+        lineHeight: 14,
+        textAlign: 'center',
     },
-    sectionHeader: {
+    planCanvas: {
+        flex: 1,
+        minWidth: 0,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        gap: 8,
+    },
+    planTopRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 12,
-        marginTop: 2,
+        gap: 8,
     },
-    sectionTitle: {
-        ...Typography.default('semiBold'),
-        flex: 1,
-        color: theme.colors.text,
-        fontSize: 16,
+    planKicker: {
+        ...Typography.mono(),
+        color: theme.colors.textSecondary,
+        fontSize: 11,
+        lineHeight: 14,
     },
-    chatButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        minHeight: 34,
-        paddingHorizontal: 11,
+    protocolPill: {
+        maxWidth: 86,
         borderRadius: 999,
-        backgroundColor: theme.colors.surface,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: theme.colors.input.background,
     },
-    chatButtonText: {
+    protocolPillText: {
+        ...Typography.default('semiBold'),
+        color: theme.colors.textSecondary,
+        fontSize: 10,
+        lineHeight: 12,
+    },
+    planTitle: {
         ...Typography.default('semiBold'),
         color: theme.colors.text,
-        fontSize: 12,
+        fontSize: 19,
+        lineHeight: 24,
     },
-    actionList: {
+    planMetric: {
+        ...Typography.mono(),
+        color: theme.colors.textSecondary,
+        fontSize: 11,
+        lineHeight: 14,
+    },
+    planBody: {
+        ...Typography.default(),
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    protocolStack: {
+        marginTop: 2,
         gap: 9,
     },
-    actionCard: {
-        minHeight: 68,
+    protocolStep: {
+        minHeight: 24,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        paddingHorizontal: 11,
-        paddingVertical: 10,
-        backgroundColor: theme.colors.surface,
-        borderRadius: 12,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: theme.colors.divider,
+        gap: 8,
     },
-    actionIcon: {
-        width: 36,
-        height: 36,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    actionCopy: {
-        flex: 1,
-        minWidth: 0,
-    },
-    actionTitle: {
-        ...Typography.default('semiBold'),
-        color: theme.colors.text,
-        fontSize: 14,
-    },
-    actionBody: {
+    protocolText: {
         ...Typography.default(),
         color: theme.colors.textSecondary,
         fontSize: 12,
         lineHeight: 16,
-        marginTop: 2,
+        flex: 1,
+    },
+    primaryCommand: {
+        marginTop: 'auto',
+        minHeight: 54,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: 11,
+        paddingHorizontal: 10,
+        paddingVertical: 9,
+        backgroundColor: theme.colors.button.primary.background,
+    },
+    primaryCommandIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    },
+    primaryCommandCopy: {
+        flex: 1,
+        minWidth: 0,
+    },
+    primaryCommandTitle: {
+        ...Typography.default('semiBold'),
+        color: theme.colors.button.primary.tint,
+        fontSize: 13,
+        lineHeight: 17,
+    },
+    primaryCommandBody: {
+        ...Typography.default(),
+        color: theme.colors.button.primary.tint,
+        opacity: 0.74,
+        fontSize: 11,
+        lineHeight: 14,
+    },
+    executionStack: {
+        gap: 8,
+    },
+    executionNode: {
+        minHeight: 58,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        borderRadius: 10,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'transparent',
+        paddingHorizontal: 4,
+    },
+    executionLabel: {
+        ...Typography.default('semiBold'),
+        color: theme.colors.textSecondary,
+        fontSize: 10,
+        lineHeight: 13,
+        textAlign: 'center',
     },
     chatPanel: {
         backgroundColor: theme.colors.surface,
         borderRadius: 12,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
-        padding: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 11,
         gap: 8,
     },
     chatPanelHeader: {
@@ -527,6 +614,11 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         fontSize: 15,
     },
+    chatPanelActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+    },
     chatReadyPill: {
         borderRadius: 999,
         paddingHorizontal: 9,
@@ -537,6 +629,14 @@ const styles = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
         color: theme.colors.textSecondary,
         fontSize: 11,
+    },
+    chatToggle: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.input.background,
     },
     chatPanelBody: {
         ...Typography.default(),

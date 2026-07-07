@@ -3,6 +3,7 @@ import {
     SCHEDULE_AGENT_ID,
     createScheduleAgentPanelState,
     getScheduleAgentActionPrompt,
+    getScheduleAgentWorkspaceLanes,
     reduceScheduleAgentPanelState,
 } from './scheduleAgentModel';
 
@@ -37,5 +38,20 @@ describe('scheduleAgentModel', () => {
         expect(prompt).toContain('tt project-list');
         expect(prompt).toContain('确认后再执行写操作');
         expect(prompt).toContain(SCHEDULE_AGENT_ID);
+    });
+
+    it('models the workspace as context, plan, and execution lanes', () => {
+        const focused = reduceScheduleAgentPanelState(createScheduleAgentPanelState(), {
+            type: 'focus-module',
+            moduleId: 'calendar',
+        });
+        const selected = reduceScheduleAgentPanelState(focused, { type: 'select-command', actionId: 'sync-tt' });
+
+        const lanes = getScheduleAgentWorkspaceLanes(selected);
+
+        expect(lanes.map((lane) => lane.id)).toEqual(['context', 'plan', 'execute']);
+        expect(lanes[0]).toMatchObject({ kind: 'modules', selectedId: 'calendar' });
+        expect(lanes[1]).toMatchObject({ kind: 'focus', selectedId: 'calendar' });
+        expect(lanes[2]).toMatchObject({ kind: 'actions', selectedId: 'sync-tt' });
     });
 });

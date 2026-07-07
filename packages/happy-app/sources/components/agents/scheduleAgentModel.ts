@@ -29,6 +29,26 @@ export type ScheduleAgentAction = {
     accent: string;
 };
 
+export type ScheduleAgentWorkspaceLane =
+    | {
+        id: 'context';
+        kind: 'modules';
+        selectedId: ScheduleAgentModuleId;
+        itemIds: ScheduleAgentModuleId[];
+    }
+    | {
+        id: 'plan';
+        kind: 'focus';
+        selectedId: ScheduleAgentModuleId;
+        itemIds: ScheduleAgentModuleId[];
+    }
+    | {
+        id: 'execute';
+        kind: 'actions';
+        selectedId: ScheduleAgentActionId | null;
+        itemIds: ScheduleAgentActionId[];
+    };
+
 export const SCHEDULE_AGENT_MODULES: ScheduleAgentModule[] = [
     { id: 'today', icon: 'today-outline', accent: '#2563EB' },
     { id: 'task-pool', icon: 'file-tray-full-outline', accent: '#059669' },
@@ -51,6 +71,29 @@ export function createScheduleAgentPanelState(): ScheduleAgentPanelState {
         chatOpen: false,
         lastPrompt: null,
     };
+}
+
+export function getScheduleAgentWorkspaceLanes(state: ScheduleAgentPanelState): ScheduleAgentWorkspaceLane[] {
+    return [
+        {
+            id: 'context',
+            kind: 'modules',
+            selectedId: state.focusedModuleId,
+            itemIds: SCHEDULE_AGENT_MODULES.map((module) => module.id),
+        },
+        {
+            id: 'plan',
+            kind: 'focus',
+            selectedId: state.focusedModuleId,
+            itemIds: [state.focusedModuleId],
+        },
+        {
+            id: 'execute',
+            kind: 'actions',
+            selectedId: state.selectedActionId,
+            itemIds: SCHEDULE_AGENT_ACTIONS.map((action) => action.id),
+        },
+    ];
 }
 
 export function getScheduleAgentActionPrompt(actionId: ScheduleAgentActionId): string {
