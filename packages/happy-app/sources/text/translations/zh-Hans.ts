@@ -1193,6 +1193,7 @@ export const zhHans: TranslationStructure = {
         switchToThisVersion: '切换到此版本？',
         lockToVersionMessage: ({ title, subtitle, message }: { title: string; subtitle: string; message?: string }) => `${title}\n${subtitle}${message ? `\n\n${message}` : ''}\n\n本设备将锁定到该 OTA 版本并立即重载。其他设备不受影响。`,
         switchAndReload: '切换并重载',
+        currentOtaRunning: '当前已运行',
         unlockVersion: '解除版本锁定？',
         unlockVersionMessage: '解除后本设备会重新跟随最新版本。重载后将拉取 preview 频道最新版本。',
         unlockAndReload: '解除并重载',

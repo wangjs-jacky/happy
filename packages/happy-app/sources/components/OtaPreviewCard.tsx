@@ -1,12 +1,18 @@
 import * as React from 'react';
-import { Pressable, Text, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Updates from 'expo-updates';
 import { Typography } from '@/constants/Typography';
+import { applyOtaTarget } from '@/hooks/useOtaTarget';
+import { useHappyAction } from '@/hooks/useHappyAction';
+import { t } from '@/text';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import {
     type SessionOtaPreview,
     formatOtaPreviewIdentity,
     formatOtaPreviewLabel,
+    getOtaPreviewCurrentUpdateIds,
+    getOtaPreviewPrimaryAction,
     getOtaPreviewPrimaryLink,
 } from '@/utils/sessionOtaPreviews';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -38,14 +44,17 @@ function Badge(props: { label: string; tone?: 'neutral' | 'accent' }) {
 function ActionChip(props: {
     label: string;
     icon: keyof typeof Ionicons.glyphMap;
-    url: string;
+    url?: string;
+    onPress?: () => void;
     tone?: 'secondary' | 'primary';
     prominent?: boolean;
+    loading?: boolean;
 }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const prominent = props.prominent ?? false;
     const tone = props.tone ?? 'secondary';
+    const disabled = props.loading || (!props.url && !props.onPress);
     const backgroundColor = tone === 'primary'
         ? (theme.colors.button.primary.background ?? theme.colors.text)
         : theme.colors.surfaceHighest;
@@ -61,17 +70,30 @@ function ActionChip(props: {
 
     return (
         <Pressable
-            onPress={() => void openExternalUrl(props.url)}
+            disabled={disabled}
+            onPress={() => {
+                if (props.onPress) {
+                    props.onPress();
+                    return;
+                }
+                if (props.url) {
+                    void openExternalUrl(props.url);
+                }
+            }}
             style={({ pressed }) => [
                 prominent ? styles.actionChipPrimary : styles.actionChip,
                 {
                     backgroundColor,
                     borderColor,
-                    opacity: pressed ? 0.84 : 1,
+                    opacity: disabled ? 0.72 : pressed ? 0.84 : 1,
                 },
             ]}
         >
-            <Ionicons name={props.icon} size={prominent ? 16 : 14} color={iconColor} />
+            {props.loading ? (
+                <ActivityIndicator size="small" color={iconColor} />
+            ) : (
+                <Ionicons name={props.icon} size={prominent ? 16 : 14} color={iconColor} />
+            )}
             <Text style={[styles.actionChipText, { color: textColor }, prominent && styles.actionChipPrimaryText]}>
                 {props.label}
             </Text>
@@ -87,18 +109,40 @@ export const OtaPreviewCard = React.memo(function OtaPreviewCard(props: {
 }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
-    const primaryUrl = getOtaPreviewPrimaryLink(props.preview);
+    const currentUpdateIds = getOtaPreviewCurrentUpdateIds({
+        updateId: Updates.updateId ?? null,
+        manifest: Updates.manifest,
+    });
+    const primaryAction = getOtaPreviewPrimaryAction(props.preview, {
+        currentUpdateId: Updates.updateId ?? null,
+        currentUpdateIds,
+    });
+    const primaryUrl = primaryAction?.type === 'link' ? primaryAction.url : null;
+    const primarySwitchStamp = primaryAction?.type === 'switch' ? primaryAction.stamp : null;
+    const isCurrentVersion = primaryAction?.type === 'current';
     const label = formatOtaPreviewLabel(props.preview);
     const identity = formatOtaPreviewIdentity(props.preview);
     const variant = props.variant ?? 'message';
     const isMessage = variant === 'message';
     const summaryLines = isMessage ? 4 : 3;
-    const primaryLabel = props.preview.sourceUrl ? 'Open PR' : props.preview.siteUrl ? 'Versions' : 'Open manifest';
-    const primaryIcon: keyof typeof Ionicons.glyphMap = props.preview.sourceUrl
+    const primaryLabel = isCurrentVersion
+        ? t('devTools.currentOtaRunning')
+        : primarySwitchStamp
+        ? t('devTools.switchAndReload')
+        : props.preview.sourceUrl ? 'Open PR' : props.preview.siteUrl ? 'Versions' : 'Open manifest';
+    const primaryIcon: keyof typeof Ionicons.glyphMap = isCurrentVersion
+        ? 'checkmark-circle-outline'
+        : primarySwitchStamp
+        ? 'swap-horizontal-outline'
+        : props.preview.sourceUrl
         ? 'logo-github'
         : props.preview.siteUrl
             ? 'albums-outline'
             : 'document-text-outline';
+    const [switching, switchToPreview] = useHappyAction(React.useCallback(async () => {
+        if (!primarySwitchStamp) return;
+        await applyOtaTarget(primarySwitchStamp);
+    }, [primarySwitchStamp]));
     const secondaryActions: CardAction[] = [];
     if (props.preview.siteUrl && props.preview.siteUrl !== primaryUrl) {
         secondaryActions.push({ key: 'versions', label: 'Versions', icon: 'albums-outline', url: props.preview.siteUrl });
@@ -169,13 +213,15 @@ export const OtaPreviewCard = React.memo(function OtaPreviewCard(props: {
             </View>
 
             <View style={styles.actionGroup}>
-                {primaryUrl ? (
+                {primaryAction ? (
                     <ActionChip
                         label={primaryLabel}
                         icon={primaryIcon}
-                        url={primaryUrl}
+                        url={primaryUrl ?? undefined}
+                        onPress={primarySwitchStamp ? switchToPreview : undefined}
                         tone={isMessage ? 'primary' : 'secondary'}
                         prominent={isMessage}
+                        loading={switching}
                     />
                 ) : null}
 

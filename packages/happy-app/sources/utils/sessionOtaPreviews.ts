@@ -22,6 +22,17 @@ export type SessionOtaPreview = {
     raw: string;
 };
 
+export type OtaPreviewPrimaryAction =
+    | { type: 'current' }
+    | { type: 'switch'; stamp: string }
+    | { type: 'link'; url: string }
+    | null;
+
+type OtaPreviewPrimaryActionOptions = {
+    currentUpdateId?: string | null;
+    currentUpdateIds?: readonly (string | null | undefined)[];
+};
+
 type ParsedFields = {
     title?: string;
     channel?: string;
@@ -34,6 +45,31 @@ type ParsedFields = {
     siteUrl?: string;
     summary?: string;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+function parseManifestRecord(value: unknown): Record<string, unknown> | null {
+    if (typeof value === 'string') {
+        try {
+            return asRecord(JSON.parse(value));
+        } catch {
+            return null;
+        }
+    }
+    return asRecord(value);
+}
+
+function addUpdateId(ids: string[], value: unknown) {
+    if (typeof value !== 'string') return;
+    const id = value.trim();
+    if (id && !ids.includes(id)) {
+        ids.push(id);
+    }
+}
 
 function stripMarkdown(value: string): string {
     return value
@@ -277,6 +313,63 @@ export function parseOtaPreviewSection(
 
 export function getOtaPreviewPrimaryLink(preview: SessionOtaPreview): string | null {
     return preview.sourceUrl ?? preview.siteUrl ?? preview.manifestUrl;
+}
+
+export function getOtaPreviewSwitchStamp(preview: SessionOtaPreview): string | null {
+    const stamp = preview.stamp?.trim();
+    if (preview.channel !== 'preview' || !stamp || !/^\d+$/.test(stamp)) {
+        return null;
+    }
+    return stamp;
+}
+
+export function getOtaPreviewCurrentUpdateIds(input: {
+    updateId?: string | null;
+    manifest?: unknown;
+}): string[] {
+    const ids: string[] = [];
+    addUpdateId(ids, input.updateId);
+
+    const manifest = parseManifestRecord(input.manifest);
+    addUpdateId(ids, manifest?.id);
+
+    const extra = asRecord(manifest?.extra);
+    const otaTarget = asRecord(extra?.otaTarget);
+    addUpdateId(ids, otaTarget?.virtualUpdateId);
+    addUpdateId(ids, otaTarget?.originalUpdateId);
+
+    return ids;
+}
+
+export function getOtaPreviewPrimaryAction(
+    preview: SessionOtaPreview,
+    options?: OtaPreviewPrimaryActionOptions,
+): OtaPreviewPrimaryAction {
+    const currentUpdateIds = new Set<string>();
+    const addCurrentUpdateId = (value: unknown) => {
+        if (typeof value !== 'string') return;
+        const id = value.trim();
+        if (id) {
+            currentUpdateIds.add(id);
+        }
+    };
+
+    addCurrentUpdateId(options?.currentUpdateId);
+    for (const id of options?.currentUpdateIds ?? []) {
+        addCurrentUpdateId(id);
+    }
+
+    if (preview.updateId && currentUpdateIds.has(preview.updateId.trim())) {
+        return { type: 'current' };
+    }
+
+    const switchStamp = getOtaPreviewSwitchStamp(preview);
+    if (switchStamp) {
+        return { type: 'switch', stamp: switchStamp };
+    }
+
+    const url = getOtaPreviewPrimaryLink(preview);
+    return url ? { type: 'link', url } : null;
 }
 
 export function formatOtaPreviewLabel(preview: SessionOtaPreview): string {
