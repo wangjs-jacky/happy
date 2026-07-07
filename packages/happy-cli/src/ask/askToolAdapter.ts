@@ -122,11 +122,20 @@ export async function buildAskToolContext(
 ): Promise<string> {
   const calls = planAskTools(userText);
   const results = await executeAskToolPlan(calls, options);
+  const visibleResults = results.filter(isVisibleToolResult);
+  const visibleCalls = calls.filter((call) => visibleResults.some((result) => result.toolName === call.toolName));
   const sections = [
-    `Tool plan:\nExecuted tools: ${calls.map((call) => call.toolName).join(', ')}${formatSearchQueryLine(calls)}`,
-    ...results.map(formatToolResultSection),
+    `Tool plan:\nExecuted tools: ${visibleCalls.map((call) => call.toolName).join(', ')}${formatSearchQueryLine(visibleCalls)}`,
+    ...visibleResults.map(formatToolResultSection).filter((section): section is string => !!section),
   ];
   return sections.map((section) => `<context>\n${section}\n</context>`).join('\n\n');
+}
+
+function isVisibleToolResult(result: AskToolResult): boolean {
+  if (result.toolName === 'web_search') {
+    return result.status === 'success' && !!result.content;
+  }
+  return true;
 }
 
 function formatSearchQueryLine(calls: AskToolCall[]): string {
@@ -135,16 +144,16 @@ function formatSearchQueryLine(calls: AskToolCall[]): string {
   return typeof query === 'string' ? `\nWeb query: ${query}` : '';
 }
 
-function formatToolResultSection(result: AskToolResult): string {
+function formatToolResultSection(result: AskToolResult): string | null {
   if (result.toolName === 'runtime_clock') {
     return result.status === 'success'
       ? `Runtime context:\n${result.content ?? ''}`
       : `Runtime context unavailable:\n${result.error ?? 'unknown error'}`;
   }
   if (result.toolName === 'web_search') {
-    return result.status === 'success'
+    return result.status === 'success' && result.content
       ? `Web search results:\n${result.content ?? ''}`
-      : `Web search unavailable:\n${result.error ?? 'unknown error'}`;
+      : null;
   }
   return result.status === 'success'
     ? `${result.toolName} result:\n${result.content ?? ''}`
