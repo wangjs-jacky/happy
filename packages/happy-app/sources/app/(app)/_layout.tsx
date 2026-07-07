@@ -140,6 +140,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/public-image-gateway"
+                options={{
+                    headerTitle: t('settings.publicImageGateway'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/my-agents"
                 options={{
                     headerTitle: t('agents.title'),

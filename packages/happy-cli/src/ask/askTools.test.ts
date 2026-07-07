@@ -3,14 +3,17 @@ import {
   buildAskAugmentedUserContent,
   formatAskRuntimeContext,
   parseDuckDuckGoHtml,
+  resolveAskToolPlan,
+  searchWeb,
   shouldUseWebSearch,
 } from './askTools';
 
 describe('formatAskRuntimeContext', () => {
   it('includes deterministic local date and weekday context', () => {
-    expect(formatAskRuntimeContext(new Date('2026-07-06T00:00:00.000Z'), 'UTC')).toContain(
-      'Monday, July 6, 2026',
-    );
+    const context = formatAskRuntimeContext(new Date('2026-07-06T00:00:00.000Z'), 'UTC');
+    expect(context).toContain('Monday, July 6, 2026');
+    expect(context).toContain('ISO time: 2026-07-06T00:00:00.000Z');
+    expect(context).toContain('Weekday: Monday');
   });
 });
 
@@ -21,6 +24,28 @@ describe('shouldUseWebSearch', () => {
 
   it('enables web search for fresh information requests', () => {
     expect(shouldUseWebSearch('搜索一下 DeepSeek 最新消息')).toBe(true);
+  });
+
+  it('enables web search for weather and finance requests', () => {
+    expect(shouldUseWebSearch('深圳今天下雨吗？')).toBe(true);
+    expect(shouldUseWebSearch('特斯拉现在股价是多少？')).toBe(true);
+  });
+});
+
+describe('resolveAskToolPlan', () => {
+  it('describes executed tools and focused web queries', () => {
+    expect(resolveAskToolPlan('深圳今天下雨吗？')).toEqual({
+      runtime: true,
+      webSearch: true,
+      webQuery: '深圳今天下雨吗？ weather current conditions',
+      reasons: ['runtime_clock', 'web_search', 'weather'],
+    });
+    expect(resolveAskToolPlan('今天星期几？')).toEqual({
+      runtime: true,
+      webSearch: false,
+      webQuery: null,
+      reasons: ['runtime_clock'],
+    });
   });
 });
 
@@ -56,8 +81,40 @@ describe('buildAskAugmentedUserContent', () => {
 
     expect(content).toContain('Runtime context');
     expect(content).toContain('Monday, July 6, 2026');
+    expect(content).toContain('Tool plan');
+    expect(content).toContain('Executed tools: runtime_clock, web_search');
     expect(content).toContain('Web search results');
     expect(content).toContain('Latest - https://example.com/news');
     expect(content).toContain('User question:\n搜索一下 DeepSeek 最新消息');
+  });
+
+  it('reports web search failure but still provides runtime context', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network down');
+    });
+
+    const content = await buildAskAugmentedUserContent('搜索一下 DeepSeek 最新消息', {
+      now: new Date('2026-07-06T00:00:00.000Z'),
+      timeZone: 'UTC',
+      fetchImpl,
+    });
+
+    expect(content).toContain('Runtime context');
+    expect(content).toContain('Web search unavailable');
+    expect(content).toContain('network down');
+    expect(content).toContain('User question:\n搜索一下 DeepSeek 最新消息');
+  });
+});
+
+describe('searchWeb', () => {
+  it('applies a timeout signal to web search requests', async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return new Response('');
+    });
+
+    await searchWeb('latest news', { fetchImpl, webTimeoutMs: 1234 });
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
