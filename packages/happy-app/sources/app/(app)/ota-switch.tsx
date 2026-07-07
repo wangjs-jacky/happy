@@ -40,7 +40,12 @@ export default function OtaSwitchScreen() {
                 router.back();
                 return;
             }
-            await applyOtaTarget(stamp); // 重载后此页面不再返回
+            try {
+                await applyOtaTarget(stamp); // 重载后此页面不再返回
+            } catch (e) {
+                await Modal.alert('无法切换', e instanceof Error ? e.message : String(e));
+                router.back();
+            }
         })();
     }, [params.channel, params.stamp, router]);
 

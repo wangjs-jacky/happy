@@ -17,7 +17,19 @@ export type OtaTargetUpdatesApi = Pick<typeof Updates,
     'setExtraParamAsync' | 'checkForUpdateAsync' | 'fetchUpdateAsync' | 'reloadAsync'
 >;
 
-export async function applyOtaTarget(stamp: string | null, updates: OtaTargetUpdatesApi = Updates): Promise<void> {
+export function isPreviewOtaChannel(channel: string | null | undefined): boolean {
+    return channel?.trim().toLowerCase() === 'preview';
+}
+
+export async function applyOtaTarget(
+    stamp: string | null,
+    updates: OtaTargetUpdatesApi = Updates,
+    channel: string | null | undefined = Updates.channel,
+): Promise<void> {
+    if (!isPreviewOtaChannel(channel)) {
+        throw new Error('OTA version switching is only available in preview builds. Production builds always follow latest.');
+    }
+
     await updates.setExtraParamAsync(EXTRA_PARAM_KEY, stamp);
     const update = await updates.checkForUpdateAsync();
     if (update.isAvailable) {
@@ -64,11 +76,11 @@ export function useOtaTarget(): OtaTargetState {
     }, [refresh]);
 
     const lockTo = React.useCallback(async (stamp: string) => {
-        await applyOtaTarget(stamp);
+        await applyOtaTarget(stamp, Updates, Updates.channel);
     }, []);
 
     const unlock = React.useCallback(async () => {
-        await applyOtaTarget(null);
+        await applyOtaTarget(null, Updates, Updates.channel);
     }, []);
 
     return {

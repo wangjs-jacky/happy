@@ -47,4 +47,20 @@ describe('applyOtaTarget', () => {
         expect(updates.fetchUpdateAsync).toHaveBeenCalledOnce();
         expect(updates.reloadAsync).toHaveBeenCalledOnce();
     });
+
+    it('does not mutate update params or reload outside preview channel', async () => {
+        const updates = {
+            setExtraParamAsync: vi.fn().mockResolvedValue(undefined),
+            checkForUpdateAsync: vi.fn().mockResolvedValue({ isAvailable: true }),
+            fetchUpdateAsync: vi.fn().mockResolvedValue({ isNew: true }),
+            reloadAsync: vi.fn().mockResolvedValue(undefined),
+        };
+
+        await expect(applyOtaTarget('1783232002648', updates, 'production')).rejects.toThrow('preview builds');
+
+        expect(updates.setExtraParamAsync).not.toHaveBeenCalled();
+        expect(updates.checkForUpdateAsync).not.toHaveBeenCalled();
+        expect(updates.fetchUpdateAsync).not.toHaveBeenCalled();
+        expect(updates.reloadAsync).not.toHaveBeenCalled();
+    });
 });
