@@ -74,6 +74,12 @@ export function getGeminiPermissionModes(translate: Translate): PermissionMode[]
     ];
 }
 
+export function getAskPermissionModes(translate: Translate): PermissionMode[] {
+    return [
+        { key: 'default', name: translate('agentInput.permissionMode.default'), description: null },
+    ];
+}
+
 export function getClaudeModelModes(): ModelMode[] {
     return [
         { key: 'default', name: 'default model', description: null },
@@ -85,9 +91,8 @@ export function getClaudeModelModes(): ModelMode[] {
 
 export function getAskModelModes(): ModelMode[] {
     return [
-        { key: 'sonnet', name: 'sonnet 4.6', description: 'fast chat' },
-        { key: 'opus', name: 'opus 4.8', description: 'deep chat' },
-        { key: 'haiku', name: 'haiku 4.5', description: 'quick chat' },
+        { key: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'fast answers' },
+        { key: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'stronger answers' },
     ];
 }
 
@@ -119,6 +124,9 @@ export function getOpenCodePermissionModes(translate: Translate): PermissionMode
 }
 
 export function getHardcodedPermissionModes(flavor: AgentFlavor, translate: Translate): PermissionMode[] {
+    if (flavor === 'ask') {
+        return getAskPermissionModes(translate);
+    }
     if (flavor === 'codex') {
         return getCodexPermissionModes(translate);
     }
@@ -269,7 +277,7 @@ export function getEffortLevelsForModel(flavor: AgentFlavor, _modelKey: string, 
     // specific model is picked — the same low/medium/high/max scale applies
     // to the whole flavor (mirrors how Codex already worked, which the user
     // asked Claude to match).
-    if (flavor === 'ask' || flavor === 'claude') {
+    if (flavor === 'claude') {
         return getClaudeEffortLevels();
     }
     if (flavor === 'codex') {

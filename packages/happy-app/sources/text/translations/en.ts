@@ -35,6 +35,7 @@ export const en: TranslationStructure = {
         greetingNoName: 'What should we do today?',
         greetingAgent: ({ name }: { name: string }) => `Entering ${name}, what should we do today?`,
         placeholder: 'Ask anything, images too',
+        askPlaceholder: 'Ask anything',
         byline: 'AI-generated · end-to-end encrypted',
         createDirectoryTitle: 'Create directory?',
         createDirectoryMessage: ({ path }: { path: string }) => `The directory "${path}" doesn't exist. Create it?`,
@@ -144,6 +145,8 @@ export const en: TranslationStructure = {
         language: 'Language',
         voiceAssistant: 'Voice Assistant',
         voiceAssistantSubtitle: 'Configure voice interaction preferences',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Configure API key and endpoint for Ask mode',
         featuresTitle: 'Features',
         featuresSubtitle: 'Enable or disable app features',
         developer: 'Developer',
@@ -176,6 +179,22 @@ export const en: TranslationStructure = {
             `${name} is ${status}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'enabled' : 'disabled'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {
@@ -375,6 +394,8 @@ export const en: TranslationStructure = {
 
     newSession: {
         title: 'Start New Session',
+        askMode: 'Ask',
+        agentMode: 'Agent',
         machineOffline: 'Machine is offline',
         switchMachinesHint: '• Switch machines by clicking on the machine above',
     },

@@ -20,6 +20,7 @@ export const it: TranslationStructure = {
         greetingNoName: 'Cosa facciamo oggi?',
         greetingAgent: ({ name }: { name: string }) => `Entro in ${name}, cosa facciamo oggi?`,
         placeholder: 'Chiedi qualsiasi cosa, anche con immagini',
+        askPlaceholder: 'Chiedi qualsiasi cosa',
         byline: 'Generato dall\'IA · crittografia end-to-end',
         createDirectoryTitle: 'Creare la cartella?',
         createDirectoryMessage: ({ path }: { path: string }) => `La cartella "${path}" non esiste. Crearla?`,
@@ -128,6 +129,8 @@ export const it: TranslationStructure = {
         language: 'Lingua',
         voiceAssistant: 'Assistente vocale',
         voiceAssistantSubtitle: 'Configura le preferenze vocali',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Configura chiave API ed endpoint per la modalità Ask',
         featuresTitle: 'Funzionalità',
         featuresSubtitle: 'Abilita o disabilita le funzionalità dell\'app',
         developer: 'Sviluppatore',
@@ -160,6 +163,22 @@ export const it: TranslationStructure = {
             `${name} è ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'abilitata' : 'disabilitata'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {
@@ -359,6 +378,8 @@ export const it: TranslationStructure = {
 
     newSession: {
         title: 'Avvia nuova sessione',
+        askMode: 'Chiedi',
+        agentMode: 'Agente',
         machineOffline: 'La macchina è offline',
         switchMachinesHint: '• Cambia macchina cliccando sulla macchina sopra',
     },

@@ -176,6 +176,7 @@ export interface SpawnSessionOptions {
     approvedNewDirectoryCreation?: boolean;
     token?: string;
     agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw';
+    environmentVariables?: Record<string, string>;
     /**
      * If set, the daemon spawns the agent with `--resume <id>` so the new
      * Happy session attaches to a pre-existing on-disk Claude conversation
@@ -250,7 +251,7 @@ export interface ResumeSessionOptions {
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
 
-    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
+    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
 
     try {
         const result = await apiSocket.machineRPC<SpawnSessionResult, {
@@ -259,6 +260,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             approvedNewDirectoryCreation?: boolean,
             token?: string,
             agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw',
+            environmentVariables?: Record<string, string>,
             resumeClaudeSessionId?: string,
             resumeCodexThreadId?: string,
             parentSessionId?: string,
@@ -266,7 +268,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         }>(
             machineId,
             'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId }
+            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId }
         );
         return result;
     } catch (error) {

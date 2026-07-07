@@ -3,6 +3,7 @@ import type { Ionicons } from '@expo/vector-icons';
 
 type SettingsFeatureEntryTitleKey =
     | 'settings.voiceAssistant'
+    | 'settings.askApi'
     | 'agents.imageStyleAgent'
     | 'agents.title'
     | 'settings.agentDefaults'
@@ -13,6 +14,7 @@ type SettingsFeatureEntryTitleKey =
 
 type SettingsFeatureEntrySubtitleKey =
     | 'settings.voiceAssistantSubtitle'
+    | 'settings.askApiSubtitle'
     | 'agents.imageStyleAgentEntrySubtitle'
     | 'agents.entrySubtitle'
     | 'settings.agentDefaultsSubtitle'
@@ -39,6 +41,14 @@ export function getSettingsFeatureEntries(args: { experiments: boolean }): Setti
             icon: 'mic-outline',
             color: '#34C759',
             route: '/settings/voice',
+        },
+        {
+            key: 'ask-api',
+            titleKey: 'settings.askApi',
+            subtitleKey: 'settings.askApiSubtitle',
+            icon: 'chatbubble-ellipses-outline',
+            color: '#5856D6',
+            route: '/settings/ask',
         },
         {
             key: 'image-style-agent',

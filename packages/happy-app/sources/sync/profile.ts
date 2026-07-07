@@ -83,7 +83,7 @@ export function getDisplayName(profile: Profile): string | null {
 
 export function getAvatarUrl(profile: Profile): string | null {
     if (profile.avatar?.url) {
-        return rewriteLoopbackUrl(profile.avatar.url);
+        return normalizeServerUrl(profile.avatar.url);
     }
     if (profile.github?.avatar_url) {
         return profile.github.avatar_url;
@@ -95,9 +95,13 @@ export function getBio(profile: Profile): string | null {
     return profile.github?.bio || null;
 }
 
-function rewriteLoopbackUrl(url: string): string {
+function normalizeServerUrl(url: string): string {
     try {
-        const target = new URL(url);
+        const isRelative = url.startsWith('/');
+        const target = new URL(url, getServerUrl());
+        if (isRelative) {
+            return target.toString();
+        }
         const isLoopback = target.hostname === 'localhost'
             || target.hostname === '127.0.0.1'
             || target.hostname === '::1'

@@ -31,6 +31,7 @@ export const ru: TranslationStructure = {
         greetingNoName: 'Чем займёмся сегодня?',
         greetingAgent: ({ name }: { name: string }) => `Вход в ${name}, чем займёмся сегодня?`,
         placeholder: 'Спрашивайте что угодно, можно с фото',
+        askPlaceholder: 'Спрашивайте что угодно',
         byline: 'Сгенерировано ИИ · сквозное шифрование',
         createDirectoryTitle: 'Создать папку?',
         createDirectoryMessage: ({ path }: { path: string }) => `Папка "${path}" не существует. Создать её?`,
@@ -116,6 +117,8 @@ export const ru: TranslationStructure = {
         language: 'Язык',
         voiceAssistant: 'Голосовой ассистент',
         voiceAssistantSubtitle: 'Настройка предпочтений голосового взаимодействия',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Настройка API-ключа и endpoint для режима Ask',
         featuresTitle: 'Возможности',
         featuresSubtitle: 'Включить или отключить функции приложения',
         developer: 'Разработчик',
@@ -148,6 +151,22 @@ export const ru: TranslationStructure = {
             `${name} ${status === 'online' ? 'online' : 'offline'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'включена' : 'отключена'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {
@@ -347,6 +366,8 @@ export const ru: TranslationStructure = {
 
     newSession: {
         title: 'Начать новую сессию',
+        askMode: 'Спросить',
+        agentMode: 'Агент',
         machineOffline: 'Машина недоступна',
         switchMachinesHint: '• Переключите машину, нажав на неё выше',
     },

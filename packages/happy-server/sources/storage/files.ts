@@ -43,9 +43,17 @@ export async function loadFiles() {
     await s3client.bucketExists(s3bucket);
 }
 
-export function getPublicUrl(filePath: string) {
+export function isPublicFilePath(filePath: string) {
+    return filePath === 'public' || filePath.startsWith('public/');
+}
+
+export function getPublicUrl(filePath: string, serverUrl?: string) {
+    if (!useLocalStorage && isPublicFilePath(filePath)) {
+        const baseUrl = serverUrl || process.env.PUBLIC_URL || '';
+        return `${baseUrl}/files/${filePath}`;
+    }
     if (useLocalStorage) {
-        const baseUrl = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || '3005'}`;
+        const baseUrl = serverUrl || process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || '3005'}`;
         return `${baseUrl}/files/${filePath}`;
     }
     return `${s3public}/${filePath}`;

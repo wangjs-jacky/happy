@@ -49,19 +49,22 @@ describe('modelModeOptions', () => {
         expect(getDefaultModelKey('claude')).toBe('opus');
         expect(getDefaultEffortKey('claude')).toBe('medium');
         expect(getDefaultPermissionModeKey('ask')).toBe('default');
-        expect(getDefaultModelKey('ask')).toBe('sonnet');
-        expect(getDefaultEffortKey('ask')).toBe('medium');
+        expect(getDefaultModelKey('ask')).toBe('deepseek/deepseek-v4-flash');
+        expect(getDefaultEffortKey('ask')).toBeNull();
         expect(getDefaultPermissionModeKey('codex')).toBe('yolo');
         expect(getDefaultModelKey('codex')).toBe('default');
         expect(getDefaultEffortKey('codex')).toBeNull();
     });
 
-    it('builds ask model fallbacks for Claude SDK chat mode', () => {
+    it('keeps ask mode as provider-backed chat with DeepSeek strength choices', () => {
         const models = getAvailableModels('ask', null, translate);
         expect(models).toEqual([
-            { key: 'sonnet', name: 'sonnet 4.6', description: 'fast chat' },
-            { key: 'opus', name: 'opus 4.8', description: 'deep chat' },
-            { key: 'haiku', name: 'haiku 4.5', description: 'quick chat' },
+            { key: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'fast answers' },
+            { key: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', description: 'stronger answers' },
+        ]);
+        expect(getEffortLevelsForModel('ask', 'deepseek/deepseek-v4-pro')).toEqual([]);
+        expect(getAvailablePermissionModes('ask', null, translate)).toEqual([
+            { key: 'default', name: 'tr:agentInput.permissionMode.default', description: null },
         ]);
     });
 

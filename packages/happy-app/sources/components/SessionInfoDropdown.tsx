@@ -17,6 +17,7 @@ import { storage, useSetting } from '@/sync/storage';
 import { t } from '@/text';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
+import { getRunningSessionInfoExperience } from '@/utils/newSessionExperience';
 
 // Agent icon assets — mirrors SessionConfigPanel so the panel reads identically.
 const agentIcons = {
@@ -94,6 +95,10 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
     const agentKey: AgentKey = (flavor && flavor in agentIcons ? flavor : 'claude') as AgentKey;
     const agentLabel = AGENT_LABELS[agentKey] ?? agentKey;
     const pathName = metadata?.path ? formatPathRelativeToHome(metadata.path, metadata.homeDir) : null;
+    const infoExperience = React.useMemo(
+        () => getRunningSessionInfoExperience(flavor),
+        [flavor],
+    );
 
     // Resolve the session's current model / permission / effort display names the
     // same way SessionViewLoaded does, so the panel matches the chat's selectors.
@@ -219,7 +224,7 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                     </View>
 
                     {/* Folder */}
-                    {pathName ? (
+                    {infoExperience.showPath && pathName ? (
                         <View style={styles.configRow}>
                             <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
                             <Text style={[styles.configLabel, styles.configValueText]} numberOfLines={1}>
@@ -240,7 +245,7 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                                 {agentLabel}
                             </Text>
                         </View>
-                        {modelMode?.name ? (
+                        {infoExperience.showModelDetails && modelMode?.name ? (
                             <>
                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
                                 {canEditModel ? (
@@ -260,7 +265,7 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                                 )}
                             </>
                         ) : null}
-                        {effortLevel?.name ? (
+                        {infoExperience.showModelDetails && effortLevel?.name ? (
                             <>
                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
                                 {canEditEffort ? (
@@ -281,11 +286,11 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                             </>
                         ) : null}
                     </View>
-                    {expanded === 'model' ? renderOptions(availableModels, modelMode?.key, applyModel) : null}
-                    {expanded === 'effort' ? renderOptions(availableEffortLevels, effortLevel?.key, applyEffort) : null}
+                    {infoExperience.showModelDetails && expanded === 'model' ? renderOptions(availableModels, modelMode?.key, applyModel) : null}
+                    {infoExperience.showModelDetails && expanded === 'effort' ? renderOptions(availableEffortLevels, effortLevel?.key, applyEffort) : null}
 
                     {/* Permission mode — tap to expand when there's more than one. */}
-                    {permissionMode?.name ? (
+                    {infoExperience.showPermission && permissionMode?.name ? (
                         canEditPermission ? (
                             <Pressable
                                 style={(p) => [styles.configRow, p.pressed && styles.rowPressed]}
@@ -306,7 +311,7 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                             </View>
                         )
                     ) : null}
-                    {expanded === 'permission' ? renderOptions(availableModes, permissionMode?.key, applyPermission) : null}
+                    {infoExperience.showPermission && expanded === 'permission' ? renderOptions(availableModes, permissionMode?.key, applyPermission) : null}
 
                     {/* Divider + entry into the full info screen (the one tappable row). */}
                     <View style={styles.divider} />

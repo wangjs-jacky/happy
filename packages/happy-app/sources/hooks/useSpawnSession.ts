@@ -27,6 +27,8 @@ export interface SpawnSessionArgs {
     prompt: string;
     /** Image attachments to send with the initial message (claude-only). */
     images?: AttachmentPreview[];
+    /** Extra environment passed to daemon-spawned agent process. */
+    environmentVariables?: Record<string, string>;
 }
 
 /**
@@ -47,7 +49,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, images } = args;
+        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, images, environmentVariables } = args;
         if (!isMachineOnline(machine)) {
             Modal.alert(t('common.error'), t('newSession.machineOffline'));
             return false;
@@ -69,6 +71,7 @@ export function useSpawnSession() {
                 directory: spawnDirectory,
                 approvedNewDirectoryCreation,
                 agent,
+                environmentVariables,
             });
 
             switch (result.type) {

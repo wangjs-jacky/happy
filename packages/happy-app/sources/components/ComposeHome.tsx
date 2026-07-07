@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines, useSetting } from '@/sync/storage';
+import { useProfile, useAllMachines, useLocalSetting, useSetting } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -24,7 +24,15 @@ import { RightSwipePanelHost } from './RightSwipePanelHost';
 import { SessionCapabilityHub } from './rightPanel/SessionCapabilityHub';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
+import {
+    getCodingAgentPickerItems,
+    getComposeHomeExperience,
+    getHeaderModeSwitchExperience,
+    selectAgentForTopLevelMode,
+    type NewSessionTopLevelMode,
+} from '@/utils/newSessionExperience';
 import type { Machine } from '@/sync/storageTypes';
+import type { NewSessionAgentType } from '@/sync/persistence';
 import { useShallow } from 'zustand/react/shallow';
 import { hapticsLight } from './haptics';
 import {
@@ -38,6 +46,7 @@ import {
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
+import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -48,6 +57,19 @@ const AGENT_LABELS: Record<string, string> = {
     openclaw: 'openclaw',
     gemini: 'gemini',
 };
+
+const HEADER_MODE_AGENT_OPTIONS: { key: NewSessionAgentType; label: string }[] = [
+    { key: 'opencode', label: AGENT_LABELS.opencode },
+    { key: 'claude', label: AGENT_LABELS.claude },
+    { key: 'codex', label: AGENT_LABELS.codex },
+    { key: 'openclaw', label: AGENT_LABELS.openclaw },
+    { key: 'gemini', label: AGENT_LABELS.gemini },
+];
+
+const HEADER_MODE_SWITCH_ITEMS: { key: NewSessionTopLevelMode; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { key: 'ask', icon: 'chatbubble-ellipses-outline' },
+    { key: 'agent', icon: 'terminal-outline' },
+];
 
 function getMachineName(machine: Machine | undefined): string | null {
     if (!machine) return null;
@@ -82,6 +104,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const headerHeight = useHeaderHeight();
     const profile = useProfile();
     const machines = useAllMachines();
+    const askApi = useLocalSetting('askApi');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
@@ -169,7 +192,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 显示图片按钮，不再依赖实验开关。两者的 runner 都会把附件转发给模型（见 sync.ts
     // supportsAttachments），其余 runner（gemini / openclaw）会静默丢弃，故不显示。
     // compact horizontal strip keeps the footprint to one row.
-    const canAttach = activeImageAgent || agentType === 'claude' || agentType === 'codex';
+    const composeExperience = React.useMemo(
+        () => getComposeHomeExperience({ agentType, activeImageAgent }),
+        [activeImageAgent, agentType],
+    );
+    const canAttach = composeExperience.canAttach;
     const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
 
@@ -192,8 +219,20 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [agentId, agents, builtinAppAgent]);
     const machineName = getMachineName(selectedMachine);
     const online = selectedMachine ? isMachineOnline(selectedMachine) : false;
-    const displayAgentType = activeImageAgent ? 'codex' : agentType;
-    const agentLabel = AGENT_LABELS[displayAgentType] ?? displayAgentType;
+    const headerModeSwitchExperience = React.useMemo(
+        () => getHeaderModeSwitchExperience({
+            agentType,
+            activeImageAgent,
+            askConfigured: isAskApiConfigured(askApi),
+        }),
+        [activeImageAgent, agentType, askApi],
+    );
+    const availableCodingAgents = React.useMemo(() => {
+        const availability = selectedMachine?.metadata?.cliAvailability;
+        const codingAgents = getCodingAgentPickerItems(HEADER_MODE_AGENT_OPTIONS);
+        if (!availability) return codingAgents;
+        return codingAgents.filter((agent) => availability[agent.key]);
+    }, [selectedMachine]);
 
     const openDrawer = React.useCallback(() => {
         navigation.dispatch(DrawerActions.openDrawer());
@@ -247,6 +286,29 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setPanelOpen(false);
     }, []);
 
+    const handleHeaderModeSelect = React.useCallback((mode: NewSessionTopLevelMode) => {
+        const nextAgent = selectAgentForTopLevelMode({
+            mode,
+            currentAgent: agentType,
+            availableCodingAgents,
+        });
+        if (nextAgent !== agentType) {
+            hapticsLight();
+            setAgentType(nextAgent);
+        }
+    }, [agentType, availableCodingAgents, setAgentType]);
+
+    React.useEffect(() => {
+        if (activeImageAgent || isAskApiConfigured(askApi) || agentType !== 'ask') {
+            return;
+        }
+        setAgentType(selectAgentForTopLevelMode({
+            mode: 'agent',
+            currentAgent: agentType,
+            availableCodingAgents,
+        }));
+    }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
+
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
         const images = hasImages ? selectedImages : undefined;
@@ -294,6 +356,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             effortLevel: liveSelection?.effortKey ?? resolvedModes.effortLevel,
             prompt,
             images,
+            environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
         }).then((ok) => {
             if (ok) {
                 composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
@@ -301,7 +364,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, clearImages, askApi]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -310,14 +373,42 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
 
     const modelChip = (
-        <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChip}>
-            <Text style={styles.modelChipAgent} numberOfLines={1}>{agentLabel}</Text>
-            <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
-            <Text style={styles.modelChipMachine} numberOfLines={1}>
-                {machineName ?? t('agentInput.noMachinesAvailable')}
-            </Text>
-            <Ionicons name={panelOpen ? 'chevron-up' : 'chevron-down'} size={13} color={theme.colors.textSecondary} />
-        </Pressable>
+        <View style={styles.modelChip}>
+            {headerModeSwitchExperience.visible && (
+                <View style={styles.headerModeSwitch}>
+                    {HEADER_MODE_SWITCH_ITEMS.map((item) => {
+                        const selected = item.key === headerModeSwitchExperience.selectedMode;
+                        return (
+                            <Pressable
+                                key={item.key}
+                                onPress={() => handleHeaderModeSelect(item.key)}
+                                hitSlop={4}
+                                accessibilityRole="button"
+                                accessibilityLabel={item.key === 'ask' ? t('newSession.askMode') : t('newSession.agentMode')}
+                                style={({ pressed }) => [
+                                    styles.headerModeButton,
+                                    selected && styles.headerModeButtonSelected,
+                                    pressed && styles.headerModeButtonPressed,
+                                ]}
+                            >
+                                <Ionicons
+                                    name={item.icon}
+                                    size={14}
+                                    color={selected ? theme.colors.button.primary.tint : theme.colors.textSecondary}
+                                />
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            )}
+            <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChipTarget}>
+                <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
+                <Text style={styles.modelChipMachine} numberOfLines={1}>
+                    {machineName ?? t('agentInput.noMachinesAvailable')}
+                </Text>
+                <Ionicons name={panelOpen ? 'chevron-up' : 'chevron-down'} size={13} color={theme.colors.textSecondary} />
+            </Pressable>
+        </View>
     );
 
     return (
@@ -487,7 +578,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             </ScrollView>
                         </View>
                     )}
-                    {!activeImageAgent && (
+                    {composeExperience.showCreationRail && (
                         <View style={styles.creationRail}>
                             <Pressable
                                 onPress={openImageStyleMode}
@@ -528,7 +619,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
-                        placeholder={activeImageAgent ? t('agents.imagePromptPlaceholder') : t('composeHome.placeholder')}
+                        placeholder={activeImageAgent
+                            ? t('agents.imagePromptPlaceholder')
+                            : agentType === 'ask'
+                                ? t('composeHome.askPlaceholder')
+                                : t('composeHome.placeholder')}
                         initialValue={text}
                         onChangeText={setText}
                         onSend={handleSend}
@@ -601,20 +696,44 @@ const styles = StyleSheet.create((theme) => ({
     modelChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 7,
-        maxWidth: 230,
-        paddingVertical: 7,
-        paddingHorizontal: 13,
+        maxWidth: 246,
+        paddingVertical: 4,
+        paddingLeft: 4,
+        paddingRight: 9,
         borderRadius: 999,
         backgroundColor: theme.colors.surface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
     },
-    modelChipAgent: {
-        ...Typography.default('semiBold'),
-        fontSize: 13,
-        color: theme.colors.text,
+    headerModeSwitch: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        padding: 2,
+        borderRadius: 999,
+        backgroundColor: theme.colors.input.background,
+    },
+    headerModeButton: {
+        width: 26,
+        height: 24,
+        borderRadius: 999,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    headerModeButtonSelected: {
+        backgroundColor: theme.colors.button.primary.background,
+    },
+    headerModeButtonPressed: {
+        opacity: 0.78,
+    },
+    modelChipTarget: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+        minWidth: 0,
         flexShrink: 1,
+        paddingLeft: 8,
+        paddingVertical: 5,
     },
     modelChipMachine: {
         ...Typography.mono(),

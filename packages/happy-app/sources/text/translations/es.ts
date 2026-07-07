@@ -20,6 +20,7 @@ export const es: TranslationStructure = {
         greetingNoName: '¿Qué hacemos hoy?',
         greetingAgent: ({ name }: { name: string }) => `Entrando en ${name}, ¿qué hacemos hoy?`,
         placeholder: 'Pregunta lo que sea, también con imágenes',
+        askPlaceholder: 'Pregunta lo que sea',
         byline: 'Generado por IA · cifrado de extremo a extremo',
         createDirectoryTitle: '¿Crear carpeta?',
         createDirectoryMessage: ({ path }: { path: string }) => `La carpeta "${path}" no existe. ¿Crearla?`,
@@ -129,6 +130,8 @@ export const es: TranslationStructure = {
         language: 'Idioma',
         voiceAssistant: 'Asistente de voz',
         voiceAssistantSubtitle: 'Configura las preferencias de voz',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Configura la clave API y el endpoint para el modo Ask',
         featuresTitle: 'Características',
         featuresSubtitle: 'Habilitar o deshabilitar funciones de la aplicación',
         developer: 'Desarrollador',
@@ -162,6 +165,22 @@ export const es: TranslationStructure = {
             `${name} está ${status === 'online' ? 'en línea' : 'desconectado'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'habilitada' : 'deshabilitada'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {
@@ -361,6 +380,8 @@ export const es: TranslationStructure = {
 
     newSession: {
         title: 'Iniciar nueva sesión',
+        askMode: 'Preguntar',
+        agentMode: 'Agente',
         machineOffline: 'La máquina está desconectada',
         switchMachinesHint: '• Cambia de máquina haciendo clic en la máquina de arriba',
     },

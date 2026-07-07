@@ -20,6 +20,7 @@ export const ca: TranslationStructure = {
         greetingNoName: 'Què fem avui?',
         greetingAgent: ({ name }: { name: string }) => `Entrant a ${name}, què fem avui?`,
         placeholder: 'Pregunta el que sigui, també amb imatges',
+        askPlaceholder: 'Pregunta el que sigui',
         byline: 'Generat per IA · xifratge d\'extrem a extrem',
         createDirectoryTitle: 'Crear carpeta?',
         createDirectoryMessage: ({ path }: { path: string }) => `La carpeta "${path}" no existeix. Vols crear-la?`,
@@ -129,6 +130,8 @@ export const ca: TranslationStructure = {
         language: 'Idioma',
         voiceAssistant: 'Assistent de veu',
         voiceAssistantSubtitle: 'Configura les preferències d\'interacció per veu',
+        askApi: 'Ask API',
+        askApiSubtitle: 'Configura la clau API i l\'endpoint per al mode Ask',
         featuresTitle: 'Funcions',
         featuresSubtitle: 'Activa o desactiva les funcions de l\'aplicació',
         developer: 'Desenvolupador',
@@ -162,6 +165,22 @@ export const ca: TranslationStructure = {
             `${name} està ${status === 'online' ? 'en línia' : 'fora de línia'}`,
         featureToggled: ({ feature, enabled }: { feature: string; enabled: boolean }) =>
             `${feature} ${enabled ? 'activada' : 'desactivada'}`,
+    },
+
+    askApiSettings: {
+        connection: 'Connection',
+        apiKey: 'API Key',
+        apiKeyPlaceholder: 'sk-...',
+        baseUrl: 'API URL',
+        baseUrlPlaceholder: 'https://api.deepseek.com',
+        footer: 'Ask mode appears on the home switch after an API key is saved. The URL is optional and defaults to DeepSeek.',
+        status: 'Status',
+        configured: 'Configured',
+        configuredSubtitle: 'Ask mode is available on this device',
+        notConfigured: 'Not configured',
+        notConfiguredSubtitle: 'Ask mode is hidden until an API key is saved',
+        clear: 'Clear Ask API',
+        clearSubtitle: 'Remove the local key and endpoint from this device',
     },
 
     settingsSkills: {
@@ -361,6 +380,8 @@ export const ca: TranslationStructure = {
 
     newSession: {
         title: 'Iniciar nova sessió',
+        askMode: 'Pregunta',
+        agentMode: 'Agent',
         machineOffline: 'La màquina està fora de línia',
         switchMachinesHint: '• Canvia de màquina fent clic a la màquina de dalt',
     },
