@@ -77,6 +77,7 @@ describe('sessionCapabilityHubModel', () => {
             createToolMessage('image-1', 2000, 'file', {
                 ref: 'blob://1',
                 name: 'draft.png',
+                source: 'generated',
                 image: { width: 1200, height: 800, thumbhash: 'abc' },
             }),
             createToolMessage('edit-1', 3000, 'Write', {
@@ -139,6 +140,25 @@ describe('sessionCapabilityHubModel', () => {
             id: 'image-2',
             title: 'second.png',
             ref: 'blob://2',
+        });
+    });
+
+    it('preserves generated image source metadata for the gallery entry', () => {
+        const session = createSession();
+        const messages: Message[] = [
+            createToolMessage('image-1', 1000, 'file', {
+                ref: 'blob://1',
+                name: 'generated.png',
+                source: 'generated',
+                image: { width: 1024, height: 1024 },
+            }),
+        ];
+
+        const items = getCapabilityDetailItems('images', { session, messages, artifacts: [] });
+
+        expect(items[0]).toMatchObject({
+            title: 'generated.png',
+            source: 'generated',
         });
     });
 

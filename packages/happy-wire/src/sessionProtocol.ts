@@ -49,6 +49,7 @@ export const sessionFileEventSchema = z.object({
   name: z.string(),
   size: z.number(),
   mimeType: z.string().optional(),
+  source: z.enum(['user', 'generated']).optional(),
   image: z
     .object({
       width: z.number(),

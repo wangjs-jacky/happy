@@ -18,6 +18,7 @@ export type ImageCapabilityItem = {
     title: string;
     meta: 'session';
     ref: string;
+    source?: 'user' | 'generated';
     messageId: string;
     createdAt: number;
     width?: number;
@@ -110,6 +111,7 @@ type PatchEntry = {
 type FileImageInput = {
     ref: string;
     name?: string;
+    source?: 'user' | 'generated';
     image?: {
         width?: number;
         height?: number;
@@ -155,6 +157,7 @@ function parseFileImageInput(input: unknown): FileImageInput | null {
     return {
         ref,
         name: typeof input.name === 'string' ? input.name : undefined,
+        source: input.source === 'generated' || input.source === 'user' ? input.source : undefined,
         image: image ? {
             width: typeof image.width === 'number' ? image.width : undefined,
             height: typeof image.height === 'number' ? image.height : undefined,
@@ -176,6 +179,7 @@ function getImageItems(messages: Message[], limit: number): ImageCapabilityItem[
             title: parsed.name || 'Image',
             meta: 'session',
             ref: parsed.ref,
+            ...(parsed.source ? { source: parsed.source } : {}),
             messageId: message.id,
             createdAt: message.createdAt,
             ...(parsed.image?.width !== undefined ? { width: parsed.image.width } : {}),

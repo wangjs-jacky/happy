@@ -282,7 +282,7 @@ export async function startHappyServer(
             logger.debug('[happyMCP] Sending image:', path);
             try {
                 const { ref, name, size, dims } = await client.uploadImageAttachment(path);
-                client.sendFileEvent(ref, name, size, dims);
+                client.sendFileEvent(ref, name, size, dims, 'generated');
                 return { success: true };
             } catch (error) {
                 return { success: false, error: String(error) };

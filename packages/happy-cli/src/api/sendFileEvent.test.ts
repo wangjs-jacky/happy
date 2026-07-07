@@ -10,6 +10,12 @@ describe('sendFileEvent envelope contract', () => {
         expect((envelope.ev as any).image).toBeUndefined();
     });
 
+    it('accepts generated image source metadata', () => {
+        const envelope = createEnvelope('user', { t: 'file', ref: 'r1', name: 'pic.png', size: 123, source: 'generated' });
+        expect(sessionEnvelopeSchema.safeParse(envelope).success).toBe(true);
+        expect(envelope.ev).toMatchObject({ t: 'file', ref: 'r1', name: 'pic.png', source: 'generated' });
+    });
+
     it('rejects a file event with image block missing thumbhash (why we omit image)', () => {
         const bad = { id: 'x', time: 1, role: 'user', ev: { t: 'file', ref: 'r', name: 'n', size: 1, image: { width: 10, height: 10 } } };
         expect(sessionEnvelopeSchema.safeParse(bad).success).toBe(false);

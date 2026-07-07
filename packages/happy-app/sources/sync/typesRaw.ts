@@ -61,6 +61,7 @@ const sessionFileEventSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number(),
+    source: z.enum(['user', 'generated']).optional(),
     image: z.object({
         width: z.number(),
         height: z.number(),
@@ -711,10 +712,11 @@ function normalizeSessionEnvelope(
                         ref: envelope.ev.ref,
                         name: envelope.ev.name,
                         size: envelope.ev.size,
+                        ...(envelope.ev.source ? { source: envelope.ev.source } : {}),
                         ...maybeImageMetadata
                     },
                     description: envelope.ev.image
-                        ? `Attached image: ${envelope.ev.name} (${envelope.ev.image.width}x${envelope.ev.image.height})`
+                        ? `${envelope.ev.source === 'generated' ? 'Generated image' : 'Attached image'}: ${envelope.ev.name} (${envelope.ev.image.width}x${envelope.ev.image.height})`
                         : `Attached file: ${envelope.ev.name}`,
                     uuid: contentUUID,
                     parentUUID

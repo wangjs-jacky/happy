@@ -29,6 +29,7 @@ describe('session protocol schemas', () => {
         name: 'image.png',
         size: 2048,
         mimeType: 'image/png',
+        source: 'generated',
         image: { thumbhash: 'abc', width: 100, height: 80 },
       },
       { t: 'turn-start' },

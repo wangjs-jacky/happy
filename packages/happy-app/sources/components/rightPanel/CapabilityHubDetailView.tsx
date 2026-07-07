@@ -308,6 +308,9 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
     const subtitle = props.item.width && props.item.height
         ? `${props.item.width} × ${props.item.height}`
         : t('rightPanelCapabilityHub.meta.image');
+    const sourceLabel = props.item.source === 'generated'
+        ? t('rightPanelCapabilityHub.meta.generatedImage')
+        : t('rightPanelCapabilityHub.meta.image');
 
     return (
         <Pressable
@@ -348,7 +351,7 @@ const ImageItemRow = React.memo(function ImageItemRow(props: {
                     {props.item.title}
                 </Text>
                 <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.colors.textSecondary }]}>
-                    {subtitle}
+                    {props.item.width && props.item.height ? `${sourceLabel} · ${subtitle}` : subtitle}
                 </Text>
             </View>
             {uri ? <Ionicons color={theme.colors.textSecondary} name="expand-outline" size={16} /> : null}
