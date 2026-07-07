@@ -3,6 +3,8 @@
 This folder documents how Happy works internally, with a focus on protocol, backend architecture, deployment, and the CLI tool. Start here.
 
 ## Index
+- getting-started.md: Public-friendly onboarding for users, self-hosters, and contributors: app download, CLI install, pairing, daemon, server options, source development, OTA basics, troubleshooting, and handoff checklist.
+- getting-started.zh-CN.md: Chinese onboarding for this fork: APK download, CLI source link, daemon startup, self-hosting, troubleshooting, and handoff checklist.
 - protocol.md: Wire protocol (WebSocket), payload formats, sequencing, and concurrency rules.
 - realtime-sync-and-rpc.md: High-level overview of realtime socket management and RPC control flow.
 - api.md: HTTP endpoints and authentication flows.
