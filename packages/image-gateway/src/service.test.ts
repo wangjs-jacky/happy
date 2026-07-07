@@ -114,6 +114,53 @@ describe('image gateway service', () => {
         expect(worker.totalFailed).toBe(1);
     });
 
+    it('requeues failed jobs for retry', async () => {
+        let index = 0;
+        const times = [
+            '2026-07-07T08:00:00.000Z',
+            '2026-07-07T08:00:01.000Z',
+            '2026-07-07T08:00:02.000Z',
+            '2026-07-07T08:00:03.000Z',
+        ];
+        const store = createMemoryStore();
+        const service = createImageGatewayService({
+            store,
+            ipHashSecret: 'test-secret',
+            now: () => new Date(times[index++] ?? times.at(-1)!),
+        });
+
+        const job = await service.submitJob({
+            prompt: 'draw a retry button',
+            ip: '203.0.113.8',
+            userAgent: 'vitest',
+        });
+        await service.claimNextJob();
+        await service.reportFailure(job.id, 'temporary provider error');
+
+        const retried = await service.retryJob(job.id);
+
+        expect(retried.status).toBe('queued');
+        expect(retried.error).toBeUndefined();
+        expect(retried.finishedAt).toBeUndefined();
+        expect((await service.claimNextJob())?.id).toBe(job.id);
+    });
+
+    it('rejects retries for jobs that are not failed', async () => {
+        const store = createMemoryStore();
+        const service = createImageGatewayService({
+            store,
+            ipHashSecret: 'test-secret',
+            now: () => new Date('2026-07-07T08:00:00.000Z'),
+        });
+        const job = await service.submitJob({
+            prompt: 'draw an already queued job',
+            ip: '203.0.113.9',
+            userAgent: 'vitest',
+        });
+
+        await expect(service.retryJob(job.id)).rejects.toThrow('Only failed jobs can be retried');
+    });
+
     it('moves approved review jobs into the worker queue', async () => {
         const store = createMemoryStore();
         const service = createImageGatewayService({

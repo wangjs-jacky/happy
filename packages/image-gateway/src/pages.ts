@@ -65,6 +65,9 @@ export function adminPage(settings: GatewaySettings, worker: WorkerHealth, jobs:
                                 ${job.status === 'pending_review' ? `
                                     <form method="post" action="/image/admin/jobs/${job.id}/approve?token=${escapeAttribute(token)}" class="inline"><button type="submit">Approve</button></form>
                                     <form method="post" action="/image/admin/jobs/${job.id}/reject?token=${escapeAttribute(token)}" class="inline"><button type="submit">Reject</button></form>
+                                ` : job.status === 'failed' ? `
+                                    <form method="post" action="/image/admin/jobs/${job.id}/retry?token=${escapeAttribute(token)}" class="inline"><button type="submit">Retry</button></form>
+                                    <a href="/image/jobs/${job.id}">View</a>
                                 ` : `<a href="/image/jobs/${job.id}">View</a>`}
                             </td>
                         </tr>

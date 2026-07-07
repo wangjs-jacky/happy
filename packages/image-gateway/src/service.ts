@@ -98,6 +98,20 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
                 job.finishedAt = timestamp;
             });
         },
+        async retryJob(id: string) {
+            return updateJob(options.store, id, now, (job, timestamp, snapshot) => {
+                if (job.status !== 'failed') {
+                    throw new Error(`Only failed jobs can be retried. Current status: ${job.status}`);
+                }
+                job.status = 'queued';
+                job.error = undefined;
+                job.finishedAt = undefined;
+                job.resultUrl = undefined;
+                job.actualCostCents = undefined;
+                job.startedAt = undefined;
+                snapshot.worker.lastError = snapshot.worker.lastFailedJobId === job.id ? undefined : snapshot.worker.lastError;
+            });
+        },
         async claimNextJob() {
             return withSnapshot(options.store, (snapshot) => {
                 const timestamp = now().toISOString();

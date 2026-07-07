@@ -123,7 +123,7 @@ const server = createServer(async (request, response) => {
             return;
         }
 
-        const adminActionMatch = pathname.match(/^\/image\/admin\/jobs\/([^/]+)\/(approve|reject)$/);
+        const adminActionMatch = pathname.match(/^\/image\/admin\/jobs\/([^/]+)\/(approve|reject|retry)$/);
         if (request.method === 'POST' && adminActionMatch) {
             if (!requireToken(request, adminToken, url.searchParams.get('token'))) {
                 sendJson(response, 401, { error: 'Admin token required' });
@@ -131,8 +131,10 @@ const server = createServer(async (request, response) => {
             }
             if (adminActionMatch[2] === 'approve') {
                 await service.approveJob(adminActionMatch[1]!);
-            } else {
+            } else if (adminActionMatch[2] === 'reject') {
                 await service.rejectJob(adminActionMatch[1]!);
+            } else {
+                await service.retryJob(adminActionMatch[1]!);
             }
             redirect(response, `/image/admin?token=${encodeURIComponent(url.searchParams.get('token') ?? '')}`);
             return;
