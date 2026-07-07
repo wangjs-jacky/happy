@@ -39,8 +39,11 @@ export const DEEPSEEK_DEFAULT_BASE_URL = 'https://api.deepseek.com';
 export const DEEPSEEK_FAST_MODEL = 'deepseek-v4-flash';
 export const DEEPSEEK_PRO_MODEL = 'deepseek-v4-pro';
 
-function endpoint(baseUrl: string | undefined): string {
-  return `${(baseUrl ?? DEEPSEEK_DEFAULT_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
+export function resolveDeepSeekChatEndpoint(baseUrl: string | undefined): string {
+  const normalized = (baseUrl?.trim() || DEEPSEEK_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  return normalized.endsWith('/chat/completions')
+    ? normalized
+    : `${normalized}/chat/completions`;
 }
 
 function payloadFor(options: StreamDeepSeekChatOptions): Record<string, unknown> {
@@ -103,7 +106,7 @@ function collectSseDataLines(block: string): string[] {
 }
 
 export async function* streamDeepSeekChat(options: StreamDeepSeekChatOptions): AsyncGenerator<DeepSeekStreamDelta> {
-  const response = await fetch(endpoint(options.baseUrl), {
+  const response = await fetch(resolveDeepSeekChatEndpoint(options.baseUrl), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
