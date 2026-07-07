@@ -12,11 +12,15 @@ import type {
     ImageAgentStyleCategory,
     ImageAgentStyleLabelKey,
     ImageAgentStylePreset,
+    UserImageStyle,
 } from './imageStyleTypes';
 
 export type { ImageAgentStyleCategory, ImageAgentStyleLabelKey, ImageAgentStylePreset };
 
+export const USER_IMAGE_STYLE_ID_PREFIX = 'user-reference/';
+
 export const IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
+    { id: 'user-reference', label: '自定义风格', accent: '#2F7D6B', count: 0 },
     ...EXTRA_IMAGE_AGENT_STYLE_CATEGORIES,
     ...BASE_IMAGE_AGENT_STYLE_CATEGORIES,
 ];
@@ -31,6 +35,10 @@ const MAX_RECOMMENDED_CONTINUATION_STYLES = 10;
 export const MIN_IMAGE_AGENT_VARIANTS_PER_STYLE = 1;
 export const MAX_IMAGE_AGENT_VARIANTS_PER_STYLE = 4;
 
+export function shouldUseUserImageStyleReferenceImages(style: Pick<UserImageStyle, 'analysisStatus' | 'promptContent' | 'referenceImages'>): boolean {
+    return style.referenceImages.length > 0 && !(style.analysisStatus === 'prompt-ready' && !!style.promptContent?.trim());
+}
+
 function normalizeLegacyReferenceStyleId(styleId: string): string {
     if (styleId.startsWith('oba-tiramisu/')) {
         return styleId.replace('oba-tiramisu/', 'reference-tiramisu/');
@@ -41,7 +49,59 @@ function normalizeLegacyReferenceStyleId(styleId: string): string {
     return styleId;
 }
 
-function resolveImageAgentStyle(styleId: string): ImageAgentStylePreset | undefined {
+export function createUserImageStylePreset(style: UserImageStyle): ImageAgentStylePreset {
+    const extractedPrompt = style.analysisStatus === 'prompt-ready' ? style.promptContent?.trim() : undefined;
+    const promptContent = extractedPrompt
+        ? [
+            `自定义 Prompt 风格：${style.title}`,
+            extractedPrompt,
+            style.negativePrompt?.trim() ? `避免：${style.negativePrompt.trim()}` : '',
+            style.tags?.length ? `标签：${style.tags.join('、')}` : '',
+            '把这份沉淀后的风格 Prompt 应用到本次用户素材或用户描述上，不需要再依赖原始参考照片，除非本次用户另外上传了图片。',
+        ].filter(Boolean).join('\n')
+        : [
+            `自定义参考照片风格：${style.title}`,
+            style.promptHint,
+            '当前风格 Prompt 还在提炼中，先用随任务一起上传的自定义风格参考图作为临时风格来源。',
+            '必须从自定义风格参考图中提取视觉语言，包括色彩、光线、材质、镜头/笔触、构图、背景氛围和排版倾向。',
+            '把这些风格特征迁移到本次用户素材或用户描述上，不要把参考图主体误当成必须复刻的内容，除非用户明确要求。',
+        ].join('\n');
+
+    return {
+        id: style.id,
+        title: style.title,
+        categoryId: 'user-reference',
+        categoryLabel: '自定义风格',
+        categoryAccent: '#2F7D6B',
+        templateRef: 'user-reference/photo-style',
+        templateLabel: extractedPrompt ? 'Prompt Ready' : 'Reference Ready',
+        promptHint: style.promptHint,
+        promptContent,
+        promptPath: `user-reference/${style.id}.md`,
+        sourceCaseId: style.id,
+        sourceRepository: 'user-reference',
+        referenceImages: shouldUseUserImageStyleReferenceImages(style) ? style.referenceImages : [],
+        analysisStatus: style.analysisStatus,
+        analysisError: style.analysisError,
+        customPromptContent: style.promptContent,
+        customNegativePrompt: style.negativePrompt,
+        customCreatedAt: style.createdAt,
+        customUpdatedAt: style.updatedAt,
+        customAnalyzedAt: style.analyzedAt,
+        customAnalysisSessionId: style.analysisSessionId,
+        custom: true,
+    };
+}
+
+function getUserStylePresets(customStyles: UserImageStyle[] = []): ImageAgentStylePreset[] {
+    return customStyles
+        .filter((style) => style.referenceImages.length > 0 || !!style.promptContent?.trim())
+        .map(createUserImageStylePreset);
+}
+
+function resolveImageAgentStyle(styleId: string, customStyles: UserImageStyle[] = []): ImageAgentStylePreset | undefined {
+    const custom = getUserStylePresets(customStyles).find((style) => style.id === styleId);
+    if (custom) return custom;
     const normalizedStyleId = normalizeLegacyReferenceStyleId(styleId);
     return STYLE_BY_ID.get(normalizedStyleId) ?? STYLE_BY_ID.get(LEGACY_IMAGE_STYLE_ID_ALIASES[normalizedStyleId]);
 }
@@ -50,12 +110,20 @@ export function getImageAgentStyleLabel(style: ImageAgentStylePreset): string {
     return style.title;
 }
 
-export function getImageAgentStylesForAgent(agent: Pick<AgentLauncher, 'imageStyleIds'>): ImageAgentStylePreset[] {
+export function getImageAgentStylesForAgent(agent: Pick<AgentLauncher, 'imageStyleIds'>, customStyles: UserImageStyle[] = []): ImageAgentStylePreset[] {
     const ids = agent.imageStyleIds ?? [];
     const selected = ids
-        .map((id) => resolveImageAgentStyle(id))
+        .map((id) => resolveImageAgentStyle(id, customStyles))
         .filter((style): style is ImageAgentStylePreset => !!style);
     return selected.length > 0 ? selected : IMAGE_AGENT_STYLE_PRESETS;
+}
+
+export function getImageAgentStyleOptionsForAgent(agent: Pick<AgentLauncher, 'imageStyleIds'>, customStyles: UserImageStyle[] = []): ImageAgentStylePreset[] {
+    const builtinStyles = getImageAgentStylesForAgent(agent, []);
+    return [
+        ...getUserStylePresets(customStyles),
+        ...builtinStyles,
+    ];
 }
 
 export function normalizeImageAgentVariantCount(value: unknown): number {
@@ -69,18 +137,28 @@ export function getImageAgentVariantCount(agent: Pick<AgentLauncher, 'imageVaria
 
 export function buildImageAgentPrompt(args: {
     agent: AgentLauncher;
+    customStyles?: UserImageStyle[];
     userPrompt: string;
     imageCount: number;
+    styleReferenceImageCount?: number;
+    userImageCount?: number;
 }): string {
-    const styles = getImageAgentStylesForAgent(args.agent);
+    const styles = getImageAgentStylesForAgent(args.agent, args.customStyles);
     const variants = getImageAgentVariantCount(args.agent);
     const userPrompt = args.userPrompt.trim() || '请把上传的参考图作为主体参考，生成一组可复用的风格效果总览。';
-    const styleList = styles.map((style, index) => (
-        `${index + 1}. ${style.id} (${style.templateRef}) - ${style.title}: ${style.promptHint}`
-    )).join('\n');
+    const styleList = styles.map((style, index) => [
+        `${index + 1}. ${style.id} (${style.templateRef}) - ${style.title}: ${style.promptHint}`,
+        style.promptContent,
+    ].filter(Boolean).join('\n')).join('\n');
     const recommendedOptions = getRecommendedContinuationStyles(styles)
         .map((style) => `<option>[[gpt-image-style:${style.id}]] ${style.title}</option>`)
         .join('\n');
+
+    const styleReferenceImageCount = args.styleReferenceImageCount ?? 0;
+    const userImageCount = args.userImageCount ?? args.imageCount;
+    const inputLine = styleReferenceImageCount > 0
+        ? `输入：已上传 ${args.imageCount} 张图片。其中前 ${styleReferenceImageCount} 张是自定义风格的临时参考图，只用于提取风格；后 ${userImageCount} 张是本次用户素材。除非用户明确说明不使用，否则请把本次用户素材作为主体参考。`
+        : `输入：已上传 ${args.imageCount} 张参考图。除非用户明确说明不使用，否则请把所有上传图片都作为视觉参考。`;
 
     return [
         '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
@@ -90,7 +168,8 @@ export function buildImageAgentPrompt(args: {
         '- 在每个选中风格的输出都保存完成，或任务明确失败之前，不要启动第二个批处理。',
         '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
         '',
-        `输入：已上传 ${args.imageCount} 张参考图。除非用户明确说明不使用，否则请把所有上传图片都作为视觉参考。`,
+        inputLine,
+        styleReferenceImageCount > 0 ? '自定义风格规则：先分析前面的临时风格参考图，抽取可复用的视觉风格，再应用到本次用户素材或用户描述；不要把风格参考图里的主体误替换成本次主体。Prompt 已提炼完成的自定义风格会直接出现在风格清单里，不需要额外参考图。' : '',
         `用户目标：${userPrompt}`,
         '',
         '输出要求：',

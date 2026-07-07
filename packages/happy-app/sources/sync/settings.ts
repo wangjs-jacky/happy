@@ -16,6 +16,34 @@ export const QuickPromptSchema = z.object({
     updatedAt: z.number().optional(),
 });
 
+const ImageStyleReferenceImageSchema = z.object({
+    id: z.string(),
+    uri: z.string(),
+    width: z.number(),
+    height: z.number(),
+    mimeType: z.string(),
+    size: z.number(),
+    name: z.string(),
+    thumbhash: z.string().optional(),
+});
+
+const UserImageStyleSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    promptHint: z.string(),
+    promptContent: z.string().optional(),
+    negativePrompt: z.string().optional(),
+    tags: z.array(z.string()).default([]),
+    analysisStatus: z.enum(['reference-ready', 'analyzing', 'prompt-ready', 'failed']).default('reference-ready'),
+    analysisError: z.string().optional(),
+    analysisSessionId: z.string().optional(),
+    analyzedAt: z.number().optional(),
+    promptSource: z.enum(['reference-image', 'extracted-prompt', 'manual']).default('reference-image'),
+    referenceImages: z.array(ImageStyleReferenceImageSchema).default([]),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+});
+
 export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
@@ -51,6 +79,8 @@ export const SettingsSchema = z.object({
         path: z.string()
     })).describe('Last 10 machine-path combinations, ordered by most recent first'),
     quickPrompts: z.array(QuickPromptSchema).describe('User-defined quick prompts that can be sent from the right-side capability hub'),
+    pendingCustomImageStyleReferences: z.array(ImageStyleReferenceImageSchema).default([]).describe('Draft reference images uploaded in GPT Image 2 style mode before the user saves them as a custom style.'),
+    customImageStyles: z.array(UserImageStyleSchema).default([]).describe('User-created GPT Image 2 style assets. Reference images are usable immediately; extracted prompts can replace them when ready.'),
     lastUsedAgent: z.string().nullable().describe('Last selected agent type for new sessions'),
     lastUsedPermissionMode: z.string().nullable().describe('Last selected permission mode for new sessions'),
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
@@ -139,6 +169,8 @@ export const settingsDefaults: Settings = {
     preferredLanguage: null,
     recentMachinePaths: [],
     quickPrompts: [],
+    pendingCustomImageStyleReferences: [],
+    customImageStyles: [],
     lastUsedAgent: null,
     lastUsedPermissionMode: null,
     lastUsedModelMode: null,

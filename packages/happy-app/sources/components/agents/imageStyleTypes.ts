@@ -18,8 +18,50 @@ export interface ImageAgentStylePreset {
     promptContent: string;
     promptPath: string;
     sourceCaseId: string;
-    sourceRepository: 'ConardLi/gpt-image-2-101' | 'curated-reference-examples';
+    sourceRepository: 'ConardLi/gpt-image-2-101' | 'curated-reference-examples' | 'user-reference';
+    referenceImages?: ImageAgentStyleReferenceImage[];
+    analysisStatus?: UserImageStyleAnalysisStatus;
+    analysisError?: string;
+    customPromptContent?: string;
+    customNegativePrompt?: string;
+    customCreatedAt?: number;
+    customUpdatedAt?: number;
+    customAnalyzedAt?: number;
+    customAnalysisSessionId?: string;
+    custom?: boolean;
 }
+
+export interface ImageAgentStyleReferenceImage {
+    id: string;
+    uri: string;
+    width: number;
+    height: number;
+    mimeType: string;
+    size: number;
+    name: string;
+    thumbhash?: string;
+}
+
+export interface UserImageStyle {
+    id: string;
+    title: string;
+    promptHint: string;
+    promptContent?: string;
+    negativePrompt?: string;
+    tags: string[];
+    analysisStatus: UserImageStyleAnalysisStatus;
+    analysisError?: string;
+    analysisSessionId?: string;
+    analyzedAt?: number;
+    promptSource: UserImageStylePromptSource;
+    referenceImages: ImageAgentStyleReferenceImage[];
+    createdAt: number;
+    updatedAt: number;
+}
+
+export type UserImageStyleAnalysisStatus = 'reference-ready' | 'analyzing' | 'prompt-ready' | 'failed';
+
+export type UserImageStylePromptSource = 'reference-image' | 'extracted-prompt' | 'manual';
 
 export type ImageAgentStyleLabelKey =
     | 'agents.imageStyleVintageFilm'

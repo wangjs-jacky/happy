@@ -113,6 +113,63 @@ describe('settings', () => {
 
                 expect(settingsParse({ agents: [a] }).agents).toEqual([a]);
             });
+            it('parses custom GPT Image 2 style assets', () => {
+                const customImageStyles = [{
+                    id: 'user-reference/u1',
+                    title: '山野速写',
+                    promptHint: '用户参考照片风格：山野速写。',
+                    referenceImages: [{
+                        id: 'r1',
+                        uri: 'file:///style.jpg',
+                        width: 800,
+                        height: 1000,
+                        mimeType: 'image/jpeg',
+                        size: 123,
+                        name: 'style.jpg',
+                    }],
+                    createdAt: 1,
+                    updatedAt: 1,
+                }];
+
+                expect(settingsParse({ customImageStyles }).customImageStyles).toEqual([{
+                    ...customImageStyles[0],
+                    tags: [],
+                    analysisStatus: 'reference-ready',
+                    promptSource: 'reference-image',
+                }]);
+            });
+            it('preserves extracted custom GPT Image 2 style prompt metadata', () => {
+                const customImageStyles = [{
+                    id: 'user-reference/u2',
+                    title: '胶片',
+                    promptHint: '低饱和胶片',
+                    promptContent: '低饱和暖色胶片、柔和窗光、轻微颗粒。',
+                    negativePrompt: '过曝',
+                    tags: ['胶片'],
+                    analysisStatus: 'prompt-ready',
+                    analysisError: undefined,
+                    analyzedAt: 2,
+                    promptSource: 'extracted-prompt',
+                    referenceImages: [],
+                    createdAt: 1,
+                    updatedAt: 2,
+                }];
+
+                expect(settingsParse({ customImageStyles }).customImageStyles).toEqual(customImageStyles);
+            });
+            it('parses pending GPT Image 2 style reference drafts', () => {
+                const pendingCustomImageStyleReferences = [{
+                    id: 'draft-r1',
+                    uri: 'file:///draft.jpg',
+                    width: 800,
+                    height: 600,
+                    mimeType: 'image/jpeg',
+                    size: 321,
+                    name: 'draft.jpg',
+                }];
+
+                expect(settingsParse({ pendingCustomImageStyleReferences }).pendingCustomImageStyleReferences).toEqual(pendingCustomImageStyleReferences);
+            });
             it('drops malformed agents back to default', () => {
                 expect(settingsParse({ agents: 'nope' }).agents).toEqual([]);
             });
@@ -231,6 +288,8 @@ describe('settings', () => {
                 preferredLanguage: null,
                 recentMachinePaths: [],
                 quickPrompts: [],
+                pendingCustomImageStyleReferences: [],
+                customImageStyles: [],
                 lastUsedAgent: null,
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,
