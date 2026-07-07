@@ -1393,7 +1393,7 @@ export const zhHant: TranslationStructure = {
         requestAgainCanAsk: "如果 iOS 仍允許，會再次彈出系統提示。",
         requestAgainBlocked: "當 iOS 不再彈出提示時，開啟系統設定。",
         reRegister: "重新註冊此裝置",
-        reRegisterSubtitle: "取得目前的 Expo 權杖並重新註冊。",
+        reRegisterSubtitle: "取得目前裝置的推送權杖並重新註冊。",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `目前權杖 ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `已註冊的權杖 (${count})`,
         registeredTokensFooter: "目前裝置的中繼資料來自本機。較舊的權杖使用其權杖指紋加上伺服器時間戳記。",

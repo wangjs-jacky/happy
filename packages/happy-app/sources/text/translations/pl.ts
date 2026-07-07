@@ -1324,7 +1324,7 @@ export const pl: TranslationStructure = {
         requestAgainCanAsk: "Ponownie wyświetla monit systemowy, jeśli iOS nadal na to pozwala.",
         requestAgainBlocked: "Otwiera ustawienia systemowe, gdy iOS nie wyświetli ponownie monitu.",
         reRegister: "Zarejestruj ponownie to urządzenie",
-        reRegisterSubtitle: "Pobiera bieżący token Expo i rejestruje go ponownie.",
+        reRegisterSubtitle: "Pobiera bieżący token push urządzenia i rejestruje go ponownie.",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `Bieżący token ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `Zarejestrowane tokeny (${count})`,
         registeredTokensFooter: "Metadane bieżącego urządzenia pochodzą z tego telefonu. Starsze tokeny używają odcisku tokena oraz znaczników czasu serwera.",

@@ -1293,7 +1293,7 @@ export const it: TranslationStructure = {
         requestAgainCanAsk: "Mostra di nuovo la richiesta di sistema se iOS lo consente ancora.",
         requestAgainBlocked: "Apre le impostazioni di sistema quando iOS non mostrerà più la richiesta.",
         reRegister: "Registra di nuovo questo dispositivo",
-        reRegisterSubtitle: "Recupera il token Expo attuale e lo registra di nuovo.",
+        reRegisterSubtitle: "Recupera il token push attuale del dispositivo e lo registra di nuovo.",
         currentToken: ({ fingerprint }: { fingerprint: string }) => `Token attuale ${fingerprint}`,
         registeredTokensTitle: ({ count }: { count: number }) => `Token registrati (${count})`,
         registeredTokensFooter: "I metadati del dispositivo attuale provengono da questo telefono. I token più vecchi usano l'impronta del token e i timestamp del server.",

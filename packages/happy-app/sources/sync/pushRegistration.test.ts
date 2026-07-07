@@ -9,6 +9,7 @@ const notificationsMock = vi.hoisted(() => ({
     getPermissionsAsync: vi.fn(),
     requestPermissionsAsync: vi.fn(),
     getExpoPushTokenAsync: vi.fn(),
+    getDevicePushTokenAsync: vi.fn(),
 }));
 
 const persistenceMock = vi.hoisted(() => ({
@@ -67,6 +68,10 @@ describe('pushRegistration', () => {
         notificationsMock.getExpoPushTokenAsync.mockResolvedValue({
             data: 'ExponentPushToken[current-device]',
         });
+        notificationsMock.getDevicePushTokenAsync.mockResolvedValue({
+            type: 'fcm',
+            data: 'fcm-current-device',
+        });
         apiPushMock.registerPushToken.mockResolvedValue(undefined);
     });
 
@@ -74,7 +79,27 @@ describe('pushRegistration', () => {
         vi.restoreAllMocks();
     });
 
-    it('uses the bundled Expo project ID when OTA constants do not include one', async () => {
+    it('registers the Android native FCM token instead of an Expo push token', async () => {
+        const result = await syncCurrentPushToken({
+            token: 'auth-token',
+            secret: 'auth-secret',
+        });
+
+        expect(notificationsMock.getDevicePushTokenAsync).toHaveBeenCalled();
+        expect(notificationsMock.getExpoPushTokenAsync).not.toHaveBeenCalled();
+        expect(apiPushMock.registerPushToken).toHaveBeenCalledWith(
+            { token: 'auth-token', secret: 'auth-secret' },
+            'fcm-current-device',
+        );
+        expect(result).toMatchObject({
+            registered: true,
+            token: 'fcm-current-device',
+        });
+    });
+
+    it('falls back to the bundled Expo project ID when Android native token lookup fails', async () => {
+        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
+
         const result = await syncCurrentPushToken({
             token: 'auth-token',
             secret: 'auth-secret',
@@ -93,7 +118,7 @@ describe('pushRegistration', () => {
         });
     });
 
-    it('prefers the Expo project ID from runtime constants when present', async () => {
+    it('prefers the Expo project ID from runtime constants for Expo fallback', async () => {
         constantsMock.expoConfig = {
             extra: {
                 eas: {
@@ -101,6 +126,7 @@ describe('pushRegistration', () => {
                 },
             },
         };
+        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
 
         await syncCurrentPushToken({
             token: 'auth-token',
@@ -112,8 +138,9 @@ describe('pushRegistration', () => {
         });
     });
 
-    it('returns the token lookup error without registering a stale token', async () => {
-        notificationsMock.getExpoPushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
+    it('returns the token lookup error without registering a stale token when native and Expo lookup both fail', async () => {
+        notificationsMock.getDevicePushTokenAsync.mockRejectedValueOnce(new Error('FCM unavailable'));
+        notificationsMock.getExpoPushTokenAsync.mockRejectedValueOnce(new Error('Expo unavailable'));
         persistenceMock.loadRegisteredPushToken.mockReturnValue('ExponentPushToken[stale-device]');
 
         const result = await syncCurrentPushToken({
@@ -125,7 +152,7 @@ describe('pushRegistration', () => {
         expect(result).toMatchObject({
             registered: false,
             token: 'ExponentPushToken[stale-device]',
-            error: 'FCM unavailable',
+            error: 'FCM unavailable; Expo fallback failed: Expo unavailable',
         });
     });
 });
