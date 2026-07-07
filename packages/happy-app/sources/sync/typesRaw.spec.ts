@@ -1805,6 +1805,9 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                             name: 'photo.png',
                             size: 4567,
                             source: 'generated',
+                            prompt: 'draw a mountain',
+                            batchId: 'batch-1',
+                            localPath: '/tmp/photo.png',
                             image: {
                                 width: 800,
                                 height: 600,
@@ -1825,6 +1828,9 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                         name: 'photo.png',
                         size: 4567,
                         source: 'generated',
+                        prompt: 'draw a mountain',
+                        batchId: 'batch-1',
+                        localPath: '/tmp/photo.png',
                         image: {
                             width: 800,
                             height: 600,

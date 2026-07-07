@@ -222,6 +222,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="generated-images"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('generatedImages.title'),
+                    headerBackTitle: t('common.back'),
+                }}
+            />
+            <Stack.Screen
                 name="artifacts/[id]"
                 options={{
                     headerShown: false, // We'll set header dynamically

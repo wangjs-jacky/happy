@@ -66,7 +66,7 @@ export function buildImageStyleContinuationPrompt(
         '输出要求：',
         `- 对下面每个选中的风格，各生成 ${variants} 张变体。`,
         '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
-        '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送。不要对本地文件使用 Markdown 图片语法。',
+        '- 复用或生成一个稳定 batchId；每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送，并传入本张图片对应的完整 prompt 和 batchId。不要对本地文件使用 Markdown 图片语法。',
         '- 不要在对话里展示生成过程、命令输出、完整 prompt 或路径清单。',
         '- 最终回复：如果全部成功，先只写“完成。”；如有失败的风格，只简短说明失败的风格 id 和原因。',
         '- 最终回复末尾附上下面这些 GPT Image Gallery 推荐选项，保持 option 内容原样，不要改写 style id；客户端会把它们渲染成可多选风格推荐。',

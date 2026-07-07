@@ -19,6 +19,9 @@ export type ImageCapabilityItem = {
     meta: 'session';
     ref: string;
     source?: 'user' | 'generated';
+    prompt?: string;
+    batchId?: string;
+    localPath?: string;
     messageId: string;
     createdAt: number;
     width?: number;
@@ -112,6 +115,9 @@ type FileImageInput = {
     ref: string;
     name?: string;
     source?: 'user' | 'generated';
+    prompt?: string;
+    batchId?: string;
+    localPath?: string;
     image?: {
         width?: number;
         height?: number;
@@ -158,6 +164,9 @@ function parseFileImageInput(input: unknown): FileImageInput | null {
         ref,
         name: typeof input.name === 'string' ? input.name : undefined,
         source: input.source === 'generated' || input.source === 'user' ? input.source : undefined,
+        prompt: typeof input.prompt === 'string' ? input.prompt : undefined,
+        batchId: typeof input.batchId === 'string' ? input.batchId : undefined,
+        localPath: typeof input.localPath === 'string' ? input.localPath : undefined,
         image: image ? {
             width: typeof image.width === 'number' ? image.width : undefined,
             height: typeof image.height === 'number' ? image.height : undefined,
@@ -180,6 +189,9 @@ function getImageItems(messages: Message[], limit: number): ImageCapabilityItem[
             meta: 'session',
             ref: parsed.ref,
             ...(parsed.source ? { source: parsed.source } : {}),
+            ...(parsed.prompt ? { prompt: parsed.prompt } : {}),
+            ...(parsed.batchId ? { batchId: parsed.batchId } : {}),
+            ...(parsed.localPath ? { localPath: parsed.localPath } : {}),
             messageId: message.id,
             createdAt: message.createdAt,
             ...(parsed.image?.width !== undefined ? { width: parsed.image.width } : {}),

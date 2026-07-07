@@ -11,24 +11,32 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createServer } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { AddressInfo } from "node:net";
+import { basename, join } from "node:path";
 import { z } from "zod";
 import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { configuration } from "@/configuration";
 import { captureScreenshot, type ScreenshotTarget } from "@/utils/screenshot";
 import { type ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
 import { fetchFinanceChart } from "@/finance/financeChart";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
-    sendImage: (path: string) => Promise<{ success: boolean; error?: string }>;
+    sendImage: (input: SendImageInput) => Promise<{ success: boolean; error?: string }>;
     archiveSession: (reason?: string) => Promise<{ success: boolean; error?: string }>;
     financeChart: (input: {
         query: string;
         range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
         interval?: '1d';
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+};
+
+type SendImageInput = {
+    path: string;
+    prompt?: string;
+    batchId?: string;
 };
 
 /** 带外图库三工具的依赖注入接口（便于纯函数单测，且给 Task 2.2/3.1 留注入点） */
@@ -109,13 +117,19 @@ function createMcpServer(handlers: HappyMcpHandlers, screenshotTools: ReturnType
     });
 
     mcp.registerTool('send_image', {
-        description: 'Send a local image file into the current chat so the user sees it inline (works on phone and desktop). Use after generating or editing an image. Provide an absolute path to a PNG/JPEG.',
+        description: 'Send a local image file into the current chat so the user sees it inline (works on phone and desktop). Use after generating or editing an image. Provide an absolute path to a PNG/JPEG. Include prompt and batchId when this is a GPT Image 2 output so it appears in the generated image gallery with its prompt.',
         title: 'Send Image To Chat',
         inputSchema: {
             path: z.string().describe('Absolute path to the local image file (PNG/JPEG)'),
+            prompt: z.string().optional().describe('Prompt used to generate this image. Required for GPT Image 2 gallery records when available.'),
+            batchId: z.string().optional().describe('Stable id shared by images from the same generation batch.'),
         },
     }, async (args) => {
-        const response = await handlers.sendImage(args.path);
+        const response = await handlers.sendImage({
+            path: args.path,
+            ...(args.prompt ? { prompt: args.prompt } : {}),
+            ...(args.batchId ? { batchId: args.batchId } : {}),
+        });
         logger.debug('[happyMCP] Response:', response);
 
         if (response.success) {
@@ -278,11 +292,23 @@ export async function startHappyServer(
                 return { success: false, error: String(error) };
             }
         },
-        sendImage: async (path: string) => {
-            logger.debug('[happyMCP] Sending image:', path);
+        sendImage: async (input: SendImageInput) => {
+            logger.debug('[happyMCP] Sending image:', input.path);
             try {
-                const { ref, name, size, dims } = await client.uploadImageAttachment(path);
-                client.sendFileEvent(ref, name, size, dims, 'generated');
+                const batchId = input.batchId?.trim() || randomUUID();
+                const archive = await archiveGeneratedImage({
+                    path: input.path,
+                    prompt: input.prompt,
+                    batchId,
+                    sessionId: client.sessionId,
+                });
+                const { ref, name, size, dims } = await client.uploadImageAttachment(input.path);
+                client.sendFileEvent(ref, name, size, dims, {
+                    source: 'generated',
+                    ...(input.prompt ? { prompt: input.prompt } : {}),
+                    batchId,
+                    localPath: archive.imagePath,
+                });
                 return { success: true };
             } catch (error) {
                 return { success: false, error: String(error) };
@@ -378,4 +404,64 @@ export async function startHappyServer(
             server.close();
         }
     }
+}
+
+async function archiveGeneratedImage(input: {
+    path: string;
+    prompt?: string;
+    batchId: string;
+    sessionId: string;
+}): Promise<{ imagePath: string; manifestPath: string }> {
+    const day = new Date().toISOString().slice(0, 10);
+    const batchDir = join(configuration.generatedImagesDir, day, sanitizePathSegment(input.batchId));
+    const outputDir = join(batchDir, 'outputs');
+    await fs.mkdir(outputDir, { recursive: true });
+
+    const originalName = basename(input.path);
+    const imageName = `${Date.now()}-${sanitizeFileName(originalName || 'image.png')}`;
+    const imagePath = join(outputDir, imageName);
+    await fs.copyFile(input.path, imagePath);
+
+    if (input.prompt?.trim()) {
+        await fs.writeFile(join(batchDir, 'prompt.md'), input.prompt.trim() + '\n', 'utf8');
+    }
+
+    const manifestPath = join(batchDir, 'manifest.json');
+    const existing = await readGeneratedImageManifest(manifestPath);
+    const now = new Date().toISOString();
+    const manifest = {
+        version: 1,
+        batchId: input.batchId,
+        sessionId: input.sessionId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        prompt: input.prompt ?? existing?.prompt,
+        outputs: [
+            ...(Array.isArray(existing?.outputs) ? existing.outputs : []),
+            {
+                path: imagePath,
+                originalPath: input.path,
+                filename: imageName,
+                createdAt: now,
+            },
+        ],
+    };
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+    return { imagePath, manifestPath };
+}
+
+async function readGeneratedImageManifest(path: string): Promise<any | null> {
+    try {
+        return JSON.parse(await fs.readFile(path, 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+function sanitizePathSegment(value: string): string {
+    return sanitizeFileName(value).replace(/^\.+$/, 'batch');
+}
+
+function sanitizeFileName(value: string): string {
+    return value.replace(/[^\w.\-]+/g, '_').slice(0, 120) || 'image';
 }

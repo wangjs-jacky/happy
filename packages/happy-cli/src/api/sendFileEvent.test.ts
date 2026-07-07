@@ -10,10 +10,26 @@ describe('sendFileEvent envelope contract', () => {
         expect((envelope.ev as any).image).toBeUndefined();
     });
 
-    it('accepts generated image source metadata', () => {
-        const envelope = createEnvelope('user', { t: 'file', ref: 'r1', name: 'pic.png', size: 123, source: 'generated' });
+    it('accepts generated image gallery metadata', () => {
+        const envelope = createEnvelope('user', {
+            t: 'file',
+            ref: 'r1',
+            name: 'pic.png',
+            size: 123,
+            source: 'generated',
+            prompt: 'draw a cat',
+            batchId: 'batch-1',
+            localPath: '/tmp/pic.png',
+        });
         expect(sessionEnvelopeSchema.safeParse(envelope).success).toBe(true);
-        expect(envelope.ev).toMatchObject({ t: 'file', ref: 'r1', name: 'pic.png', source: 'generated' });
+        expect(envelope.ev).toMatchObject({
+            t: 'file',
+            ref: 'r1',
+            name: 'pic.png',
+            source: 'generated',
+            prompt: 'draw a cat',
+            batchId: 'batch-1',
+        });
     });
 
     it('rejects a file event with image block missing thumbhash (why we omit image)', () => {

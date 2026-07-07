@@ -199,6 +199,16 @@ export const zhHant: TranslationStructure = {
         missingPath: '缺少檔案路徑',
     },
 
+    generatedImages: {
+        title: 'GPT Image 2 圖庫',
+        entrySubtitle: '集中瀏覽生成圖片和對應 Prompt。',
+        subtitle: ({ count }: { count: number }) => '共 ' + count + ' 張生成圖片',
+        emptyTitle: '還沒有生成圖片',
+        emptyDescription: '透過 send_image 傳送的生成圖片同步到 App 後，會出現在這裡。',
+        promptMissing: '這張圖沒有記錄 Prompt。',
+        openSession: '打開會話',
+    },
+
     rightPanelCapabilityHub: {
         title: '能力中心',
         emptyHomeDescription: '打開一個會話後，這裡會集中展示本次會話的操作、skills、快捷指令、檔案、圖片和 artifacts。',

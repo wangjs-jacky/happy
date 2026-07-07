@@ -150,6 +150,8 @@ describe('sessionCapabilityHubModel', () => {
                 ref: 'blob://1',
                 name: 'generated.png',
                 source: 'generated',
+                prompt: 'draw a cat',
+                batchId: 'batch-1',
                 image: { width: 1024, height: 1024 },
             }),
         ];
@@ -159,6 +161,8 @@ describe('sessionCapabilityHubModel', () => {
         expect(items[0]).toMatchObject({
             title: 'generated.png',
             source: 'generated',
+            prompt: 'draw a cat',
+            batchId: 'batch-1',
         });
     });
 

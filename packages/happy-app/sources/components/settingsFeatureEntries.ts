@@ -5,6 +5,7 @@ type SettingsFeatureEntryTitleKey =
     | 'settings.voiceAssistant'
     | 'settings.askApi'
     | 'agents.imageStyleAgent'
+    | 'generatedImages.title'
     | 'agents.title'
     | 'settings.agentDefaults'
     | 'settings.customInstructions'
@@ -16,6 +17,7 @@ type SettingsFeatureEntrySubtitleKey =
     | 'settings.voiceAssistantSubtitle'
     | 'settings.askApiSubtitle'
     | 'agents.imageStyleAgentEntrySubtitle'
+    | 'generatedImages.entrySubtitle'
     | 'agents.entrySubtitle'
     | 'settings.agentDefaultsSubtitle'
     | 'settings.customInstructionsSubtitle'
@@ -57,6 +59,14 @@ export function getSettingsFeatureEntries(args: { experiments: boolean }): Setti
             icon: 'images-outline',
             color: '#AF52DE',
             route: '/settings/my-agent-edit?kind=image-styles',
+        },
+        {
+            key: 'generated-images',
+            titleKey: 'generatedImages.title',
+            subtitleKey: 'generatedImages.entrySubtitle',
+            icon: 'albums-outline',
+            color: '#0A84FF',
+            route: '/generated-images',
         },
         {
             key: 'my-agents',

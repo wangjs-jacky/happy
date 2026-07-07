@@ -197,6 +197,16 @@ export const en = {
         missingPath: 'Missing file path',
     },
 
+    generatedImages: {
+        title: 'GPT Image 2 Gallery',
+        entrySubtitle: 'Browse generated images and their prompts.',
+        subtitle: ({ count }: { count: number }) => count === 1 ? '1 generated image' : count + ' generated images',
+        emptyTitle: 'No generated images yet',
+        emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
+        promptMissing: 'Prompt was not recorded for this image.',
+        openSession: 'Open session',
+    },
+
     rightPanelCapabilityHub: {
         title: 'Capability Hub',
         emptyHomeDescription: 'Open a session to see session actions, skills, quick prompts, files, images, and artifacts here.',

@@ -300,6 +300,9 @@ export const FileEventMessageSchema = z.object({
         size: z.number(),
         mimeType: z.string().optional(),
         source: z.enum(['user', 'generated']).optional(),
+        prompt: z.string().optional(),
+        batchId: z.string().optional(),
+        localPath: z.string().optional(),
         image: z.object({
           width: z.number(),
           height: z.number(),
