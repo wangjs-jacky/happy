@@ -29,7 +29,15 @@ const server = createServer(async (request, response) => {
         }
 
         if (request.method === 'GET' && (pathname === '/image' || pathname === '/')) {
-            sendHtml(response, 200, publicPage(await service.getSettings()));
+            sendHtml(response, 200, publicPage(await service.getSettings(), await service.getPublicQueueStatus()));
+            return;
+        }
+
+        if (request.method === 'GET' && pathname === '/image/status') {
+            sendJson(response, 200, {
+                settings: await service.getSettings(),
+                queue: await service.getPublicQueueStatus(),
+            });
             return;
         }
 

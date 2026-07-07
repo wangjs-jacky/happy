@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { decideSubmission } from './budget';
-import { defaultGatewaySettings, type GatewaySettings, type ImageJob } from './types';
+import { defaultGatewaySettings, type GatewaySettings, type ImageJob, type PublicQueueStatus } from './types';
 import { type ImageGatewayStore, withSnapshot } from './store';
 
 const MAX_PROMPT_LENGTH = 1200;
@@ -28,6 +28,20 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
     return {
         async getSettings() {
             return (await options.store.read()).settings;
+        },
+        async getPublicQueueStatus(): Promise<PublicQueueStatus> {
+            const snapshot = await options.store.read();
+            const today = now().toISOString().slice(0, 10);
+            const queued = snapshot.jobs.filter((job) => job.status === 'queued').length;
+            const running = snapshot.jobs.filter((job) => job.status === 'running').length;
+            return {
+                queued,
+                running,
+                pendingReview: snapshot.jobs.filter((job) => job.status === 'pending_review').length,
+                succeededToday: snapshot.jobs.filter((job) => job.status === 'succeeded' && job.finishedAt?.startsWith(today)).length,
+                failedToday: snapshot.jobs.filter((job) => job.status === 'failed' && job.finishedAt?.startsWith(today)).length,
+                estimatedJobsAhead: queued + running,
+            };
         },
         async updateSettings(patch: Partial<Pick<GatewaySettings, 'mode' | 'dailyBudgetCents' | 'estimatedCostPerJobCents'>>) {
             return withSnapshot(options.store, (snapshot) => {

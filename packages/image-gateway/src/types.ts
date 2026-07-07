@@ -31,6 +31,15 @@ export interface WorkerHealth {
     totalFailed: number;
 }
 
+export interface PublicQueueStatus {
+    queued: number;
+    running: number;
+    pendingReview: number;
+    succeededToday: number;
+    failedToday: number;
+    estimatedJobsAhead: number;
+}
+
 export interface ImageJob {
     id: string;
     prompt: string;

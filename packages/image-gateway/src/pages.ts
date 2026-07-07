@@ -1,9 +1,16 @@
-import type { GatewaySettings, ImageJob, WorkerHealth } from './types';
+import type { GatewaySettings, ImageJob, PublicQueueStatus, WorkerHealth } from './types';
 
-export function publicPage(settings: GatewaySettings): string {
+export function publicPage(settings: GatewaySettings, queue: PublicQueueStatus): string {
     return layout('Public Image Gateway', `
         <section>
             <div class="status">Mode: <strong>${escapeHtml(settings.mode.toUpperCase())}</strong> · Today: ${settings.dailySpentEstimateCents}/${settings.dailyBudgetCents} cents</div>
+            <div class="queue-grid" aria-label="Queue status">
+                <div><strong>${queue.running}</strong><span>Running</span></div>
+                <div><strong>${queue.queued}</strong><span>Queued</span></div>
+                <div><strong>${queue.pendingReview}</strong><span>Review</span></div>
+                <div><strong>${queue.succeededToday}</strong><span>Done today</span></div>
+            </div>
+            <div class="status">${escapeHtml(publicQueueMessage(queue))}</div>
             <form method="post" action="/image/jobs">
                 <label for="prompt">Prompt</label>
                 <textarea id="prompt" name="prompt" rows="8" maxlength="1200" required placeholder="Describe the image to generate"></textarea>
@@ -107,6 +114,10 @@ function layout(title: string, body: string): string {
         .health-grid div { min-width: 0; }
         dt { font-size: 12px; color: #6a645b; margin-bottom: 3px; }
         dd { margin: 0; overflow-wrap: anywhere; }
+        .queue-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }
+        .queue-grid div { border: 1px solid #ece9df; border-radius: 8px; padding: 10px; min-width: 0; }
+        .queue-grid strong { display: block; font-size: 22px; line-height: 1; margin-bottom: 5px; }
+        .queue-grid span { color: #6a645b; font-size: 12px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border-bottom: 1px solid #ece9df; padding: 10px 8px; text-align: left; vertical-align: top; }
         img { max-width: 100%; border-radius: 8px; border: 1px solid #dad8d0; }
@@ -117,11 +128,14 @@ function layout(title: string, body: string): string {
             .status { color: #bbb5a9; }
             .health-row { color: #bbb5a9; }
             dt { color: #aaa399; }
+            .queue-grid div { border-color: #33302b; }
+            .queue-grid span { color: #aaa399; }
             th, td { border-bottom-color: #33302b; }
         }
         @media (max-width: 640px) {
             .health-row { align-items: flex-start; flex-direction: column; }
             .health-grid { grid-template-columns: 1fr; }
+            .queue-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
     </style>
 </head>
@@ -146,6 +160,16 @@ function escapeHtml(value: string): string {
 
 function escapeAttribute(value: string): string {
     return escapeHtml(value);
+}
+
+function publicQueueMessage(queue: PublicQueueStatus): string {
+    if (queue.running === 0 && queue.queued === 0) {
+        return 'No active public jobs right now.';
+    }
+    if (queue.queued === 0) {
+        return 'A job is running now; new submissions should start after it clears.';
+    }
+    return `${queue.estimatedJobsAhead} public job${queue.estimatedJobsAhead === 1 ? '' : 's'} currently ahead or running.`;
 }
 
 function summarizeWorkerHealth(worker: WorkerHealth): { level: 'online' | 'stale' | 'offline'; label: string; detail: string } {

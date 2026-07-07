@@ -72,6 +72,47 @@ describe('image gateway service', () => {
         expect(worker.totalClaimed).toBe(0);
     });
 
+    it('summarizes public queue status without exposing job details', async () => {
+        let index = 0;
+        const times = [
+            '2026-07-07T08:00:00.000Z',
+            '2026-07-07T08:00:01.000Z',
+            '2026-07-07T08:00:02.000Z',
+            '2026-07-07T08:00:03.000Z',
+            '2026-07-07T08:00:04.000Z',
+            '2026-07-07T08:00:05.000Z',
+            '2026-07-07T08:00:06.000Z',
+            '2026-07-07T08:00:07.000Z',
+            '2026-07-07T08:00:08.000Z',
+        ];
+        const store = createMemoryStore();
+        const service = createImageGatewayService({
+            store,
+            ipHashSecret: 'test-secret',
+            now: () => new Date(times[index++] ?? '2026-07-07T09:00:00.000Z'),
+        });
+
+        const first = await service.submitJob({ prompt: 'private success prompt', ip: '203.0.113.10', userAgent: 'vitest' });
+        await service.claimNextJob();
+        await service.reportSuccess(first.id, { resultUrl: 'https://example.com/success.png' });
+        const second = await service.submitJob({ prompt: 'private running prompt', ip: '203.0.113.10', userAgent: 'vitest' });
+        await service.claimNextJob();
+        await service.submitJob({ prompt: 'private queued prompt', ip: '203.0.113.10', userAgent: 'vitest' });
+
+        const queue = await service.getPublicQueueStatus();
+
+        expect(second.prompt).toContain('private');
+        expect(queue).toEqual({
+            queued: 1,
+            running: 1,
+            pendingReview: 0,
+            succeededToday: 1,
+            failedToday: 0,
+            estimatedJobsAhead: 2,
+        });
+        expect(JSON.stringify(queue)).not.toContain('private');
+    });
+
     it('records worker success and failure outcomes', async () => {
         let index = 0;
         const times = [
