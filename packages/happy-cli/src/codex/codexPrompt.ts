@@ -13,6 +13,15 @@ export interface CodexEnhancedMode {
     effort?: ReasoningEffort;
 }
 
+export const HAPPY_CODEX_IMAGE_WORKFLOW_INSTRUCTION = [
+    'Happy built-in image workflow:',
+    '- When the user asks to generate, edit, batch, or show images, treat it as a Happy-native capability, not as a required external Skill.',
+    '- Prefer Codex / host-native image tools when available. Do not switch to local gateway, Garden/OpenAI-compatible scripts, or `scripts/generate.js` unless the user explicitly asks for that mode.',
+    '- For multiple variants or selected styles, render each variant as an independent prompt and run them in parallel when the host runtime allows it. Fall back to serial only when the host tool or API clearly limits concurrency.',
+    '- After native image generation, check the generated image output directory such as `~/.codex/generated_images/` when the tool result does not expose a path, then copy or save PNG/JPEG files under `garden-gpt-image-2/image/` when practical.',
+    '- Whenever a local PNG/JPEG is ready, call `mcp__happy__send_image` with its absolute path so the image renders inline in Happy. Do not use Markdown image syntax for local files.',
+].join('\n');
+
 export function hashCodexEnhancedMode(mode: CodexEnhancedMode): string {
     return hashObject({
         permissionMode: mode.permissionMode,
@@ -42,6 +51,10 @@ export function buildCodexTurnPrompt(opts: {
             `Happy has already applied these Codex runtime settings for this turn: ${modeStatus.join(', ')}. ` +
             `If the user asks to switch to one of these settings, acknowledge that it is already active; do not look for a tool or API to change it.`
         );
+    }
+
+    if (opts.includeTitleInstruction) {
+        parts.push(HAPPY_CODEX_IMAGE_WORKFLOW_INSTRUCTION);
     }
 
     parts.push(opts.message);

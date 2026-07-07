@@ -53,12 +53,14 @@ export function buildImageStyleContinuationPrompt(
     const recommendedOptions = getRecommendedImageStyleOptions(styles).map((option) => `<option>${option}</option>`).join('\n');
 
     return [
-        '使用 $gpt-image-2 skill 继续执行一次 GPT Image 2 图片编辑 / 生成批处理。',
+        '使用 Happy 内置 GPT Image 2 图片工作流继续执行一次图片编辑 / 生成批处理。',
+        '这是 Happy 自带能力，不要求安装或调用外部 Skills；在 Codex 中优先使用宿主原生 imagegen。',
         '',
-        '生成锁：',
-        '- 这是同一个批处理的并发锁，只用于避免两个图片任务同时运行，不限制多风格生成。',
-        '- 请在同一个批处理中依次完成下面所有选中风格，不要拆成多个新任务。',
-        '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
+        '批量策略：',
+        '- 这是同一个续生成批处理；请在这一轮里完成下面所有选中风格，不要拆成多个新任务。',
+        '- 将每个选中风格、每张变体都视为独立图片 prompt，尽量并行发起；不要等第 1 张完成后才开始第 2 张。',
+        '- 只有宿主原生 imagegen、工具调度或上游接口明确限流时，才退化为串行，并简短说明原因。',
+        '- 不要兜底到本地网关、Garden/OpenAI 兼容脚本或 scripts/generate.js，除非用户明确要求使用这些模式。',
         '',
         '输入：优先使用当前会话中最近一次生成的图片作为视觉参考；如果不可用，使用最近一次上传或生成的相关图片作为参考。',
         '用户目标：基于当前结果继续生成下面选中的 GPT Image Gallery 风格。',

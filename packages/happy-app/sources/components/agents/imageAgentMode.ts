@@ -80,9 +80,10 @@ export function toggleImageAgentStyle(agent: AgentLauncher, styleId: string): Ag
 
 export function createImageStyleSelectionPrompt(style: ImageAgentStylePreset): string {
     return [
-        '使用 $gpt-image-2 skill 生成或编辑图片，并以下面选中的 Garden 案例作为目标风格。',
+        '使用 Happy 内置 GPT Image 2 图片工作流生成或编辑图片，并以下面选中的案例作为目标风格。',
+        '这是 Happy 自带能力，不要求安装或调用外部 Skills；在 Codex 中优先使用宿主原生 imagegen。',
         '',
-        `已选择的 Garden 案例：${style.id}`,
+        `已选择的案例：${style.id}`,
         `案例标题：${style.title}`,
         `模板：${style.templateRef}`,
         `分类：${style.categoryLabel}`,

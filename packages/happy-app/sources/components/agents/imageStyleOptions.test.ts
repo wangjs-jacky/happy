@@ -29,9 +29,12 @@ describe('imageStyleOptions', () => {
 
         const prompt = buildImageStyleContinuationPrompt(styles, { variantsPerStyle: 3 });
 
-        expect(prompt).toContain('$gpt-image-2');
-        expect(prompt).toContain('同一个批处理');
-        expect(prompt).toContain('不限制多风格');
+        expect(prompt).toContain('Happy 内置 GPT Image 2 图片工作流');
+        expect(prompt).toContain('不要求安装或调用外部 Skills');
+        expect(prompt).toContain('同一个续生成批处理');
+        expect(prompt).toContain('尽量并行发起');
+        expect(prompt).not.toContain('$gpt-image-2');
+        expect(prompt).not.toContain('生成锁');
         expect(prompt).toContain('各生成 3 张变体');
         expect(prompt).toContain('<options>');
         expect(prompt).toContain('[[gpt-image-style:');

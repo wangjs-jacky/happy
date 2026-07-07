@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import {
+    HAPPY_CODEX_IMAGE_WORKFLOW_INSTRUCTION,
     buildCodexTurnPrompt,
     hashCodexEnhancedMode,
     type CodexEnhancedMode,
@@ -20,6 +21,7 @@ describe('buildCodexTurnPrompt', () => {
 
         expect(prompt).toBe(
             '<options><option>Yes</option></options>\n\n' +
+            HAPPY_CODEX_IMAGE_WORKFLOW_INSTRUCTION + '\n\n' +
             'pick an option\n\n' +
             CHANGE_TITLE_INSTRUCTION,
         );
@@ -33,7 +35,22 @@ describe('buildCodexTurnPrompt', () => {
             includeTitleInstruction: true,
         });
 
-        expect(prompt).toBe(`hello\n\n${CHANGE_TITLE_INSTRUCTION}`);
+        expect(prompt).toBe(`${HAPPY_CODEX_IMAGE_WORKFLOW_INSTRUCTION}\n\nhello\n\n${CHANGE_TITLE_INSTRUCTION}`);
+    });
+
+    it('adds Happy built-in image workflow guidance on the first Codex turn', () => {
+        const prompt = buildCodexTurnPrompt({
+            message: '画三张产品图',
+            mode: {},
+            includeAppendSystemPrompt: false,
+            includeTitleInstruction: true,
+        });
+
+        expect(prompt).toContain('Happy built-in image workflow');
+        expect(prompt).toContain('host-native image tools');
+        expect(prompt).toContain('run them in parallel when the host runtime allows it');
+        expect(prompt).toContain('mcp__happy__send_image');
+        expect(prompt).toContain('画三张产品图');
     });
 
     it('does not inject Happy preamble on normal follow-up turns', () => {

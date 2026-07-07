@@ -36,8 +36,9 @@ describe('imageAgentPrompt', () => {
 
         const prompt = createImageStyleSelectionPrompt(style!);
 
-        expect(prompt).toContain('使用 $gpt-image-2 skill');
-        expect(prompt).toContain('已选择的 Garden 案例：product-visuals/white-background-product/1');
+        expect(prompt).toContain('使用 Happy 内置 GPT Image 2 图片工作流');
+        expect(prompt).toContain('不要求安装或调用外部 Skills');
+        expect(prompt).toContain('已选择的案例：product-visuals/white-background-product/1');
         expect(prompt).toContain(`风格说明：${style!.promptHint}`);
         expect(prompt).not.toContain(style!.promptContent.slice(0, 120));
         expect(prompt).not.toContain('"typography"');
@@ -77,15 +78,19 @@ describe('imageAgentPrompt', () => {
         ]);
     });
 
-    it('builds a locked multi-image GPT Image 2 batch prompt', () => {
+    it('builds a Happy-native multi-image GPT Image 2 batch prompt', () => {
         const prompt = buildImageAgentPrompt({
             agent,
             userPrompt: '使用乳制品参考照片，并保留盘子的形状。',
             imageCount: 3,
         });
 
-        expect(prompt).toContain('$gpt-image-2');
-        expect(prompt).toContain('生成锁');
+        expect(prompt).toContain('Happy 内置 GPT Image 2 图片工作流');
+        expect(prompt).toContain('不要求安装或调用外部 Skills');
+        expect(prompt).toContain('批量策略');
+        expect(prompt).toContain('尽量并行发起');
+        expect(prompt).not.toContain('$gpt-image-2');
+        expect(prompt).not.toContain('生成锁');
         expect(prompt).toContain('已上传 3 张参考图');
         expect(prompt).toContain('product-visuals/premium-studio-product/1');
         expect(prompt).toContain('product-visuals/white-background-product/1');
