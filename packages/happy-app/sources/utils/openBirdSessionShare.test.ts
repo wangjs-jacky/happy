@@ -111,6 +111,79 @@ describe('buildOpenBirdSessionMarkdown', () => {
         expect(markdown).toContain('Tests passed.');
     });
 
+    it('renders file image attachments as a gallery instead of collapsed tool JSON', () => {
+        const messages: Message[] = [
+            {
+                kind: 'tool-call',
+                id: 'image-1',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                tool: {
+                    name: 'file',
+                    state: 'completed',
+                    input: {
+                        ref: 'sessions/session-1/attachments/image-one.enc',
+                        name: 'image-one.png',
+                        size: 123456,
+                        image: {
+                            width: 900,
+                            height: 1200,
+                            thumbhash: 'thumb-a',
+                        },
+                    },
+                    createdAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                    startedAt: Date.parse('2026-01-01T10:00:00.000Z'),
+                    completedAt: Date.parse('2026-01-01T10:00:01.000Z'),
+                    description: null,
+                },
+                children: [],
+            },
+            {
+                kind: 'tool-call',
+                id: 'image-2',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:00:02.000Z'),
+                tool: {
+                    name: 'file',
+                    state: 'completed',
+                    input: {
+                        ref: 'sessions/session-1/attachments/image-two.enc',
+                        name: 'image-two.jpg',
+                        size: 654321,
+                        image: {
+                            width: 1200,
+                            height: 800,
+                        },
+                    },
+                    createdAt: Date.parse('2026-01-01T10:00:02.000Z'),
+                    startedAt: Date.parse('2026-01-01T10:00:02.000Z'),
+                    completedAt: Date.parse('2026-01-01T10:00:03.000Z'),
+                    description: null,
+                },
+                children: [],
+            },
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:00:04.000Z'),
+                text: '帮我处理这些图片',
+            },
+        ];
+
+        const markdown = buildOpenBirdSessionMarkdown(session, messages);
+
+        expect(markdown).toContain('<div class="happy-image-gallery happy-image-gallery-compact"');
+        expect(markdown).toContain('aria-label="Shared images"');
+        expect(markdown).toContain('image-one.png');
+        expect(markdown).toContain('image-two.jpg');
+        expect(markdown).toContain('900 x 1200');
+        expect(markdown).toContain('1200 x 800');
+        expect(markdown).toContain('帮我处理这些图片');
+        expect(markdown).not.toContain('<span class="happy-tool-name">file</span>');
+        expect(markdown).not.toContain('&quot;ref&quot;: &quot;sessions/session-1/attachments/image-one.enc&quot;');
+    });
+
     it('renders Happy options blocks and common Markdown structure as readable HTML', () => {
         const messages: Message[] = [
             {

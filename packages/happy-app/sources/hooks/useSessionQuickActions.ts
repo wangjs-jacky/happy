@@ -23,6 +23,7 @@ import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildOpenBirdSessionMarkdown, hasOpenBirdShareContent, publishOpenBirdTempPage } from '@/utils/openBirdSessionShare';
+import { loadLatestOpenBirdShare, rememberOpenBirdShare } from '@/utils/openBirdShareHistory';
 import type { Message } from '@/sync/typesMessage';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 import { useSessionManagementPreferences } from './useSessionManagementPreferences';
@@ -89,6 +90,30 @@ async function loadCompleteSessionMessagesForShare(sessionId: string): Promise<{
 
 function getErrorMessage(error: unknown, fallback: string): string {
     return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function promptExistingOpenBirdShare(url: string): Promise<'copy' | 'publish' | 'cancel'> {
+    return new Promise((resolve) => {
+        Modal.alert(
+            t('sessionInfo.shareOpenBirdSuccess'),
+            url,
+            [
+                {
+                    text: t('common.copy'),
+                    onPress: () => resolve('copy'),
+                },
+                {
+                    text: t('sessionInfo.shareOpenBirdPublish'),
+                    onPress: () => resolve('publish'),
+                },
+                {
+                    text: t('common.cancel'),
+                    style: 'cancel',
+                    onPress: () => resolve('cancel'),
+                },
+            ],
+        );
+    });
 }
 
 function getResumeAvailability(session: Session, machine: Machine | null | undefined, isConnected: boolean): ResumeAvailability {
@@ -323,16 +348,29 @@ export function useSessionQuickActions(
     }, [performRename]);
 
     const [sharingOpenBird, performShareOpenBird] = useHappyAction(async () => {
-        const confirmed = await Modal.confirm(
-            t('sessionInfo.shareOpenBirdConfirmTitle'),
-            t('sessionInfo.shareOpenBirdConfirmMessage'),
-            {
-                cancelText: t('common.cancel'),
-                confirmText: t('sessionInfo.shareOpenBirdPublish'),
-            },
-        );
-        if (!confirmed) {
-            return;
+        const latestShare = loadLatestOpenBirdShare(session.id);
+        if (latestShare) {
+            const action = await promptExistingOpenBirdShare(latestShare.url);
+            if (action === 'copy') {
+                await Clipboard.setStringAsync(latestShare.url).catch(() => {});
+                hapticsSuccess();
+                return;
+            }
+            if (action === 'cancel') {
+                return;
+            }
+        } else {
+            const confirmed = await Modal.confirm(
+                t('sessionInfo.shareOpenBirdConfirmTitle'),
+                t('sessionInfo.shareOpenBirdConfirmMessage'),
+                {
+                    cancelText: t('common.cancel'),
+                    confirmText: t('sessionInfo.shareOpenBirdPublish'),
+                },
+            );
+            if (!confirmed) {
+                return;
+            }
         }
 
         const { messages, complete } = await loadCompleteSessionMessagesForShare(session.id);
@@ -351,16 +389,17 @@ export function useSessionQuickActions(
             throw new HappyError(getErrorMessage(error, t('sessionInfo.shareOpenBirdFailed')), false);
         }
 
-        await Clipboard.setStringAsync(result.url).catch(() => {});
+        const savedShare = rememberOpenBirdShare(session.id, result);
+        await Clipboard.setStringAsync(savedShare.url).catch(() => {});
         hapticsSuccess();
         Modal.alert(
             t('sessionInfo.shareOpenBirdSuccess'),
-            result.url,
+            savedShare.url,
             [
                 {
                     text: t('common.copy'),
                     onPress: () => {
-                        void Clipboard.setStringAsync(result.url);
+                        void Clipboard.setStringAsync(savedShare.url);
                     },
                 },
                 { text: t('common.ok'), style: 'cancel' },
