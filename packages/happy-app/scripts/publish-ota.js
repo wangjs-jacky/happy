@@ -1,8 +1,9 @@
 // scripts/publish-ota.js
 // 作用：把 `expo export` 的产物上传到阿里云 OSS，并生成 Expo Updates 协议要求的 manifest 清单。
-// 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>]
+// 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>] [--skip-latest]
 //   --channel  发布到哪个频道，缺省 production；预览发 preview（仅装了 preview 包的设备会拉到）
 //   --platform 平台，缺省 android
+//   --skip-latest 只发布时间戳版本和 meta，不覆盖频道 latest.json。PR 自动预览用它避免互相覆盖。
 //   人类可读展示信息可通过环境变量传入，或在 GitHub Actions 中从 GITHUB_EVENT_PATH 自动读取：
 //     OTA_DISPLAY_TITLE / OTA_DISPLAY_MESSAGE / OTA_SOURCE_TYPE / OTA_SOURCE_NUMBER / OTA_SOURCE_URL
 //   本地也可以用参数传入：
@@ -30,6 +31,8 @@ function parseArgs(argv) {
     else if (a === '--source-type') out.sourceType = argv[++i];
     else if (a === '--source-number') out.sourceNumber = argv[++i];
     else if (a === '--source-url') out.sourceUrl = argv[++i];
+    else if (a === '--skip-latest') out.skipLatest = true;
+    else if (a === '--write-latest') out.skipLatest = false;
     else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
     else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
     else if (a.startsWith('--display-title=')) out.displayTitle = a.slice('--display-title='.length);
@@ -37,6 +40,7 @@ function parseArgs(argv) {
     else if (a.startsWith('--source-type=')) out.sourceType = a.slice('--source-type='.length);
     else if (a.startsWith('--source-number=')) out.sourceNumber = a.slice('--source-number='.length);
     else if (a.startsWith('--source-url=')) out.sourceUrl = a.slice('--source-url='.length);
+    else if (a.startsWith('--latest=')) out.skipLatest = !/^(1|true|yes)$/i.test(a.slice('--latest='.length));
   }
   return out;
 }
@@ -48,6 +52,7 @@ const REGION = 'oss-cn-hangzhou';              // OSS 地域
 const RUNTIME_VERSION = '21';                  // 必须和 app.config.js 的 runtimeVersion 一致
 const PLATFORM = ARGS.platform || 'android';   // 平台（--platform 覆盖）
 const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖），缺省 production 保持旧行为
+const WRITE_LATEST = !ARGS.skipLatest;          // PR 预览可跳过 latest，避免覆盖其他 PR
 const DIST_DIR = path.join(__dirname, '..', 'dist'); // expo export 输出目录
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun'; // aliyun CLI 可执行名/路径
 const OSS_UPLOAD_ENDPOINT = process.env.OSS_UPLOAD_ENDPOINT || `https://${REGION}.aliyuncs.com`;
@@ -264,15 +269,20 @@ async function main() {
     extra: { git, display },
   };
 
-  // 7) 上传 manifest 到频道下的 latest.json（每次覆盖）。先写临时文件再传。
+  // 7) 上传 manifest 到频道下的时间戳版本；按需覆盖 latest.json。先写临时文件再传。
   //    路径含 channel 段：manifests/<platform>/<runtime>/<channel>/latest.json
   const tmpManifest = path.join(os.tmpdir(), `ota-manifest-${stamp}.json`);
   fs.writeFileSync(tmpManifest, JSON.stringify(manifest, null, 2));
   const channelPrefix = `manifests/${PLATFORM}/${RUNTIME_VERSION}/${CHANNEL}`;
   const manifestKey = `${channelPrefix}/latest.json`;
-  ossUpload(tmpManifest, manifestKey, 'application/json');
   // 同时按时间戳留一份备份，方便回滚
-  ossUpload(tmpManifest, `${channelPrefix}/${stamp}.json`, 'application/json');
+  const stampedManifestKey = `${channelPrefix}/${stamp}.json`;
+  ossUpload(tmpManifest, stampedManifestKey, 'application/json');
+  if (WRITE_LATEST) {
+    ossUpload(tmpManifest, manifestKey, 'application/json');
+  } else {
+    console.log('  跳过 latest.json 覆盖:', manifestKey);
+  }
   fs.unlinkSync(tmpManifest);
 
   // 8) 额外上传一份轻量「版本元信息」（meta），只含时间戳 + git + display。
@@ -285,7 +295,9 @@ async function main() {
 
   console.log('\n✅ 发布完成！');
   console.log('频道:', CHANNEL, '· 平台:', PLATFORM, '· runtimeVersion:', RUNTIME_VERSION);
-  console.log('manifest 地址:', `${OSS_PUBLIC_BASE}/${manifestKey}`);
+  console.log('manifest 地址:', `${OSS_PUBLIC_BASE}/${WRITE_LATEST ? manifestKey : stampedManifestKey}`);
+  console.log('时间戳版本:', stamp);
+  console.log('覆盖 latest:', WRITE_LATEST ? 'yes' : 'no');
   console.log('新版本 id:', manifest.id);
   if (git.sha) {
     console.log('对应 commit:', `${git.sha}${git.dirty ? '*' : ''} ${git.subject}`);
@@ -302,7 +314,11 @@ async function main() {
       `ota_channel=${CHANNEL}`,
       `ota_platform=${PLATFORM}`,
       `ota_runtime=${RUNTIME_VERSION}`,
-      `ota_manifest_url=${OSS_PUBLIC_BASE}/${manifestKey}`,
+      `ota_stamp=${stamp}`,
+      `ota_manifest_url=${OSS_PUBLIC_BASE}/${WRITE_LATEST ? manifestKey : stampedManifestKey}`,
+      `ota_stamped_manifest_url=${OSS_PUBLIC_BASE}/${stampedManifestKey}`,
+      `ota_latest_updated=${WRITE_LATEST ? 'true' : 'false'}`,
+      `ota_deep_link=paws://ota-switch?channel=${CHANNEL}&stamp=${stamp}`,
       `ota_commit=${git.sha || ''}`,
     ];
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join('\n') + '\n');

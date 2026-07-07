@@ -1,7 +1,8 @@
 name: Self-hosted OTA preview (per PR)
 
-# 给开发预览用的 OTA：PR 一开/更新就把这次改动以 OTA 形式发到「preview 频道」，
-# 装了 preview 包的开发者冷启动即可在真机上看效果；确认没问题再合并 PR。
+# 给开发预览用的 OTA：PR 一开/更新就把这次改动以 OTA 形式发到「preview 频道」的
+# 时间戳版本，但不覆盖全局 latest.json，避免多个 PR 并行时互相抢走 preview latest。
+# 装了 preview 包的开发者通过评论里的 stamp/deep link 锁定到本 PR 版本；确认没问题再合并 PR。
 # 生产用户走 production 频道，完全不受影响。
 #
 # 触发与安全：
@@ -99,7 +100,14 @@ jobs:
             - name: Publish OTA to preview channel
               id: publish
               working-directory: packages/happy-app
-              run: node scripts/publish-ota.js --channel "${CHANNEL}" --platform android
+              run: |
+                  args=(--channel "${CHANNEL}" --platform android)
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    # PR 自动预览只写时间戳版本，不覆盖 preview/latest.json。
+                    # 手动 workflow_dispatch 保持旧行为，可显式把某版推成全局 latest。
+                    args+=(--skip-latest)
+                  fi
+                  node scripts/publish-ota.js "${args[@]}"
 
             - name: Comment preview result on PR
               if: ${{ github.event_name == 'pull_request' && success() }}
@@ -110,20 +118,30 @@ jobs:
                       const channel = `${{ steps.publish.outputs.ota_channel }}`;
                       const runtime = `${{ steps.publish.outputs.ota_runtime }}`;
                       const commit = `${{ steps.publish.outputs.ota_commit }}`;
+                      const stamp = `${{ steps.publish.outputs.ota_stamp }}`;
+                      const manifest = `${{ steps.publish.outputs.ota_manifest_url }}`;
+                      const deepLink = `${{ steps.publish.outputs.ota_deep_link }}`;
+                      const latestUpdated = `${{ steps.publish.outputs.ota_latest_updated }}`;
                       const body = [
                         '### 📲 预览 OTA 已发布',
                         '',
-                        '这次改动已发到自建 OTA 的 **`' + channel + '`** 频道。装了 **preview 包**的设备：',
+                        '这次改动已发到自建 OTA 的 **`' + channel + '`** 频道历史版本。PR 自动发布不会覆盖全局 `preview/latest.json`，所以不会再被其他 PR 互相顶掉。',
                         '',
-                        '1. 完全杀掉 App 再冷启动（必要时连开两次）',
-                        '2. 等「有可用更新」横幅 → 点它重载，即可在真机上预览本次改动',
+                        '装了 **preview 包**的设备请锁定下面这个 stamp 后验证：',
+                        '',
+                        '1. 打开 App 的 OTA 版本入口，选择 stamp `' + stamp + '`',
+                        '2. 或在手机上打开 deep link：`' + deepLink + '`',
+                        '3. App 拉取并重载后，在 /dev → Expo Constants 确认 Update ID 一致',
                         '',
                         '| 字段 | 值 |',
                         '| --- | --- |',
                         '| Update ID | `' + id + '` |',
+                        '| stamp | `' + stamp + '` |',
                         '| 频道 | `' + channel + '` |',
                         '| runtimeVersion | `' + runtime + '`（须与装机 APK 一致） |',
                         '| 对应 commit | `' + (commit || 'n/a') + '` |',
+                        '| manifest | ' + manifest + ' |',
+                        '| 覆盖 latest | `' + latestUpdated + '` |',
                         '',
                         '> 验证方法：设置 → 连点版本号解锁开发者模式 → /dev → Expo Constants，确认 Update ID 一致。',
                         '> 预览没问题后即可合并本 PR；生产用户走 `production` 频道，不受影响。',
