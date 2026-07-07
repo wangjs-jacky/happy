@@ -75,9 +75,7 @@ async function postJson(path: string, payload: unknown) {
 
 async function uploadLocalImage(jobId: string, imagePath: string): Promise<string> {
     const uploadCommand = process.env.IMAGE_WORKER_UPLOAD_COMMAND;
-    if (!uploadCommand) {
-        throw new Error('IMAGE_WORKER_UPLOAD_COMMAND is required when native command returns imagePath');
-    }
+    if (!uploadCommand) return uploadLocalImageToGateway(jobId, imagePath);
     const { spawn } = await import('node:child_process');
     return new Promise((resolve, reject) => {
         const child = spawn(uploadCommand, [jobId, imagePath], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -96,6 +94,28 @@ async function uploadLocalImage(jobId: string, imagePath: string): Promise<strin
             }
         });
     });
+}
+
+async function uploadLocalImageToGateway(jobId: string, imagePath: string): Promise<string> {
+    const { readFile } = await import('node:fs/promises');
+    const bytes = await readFile(imagePath);
+    const contentType = imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+    const response = await fetch(`${gatewayUrl}/image/worker/jobs/${jobId}/result`, {
+        method: 'PUT',
+        headers: {
+            authorization: `Bearer ${workerToken}`,
+            'content-type': contentType,
+        },
+        body: bytes,
+    });
+    if (!response.ok) {
+        throw new Error(`Gateway image upload failed: ${response.status}`);
+    }
+    const payload = await response.json() as { resultUrl?: string };
+    if (!payload.resultUrl) {
+        throw new Error('Gateway upload returned no resultUrl');
+    }
+    return new URL(payload.resultUrl, gatewayUrl).toString();
 }
 
 function delay(ms: number) {

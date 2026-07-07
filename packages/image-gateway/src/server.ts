@@ -1,11 +1,14 @@
 import { createServer } from 'node:http';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createFileStore } from './store';
 import { createImageGatewayService } from './service';
 import { adminPage, jobPage, publicPage } from './pages';
-import { readInput, redirect, requireToken, sendHtml, sendJson } from './http';
+import { readBytes, readInput, redirect, requireToken, sendHtml, sendJson } from './http';
 
 const port = Number(process.env.IMAGE_GATEWAY_PORT ?? 3010);
 const dataPath = process.env.IMAGE_GATEWAY_DATA ?? './data/image-gateway.json';
+const resultDir = process.env.IMAGE_GATEWAY_RESULT_DIR ?? join(dirname(dataPath), 'results');
 const adminToken = process.env.IMAGE_GATEWAY_ADMIN_TOKEN;
 const workerToken = process.env.IMAGE_GATEWAY_WORKER_TOKEN;
 const hashSecret = process.env.IMAGE_GATEWAY_HASH_SECRET ?? workerToken ?? adminToken ?? 'dev-secret-change-me';
@@ -56,6 +59,27 @@ const server = createServer(async (request, response) => {
                 sendHtml(response, 200, jobPage(job));
             } else {
                 sendJson(response, 200, job);
+            }
+            return;
+        }
+
+        const resultMatch = pathname.match(/^\/image\/results\/([A-Za-z0-9_.-]+)$/);
+        if (request.method === 'GET' && resultMatch) {
+            const fileName = resultMatch[1]!;
+            const filePath = join(resultDir, fileName);
+            if (!filePath.startsWith(resultDir)) {
+                sendJson(response, 400, { error: 'Invalid result path' });
+                return;
+            }
+            try {
+                const bytes = await readFile(filePath);
+                response.writeHead(200, {
+                    'content-type': fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') ? 'image/jpeg' : 'image/png',
+                    'cache-control': 'public, max-age=31536000, immutable',
+                });
+                response.end(bytes);
+            } catch {
+                sendJson(response, 404, { error: 'Result not found' });
             }
             return;
         }
@@ -123,6 +147,31 @@ const server = createServer(async (request, response) => {
                 })
                 : await service.reportFailure(workerReportMatch[1]!, String(input.error ?? 'Worker failed'));
             sendJson(response, 200, job);
+            return;
+        }
+
+        const workerUploadMatch = pathname.match(/^\/image\/worker\/jobs\/([^/]+)\/result$/);
+        if (request.method === 'PUT' && workerUploadMatch) {
+            if (!requireToken(request, workerToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Worker token required' });
+                return;
+            }
+            const jobId = workerUploadMatch[1]!;
+            const contentType = String(request.headers['content-type'] ?? 'image/png').toLowerCase();
+            const extension = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png';
+            const bytes = await readBytes(request);
+            if (bytes.length === 0) {
+                sendJson(response, 400, { error: 'Empty upload' });
+                return;
+            }
+            if (bytes.length > 20 * 1024 * 1024) {
+                sendJson(response, 413, { error: 'Upload too large' });
+                return;
+            }
+            await mkdir(resultDir, { recursive: true });
+            const fileName = `${jobId}.${extension}`;
+            await writeFile(join(resultDir, fileName), bytes);
+            sendJson(response, 200, { resultUrl: `/image/results/${fileName}` });
             return;
         }
 
