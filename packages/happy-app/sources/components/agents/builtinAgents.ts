@@ -166,6 +166,39 @@ export function createScheduleManagerAgent(options: {
     };
 }
 
+export function createBuiltInAgents(options: {
+    machines: Machine[];
+    preferredMachineId?: string | null;
+    preferredPath?: string | null;
+    appBuilderTitle: string;
+    appBuilderPresetBuildLabel: string;
+    appBuilderPresetBugfixLabel: string;
+    scheduleTitle: string;
+    schedulePresetPlanLabel: string;
+    schedulePresetPoolLabel: string;
+    schedulePresetResetLabel: string;
+}): AgentLauncher[] {
+    return [
+        createScheduleManagerAgent({
+            machines: options.machines,
+            preferredMachineId: options.preferredMachineId,
+            preferredPath: options.preferredPath,
+            title: options.scheduleTitle,
+            presetPlanLabel: options.schedulePresetPlanLabel,
+            presetPoolLabel: options.schedulePresetPoolLabel,
+            presetResetLabel: options.schedulePresetResetLabel,
+        }),
+        createAppBuilderAgent({
+            machines: options.machines,
+            preferredMachineId: options.preferredMachineId,
+            preferredPath: options.preferredPath,
+            title: options.appBuilderTitle,
+            presetBuildLabel: options.appBuilderPresetBuildLabel,
+            presetBugfixLabel: options.appBuilderPresetBugfixLabel,
+        }),
+    ].filter((agent): agent is AgentLauncher => !!agent);
+}
+
 export function getAgentSubtitle(agent: AgentLauncher, machine: Machine | undefined, machineMissing: string): string {
     const machineLabel = machine ? getMachineName(machine) : machineMissing;
     return `${machineLabel} · ${agent.path}`;

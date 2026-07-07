@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useFriendRequests, useProfile, useSetting } from '@/sync/storage';
+import { useAllMachines, useRealtimeStatus, useFriendRequests, useProfile, useSetting } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
 import { MainView } from './MainView';
 import { ProfileAvatarControl } from './ProfileAvatarControl';
@@ -14,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useDrawerHaptics } from './useDrawerHaptics';
 import { AgentSheet } from './agents/AgentSheet';
+import { createBuiltInAgents } from './agents/builtinAgents';
+import { getAgentSheetEntryState } from './agents/agentSheetEntryModel';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -192,6 +194,25 @@ export const SidebarView = React.memo(() => {
     const friendRequests = useFriendRequests();
     const profile = useProfile();
     const agents = useSetting('agents');
+    const machines = useAllMachines({ includeOffline: true });
+    const builtInAgents = React.useMemo(() => createBuiltInAgents({
+        machines,
+        appBuilderTitle: t('agents.appBuilderTitle'),
+        appBuilderPresetBuildLabel: t('agents.appBuilderPresetBuild'),
+        appBuilderPresetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+        scheduleTitle: t('agents.scheduleManagerTitle'),
+        schedulePresetPlanLabel: t('agents.scheduleManagerPresetPlan'),
+        schedulePresetPoolLabel: t('agents.scheduleManagerPresetReviewPool'),
+        schedulePresetResetLabel: t('agents.scheduleManagerPresetReset'),
+    }), [machines]);
+    const agentEntryState = React.useMemo(() => getAgentSheetEntryState({
+        customAgentCount: agents.length,
+        builtinAgentCount: builtInAgents.length,
+    }), [agents.length, builtInAgents.length]);
+    const agentPreviews = React.useMemo(
+        () => [...builtInAgents, ...agents],
+        [builtInAgents, agents],
+    );
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const displayName = getDisplayName(profile) ?? t('settings.title');
 
@@ -245,7 +266,7 @@ export const SidebarView = React.memo(() => {
 
             {/* My Agents card — tap body to open the AgentSheet (or jump to config when empty) */}
             <Pressable
-                onPress={() => (agents.length > 0 ? setSheetOpen(true) : go('/settings/my-agents'))}
+                onPress={() => (agentEntryState.opensSheet ? setSheetOpen(true) : go('/settings/my-agents'))}
                 style={({ pressed }) => [
                     styles.agentsCard,
                     pressed && styles.agentsCardPressed,
@@ -262,9 +283,9 @@ export const SidebarView = React.memo(() => {
                         <Text style={styles.agentsAddText}>{t('agents.add')}</Text>
                     </Pressable>
                 </View>
-                {agents.length > 0 ? (
+                {!agentEntryState.showsEmpty ? (
                     <View style={styles.agentsAvatars}>
-                        {agents.slice(0, 5).map((agent) => (
+                        {agentPreviews.slice(0, 5).map((agent) => (
                             <View key={agent.id} style={[styles.agentMiniAvatar, { backgroundColor: agent.color }]}>
                                 <Text style={styles.agentMiniGlyph}>{agent.glyph}</Text>
                             </View>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { APP_BUILDER_AGENT_ID, createAppBuilderAgent, createScheduleManagerAgent } from './builtinAgents';
+import { APP_BUILDER_AGENT_ID, createAppBuilderAgent, createBuiltInAgents, createScheduleManagerAgent } from './builtinAgents';
 import { SCHEDULE_AGENT_ID } from './scheduleAgentModel';
 import type { Machine } from '@/sync/storageTypes';
 
@@ -77,5 +77,22 @@ describe('createScheduleManagerAgent', () => {
         expect(agent?.permissionMode).toBe('yolo');
         expect(agent?.presets[0]?.prompt).toContain('TT');
         expect(agent?.presets[1]?.prompt).toContain('任务池');
+    });
+});
+
+describe('createBuiltInAgents', () => {
+    it('returns schedule manager before app builder for the launcher sheet', () => {
+        const builtins = createBuiltInAgents({
+            machines: [machine('m1', true, '/Users/a')],
+            appBuilderTitle: 'App Builder',
+            appBuilderPresetBuildLabel: 'Build app',
+            appBuilderPresetBugfixLabel: 'Fix bug',
+            scheduleTitle: '日程管理专家',
+            schedulePresetPlanLabel: '生成今日作战图',
+            schedulePresetPoolLabel: '整理任务池',
+            schedulePresetResetLabel: '本周重置',
+        });
+
+        expect(builtins.map((agent) => agent.id)).toEqual([SCHEDULE_AGENT_ID, APP_BUILDER_AGENT_ID]);
     });
 });

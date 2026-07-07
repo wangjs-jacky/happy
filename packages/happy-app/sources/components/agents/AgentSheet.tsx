@@ -10,7 +10,7 @@ import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
-import { createAppBuilderAgent, createScheduleManagerAgent, getAgentSubtitle } from './builtinAgents';
+import { createBuiltInAgents, getAgentSubtitle } from './builtinAgents';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -24,30 +24,21 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const agents = useSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
-    const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
+    const builtInAgents = React.useMemo(() => createBuiltInAgents({
         machines,
         preferredMachineId: draft.selectedMachineId,
         preferredPath: draft.selectedPath,
-        title: t('agents.appBuilderTitle'),
-        presetBuildLabel: t('agents.appBuilderPresetBuild'),
-        presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
-    }), [draft.selectedMachineId, draft.selectedPath, machines]);
-    const builtinScheduleAgent = React.useMemo(() => createScheduleManagerAgent({
-        machines,
-        preferredMachineId: draft.selectedMachineId,
-        preferredPath: draft.selectedPath,
-        title: t('agents.scheduleManagerTitle'),
-        presetPlanLabel: t('agents.scheduleManagerPresetPlan'),
-        presetPoolLabel: t('agents.scheduleManagerPresetReviewPool'),
-        presetResetLabel: t('agents.scheduleManagerPresetReset'),
+        appBuilderTitle: t('agents.appBuilderTitle'),
+        appBuilderPresetBuildLabel: t('agents.appBuilderPresetBuild'),
+        appBuilderPresetBugfixLabel: t('agents.appBuilderPresetBugfix'),
+        scheduleTitle: t('agents.scheduleManagerTitle'),
+        schedulePresetPlanLabel: t('agents.scheduleManagerPresetPlan'),
+        schedulePresetPoolLabel: t('agents.scheduleManagerPresetReviewPool'),
+        schedulePresetResetLabel: t('agents.scheduleManagerPresetReset'),
     }), [draft.selectedMachineId, draft.selectedPath, machines]);
     const visibleAgents = React.useMemo(
-        () => [
-            ...(builtinScheduleAgent ? [builtinScheduleAgent] : []),
-            ...(builtinAppAgent ? [builtinAppAgent] : []),
-            ...agents,
-        ],
-        [builtinScheduleAgent, builtinAppAgent, agents],
+        () => [...builtInAgents, ...agents],
+        [builtInAgents, agents],
     );
 
     const goManage = React.useCallback(() => {
