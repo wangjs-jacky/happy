@@ -114,6 +114,28 @@ describe('sessionOtaPreviews', () => {
         });
     });
 
+    it('marks the OTA card as current when its update id is already running', () => {
+        const [preview] = extractMessageOtaPreviews(agentMessage(`
+            <happy-ota-preview>
+            title: Preview OTA Card Direct Switch
+            channel: preview
+            platform: android
+            runtimeVersion: 21
+            updateId: 3f48b113-3302-77c7-2a73-d3819459cb84
+            stamp: 1783421651649
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/151
+            summary: PR #151 preview OTA 已发布，并通过 OSS latest manifest 与 FC manifest 响应核验。
+            </happy-ota-preview>
+        `));
+
+        expect(getOtaPreviewPrimaryAction(preview, {
+            currentUpdateId: '3f48b113-3302-77c7-2a73-d3819459cb84',
+        })).toEqual({
+            type: 'current',
+        });
+    });
+
     it('keeps PR as the primary action when the OTA card cannot be switched directly', () => {
         const [preview] = extractMessageOtaPreviews(agentMessage(`
             <happy-ota-preview>

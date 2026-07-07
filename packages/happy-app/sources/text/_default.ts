@@ -1218,6 +1218,7 @@ export const en = {
         switchToThisVersion: 'Switch to this version?',
         lockToVersionMessage: ({ title, subtitle, message }: { title: string; subtitle: string; message?: string }) => `${title}\n${subtitle}${message ? `\n\n${message}` : ''}\n\nThis device will lock to this OTA version and reload immediately. Other devices are not affected.`,
         switchAndReload: 'Switch and reload',
+        currentOtaRunning: 'Already running',
         unlockVersion: 'Unlock version?',
         unlockVersionMessage: 'After unlocking, this device follows latest again. Reloading will pull the latest preview channel version.',
         unlockAndReload: 'Unlock and reload',

@@ -915,6 +915,7 @@ export const zhHant: TranslationStructure = {
         ...en.devTools,
         otaVersions: 'OTA 版本',
         switchOtaVersion: '切換 OTA 版本',
+        currentOtaRunning: '目前已執行',
         listComponents: '列表元件',
         toolViews: '工具檢視',
         maskedProgress: '遮罩進度',

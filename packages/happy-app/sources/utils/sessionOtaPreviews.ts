@@ -23,9 +23,14 @@ export type SessionOtaPreview = {
 };
 
 export type OtaPreviewPrimaryAction =
+    | { type: 'current' }
     | { type: 'switch'; stamp: string }
     | { type: 'link'; url: string }
     | null;
+
+type OtaPreviewPrimaryActionOptions = {
+    currentUpdateId?: string | null;
+};
 
 type ParsedFields = {
     title?: string;
@@ -292,7 +297,14 @@ export function getOtaPreviewSwitchStamp(preview: SessionOtaPreview): string | n
     return stamp;
 }
 
-export function getOtaPreviewPrimaryAction(preview: SessionOtaPreview): OtaPreviewPrimaryAction {
+export function getOtaPreviewPrimaryAction(
+    preview: SessionOtaPreview,
+    options?: OtaPreviewPrimaryActionOptions,
+): OtaPreviewPrimaryAction {
+    if (preview.updateId && options?.currentUpdateId && preview.updateId === options.currentUpdateId) {
+        return { type: 'current' };
+    }
+
     const switchStamp = getOtaPreviewSwitchStamp(preview);
     if (switchStamp) {
         return { type: 'switch', stamp: switchStamp };

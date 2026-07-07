@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator, Pressable, Text, View, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Updates from 'expo-updates';
 import { Typography } from '@/constants/Typography';
 import { applyOtaTarget } from '@/hooks/useOtaTarget';
 import { useHappyAction } from '@/hooks/useHappyAction';
@@ -107,18 +108,25 @@ export const OtaPreviewCard = React.memo(function OtaPreviewCard(props: {
 }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
-    const primaryAction = getOtaPreviewPrimaryAction(props.preview);
+    const primaryAction = getOtaPreviewPrimaryAction(props.preview, {
+        currentUpdateId: Updates.updateId ?? null,
+    });
     const primaryUrl = primaryAction?.type === 'link' ? primaryAction.url : null;
     const primarySwitchStamp = primaryAction?.type === 'switch' ? primaryAction.stamp : null;
+    const isCurrentVersion = primaryAction?.type === 'current';
     const label = formatOtaPreviewLabel(props.preview);
     const identity = formatOtaPreviewIdentity(props.preview);
     const variant = props.variant ?? 'message';
     const isMessage = variant === 'message';
     const summaryLines = isMessage ? 4 : 3;
-    const primaryLabel = primarySwitchStamp
+    const primaryLabel = isCurrentVersion
+        ? t('devTools.currentOtaRunning')
+        : primarySwitchStamp
         ? t('devTools.switchAndReload')
         : props.preview.sourceUrl ? 'Open PR' : props.preview.siteUrl ? 'Versions' : 'Open manifest';
-    const primaryIcon: keyof typeof Ionicons.glyphMap = primarySwitchStamp
+    const primaryIcon: keyof typeof Ionicons.glyphMap = isCurrentVersion
+        ? 'checkmark-circle-outline'
+        : primarySwitchStamp
         ? 'swap-horizontal-outline'
         : props.preview.sourceUrl
         ? 'logo-github'
