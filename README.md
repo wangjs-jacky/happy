@@ -14,8 +14,16 @@
 Use Claude Code or Codex from anywhere with end-to-end encryption.
 </h4>
 
+> Fork note: for Paws-specific APK download, source CLI install, daemon startup,
+> and self-hosting instructions, start with
+> [docs/getting-started.zh-CN.md](docs/getting-started.zh-CN.md) or
+> [docs/getting-started.md](docs/getting-started.md). The public
+> `npm install -g happy` package tracks upstream Happy; this fork's CLI is built
+> from `packages/happy-cli` and should be used as `paws` by default. The
+> `happy` commands below are the upstream quick start.
+
 <div align="center">
-  
+
 [📱 **iOS App**](https://apps.apple.com/us/app/happy-claude-code-client/id6748571505) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.ex3ndr.happy) • [🌐 **Web App**](https://app.happy.engineering) • [🎥 **See a Demo**](https://youtu.be/GCS0OG9QMSE) • [📚 **Documentation**](https://happy.engineering/docs/) • [💬 **Discord**](https://discord.gg/fX9WBAhyfD)
 
 </div>
@@ -59,7 +67,7 @@ On your computer, run `happy` instead of `claude` or `happy codex` instead of `c
 ## 🔥 Why Happy Coder?
 
 - 📱 **Mobile access to Claude Code and Codex** - Check what your AI is building while away from your desk
-- 🔔 **Push notifications** - Get alerted when Claude Code and Codex needs permission or encounters errors  
+- 🔔 **Push notifications** - Get alerted when Claude Code and Codex needs permission or encounters errors
 - ⚡ **Switch devices instantly** - Take control from phone or desktop with one keypress
 - 🔐 **End-to-end encrypted** - Your code never leaves your devices unencrypted
 - 🛠️ **Open source** - Audit the code yourself. No telemetry, no tracking
