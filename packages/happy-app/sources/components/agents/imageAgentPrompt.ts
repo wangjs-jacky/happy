@@ -88,6 +88,7 @@ export function createUserImageStylePreset(style: UserImageStyle): ImageAgentSty
         customCreatedAt: style.createdAt,
         customUpdatedAt: style.updatedAt,
         customAnalyzedAt: style.analyzedAt,
+        customAnalysisSessionId: style.analysisSessionId,
         custom: true,
     };
 }

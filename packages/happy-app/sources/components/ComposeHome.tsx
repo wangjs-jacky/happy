@@ -14,7 +14,7 @@ import { ComposeHomeParticles } from './ComposeHomeParticles';
 import { useHeaderHeight } from '@/utils/responsive';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { useProfile, useAllMachines, useLocalSetting, useSetting, useSettingMutable } from '@/sync/storage';
+import { storage, useProfile, useAllMachines, useLocalSetting, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -49,11 +49,14 @@ import {
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
-import { extractCustomImageStylePrompt } from './agents/customImageStyleAnalysis';
+import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import type { UserImageStyle } from './agents/imageStyleTypes';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 import { Modal } from '@/modal';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import { machineSpawnNewSession, sessionArchive } from '@/sync/ops';
+import { sync } from '@/sync/sync';
+import { resolveAbsolutePath } from '@/utils/pathUtils';
 
 // Agent display labels for the compose chip. Mirrors the list used in /new.
 const AGENT_LABELS: Record<string, string> = {
@@ -118,7 +121,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
-    const inferenceOpenAIKey = useSetting('inferenceOpenAIKey');
     const composerInputRef = React.useRef<MultiTextInputHandle>(null);
     const configPanelRef = React.useRef<SessionConfigPanelHandle>(null);
 
@@ -342,32 +344,42 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         setCustomImageStyles(next);
     }, [setCustomImageStyles]);
 
-    const analyzeCustomImageStyle = React.useCallback(async (style: UserImageStyle) => {
-        updateCustomImageStyle(style.id, (current) => ({
-            ...current,
-            analysisStatus: 'analyzing',
-            analysisError: undefined,
-            updatedAt: Date.now(),
-        }));
+    const customAnalysisSnapshots = storage(useShallow((state) => customImageStyles
+        .filter((style) => style.analysisStatus === 'analyzing' && !!style.analysisSessionId)
+        .map((style) => {
+            const sessionId = style.analysisSessionId!;
+            const session = state.sessions[sessionId];
+            const messages = state.sessionMessages[sessionId]?.messages ?? [];
+            const agentText = messages
+                .flatMap((message) => (message.kind === 'agent-text' && !message.isThinking ? [message.text] : []))
+                .join('\n');
+            return {
+                styleId: style.id,
+                sessionId,
+                agentText,
+                thinking: session?.thinking ?? false,
+                active: session?.active ?? false,
+            };
+        })));
 
-        const apiKey = inferenceOpenAIKey?.trim();
-        if (!apiKey) {
-            updateCustomImageStyle(style.id, (current) => ({
-                ...current,
-                analysisStatus: 'failed',
-                analysisError: t('agents.customImageStyleMissingOpenAIKey'),
-                updatedAt: Date.now(),
-            }));
-            return;
-        }
+    React.useEffect(() => {
+        for (const snapshot of customAnalysisSnapshots) {
+            if (!snapshot.agentText.trim()) continue;
+            const extracted = parseStylePromptExtractionFromMessage(snapshot.agentText);
+            if (!extracted) {
+                if (!snapshot.active && !snapshot.thinking) {
+                    updateCustomImageStyle(snapshot.styleId, (current) => ({
+                        ...current,
+                        analysisStatus: 'failed',
+                        analysisError: t('agents.customImageStyleInvalidLocalResult'),
+                        updatedAt: Date.now(),
+                    }));
+                    sessionArchive(snapshot.sessionId).catch(() => undefined);
+                }
+                continue;
+            }
 
-        try {
-            const extracted = await extractCustomImageStylePrompt({
-                apiKey,
-                title: style.title,
-                images: style.referenceImages,
-            });
-            updateCustomImageStyle(style.id, (current) => ({
+            updateCustomImageStyle(snapshot.styleId, (current) => ({
                 ...current,
                 promptHint: extracted.summary || current.promptHint,
                 promptContent: extracted.promptContent,
@@ -379,6 +391,64 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 promptSource: 'extracted-prompt',
                 updatedAt: Date.now(),
             }));
+            sessionArchive(snapshot.sessionId).catch(() => undefined);
+        }
+    }, [customAnalysisSnapshots, updateCustomImageStyle]);
+
+    const analyzeCustomImageStyle = React.useCallback(async (style: UserImageStyle) => {
+        updateCustomImageStyle(style.id, (current) => ({
+            ...current,
+            analysisStatus: 'analyzing',
+            analysisError: undefined,
+            updatedAt: Date.now(),
+        }));
+
+        if (!selectedMachineId || !selectedMachine || !isMachineOnline(selectedMachine)) {
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                analysisStatus: 'failed',
+                analysisError: t('agents.customImageStyleMissingLocalAgent'),
+                updatedAt: Date.now(),
+            }));
+            return;
+        }
+
+        try {
+            const pathToUse = (selectedPath ?? '').trim() || '~';
+            const absolutePath = resolveAbsolutePath(pathToUse, selectedMachine.metadata?.homeDir);
+            const spawnDirectory = (worktreeKey && worktreeKey !== '__none__' && worktreeKey !== '__new__')
+                ? worktreeKey
+                : absolutePath;
+            const result = await machineSpawnNewSession({
+                machineId: selectedMachineId,
+                directory: spawnDirectory,
+                agent: 'codex',
+            });
+            if (result.type !== 'success') {
+                throw new Error(result.type === 'error' ? result.errorMessage : t('agents.customImageStyleMissingLocalAgent'));
+            }
+            await sync.refreshSessions();
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                analysisSessionId: result.sessionId,
+                analysisError: undefined,
+                updatedAt: Date.now(),
+            }));
+            const attachments = style.referenceImages.map((image) => ({
+                id: image.id,
+                uri: image.uri,
+                width: image.width,
+                height: image.height,
+                mimeType: image.mimeType,
+                size: image.size,
+                name: image.name,
+                thumbhash: image.thumbhash,
+            }));
+            await sync.sendMessage(result.sessionId, buildCustomImageStyleAnalysisPrompt(style.title), {
+                source: 'new_session',
+                attachments,
+                displayText: t('agents.customImageStyleAnalysisTaskMessage', { name: style.title, count: attachments.length }),
+            });
         } catch (error) {
             updateCustomImageStyle(style.id, (current) => ({
                 ...current,
@@ -387,7 +457,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 updatedAt: Date.now(),
             }));
         }
-    }, [inferenceOpenAIKey, updateCustomImageStyle]);
+    }, [selectedMachineId, selectedMachine, selectedPath, worktreeKey, updateCustomImageStyle]);
 
     const createCustomImageStyle = React.useCallback(async () => {
         if (!activeImageAgent || selectedImages.length === 0) return;

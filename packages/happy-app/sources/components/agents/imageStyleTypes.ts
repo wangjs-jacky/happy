@@ -27,6 +27,7 @@ export interface ImageAgentStylePreset {
     customCreatedAt?: number;
     customUpdatedAt?: number;
     customAnalyzedAt?: number;
+    customAnalysisSessionId?: string;
     custom?: boolean;
 }
 
@@ -50,6 +51,7 @@ export interface UserImageStyle {
     tags: string[];
     analysisStatus: UserImageStyleAnalysisStatus;
     analysisError?: string;
+    analysisSessionId?: string;
     analyzedAt?: number;
     promptSource: UserImageStylePromptSource;
     referenceImages: ImageAgentStyleReferenceImage[];

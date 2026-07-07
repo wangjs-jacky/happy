@@ -36,6 +36,7 @@ const UserImageStyleSchema = z.object({
     tags: z.array(z.string()).default([]),
     analysisStatus: z.enum(['reference-ready', 'analyzing', 'prompt-ready', 'failed']).default('reference-ready'),
     analysisError: z.string().optional(),
+    analysisSessionId: z.string().optional(),
     analyzedAt: z.number().optional(),
     promptSource: z.enum(['reference-image', 'extracted-prompt', 'manual']).default('reference-image'),
     referenceImages: z.array(ImageStyleReferenceImageSchema).default([]),
