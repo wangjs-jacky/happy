@@ -127,35 +127,8 @@ export async function buildAskAugmentedUserContent(
   userText: string,
   options: AskToolContextOptions = {},
 ): Promise<string> {
-  const timeZone = options.timeZone ?? getLocalTimeZone();
-  const plan = resolveAskToolPlan(userText);
-  const sections = [
-    `Tool plan:\nExecuted tools: ${plan.reasons.join(', ')}${plan.webQuery ? `\nWeb query: ${plan.webQuery}` : ''}`,
-    `Runtime context:\n${formatAskRuntimeContext(options.now ?? new Date(), timeZone)}`,
-  ];
-
-  if (plan.webSearch && plan.webQuery) {
-    try {
-      const results = await searchWeb(plan.webQuery, options);
-      if (results.length > 0) {
-        sections.push(`Web search results:\n${formatWebResults(results)}`);
-      }
-    } catch (error) {
-      sections.push(`Web search unavailable:\n${formatUnknownError(error)}`);
-    }
-  }
-
-  return `${sections.map((section) => `<context>\n${section}\n</context>`).join('\n\n')}\n\nUser question:\n${userText}`;
-}
-
-function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function formatWebResults(results: AskWebSearchResult[]): string {
-  return results
-    .map((result, index) => `${index + 1}. ${result.title} - ${result.url}${result.snippet ? `\n   ${result.snippet}` : ''}`)
-    .join('\n');
+  const { buildAskToolContext } = await import('./askToolAdapter');
+  return `${await buildAskToolContext(userText, options)}\n\nUser question:\n${userText}`;
 }
 
 function cleanHtml(value: string): string {
