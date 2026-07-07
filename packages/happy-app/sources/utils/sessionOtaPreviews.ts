@@ -22,6 +22,11 @@ export type SessionOtaPreview = {
     raw: string;
 };
 
+export type OtaPreviewPrimaryAction =
+    | { type: 'switch'; stamp: string }
+    | { type: 'link'; url: string }
+    | null;
+
 type ParsedFields = {
     title?: string;
     channel?: string;
@@ -277,6 +282,24 @@ export function parseOtaPreviewSection(
 
 export function getOtaPreviewPrimaryLink(preview: SessionOtaPreview): string | null {
     return preview.sourceUrl ?? preview.siteUrl ?? preview.manifestUrl;
+}
+
+export function getOtaPreviewSwitchStamp(preview: SessionOtaPreview): string | null {
+    const stamp = preview.stamp?.trim();
+    if (preview.channel !== 'preview' || !stamp || !/^\d+$/.test(stamp)) {
+        return null;
+    }
+    return stamp;
+}
+
+export function getOtaPreviewPrimaryAction(preview: SessionOtaPreview): OtaPreviewPrimaryAction {
+    const switchStamp = getOtaPreviewSwitchStamp(preview);
+    if (switchStamp) {
+        return { type: 'switch', stamp: switchStamp };
+    }
+
+    const url = getOtaPreviewPrimaryLink(preview);
+    return url ? { type: 'link', url } : null;
 }
 
 export function formatOtaPreviewLabel(preview: SessionOtaPreview): string {

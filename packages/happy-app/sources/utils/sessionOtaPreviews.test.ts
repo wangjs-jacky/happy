@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractMessageOtaPreviews, extractSessionOtaPreviews } from './sessionOtaPreviews';
+import { extractMessageOtaPreviews, extractSessionOtaPreviews, getOtaPreviewPrimaryAction } from './sessionOtaPreviews';
 import type { AgentTextMessage, Message } from '@/sync/typesMessage';
 
 function agentMessage(text: string, id: string = 'msg-1'): AgentTextMessage {
@@ -91,5 +91,46 @@ describe('sessionOtaPreviews', () => {
 
         const previews = extractSessionOtaPreviews(messages);
         expect(previews.map((preview) => preview.title)).toEqual(['newer', 'older']);
+    });
+
+    it('prefers direct switching as the primary action for preview cards with a stamp', () => {
+        const [preview] = extractMessageOtaPreviews(agentMessage(`
+            <happy-ota-preview>
+            title: GPT Image 2 生成图库
+            channel: preview
+            platform: android
+            runtimeVersion: 21
+            updateId: e3602528-d2d1-dc08-1002-b90eaa32140b
+            stamp: 1783402617662
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/151
+            summary: Preview OTA 已发布并校验 latest manifest 指向本次图库入口更新。
+            </happy-ota-preview>
+        `));
+
+        expect(getOtaPreviewPrimaryAction(preview)).toEqual({
+            type: 'switch',
+            stamp: '1783402617662',
+        });
+    });
+
+    it('keeps PR as the primary action when the OTA card cannot be switched directly', () => {
+        const [preview] = extractMessageOtaPreviews(agentMessage(`
+            <happy-ota-preview>
+            title: Production rollout
+            channel: production
+            platform: android
+            runtimeVersion: 21
+            updateId: e3602528-d2d1-dc08-1002-b90eaa32140b
+            manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/production/latest.json
+            sourceUrl: https://github.com/wangjs-jacky/happy/pull/151
+            summary: Production OTA 已发布。
+            </happy-ota-preview>
+        `));
+
+        expect(getOtaPreviewPrimaryAction(preview)).toEqual({
+            type: 'link',
+            url: 'https://github.com/wangjs-jacky/happy/pull/151',
+        });
     });
 });
