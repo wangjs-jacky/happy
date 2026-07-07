@@ -17,6 +17,7 @@ import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort } from '@/sync/ops';
 import { requestScreenshot } from '@/sync/ops.screenshot';
 import { saveBase64Png, addScreenshotEntry, useHasNewScreenshots, type ScreenshotEntry } from '@/sync/screenshotGallery';
+import { getScreenshotFailureKind } from '@/sync/screenshotErrors';
 import { ScreenshotGalleryDrawer } from '@/components/ScreenshotGalleryDrawer';
 import { imageViewer } from '@/sync/imageViewer';
 import { Modal } from '@/modal';
@@ -490,15 +491,6 @@ const ChatComposer = React.memo(function ChatComposer(props: ChatComposerProps) 
     );
 });
 
-/** 判断 CLI 返回的截图错误是否属于「平台不支持」（截图仅 macOS）。
- *  CLI 的 error 文案可能是中/英混合，匹配几个稳定特征词即可，无需精确解析。 */
-function isUnsupportedPlatformError(error: string | undefined): boolean {
-    if (!error) {
-        return false;
-    }
-    return /macOS|platform|仅支持/i.test(error);
-}
-
 function SessionViewLoaded({
     sessionId,
     session,
@@ -603,10 +595,12 @@ function SessionViewLoaded({
             try {
                 const res = await requestScreenshot(sessionId, target);
                 if (!res.success || !res.dataBase64) {
-                    // 平台不支持（如非 macOS）时给本地化文案，否则原样回显 CLI error
-                    const body = isUnsupportedPlatformError(res.error)
+                    const failureKind = getScreenshotFailureKind(res.error);
+                    const body = failureKind === 'unsupportedPlatform'
                         ? t('components.messageComposer.screenshotUnsupportedPlatform')
-                        : (res.error ?? t('components.messageComposer.screenshotFailedBody'));
+                        : failureKind === 'displayUnavailable'
+                            ? t('components.messageComposer.screenshotDisplayUnavailable')
+                            : (res.error ?? t('components.messageComposer.screenshotFailedBody'));
                     Modal.alert(
                         t('components.messageComposer.screenshotFailedTitle'),
                         body,

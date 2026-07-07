@@ -571,6 +571,7 @@ export const zhHans: TranslationStructure = {
             screenshotFailedTitle: '截屏失败',
             screenshotFailedBody: '无法截取屏幕，请重试。',
             screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
+            screenshotDisplayUnavailable: 'macOS 无法创建屏幕图像。请在系统设置 > 隐私与安全性 > 屏幕录制中允许启动 Happy 的终端或 Node，然后重启该会话；如果 Mac 已锁屏或显示器休眠，请先解锁或唤醒。',
         },
         screenshotGallery: {
             title: '截图',

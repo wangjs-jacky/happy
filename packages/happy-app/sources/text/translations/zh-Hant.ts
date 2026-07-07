@@ -570,6 +570,7 @@ export const zhHant: TranslationStructure = {
             screenshotFailedTitle: '截圖失敗',
             screenshotFailedBody: '無法擷取截圖，請再試一次。',
             screenshotUnsupportedPlatform: '截圖目前僅支援 macOS。',
+            screenshotDisplayUnavailable: 'macOS 無法建立螢幕影像。請在系統設定 > 隱私權與安全性 > 螢幕錄製中允許啟動 Happy 的終端機或 Node，然後重新啟動此工作階段；如果 Mac 已鎖定或顯示器休眠，請先解鎖或喚醒。',
         },
         screenshotGallery: {
             title: '截圖',

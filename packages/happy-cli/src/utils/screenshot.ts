@@ -42,6 +42,22 @@ export function buildScreencaptureArgs(
     return ['-x', outPath];
 }
 
+export function formatScreencaptureFailure(code: number | null, stderr: string): string {
+    const detail = stderr.trim();
+    const exit = code === null ? '被系统终止' : `退出码 ${code}`;
+    const base = detail ? `screencapture ${exit}: ${detail}` : `screencapture ${exit}`;
+
+    if (/could not create image from display/i.test(detail)) {
+        return [
+            `SCREEN_CAPTURE_UNAVAILABLE: ${base}`,
+            'macOS 无法创建屏幕图像，通常是当前 Happy/Node 进程没有“屏幕录制”权限，或当前没有可截取的图形显示会话。',
+            '请在系统设置 > 隐私与安全性 > 屏幕录制中允许启动 Happy 的终端/Node，然后重启该会话；如果 Mac 已锁屏或显示器休眠，请先解锁/唤醒。',
+        ].join(' ');
+    }
+
+    return base;
+}
+
 /** 跑 osascript 取最前台应用的最前窗口 id；失败/超时/无权限均返回 null（兜底整屏）。
  *  AppleScript 取 System Events 中 frontmost 进程的 front window id，
  *  这是无需逐个 app 适配、对任意前台应用都通用的写法（依赖「辅助功能」权限）。 */
@@ -110,8 +126,12 @@ export async function captureScreenshot(target: ScreenshotTarget): Promise<strin
 /** 跑一次 screencapture（给定参数），退出码非 0 或启动失败均 reject。 */
 async function runScreencapture(args: string[]): Promise<void> {
     return await new Promise<void>((resolve, reject) => {
-        const child = spawn('screencapture', args, { stdio: 'ignore' });
+        const child = spawn('screencapture', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
+        child.stderr.on('data', (d) => {
+            stderr += d.toString();
+        });
         child.on('error', reject);
-        child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`screencapture 退出码 ${code}`)));
+        child.on('exit', (code) => code === 0 ? resolve() : reject(new Error(formatScreencaptureFailure(code, stderr))));
     });
 }

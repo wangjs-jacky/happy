@@ -568,6 +568,7 @@ export const it: TranslationStructure = {
             screenshotFailedTitle: 'Screenshot non riuscito',
             screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
             screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
+            screenshotDisplayUnavailable: 'macOS non è riuscito a creare un\'immagine dello schermo. In Impostazioni di Sistema > Privacy e sicurezza > Registrazione schermo, consenti il terminale o il processo Node che avvia Happy, poi riavvia questa sessione. Se il Mac è bloccato o lo schermo è in stop, sbloccalo o riattivalo prima.',
         },
         screenshotGallery: {
             title: 'Screenshot',

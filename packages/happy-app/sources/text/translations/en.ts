@@ -584,6 +584,7 @@ export const en: TranslationStructure = {
             screenshotFailedTitle: 'Screenshot failed',
             screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
             screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
+            screenshotDisplayUnavailable: 'macOS could not create a screen image. In System Settings > Privacy & Security > Screen Recording, allow the terminal or Node process that starts Happy, then restart this session. If the Mac is locked or the display is asleep, unlock or wake it first.',
         },
         screenshotGallery: {
             title: 'Screenshots',

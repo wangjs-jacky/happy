@@ -569,6 +569,7 @@ export const pt: TranslationStructure = {
             screenshotFailedTitle: 'Falha na captura de tela',
             screenshotFailedBody: 'Não foi possível capturar a tela. Tente novamente.',
             screenshotUnsupportedPlatform: 'Por enquanto, as capturas de tela só são compatíveis com macOS.',
+            screenshotDisplayUnavailable: 'O macOS não conseguiu criar uma imagem da tela. Em Ajustes do Sistema > Privacidade e Segurança > Gravação de Tela, permita o terminal ou o processo Node que inicia o Happy e reinicie esta sessão. Se o Mac estiver bloqueado ou a tela em repouso, desbloqueie ou desperte primeiro.',
         },
         screenshotGallery: {
             title: 'Capturas de tela',

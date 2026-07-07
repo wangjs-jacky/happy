@@ -570,6 +570,7 @@ export const ca: TranslationStructure = {
             screenshotFailedTitle: 'La captura de pantalla ha fallat',
             screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
             screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
+            screenshotDisplayUnavailable: 'macOS no ha pogut crear una imatge de la pantalla. A Configuració del sistema > Privacitat i seguretat > Gravació de pantalla, permet el terminal o el procés Node que inicia Happy i reinicia aquesta sessió. Si el Mac està bloquejat o la pantalla està en repòs, desbloqueja\'l o desperta-la primer.',
         },
         screenshotGallery: {
             title: 'Captures de pantalla',

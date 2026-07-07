@@ -586,6 +586,7 @@ export const pl: TranslationStructure = {
             screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
             screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
             screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
+            screenshotDisplayUnavailable: 'macOS nie mógł utworzyć obrazu ekranu. W Ustawieniach systemowych > Prywatność i ochrona > Nagrywanie ekranu zezwól terminalowi lub procesowi Node uruchamiającemu Happy, a potem uruchom tę sesję ponownie. Jeśli Mac jest zablokowany albo ekran jest uśpiony, najpierw go odblokuj lub wybudź.',
         },
         screenshotGallery: {
             title: 'Zrzuty ekranu',

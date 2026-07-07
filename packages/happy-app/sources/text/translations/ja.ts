@@ -571,6 +571,7 @@ export const ja: TranslationStructure = {
             screenshotFailedTitle: 'スクリーンショットに失敗しました',
             screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
             screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
+            screenshotDisplayUnavailable: 'macOS が画面画像を作成できませんでした。システム設定 > プライバシーとセキュリティ > 画面収録で、Happy を起動しているターミナルまたは Node を許可してから、このセッションを再起動してください。Mac がロック中またはディスプレイがスリープ中の場合は、先に解除または復帰してください。',
         },
         screenshotGallery: {
             title: 'スクリーンショット',

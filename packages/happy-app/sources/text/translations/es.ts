@@ -570,6 +570,7 @@ export const es: TranslationStructure = {
             screenshotFailedTitle: 'Error en la captura de pantalla',
             screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
             screenshotUnsupportedPlatform: 'Las capturas de pantalla solo se admiten en macOS por ahora.',
+            screenshotDisplayUnavailable: 'macOS no pudo crear una imagen de la pantalla. En Ajustes del Sistema > Privacidad y seguridad > Grabación de pantalla, permite el terminal o el proceso Node que inicia Happy y reinicia esta sesión. Si el Mac está bloqueado o la pantalla está en reposo, desbloquéalo o actívala primero.',
         },
         screenshotGallery: {
             title: 'Capturas de pantalla',
