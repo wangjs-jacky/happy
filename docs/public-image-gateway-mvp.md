@@ -143,8 +143,9 @@ The worker calls it through `IMAGE_WORKER_NATIVE_COMMAND`. It reads the worker J
 Configurable environment:
 
 ```bash
-# Optional. Default:
-IMAGE_NATIVE_CODEX_COMMAND="codex exec --skip-git-repo-check --sandbox read-only --ask-for-approval never"
+# Optional. By default the command resolves the Codex vendor binary behind the
+# npm wrapper when available, then runs:
+IMAGE_NATIVE_CODEX_COMMAND="<codex-vendor-binary> exec --skip-git-repo-check --sandbox read-only"
 
 # Optional. Default:
 IMAGE_NATIVE_CODEX_GENERATED_DIR="$HOME/.codex/generated_images"

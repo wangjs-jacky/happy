@@ -1,8 +1,9 @@
+import { existsSync, realpathSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export interface NativeCodexImageRequest {
     jobId: string;
@@ -19,7 +20,6 @@ export interface NativeCodexImageResponse {
     actualCostCents: number;
 }
 
-const DEFAULT_CODEX_COMMAND = 'codex exec --skip-git-repo-check --sandbox read-only --ask-for-approval never';
 const DEFAULT_GENERATED_IMAGES_DIR = join(homedir(), '.codex', 'generated_images');
 
 export function buildCodexImagePrompt(request: NativeCodexImageRequest): string {
@@ -68,13 +68,40 @@ export async function findNewImage(root: string, before: Set<string>): Promise<s
 
 export async function runNativeCodexImageCommand(request: NativeCodexImageRequest): Promise<NativeCodexImageResponse> {
     const generatedImagesDir = process.env.IMAGE_NATIVE_CODEX_GENERATED_DIR ?? DEFAULT_GENERATED_IMAGES_DIR;
-    const command = process.env.IMAGE_NATIVE_CODEX_COMMAND ?? DEFAULT_CODEX_COMMAND;
+    const command = process.env.IMAGE_NATIVE_CODEX_COMMAND ?? resolveDefaultCodexCommand();
     const timeoutMs = Number(process.env.IMAGE_NATIVE_CODEX_TIMEOUT_MS ?? 300000);
     const actualCostCents = Number(process.env.IMAGE_NATIVE_CODEX_COST_CENTS ?? 40);
     const before = await listImages(generatedImagesDir);
     await runCodex(command, buildCodexImagePrompt(request), timeoutMs);
     const imagePath = await findNewImage(generatedImagesDir, before);
     return { imagePath, actualCostCents };
+}
+
+export function resolveDefaultCodexCommand(): string {
+    const vendorBinary = resolveCodexVendorBinary();
+    const codexBinary = vendorBinary ?? 'codex';
+    return `${codexBinary} exec --skip-git-repo-check --sandbox read-only`;
+}
+
+function resolveCodexVendorBinary(): string | null {
+    const pathEntries = (process.env.PATH ?? '').split(':').filter(Boolean);
+    for (const entry of pathEntries) {
+        const candidate = join(entry, 'codex');
+        if (!existsSync(candidate)) continue;
+        try {
+            const real = realpathSync(candidate);
+            const packageRoot = real.includes('/node_modules/@openai/codex/')
+                ? real.slice(0, real.indexOf('/node_modules/@openai/codex/') + '/node_modules/@openai/codex'.length)
+                : dirname(dirname(real));
+            const vendor = join(packageRoot, 'node_modules', '@openai', 'codex-darwin-arm64', 'vendor', 'aarch64-apple-darwin', 'bin', 'codex');
+            if (existsSync(vendor)) {
+                return vendor;
+            }
+        } catch {
+            continue;
+        }
+    }
+    return null;
 }
 
 async function runCodex(command: string, prompt: string, timeoutMs: number): Promise<void> {

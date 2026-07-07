@@ -6,6 +6,7 @@ import {
     buildCodexImagePrompt,
     findNewImage,
     parseCommand,
+    resolveDefaultCodexCommand,
     type NativeCodexImageRequest,
 } from './nativeCodexCommand';
 
@@ -37,6 +38,15 @@ describe('native Codex image command helpers', () => {
             '--model',
             'gpt-5.5',
         ]);
+    });
+
+    it('uses Codex exec with the supported read-only sandbox flags by default', () => {
+        const command = resolveDefaultCodexCommand();
+
+        expect(command).toContain(' exec ');
+        expect(command).toContain('--skip-git-repo-check');
+        expect(command).toContain('--sandbox read-only');
+        expect(command).not.toContain('--ask-for-approval');
     });
 
     it('finds the newest image created after the previous snapshot', async () => {
