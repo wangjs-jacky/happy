@@ -15,6 +15,22 @@ export interface GatewaySettings {
     estimatedCostPerJobCents: number;
 }
 
+export interface WorkerHealth {
+    lastSeenAt?: string;
+    lastClaimAt?: string;
+    lastClaimedJobId?: string;
+    lastCompletedAt?: string;
+    lastCompletedJobId?: string;
+    lastFailedAt?: string;
+    lastFailedJobId?: string;
+    lastError?: string;
+    currentJobId?: string;
+    totalPolls: number;
+    totalClaimed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+}
+
 export interface ImageJob {
     id: string;
     prompt: string;
@@ -35,6 +51,7 @@ export interface ImageJob {
 
 export interface ImageGatewaySnapshot {
     settings: GatewaySettings;
+    worker: WorkerHealth;
     jobs: ImageJob[];
 }
 
@@ -43,4 +60,11 @@ export const defaultGatewaySettings: GatewaySettings = {
     dailyBudgetCents: 1000,
     dailySpentEstimateCents: 0,
     estimatedCostPerJobCents: 40,
+};
+
+export const defaultWorkerHealth: WorkerHealth = {
+    totalPolls: 0,
+    totalClaimed: 0,
+    totalSucceeded: 0,
+    totalFailed: 0,
 };

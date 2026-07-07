@@ -42,6 +42,9 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
             const snapshot = await options.store.read();
             return snapshot.jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
         },
+        async getWorkerHealth() {
+            return (await options.store.read()).worker;
+        },
         async getJob(id: string) {
             const snapshot = await options.store.read();
             return snapshot.jobs.find((job) => job.id === id) ?? null;
@@ -97,14 +100,21 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
         },
         async claimNextJob() {
             return withSnapshot(options.store, (snapshot) => {
+                const timestamp = now().toISOString();
+                snapshot.worker.lastSeenAt = timestamp;
+                snapshot.worker.totalPolls += 1;
                 const job = snapshot.jobs
                     .filter((candidate) => candidate.status === 'queued')
                     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
                 if (!job) return null;
-                const timestamp = now().toISOString();
                 job.status = 'running';
                 job.startedAt = timestamp;
                 job.updatedAt = timestamp;
+                snapshot.worker.lastClaimAt = timestamp;
+                snapshot.worker.lastClaimedJobId = job.id;
+                snapshot.worker.currentJobId = job.id;
+                snapshot.worker.lastError = undefined;
+                snapshot.worker.totalClaimed += 1;
                 return { ...job };
             });
         },
@@ -117,6 +127,12 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
                 job.resultUrl = input.resultUrl;
                 job.actualCostCents = input.actualCostCents ?? job.estimatedCostCents;
                 job.finishedAt = timestamp;
+                snapshot.worker.lastSeenAt = timestamp;
+                snapshot.worker.lastCompletedAt = timestamp;
+                snapshot.worker.lastCompletedJobId = job.id;
+                snapshot.worker.currentJobId = snapshot.worker.currentJobId === job.id ? undefined : snapshot.worker.currentJobId;
+                snapshot.worker.lastError = undefined;
+                snapshot.worker.totalSucceeded += 1;
                 snapshot.settings.dailySpentEstimateCents += job.actualCostCents;
                 if (snapshot.settings.dailySpentEstimateCents >= snapshot.settings.dailyBudgetCents) {
                     snapshot.settings.mode = 'review';
@@ -124,13 +140,19 @@ export function createImageGatewayService(options: CreateImageGatewayServiceOpti
             });
         },
         async reportFailure(id: string, error: string) {
-            return updateJob(options.store, id, now, (job, timestamp) => {
+            return updateJob(options.store, id, now, (job, timestamp, snapshot) => {
                 if (job.status !== 'running') {
                     throw new Error(`Cannot fail job in status: ${job.status}`);
                 }
                 job.status = 'failed';
                 job.error = safeError(error);
                 job.finishedAt = timestamp;
+                snapshot.worker.lastSeenAt = timestamp;
+                snapshot.worker.lastFailedAt = timestamp;
+                snapshot.worker.lastFailedJobId = job.id;
+                snapshot.worker.currentJobId = snapshot.worker.currentJobId === job.id ? undefined : snapshot.worker.currentJobId;
+                snapshot.worker.lastError = job.error;
+                snapshot.worker.totalFailed += 1;
             });
         },
     };

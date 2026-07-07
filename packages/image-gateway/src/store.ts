@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { defaultGatewaySettings, type GatewaySettings, type ImageGatewaySnapshot, type ImageJob } from './types';
+import { defaultGatewaySettings, defaultWorkerHealth, type GatewaySettings, type ImageGatewaySnapshot, type ImageJob } from './types';
 
 export interface ImageGatewayStore {
     read(): Promise<ImageGatewaySnapshot>;
@@ -12,6 +12,10 @@ export function createMemoryStore(initial?: Partial<ImageGatewaySnapshot>): Imag
         settings: {
             ...defaultGatewaySettings,
             ...initial?.settings,
+        },
+        worker: {
+            ...defaultWorkerHealth,
+            ...initial?.worker,
         },
         jobs: initial?.jobs ?? [],
     };
@@ -37,12 +41,17 @@ export function createFileStore(path: string): ImageGatewayStore {
                         ...defaultGatewaySettings,
                         ...parsed.settings,
                     },
+                    worker: {
+                        ...defaultWorkerHealth,
+                        ...parsed.worker,
+                    },
                     jobs: parsed.jobs ?? [],
                 };
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
                     return {
                         settings: { ...defaultGatewaySettings },
+                        worker: { ...defaultWorkerHealth },
                         jobs: [],
                     };
                 }
@@ -61,6 +70,7 @@ export function createFileStore(path: string): ImageGatewayStore {
 function cloneSnapshot(snapshot: ImageGatewaySnapshot): ImageGatewaySnapshot {
     return {
         settings: { ...snapshot.settings },
+        worker: { ...defaultWorkerHealth, ...snapshot.worker },
         jobs: snapshot.jobs.map(cloneJob),
     };
 }

@@ -89,7 +89,21 @@ const server = createServer(async (request, response) => {
                 sendJson(response, 401, { error: 'Admin token required' });
                 return;
             }
-            sendHtml(response, 200, adminPage(await service.getSettings(), await service.listJobs(), url.searchParams.get('token') ?? ''));
+            sendHtml(response, 200, adminPage(
+                await service.getSettings(),
+                await service.getWorkerHealth(),
+                await service.listJobs(),
+                url.searchParams.get('token') ?? '',
+            ));
+            return;
+        }
+
+        if (pathname === '/image/admin/worker' && request.method === 'GET') {
+            if (!requireToken(request, adminToken, url.searchParams.get('token'))) {
+                sendJson(response, 401, { error: 'Admin token required' });
+                return;
+            }
+            sendJson(response, 200, await service.getWorkerHealth());
             return;
         }
 
