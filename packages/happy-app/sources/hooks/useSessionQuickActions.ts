@@ -23,8 +23,10 @@ import { getSessionName } from '@/utils/sessionUtils';
 import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildOpenBirdSessionMarkdown, hasOpenBirdShareContent, publishOpenBirdTempPage } from '@/utils/openBirdSessionShare';
+import { buildHappySessionShareHtml } from '@/utils/happySessionShare';
 import { prepareOpenBirdAttachmentUrls } from '@/utils/openBirdShareAssets';
 import { loadLatestOpenBirdShare, rememberOpenBirdShare } from '@/utils/openBirdShareHistory';
+import { publishHappySessionShare } from '@/sync/apiHappyShare';
 import type { Message } from '@/sync/typesMessage';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 import { useSessionManagementPreferences } from './useSessionManagementPreferences';
@@ -442,6 +444,62 @@ export function useSessionQuickActions(
         performShareOpenBird();
     }, [performShareOpenBird]);
 
+    const [sharingHappy, performShareHappy] = useHappyAction(async () => {
+        const confirmed = await Modal.confirm(
+            t('sessionInfo.shareHappyConfirmTitle'),
+            t('sessionInfo.shareHappyConfirmMessage'),
+            {
+                cancelText: t('common.cancel'),
+                confirmText: t('sessionInfo.shareHappyPublish'),
+            },
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        const credentials = sync.getCredentials();
+        if (!credentials) {
+            throw new HappyError(t('sessionInfo.shareHappyFailed'), false);
+        }
+
+        const { messages, complete } = await loadCompleteSessionMessagesForShare(session.id);
+        if (!complete) {
+            throw new HappyError(t('sessionInfo.shareOpenBirdLoadFailed'), false);
+        }
+        if (!hasOpenBirdShareContent(messages)) {
+            throw new HappyError(t('sessionInfo.shareOpenBirdNoMessages'), false);
+        }
+
+        const attachmentUrls = await prepareOpenBirdAttachmentUrls(session.id, messages, {
+            maxTotalDataUriLength: 64_000,
+        });
+        const html = buildHappySessionShareHtml(session, messages, { attachmentUrls });
+        const result = await publishHappySessionShare(credentials, {
+            html,
+            title: getSessionName(session),
+        });
+
+        await Clipboard.setStringAsync(result.url).catch(() => {});
+        hapticsSuccess();
+        Modal.alert(
+            t('sessionInfo.shareHappySuccess'),
+            result.url,
+            [
+                {
+                    text: t('common.copy'),
+                    onPress: () => {
+                        void Clipboard.setStringAsync(result.url);
+                    },
+                },
+                { text: t('common.ok'), style: 'cancel' },
+            ],
+        );
+    });
+
+    const shareHappy = React.useCallback(() => {
+        performShareHappy();
+    }, [performShareHappy]);
+
     const [regeneratingTitle, performRegenerateTitle] = useHappyAction(async () => {
         if (!session.metadata || !sessionStatus.isConnected) {
             throw new HappyError(t('sessionInfo.regenerateTitleUnavailable'), false);
@@ -560,6 +618,7 @@ export function useSessionQuickActions(
                 fork: t('session.forkAction'),
                 duplicate: t('session.duplicateAction'),
                 shareOpenBird: t('sessionInfo.shareOpenBird'),
+                shareHappy: t('sessionInfo.shareHappy'),
                 copyMetadata: t('sessionInfo.copyMetadata'),
                 copyMetadataAndLogs: t('sessionInfo.copyMetadata') + ' & Client Logs',
                 archive: t('sessionInfo.archiveSession'),
@@ -575,6 +634,7 @@ export function useSessionQuickActions(
                 forkSession,
                 openDuplicateSheet,
                 shareOpenBird,
+                shareHappy,
                 copySessionMetadata,
                 copySessionMetadataAndLogs,
                 archiveSession,
@@ -607,6 +667,7 @@ export function useSessionQuickActions(
         resumeSession,
         session.active,
         sessionPinned,
+        shareHappy,
         shareOpenBird,
         togglePinSession,
     ]);
@@ -651,6 +712,8 @@ export function useSessionQuickActions(
         resumingSession,
         shareOpenBird,
         sharingOpenBird,
+        shareHappy,
+        sharingHappy,
     };
 }
 

@@ -142,6 +142,8 @@ function SessionInfoContent({ session }: { session: Session }) {
         resumeSessionSubtitle,
         shareOpenBird,
         sharingOpenBird,
+        shareHappy,
+        sharingHappy,
     } = useSessionQuickActions(session);
 
     // Check if CLI version is outdated
@@ -402,6 +404,13 @@ function SessionInfoContent({ session }: { session: Session }) {
                         icon={<Ionicons name="share-social-outline" size={29} color={theme.colors.accent} />}
                         onPress={shareOpenBird}
                         loading={sharingOpenBird}
+                    />
+                    <Item
+                        title={t('sessionInfo.shareHappy')}
+                        subtitle={t('sessionInfo.shareHappySubtitle')}
+                        icon={<Ionicons name="sparkles-outline" size={29} color={theme.colors.accent} />}
+                        onPress={shareHappy}
+                        loading={sharingHappy}
                     />
                     {session.metadata?.parentSessionId && (
                         <Item
