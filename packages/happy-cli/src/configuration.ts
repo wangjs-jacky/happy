@@ -60,10 +60,13 @@ class Configuration {
     // Settings are read sync here (avoid circular import with persistence.ts).
     // webappUrl must follow the same chain as serverUrl, otherwise `happy server`
     // self-host points the API at localhost but auth still opens the prod webapp.
+    // serverUrl defaults to the relay's plain-HTTP port: the 8443 endpoint is a
+    // self-signed cert, which Node rejects (DEPTH_ZERO_SELF_SIGNED_CERT) — a bare
+    // CLI run would fail. Messages stay end-to-end encrypted either way.
     this.serverUrl =
       process.env.HAPPY_SERVER_URL ||
       readSettingsStringSync(this.settingsFile, 'serverUrl') ||
-      'https://47.115.228.20:8443'
+      'http://47.115.228.20:3005'
     this.webappUrl =
       process.env.HAPPY_WEBAPP_URL ||
       readSettingsStringSync(this.settingsFile, 'webappUrl') ||
