@@ -59,8 +59,8 @@ function isRegenerateTitleRpcUnavailable(message: string | undefined): boolean {
 
 const OPENBIRD_SHARE_HISTORY_STEP_LIMIT = 1000;
 const OPENBIRD_SHARE_HISTORY_WAIT_MS = 150;
-const OPENBIRD_SHARE_MARKDOWN_SOFT_LIMIT = 2_400_000;
-const OPENBIRD_SHARE_IMAGE_DATA_URI_BUDGET = 1_800_000;
+const OPENBIRD_SHARE_MARKDOWN_SOFT_LIMIT = 4_800_000;
+const OPENBIRD_SHARE_IMAGE_DATA_URI_BUDGET = 3_600_000;
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));

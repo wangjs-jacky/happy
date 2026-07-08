@@ -1,10 +1,10 @@
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 
 const DEFAULT_MAX_IMAGES = 24;
-const DEFAULT_MAX_TOTAL_DATA_URI_LENGTH = 1_800_000;
+const DEFAULT_MAX_TOTAL_DATA_URI_LENGTH = 3_600_000;
 const DEFAULT_MAX_IMAGE_DIMENSION = 720;
 const DEFAULT_IMAGE_COMPRESS = 0.72;
-const DEFAULT_MAX_RAW_DATA_URI_LENGTH = 90_000;
+const DEFAULT_MAX_RAW_DATA_URI_LENGTH = 1_900_000;
 const DEFAULT_MAX_PER_IMAGE_DATA_URI_LENGTH = 260_000;
 
 export interface OpenBirdImageAttachment {
@@ -157,7 +157,8 @@ async function loadCompressedAttachmentDataUri(
         return rawDataUri;
     }
 
-    return compressAttachmentDataUri(decrypted, mime, attachment, options, encodeBase64);
+    return await compressAttachmentDataUri(decrypted, mime, attachment, options, encodeBase64)
+        ?? rawDataUri;
 }
 
 async function compressAttachmentDataUri(
