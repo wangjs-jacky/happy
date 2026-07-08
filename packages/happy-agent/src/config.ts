@@ -8,7 +8,8 @@ export type Config = {
 };
 
 export function loadConfig(): Config {
-    const serverUrl = (process.env.HAPPY_SERVER_URL ?? 'https://47.115.228.20:8443').replace(/\/+$/, '');
+    // Same default as happy-cli: plain-HTTP 3005 (8443 is self-signed, Node rejects it)
+    const serverUrl = (process.env.HAPPY_SERVER_URL ?? 'http://47.115.228.20:3005').replace(/\/+$/, '');
     const homeDir = process.env.HAPPY_HOME_DIR ?? join(homedir(), '.happy');
     const credentialPath = join(homeDir, 'agent.key');
     return { serverUrl, homeDir, credentialPath };
