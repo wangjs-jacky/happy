@@ -518,7 +518,7 @@ export const zhHant: TranslationStructure = {
         shareOpenBird: '分享到 OpenBird',
         shareOpenBirdSubtitle: '發布公開快照連結',
         shareOpenBirdConfirmTitle: '公開分享此工作階段？',
-        shareOpenBirdConfirmMessage: '這會把目前工作階段發布到 OpenBird，產生一個公開網頁。任何拿到連結的人都可以查看其中內容。',
+        shareOpenBirdConfirmMessage: '這會把目前工作階段發布到 OpenBird，產生一個公開網頁。文字和圖片附件都可能被包含；圖片會上傳為公開可存取的副本。任何拿到連結的人都可以查看或下載分享內容。',
         shareOpenBirdPublish: '發布',
         shareOpenBirdSuccess: 'OpenBird 連結已產生',
         shareOpenBirdNoMessages: '此工作階段還沒有可分享的訊息。',

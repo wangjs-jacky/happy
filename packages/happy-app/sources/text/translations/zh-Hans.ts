@@ -519,7 +519,7 @@ export const zhHans: TranslationStructure = {
         shareOpenBird: '分享到 OpenBird',
         shareOpenBirdSubtitle: '发布公开快照链接',
         shareOpenBirdConfirmTitle: '公开分享此会话？',
-        shareOpenBirdConfirmMessage: '这会把当前会话发布到 OpenBird，生成一个公开网页。任何拿到链接的人都可以查看其中内容。',
+        shareOpenBirdConfirmMessage: '这会把当前会话发布到 OpenBird，生成一个公开网页。文字和图片附件都可能被包含；图片会上传为公开可访问的副本。任何拿到链接的人都可以查看或下载分享内容。',
         shareOpenBirdPublish: '发布',
         shareOpenBirdSuccess: 'OpenBird 链接已生成',
         shareOpenBirdNoMessages: '此会话还没有可分享的消息。',

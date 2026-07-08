@@ -544,7 +544,7 @@ export const en = {
         shareOpenBird: 'Share with OpenBird',
         shareOpenBirdSubtitle: 'Publish a public snapshot link',
         shareOpenBirdConfirmTitle: 'Share session publicly?',
-        shareOpenBirdConfirmMessage: 'This publishes the current session to OpenBird as a public web page. Anyone with the link can view the content.',
+        shareOpenBirdConfirmMessage: 'This publishes the current session to OpenBird as a public web page. Text and image attachments may be included; images are uploaded as publicly accessible copies. Anyone with the link can view or download the shared content.',
         shareOpenBirdPublish: 'Publish',
         shareOpenBirdSuccess: 'OpenBird link ready',
         shareOpenBirdNoMessages: 'This session does not have messages to share yet.',
