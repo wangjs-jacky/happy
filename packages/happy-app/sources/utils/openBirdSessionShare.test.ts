@@ -255,6 +255,42 @@ describe('buildOpenBirdSessionMarkdown', () => {
         expect(markdown).not.toContain('<option>');
     });
 
+    it('renders Happy OTA preview metadata as a share card instead of raw tags', () => {
+        const messages: Message[] = [
+            {
+                kind: 'agent-text',
+                id: 'assistant-ota',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:01:00.000Z'),
+                text: [
+                    '已重新发布 preview OTA。',
+                    '',
+                    '<happy-ota-preview>',
+                    'title: OpenBird session sharing preview',
+                    'channel: preview',
+                    'platform: android',
+                    'runtimeVersion: 21',
+                    'updateId: 1a23efc8-269a-009f-21fc-17670e886850',
+                    'stamp: 1783506479461',
+                    'manifestUrl: https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json',
+                    'sourceUrl: https://github.com/wangjs-jacky/happy/actions/runs/28935622619',
+                    'summary: Preview OTA for PR #165 was published and OSS manifest plus bundle returned 200.',
+                    '</happy-ota-preview>',
+                ].join('\n'),
+            },
+        ];
+
+        const markdown = buildOpenBirdSessionMarkdown(session, messages);
+
+        expect(markdown).toContain('<aside class="happy-ota-card" aria-label="Happy OTA preview">');
+        expect(markdown).toContain('<h3>OpenBird session sharing preview</h3>');
+        expect(markdown).toContain('<span>runtime 21</span>');
+        expect(markdown).toContain('<dt>Update ID</dt><dd>1a23efc8-269a-009f-21fc-17670e886850</dd>');
+        expect(markdown).toContain('href="https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com/manifests/android/21/preview/latest.json"');
+        expect(markdown).not.toContain('<happy-ota-preview>');
+        expect(markdown).not.toContain('</happy-ota-preview>');
+    });
+
     it('renders tables, blockquotes, and horizontal rules like a document share', () => {
         const messages: Message[] = [
             {

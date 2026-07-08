@@ -1,6 +1,11 @@
 import type { Session } from '@/sync/storageTypes';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import type { AgentEvent } from '@/sync/typesRaw';
+import {
+    formatOtaPreviewIdentity,
+    formatOtaPreviewLabel,
+    parseOtaPreviewSection,
+} from '@/utils/sessionOtaPreviews';
 
 export const OPENBIRD_API_BASE_URL = 'https://openbird.jhao.space';
 
@@ -432,16 +437,20 @@ function formatTextHtml(text: string): string {
 
 function formatRichTextHtml(text: string): string {
     const parts: string[] = [];
-    const optionsPattern = /<options>([\s\S]*?)<\/options>/gi;
+    const customBlockPattern = /<options>([\s\S]*?)<\/options>|<happy-ota-preview>([\s\S]*?)<\/happy-ota-preview>/gi;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    while ((match = optionsPattern.exec(text)) !== null) {
+    while ((match = customBlockPattern.exec(text)) !== null) {
         if (match.index > lastIndex) {
             parts.push(formatPlainTextHtml(text.slice(lastIndex, match.index)));
         }
-        parts.push(renderOptionsHtml(match[1]));
-        lastIndex = optionsPattern.lastIndex;
+        if (match[1] !== undefined) {
+            parts.push(renderOptionsHtml(match[1]));
+        } else {
+            parts.push(renderOtaPreviewHtml(match[2] ?? ''));
+        }
+        lastIndex = customBlockPattern.lastIndex;
     }
 
     if (lastIndex < text.length) {
@@ -449,6 +458,51 @@ function formatRichTextHtml(text: string): string {
     }
 
     return parts.filter(Boolean).join('\n');
+}
+
+function renderOtaPreviewHtml(rawPreview: string): string {
+    const preview = parseOtaPreviewSection(rawPreview);
+    if (!preview) {
+        return formatPlainTextHtml(rawPreview);
+    }
+
+    const chips = [
+        preview.channel,
+        preview.platform,
+        preview.runtimeVersion ? `runtime ${preview.runtimeVersion}` : null,
+    ].filter((item): item is string => Boolean(item));
+
+    return [
+        '<aside class="happy-ota-card" aria-label="Happy OTA preview">',
+        '<div class="happy-ota-eyebrow">Preview OTA</div>',
+        `<h3>${formatInlineMarkdown(preview.title)}</h3>`,
+        `<p class="happy-ota-subtitle">${escapeHtml(formatOtaPreviewLabel(preview))}</p>`,
+        chips.length > 0 ? `<div class="happy-ota-chips">${chips.map(chip => `<span>${escapeHtml(chip)}</span>`).join('')}</div>` : '',
+        preview.summary ? `<p class="happy-ota-summary">${formatInlineMarkdown(preview.summary)}</p>` : '',
+        '<dl class="happy-ota-fields">',
+        renderOtaFieldHtml('Identity', formatOtaPreviewIdentity(preview)),
+        renderOtaFieldHtml('Update ID', preview.updateId),
+        renderOtaFieldHtml('Manifest', preview.manifestUrl, true),
+        renderOtaFieldHtml('Source', preview.sourceUrl, true),
+        '</dl>',
+        '</aside>',
+    ].filter(Boolean).join('\n');
+}
+
+function renderOtaFieldHtml(label: string, value: string | null, link = false): string {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+        return '';
+    }
+    const content = link && /^https?:\/\//i.test(trimmed)
+        ? `<a href="${escapeHtml(trimmed)}" target="_blank" rel="noopener noreferrer">${escapeHtml(trimmed)}</a>`
+        : escapeHtml(trimmed);
+    return [
+        '<div class="happy-ota-field">',
+        `<dt>${escapeHtml(label)}</dt>`,
+        `<dd>${content}</dd>`,
+        '</div>',
+    ].join('');
 }
 
 function formatPlainTextHtml(text: string): string {
@@ -758,6 +812,18 @@ article:has(#happy-theme-toggle:checked) .happy-turn-event .happy-turn-meta span
 .happy-options-list{display:grid;gap:5px}
 .happy-option{position:relative;padding:6px 8px 6px 24px;border:1px solid color-mix(in srgb,var(--accent) 24%,transparent);border-radius:7px;background:var(--article-bg);color:var(--text);font-weight:620;line-height:1.34}
 .happy-option:before{content:"";position:absolute;left:10px;top:1em;width:7px;height:7px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.happy-ota-card{margin:9px 0 12px;padding:14px;border:1px solid var(--soft-border);border-radius:12px;background:linear-gradient(180deg,var(--panel),var(--panel-strong));box-shadow:0 12px 26px rgba(15,23,42,.07)}
+.happy-ota-eyebrow{margin:0 0 6px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.14em}
+.happy-ota-card h3{margin:0 0 5px!important;color:var(--heading)!important;font-size:19px!important;line-height:1.22!important;font-weight:780!important}
+.happy-ota-subtitle{margin:0 0 9px!important;color:var(--muted);font-size:13px}
+.happy-ota-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.happy-ota-chips span{padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-size:11px;font-weight:700}
+.happy-ota-summary{margin:0 0 10px!important;padding:9px 10px;border-radius:10px;background:var(--article-bg);color:var(--text);font-size:13px}
+.happy-ota-fields{display:grid;margin:0;border:1px solid var(--soft-border);border-radius:10px;overflow:hidden;background:var(--article-bg)}
+.happy-ota-field{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px;padding:8px 10px;border-bottom:1px solid var(--soft-border)}
+.happy-ota-field:last-child{border-bottom:0}
+.happy-ota-field dt{margin:0;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+.happy-ota-field dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--text);font:12px/1.45 ui-monospace,SFMono-Regular,SFMono,Menlo,Consolas,monospace}
 .happy-image-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin:8px 0 10px}
 .happy-image-card{position:relative;min-height:112px;margin:0!important;overflow:hidden;border:1px solid var(--soft-border);border-radius:10px;background:var(--panel-strong)}
 .happy-image-card img{display:block;width:100%;height:100%;object-fit:cover}
@@ -783,7 +849,7 @@ article:has(#happy-theme-toggle:checked) .happy-turn-event .happy-turn-meta span
 .happy-tool-payload{margin-top:6px}
 .happy-tool-payload-label{color:var(--muted);font-size:10px;font-weight:760;text-transform:uppercase;letter-spacing:.06em}
 .happy-tool-child{margin-top:7px;padding-top:7px;border-top:1px dashed var(--soft-border)}
-@media(max-width:720px){body{font-size:13px!important;line-height:1.48!important}article{margin:0!important;padding:10px 8px!important;border:0;border-radius:0;min-height:100vh}article>h1{font-size:20px!important;margin-bottom:5px!important}.happy-theme-control{margin:-1px 0 6px}.happy-theme-switch{width:116px}.happy-share-intro{margin-bottom:6px;font-size:11px}.happy-meta-item{padding:3px 7px}.happy-meta-long{max-width:100%}.happy-meta-item span{font-size:8px}.happy-meta-item strong{font-size:11px}.happy-turn{margin:7px 0}.happy-turn-assistant{margin:11px 0}.happy-turn-body{padding:7px 9px;border-radius:8px}.happy-turn-user .happy-turn-body{max-width:82%;padding:8px 11px}.happy-turn-meta{margin-bottom:2px}.happy-image-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:7px 0}.happy-image-card{min-height:104px;border-radius:9px}.happy-image-placeholder{min-height:104px}.happy-table{min-width:500px;font-size:11px}.happy-table th,.happy-table td{padding:7px 8px}.happy-tool-group summary{align-items:flex-start;flex-direction:column;gap:2px}.happy-tool-head time{width:100%;margin-left:0}.happy-message-code,.happy-tool-payload pre{font-size:10px!important}}
+@media(max-width:720px){body{font-size:13px!important;line-height:1.48!important}article{margin:0!important;padding:10px 8px!important;border:0;border-radius:0;min-height:100vh}article>h1{font-size:20px!important;margin-bottom:5px!important}.happy-theme-control{margin:-1px 0 6px}.happy-theme-switch{width:116px}.happy-share-intro{margin-bottom:6px;font-size:11px}.happy-meta-item{padding:3px 7px}.happy-meta-long{max-width:100%}.happy-meta-item span{font-size:8px}.happy-meta-item strong{font-size:11px}.happy-turn{margin:7px 0}.happy-turn-assistant{margin:11px 0}.happy-turn-body{padding:7px 9px;border-radius:8px}.happy-turn-user .happy-turn-body{max-width:82%;padding:8px 11px}.happy-turn-meta{margin-bottom:2px}.happy-ota-card{padding:11px;border-radius:11px}.happy-ota-card h3{font-size:17px!important}.happy-ota-field{grid-template-columns:82px minmax(0,1fr);gap:8px;padding:8px}.happy-image-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:7px 0}.happy-image-card{min-height:104px;border-radius:9px}.happy-image-placeholder{min-height:104px}.happy-table{min-width:500px;font-size:11px}.happy-table th,.happy-table td{padding:7px 8px}.happy-tool-group summary{align-items:flex-start;flex-direction:column;gap:2px}.happy-tool-head time{width:100%;margin-left:0}.happy-message-code,.happy-tool-payload pre{font-size:10px!important}}
 </style>`;
 }
 
