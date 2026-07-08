@@ -1,6 +1,7 @@
 import type { Session } from '@/sync/storageTypes';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import type { AgentEvent } from '@/sync/typesRaw';
+import { buildResumeCommandBlock } from '@/utils/resumeCommand';
 
 export interface BuildHappySessionShareHtmlOptions {
     sharedAt?: number;
@@ -46,9 +47,20 @@ export function buildHappySessionShareHtml(
     flushAttachments(body, pendingAttachments);
     flushTools(body, pendingTools);
 
+    const resumeBlock = !session.active
+        ? buildResumeCommandBlock({
+            path: session.metadata?.path,
+            os: session.metadata?.os,
+            flavor: session.metadata?.flavor,
+            claudeSessionId: session.metadata?.claudeSessionId,
+            codexThreadId: session.metadata?.codexThreadId,
+        })
+        : null;
+    const chromeLabel = formatShellLabel(session);
+
     return [
         '<!doctype html>',
-        '<html lang="en">',
+        '<html lang="zh-CN">',
         '<head>',
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
@@ -59,14 +71,15 @@ export function buildHappySessionShareHtml(
         '</style>',
         '</head>',
         '<body>',
-        '<main class="page">',
-        '<header class="session-header">',
-        '<div class="brand-row"><span class="brand-dot"></span><span>Happy Share</span></div>',
-        `<h1>${escapeHtml(title)}</h1>`,
-        `<p>${escapeHtml(formatSharedAt(sharedAt))}</p>`,
+        '<main class="app-shell">',
+        '<header class="app-topbar" aria-label="Happy session header">',
+        '<span class="app-menu" aria-hidden="true"></span>',
+        `<div class="app-machine"><strong>${escapeHtml(session.metadata?.flavor || 'codex')}</strong><span></span><em>${escapeHtml(chromeLabel)}</em></div>`,
+        '<span class="app-new" aria-hidden="true"></span>',
         '</header>',
         '<section class="timeline" aria-label="Shared session messages">',
         ...body,
+        resumeBlock ? renderInactiveSessionHtml(resumeBlock.lines, session.activeAt || session.updatedAt || sharedAt) : '',
         '</section>',
         '</main>',
         '</body>',
@@ -104,12 +117,53 @@ function appendMessageHtml(lines: string[], message: Message): void {
 }
 
 function renderMessageHtml(role: string, createdAt: number, text: string, tone: 'user' | 'assistant' | 'event'): string {
+    const content = tone === 'user'
+        ? renderUserTextContentHtml(text)
+        : renderTextContentHtml(text);
     return [
         `<article class="message message-${tone}">`,
         `<div class="message-meta"><strong>${escapeHtml(role)}</strong><time>${escapeHtml(formatMessageTime(createdAt))}</time></div>`,
-        `<div class="message-body">${renderTextContentHtml(text)}</div>`,
+        `<div class="message-body">${content}</div>`,
         '</article>',
     ].join('\n');
+}
+
+function renderUserTextContentHtml(text: string): string {
+    const trimmed = text.trim();
+    if (!shouldFoldPrompt(trimmed)) {
+        return renderTextContentHtml(trimmed);
+    }
+
+    const lines = trimmed.split(/\r?\n/);
+    const firstMeaningfulIndex = lines.findIndex(line => line.trim().length > 0);
+    const intro = firstMeaningfulIndex >= 0 ? lines[firstMeaningfulIndex].trim() : '';
+    const rest = lines
+        .slice(firstMeaningfulIndex + 1)
+        .join('\n')
+        .trim();
+    const foldedText = rest || trimmed;
+    const lineCount = foldedText.split(/\r?\n/).filter(line => line.trim()).length;
+    const charCount = foldedText.length;
+
+    return [
+        intro && rest ? `<p>${formatInlineHtml(intro)}</p>` : '',
+        '<details class="prompt-fold" open>',
+        '<summary>',
+        '<span class="prompt-fold-icon" aria-hidden="true"></span>',
+        '<span><strong>提示词已折叠</strong>',
+        `<em>${lineCount} 行 · ${charCount} 字符</em></span>`,
+        '<b>复制　收起⌃</b>',
+        '</summary>',
+        `<div class="prompt-fold-body">${renderTextContentHtml(foldedText)}</div>`,
+        '</details>',
+    ].filter(Boolean).join('\n');
+}
+
+function shouldFoldPrompt(text: string): boolean {
+    if (text.length > 1200) {
+        return true;
+    }
+    return /(?:使用\s+\$gpt-image|生成锁|推荐续生成选项|prompt|style_id)/i.test(text) && text.length > 300;
 }
 
 function renderTextContentHtml(text: string): string {
@@ -148,6 +202,14 @@ function splitOptionBlocks(text: string): Array<{ type: 'text'; text: string } |
 }
 
 function renderOptionsHtml(options: string[]): string {
+    if (options.length >= 3 && options.every(isGptImageStyleOption)) {
+        return [
+            '<div class="style-options" role="group" aria-label="GPT Image style options">',
+            ...options.map(option => `<div class="style-option">${escapeHtml(readGptImageStyleLabel(option))}</div>`),
+            '</div>',
+        ].join('\n');
+    }
+
     return [
         '<div class="happy-options" role="group" aria-label="Options">',
         '<div class="happy-options-title">OPTIONS</div>',
@@ -161,14 +223,22 @@ function renderOptionsHtml(options: string[]): string {
     ].join('\n');
 }
 
+function isGptImageStyleOption(option: string): boolean {
+    return /^\s*\[\[gpt-image-style:[^\]]+\]\]/.test(option);
+}
+
+function readGptImageStyleLabel(option: string): string {
+    return option.replace(/^\s*\[\[gpt-image-style:[^\]]+\]\]\s*/, '').trim() || option;
+}
+
 function renderPlainTextHtml(text: string): string {
     const blocks = text.trim().split(/\n{2,}/);
     return blocks.map(block => {
-        const escaped = escapeHtml(block.trim()).replace(/\n/g, '<br>');
+        const escaped = block.trim().split(/\n/).map(line => formatInlineHtml(line.trim())).join('<br>');
         if (/^[-*]\s+/m.test(block)) {
             const items = block.split(/\n/).map(line => line.replace(/^[-*]\s+/, '').trim()).filter(Boolean);
             if (items.length > 1) {
-                return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+                return `<ul>${items.map(item => `<li>${formatInlineHtml(item)}</li>`).join('')}</ul>`;
             }
         }
         return `<p>${escaped}</p>`;
@@ -199,7 +269,7 @@ function renderToolCallHtml(message: ToolCallMessage): string {
     }
 
     return [
-        '<details class="tool" open>',
+        '<details class="tool">',
         '<summary>',
         `<span>${escapeHtml(tool.name || 'Tool')}</span>`,
         `<small>${escapeHtml(tool.state)}</small>`,
@@ -211,11 +281,17 @@ function renderToolCallHtml(message: ToolCallMessage): string {
 }
 
 function renderToolGroupHtml(tools: string[]): string {
+    const count = tools.length;
     return [
-        '<article class="tool-group">',
-        `<div class="tool-group-title">Tool activity · ${tools.length} ${tools.length === 1 ? 'step' : 'steps'}</div>`,
+        '<details class="tool-group">',
+        '<summary>',
+        '<strong>Tool activity</strong>',
+        `<span>${count} ${count === 1 ? 'step' : 'steps'} collapsed</span>`,
+        '</summary>',
+        '<div class="tool-list">',
         ...tools,
-        '</article>',
+        '</div>',
+        '</details>',
     ].join('\n');
 }
 
@@ -257,8 +333,9 @@ function parseShareAttachment(
 }
 
 function renderAttachmentGalleryHtml(attachments: ShareAttachment[]): string {
+    const mode = attachments.length === 1 ? 'single' : 'grid';
     return [
-        '<div class="image-gallery" aria-label="Shared images">',
+        `<div class="image-gallery image-gallery-${mode}" aria-label="Shared images">`,
         ...attachments.map(renderAttachmentCardHtml),
         '</div>',
     ].join('\n');
@@ -272,8 +349,9 @@ function renderAttachmentCardHtml(attachment: ShareAttachment): string {
     const media = attachment.url
         ? `<img src="${escapeHtml(attachment.url)}" alt="${escapeHtml(attachment.name)}" loading="lazy">`
         : '<div class="image-placeholder">IMAGE</div>';
+    const aspect = formatAspectRatio(attachment);
     return [
-        '<figure class="image-card">',
+        `<figure class="image-card" style="aspect-ratio:${aspect}">`,
         media,
         '<figcaption>',
         `<strong>${escapeHtml(attachment.name)}</strong>`,
@@ -281,6 +359,15 @@ function renderAttachmentCardHtml(attachment: ShareAttachment): string {
         '</figcaption>',
         '</figure>',
     ].join('\n');
+}
+
+function formatAspectRatio(attachment: ShareAttachment): string {
+    if (!attachment.width || !attachment.height) {
+        return '4 / 3';
+    }
+    const ratio = attachment.width / attachment.height;
+    const clamped = Math.max(0.65, Math.min(1.8, ratio));
+    return `${Math.round(clamped * 1000) / 1000}`;
 }
 
 function flushAttachments(lines: string[], attachments: ShareAttachment[]): void {
@@ -314,8 +401,40 @@ function getSessionShareTitle(session: Session): string {
         || 'Happy Session';
 }
 
-function formatSharedAt(timestamp: number): string {
-    return `Shared ${new Date(timestamp).toLocaleString()}`;
+function formatShellLabel(session: Session): string {
+    return session.metadata?.host?.trim()
+        || session.metadata?.path?.split('/').filter(Boolean).pop()
+        || 'shared';
+}
+
+function renderInactiveSessionHtml(commandLines: string[], activeAt: number): string {
+    return [
+        '<section class="inactive-session">',
+        '<p>此会话处于非活动状态。</p>',
+        '<p>要从终端恢复它：</p>',
+        '<pre><code>',
+        escapeHtml(commandLines.join('\n')),
+        '</code></pre>',
+        `<p class="inactive-time">最后活跃时间 ${escapeHtml(formatRelativeTime(activeAt))}</p>`,
+        '</section>',
+    ].join('\n');
+}
+
+function formatRelativeTime(timestamp: number): string {
+    const diff = Date.now() - timestamp;
+    if (!Number.isFinite(diff) || diff < 0) {
+        return new Date(timestamp).toLocaleString();
+    }
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    if (diff < hour) {
+        return `${Math.max(1, Math.round(diff / minute))} 分钟前`;
+    }
+    if (diff < day) {
+        return `${Math.round(diff / hour)} 小时前`;
+    }
+    return `${Math.round(diff / day)} 天前`;
 }
 
 function formatMessageTime(timestamp: number): string {
@@ -366,6 +485,13 @@ function decodeBasicEntities(value: string): string {
         .replace(/&#39;/g, "'");
 }
 
+function formatInlineHtml(value: string): string {
+    return escapeHtml(value)
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
 function escapeHtml(value: string): string {
     return value
         .replace(/&/g, '&amp;')
@@ -391,18 +517,23 @@ function buildShareCss(): string {
   --surface-strong: #eaf1fb;
   --accent: #0e9ed4;
   --accent-soft: #dff5ff;
-  --shadow: 0 12px 32px rgba(17, 24, 39, 0.08);
+  --shadow: 0 8px 22px rgba(17, 24, 39, 0.08);
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); }
-.page { width: min(820px, 100%); margin: 0 auto; padding: 26px 18px 48px; }
-.session-header { padding: 18px 4px 24px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
-.brand-row { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: #29d66f; box-shadow: 0 0 0 5px rgba(41, 214, 111, .12); }
-h1 { margin: 12px 0 8px; font-size: clamp(28px, 7vw, 48px); line-height: 1.04; letter-spacing: 0; }
-.session-header p { margin: 0; color: var(--muted); font-size: 15px; }
-.timeline { display: flex; flex-direction: column; gap: 24px; }
+.app-shell { width: min(900px, 100%); margin: 0 auto; padding: 14px 18px 40px; }
+.app-topbar { position: sticky; top: 0; z-index: 3; display: grid; grid-template-columns: 46px minmax(0, 1fr) 46px; align-items: center; gap: 10px; min-height: 68px; padding: 8px 0 14px; background: rgba(255, 255, 255, .94); backdrop-filter: blur(18px); }
+.app-menu, .app-new { width: 28px; height: 28px; justify-self: center; position: relative; }
+.app-menu:before, .app-menu:after, .app-new:before, .app-new:after { content: ""; position: absolute; background: #2f2219; border-radius: 999px; }
+.app-menu:before { left: 3px; right: 3px; top: 7px; height: 3px; box-shadow: 0 7px 0 #2f2219, 0 14px 0 #2f2219; }
+.app-new:before { inset: 4px; border: 3px solid #2f2219; background: transparent; border-radius: 3px; }
+.app-new:after { right: 2px; top: 2px; width: 11px; height: 3px; box-shadow: 4px 4px 0 #2f2219; transform: rotate(90deg); }
+.app-machine { min-width: 0; justify-self: center; display: flex; align-items: center; justify-content: center; gap: 8px; width: min(460px, 100%); padding: 9px 18px; border: 1px solid #edf0f4; border-radius: 999px; background: rgba(255, 255, 255, .82); box-shadow: 0 1px 7px rgba(15, 23, 42, .04); }
+.app-machine strong { font-size: 17px; letter-spacing: .03em; }
+.app-machine span { width: 8px; height: 8px; border-radius: 999px; background: #9ca3af; }
+.app-machine em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667085; font-style: normal; font: 16px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.timeline { display: flex; flex-direction: column; gap: 20px; padding-top: 6px; }
 .message { width: 100%; }
 .message-meta { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
 .message-meta strong { color: var(--accent); font-size: 15px; letter-spacing: .08em; }
@@ -416,34 +547,70 @@ h1 { margin: 12px 0 8px; font-size: clamp(28px, 7vw, 48px); line-height: 1.04; l
 .message-event .message-body { color: var(--muted); font-size: 17px; }
 ul { margin: 0; padding-left: 24px; }
 li + li { margin-top: 7px; }
-.happy-options { border: 1px solid #9bd8ec; background: #e9fbff; border-radius: 12px; padding: 13px 14px 14px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .72); }
+.happy-options { text-align: left; border: 1px solid #9bd8ec; background: #e9fbff; border-radius: 12px; padding: 13px 14px 14px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .72); }
 .happy-options-title { color: #086f94; font: 800 14px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .15em; margin-bottom: 10px; }
 .happy-option { display: flex; align-items: flex-start; gap: 12px; min-height: 48px; padding: 12px 14px; border: 1px solid #b7dfef; background: rgba(255, 255, 255, .86); border-radius: 10px; font-size: 20px; font-weight: 760; line-height: 1.35; }
 .happy-option + .happy-option { margin-top: 10px; }
 .happy-option-dot { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 6px; border-radius: 50%; background: #119fd4; box-shadow: 0 0 0 6px #d7f1fb; }
-.image-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
-.image-card { position: relative; min-height: 280px; margin: 0; overflow: hidden; border-radius: 12px; background: #f5f7fb; border: 1px solid #dfe6ef; box-shadow: var(--shadow); }
-.image-card img { width: 100%; height: 100%; min-height: 280px; object-fit: cover; display: block; }
-.image-placeholder { display: grid; min-height: 280px; place-items: center; color: #6b7280; font: 800 16px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; }
-.image-card figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 44px 16px 14px; color: white; background: linear-gradient(180deg, rgba(17, 24, 39, 0), rgba(17, 24, 39, .76)); }
+.style-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0 4px; text-align: left; }
+.style-option { display: flex; align-items: center; min-height: 62px; padding: 10px 16px; border: 1px solid #e2d7c7; border-radius: 10px; background: #eaf1f7; color: #1f2d3d; font-size: 19px; line-height: 1.22; font-weight: 760; }
+.image-gallery { display: grid; gap: 14px; }
+.image-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.image-gallery-single { grid-template-columns: minmax(0, 1fr); }
+.image-card { position: relative; margin: 0; overflow: hidden; border-radius: 14px; background: #f5f7fb; border: 1px solid #dfe6ef; box-shadow: var(--shadow); }
+.image-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.image-gallery-single .image-card { max-height: 560px; }
+.image-gallery-single .image-card img { object-fit: contain; background: #fff; }
+.image-placeholder { display: grid; width: 100%; height: 100%; min-height: 260px; place-items: center; color: #6b7280; font: 800 16px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; }
+.image-card figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 46px 16px 14px; color: white; background: linear-gradient(180deg, rgba(17, 24, 39, 0), rgba(17, 24, 39, .72)); }
 .image-card strong, .image-card span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .image-card strong { font-size: 17px; }
 .image-card span { margin-top: 4px; font-size: 14px; opacity: .86; }
-.tool-group { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 14px; }
-.tool-group-title { font-weight: 800; color: #1f2937; margin-bottom: 8px; }
+.prompt-fold { margin-top: 8px; text-align: left; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #eef4fb; }
+.prompt-fold summary { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; list-style: none; }
+.prompt-fold summary::-webkit-details-marker { display: none; }
+.prompt-fold-icon { width: 24px; height: 28px; border: 2px solid #7c8a98; border-radius: 4px; position: relative; }
+.prompt-fold-icon:after { content: ""; position: absolute; right: -2px; top: -2px; border-left: 8px solid transparent; border-bottom: 8px solid #7c8a98; }
+.prompt-fold strong { display: block; color: #1f2937; font-size: 21px; line-height: 1.15; }
+.prompt-fold em { display: block; margin-top: 2px; color: #7c8794; font-style: normal; font-size: 16px; }
+.prompt-fold b { color: #71808f; font-size: 16px; font-weight: 650; white-space: nowrap; }
+.prompt-fold-body { padding: 13px 16px 16px; border-top: 1px solid var(--line); color: #697586; font-size: 18px; line-height: 1.55; }
+.prompt-fold-body code, .message-body code { padding: 2px 6px; border-radius: 7px; background: #edf3f8; color: #1d394d; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; }
+.tool-group { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; overflow: hidden; }
+.tool-group summary { cursor: pointer; display: grid; gap: 4px; padding: 17px 22px; list-style: none; }
+.tool-group summary::-webkit-details-marker, .tool summary::-webkit-details-marker { display: none; }
+.tool-group summary strong { color: #1f2937; font-size: 18px; }
+.tool-group summary span { color: #6b7280; font-size: 15px; font-weight: 700; }
+.tool-list { padding: 14px; border-top: 1px solid var(--line); }
 .tool { border-top: 1px solid var(--line); padding: 10px 0 0; }
-.tool summary { cursor: pointer; display: flex; justify-content: space-between; gap: 12px; font-weight: 760; }
+.tool:first-child { border-top: 0; padding-top: 0; }
+.tool summary { cursor: pointer; display: flex; justify-content: space-between; gap: 12px; font-weight: 760; list-style: none; }
 .tool summary small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .tool p { color: var(--muted); margin: 9px 0 0; }
 .tool-payload { margin-top: 10px; }
 .tool-payload span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 5px; }
 pre { margin: 0; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; background: rgba(255, 255, 255, .76); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; line-height: 1.4; }
-@media (max-width: 560px) {
-  .page { padding: 18px 14px 40px; }
+.inactive-session { color: #5b6573; font-size: 20px; line-height: 1.45; }
+.inactive-session p { margin: 0 0 8px; }
+.inactive-session pre { margin-top: 12px; padding: 18px 22px; border: 0; border-radius: 18px; background: #eef4fd; color: #172233; font: 20px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; box-shadow: none; }
+.inactive-time { margin-top: 14px !important; color: #99a1ad; font-size: 17px; }
+ @media (max-width: 560px) {
+  .app-shell { padding: 8px 18px 40px; }
+  .app-topbar { grid-template-columns: 38px minmax(0, 1fr) 38px; min-height: 66px; }
+  .app-machine { padding: 8px 14px; }
+  .app-machine strong { font-size: 15px; }
+  .app-machine em { font-size: 14px; }
   .message-body { font-size: 19px; }
   .message-user .message-body { max-width: 100%; border-radius: 18px; }
   .happy-option { font-size: 18px; }
-  .image-gallery { grid-template-columns: 1fr; }
+  .style-options { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .style-option { min-height: 56px; padding: 9px 12px; font-size: 17px; }
+  .image-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .prompt-fold summary { grid-template-columns: 30px minmax(0, 1fr); }
+  .prompt-fold summary b { display: none; }
+  .prompt-fold strong { font-size: 18px; }
+  .prompt-fold em { font-size: 14px; }
+  .inactive-session pre { font-size: 17px; }
 }
 `.trim();
 }
