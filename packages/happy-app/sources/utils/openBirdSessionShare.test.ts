@@ -255,6 +255,39 @@ describe('buildOpenBirdSessionMarkdown', () => {
         expect(markdown).not.toContain('<option>');
     });
 
+    it('renders GPT image prompts and style options as app-like share controls', () => {
+        const messages: Message[] = [
+            {
+                kind: 'user-text',
+                id: 'user-gpt-image',
+                localId: null,
+                createdAt: Date.parse('2026-01-01T10:01:00.000Z'),
+                text: [
+                    '使用 $gpt-image-2 skill 执行一次 GPT Image 2 图片编辑 / 生成批处理。',
+                    '',
+                    '生成锁：',
+                    '- 将这次请求视为一个已锁定的图片生成任务。',
+                    '- 不要启动第二个批处理。',
+                    '',
+                    '推荐续生成选项：',
+                    '<options>',
+                    '<option>[[gpt-image-style:reference-voxcat/wild-mountain-sketchbook/1]] 山野旅行速写手帐</option>',
+                    '<option>[[gpt-image-style:reference-tiramisu/vintage-film-cafe/1]] 复古胶片咖啡馆</option>',
+                    '<option>[[gpt-image-style:reference-tiramisu/premium-studio-food/1]] 高级影棚甜点摄影</option>',
+                    '</options>',
+                ].join('\n'),
+            },
+        ];
+
+        const markdown = buildOpenBirdSessionMarkdown(session, messages);
+
+        expect(markdown).toContain('<details class="happy-prompt-fold" open>');
+        expect(markdown).toContain('提示词已折叠');
+        expect(markdown).toContain('<div class="happy-style-options" role="group" aria-label="GPT Image style options">');
+        expect(markdown).toContain('<div class="happy-style-option">山野旅行速写手帐</div>');
+        expect(markdown).not.toContain('<div class="happy-option">[[gpt-image-style:reference-voxcat/wild-mountain-sketchbook/1]]');
+    });
+
     it('renders Happy OTA preview metadata as a share card instead of raw tags', () => {
         const messages: Message[] = [
             {

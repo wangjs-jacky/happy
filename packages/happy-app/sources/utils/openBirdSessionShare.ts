@@ -395,15 +395,50 @@ function renderToolGroupHtml(tools: string[]): string {
 }
 
 function renderTurnHtml(label: string, timestamp: number, text: string, kind: 'user' | 'assistant' | 'event'): string {
+    const body = kind === 'user' ? formatUserTextHtml(text) : formatTextHtml(text);
     return [
         `<section class="happy-turn happy-turn-${kind}">`,
         '<div class="happy-turn-meta">',
         `<span>${escapeHtml(label)}</span>`,
         `<time>${escapeHtml(formatMessageTime(timestamp))}</time>`,
         '</div>',
-        `<div class="happy-turn-body">${formatTextHtml(text)}</div>`,
+        `<div class="happy-turn-body">${body}</div>`,
         '</section>',
     ].join('\n');
+}
+
+function formatUserTextHtml(text: string): string {
+    const source = text.trim();
+    if (!shouldFoldPrompt(source)) {
+        return formatTextHtml(source);
+    }
+
+    const lines = source.split(/\r?\n/);
+    const firstMeaningfulIndex = lines.findIndex(line => line.trim().length > 0);
+    const intro = firstMeaningfulIndex >= 0 ? lines[firstMeaningfulIndex].trim() : '';
+    const rest = lines.slice(firstMeaningfulIndex + 1).join('\n').trim();
+    const foldedText = rest || source;
+    const lineCount = foldedText.split(/\r?\n/).filter(line => line.trim()).length;
+    const charCount = foldedText.length;
+
+    return [
+        intro && rest ? `<p>${formatInlineMarkdown(intro)}</p>` : '',
+        '<details class="happy-prompt-fold" open>',
+        '<summary>',
+        '<span class="happy-prompt-fold-icon" aria-hidden="true"></span>',
+        '<span><strong>提示词已折叠</strong>',
+        `<em>${lineCount} 行 · ${charCount} 字符</em></span>`,
+        '</summary>',
+        `<div class="happy-prompt-fold-body">${formatTextHtml(foldedText)}</div>`,
+        '</details>',
+    ].filter(Boolean).join('\n');
+}
+
+function shouldFoldPrompt(text: string): boolean {
+    if (text.length > 1200) {
+        return true;
+    }
+    return /(?:使用\s+\$gpt-image|生成锁|推荐续生成选项|prompt|style_id)/i.test(text) && text.length > 300;
 }
 
 function renderToolPayloadHtml(label: string, content: string): string {
@@ -696,6 +731,14 @@ function renderOptionsHtml(rawOptions: string): string {
         return formatPlainTextHtml(rawOptions);
     }
 
+    if (options.length >= 3 && options.every(isGptImageStyleOption)) {
+        return [
+            '<div class="happy-style-options" role="group" aria-label="GPT Image style options">',
+            ...options.map(option => `<div class="happy-style-option">${escapeHtml(readGptImageStyleLabel(option))}</div>`),
+            '</div>',
+        ].join('\n');
+    }
+
     return [
         '<div class="happy-options" role="group" aria-label="Options">',
         '<div class="happy-options-title">Options</div>',
@@ -704,6 +747,14 @@ function renderOptionsHtml(rawOptions: string): string {
         '</div>',
         '</div>',
     ].join('\n');
+}
+
+function isGptImageStyleOption(option: string): boolean {
+    return /^\s*\[\[gpt-image-style:[^\]]+\]\]/.test(option);
+}
+
+function readGptImageStyleLabel(option: string): string {
+    return option.replace(/^\s*\[\[gpt-image-style:[^\]]+\]\]\s*/, '').trim() || option;
 }
 
 function formatInlineMarkdown(text: string): string {
@@ -822,6 +873,16 @@ article:has(#happy-theme-toggle:checked) .happy-turn-event .happy-turn-meta span
 .happy-options-list{display:grid;gap:5px}
 .happy-option{position:relative;padding:6px 8px 6px 24px;border:1px solid color-mix(in srgb,var(--accent) 24%,transparent);border-radius:7px;background:var(--article-bg);color:var(--text);font-weight:620;line-height:1.34}
 .happy-option:before{content:"";position:absolute;left:10px;top:1em;width:7px;height:7px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.happy-style-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:8px 0 10px}
+.happy-style-option{display:flex;align-items:center;min-height:48px;padding:8px 10px;border:1px solid #e3d7c7;border-radius:9px;background:#eaf1f7;color:#1f2d3d;font-size:14px;font-weight:760;line-height:1.22}
+.happy-prompt-fold{margin:7px 0;border:1px solid var(--soft-border);border-radius:10px;overflow:hidden;background:var(--panel-strong)}
+.happy-prompt-fold summary{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:center;gap:8px;padding:8px 10px;cursor:pointer;list-style:none}
+.happy-prompt-fold summary::-webkit-details-marker{display:none}
+.happy-prompt-fold-icon{width:19px;height:22px;border:2px solid var(--muted);border-radius:4px;position:relative;opacity:.82}
+.happy-prompt-fold-icon:after{content:"";position:absolute;right:-2px;top:-2px;border-left:7px solid transparent;border-bottom:7px solid var(--muted)}
+.happy-prompt-fold strong{display:block;color:var(--heading);font-size:15px;line-height:1.15}
+.happy-prompt-fold em{display:block;margin-top:2px;color:var(--muted);font-style:normal;font-size:11px}
+.happy-prompt-fold-body{padding:9px 10px 11px;border-top:1px solid var(--soft-border);color:var(--muted);font-size:12px;line-height:1.5}
 .happy-ota-card{margin:8px 0 10px;padding:12px;border:1px solid var(--soft-border);border-radius:11px;background:linear-gradient(180deg,var(--panel),var(--panel-strong));box-shadow:0 10px 22px rgba(15,23,42,.06)}
 .happy-ota-eyebrow{margin:0 0 5px;color:var(--muted);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}
 .happy-ota-card h3{margin:0 0 4px!important;color:var(--heading)!important;font-size:17px!important;line-height:1.24!important;font-weight:760!important;overflow-wrap:anywhere}
@@ -837,8 +898,10 @@ article:has(#happy-theme-toggle:checked) .happy-turn-event .happy-turn-meta span
 .happy-ota-field dt{margin:0;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
 .happy-ota-field dd{margin:0;min-width:0;overflow-wrap:anywhere;color:var(--text);font:12px/1.45 ui-monospace,SFMono-Regular,SFMono,Menlo,Consolas,monospace}
 .happy-image-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;margin:8px 0 10px}
-.happy-image-card{position:relative;min-height:112px;max-height:260px;margin:0!important;overflow:hidden;border:1px solid var(--soft-border);border-radius:10px;background:var(--panel-strong)}
+.happy-image-gallery:has(.happy-image-card:only-child){grid-template-columns:1fr}
+.happy-image-card{position:relative;min-height:112px;max-height:360px;margin:0!important;overflow:hidden;border:1px solid var(--soft-border);border-radius:10px;background:var(--panel-strong)}
 .happy-image-card img{display:block;width:100%;height:100%;object-fit:cover}
+.happy-image-gallery:has(.happy-image-card:only-child) .happy-image-card img{object-fit:contain;background:var(--article-bg)}
 .happy-image-placeholder{display:grid;place-items:center;width:100%;height:100%;min-height:112px;background:linear-gradient(135deg,var(--panel),var(--panel-strong));color:var(--muted);font-size:11px;font-weight:760;text-transform:uppercase;letter-spacing:.08em}
 .happy-image-card figcaption{position:absolute;left:0;right:0;bottom:0;display:grid;gap:1px;padding:24px 7px 6px;background:linear-gradient(to top,rgba(2,6,23,.72),rgba(2,6,23,0));color:#fff}
 .happy-image-card figcaption strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.2}
@@ -861,7 +924,7 @@ article:has(#happy-theme-toggle:checked) .happy-turn-event .happy-turn-meta span
 .happy-tool-payload{margin-top:6px}
 .happy-tool-payload-label{color:var(--muted);font-size:10px;font-weight:760;text-transform:uppercase;letter-spacing:.06em}
 .happy-tool-child{margin-top:7px;padding-top:7px;border-top:1px dashed var(--soft-border)}
-@media(max-width:720px){body{font-size:13px!important;line-height:1.48!important}article{margin:0!important;padding:10px 8px!important;border:0;border-radius:0;min-height:100vh}article>h1{font-size:20px!important;margin-bottom:5px!important}.happy-theme-control{margin:-1px 0 6px}.happy-theme-switch{width:116px}.happy-share-intro{margin-bottom:6px;font-size:11px}.happy-meta-item{padding:3px 7px}.happy-meta-long{max-width:100%}.happy-meta-item span{font-size:8px}.happy-meta-item strong{font-size:11px}.happy-turn{margin:7px 0}.happy-turn-assistant{margin:11px 0}.happy-turn-body{padding:7px 9px;border-radius:8px}.happy-turn-user .happy-turn-body{max-width:82%;padding:8px 11px}.happy-turn-meta{margin-bottom:2px}.happy-ota-card{padding:10px;border-radius:10px}.happy-ota-card h3{font-size:15px!important}.happy-ota-subtitle{font-size:11px}.happy-ota-summary{font-size:12px}.happy-ota-field{grid-template-columns:74px minmax(0,1fr);gap:7px;padding:7px 8px}.happy-image-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:7px 0}.happy-image-card{min-height:104px;max-height:230px;border-radius:9px}.happy-image-placeholder{min-height:104px}.happy-table{min-width:500px;font-size:11px}.happy-table th,.happy-table td{padding:7px 8px}.happy-tool-group summary{align-items:flex-start;flex-direction:column;gap:2px}.happy-tool-head time{width:100%;margin-left:0}.happy-message-code,.happy-tool-payload pre{font-size:10px!important}}
+	@media(max-width:720px){body{font-size:13px!important;line-height:1.48!important}article{margin:0!important;padding:10px 8px!important;border:0;border-radius:0;min-height:100vh}article>h1{font-size:20px!important;margin-bottom:5px!important}.happy-theme-control{margin:-1px 0 6px}.happy-theme-switch{width:116px}.happy-share-intro{margin-bottom:6px;font-size:11px}.happy-meta-item{padding:3px 7px}.happy-meta-long{max-width:100%}.happy-meta-item span{font-size:8px}.happy-meta-item strong{font-size:11px}.happy-turn{margin:7px 0}.happy-turn-assistant{margin:11px 0}.happy-turn-body{padding:7px 9px;border-radius:8px}.happy-turn-user .happy-turn-body{max-width:86%;padding:8px 11px}.happy-turn-meta{margin-bottom:2px}.happy-style-options{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.happy-style-option{min-height:44px;padding:7px 8px;font-size:13px}.happy-prompt-fold strong{font-size:14px}.happy-prompt-fold-body{font-size:11px}.happy-ota-card{padding:10px;border-radius:10px}.happy-ota-card h3{font-size:15px!important}.happy-ota-subtitle{font-size:11px}.happy-ota-summary{font-size:12px}.happy-ota-field{grid-template-columns:74px minmax(0,1fr);gap:7px;padding:7px 8px}.happy-image-gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:7px 0}.happy-image-gallery:has(.happy-image-card:only-child){grid-template-columns:1fr}.happy-image-card{min-height:104px;max-height:320px;border-radius:9px}.happy-image-placeholder{min-height:104px}.happy-table{min-width:500px;font-size:11px}.happy-table th,.happy-table td{padding:7px 8px}.happy-tool-group summary{align-items:flex-start;flex-direction:column;gap:2px}.happy-tool-head time{width:100%;margin-left:0}.happy-message-code,.happy-tool-payload pre{font-size:10px!important}}
 </style>`;
 }
 
