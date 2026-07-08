@@ -7,6 +7,7 @@ import { query as sdkQuery, type Options, type Query } from '@anthropic-ai/claud
 import type { QueryOptions, QueryPrompt, SDKMessage } from './types'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ensureLocalProxyBypass } from '../utils/proxyBypass'
+import { buildClaudeProcessEnv } from './claudeProcessEnv'
 import { resolveHappyEntrypoint } from './happyEntrypoint'
 
 /**
@@ -59,10 +60,9 @@ export function query(params: { prompt: QueryPrompt; options?: QueryOptions }): 
     // `claude --resume` picker. The agent SDK would otherwise default to
     // CLAUDE_CODE_ENTRYPOINT="sdk-ts" and the picker would hide every Happy
     // session. See slopus/happy#1202.
-    const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
-        if (typeof value === 'string') env[key] = value
-    }
+    // Claude-specific proxy/CA isolation (HAPPY_CLAUDE_PROXY_URL et al.),
+    // mirroring the Codex-side buildCodexProcessEnv().
+    const env = buildClaudeProcessEnv()
     env.CLAUDE_CODE_ENTRYPOINT = resolveHappyEntrypoint(process.env.CLAUDE_CODE_ENTRYPOINT)
     if (opts?.mcpServers && Object.keys(opts.mcpServers).length > 0) {
         ensureLocalProxyBypass(env)
