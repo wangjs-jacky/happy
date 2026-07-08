@@ -489,7 +489,7 @@ export async function startDaemon(): Promise<void> {
                   type: 'error',
                   errorMessage: `Session webhook timeout for PID ${tmuxResult.pid} (tmux)`
                 });
-              }, 15_000); // Same timeout as regular sessions
+              }, 90_000); // Same timeout as regular sessions
 
               // Register awaiter for tmux session (exact same as regular flow)
               pidToAwaiter.set(tmuxResult.pid!, (completedSession) => {
@@ -653,7 +653,7 @@ export async function startDaemon(): Promise<void> {
             type: 'error',
             errorMessage: `Session webhook timeout for PID ${happyProcess.pid}`
           });
-        }, 15_000);
+        }, 90_000); // Cold-start Codex/Claude workers can take >60s to report the session webhook
 
         pidToAwaiter.set(happyProcess.pid!, (completedSession) => {
           clearTimeout(timeout);
