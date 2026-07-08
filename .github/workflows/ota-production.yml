@@ -1,6 +1,6 @@
-name: Self-hosted OTA production (on merge to jacky-main)
+name: Self-hosted OTA production (on merge to main)
 
-# 生产 OTA：每当有改动合并进 jacky-main（且命中 packages/happy-app/**），
+# 生产 OTA：每当有改动合并进 main（且命中 packages/happy-app/**），
 # 自动把这次改动以 OTA 形式发到 production 频道，线上正式包（build.paws）冷启动即拉到。
 # 与 ota-preview.yml 互补：preview 在 PR 阶段真机验证，production 在合并后上线。
 #
@@ -8,13 +8,13 @@ name: Self-hosted OTA production (on merge to jacky-main)
 # - 必须是纯 JS 改动（无原生变更）。原生变了应重新出 APK，OTA 推不动。
 # - runtimeVersion 必须仍与线上装机 APK 一致（当前 21，见 app.config.js）。
 #
-# 安全：只在本仓库 push 到 jacky-main 时运行。需在仓库 Secrets 配置
+# 安全：只在本仓库 push 到 main 时运行。需在仓库 Secrets 配置
 # ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET（与 preview 共用）。
 
 on:
   push:
     branches:
-      - jacky-main
+      - main
     paths:
       - 'packages/happy-app/**'
       - '.github/workflows/ota-production.yml'

@@ -17,7 +17,7 @@ on:
     pull_request:
         types: [opened, synchronize, reopened]
         branches:
-            - jacky-main
+            - main
         paths:
             - 'packages/happy-app/**'
             - '.github/workflows/ota-preview.yml'

@@ -49,7 +49,7 @@ Important terms:
 | Try the official upstream Happy package | Install the public `happy` npm package and use the official Happy app. |
 | Use this Paws fork exactly as developed here | Install the Paws app build and link the CLI from this repository source. |
 | Run your own relay server | Start with `paws server` for a single-machine test, then use Docker for a shared server. |
-| Contribute code | Create a worktree from `jacky-main`, install pnpm dependencies, and run package-specific checks. |
+| Contribute code | Create a worktree from `main`, install pnpm dependencies, and run package-specific checks. |
 
 The fork CLI package in this repo is named `@wangjs-jacky/paws`, but it is not
 published to npm. To get fork-specific behavior, build and link it from source,
@@ -129,7 +129,7 @@ For this fork, build and link the CLI from source:
 ```bash
 git clone https://github.com/wangjs-jacky/happy.git
 cd happy
-git switch jacky-main
+git switch main
 
 corepack enable
 pnpm install
@@ -427,7 +427,7 @@ Install dependencies:
 ```bash
 git clone https://github.com/wangjs-jacky/happy.git
 cd happy
-git switch jacky-main
+git switch main
 pnpm install
 ```
 

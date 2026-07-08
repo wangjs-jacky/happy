@@ -38,7 +38,7 @@ Claude Code / Codex / Gemini / OpenCode / ACP 兼容 agent
 | 体验上游官方 Happy | 安装公开 npm 包 `happy`，配官方 Happy App。 |
 | 使用本仓库这个 Paws fork | 安装 Paws APK，并从本仓库源码 build/link CLI。 |
 | 跑自己的同步中继 | 单机先用 `paws server`，团队共享再用 Docker。 |
-| 参与开发 | 从 `jacky-main` 切 worktree，安装 pnpm 依赖，跑对应 package 的检查。 |
+| 参与开发 | 从 `main` 切 worktree，安装 pnpm 依赖，跑对应 package 的检查。 |
 
 本 fork 的 CLI package 名是 `@wangjs-jacky/paws`，但它没有发布到 npm。要使用 fork 专属行为，需要从源码构建并 link，然后默认使用 `paws` 命令。`happy` 只保留为兼容 alias，因为上游文档和旧习惯还在用这个名字。旧的 `happy-coder` npm 包已经过时，新安装不要再用它。
 
@@ -106,7 +106,7 @@ gemini --version
 ```bash
 git clone https://github.com/wangjs-jacky/happy.git
 cd happy
-git switch jacky-main
+git switch main
 
 corepack enable
 pnpm install
@@ -381,7 +381,7 @@ git --version
 ```bash
 git clone https://github.com/wangjs-jacky/happy.git
 cd happy
-git switch jacky-main
+git switch main
 pnpm install
 ```
 
