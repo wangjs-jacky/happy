@@ -264,7 +264,7 @@ export default React.memo(function AgentEditScreen() {
                         machineOnline={selectedMachineOnline}
                         onChangeValue={setPath}
                         embedded
-                        manualInput={false}
+                        manualInput
                     />
                 </ItemGroup>
 
