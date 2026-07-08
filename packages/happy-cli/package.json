@@ -1,15 +1,16 @@
 {
   "name": "@wangjs-jacky/paws",
-  "version": "1.1.10-beta.10",
+  "version": "1.2.0",
   "description": "Mobile and Web client for Claude Code and Codex",
   "author": "wangjs-jacky",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://paws.build",
-  "bugs": "https://github.com/wangjs-jacky/paws/issues",
+  "homepage": "https://github.com/wangjs-jacky/happy",
+  "bugs": "https://github.com/wangjs-jacky/happy/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wangjs-jacky/paws"
+    "url": "https://github.com/wangjs-jacky/happy",
+    "directory": "packages/happy-cli"
   },
   "bin": {
     "happy": "./bin/happy.mjs",
@@ -80,7 +81,6 @@
     "@noble/ed25519": "^3.0.0",
     "@noble/hashes": "^2.0.1",
     "@paralleldrive/cuid2": "^2.2.2",
-    "@slopus/happy-wire": "workspace:*",
     "@stablelib/base64": "^2.0.1",
     "@stablelib/hex": "^2.0.1",
     "@types/cross-spawn": "^6.0.6",
@@ -113,6 +113,7 @@
   },
   "devDependencies": {
     "@eslint/compat": "^1",
+    "@slopus/happy-wire": "workspace:*",
     "@types/inquirer": "^9.0.9",
     "@types/node": ">=20",
     "@types/ws": "^8.18.1",
@@ -128,7 +129,8 @@
     "vitest": "^3.2.4"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.org"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "packageManager": "pnpm@10.11.0"
 }

@@ -1,4 +1,6 @@
-# Happy
+# Paws — Happy fork
+
+> Fork of [slopus/happy](https://github.com/slopus/happy) with personal enhancements, published as [`@wangjs-jacky/paws`](https://www.npmjs.com/package/@wangjs-jacky/paws). Source: [wangjs-jacky/happy](https://github.com/wangjs-jacky/happy).
 
 Code on the go — control AI coding agents from your phone, browser, or terminal.
 
@@ -7,10 +9,29 @@ Free. Open source. Code anywhere.
 ## Installation
 
 ```bash
-npm install -g happy
+npm install -g @wangjs-jacky/paws
 ```
 
-> Migrated from the `happy-coder` package. Thanks to [@franciscop](https://github.com/franciscop) for donating the `happy` package name!
+This installs both the `paws` and `happy` commands (they are identical).
+
+> **Note:** the `happy` command name conflicts with the official `happy` / `happy-coder` npm packages. If you have one of them installed globally, remove it first (`npm rm -g happy happy-coder`), or install with `--force` and use `paws`.
+
+## Server
+
+By default this fork connects to the maintainer's self-hosted relay server. All session data is **end-to-end encrypted** before leaving your device — the relay only ever sees ciphertext.
+
+To use your own relay, deploy [happy-server](https://github.com/wangjs-jacky/happy/tree/jacky-main/packages/happy-server) and point the CLI (and the mobile/web app) at it:
+
+```bash
+# one-off
+HAPPY_SERVER_URL=https://your-server.example.com happy
+
+# or persist it in ~/.happy/settings.json
+{
+  "serverUrl": "https://your-server.example.com",
+  "webappUrl": "https://your-webapp.example.com"
+}
+```
 
 ## Usage
 
@@ -114,8 +135,8 @@ happy connect status
 
 | Variable | Description |
 |----------|-------------|
-| `HAPPY_SERVER_URL` | Custom server URL (default: `https://api.cluster-fluster.com`) |
-| `HAPPY_WEBAPP_URL` | Custom web app URL (default: `https://app.happy.engineering`) |
+| `HAPPY_SERVER_URL` | Custom server URL (default: maintainer's self-hosted relay) |
+| `HAPPY_WEBAPP_URL` | Custom web app URL (default: maintainer's self-hosted webapp) |
 | `HAPPY_HOME_DIR` | Custom home directory for Happy data (default: `~/.happy`) |
 | `HAPPY_DISABLE_CAFFEINATE` | Disable macOS sleep prevention |
 | `HAPPY_EXPERIMENTAL` | Enable experimental features |
@@ -133,10 +154,11 @@ happy sandbox disable
 ### Building from source
 
 ```bash
-git clone https://github.com/slopus/happy
-cd happy-cli
-yarn install
-yarn workspace happy cli --help
+git clone https://github.com/wangjs-jacky/happy
+cd happy
+pnpm install
+pnpm --filter @wangjs-jacky/paws run build
+node packages/happy-cli/bin/happy.mjs --help
 ```
 
 ## Requirements
