@@ -595,6 +595,9 @@ export const pl: TranslationStructure = {
             sourceManual: 'Ręcznie',
             sourceAi: 'AI',
         },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
+        },
     },
 
     agentInput: {

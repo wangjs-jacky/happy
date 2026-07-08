@@ -532,6 +532,9 @@ export const ru: TranslationStructure = {
             sourceManual: 'Вручную',
             sourceAi: 'ИИ',
         },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
+        },
     },
 
     profile: {

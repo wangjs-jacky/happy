@@ -580,6 +580,9 @@ export const zhHans: TranslationStructure = {
             sourceManual: '手动',
             sourceAi: 'AI',
         },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
+        },
     },
 
     agentInput: {

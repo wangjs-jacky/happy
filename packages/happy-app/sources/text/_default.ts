@@ -606,6 +606,10 @@ export const en = {
             sourceManual: 'Manual',
             sourceAi: 'AI',
         },
+        desktopScreenshot: {
+            // Fullscreen preview modal for captured screenshots
+            size: ({ size }: { size: string }) => `${size} KB`,
+        },
     },
 
     agentInput: {

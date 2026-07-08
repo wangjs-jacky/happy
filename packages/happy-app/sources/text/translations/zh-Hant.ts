@@ -579,6 +579,9 @@ export const zhHant: TranslationStructure = {
             sourceManual: '手動',
             sourceAi: 'AI',
         },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
+        },
     },
 
     agentInput: {
