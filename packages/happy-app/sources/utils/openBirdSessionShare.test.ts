@@ -286,6 +286,7 @@ describe('buildOpenBirdSessionMarkdown', () => {
         expect(markdown).toContain('<div class="happy-style-options" role="group" aria-label="GPT Image style options">');
         expect(markdown).toContain('<div class="happy-style-option">山野旅行速写手帐</div>');
         expect(markdown).not.toContain('<div class="happy-option">[[gpt-image-style:reference-voxcat/wild-mountain-sketchbook/1]]');
+        expect(markdown).not.toContain(':has(');
     });
 
     it('renders Happy OTA preview metadata as a share card instead of raw tags', () => {
