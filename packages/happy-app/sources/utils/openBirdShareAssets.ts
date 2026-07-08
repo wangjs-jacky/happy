@@ -1,10 +1,10 @@
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 
 const DEFAULT_MAX_IMAGES = 24;
-const DEFAULT_MAX_TOTAL_DATA_URI_LENGTH = 3_600_000;
+const DEFAULT_MAX_TOTAL_URL_LENGTH = 64_000;
 const DEFAULT_MAX_IMAGE_DIMENSION = 720;
 const DEFAULT_IMAGE_COMPRESS = 0.72;
-const DEFAULT_MAX_RAW_DATA_URI_LENGTH = 1_900_000;
+const DEFAULT_MAX_RAW_UPLOAD_LENGTH = 2_800_000;
 const DEFAULT_MAX_PER_IMAGE_DATA_URI_LENGTH = 260_000;
 
 export interface OpenBirdImageAttachment {
@@ -22,6 +22,7 @@ export interface PrepareOpenBirdAttachmentUrlsOptions {
     compress?: number;
     maxRawDataUriLength?: number;
     maxPerImageDataUriLength?: number;
+    imageUrlLoader?: (attachment: OpenBirdImageAttachment, sessionId: string) => Promise<string | null>;
     dataUriLoader?: (attachment: OpenBirdImageAttachment, sessionId: string) => Promise<string | null>;
 }
 
@@ -56,32 +57,33 @@ export async function prepareOpenBirdAttachmentUrls(
     options: PrepareOpenBirdAttachmentUrlsOptions = {},
 ): Promise<Record<string, string>> {
     const maxImages = options.maxImages ?? DEFAULT_MAX_IMAGES;
-    const maxTotalDataUriLength = options.maxTotalDataUriLength ?? DEFAULT_MAX_TOTAL_DATA_URI_LENGTH;
+    const maxTotalDataUriLength = options.maxTotalDataUriLength ?? DEFAULT_MAX_TOTAL_URL_LENGTH;
     if (maxImages <= 0 || maxTotalDataUriLength <= 0) {
         return {};
     }
 
-    const loader = options.dataUriLoader
-        ?? ((attachment: OpenBirdImageAttachment) => loadCompressedAttachmentDataUri(sessionId, attachment, options));
+    const loader = options.imageUrlLoader
+        ?? options.dataUriLoader
+        ?? ((attachment: OpenBirdImageAttachment) => loadShareAttachmentUrl(sessionId, attachment, options));
     const urls: Record<string, string> = {};
     let usedLength = 0;
 
     for (const attachment of collectOpenBirdImageAttachments(messages).slice(0, maxImages)) {
-        let dataUri: string | null = null;
+        let url: string | null = null;
         try {
-            dataUri = await loader(attachment, sessionId);
+            url = await loader(attachment, sessionId);
         } catch {
             continue;
         }
-        if (!dataUri?.startsWith('data:image/')) {
+        if (!isShareImageUrl(url)) {
             continue;
         }
-        if (usedLength + dataUri.length > maxTotalDataUriLength) {
+        if (usedLength + url.length > maxTotalDataUriLength) {
             continue;
         }
 
-        urls[attachment.ref] = dataUri;
-        usedLength += dataUri.length;
+        urls[attachment.ref] = url;
+        usedLength += url.length;
     }
 
     return urls;
@@ -122,7 +124,7 @@ function parseImageAttachment(message: ToolCallMessage): OpenBirdImageAttachment
     };
 }
 
-async function loadCompressedAttachmentDataUri(
+async function loadShareAttachmentUrl(
     sessionId: string,
     attachment: OpenBirdImageAttachment,
     options: PrepareOpenBirdAttachmentUrlsOptions,
@@ -131,12 +133,12 @@ async function loadCompressedAttachmentDataUri(
         { sync },
         { downloadEncryptedAttachment },
         { decryptBlob },
-        { encodeBase64 },
+        { uploadOpenBirdShareImage },
     ] = await Promise.all([
         import('@/sync/sync'),
         import('@/sync/apiAttachments'),
         import('@/encryption/blob'),
-        import('@/encryption/base64'),
+        import('@/sync/apiOpenBirdShare'),
     ]);
 
     const credentials = sync.getCredentials();
@@ -152,28 +154,33 @@ async function loadCompressedAttachmentDataUri(
     }
 
     const mime = detectImageMime(decrypted);
-    const rawDataUri = `data:${mime};base64,${encodeBase64(decrypted)}`;
-    if (rawDataUri.length <= (options.maxRawDataUriLength ?? DEFAULT_MAX_RAW_DATA_URI_LENGTH)) {
-        return rawDataUri;
+    const uploadBytes = await compressAttachmentImage(decrypted, mime, attachment, options)
+        ?? (decrypted.length <= (options.maxRawDataUriLength ?? DEFAULT_MAX_RAW_UPLOAD_LENGTH) ? decrypted : null);
+    if (!uploadBytes) {
+        return null;
     }
 
-    return await compressAttachmentDataUri(decrypted, mime, attachment, options, encodeBase64)
-        ?? rawDataUri;
+    const image = await uploadOpenBirdShareImage(credentials, {
+        bytes: uploadBytes,
+        mimeType: uploadBytes === decrypted ? mime : 'image/jpeg',
+    });
+    return image.url;
 }
 
-async function compressAttachmentDataUri(
+async function compressAttachmentImage(
     bytes: Uint8Array,
     mime: string,
     attachment: OpenBirdImageAttachment,
     options: PrepareOpenBirdAttachmentUrlsOptions,
-    encodeBase64: (bytes: Uint8Array) => string,
-): Promise<string | null> {
+): Promise<Uint8Array | null> {
     const [
         fileSystem,
         imageManipulator,
+        { encodeBase64, decodeBase64 },
     ] = await Promise.all([
         import('expo-file-system/legacy'),
         import('expo-image-manipulator'),
+        import('@/encryption/base64'),
     ]);
 
     if (!fileSystem.cacheDirectory) {
@@ -195,7 +202,7 @@ async function compressAttachmentDataUri(
             { maxDimension: Math.min(maxDimension, 420), compress: Math.min(compress, 0.56) },
         ];
 
-        let fallback: string | null = null;
+        let fallback: Uint8Array | null = null;
         for (const attempt of attempts) {
             const result = await imageManipulator.manipulateAsync(
                 tempUri,
@@ -211,10 +218,10 @@ async function compressAttachmentDataUri(
                 continue;
             }
 
-            const dataUri = `data:image/jpeg;base64,${result.base64}`;
-            fallback = dataUri;
-            if (dataUri.length <= perImageLimit) {
-                return dataUri;
+            const compressed = decodeBase64(result.base64);
+            fallback = compressed;
+            if (compressed.length <= perImageLimit) {
+                return compressed;
             }
         }
 
@@ -227,6 +234,11 @@ async function compressAttachmentDataUri(
             await deleteFileBestEffort(fileSystem.deleteAsync, resultUri);
         }
     }
+}
+
+function isShareImageUrl(url: string | null): url is string {
+    return typeof url === 'string'
+        && (url.startsWith('data:image/') || /^https?:\/\//i.test(url));
 }
 
 function getResizeActions(
