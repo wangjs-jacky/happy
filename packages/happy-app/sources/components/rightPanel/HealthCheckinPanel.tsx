@@ -9,16 +9,20 @@ import {
     isReportFilename,
     parseHealthLog,
     todayLocalISO,
+    buildSleepView,
     type HealthLog,
 } from '@/utils/healthLog';
 import { hapticsLight } from '../haptics';
 import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { t } from '@/text';
+import { SleepHeroCard } from './SleepHeroCard';
+import { SleepTrendCard } from './SleepTrendCard';
 
 /**
  * 健康打卡 Agent 的右滑面板：替代通用「能力中心」，展示这个空间自己的东西——
- * 今日打卡状态 + 最近睡眠评分趋势。数据实时从会话工作目录下的 `日报/*.md`（YAML
- * frontmatter）读取（sessionListDirectory + sessionReadFile RPC），不额外落库。
+ * 睡眠 Hero 卡 + 本周趋势 + 今日打卡（运动/睡眠/饮食）。数据实时从会话工作目录下的
+ * `日报/*.md`（YAML frontmatter）读取（sessionListDirectory + sessionReadFile RPC），
+ * 不额外落库。
  *
  * 触发由 SessionView 决定（见 isHealthCheckinSession）；进入这里时 path 一定存在。
  */
@@ -108,11 +112,6 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
         panel?.closePanel(); // 填入提示词后收起面板，让用户看到输入框、直接发送
     }, [props, panel]);
 
-    const maxScore = React.useMemo(
-        () => Math.max(100, ...data.trend.map((d) => d.sleepScore ?? 0)),
-        [data.trend],
-    );
-
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.titleRow}>
@@ -130,46 +129,34 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
                 </View>
             ) : (
                 <>
-                    {/* 今日打卡 */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
-                        {data.today ? (
+                    {/* 睡眠 Hero 卡（或空态） */}
+                    {(() => {
+                        const view = data.today ? buildSleepView(data.today) : null;
+                        if (view) {
+                            return <SleepHeroCard view={view} />;
+                        }
+                        return (
+                            <View style={styles.card}>
+                                <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
+                                <Text style={styles.muted}>{t('healthPanel.notLoggedToday')}</Text>
+                            </View>
+                        );
+                    })()}
+
+                    {/* 本周睡眠趋势 */}
+                    <SleepTrendCard trend={data.trend} />
+
+                    {/* 今日打卡三项（运动/睡眠/饮食） */}
+                    {data.today ? (
+                        <View style={styles.card}>
+                            <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
                             <View style={styles.chipsRow}>
                                 <CategoryChip on={data.today.hasExercise} label={t('healthPanel.exercise')} />
                                 <CategoryChip on={data.today.hasSleep} label={t('healthPanel.sleep')} />
                                 <CategoryChip on={data.today.hasDiet} label={t('healthPanel.diet')} />
                             </View>
-                        ) : (
-                            <Text style={styles.muted}>{t('healthPanel.notLoggedToday')}</Text>
-                        )}
-                    </View>
-
-                    {/* 本周睡眠趋势 */}
-                    <View style={styles.card}>
-                        <Text style={styles.cardTitle}>{t('healthPanel.sleepTrendTitle')}</Text>
-                        {data.trend.some((d) => d.sleepScore != null) ? (
-                            <View style={styles.trend}>
-                                {data.trend.map((d) => (
-                                    <View key={d.date} style={styles.trendRow}>
-                                        <Text style={styles.trendDate}>{d.date.slice(5)}</Text>
-                                        <View style={styles.barTrack}>
-                                            <View
-                                                style={[
-                                                    styles.barFill,
-                                                    { width: `${((d.sleepScore ?? 0) / maxScore) * 100}%` },
-                                                ]}
-                                            />
-                                        </View>
-                                        <Text style={styles.trendScore}>
-                                            {d.sleepScore != null ? `${d.sleepScore}${t('healthPanel.scoreLabel')}` : '—'}
-                                        </Text>
-                                    </View>
-                                ))}
-                            </View>
-                        ) : (
-                            <Text style={styles.muted}>{t('healthPanel.noTrendData')}</Text>
-                        )}
-                    </View>
+                        </View>
+                    ) : null}
 
                     {/* 记录今天的打卡 */}
                     <Pressable
@@ -264,37 +251,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     muted: {
         fontSize: 14,
         color: theme.colors.textSecondary,
-    },
-    trend: {
-        gap: 8,
-    },
-    trendRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    trendDate: {
-        width: 40,
-        fontSize: 12,
-        color: theme.colors.textSecondary,
-    },
-    barTrack: {
-        flex: 1,
-        height: 10,
-        borderRadius: 5,
-        backgroundColor: theme.colors.surfacePressed,
-        overflow: 'hidden',
-    },
-    barFill: {
-        height: 10,
-        borderRadius: 5,
-        backgroundColor: theme.colors.button.primary.background,
-    },
-    trendScore: {
-        width: 44,
-        textAlign: 'right',
-        fontSize: 12,
-        color: theme.colors.text,
     },
     logButton: {
         flexDirection: 'row',
