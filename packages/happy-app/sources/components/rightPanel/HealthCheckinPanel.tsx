@@ -10,6 +10,8 @@ import {
     parseHealthLog,
     todayLocalISO,
     buildSleepView,
+    buildExerciseView,
+    buildDietView,
     type HealthLog,
 } from '@/utils/healthLog';
 import { hapticsLight } from '../haptics';
@@ -17,10 +19,14 @@ import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { t } from '@/text';
 import { SleepHeroCard } from './SleepHeroCard';
 import { SleepTrendCard } from './SleepTrendCard';
+import { HealthDomainSwitcher } from './HealthDomainSwitcher';
+import { ExerciseCard } from './ExerciseCard';
+import { DietCard } from './DietCard';
+import { useLocalSettingMutable } from '@/sync/storage';
 
 /**
  * 健康打卡 Agent 的右滑面板：替代通用「能力中心」，展示这个空间自己的东西——
- * 睡眠 Hero 卡 + 本周趋势 + 今日打卡（运动/睡眠/饮食）。数据实时从会话工作目录下的
+ * 域切换器（睡眠/运动/饮食）+ 对应域的今日摘要 + 本周趋势。数据实时从会话工作目录下的
  * `日报/*.md`（YAML frontmatter）读取（sessionListDirectory + sessionReadFile RPC），
  * 不额外落库。
  *
@@ -41,7 +47,7 @@ async function readReportText(sessionId: string, filePath: string): Promise<stri
 
 interface PanelData {
     today: HealthLog | null;   // 当天日报（没有则 null → "今天还没记录"）
-    trend: HealthLog[];        // 最近若干天（升序），用于睡眠评分趋势
+    trend: HealthLog[];        // 最近若干天（升序），用于趋势展示
 }
 
 export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: {
@@ -62,6 +68,9 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const loadedOnceRef = React.useRef(false);
     // 手动刷新：点标题栏刷新按钮时自增，触发下面的 effect 重新读盘（不依赖开关动作）。
     const [reloadKey, setReloadKey] = React.useState(0);
+
+    // 当前活跃域：睡眠/运动/饮食
+    const [domain, setDomain] = useLocalSettingMutable('healthActiveDomain');
 
     React.useEffect(() => {
         if (!path || !isOpen) return;
@@ -129,34 +138,52 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
                 </View>
             ) : (
                 <>
-                    {/* 睡眠 Hero 卡（或空态） */}
-                    {(() => {
-                        const view = data.today ? buildSleepView(data.today) : null;
-                        if (view) {
-                            return <SleepHeroCard view={view} />;
-                        }
-                        return (
-                            <View style={styles.card}>
-                                <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
-                                <Text style={styles.muted}>{t('healthPanel.notLoggedToday')}</Text>
-                            </View>
-                        );
-                    })()}
+                    {/* 域切换器：睡眠 / 运动 / 饮食，小点标记今日是否已打卡 */}
+                    <HealthDomainSwitcher
+                        active={domain}
+                        onSelect={setDomain}
+                        done={{
+                            sleep: !!data.today?.hasSleep,
+                            exercise: !!data.today?.hasExercise,
+                            diet: !!data.today?.hasDiet,
+                        }}
+                    />
 
-                    {/* 本周睡眠趋势 */}
-                    <SleepTrendCard trend={data.trend} />
+                    {/* 按域渲染对应内容 */}
+                    {domain === 'sleep' && (
+                        <>
+                            {/* 睡眠 Hero 卡（或空态） */}
+                            {(() => {
+                                const view = data.today ? buildSleepView(data.today) : null;
+                                if (view) {
+                                    return <SleepHeroCard view={view} />;
+                                }
+                                return (
+                                    <View style={styles.card}>
+                                        <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
+                                        <Text style={styles.muted}>{t('healthPanel.notLoggedToday')}</Text>
+                                    </View>
+                                );
+                            })()}
 
-                    {/* 今日打卡三项（运动/睡眠/饮食） */}
-                    {data.today ? (
-                        <View style={styles.card}>
-                            <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
-                            <View style={styles.chipsRow}>
-                                <CategoryChip on={data.today.hasExercise} label={t('healthPanel.exercise')} />
-                                <CategoryChip on={data.today.hasSleep} label={t('healthPanel.sleep')} />
-                                <CategoryChip on={data.today.hasDiet} label={t('healthPanel.diet')} />
-                            </View>
-                        </View>
-                    ) : null}
+                            {/* 本周睡眠趋势 */}
+                            <SleepTrendCard trend={data.trend} />
+                        </>
+                    )}
+
+                    {domain === 'exercise' && (
+                        <ExerciseCard
+                            view={data.today ? buildExerciseView(data.today) : null}
+                            trend={data.trend}
+                        />
+                    )}
+
+                    {domain === 'diet' && (
+                        <DietCard
+                            view={data.today ? buildDietView(data.today) : null}
+                            trend={data.trend}
+                        />
+                    )}
 
                     {/* 记录今天的打卡 */}
                     <Pressable
@@ -169,23 +196,6 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
                 </>
             )}
         </ScrollView>
-    );
-});
-
-// 只读状态徽标（不是可点的 tab）：用「实心对勾 / 空心圈 + 文字深浅」表达
-// 今天这一类记没记录，刻意不做成填色按钮，避免被误认为可切换。
-const CategoryChip = React.memo(function CategoryChip(props: { on: boolean; label: string }) {
-    const { theme } = useUnistyles();
-    const styles = stylesheet;
-    return (
-        <View style={styles.chip}>
-            <Ionicons
-                name={props.on ? 'checkmark-circle' : 'ellipse-outline'}
-                size={16}
-                color={props.on ? theme.colors.status.connected : theme.colors.textSecondary}
-            />
-            <Text style={[styles.chipText, props.on && styles.chipTextOn]}>{props.label}</Text>
-        </View>
     );
 });
 
@@ -230,23 +240,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 14,
         fontWeight: '600',
         color: theme.colors.textSecondary,
-    },
-    chipsRow: {
-        flexDirection: 'row',
-        gap: 20,
-    },
-    chip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-    },
-    chipText: {
-        fontSize: 14,
-        color: theme.colors.textSecondary,
-    },
-    chipTextOn: {
-        color: theme.colors.text,
-        fontWeight: '600',
     },
     muted: {
         fontSize: 14,
