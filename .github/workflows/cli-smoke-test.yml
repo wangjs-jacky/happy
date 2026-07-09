@@ -39,7 +39,7 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Build package
-      run: pnpm --filter happy build
+      run: pnpm --filter @wangjs-jacky/paws build
 
     # `happy server` resolves the self-host runtime and bundled webapp from
     # happy-server-self-host. The server package is JS/TS and lets npm install
@@ -51,7 +51,7 @@ jobs:
 
     - name: Pack packages
       run: |
-        pnpm --filter happy pack --pack-destination packages/happy-cli
+        pnpm --filter @wangjs-jacky/paws pack --pack-destination packages/happy-cli
         pnpm --filter happy-server-self-host pack --pack-destination packages/happy-server
 
     - name: Install packed packages globally
@@ -134,10 +134,10 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Build package
-      run: pnpm --filter happy build
+      run: pnpm --filter @wangjs-jacky/paws build
 
     - name: Pack package
-      run: pnpm --filter happy pack --pack-destination packages/happy-cli
+      run: pnpm --filter @wangjs-jacky/paws pack --pack-destination packages/happy-cli
 
     - name: Install packed package globally
       shell: cmd
