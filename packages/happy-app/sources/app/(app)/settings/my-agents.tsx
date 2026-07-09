@@ -6,7 +6,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { useSetting, useAllMachines } from '@/sync/storage';
+import { useLocalSetting, useAllMachines } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
@@ -21,7 +21,7 @@ export default React.memo(function MyAgentsSettingsScreen() {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const router = useRouter();
-    const agents = useSetting('agents');
+    const agents = useLocalSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
     const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({

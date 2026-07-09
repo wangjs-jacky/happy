@@ -44,6 +44,26 @@ const UserImageStyleSchema = z.object({
     updatedAt: z.number(),
 });
 
+// 「我的 Agent」启动预设列表的 schema。抽成导出常量，供 localSettings 复用同一形状——
+// agents 已改为设备本地存储（localSettings，不随账号同步），避免被账号设置「单一 blob 整包
+// 覆盖」的同步链路清空（见 experience：Agent 配置丢失）。此处 SettingsSchema 仍保留 agents
+// 字段仅为兼容旧数据/类型，运行时不再作为真源写入。
+export const AgentLauncherListSchema = z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    glyph: z.string(),
+    color: z.string(),
+    machineId: z.string(),
+    path: z.string(),
+    kind: z.enum(['standard', 'image-styles']).default('standard'),
+    imageStyleIds: z.array(z.string()).default([]),
+    imageVariantsPerStyle: z.number().int().min(1).max(4).default(1),
+    presets: z.array(z.object({
+        label: z.string(),
+        prompt: z.string(),
+    })).default([]),
+})).default([]);
+
 export const SettingsSchema = z.object({
     // Schema version for compatibility detection
     schemaVersion: z.number().default(SUPPORTED_SCHEMA_VERSION).describe('Settings schema version for compatibility checks'),
@@ -102,21 +122,7 @@ export const SettingsSchema = z.object({
             openclaw: z.boolean().optional(),
         }).default({}),
     }).default({ perMachine: {}, global: {} }).describe('Tracks which CLI installation warnings user has dismissed (per-machine or globally)'),
-    agents: z.array(z.object({
-        id: z.string(),
-        name: z.string(),
-        glyph: z.string(),
-        color: z.string(),
-        machineId: z.string(),
-        path: z.string(),
-        kind: z.enum(['standard', 'image-styles']).default('standard'),
-        imageStyleIds: z.array(z.string()).default([]),
-        imageVariantsPerStyle: z.number().int().min(1).max(4).default(1),
-        presets: z.array(z.object({
-            label: z.string(),
-            prompt: z.string(),
-        })).default([]),
-    })).default([]).describe('用户配置的「我的 Agent」快捷入口（机器+目录+预设指令/图片风格生成）'),
+    agents: AgentLauncherListSchema.describe('（已迁移到 localSettings·设备本地）保留仅为兼容；运行时真源在 localSettings.agents'),
 });
 
 //

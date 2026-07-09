@@ -127,7 +127,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // 当从「我的 Agent」启动器进入时，路由带 ?agentId=<id>。据此查出对应 Agent，
     // 用于显示个性化问候 + 预设提示词；查不到（或无该参数）时一切退化为默认行为。
     const { agentId, mode } = useLocalSearchParams<{ agentId?: string; mode?: string }>();
-    const agents = useSetting('agents');
+    const agents = useLocalSetting('agents');
     const [customImageStyles, setCustomImageStyles] = useSettingMutable('customImageStyles');
     const [pendingCustomImageStyleReferences, setPendingCustomImageStyleReferences] = useSettingMutable('pendingCustomImageStyleReferences');
     const customImageStylesRef = React.useRef(customImageStyles);
