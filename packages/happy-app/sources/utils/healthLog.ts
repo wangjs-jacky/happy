@@ -6,6 +6,21 @@
  * `健康打卡/CLAUDE.md` 固定，所以这里不引入 YAML 库，用定向正则抽取即可，够健壮也够轻。
  */
 
+/**
+ * 带单位时长字符串 → 分钟。主格式 `XhYm`（7h20m/0h55m/1h8m/8h），
+ * 并容错退化写法 55min/55m（防 agent 自检漏网时静默丢字段）。非法/空返回 null。
+ * 这是「带单位字符串 → 数值」的唯一入口，面板结构/趋势都经它。
+ */
+export function parseDuration(raw: string | null | undefined): number | null {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    const hm = s.match(/^(\d+)h(?:(\d+)m?)?$/);       // 7h20m / 7h20 / 8h
+    if (hm) return parseInt(hm[1], 10) * 60 + (hm[2] ? parseInt(hm[2], 10) : 0);
+    const mm = s.match(/^(\d+)m(?:in)?$/);            // 55m / 55min
+    if (mm) return parseInt(mm[1], 10);
+    return null;
+}
+
 export interface HealthLog {
     /** YYYY-MM-DD，取自文件名 */
     date: string;
