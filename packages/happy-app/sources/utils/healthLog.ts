@@ -32,6 +32,24 @@ export interface HealthLog {
     hasDiet: boolean;
     /** 睡眠评分（睡眠.评分）；无则 null */
     sleepScore: number | null;
+    // —— 睡眠时长/结构（分钟；无则 null）——
+    /** 总时长（夜间主睡，不含小睡） */
+    sleepTotalMin: number | null;
+    /** 深睡 */
+    deepMin: number | null;
+    /** 浅睡 */
+    lightMin: number | null;
+    /** 快速眼动 REM */
+    remMin: number | null;
+    /** 日间小睡 */
+    napMin: number | null;
+    // —— 睡眠文本字段 ——
+    /** 质量：差/一般/良好/优秀 */
+    sleepQuality: string | null;
+    /** 入睡 HH:MM */
+    bedtime: string | null;
+    /** 起床 HH:MM */
+    wakeTime: string | null;
 }
 
 /** base64 → utf8（日报是中文，必须走字节解码，不能直接 atob 当 latin1） */
@@ -53,6 +71,13 @@ export function dateFromReportFilename(name: string): string | null {
 /** 日报文件名判定（右面板只认 YYYY-MM-DD.md）。 */
 export function isReportFilename(name: string): boolean {
     return /^\d{4}-\d{2}-\d{2}\.md$/.test(name);
+}
+
+/** 从 frontmatter 抽某个睡眠子键的原始值（键在缩进层，故用多行匹配、取到行尾）。 */
+function extractField(fm: string, key: string): string | null {
+    const m = fm.match(new RegExp(`(?:^|\\n)\\s*${key}:\\s*(.+?)\\s*(?:\\n|$)`));
+    if (!m) return null;
+    return m[1].replace(/^["']|["']$/g, '');   // 去掉可能的引号
 }
 
 /** 取首个 `---\n ... \n---` frontmatter；没有就退回整串（容错）。 */
@@ -86,6 +111,14 @@ export function parseHealthLog(filename: string, content: string): HealthLog {
         hasSleep: /^睡眠:/m.test(fm),
         hasDiet: /^饮食:/m.test(fm),
         sleepScore: extractSleepScore(fm),
+        sleepTotalMin: parseDuration(extractField(fm, '总时长')),
+        deepMin: parseDuration(extractField(fm, '深睡')),
+        lightMin: parseDuration(extractField(fm, '浅睡')),
+        remMin: parseDuration(extractField(fm, '快速眼动')),
+        napMin: parseDuration(extractField(fm, '日间小睡')),
+        sleepQuality: extractField(fm, '质量'),
+        bedtime: extractField(fm, '入睡'),
+        wakeTime: extractField(fm, '起床'),
     };
 }
 
