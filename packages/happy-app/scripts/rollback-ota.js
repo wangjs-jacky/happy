@@ -30,7 +30,7 @@ const ARGS = parseArgs(process.argv.slice(2));
 // ============ 配置区：与 publish-ota.js 保持一致 ============
 const BUCKET = 'happy-app-ota-jacky';
 const REGION = 'oss-cn-hangzhou';
-const RUNTIME_VERSION = '21';
+const RUNTIME_VERSION = '22';
 const PLATFORM = ARGS.platform || 'android';
 const CHANNEL = ARGS.channel || 'production';
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun';
