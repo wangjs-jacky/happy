@@ -12,6 +12,7 @@ import {
     type HealthLog,
 } from '@/utils/healthLog';
 import { hapticsLight } from '../haptics';
+import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { t } from '@/text';
 
 /**
@@ -47,15 +48,19 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const styles = stylesheet;
     const session = useSession(props.sessionId);
     const path = session?.metadata?.path ?? null;
+    // 每次右面板被滑开时重新读盘：新增/修改日报后，重开面板即刷新，
+    // 不用等会话有消息流动才更新。首次读展示 spinner，之后静默刷新。
+    const isOpen = useRightSwipePanel()?.isOpen ?? false;
 
     const [loading, setLoading] = React.useState(true);
     const [data, setData] = React.useState<PanelData>({ today: null, trend: [] });
+    const loadedOnceRef = React.useRef(false);
 
     React.useEffect(() => {
-        if (!path) return;
+        if (!path || !isOpen) return;
         let cancelled = false;
         (async () => {
-            setLoading(true);
+            if (!loadedOnceRef.current) setLoading(true);
             const reportsDir = `${path}/日报`;
             const listing = await sessionListDirectory(props.sessionId, reportsDir);
             const files = (listing.entries ?? [])
@@ -81,11 +86,12 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
             const today = parsed.get(todayName) ?? null;
             setData({ today, trend });
             setLoading(false);
+            loadedOnceRef.current = true;
         })();
         return () => {
             cancelled = true;
         };
-    }, [props.sessionId, path]);
+    }, [props.sessionId, path, isOpen]);
 
     const insertLog = React.useCallback(() => {
         hapticsLight();
