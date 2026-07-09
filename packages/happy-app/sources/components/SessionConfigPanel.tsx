@@ -111,13 +111,27 @@ function getPermissionStyle(key: string): PermissionStyle | null {
     }
 }
 
-// Option-list wrapper. Embedded (inline accordion under a row) renders a plain
-// content-sized View: inside an unbounded parent a ScrollView collapses to zero
-// height on native, which left the inline picker showing an empty strip. The
-// non-embedded popover/sheet keeps a real ScrollView for long, scrollable lists.
+// Option-list wrapper. Embedded (inline accordion under a row) renders a
+// bounded, scrollable ScrollView — same pattern as the directory browser below.
+// It was previously a plain content-sized View, on the theory that a ScrollView
+// collapses to zero height inside an unbounded parent on native. That collapse
+// only happens for a *flex-sized* ScrollView; giving it an explicit maxHeight
+// keeps it visible AND lets it scroll. The old View clipped long lists (e.g.
+// agents like opencode expose 100+ models) off the bottom of the screen with no
+// way to scroll them. nestedScrollEnabled lets it scroll inside a parent
+// ScrollView on Android.
 function OptionListContainer({ embedded, children }: { embedded: boolean; children: React.ReactNode }) {
     if (embedded) {
-        return <View style={pickerStyles.embeddedOptionListContent}>{children}</View>;
+        return (
+            <ScrollView
+                style={pickerStyles.embeddedOptionList}
+                contentContainerStyle={pickerStyles.embeddedOptionListContent}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+            >
+                {children}
+            </ScrollView>
+        );
     }
     return (
         <ScrollView style={pickerStyles.optionList} keyboardShouldPersistTaps="handled">
@@ -1761,7 +1775,10 @@ const pickerStyles = {
         width: '100%',
         maxWidth: '100%',
         minWidth: 0,
-        maxHeight: 176,
+        // Bounded scroll viewport for the inline picker. Short lists (machine,
+        // agent) size to content; long ones (opencode's 100+ models) scroll
+        // inside this box instead of overflowing off-screen.
+        maxHeight: 220,
     } as const,
     embeddedOptionListContent: {
         width: '100%',
