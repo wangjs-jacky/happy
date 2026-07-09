@@ -338,6 +338,8 @@ export const zhHant: TranslationStructure = {
         hideInactiveSessionsSubtitle: '僅在清單中顯示活躍的聊天',
         groupToolCalls: '分組工具呼叫',
         groupToolCallsSubtitle: '將連續的工具呼叫摺疊到單一容器中',
+        desktopScreenshot: '桌面截圖',
+        desktopScreenshotSubtitle: '在對話輸入框顯示相機按鈕，可遠端截取電腦桌面或瀏覽器視窗',
         privacy: '隱私',
         privacyDescription: '完全停用所有分析和遙測。不會向 PostHog 或任何其他追蹤服務傳送資料。',
         disableAnalytics: '停用分析',

@@ -530,6 +530,7 @@ function SessionViewLoaded({
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const experiments = useSetting('experiments');
     const expResumeSession = useSetting('expResumeSession');
+    const desktopScreenshotEnabled = useSetting('expDesktopScreenshot');
     const { canResume, resumeSession, resumingSession } = useSessionQuickActions(session);
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
@@ -729,9 +730,9 @@ function SessionViewLoaded({
             onPickImages={pickImages}
             onRemoveImage={removeImage}
             onAddImages={addImages}
-            onCaptureScreenshot={handleCaptureScreenshot}
+            onCaptureScreenshot={desktopScreenshotEnabled ? handleCaptureScreenshot : undefined}
             screenshotCapturing={screenshotCapturing}
-            onOpenGallery={handleOpenGallery}
+            onOpenGallery={desktopScreenshotEnabled ? handleOpenGallery : undefined}
             galleryHasNew={galleryHasNew}
             autocompletePrefixes={autocompletePrefixes}
             autocompleteSuggestions={handleAutocompleteSuggestions}

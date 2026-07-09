@@ -336,6 +336,8 @@ export const it: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'Mostra solo le chat attive nella tua lista',
         groupToolCalls: 'Raggruppa chiamate agli strumenti',
         groupToolCallsSubtitle: 'Comprimi le chiamate consecutive agli strumenti in un unico contenitore',
+        desktopScreenshot: 'Screenshot del desktop',
+        desktopScreenshotSubtitle: 'Mostra un pulsante fotocamera nel campo della chat per catturare da remoto il desktop o la finestra del browser',
         privacy: 'Privacy',
         privacyDescription: 'Disabilita completamente tutte le analisi e la telemetria. Nessun dato verrà inviato a PostHog o ad altri servizi di tracciamento.',
         disableAnalytics: 'Disabilita analisi',

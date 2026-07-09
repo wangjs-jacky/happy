@@ -19,6 +19,7 @@ export default function FeaturesSettingsScreen() {
     const [expResumeSession, setExpResumeSession] = useSettingMutable('expResumeSession');
     const [fileDiffsSidebar, setFileDiffsSidebar] = useSettingMutable('fileDiffsSidebar');
     const [groupToolCalls, setGroupToolCalls] = useSettingMutable('groupToolCalls');
+    const [expDesktopScreenshot, setExpDesktopScreenshot] = useSettingMutable('expDesktopScreenshot');
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
@@ -102,6 +103,18 @@ export default function FeaturesSettingsScreen() {
                         <Switch
                             value={expResumeSession}
                             onValueChange={setExpResumeSession}
+                        />
+                    }
+                    showChevron={false}
+                />
+                <Item
+                    title={t('settingsFeatures.desktopScreenshot')}
+                    subtitle={t('settingsFeatures.desktopScreenshotSubtitle')}
+                    icon={<Ionicons name="camera-outline" size={29} color="#00C7BE" />}
+                    rightElement={
+                        <Switch
+                            value={expDesktopScreenshot}
+                            onValueChange={setExpDesktopScreenshot}
                         />
                     }
                     showChevron={false}
