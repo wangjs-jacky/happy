@@ -3,7 +3,7 @@ import { ScrollView, View, Text, Pressable, ActivityIndicator } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSession } from '@/sync/storage';
-import { sessionListDirectory, sessionReadFile } from '@/sync/ops';
+import { sessionListDirectory, sessionReadFile, sessionBash } from '@/sync/ops';
 import {
     decodeBase64Utf8,
     isReportFilename,
@@ -34,6 +34,21 @@ import { useLocalSettingMutable } from '@/sync/storage';
  */
 
 const TREND_DAYS = 7;
+
+/**
+ * 手动刷新时，先在承载本会话的机器上触发一次 Obsidian Remotely Save 全量同步的命令。
+ * - 用 `zsh -c` 包一层：sessionBash 经 `/bin/sh -c` 执行、不加载任何 rc、只继承 daemon 的
+ *   process.env；而 zsh 每次启动都加载 `~/.zshenv`，key 从那里读，不写死进 App/OTA 包。
+ * - 这条 REST 命令是「触发即返回」（Remotely Save 在后台跑同步，不等它完成），故刷新里
+ *   curl 之后再等 SYNC_SETTLE_MS 让它落盘，再读盘。
+ * - Obsidian 未开 / 命令失败时 sessionBash 返回 { success:false }，静默忽略、照常读盘
+ *   （契合本仓库「never show loading error, always just retry」）。
+ */
+const OBSIDIAN_SYNC_CMD =
+    `zsh -c 'curl -sk -m 15 -X POST -H "Authorization: Bearer $OBSIDIAN_REST_API_KEY" "https://127.0.0.1:27124/commands/remotely-save:start-sync/"'`;
+
+/** 触发同步后、重新读盘前，给 Remotely Save 的落盘等待时间（ms）。 */
+const SYNC_SETTLE_MS = 2000;
 
 async function readReportText(sessionId: string, filePath: string): Promise<string | null> {
     const res = await sessionReadFile(sessionId, filePath);
@@ -66,6 +81,8 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const [loading, setLoading] = React.useState(true);
     const [data, setData] = React.useState<PanelData>({ today: null, trend: [] });
     const loadedOnceRef = React.useRef(false);
+    // 防止刷新期间（触发同步 + 落盘等待）重复点击叠加多次同步。
+    const refreshingRef = React.useRef(false);
     // 手动刷新：点标题栏刷新按钮时自增，触发下面的 effect 重新读盘（不依赖开关动作）。
     const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -109,11 +126,25 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
         };
     }, [props.sessionId, path, isOpen, reloadKey]);
 
+    // 手动刷新：先在会话机器上触发 Obsidian Remotely Save 同步，等它落盘，再重新读盘。
+    // 全程转圈给反馈；同步失败静默跳过，仍照常读盘。
     const refresh = React.useCallback(() => {
+        if (refreshingRef.current) return; // 刷新进行中，忽略重复点击
+        refreshingRef.current = true;
         hapticsLight();
-        loadedOnceRef.current = false; // 手动刷新时显示 spinner，给用户明确反馈
-        setReloadKey((k) => k + 1);
-    }, []);
+        loadedOnceRef.current = false;
+        setLoading(true); // 立刻转圈：同步 + 落盘等待期间也有反馈，不至于看起来没响应
+        (async () => {
+            try {
+                // sessionBash 自己吞异常、返回 { success:false }，不会 throw；失败即静默跳过。
+                await sessionBash(props.sessionId, { command: OBSIDIAN_SYNC_CMD, timeout: 20000 });
+                await new Promise((resolve) => setTimeout(resolve, SYNC_SETTLE_MS));
+            } finally {
+                refreshingRef.current = false;
+                setReloadKey((k) => k + 1); // 触发读盘 effect（effect 结束时会关掉 loading）
+            }
+        })();
+    }, [props.sessionId]);
 
     const insertLog = React.useCallback(() => {
         hapticsLight();
