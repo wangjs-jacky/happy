@@ -48,6 +48,7 @@ export const zhHans: TranslationStructure = {
         noDietToday: '今天还没有饮食记录',
         intakeLabel: '摄入',
         kcalSuffix: ' 千卡',
+        recentNightLabel: ({ date }: { date: string }) => `最近一晚 · ${date}`,
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做点什么`,

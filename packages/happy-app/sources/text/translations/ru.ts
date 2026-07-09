@@ -57,6 +57,7 @@ export const ru: TranslationStructure = {
         noDietToday: 'Питание не записано',
         intakeLabel: 'Потреблено',
         kcalSuffix: ' ккал',
+        recentNightLabel: ({ date }: { date: string }) => `Недавно · ${date}`,
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Привет, ${name}! Чем займёмся сегодня?`,

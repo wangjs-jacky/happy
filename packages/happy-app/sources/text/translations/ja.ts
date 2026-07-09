@@ -49,6 +49,7 @@ export const ja: TranslationStructure = {
         noDietToday: '今日の食事記録なし',
         intakeLabel: '摂取',
         kcalSuffix: ' kcal',
+        recentNightLabel: ({ date }: { date: string }) => `直近 · ${date}`,
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,

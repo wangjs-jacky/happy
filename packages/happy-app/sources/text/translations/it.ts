@@ -46,6 +46,7 @@ export const it: TranslationStructure = {
         noDietToday: 'Nessun pasto registrato oggi',
         intakeLabel: 'Assunzione',
         kcalSuffix: ' kcal',
+        recentNightLabel: ({ date }: { date: string }) => `Recente · ${date}`,
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Ciao ${name}, cosa facciamo oggi?`,
