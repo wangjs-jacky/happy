@@ -55,6 +55,8 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const [loading, setLoading] = React.useState(true);
     const [data, setData] = React.useState<PanelData>({ today: null, trend: [] });
     const loadedOnceRef = React.useRef(false);
+    // 手动刷新：点标题栏刷新按钮时自增，触发下面的 effect 重新读盘（不依赖开关动作）。
+    const [reloadKey, setReloadKey] = React.useState(0);
 
     React.useEffect(() => {
         if (!path || !isOpen) return;
@@ -91,7 +93,13 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
         return () => {
             cancelled = true;
         };
-    }, [props.sessionId, path, isOpen]);
+    }, [props.sessionId, path, isOpen, reloadKey]);
+
+    const refresh = React.useCallback(() => {
+        hapticsLight();
+        loadedOnceRef.current = false; // 手动刷新时显示 spinner，给用户明确反馈
+        setReloadKey((k) => k + 1);
+    }, []);
 
     const insertLog = React.useCallback(() => {
         hapticsLight();
@@ -108,6 +116,10 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
             <View style={styles.titleRow}>
                 <Ionicons name="fitness-outline" size={22} color={theme.colors.text} />
                 <Text style={styles.title}>{t('healthPanel.title')}</Text>
+                <View style={styles.titleSpacer} />
+                <Pressable onPress={refresh} hitSlop={10} style={({ pressed }) => pressed && styles.pressed}>
+                    <Ionicons name="refresh" size={20} color={theme.colors.textSecondary} />
+                </Pressable>
             </View>
 
             {loading ? (
@@ -204,6 +216,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+    },
+    titleSpacer: {
+        flex: 1,
     },
     title: {
         fontSize: 20,
