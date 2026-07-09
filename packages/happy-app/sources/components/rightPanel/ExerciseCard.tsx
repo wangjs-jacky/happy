@@ -155,7 +155,4 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 13,
         color: theme.colors.text,
     },
-    pressed: {
-        opacity: 0.6,
-    },
 }));
