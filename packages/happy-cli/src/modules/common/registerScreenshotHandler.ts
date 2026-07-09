@@ -40,7 +40,9 @@ export function registerScreenshotHandler(
         try {
             const filePath = await deps.capture(target);
             const dataBase64 = await deps.readBase64(filePath);
-            return { success: true, dataBase64, mimeType: 'image/png' };
+            // captureScreenshot 现在返回 sips 压缩后的 JPEG（压缩失败的极端兜底会返回 PNG，
+            // 但那是极端路径，App 端靠内容嗅探仍能显示，这里统一按 JPEG 上报即可）
+            return { success: true, dataBase64, mimeType: 'image/jpeg' };
         } catch (error) {
             logger.debug('Failed to capture screenshot:', error);
             return { success: false, error: error instanceof Error ? error.message : String(error) };
