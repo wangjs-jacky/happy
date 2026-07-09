@@ -4,9 +4,9 @@ import { t } from '@/text';
 import { HappyError } from '@/utils/errors';
 import type { Session } from '@/sync/storageTypes';
 import type { Message } from '@/sync/typesMessage';
-import { buildOpenBirdSessionEnvelope, hasOpenBirdShareContent, type OpenBirdTheme } from '@/utils/openBirdSessionEnvelope';
+import { buildOpenBirdTranscriptEnvelope, hasOpenBirdShareContent, type OpenBirdTheme } from '@/utils/openBirdSessionEnvelope';
 import { prepareOpenBirdAttachmentUrls } from '@/utils/openBirdShareAssets';
-import { publishOpenBirdSession } from '@/sync/apiOpenBirdSession';
+import { publishOpenBirdTranscript } from '@/sync/apiOpenBirdTranscript';
 
 export interface ShareSessionToOpenBirdOptions {
     /** 默认主题，写进信封 theme 字段。缺省 document。 */
@@ -17,7 +17,7 @@ export interface ShareSessionToOpenBirdOptions {
 /**
  * 把一段会话历史分享到 OpenBird：
  *   1. 上传会话内的图片附件，拿到公网 URL（ref → url 映射）。
- *   2. 序列化成契约信封（图片以 ![alt](url) 内联进对应 turn）。
+ *   2. 序列化成通用 transcript 信封（工具→:::details、选项→:::choices、图片以 ![alt](url) 内联进 markdown）。
  *   3. POST 给 OpenBird，拿到临时页 URL。
  *   4. 复制 URL 到剪贴板并提示用户。
  *
@@ -40,14 +40,14 @@ export async function shareSessionToOpenBird(
         attachmentUrls = {};
     }
 
-    const envelope = buildOpenBirdSessionEnvelope(session, messages, {
+    const envelope = buildOpenBirdTranscriptEnvelope(session, messages, {
         theme: options.theme ?? 'document',
         attachmentUrls,
     });
 
     let result;
     try {
-        result = await publishOpenBirdSession(envelope, { apiBaseUrl: options.apiBaseUrl });
+        result = await publishOpenBirdTranscript(envelope, { apiBaseUrl: options.apiBaseUrl });
     } catch (e) {
         const message = e instanceof Error ? e.message : t('sessionInfo.shareToOpenBirdFailed');
         throw new HappyError(message, true);

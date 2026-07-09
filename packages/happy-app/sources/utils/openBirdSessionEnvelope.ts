@@ -3,52 +3,46 @@ import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import type { AgentEvent } from '@/sync/typesRaw';
 
 /**
- * 会话 → OpenBird 分享「信封」序列化器。
+ * 会话 → OpenBird 通用「transcript 信封」序列化器。
  *
- * 唯一事实源是 openbird--session-theme/docs/session-share-contract.md。信封结构：
- *   { temp, theme, meta, turns[] }
- * 每个 turn：{ role, author, markdown, tools[], options[] }
- *   - tools[]   收敛工具活动为 { title, steps[] }（渲染在正文之前的折叠块）
- *   - markdown  该轮消息正文（干净 Markdown，图片以 ![alt](url) 内联）
- *   - options[] Happy 选项块，{ label, selected }（渲染在正文之后）
+ * 唯一事实源是 openbird/docs/transcript-contract.md。OpenBird 只认「带角色的
+ * markdown 消息列表」，不认识任何 Happy 概念（工具、选项）。信封结构：
+ *   { temp, theme, meta, messages[] }
+ * 每条 message：{ role, name, markdown }
+ *
+ * Happy 专有的工具/选项**不再作为独立字段**，而是在 Happy 侧序列化进 markdown 的
+ * 通用块：
+ *   - 工具活动 → assistant 消息 markdown **顶部**的 `:::details 标题` 折叠块
+ *               （steps 作为内层列表项）。
+ *   - 选项（AskUserQuestion）→ 消息 markdown **尾部**的 `:::choices` 块
+ *               （`- [x]` 选中 / `- [ ]` 未选）。
+ *   - 图片 → 上传拿公网 URL 后以 `![alt](url)` 内联进 markdown（复用现有链路）。
  *
  * 图片由调用方先上传拿到公网 URL（openBirdShareAssets），这里通过 attachmentUrls
- * 映射把 ![alt](url) 内联进对应 turn 的 markdown。
+ * 映射把 ![alt](url) 内联进对应消息的 markdown。
  */
 
 export type OpenBirdTheme = 'document' | 'chat';
 
-export interface OpenBirdEnvelopeMeta {
+export interface OpenBirdTranscriptMeta {
     title: string;
-    model: string | null;
+    subtitle: string | null;
     source: 'Happy';
     date: string;
-    turnCount: number;
+    count: number;
 }
 
-export interface OpenBirdEnvelopeTool {
-    title: string;
-    steps: string[];
-}
-
-export interface OpenBirdEnvelopeOption {
-    label: string;
-    selected: boolean;
-}
-
-export interface OpenBirdEnvelopeTurn {
+export interface OpenBirdTranscriptMessage {
     role: 'user' | 'assistant';
-    author: string | null;
+    name: string | null;
     markdown: string;
-    tools: OpenBirdEnvelopeTool[];
-    options: OpenBirdEnvelopeOption[];
 }
 
-export interface OpenBirdSessionEnvelope {
+export interface OpenBirdTranscriptEnvelope {
     temp: true;
     theme: OpenBirdTheme;
-    meta: OpenBirdEnvelopeMeta;
-    turns: OpenBirdEnvelopeTurn[];
+    meta: OpenBirdTranscriptMeta;
+    messages: OpenBirdTranscriptMessage[];
 }
 
 export interface BuildOpenBirdEnvelopeOptions {
@@ -58,47 +52,57 @@ export interface BuildOpenBirdEnvelopeOptions {
     attachmentUrls?: Record<string, string>;
 }
 
-export function buildOpenBirdSessionEnvelope(
+/** 折叠工具块的中间表示，最终拼进消息 markdown 顶部。 */
+interface EnvelopeTool {
+    title: string;
+    steps: string[];
+}
+
+/** 选择项的中间表示，最终拼进消息 markdown 尾部的 `:::choices` 块。 */
+interface EnvelopeOption {
+    label: string;
+    selected: boolean;
+}
+
+export function buildOpenBirdTranscriptEnvelope(
     session: Session,
     messages: Message[],
     options: BuildOpenBirdEnvelopeOptions = {},
-): OpenBirdSessionEnvelope {
+): OpenBirdTranscriptEnvelope {
     const sharedAt = options.sharedAt ?? Date.now();
     const attachmentUrls = options.attachmentUrls ?? {};
     const sorted = sortMessagesForShare(messages);
 
-    const turns: OpenBirdEnvelopeTurn[] = [];
+    const out: OpenBirdTranscriptMessage[] = [];
     // 当前累积的助手侧内容（工具活动 + 正文 + 选项），在遇到用户消息或结束时收口。
     let pendingAssistant: {
-        tools: OpenBirdEnvelopeTool[];
+        tools: EnvelopeTool[];
         markdownParts: string[];
-        options: OpenBirdEnvelopeOption[];
-        author: string | null;
+        options: EnvelopeOption[];
     } | null = null;
 
     const flushAssistant = () => {
         if (!pendingAssistant) {
             return;
         }
-        const markdown = joinMarkdown(pendingAssistant.markdownParts);
-        const hasContent = markdown.length > 0
+        const body = joinMarkdown(pendingAssistant.markdownParts);
+        const hasContent = body.length > 0
             || pendingAssistant.tools.length > 0
             || pendingAssistant.options.length > 0;
         if (hasContent) {
-            turns.push({
-                role: 'assistant',
-                author: pendingAssistant.author,
-                markdown,
-                tools: pendingAssistant.tools,
-                options: pendingAssistant.options,
-            });
+            const markdown = composeAssistantMarkdown(
+                pendingAssistant.tools,
+                body,
+                pendingAssistant.options,
+            );
+            out.push({ role: 'assistant', name: null, markdown });
         }
         pendingAssistant = null;
     };
 
     const ensureAssistant = () => {
         if (!pendingAssistant) {
-            pendingAssistant = { tools: [], markdownParts: [], options: [], author: null };
+            pendingAssistant = { tools: [], markdownParts: [], options: [] };
         }
         return pendingAssistant;
     };
@@ -111,12 +115,10 @@ export function buildOpenBirdSessionEnvelope(
                 if (text.length === 0) {
                     break;
                 }
-                turns.push({
+                out.push({
                     role: 'user',
-                    author: null,
+                    name: null,
                     markdown: inlineAttachments(text, attachmentUrls),
-                    tools: [],
-                    options: [],
                 });
                 break;
             }
@@ -135,7 +137,7 @@ export function buildOpenBirdSessionEnvelope(
                 const assistant = ensureAssistant();
                 const optionBlock = extractOptions(message);
                 if (optionBlock.length > 0) {
-                    // AskUserQuestion 之类的选项工具直接映射为 options[]，而不是折叠工具块。
+                    // AskUserQuestion 之类的选项工具映射为 choices，而不是折叠工具块。
                     assistant.options.push(...optionBlock);
                     const imageMarkdown = extractInlineImageMarkdown(message, attachmentUrls);
                     if (imageMarkdown) {
@@ -167,8 +169,8 @@ export function buildOpenBirdSessionEnvelope(
     return {
         temp: true,
         theme: options.theme ?? 'document',
-        meta: buildMeta(session, sharedAt, turns.length),
-        turns,
+        meta: buildMeta(session, sharedAt, out.length),
+        messages: out,
     };
 }
 
@@ -176,15 +178,68 @@ export function hasOpenBirdShareContent(messages: Message[]): boolean {
     return messages.some(hasRenderableMessageContent);
 }
 
+// --- markdown 组装（把工具/选项拍进 markdown 通用块）---
+
+/**
+ * 把一条 assistant 消息的工具活动、正文、选项组装为单段 markdown：
+ *   顶部 `:::details 工具标题`（每个工具一个）→ 正文 → 尾部 `:::choices`。
+ */
+function composeAssistantMarkdown(
+    tools: EnvelopeTool[],
+    body: string,
+    options: EnvelopeOption[],
+): string {
+    const parts: string[] = [];
+    for (const tool of tools) {
+        parts.push(renderDetailsBlock(tool));
+    }
+    if (body.length > 0) {
+        parts.push(body);
+    }
+    if (options.length > 0) {
+        parts.push(renderChoicesBlock(options));
+    }
+    return parts.join('\n\n').trim();
+}
+
+/**
+ * 渲染 `:::details` 折叠块。steps 作为内层无序列表项；无 step 时块体留一行占位，
+ * 保证块结构合法。
+ */
+function renderDetailsBlock(tool: EnvelopeTool): string {
+    const lines = [`:::details ${oneLine(tool.title)}`];
+    for (const step of tool.steps) {
+        lines.push(`- ${escapeListItem(step)}`);
+    }
+    lines.push(':::');
+    return lines.join('\n');
+}
+
+/** 渲染 `:::choices` 块，`[x]` 选中 / `[ ]` 未选。 */
+function renderChoicesBlock(options: EnvelopeOption[]): string {
+    const lines = [':::choices'];
+    for (const option of options) {
+        const mark = option.selected ? '[x]' : '[ ]';
+        lines.push(`- ${mark} ${escapeListItem(option.label)}`);
+    }
+    lines.push(':::');
+    return lines.join('\n');
+}
+
+/** 列表项里的换行会破坏块结构，压平成单行。 */
+function escapeListItem(value: string): string {
+    return oneLine(value);
+}
+
 // --- meta ---
 
-function buildMeta(session: Session, sharedAt: number, turnCount: number): OpenBirdEnvelopeMeta {
+function buildMeta(session: Session, sharedAt: number, count: number): OpenBirdTranscriptMeta {
     return {
         title: getSessionShareTitle(session),
-        model: resolveModel(session),
+        subtitle: resolveModel(session),
         source: 'Happy',
         date: new Date(sharedAt).toISOString().slice(0, 10),
-        turnCount,
+        count,
     };
 }
 
@@ -202,7 +257,7 @@ function resolveModel(session: Session): string | null {
 
 // --- tools ---
 
-function toolToEnvelope(message: ToolCallMessage): OpenBirdEnvelopeTool {
+function toolToEnvelope(message: ToolCallMessage): EnvelopeTool {
     const { tool } = message;
     const title = toolTitle(message);
     const steps: string[] = [];
@@ -285,7 +340,7 @@ function childToStep(child: Message): string | null {
 
 // --- options ---
 
-function extractOptions(message: ToolCallMessage): OpenBirdEnvelopeOption[] {
+function extractOptions(message: ToolCallMessage): EnvelopeOption[] {
     const { tool } = message;
     if (tool.name !== 'AskUserQuestion' || !isObject(tool.input)) {
         return [];
@@ -295,7 +350,7 @@ function extractOptions(message: ToolCallMessage): OpenBirdEnvelopeOption[] {
         return [];
     }
     const selectedLabels = collectSelectedLabels(tool.result);
-    const options: OpenBirdEnvelopeOption[] = [];
+    const options: EnvelopeOption[] = [];
     for (const question of questions) {
         if (!isObject(question) || !Array.isArray(question.options)) {
             continue;

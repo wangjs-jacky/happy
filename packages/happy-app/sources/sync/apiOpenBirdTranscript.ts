@@ -1,15 +1,16 @@
-import type { OpenBirdSessionEnvelope } from '@/utils/openBirdSessionEnvelope';
+import type { OpenBirdTranscriptEnvelope } from '@/utils/openBirdSessionEnvelope';
 
 /**
- * OpenBird 会话分享端点。app 侧把会话序列化成结构化「信封」POST 给 OpenBird，
- * OpenBird 渲染成一份带 document / chat 双主题的临时网页（1 小时过期），返回公开 URL。
+ * OpenBird 通用 transcript 发布端点。app 侧把会话序列化成通用「transcript 信封」
+ * POST 给 OpenBird，OpenBird 渲染成一份带 document / chat 双主题的临时网页
+ * （1 小时过期），返回公开 URL。
  *
- * 契约见 openbird--session-theme/docs/session-share-contract.md（唯一事实源）。
+ * 契约见 openbird/docs/transcript-contract.md（唯一事实源）。
  */
 
 export const OPENBIRD_API_BASE_URL = 'https://openbird.jhao.space';
 
-export interface PublishOpenBirdSessionResult {
+export interface PublishOpenBirdTranscriptResult {
     slug?: string;
     url: string;
     title?: string;
@@ -18,17 +19,17 @@ export interface PublishOpenBirdSessionResult {
     guest?: boolean;
 }
 
-export interface PublishOpenBirdSessionOptions {
+export interface PublishOpenBirdTranscriptOptions {
     /** 覆盖默认 base url（本地 wrangler dev 时用）。 */
     apiBaseUrl?: string;
 }
 
-export async function publishOpenBirdSession(
-    envelope: OpenBirdSessionEnvelope,
-    options: PublishOpenBirdSessionOptions = {},
-): Promise<PublishOpenBirdSessionResult> {
+export async function publishOpenBirdTranscript(
+    envelope: OpenBirdTranscriptEnvelope,
+    options: PublishOpenBirdTranscriptOptions = {},
+): Promise<PublishOpenBirdTranscriptResult> {
     const apiBaseUrl = (options.apiBaseUrl ?? OPENBIRD_API_BASE_URL).replace(/\/+$/, '');
-    const response = await fetch(`${apiBaseUrl}/api/v1/session`, {
+    const response = await fetch(`${apiBaseUrl}/api/v1/transcript`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(envelope),

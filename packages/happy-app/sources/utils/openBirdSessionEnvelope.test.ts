@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from '@/sync/storageTypes';
 import type { Message, ToolCall } from '@/sync/typesMessage';
-import { buildOpenBirdSessionEnvelope, hasOpenBirdShareContent } from './openBirdSessionEnvelope';
+import { buildOpenBirdTranscriptEnvelope, hasOpenBirdShareContent } from './openBirdSessionEnvelope';
 
 function makeSession(overrides: Partial<Session['metadata']> = {}): Session {
     return {
@@ -54,39 +54,43 @@ function toolCall(
     };
 }
 
-describe('buildOpenBirdSessionEnvelope', () => {
-    it('produces a contract-compliant envelope with meta and turns', () => {
+describe('buildOpenBirdTranscriptEnvelope', () => {
+    it('produces a contract-compliant generic transcript envelope with meta and messages', () => {
         const session = makeSession();
         const messages: Message[] = [
             userText('u1', 'Make me an overview', 1000),
             agentText('a1', 'Here is the overview.', 2000),
         ];
 
-        const envelope = buildOpenBirdSessionEnvelope(session, messages, { sharedAt: Date.parse('2026-07-09T12:00:00Z') });
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages, { sharedAt: Date.parse('2026-07-09T12:00:00Z') });
 
         expect(envelope.temp).toBe(true);
         expect(envelope.theme).toBe('document');
         expect(envelope.meta).toEqual({
             title: 'GPT Image 2 style overview',
-            model: 'claude-opus-4-8',
+            subtitle: 'claude-opus-4-8',
             source: 'Happy',
             date: '2026-07-09',
-            turnCount: 2,
+            count: 2,
         });
-        expect(envelope.turns).toHaveLength(2);
-        expect(envelope.turns[0]).toMatchObject({ role: 'user', markdown: 'Make me an overview', tools: [], options: [] });
-        expect(envelope.turns[1]).toMatchObject({ role: 'assistant', markdown: 'Here is the overview.' });
+        // Envelope carries only generic {role, name, markdown} messages — no tools/options fields.
+        expect(envelope.messages).toHaveLength(2);
+        expect(envelope.messages[0]).toEqual({ role: 'user', name: null, markdown: 'Make me an overview' });
+        expect(envelope.messages[1]).toEqual({ role: 'assistant', name: null, markdown: 'Here is the overview.' });
+        expect(Object.keys(envelope)).toEqual(['temp', 'theme', 'meta', 'messages']);
+        expect('tools' in envelope.messages[1]).toBe(false);
+        expect('options' in envelope.messages[1]).toBe(false);
     });
 
-    it('honors an explicit theme and falls back to path/title for meta', () => {
+    it('honors an explicit theme and falls back to path/title with null subtitle', () => {
         const session = makeSession({ summary: undefined, currentModelCode: undefined });
-        const envelope = buildOpenBirdSessionEnvelope(session, [userText('u1', 'hi', 1)], { theme: 'chat' });
+        const envelope = buildOpenBirdTranscriptEnvelope(session, [userText('u1', 'hi', 1)], { theme: 'chat' });
         expect(envelope.theme).toBe('chat');
         expect(envelope.meta.title).toBe('/repo');
-        expect(envelope.meta.model).toBeNull();
+        expect(envelope.meta.subtitle).toBeNull();
     });
 
-    it('collapses tool activity into { title, steps[] } before the assistant body', () => {
+    it('folds tool activity into a :::details block at the top of the assistant markdown', () => {
         const session = makeSession();
         const messages: Message[] = [
             userText('u1', 'read the file', 1000),
@@ -98,19 +102,25 @@ describe('buildOpenBirdSessionEnvelope', () => {
             agentText('a1', 'Done.', 2000),
         ];
 
-        const envelope = buildOpenBirdSessionEnvelope(session, messages);
-        const assistant = envelope.turns.find(t => t.role === 'assistant')!;
-        expect(assistant.tools).toHaveLength(1);
-        expect(assistant.tools[0].title).toContain('Read');
-        expect(assistant.tools[0].title).toContain('Read presets index');
-        expect(assistant.tools[0].steps).toContain('presets/index.ts');
-        expect(assistant.tools[0].steps).toContain('found 3 presets');
-        expect(assistant.markdown).toBe('Done.');
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages);
+        const assistant = envelope.messages.find(m => m.role === 'assistant')!;
+        const md = assistant.markdown;
+
+        // details block sits before the body, steps are inner list items.
+        expect(md.startsWith(':::details ')).toBe(true);
+        expect(md).toContain('Read · Read presets index');
+        expect(md).toContain('- presets/index.ts');
+        expect(md).toContain('- found 3 presets');
+        // block is closed before the body text.
+        const detailsClose = md.indexOf('\n:::');
+        expect(detailsClose).toBeGreaterThan(-1);
+        expect(md.indexOf('Done.')).toBeGreaterThan(detailsClose);
     });
 
-    it('maps AskUserQuestion into options[] with the selected flag', () => {
+    it('renders AskUserQuestion as a :::choices block at the tail with [x]/[ ] markers', () => {
         const session = makeSession();
         const messages: Message[] = [
+            agentText('a1', 'Pick one:', 900),
             toolCall('t1', 1000, {
                 name: 'AskUserQuestion',
                 input: {
@@ -126,14 +136,18 @@ describe('buildOpenBirdSessionEnvelope', () => {
             }),
         ];
 
-        const envelope = buildOpenBirdSessionEnvelope(session, messages);
-        const assistant = envelope.turns.find(t => t.role === 'assistant')!;
-        expect(assistant.options).toEqual([
-            { label: 'Generate a comparison set', selected: true },
-            { label: 'Export all presets', selected: false },
-        ]);
-        // AskUserQuestion is mapped to options, not a folded tool block.
-        expect(assistant.tools).toHaveLength(0);
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages);
+        const assistant = envelope.messages.find(m => m.role === 'assistant')!;
+        const md = assistant.markdown;
+
+        expect(md).toContain(':::choices');
+        expect(md).toContain('- [x] Generate a comparison set');
+        expect(md).toContain('- [ ] Export all presets');
+        // choices sit at the tail, after the body.
+        expect(md.indexOf('Pick one:')).toBeLessThan(md.indexOf(':::choices'));
+        expect(md.trimEnd().endsWith(':::')).toBe(true);
+        // no folded tool block for AskUserQuestion.
+        expect(md).not.toContain(':::details');
     });
 
     it('inlines uploaded images as ![alt](url) instead of a tool block', () => {
@@ -146,16 +160,52 @@ describe('buildOpenBirdSessionEnvelope', () => {
             }),
         ];
 
-        const envelope = buildOpenBirdSessionEnvelope(session, messages, {
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages, {
             attachmentUrls: { 'blob://img1': 'https://cdn.example.com/render.png' },
         });
-        const assistant = envelope.turns.find(t => t.role === 'assistant')!;
-        expect(assistant.tools).toHaveLength(0);
+        const assistant = envelope.messages.find(m => m.role === 'assistant')!;
+        expect(assistant.markdown).not.toContain(':::details');
         expect(assistant.markdown).toContain('Here is the render:');
         expect(assistant.markdown).toContain('![render.png](https://cdn.example.com/render.png)');
     });
 
-    it('groups consecutive assistant messages into a single turn and skips thinking', () => {
+    it('composes tool details + body + choices into a single assistant markdown in order', () => {
+        const session = makeSession();
+        const messages: Message[] = [
+            toolCall('t1', 1000, {
+                name: 'Read',
+                input: { file_path: 'a.ts' },
+            }),
+            agentText('a1', 'Here are your options.', 1100),
+            toolCall('t2', 1200, {
+                name: 'AskUserQuestion',
+                input: {
+                    questions: [{
+                        header: 'Pick',
+                        options: [
+                            { label: 'Yes' },
+                            { label: 'No' },
+                        ],
+                    }],
+                },
+                result: { answer: 'Yes' },
+            }),
+        ];
+
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages);
+        const assistant = envelope.messages.find(m => m.role === 'assistant')!;
+        const md = assistant.markdown;
+        const detailsIdx = md.indexOf(':::details');
+        const bodyIdx = md.indexOf('Here are your options.');
+        const choicesIdx = md.indexOf(':::choices');
+        expect(detailsIdx).toBeGreaterThan(-1);
+        expect(detailsIdx).toBeLessThan(bodyIdx);
+        expect(bodyIdx).toBeLessThan(choicesIdx);
+        expect(md).toContain('- [x] Yes');
+        expect(md).toContain('- [ ] No');
+    });
+
+    it('groups consecutive assistant messages into a single message and skips thinking', () => {
         const session = makeSession();
         const messages: Message[] = [
             userText('u1', 'go', 1000),
@@ -164,10 +214,10 @@ describe('buildOpenBirdSessionEnvelope', () => {
             agentText('a2', 'Part two.', 2100),
         ];
 
-        const envelope = buildOpenBirdSessionEnvelope(session, messages);
-        const assistantTurns = envelope.turns.filter(t => t.role === 'assistant');
-        expect(assistantTurns).toHaveLength(1);
-        expect(assistantTurns[0].markdown).toBe('Part one.\n\nPart two.');
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages);
+        const assistantMessages = envelope.messages.filter(m => m.role === 'assistant');
+        expect(assistantMessages).toHaveLength(1);
+        expect(assistantMessages[0].markdown).toBe('Part one.\n\nPart two.');
     });
 });
 
