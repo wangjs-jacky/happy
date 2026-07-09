@@ -32,6 +32,7 @@ export const LocalSettingsSchema = z.object({
     agents: AgentLauncherListSchema.describe('设备本地「我的 Agent」启动预设（不随账号同步）'),
     healthSleepStructureView: z.enum(['bar', 'donut']).describe('健康打卡睡眠结构可视化：堆叠条/甜甜圈'),
     healthSleepTrendMetric: z.enum(['duration', 'score']).describe('健康打卡本周趋势指标：时长/评分'),
+    healthActiveDomain: z.enum(['sleep', 'exercise', 'diet']).describe('健康打卡面板当前域：睡眠/运动/饮食'),
 });
 
 //
@@ -69,6 +70,7 @@ export const localSettingsDefaults: LocalSettings = {
     agents: [],
     healthSleepStructureView: 'bar',
     healthSleepTrendMetric: 'duration',
+    healthActiveDomain: 'sleep',
 };
 Object.freeze(localSettingsDefaults);
 
