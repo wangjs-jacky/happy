@@ -30,6 +30,9 @@ export const LocalSettingsSchema = z.object({
     // 乐观锁 + POST 整包覆盖、后写赢」，App 各种 churn 写入会把 agents 一起带上，某次本地为空即把
     // 服务器覆盖空，导致新建 Agent 退出重进就丢。放本地后任何同步/WS 回包都碰不到它，彻底解决。
     agents: AgentLauncherListSchema.describe('设备本地「我的 Agent」启动预设（不随账号同步）'),
+    healthSleepStructureView: z.enum(['bar', 'donut']).describe('健康打卡睡眠结构可视化：堆叠条/甜甜圈'),
+    healthSleepTrendMetric: z.enum(['duration', 'score']).describe('健康打卡本周趋势指标：时长/评分'),
+    healthActiveDomain: z.enum(['sleep', 'exercise', 'diet']).describe('健康打卡面板当前域：睡眠/运动/饮食'),
 });
 
 //
@@ -65,6 +68,9 @@ export const localSettingsDefaults: LocalSettings = {
     },
     acknowledgedCliVersions: {},
     agents: [],
+    healthSleepStructureView: 'bar',
+    healthSleepTrendMetric: 'duration',
+    healthActiveDomain: 'sleep',
 };
 Object.freeze(localSettingsDefaults);
 
