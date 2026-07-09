@@ -8,7 +8,7 @@ describe('createScreenshotTools', () => {
         const signals: any[] = [];
         const tools = createScreenshotTools({
             store,
-            capture: async () => '/tmp/x.png',
+            capture: async () => ({ path: '/tmp/x.png', capturedTarget: 'desktop' as const }),
             readBase64: async () => 'BYTES',
             signalNewScreenshot: (refs) => signals.push(refs),
             now: () => 123,
@@ -27,7 +27,7 @@ describe('createScreenshotTools', () => {
         const store = new ScreenshotStore();
         const tools = createScreenshotTools({
             store,
-            capture: async () => '/tmp/x.png',
+            capture: async () => ({ path: '/tmp/x.png', capturedTarget: 'desktop' as const }),
             readBase64: async () => 'BYTES',
             signalNewScreenshot: () => {},
             now: () => 1,
@@ -41,7 +41,7 @@ describe('createScreenshotTools', () => {
         const ref = store.add({ filePath: '/tmp/x.png', target: 'desktop', takenAt: 1 });
         const tools = createScreenshotTools({
             store,
-            capture: async () => '',
+            capture: async () => ({ path: '', capturedTarget: 'desktop' as const }),
             readBase64: async () => 'BYTES',
             signalNewScreenshot: () => {},
             now: () => 1,
@@ -55,7 +55,7 @@ describe('createScreenshotTools', () => {
         const store = new ScreenshotStore();
         const tools = createScreenshotTools({
             store,
-            capture: async () => '',
+            capture: async () => ({ path: '', capturedTarget: 'desktop' as const }),
             readBase64: async () => '',
             signalNewScreenshot: () => {},
             now: () => 1,
@@ -69,7 +69,7 @@ describe('createScreenshotTools', () => {
         store.add({ filePath: '/tmp/b.png', target: 'browser', note: 'x', takenAt: 2 });
         const tools = createScreenshotTools({
             store,
-            capture: async () => '',
+            capture: async () => ({ path: '', capturedTarget: 'desktop' as const }),
             readBase64: async () => '',
             signalNewScreenshot: () => {},
             now: () => 1,

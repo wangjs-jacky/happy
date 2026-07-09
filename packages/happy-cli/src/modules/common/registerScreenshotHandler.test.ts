@@ -11,10 +11,10 @@ function fakeRpc() {
 }
 
 describe('registerScreenshotHandler', () => {
-    it('截图成功：返回 success + base64 jpeg', async () => {
+    it('截图成功：返回 success + base64 jpeg + targetUsed', async () => {
         const rpc = fakeRpc();
         registerScreenshotHandler(rpc as any, {
-            capture: async () => '/tmp/x.jpg',
+            capture: async () => ({ path: '/tmp/x.jpg', capturedTarget: 'desktop' }),
             readBase64: async () => 'AAA',
         });
         const res = await rpc.call('screenshot', { target: 'desktop' });
@@ -22,6 +22,29 @@ describe('registerScreenshotHandler', () => {
         expect(res.dataBase64).toBe('AAA');
         // captureScreenshot 现在返回 sips 压缩后的 JPEG，handler 统一上报 image/jpeg
         expect(res.mimeType).toBe('image/jpeg');
+        expect(res.targetUsed).toBe('desktop');
+    });
+
+    it('请求 browser 命中浏览器：targetUsed=browser', async () => {
+        const rpc = fakeRpc();
+        registerScreenshotHandler(rpc as any, {
+            capture: async () => ({ path: '/tmp/x.jpg', capturedTarget: 'browser' }),
+            readBase64: async () => 'AAA',
+        });
+        const res = await rpc.call('screenshot', { target: 'browser' });
+        expect(res.success).toBe(true);
+        expect(res.targetUsed).toBe('browser');
+    });
+
+    it('请求 browser 回退整屏：targetUsed=desktop', async () => {
+        const rpc = fakeRpc();
+        registerScreenshotHandler(rpc as any, {
+            capture: async () => ({ path: '/tmp/x.jpg', capturedTarget: 'desktop' }),
+            readBase64: async () => 'AAA',
+        });
+        const res = await rpc.call('screenshot', { target: 'browser' });
+        expect(res.success).toBe(true);
+        expect(res.targetUsed).toBe('desktop');
     });
 
     it('截图失败：success=false + error 包含原始信息', async () => {
@@ -39,7 +62,7 @@ describe('registerScreenshotHandler', () => {
         const rpc = fakeRpc();
         let captured: string | undefined;
         registerScreenshotHandler(rpc as any, {
-            capture: async (t) => { captured = t; return '/tmp/x.png'; },
+            capture: async (t) => { captured = t; return { path: '/tmp/x.png', capturedTarget: 'desktop' }; },
             readBase64: async () => 'AAA',
         });
         const res = await rpc.call('screenshot', {});

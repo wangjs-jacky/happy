@@ -5,40 +5,53 @@ import { logger } from '@/ui/logger';
 
 export type ScreenshotTarget = 'desktop' | 'browser';
 
-/** buildScreencaptureArgs 的可选项：browser 目标可传最前窗口 id。 */
-export interface ScreencaptureOpts {
-    /** osascript 解析出的最前窗口 id；null 表示没拿到（回退整屏）。 */
-    windowId?: number | null;
+/** 浏览器窗口矩形（屏幕坐标，单位：点）。用于 screencapture -R 区域截图。 */
+export interface BrowserBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
-/** 从 osascript 输出解析最前窗口 id（纯函数，便于测试）。
- *  osascript 正常输出形如 "12345\n"，失败/无权限时可能为空串或非数字；
- *  解析不到合法数字时返回 null（由调用方回退整屏）。 */
-export function parseFrontWindowId(osascriptStdout: string): number | null {
+/** 按优先级尝试的一组已知浏览器（AppleScript 应用名）。
+ *  取第一个「正在运行且能拿到 front window bounds」的作为截图目标。 */
+const KNOWN_BROWSERS = ['Google Chrome', 'Safari', 'Microsoft Edge', 'Arc', 'Brave Browser'] as const;
+
+/** 从 osascript 输出解析浏览器 front window bounds（纯函数，便于测试）。
+ *  AppleScript `get bounds of front window` 返回形如 "0, 25, 840, 1440"（{x1,y1,x2,y2}），
+ *  这里转成 {x, y, width, height}（width=x2-x1, height=y2-y1）。
+ *  解析失败 / 非 4 个整数 / 宽或高 <= 0 时返回 null（由调用方回退整屏）。 */
+export function parseBrowserBounds(osascriptStdout: string): BrowserBounds | null {
     const trimmed = osascriptStdout.trim();
     if (trimmed === '') {
         return null;
     }
-    // 只接受纯数字（window id 是整数），避免把报错信息误当成 id
-    if (!/^\d+$/.test(trimmed)) {
+    const parts = trimmed.split(',').map((s) => s.trim());
+    if (parts.length !== 4) {
         return null;
     }
-    const id = Number(trimmed);
-    return Number.isInteger(id) ? id : null;
+    // 只接受整数（可含负号），避免把报错信息误当坐标
+    if (!parts.every((p) => /^-?\d+$/.test(p))) {
+        return null;
+    }
+    const [x1, y1, x2, y2] = parts.map(Number);
+    const width = x2 - x1;
+    const height = y2 - y1;
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+    return { x: x1, y: y1, width, height };
 }
 
-/** 拼装 macOS screencapture 参数（纯函数，便于测试）。
- *  - desktop：整屏 `-x`（静音）。
- *  - browser 且拿到有效 windowId：`-x -o -l <id>`（指定窗口、去阴影）。
- *  - browser 但没拿到 windowId：回退整屏兜底，绝不让 browser 截图失败。 */
-export function buildScreencaptureArgs(
-    target: ScreenshotTarget,
-    outPath: string,
-    opts?: ScreencaptureOpts,
-): string[] {
-    if (target === 'browser' && opts?.windowId != null) {
-        return ['-x', '-o', '-l', String(opts.windowId), outPath];
-    }
+/** 拼装区域截图参数（纯函数，便于测试）：`-x -R<x>,<y>,<w>,<h> <out>`。
+ *  `-x` 静音，`-R` 指定截取矩形（屏幕坐标）。 */
+export function buildRegionCaptureArgs(region: BrowserBounds, outPath: string): string[] {
+    const { x, y, width, height } = region;
+    return ['-x', `-R${x},${y},${width},${height}`, outPath];
+}
+
+/** 拼装整屏 screencapture 参数（纯函数，便于测试）：desktop 用 `-x`（静音）整屏。 */
+export function buildScreencaptureArgs(target: ScreenshotTarget, outPath: string): string[] {
     return ['-x', outPath];
 }
 
@@ -71,12 +84,13 @@ export function buildSipsArgs(
     ];
 }
 
-/** 跑 osascript 取最前台应用的最前窗口 id；失败/超时/无权限均返回 null（兜底整屏）。
- *  AppleScript 取 System Events 中 frontmost 进程的 front window id，
- *  这是无需逐个 app 适配、对任意前台应用都通用的写法（依赖「辅助功能」权限）。 */
-async function getFrontWindowId(): Promise<number | null> {
-    const script = 'tell application "System Events" to tell (first process whose frontmost is true) to get id of front window';
-    return await new Promise<number | null>((resolve) => {
+/** 跑 osascript 问指定浏览器自己的 front window bounds；失败/超时/未运行均返回 null。
+ *  走 Automation 权限（脚本控制目标 App），无需「辅助功能」权限——这是相对
+ *  System Events 方案的关键区别：Automation 权限首次触发会弹窗授权、当场可用。 */
+async function queryBrowserBounds(browser: string): Promise<BrowserBounds | null> {
+    // 先判 is running，避免脚本把未运行的浏览器拉起来
+    const script = `if application "${browser}" is running then tell application "${browser}" to get bounds of front window`;
+    return await new Promise<BrowserBounds | null>((resolve) => {
         const child = spawn('osascript', ['-e', script], {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -84,7 +98,7 @@ async function getFrontWindowId(): Promise<number | null> {
         let stderr = '';
         // 给 osascript 合理超时，避免卡住截图
         const timer = setTimeout(() => {
-            logger.debug('[screenshot] osascript 取最前窗口超时，回退整屏');
+            logger.debug(`[screenshot] osascript 取 ${browser} 窗口超时，跳过`);
             child.kill('SIGKILL');
             resolve(null);
         }, 3000);
@@ -93,71 +107,100 @@ async function getFrontWindowId(): Promise<number | null> {
         child.stderr.on('data', (d) => { stderr += d.toString(); });
         child.on('error', (err) => {
             clearTimeout(timer);
-            logger.debug('[screenshot] osascript 启动失败，回退整屏:', err);
+            logger.debug(`[screenshot] osascript 启动失败（${browser}），跳过:`, err);
             resolve(null);
         });
         child.on('exit', (code) => {
             clearTimeout(timer);
             if (code !== 0) {
-                // 常见原因：未授予「辅助功能」权限。记一笔 debug，回退整屏。
-                logger.debug(`[screenshot] osascript 退出码 ${code}（可能缺辅助功能权限），回退整屏: ${stderr.trim()}`);
+                logger.debug(`[screenshot] osascript 取 ${browser} 退出码 ${code}，跳过: ${stderr.trim()}`);
                 resolve(null);
                 return;
             }
-            resolve(parseFrontWindowId(stdout));
+            resolve(parseBrowserBounds(stdout));
         });
     });
 }
 
-/** captureScreenshot 的依赖注入：默认接真实 spawn 封装，测试时可替换避免真截屏/真压缩。 */
+/** 依次问一组已知浏览器，返回第一个拿到合法 front window bounds 的那个；都拿不到返回 null。
+ *  任何单个浏览器的失败都静默（debug 日志），继续尝试下一个。 */
+export async function getFrontmostBrowserBounds(): Promise<BrowserBounds | null> {
+    for (const browser of KNOWN_BROWSERS) {
+        const bounds = await queryBrowserBounds(browser);
+        if (bounds) {
+            logger.debug(`[screenshot] 命中浏览器 ${browser}，bounds:`, bounds);
+            return bounds;
+        }
+    }
+    logger.debug('[screenshot] 未找到可用浏览器窗口，回退整屏');
+    return null;
+}
+
+/** captureScreenshot 的依赖注入：默认接真实 spawn 封装 + 真实浏览器定位，
+ *  测试时可替换避免真截屏/真压缩/真 osascript。 */
 export interface CaptureDeps {
     runScreencapture: (args: string[]) => Promise<void>;
     runSips: (args: string[]) => Promise<void>;
+    getFrontmostBrowserBounds: () => Promise<BrowserBounds | null>;
 }
 
-const defaultCaptureDeps: CaptureDeps = { runScreencapture, runSips };
+const defaultCaptureDeps: CaptureDeps = { runScreencapture, runSips, getFrontmostBrowserBounds };
 
-/** 真截图：仅 macOS。返回生成的图片文件绝对路径；失败 throw。
+/** captureScreenshot 的结果：图片路径 + 实际截取目标。
+ *  capturedTarget 反映真正截了什么：请求 browser 且命中浏览器窗口=‘browser’，
+ *  请求 browser 但回退整屏=‘desktop’，请求 desktop=‘desktop’。 */
+export interface CaptureResult {
+    path: string;
+    capturedTarget: ScreenshotTarget;
+}
+
+/** 真截图：仅 macOS。返回 { path, capturedTarget }；失败 throw。
  *  - desktop：整屏。
- *  - browser：先用 osascript 取最前窗口 id，截该窗口；取不到则兜底整屏。
+ *  - browser：先问最前台浏览器**自己**的 front window bounds（走 Automation 权限，
+ *    不依赖辅助功能），拿到就用 `-R` 区域截图；拿不到则回退整屏（capturedTarget=desktop）。
  *  截出的 PNG 是全分辨率、体积可达数 MB，base64+加密后会超过服务端 socket.io 单包 1MB 上限、
  *  导致 socket 被掐断（App 报 "RPC target disconnected"）。因此截图后追加一步 sips 压缩：
- *  缩放 + 转 JPEG，把体积压到远低于 1MB，返回 JPEG 路径。
- *  压缩失败则记 debug 日志、回退返回原 PNG 路径（宁可发原图也不因压缩整体崩溃）。 */
+ *  缩放 + 转 JPEG，把体积压到远低于 1MB，path 返回 JPEG 路径。
+ *  压缩失败则记 debug 日志、path 回退返回原 PNG（宁可发原图也不因压缩整体崩溃）。 */
 export async function captureScreenshot(
     target: ScreenshotTarget,
     deps: CaptureDeps = defaultCaptureDeps,
-): Promise<string> {
+): Promise<CaptureResult> {
     if (process.platform !== 'darwin') {
         throw new Error(`截图当前仅支持 macOS，检测到平台 ${process.platform}（Linux/Windows 待支持）`);
     }
     const stamp = `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
     const outPath = join(tmpdir(), `happy-shot-${stamp}.png`);
     const resolvedTarget = target ?? 'desktop';
-    // browser 目标才去取最前窗口 id；任何失败都兜底成 null（整屏）
-    const windowId = resolvedTarget === 'browser' ? await getFrontWindowId() : null;
-    const args = buildScreencaptureArgs(resolvedTarget, outPath, { windowId });
-    try {
-        await deps.runScreencapture(args);
-    } catch (err) {
-        // browser 分支带 windowId 时，窗口可能在取 id 后已关闭/id 失效导致 screencapture 失败；
-        // 此时自动回退整屏再试一次，避免 browser 截图整体失败。desktop 分支不重试。
-        if (resolvedTarget === 'browser' && windowId != null) {
-            logger.debug('[screenshot] 指定窗口截图失败，回退整屏重试:', err);
-            await deps.runScreencapture(['-x', outPath]);
+
+    // browser 目标：先问浏览器自己要 bounds，命中就区域截图，否则回退整屏
+    let capturedTarget: ScreenshotTarget = 'desktop';
+    let captureArgs: string[];
+    if (resolvedTarget === 'browser') {
+        const bounds = await deps.getFrontmostBrowserBounds();
+        if (bounds) {
+            captureArgs = buildRegionCaptureArgs(bounds, outPath);
+            capturedTarget = 'browser';
         } else {
-            throw err;
+            captureArgs = ['-x', outPath];
+            capturedTarget = 'desktop';
         }
+    } else {
+        captureArgs = ['-x', outPath];
+        capturedTarget = 'desktop';
     }
+
+    await deps.runScreencapture(captureArgs);
+
     // 压缩：缩放 + 转 JPEG，让最终 base64 体积远低于服务端 1MB 单包上限
     const jpegPath = join(tmpdir(), `happy-shot-${stamp}.jpg`);
     try {
         await deps.runSips(buildSipsArgs(outPath, jpegPath));
-        return jpegPath;
+        return { path: jpegPath, capturedTarget };
     } catch (err) {
         // 压缩失败兜底：回退返回原 PNG（可能超限，但至少不因压缩崩溃）
         logger.debug('[screenshot] sips 压缩失败，回退返回原 PNG:', err);
-        return outPath;
+        return { path: outPath, capturedTarget };
     }
 }
 
