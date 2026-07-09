@@ -49,7 +49,7 @@ const ARGS = parseArgs(process.argv.slice(2));
 // ============ 配置区：按你自己的情况修改 ============
 const BUCKET = 'happy-app-ota-jacky';          // OSS 桶名
 const REGION = 'oss-cn-hangzhou';              // OSS 地域
-const RUNTIME_VERSION = '21';                  // 必须和 app.config.js 的 runtimeVersion 一致
+const RUNTIME_VERSION = '22';                  // 必须和 app.config.js 的 runtimeVersion 一致
 const PLATFORM = ARGS.platform || 'android';   // 平台（--platform 覆盖）
 const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖），缺省 production 保持旧行为
 const WRITE_LATEST = !ARGS.skipLatest;          // PR 预览可跳过 latest，避免覆盖其他 PR

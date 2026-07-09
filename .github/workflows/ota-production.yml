@@ -6,7 +6,7 @@ name: Self-hosted OTA production (on merge to main)
 #
 # 前提（不满足则本次 OTA 对线上无效，但不会报错）：
 # - 必须是纯 JS 改动（无原生变更）。原生变了应重新出 APK，OTA 推不动。
-# - runtimeVersion 必须仍与线上装机 APK 一致（当前 21，见 app.config.js）。
+# - runtimeVersion 必须仍与线上装机 APK 一致（当前 22，见 app.config.js）。
 #
 # 安全：只在本仓库 push 到 main 时运行。需在仓库 Secrets 配置
 # ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET（与 preview 共用）。

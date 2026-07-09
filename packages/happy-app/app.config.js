@@ -84,7 +84,7 @@ export default {
         name,
         slug: "paws",
         version: "1.7.1",
-        runtimeVersion: "21",
+        runtimeVersion: "22",
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
         scheme: "paws",
