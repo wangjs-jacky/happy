@@ -55,6 +55,7 @@ frontmatter 的值**保留人类可读的带单位字符串**（如 `总时长: 
 
 - `总时长` = 夜间主睡、不含小睡；需要「含小睡总量」时由聚合端 `总时长 + 日间小睡` 算，**不存冗余字段**。
 - `快速眼动`(REM) 转正为可选字段。
+- **同步改 CLAUDE.md 示例/注释**：把第三节现有的 `评分: 82` 注释、`质量` 示例、schema 代码块都改成与 v2 字段表一致，补上 `快速眼动/日间小睡/超过用户`，去掉误导写法（避免 CLAUDE.md 示例本身还在示范旧字段名）。
 
 ### 3.4 写完自检清单（纯 CLAUDE.md 承载，agent 写完睡眠段逐条过，无脚本）
 
@@ -68,8 +69,9 @@ frontmatter 的值**保留人类可读的带单位字符串**（如 `总时长: 
 ## 四、历史迁移（只 2 篇有睡眠数据）
 
 - `2026-06-25`：`夜间睡眠`→`总时长`；`零星小睡`→`日间小睡`；删冗余 `总睡眠`（= 总时长 + 日间小睡）；`超过用户 99%` 保留；`评分 89` 不动。
-- `2026-07-06`：已基本合规，`快速眼动` 保留即可。
+- `2026-07-06`：`深睡: 55min` → `深睡: 0h55m`（**违反 `XhYm`，必须迁**，否则 `parseDuration` 返回 `null`、结构图静默丢深睡）；`总时长 4h1m`、`快速眼动 1h8m` 等其余合规保留。
 - `2026-06-17`/`06-23`/`06-24`：无睡眠段，不动。
+- 迁移后**逐篇用 `parseHealthLog` 单测兜底**，确保每个时长字段都能解析（不返回 `null`）。
 
 ## 五、Happy 面板（happy-app 侧 · 方向 B「睡眠 Hero 大卡」）
 
@@ -89,13 +91,18 @@ frontmatter 的值**保留人类可读的带单位字符串**（如 `总时长: 
 
 - 结构双视图偏好（`bar`|`donut`）与趋势 metric（`duration`|`score`）都用 `useLocalSetting` 持久化，下次打开保持上次选择。
 - 默认：结构 `堆叠条`、趋势 `时长`。
+- **前置（否则 typecheck 挂）**：`useLocalSetting<K extends keyof LocalSettings>` 受 `sources/sync/localSettings.ts` 的 Zod schema 强类型约束。新增两个 key（拟名 `healthSleepStructureView`、`healthSleepTrendMetric`）必须先加进：① `LocalSettingsSchema`（含默认值/枚举）；② `localSettingsDefaults`（冻结对象）；③ `LocalSettings` 类型。这是一个独立实现单元，先于面板组件完成。
 
 ### 5.3 `healthLog.ts` 改动（解析集中一处）
 
 - `HealthLog` 类型扩容：新增 `总时长/深睡/浅睡/快速眼动/日间小睡`（分钟数值）、`入睡/起床`（字符串）、`质量`（字符串）等。
-- 新增 `parseDuration('7h20m') → 440`（分钟）纯函数；`0h55m`/`7h20m` 都能解析，非法返回 `null`。
-- 保留现有 `评分` 解析（`extractSleepScore`），契约收紧后 `质量` 兜底分支可留作历史容错。
+- 新增 `parseDuration(str) → 分钟` 纯函数：主格式 `XhYm`（`7h20m`/`0h55m`/`1h8m`），并**容错退化写法** `55min`/`55m`/`8h`（防自检漏网时静默丢字段）；非法/空返回 `null`。
+- 保留现有 `评分` 解析（`extractSleepScore`），契约收紧后 `质量: NN分` 兜底分支迁移后应无篇命中，属「死但无害」，保留作历史容错。
 - 面板结构占比 = 各阶段分钟 / 各阶段分钟之和（不用总时长做分母，避免清醒/未记录段导致不足 100%）。
+
+### 5.4 i18n（happy-app 硬约束，不可漏）
+
+面板新增的所有用户可见字符串——`总时长`/`今晚总睡眠`/`深睡·浅睡·REM` 标签/`入睡→起床`/结构切换 `堆叠条·甜甜圈`/趋势 `时长·评分` tab——必须走 `t('healthPanel.*')`，并加进**全部 10 个翻译文件**（`ca/en/es/it/ja/pl/pt/ru/zh-Hans/zh-Hant`），沿用现有 `healthPanel.*` 命名，用 `i18n-translator` agent 保证一致。这是独立实现单元，与组件同批完成。
 
 ## 六、组件边界与数据流
 
@@ -117,8 +124,9 @@ frontmatter 的值**保留人类可读的带单位字符串**（如 `总时长: 
 ## 七、测试
 
 - `parseDuration` 单测：`'7h20m'→440`、`'0h55m'→55`、`'8h0m'→480`、非法 `'abc'→null`、空→null。
-- `parseHealthLog` 单测：喂迁移后的 `2026-06-25`/`2026-07-06` frontmatter，断言字段解析正确、评分趋势不回归。
-- `pnpm typecheck` 通过。
+- `parseHealthLog` 单测：喂迁移后的 `2026-06-25`/`2026-07-06` frontmatter，断言每个时长字段解析非 `null`、评分趋势不回归。
+- 新增 localSettings key 后 `pnpm typecheck` 通过。
+- 新增字符串已覆盖全部 10 个语言文件（缺任一语言 = 未完成）。
 
 ## 八、验收
 
@@ -142,3 +150,5 @@ frontmatter 的值**保留人类可读的带单位字符串**（如 `总时长: 
 | 迁移 2 篇睡眠日报 | validator 脚本 |
 | 面板 B（Hero + 双视图 + 趋势 tab） | 真 hypnogram 时序图 |
 | `healthLog.ts` parseDuration + 单测 | 面板整体识别机制（isHealthCheckinSession）重构 |
+| localSettings 注册 2 个偏好 key | |
+| 新字符串走 `t()` + 补 10 语言 | |
