@@ -140,6 +140,8 @@ function SessionInfoContent({ session }: { session: Session }) {
         regeneratingTitle,
         resumeSession,
         resumeSessionSubtitle,
+        shareToOpenBird,
+        sharingToOpenBird,
     } = useSessionQuickActions(session);
 
     // Check if CLI version is outdated
@@ -352,6 +354,13 @@ function SessionInfoContent({ session }: { session: Session }) {
 
                 {/* Quick Actions */}
                 <ItemGroup title={t('sessionInfo.quickActions')}>
+                    <Item
+                        title={t('sessionInfo.shareToOpenBird')}
+                        subtitle={t('sessionInfo.shareToOpenBirdSubtitle')}
+                        icon={<Ionicons name="share-social-outline" size={29} color={theme.colors.accent} />}
+                        onPress={shareToOpenBird}
+                        loading={sharingToOpenBird}
+                    />
                     {session.metadata?.machineId && (
                         <Item
                             title={t('sessionInfo.viewMachine')}

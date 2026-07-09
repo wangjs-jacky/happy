@@ -22,6 +22,8 @@ export interface PrepareOpenBirdAttachmentUrlsOptions {
     compress?: number;
     maxRawDataUriLength?: number;
     maxPerImageDataUriLength?: number;
+    /** 覆盖 OpenBird 图片上传的 base url（本地 wrangler dev 时用）。 */
+    apiBaseUrl?: string;
     imageUrlLoader?: (attachment: OpenBirdImageAttachment, sessionId: string) => Promise<string | null>;
     dataUriLoader?: (attachment: OpenBirdImageAttachment, sessionId: string) => Promise<string | null>;
 }
@@ -133,12 +135,12 @@ async function loadShareAttachmentUrl(
         { sync },
         { downloadEncryptedAttachment },
         { decryptBlob },
-        { uploadOpenBirdShareImage },
+        { uploadTranscriptImage },
     ] = await Promise.all([
         import('@/sync/sync'),
         import('@/sync/apiAttachments'),
         import('@/encryption/blob'),
-        import('@/sync/apiOpenBirdShare'),
+        import('@/sync/apiOpenBirdTranscript'),
     ]);
 
     const credentials = sync.getCredentials();
@@ -160,11 +162,13 @@ async function loadShareAttachmentUrl(
         return null;
     }
 
-    const image = await uploadOpenBirdShareImage(credentials, {
+    // 上传到 OpenBird 同源图片端点，拿回 https 同源 URL（不再走 Happy 中继）。
+    // 上传本身无需鉴权（guest 分享）；credentials 仅用于前面下载/解密附件。
+    const url = await uploadTranscriptImage({
         bytes: uploadBytes,
         mimeType: uploadBytes === decrypted ? mime : 'image/jpeg',
-    });
-    return image.url;
+    }, options.apiBaseUrl ? { apiBaseUrl: options.apiBaseUrl } : {});
+    return url;
 }
 
 async function compressAttachmentImage(

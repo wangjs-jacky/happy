@@ -90,7 +90,7 @@ describe('buildOpenBirdTranscriptEnvelope', () => {
         expect(envelope.meta.subtitle).toBeNull();
     });
 
-    it('folds tool activity into a :::details block at the top of the assistant markdown', () => {
+    it('folds tool activity into a single outer :::details block at the top of the assistant markdown', () => {
         const session = makeSession();
         const messages: Message[] = [
             userText('u1', 'read the file', 1000),
@@ -106,15 +106,38 @@ describe('buildOpenBirdTranscriptEnvelope', () => {
         const assistant = envelope.messages.find(m => m.role === 'assistant')!;
         const md = assistant.markdown;
 
-        // details block sits before the body, steps are inner list items.
-        expect(md.startsWith(':::details ')).toBe(true);
-        expect(md).toContain('Read · Read presets index');
-        expect(md).toContain('- presets/index.ts');
-        expect(md).toContain('- found 3 presets');
+        // single outer details block with a "工具活动 · N 步" header sits before the body.
+        expect(md.startsWith(':::details 🔧 工具活动 · 1 步')).toBe(true);
+        // tool is an inner entry: bold title + indented step sublist.
+        expect(md).toContain('- **Read · Read presets index**');
+        expect(md).toContain('    - presets/index.ts');
+        expect(md).toContain('    - found 3 presets');
         // block is closed before the body text.
         const detailsClose = md.indexOf('\n:::');
         expect(detailsClose).toBeGreaterThan(-1);
         expect(md.indexOf('Done.')).toBeGreaterThan(detailsClose);
+    });
+
+    it('merges multiple tools of one assistant turn into a single outer details block', () => {
+        const session = makeSession();
+        const messages: Message[] = [
+            userText('u1', 'do the work', 1000),
+            toolCall('t1', 1100, { name: 'Read', input: { file_path: 'a.ts' } }),
+            toolCall('t2', 1200, { name: 'Bash', input: { command: 'ls' } }),
+            toolCall('t3', 1300, { name: 'Grep', input: { pattern: 'foo' } }),
+            agentText('a1', 'All done.', 1400),
+        ];
+
+        const envelope = buildOpenBirdTranscriptEnvelope(session, messages);
+        const assistant = envelope.messages.find(m => m.role === 'assistant')!;
+        const md = assistant.markdown;
+
+        // exactly one outer details wrapper, header counts the 3 tools.
+        expect(md.match(/:::details/g)).toHaveLength(1);
+        expect(md).toContain(':::details 🔧 工具活动 · 3 步');
+        expect(md).toContain('- **Read · a.ts**');
+        expect(md).toContain('- **Bash · ls**');
+        expect(md).toContain('- **Grep · foo**');
     });
 
     it('renders AskUserQuestion as a :::choices block at the tail with [x]/[ ] markers', () => {

@@ -12,8 +12,8 @@ import type { AgentEvent } from '@/sync/typesRaw';
  *
  * Happy 专有的工具/选项**不再作为独立字段**，而是在 Happy 侧序列化进 markdown 的
  * 通用块：
- *   - 工具活动 → assistant 消息 markdown **顶部**的 `:::details 标题` 折叠块
- *               （steps 作为内层列表项）。
+ *   - 工具活动 → assistant 消息 markdown **顶部**的**单个** `:::details 🔧 工具活动 · N 步`
+ *               折叠块（同一轮的所有工具合并进一个外壳，每个工具是加粗标题 + steps 子列表）。
  *   - 选项（AskUserQuestion）→ 消息 markdown **尾部**的 `:::choices` 块
  *               （`- [x]` 选中 / `- [ ]` 未选）。
  *   - 图片 → 上传拿公网 URL 后以 `![alt](url)` 内联进 markdown（复用现有链路）。
@@ -182,7 +182,11 @@ export function hasOpenBirdShareContent(messages: Message[]): boolean {
 
 /**
  * 把一条 assistant 消息的工具活动、正文、选项组装为单段 markdown：
- *   顶部 `:::details 工具标题`（每个工具一个）→ 正文 → 尾部 `:::choices`。
+ *   顶部**单个** `:::details 🔧 工具活动 · N 步` 折叠块（收纳同一轮全部工具）
+ *   → 正文 → 尾部 `:::choices`。
+ *
+ * 真机上一轮 assistant 可能触发几十上百个工具；早先是「N 个并列 details」，
+ * 页面像一堵墙。本轮改成「1 个外层 details 收纳 N 条」，默认收起。
  */
 function composeAssistantMarkdown(
     tools: EnvelopeTool[],
@@ -190,8 +194,8 @@ function composeAssistantMarkdown(
     options: EnvelopeOption[],
 ): string {
     const parts: string[] = [];
-    for (const tool of tools) {
-        parts.push(renderDetailsBlock(tool));
+    if (tools.length > 0) {
+        parts.push(renderToolsDetailsBlock(tools));
     }
     if (body.length > 0) {
         parts.push(body);
@@ -203,13 +207,20 @@ function composeAssistantMarkdown(
 }
 
 /**
- * 渲染 `:::details` 折叠块。steps 作为内层无序列表项；无 step 时块体留一行占位，
- * 保证块结构合法。
+ * 渲染**外层单个** `:::details` 折叠块，把同一轮的所有工具收进去。
+ *   - 折叠标题：`🔧 工具活动 · N 步`
+ *   - 每个工具作为一个内层条目：**加粗工具标题** + 其 steps 作为下一级子列表
+ *
+ * 采用嵌套无序列表（内层 step 用 4 空格缩进）表达「工具 → 步骤」的层级，
+ * OpenBird 的 markdown 渲染吃这套。
  */
-function renderDetailsBlock(tool: EnvelopeTool): string {
-    const lines = [`:::details ${oneLine(tool.title)}`];
-    for (const step of tool.steps) {
-        lines.push(`- ${escapeListItem(step)}`);
+function renderToolsDetailsBlock(tools: EnvelopeTool[]): string {
+    const lines = [`:::details 🔧 工具活动 · ${tools.length} 步`];
+    for (const tool of tools) {
+        lines.push(`- **${escapeListItem(tool.title)}**`);
+        for (const step of tool.steps) {
+            lines.push(`    - ${escapeListItem(step)}`);
+        }
     }
     lines.push(':::');
     return lines.join('\n');
