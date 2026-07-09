@@ -1541,10 +1541,23 @@ class Sync {
                 const sentPending = { ...this.pendingSettings };
                 let version = storage.getState().settingsVersion;
                 let settings = applySettings(storage.getState().settings, this.pendingSettings);
+                const syncPayload = settingsToSyncPayload(settings);
+                // `agents` is the one setting an ambient/churn POST can silently
+                // clobber: the server stores settings as a single replace-whole-blob
+                // value, so any background write (drafts, counters, flags…) that runs
+                // while storage's in-memory `agents` is momentarily [] overwrites the
+                // server's real agent list back to empty — reproduced as a startup POST
+                // wiping a just-added agent. Only a DELIBERATE add/delete puts `agents`
+                // into pendingSettings, so unless THIS write is about agents, drop the
+                // field: the server blob then lacks `agents` and mergeServerSettings
+                // preserves the local list on the next GET instead of adopting [].
+                if (!Object.prototype.hasOwnProperty.call(this.pendingSettings, 'agents')) {
+                    delete syncPayload.agents;
+                }
                 const response = await fetch(`${API_ENDPOINT}/v1/account/settings`, {
                     method: 'POST',
                     body: JSON.stringify({
-                        settings: await this.encryption.encryptRaw(settingsToSyncPayload(settings)),
+                        settings: await this.encryption.encryptRaw(syncPayload),
                         expectedVersion: version ?? 0
                     }),
                     headers: {
