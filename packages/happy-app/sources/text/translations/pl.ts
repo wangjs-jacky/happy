@@ -368,6 +368,8 @@ export const pl: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'Wyświetlaj tylko aktywne czaty na liście',
         groupToolCalls: 'Grupuj wywołania narzędzi',
         groupToolCallsSubtitle: 'Zwijaj kolejne wywołania narzędzi w jeden kontener',
+        desktopScreenshot: 'Zrzut ekranu pulpitu',
+        desktopScreenshotSubtitle: 'Pokaż przycisk aparatu w polu czatu, aby zdalnie przechwycić pulpit lub okno przeglądarki',
         privacy: 'Prywatność',
         privacyDescription: 'Całkowicie wyłącza wszystkie analizy i telemetrię. Żadne dane nie będą wysyłane do PostHog ani żadnego innego serwisu śledzącego.',
         disableAnalytics: 'Wyłącz analitykę',
@@ -599,6 +601,8 @@ export const pl: TranslationStructure = {
             screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
             screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
             screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
+            screenshotBrowserFallbackTitle: 'Nie znaleziono okna przeglądarki',
+            screenshotBrowserFallbackBody: 'Nie udało się znaleźć okna przeglądarki, wykonano zrzut całego ekranu.',
         },
         screenshotGallery: {
             title: 'Zrzuty ekranu',
@@ -607,6 +611,9 @@ export const pl: TranslationStructure = {
             attach: 'Dołącz do pola tekstowego',
             sourceManual: 'Ręcznie',
             sourceAi: 'AI',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 

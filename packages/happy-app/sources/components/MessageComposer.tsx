@@ -1,6 +1,6 @@
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import * as React from 'react';
-import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable } from 'react-native';
+import { View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, Modal } from 'react-native';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
@@ -88,6 +88,12 @@ interface MessageComposerProps {
      * (session view) — this component only surfaces the UI + target choice.
      */
     onCaptureScreenshot?: (target: 'desktop' | 'browser') => void;
+    /**
+     * True while a screenshot capture RPC is in flight (1-5s round-trip). When
+     * set, the camera button swaps its icon for a spinner so the tap isn't a
+     * silent wait with no feedback.
+     */
+    screenshotCapturing?: boolean;
     /**
      * Opens the bottom screenshot gallery drawer (能力 B). When provided, a
      * "Gallery" item is added to the screenshot dropdown. `galleryHasNew` shows
@@ -200,19 +206,22 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     screenshotAnchor: {
         position: 'relative',
     },
-    screenshotBackdrop: {
+    // Transparent Modal host that lets the menu escape the composer's
+    // overflow:'hidden' clip; the menu is positioned absolutely inside it.
+    screenshotModalRoot: {
+        flex: 1,
+    },
+    screenshotModalBackdrop: {
         position: 'absolute',
-        top: -1000,
-        bottom: -1000,
-        left: -1000,
-        right: -1000,
-        zIndex: 1000,
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
     },
     screenshotMenu: {
+        // `right` / `bottom` are supplied inline from the button's measured
+        // window coordinates so the menu sits just above the camera button.
         position: 'absolute',
-        bottom: '100%',
-        right: 0,
-        marginBottom: 8,
         minWidth: 200,
         backgroundColor: theme.colors.input.background,
         borderRadius: Platform.select({ default: 16, android: 20 }),
@@ -492,7 +501,7 @@ const AgentInputContextChips = React.memo(function AgentInputContextChips(p: Con
 export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle, MessageComposerProps>((props, ref) => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
-    const screenWidth = useWindowDimensions().width;
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const isSendBlocked = props.blockSend ?? false;
     const isSession = props.mode === 'session';
     const autocompletePrefixes = props.autocompletePrefixes ?? EMPTY_AUTOCOMPLETE_PREFIXES;
@@ -520,6 +529,28 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     // picker that pops up above the camera button; selecting a target closes it
     // and forwards the choice to the caller via onCaptureScreenshot.
     const [screenshotMenuOpen, setScreenshotMenuOpen] = React.useState(false);
+    // The menu pops up above the camera button, but the composer's unifiedPanel
+    // has overflow:'hidden', which clips anything rendered above its top edge.
+    // To escape the clip we render the menu inside a transparent RN Modal and
+    // absolutely position it against the button's measured window coordinates.
+    const cameraButtonRef = React.useRef<View>(null);
+    const [menuAnchor, setMenuAnchor] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+    const openScreenshotMenu = React.useCallback(() => {
+        hapticsLight();
+        if (screenshotMenuOpen) {
+            setScreenshotMenuOpen(false);
+            return;
+        }
+        const node = cameraButtonRef.current;
+        if (node && typeof node.measureInWindow === 'function') {
+            node.measureInWindow((x, y, width, height) => {
+                setMenuAnchor({ x, y, width, height });
+                setScreenshotMenuOpen(true);
+            });
+        } else {
+            setScreenshotMenuOpen(true);
+        }
+    }, [screenshotMenuOpen]);
     const onCaptureScreenshot = props.onCaptureScreenshot;
     const handleCaptureTarget = React.useCallback((target: 'desktop' | 'browser') => {
         hapticsLight();
@@ -973,53 +1004,10 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 {/* Screenshot button + target dropdown (能力 A) */}
                                 {props.onCaptureScreenshot && (
                                     <View style={styles.screenshotAnchor}>
-                                        {screenshotMenuOpen && (
-                                            <>
-                                                {/* Full-screen backdrop: tap outside closes the menu */}
-                                                <Pressable
-                                                    style={styles.screenshotBackdrop}
-                                                    onPress={() => setScreenshotMenuOpen(false)}
-                                                />
-                                                <View style={styles.screenshotMenu}>
-                                                    <Pressable
-                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                        onPress={() => handleCaptureTarget('desktop')}
-                                                    >
-                                                        <Ionicons name="desktop-outline" size={15} color={theme.colors.text} />
-                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                            {t('components.messageComposer.screenshotDesktop')}
-                                                        </Text>
-                                                    </Pressable>
-                                                    <Pressable
-                                                        style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                        onPress={() => handleCaptureTarget('browser')}
-                                                    >
-                                                        <Ionicons name="globe-outline" size={15} color={theme.colors.text} />
-                                                        <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                            {t('components.messageComposer.screenshotBrowser')}
-                                                        </Text>
-                                                    </Pressable>
-                                                    {props.onOpenGallery && (
-                                                        <Pressable
-                                                            style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
-                                                            onPress={handleOpenGallery}
-                                                        >
-                                                            <Ionicons name="images-outline" size={15} color={theme.colors.text} />
-                                                            <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
-                                                                {t('components.messageComposer.screenshotGallery')}
-                                                            </Text>
-                                                            {props.galleryHasNew && <View style={styles.screenshotMenuDot} />}
-                                                        </Pressable>
-                                                    )}
-                                                </View>
-                                            </>
-                                        )}
                                         <Pressable
+                                            ref={cameraButtonRef}
                                             accessibilityLabel={t('components.messageComposer.screenshot')}
-                                            onPress={() => {
-                                                hapticsLight();
-                                                setScreenshotMenuOpen((v) => !v);
-                                            }}
+                                            onPress={openScreenshotMenu}
                                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                                             style={(p) => ({
                                                 flexDirection: 'row',
@@ -1032,17 +1020,85 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                 opacity: p.pressed ? 0.7 : 1,
                                             })}
                                         >
-                                            <Ionicons
-                                                name="camera-outline"
-                                                size={16}
-                                                color={screenshotMenuOpen
-                                                    ? theme.colors.radio.active
-                                                    : theme.colors.button.secondary.tint}
-                                            />
+                                            {props.screenshotCapturing ? (
+                                                <ActivityIndicator
+                                                    size="small"
+                                                    color={theme.colors.button.secondary.tint}
+                                                />
+                                            ) : (
+                                                <Ionicons
+                                                    name="camera-outline"
+                                                    size={16}
+                                                    color={screenshotMenuOpen
+                                                        ? theme.colors.radio.active
+                                                        : theme.colors.button.secondary.tint}
+                                                />
+                                            )}
                                             {props.galleryHasNew && !screenshotMenuOpen && (
                                                 <View style={styles.screenshotCameraDot} />
                                             )}
                                         </Pressable>
+
+                                        {/* Menu lives in a transparent Modal so the composer's
+                                            overflow:'hidden' cannot clip it. Positioned above the
+                                            camera button via its measured window coordinates. */}
+                                        <Modal
+                                            visible={screenshotMenuOpen}
+                                            transparent
+                                            animationType="fade"
+                                            statusBarTranslucent
+                                            onRequestClose={() => setScreenshotMenuOpen(false)}
+                                        >
+                                            <View style={styles.screenshotModalRoot}>
+                                                {/* Backdrop sibling behind the menu: tap outside closes */}
+                                                <Pressable
+                                                    style={styles.screenshotModalBackdrop}
+                                                    onPress={() => setScreenshotMenuOpen(false)}
+                                                />
+                                                {menuAnchor && (
+                                                    <View
+                                                        style={[
+                                                            styles.screenshotMenu,
+                                                            {
+                                                                right: screenWidth - (menuAnchor.x + menuAnchor.width),
+                                                                bottom: screenHeight - menuAnchor.y + 8,
+                                                            },
+                                                        ]}
+                                                    >
+                                                        <Pressable
+                                                            style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                            onPress={() => handleCaptureTarget('desktop')}
+                                                        >
+                                                            <Ionicons name="desktop-outline" size={15} color={theme.colors.text} />
+                                                            <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                                {t('components.messageComposer.screenshotDesktop')}
+                                                            </Text>
+                                                        </Pressable>
+                                                        <Pressable
+                                                            style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                            onPress={() => handleCaptureTarget('browser')}
+                                                        >
+                                                            <Ionicons name="globe-outline" size={15} color={theme.colors.text} />
+                                                            <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                                {t('components.messageComposer.screenshotBrowser')}
+                                                            </Text>
+                                                        </Pressable>
+                                                        {props.onOpenGallery && (
+                                                            <Pressable
+                                                                style={(p) => [styles.screenshotMenuItem, p.pressed && styles.screenshotMenuItemPressed]}
+                                                                onPress={handleOpenGallery}
+                                                            >
+                                                                <Ionicons name="images-outline" size={15} color={theme.colors.text} />
+                                                                <Text style={styles.screenshotMenuItemText} numberOfLines={1}>
+                                                                    {t('components.messageComposer.screenshotGallery')}
+                                                                </Text>
+                                                                {props.galleryHasNew && <View style={styles.screenshotMenuDot} />}
+                                                            </Pressable>
+                                                        )}
+                                                    </View>
+                                                )}
+                                            </View>
+                                        </Modal>
                                     </View>
                                 )}
 

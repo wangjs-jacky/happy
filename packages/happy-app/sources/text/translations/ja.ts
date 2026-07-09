@@ -352,6 +352,8 @@ export const ja: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'アクティブなチャットのみをリストに表示',
         groupToolCalls: 'ツール呼び出しをグループ化',
         groupToolCallsSubtitle: '連続するツール呼び出しを1つのコンテナにまとめる',
+        desktopScreenshot: 'デスクトップのスクリーンショット',
+        desktopScreenshotSubtitle: 'チャット入力欄にカメラボタンを表示し、デスクトップやブラウザウィンドウをリモートで撮影できます',
         privacy: 'プライバシー',
         privacyDescription: 'すべての分析とテレメトリを完全に無効にします。PostHogやその他のトラッキングサービスにデータは送信されません。',
         disableAnalytics: '分析を無効化',
@@ -584,6 +586,8 @@ export const ja: TranslationStructure = {
             screenshotFailedTitle: 'スクリーンショットに失敗しました',
             screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
             screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
+            screenshotBrowserFallbackTitle: 'ブラウザウィンドウが見つかりません',
+            screenshotBrowserFallbackBody: 'ブラウザウィンドウが見つからなかったため、画面全体をキャプチャしました。',
         },
         screenshotGallery: {
             title: 'スクリーンショット',
@@ -592,6 +596,9 @@ export const ja: TranslationStructure = {
             attach: '入力欄に添付',
             sourceManual: '手動',
             sourceAi: 'AI',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 

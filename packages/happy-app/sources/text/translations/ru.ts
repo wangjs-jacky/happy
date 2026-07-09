@@ -337,6 +337,8 @@ export const ru: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'Показывать в списке только активные чаты',
         groupToolCalls: 'Группировать вызовы инструментов',
         groupToolCallsSubtitle: 'Сворачивать подряд идущие вызовы инструментов в один блок',
+        desktopScreenshot: 'Снимок рабочего стола',
+        desktopScreenshotSubtitle: 'Показывать кнопку камеры в поле ввода чата для удалённого снимка рабочего стола или окна браузера',
         privacy: 'Конфиденциальность',
         privacyDescription: 'Полностью отключает всю аналитику и телеметрию. Никакие данные не будут отправляться в PostHog или другие сервисы отслеживания.',
         disableAnalytics: 'Отключить аналитику',
@@ -536,6 +538,8 @@ export const ru: TranslationStructure = {
             screenshotFailedTitle: 'Не удалось сделать снимок экрана',
             screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
             screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
+            screenshotBrowserFallbackTitle: 'Окно браузера не найдено',
+            screenshotBrowserFallbackBody: 'Не удалось найти окно браузера, сделан снимок всего экрана.',
         },
         screenshotGallery: {
             title: 'Снимки экрана',
@@ -544,6 +548,9 @@ export const ru: TranslationStructure = {
             attach: 'Прикрепить к вводу',
             sourceManual: 'Вручную',
             sourceAi: 'ИИ',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 

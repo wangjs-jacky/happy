@@ -352,6 +352,8 @@ export const zhHans: TranslationStructure = {
         hideInactiveSessionsSubtitle: '仅在列表中显示活跃的聊天',
         groupToolCalls: '分组工具调用',
         groupToolCallsSubtitle: '将连续的工具调用折叠到一个容器中',
+        desktopScreenshot: '桌面截图',
+        desktopScreenshotSubtitle: '在会话输入框显示相机按钮，可远程截取电脑桌面或浏览器窗口',
         privacy: '隐私',
         privacyDescription: '完全禁用所有分析和遥测。不会向 PostHog 或任何其他跟踪服务发送数据。',
         disableAnalytics: '禁用分析',
@@ -584,6 +586,8 @@ export const zhHans: TranslationStructure = {
             screenshotFailedTitle: '截屏失败',
             screenshotFailedBody: '无法截取屏幕，请重试。',
             screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
+            screenshotBrowserFallbackTitle: '未找到浏览器窗口',
+            screenshotBrowserFallbackBody: '未找到浏览器窗口，已截取整屏。',
         },
         screenshotGallery: {
             title: '截图',
@@ -592,6 +596,9 @@ export const zhHans: TranslationStructure = {
             attach: '添加到输入栏',
             sourceManual: '手动',
             sourceAi: 'AI',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 

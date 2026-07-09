@@ -43,8 +43,8 @@ type SendImageInput = {
 export interface ScreenshotToolDeps {
     /** 会话内临时缓存（Task 3.1 的会话级 RPC 共享同一实例） */
     store: ScreenshotStore;
-    /** 真截图，返回 png 绝对路径 */
-    capture: (t: ScreenshotTarget) => Promise<string>;
+    /** 真截图，返回 { path: 图片绝对路径, capturedTarget: 实际截取目标 } */
+    capture: (t: ScreenshotTarget) => Promise<{ path: string; capturedTarget: ScreenshotTarget }>;
     /** 读图为 base64（这一刻才会进上下文） */
     readBase64: (p: string) => Promise<string>;
     /** 截图存库后通知 App（Task 2.2 注入真实 updateMetadata；本任务默认 no-op） */
@@ -60,7 +60,7 @@ export function createScreenshotTools(deps: ScreenshotToolDeps) {
     return {
         // 截图 → 存库 → 通知 App → 只返回文本引用（无字节）
         take: async ({ target, note }: { target?: ScreenshotTarget; note?: string }) => {
-            const filePath = await deps.capture(target ?? 'desktop');
+            const { path: filePath } = await deps.capture(target ?? 'desktop');
             const ref = deps.store.add({ filePath, target: target ?? 'desktop', note, takenAt: deps.now() });
             deps.signalNewScreenshot(deps.store.list());
             return `已截图 #${ref.id} [${ref.target}] ${note ? `note:"${note}" ` : ''}` +

@@ -349,6 +349,8 @@ export const it: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'Mostra solo le chat attive nella tua lista',
         groupToolCalls: 'Raggruppa chiamate agli strumenti',
         groupToolCallsSubtitle: 'Comprimi le chiamate consecutive agli strumenti in un unico contenitore',
+        desktopScreenshot: 'Screenshot del desktop',
+        desktopScreenshotSubtitle: 'Mostra un pulsante fotocamera nel campo della chat per catturare da remoto il desktop o la finestra del browser',
         privacy: 'Privacy',
         privacyDescription: 'Disabilita completamente tutte le analisi e la telemetria. Nessun dato verrà inviato a PostHog o ad altri servizi di tracciamento.',
         disableAnalytics: 'Disabilita analisi',
@@ -581,6 +583,8 @@ export const it: TranslationStructure = {
             screenshotFailedTitle: 'Screenshot non riuscito',
             screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
             screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
+            screenshotBrowserFallbackTitle: 'Finestra del browser non trovata',
+            screenshotBrowserFallbackBody: 'Impossibile trovare una finestra del browser: acquisito l\'intero schermo.',
         },
         screenshotGallery: {
             title: 'Screenshot',
@@ -589,6 +593,9 @@ export const it: TranslationStructure = {
             attach: 'Allega all\'input',
             sourceManual: 'Manuale',
             sourceAi: 'IA',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 

@@ -350,6 +350,8 @@ export const pt: TranslationStructure = {
         hideInactiveSessionsSubtitle: 'Mostre apenas os chats ativos na sua lista',
         groupToolCalls: 'Agrupar chamadas de ferramentas',
         groupToolCallsSubtitle: 'Recolher chamadas consecutivas de ferramentas em um único contêiner',
+        desktopScreenshot: 'Captura da área de trabalho',
+        desktopScreenshotSubtitle: 'Mostra um botão de câmera no campo do chat para capturar remotamente sua área de trabalho ou janela do navegador',
         privacy: 'Privacidade',
         privacyDescription: 'Desativa completamente toda a análise e telemetria. Nenhum dado será enviado ao PostHog ou qualquer outro serviço de rastreamento.',
         disableAnalytics: 'Desativar análises',
@@ -582,6 +584,8 @@ export const pt: TranslationStructure = {
             screenshotFailedTitle: 'Falha na captura de tela',
             screenshotFailedBody: 'Não foi possível capturar a tela. Tente novamente.',
             screenshotUnsupportedPlatform: 'Por enquanto, as capturas de tela só são compatíveis com macOS.',
+            screenshotBrowserFallbackTitle: 'Janela do navegador não encontrada',
+            screenshotBrowserFallbackBody: 'Não foi possível encontrar uma janela do navegador; a tela inteira foi capturada.',
         },
         screenshotGallery: {
             title: 'Capturas de tela',
@@ -590,6 +594,9 @@ export const pt: TranslationStructure = {
             attach: 'Anexar à entrada',
             sourceManual: 'Manual',
             sourceAi: 'IA',
+        },
+        desktopScreenshot: {
+            size: ({ size }: { size: string }) => `${size} KB`,
         },
     },
 
