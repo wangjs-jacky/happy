@@ -42,6 +42,13 @@ export const ja: TranslationStructure = {
         trendTitle: '今週',
         trendDuration: '時間',
         trendScore: 'スコア',
+        exerciseToday: '今日の運動',
+        noExerciseToday: '今日の運動記録なし',
+        burnedKcal: '消費',
+        dietToday: '今日の食事',
+        noDietToday: '今日の食事記録なし',
+        intakeLabel: '摂取',
+        kcalSuffix: ' kcal',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,

@@ -50,6 +50,13 @@ export const ru: TranslationStructure = {
         trendTitle: 'На этой неделе',
         trendDuration: 'Длительность',
         trendScore: 'Оценка',
+        exerciseToday: 'Упражнения сегодня',
+        noExerciseToday: 'Упражнения не записаны',
+        burnedKcal: 'Сожжено',
+        dietToday: 'Питание сегодня',
+        noDietToday: 'Питание не записано',
+        intakeLabel: 'Потреблено',
+        kcalSuffix: ' ккал',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Привет, ${name}! Чем займёмся сегодня?`,

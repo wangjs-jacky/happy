@@ -41,6 +41,13 @@ export const zhHant: TranslationStructure = {
         trendTitle: '本週',
         trendDuration: '時長',
         trendScore: '評分',
+        exerciseToday: '今日運動',
+        noExerciseToday: '今天還沒有運動記錄',
+        burnedKcal: '已消耗',
+        dietToday: '今日飲食',
+        noDietToday: '今天還沒有飲食記錄',
+        intakeLabel: '攝入',
+        kcalSuffix: ' 千卡',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做點什麼`,

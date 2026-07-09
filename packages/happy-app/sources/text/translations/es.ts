@@ -39,6 +39,13 @@ export const es: TranslationStructure = {
         trendTitle: 'Esta Semana',
         trendDuration: 'Duración',
         trendScore: 'Puntuación',
+        exerciseToday: 'Ejercicio de hoy',
+        noExerciseToday: 'Sin ejercicio registrado hoy',
+        burnedKcal: 'Quemado',
+        dietToday: 'Comidas de hoy',
+        noDietToday: 'Sin comidas registradas hoy',
+        intakeLabel: 'Ingesta',
+        kcalSuffix: ' kcal',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hola ${name}, ¿qué hacemos hoy?`,

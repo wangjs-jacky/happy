@@ -50,6 +50,13 @@ export const pl: TranslationStructure = {
         trendTitle: 'Ten Tydzień',
         trendDuration: 'Czas',
         trendScore: 'Wynik',
+        exerciseToday: 'Dzisiejszy trening',
+        noExerciseToday: 'Brak treningu dzisiaj',
+        burnedKcal: 'Spalone',
+        dietToday: 'Dzisiejsze posiłki',
+        noDietToday: 'Brak posiłków dzisiaj',
+        intakeLabel: 'Spożycie',
+        kcalSuffix: ' kcal',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Cześć ${name}, co dziś zrobimy?`,

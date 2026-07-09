@@ -39,6 +39,13 @@ export const en = {
         trendTitle: 'This Week',
         trendDuration: 'Duration',
         trendScore: 'Score',
+        exerciseToday: "Today's Exercise",
+        noExerciseToday: 'No exercise logged today',
+        burnedKcal: 'Burned',
+        dietToday: "Today's Meals",
+        noDietToday: 'No meals logged today',
+        intakeLabel: 'Intake',
+        kcalSuffix: ' kcal',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hi ${name}, what should we do today?`,

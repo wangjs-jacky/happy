@@ -39,6 +39,13 @@ export const ca: TranslationStructure = {
         trendTitle: 'Aquesta Setmana',
         trendDuration: 'Durada',
         trendScore: 'Puntuació',
+        exerciseToday: "Exercici d'avui",
+        noExerciseToday: 'Cap exercici registrat avui',
+        burnedKcal: 'Cremat',
+        dietToday: "Menjars d'avui",
+        noDietToday: 'Cap menjar registrat avui',
+        intakeLabel: 'Ingesta',
+        kcalSuffix: ' kcal',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hola ${name}, què fem avui?`,

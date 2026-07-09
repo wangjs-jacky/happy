@@ -41,6 +41,13 @@ export const zhHans: TranslationStructure = {
         trendTitle: '本周',
         trendDuration: '时长',
         trendScore: '评分',
+        exerciseToday: '今日运动',
+        noExerciseToday: '今天还没有运动记录',
+        burnedKcal: '已消耗',
+        dietToday: '今日饮食',
+        noDietToday: '今天还没有饮食记录',
+        intakeLabel: '摄入',
+        kcalSuffix: ' 千卡',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做点什么`,
