@@ -46,17 +46,31 @@ function extractFrontmatter(content: string): string {
     return m ? m[1] : content;
 }
 
+/**
+ * 从 frontmatter 抽取睡眠评分。兼容两种写法（agent 实际落笔会漂移）：
+ *   1) 规范：`评分: 82`
+ *   2) 漂移：评分揉进质量文本，如 `质量: 74分（四星，超过33%用户）`
+ * 优先取规范的 `评分:`；否则从 `质量:` 那一行里抽「N 分」。
+ * 只在 质量 行内抽，避免误伤时长里的「30分钟」。
+ */
+function extractSleepScore(fm: string): number | null {
+    const explicit = fm.match(/评分:\s*(\d+)/);
+    if (explicit) return parseInt(explicit[1], 10);
+    const quality = fm.match(/质量:[^\n]*?(\d+)\s*分/);
+    if (quality) return parseInt(quality[1], 10);
+    return null;
+}
+
 /** 解析一篇日报的 frontmatter，抽取右面板要用的字段。 */
 export function parseHealthLog(filename: string, content: string): HealthLog {
     const fm = extractFrontmatter(content);
-    const scoreMatch = fm.match(/评分:\s*(\d+)/);
     return {
         date: dateFromReportFilename(filename) ?? '',
         // 顶层 key 顶格出现（YAML 一级键在第 0 列）
         hasExercise: /^运动:/m.test(fm),
         hasSleep: /^睡眠:/m.test(fm),
         hasDiet: /^饮食:/m.test(fm),
-        sleepScore: scoreMatch ? parseInt(scoreMatch[1], 10) : null,
+        sleepScore: extractSleepScore(fm),
     };
 }
 

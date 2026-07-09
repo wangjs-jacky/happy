@@ -50,7 +50,8 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const path = session?.metadata?.path ?? null;
     // 每次右面板被滑开时重新读盘：新增/修改日报后，重开面板即刷新，
     // 不用等会话有消息流动才更新。首次读展示 spinner，之后静默刷新。
-    const isOpen = useRightSwipePanel()?.isOpen ?? false;
+    const panel = useRightSwipePanel();
+    const isOpen = panel?.isOpen ?? false;
 
     const [loading, setLoading] = React.useState(true);
     const [data, setData] = React.useState<PanelData>({ today: null, trend: [] });
@@ -104,7 +105,8 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     const insertLog = React.useCallback(() => {
         hapticsLight();
         props.onInsertQuickPrompt?.(t('healthPanel.logTodayPrompt'));
-    }, [props]);
+        panel?.closePanel(); // 填入提示词后收起面板，让用户看到输入框、直接发送
+    }, [props, panel]);
 
     const maxScore = React.useMemo(
         () => Math.max(100, ...data.trend.map((d) => d.sleepScore ?? 0)),
@@ -183,15 +185,17 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
     );
 });
 
+// 只读状态徽标（不是可点的 tab）：用「实心对勾 / 空心圈 + 文字深浅」表达
+// 今天这一类记没记录，刻意不做成填色按钮，避免被误认为可切换。
 const CategoryChip = React.memo(function CategoryChip(props: { on: boolean; label: string }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     return (
-        <View style={[styles.chip, props.on && styles.chipOn]}>
+        <View style={styles.chip}>
             <Ionicons
                 name={props.on ? 'checkmark-circle' : 'ellipse-outline'}
                 size={16}
-                color={props.on ? theme.colors.button.primary.tint : theme.colors.textSecondary}
+                color={props.on ? theme.colors.status.connected : theme.colors.textSecondary}
             />
             <Text style={[styles.chipText, props.on && styles.chipTextOn]}>{props.label}</Text>
         </View>
@@ -242,26 +246,19 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     chipsRow: {
         flexDirection: 'row',
-        gap: 8,
+        gap: 20,
     },
     chip: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 5,
-        paddingHorizontal: 10,
-        paddingVertical: 7,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surfacePressed,
-    },
-    chipOn: {
-        backgroundColor: theme.colors.button.primary.background,
     },
     chipText: {
         fontSize: 14,
         color: theme.colors.textSecondary,
     },
     chipTextOn: {
-        color: theme.colors.button.primary.tint,
+        color: theme.colors.text,
         fontWeight: '600',
     },
     muted: {
