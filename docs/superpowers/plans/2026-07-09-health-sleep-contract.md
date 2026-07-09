@@ -156,6 +156,13 @@ describe('parseHealthLog 睡眠字段', () => {
     it('hasSleep 为真', () => {
         expect(log.hasSleep).toBe(true);
     });
+    it('日间小睡不与深睡混淆（napMin 独立抽取）', () => {
+        const fm = `---\n睡眠:\n  总时长: 7h59m\n  深睡: 2h6m\n  日间小睡: 1h36m\n  评分: 89\n---`;
+        const l = parseHealthLog('2026-06-25.md', fm);
+        expect(l.napMin).toBe(96);      // 1h36m
+        expect(l.deepMin).toBe(126);    // 2h6m，未被 日间小睡 串味
+        expect(l.sleepTotalMin).toBe(479);
+    });
 });
 ```
 
@@ -567,9 +574,9 @@ const styles = StyleSheet.create((theme) => ({
 **Files:**
 - Create: `packages/happy-app/sources/components/rightPanel/SleepHeroCard.tsx`
 
-- [ ] **Step 1: 实现**——`expo-linear-gradient` 渐变底（明暗各一套色，用 `theme` 判断或半透明叠加）；左总时长大字 + 右 `SleepScoreRing`；中部按 `useLocalSettingMutable('healthSleepStructureView')` 在 `SleepStructureBar`/`SleepStructureDonut` 间切换（标题右侧一个图标按钮 toggle）；底部一行 `入睡→起床`。props: `view: SleepView`。所有文字走 `t('healthPanel.*')`。参考现有 `HealthCheckinPanel` 的卡片样式与 `hapticsLight`。
-
-- [ ] **Step 2: typecheck** → **Step 3: 提交** `feat(health): SleepHeroCard Hero 卡 + 结构切换`
+- [ ] **Step 1: 静态骨架**——`expo-linear-gradient` 渐变底（明暗各一套色，用 `theme` 判断或半透明叠加）；左总时长大字（`view.totalLabel`）+ 右 `SleepScoreRing`（`view.score` 非 null 才渲染）；底部一行 `入睡→起床`（`t('healthPanel.bedtime')`/`wakeTime`）。props: `view: SleepView`。所有文字走 `t('healthPanel.*')`。参考现有 `HealthCheckinPanel` 卡片样式与 `hapticsLight`。
+- [ ] **Step 2: 结构切换 + 持久化**——用 `useLocalSettingMutable('healthSleepStructureView')` 取 `[mode, setMode]`；`mode==='bar'` 渲染 `<SleepStructureBar stages={view.stages} />`，否则 `<SleepStructureDonut stages={view.stages} centerLabel={view.totalLabel} />`；结构卡标题右侧放一个图标按钮，点击 `hapticsLight()` 后 `setMode(mode==='bar'?'donut':'bar')`。`view.stages` 为空时结构区不渲染。
+- [ ] **Step 3: typecheck** → **Step 4: 提交** `feat(health): SleepHeroCard Hero 卡 + 结构切换`
 
 ### Task 10: `SleepTrendCard`（本周趋势 + 时长/评分 tab）
 
@@ -649,10 +656,10 @@ curl -sk -X POST -H "Authorization: Bearer 145acc8855497a92582cebf0966a8c902a86a
 Run: `cd packages/happy-app && pnpm typecheck`
 Expected: 通过
 
-- [ ] **Step 2: 全量单测**
+- [ ] **Step 2: 全量单测**（不加 healthLog 过滤，捕获 localSettings/i18n 改动对其它模块的意外回归）
 
-Run: `cd packages/happy-app && pnpm test -- healthLog --run`
-Expected: PASS
+Run: `cd packages/happy-app && pnpm test --run`
+Expected: PASS（healthLog 全绿，其余既有测试不回归）
 
 - [ ] **Step 3: 推分支 + 提 PR**（走代理见根 CLAUDE.md 第七节）
 
