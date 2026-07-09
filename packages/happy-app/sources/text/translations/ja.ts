@@ -571,6 +571,8 @@ export const ja: TranslationStructure = {
             screenshotFailedTitle: 'スクリーンショットに失敗しました',
             screenshotFailedBody: 'スクリーンショットを撮影できませんでした。もう一度お試しください。',
             screenshotUnsupportedPlatform: 'スクリーンショットは現在 macOS のみ対応しています。',
+            screenshotBrowserFallbackTitle: 'ブラウザウィンドウが見つかりません',
+            screenshotBrowserFallbackBody: 'ブラウザウィンドウが見つからなかったため、画面全体をキャプチャしました。',
         },
         screenshotGallery: {
             title: 'スクリーンショット',

@@ -89,6 +89,12 @@ interface MessageComposerProps {
      */
     onCaptureScreenshot?: (target: 'desktop' | 'browser') => void;
     /**
+     * True while a screenshot capture RPC is in flight (1-5s round-trip). When
+     * set, the camera button swaps its icon for a spinner so the tap isn't a
+     * silent wait with no feedback.
+     */
+    screenshotCapturing?: boolean;
+    /**
      * Opens the bottom screenshot gallery drawer (能力 B). When provided, a
      * "Gallery" item is added to the screenshot dropdown. `galleryHasNew` shows
      * a red dot on the camera button when there are unseen screenshots.
@@ -1014,13 +1020,20 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                                 opacity: p.pressed ? 0.7 : 1,
                                             })}
                                         >
-                                            <Ionicons
-                                                name="camera-outline"
-                                                size={16}
-                                                color={screenshotMenuOpen
-                                                    ? theme.colors.radio.active
-                                                    : theme.colors.button.secondary.tint}
-                                            />
+                                            {props.screenshotCapturing ? (
+                                                <ActivityIndicator
+                                                    size="small"
+                                                    color={theme.colors.button.secondary.tint}
+                                                />
+                                            ) : (
+                                                <Ionicons
+                                                    name="camera-outline"
+                                                    size={16}
+                                                    color={screenshotMenuOpen
+                                                        ? theme.colors.radio.active
+                                                        : theme.colors.button.secondary.tint}
+                                                />
+                                            )}
                                             {props.galleryHasNew && !screenshotMenuOpen && (
                                                 <View style={styles.screenshotCameraDot} />
                                             )}

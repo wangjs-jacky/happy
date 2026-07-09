@@ -10,6 +10,8 @@ export interface ScreenshotRpcResponse {
     success: boolean;
     dataBase64?: string;
     mimeType?: string;
+    /** 实际截取目标：请求 browser 命中浏览器窗口=‘browser’，回退整屏=‘desktop’ */
+    targetUsed?: 'desktop' | 'browser';
     error?: string;
 }
 

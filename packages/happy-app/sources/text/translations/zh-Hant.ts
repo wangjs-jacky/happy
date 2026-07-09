@@ -570,6 +570,8 @@ export const zhHant: TranslationStructure = {
             screenshotFailedTitle: '截圖失敗',
             screenshotFailedBody: '無法擷取截圖，請再試一次。',
             screenshotUnsupportedPlatform: '截圖目前僅支援 macOS。',
+            screenshotBrowserFallbackTitle: '未找到瀏覽器視窗',
+            screenshotBrowserFallbackBody: '未找到瀏覽器視窗，已改為擷取整個螢幕。',
         },
         screenshotGallery: {
             title: '截圖',

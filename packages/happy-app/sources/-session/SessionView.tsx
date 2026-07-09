@@ -541,6 +541,9 @@ function SessionViewLoaded({
     // screenshots; opening the drawer clears it (handled inside the drawer).
     const [galleryOpen, setGalleryOpen] = React.useState(false);
     const { hasNew: galleryHasNew } = useHasNewScreenshots(sessionId);
+
+    // 截图进行中标记：点相机后 RPC 往返 1-5 秒静默无反馈，用它把相机按钮切成菊花
+    const [screenshotCapturing, setScreenshotCapturing] = React.useState(false);
     const handleOpenGallery = React.useCallback(() => setGalleryOpen(true), []);
     const handleCloseGallery = React.useCallback(() => setGalleryOpen(false), []);
     // Attach a gallery screenshot to the composer input. Intrinsic size is
@@ -598,6 +601,7 @@ function SessionViewLoaded({
     // via Modal (RN Alert is banned). No unhandled rejection escapes.
     const handleCaptureScreenshot = React.useCallback((target: 'desktop' | 'browser') => {
         (async () => {
+            setScreenshotCapturing(true);
             try {
                 const res = await requestScreenshot(sessionId, target);
                 if (!res.success || !res.dataBase64) {
@@ -614,11 +618,20 @@ function SessionViewLoaded({
                 const uri = await saveBase64Png(res.dataBase64);
                 const entry = addScreenshotEntry(sessionId, { uri, source: 'manual', target, createdAt: Date.now() });
                 imageViewer.open({ uri, filename: `screenshot-${entry.id}.png` });
+                // 请求了浏览器但 CLI 没找到浏览器窗口、回退成整屏：截图仍打开，只是轻提示一下
+                if (target === 'browser' && res.targetUsed === 'desktop') {
+                    Modal.alert(
+                        t('components.messageComposer.screenshotBrowserFallbackTitle'),
+                        t('components.messageComposer.screenshotBrowserFallbackBody'),
+                    );
+                }
             } catch (e) {
                 Modal.alert(
                     t('components.messageComposer.screenshotFailedTitle'),
                     e instanceof Error ? e.message : t('components.messageComposer.screenshotFailedBody'),
                 );
+            } finally {
+                setScreenshotCapturing(false);
             }
         })();
     }, [sessionId]);
@@ -717,6 +730,7 @@ function SessionViewLoaded({
             onRemoveImage={removeImage}
             onAddImages={addImages}
             onCaptureScreenshot={handleCaptureScreenshot}
+            screenshotCapturing={screenshotCapturing}
             onOpenGallery={handleOpenGallery}
             galleryHasNew={galleryHasNew}
             autocompletePrefixes={autocompletePrefixes}

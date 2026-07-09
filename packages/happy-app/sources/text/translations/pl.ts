@@ -586,6 +586,8 @@ export const pl: TranslationStructure = {
             screenshotFailedTitle: 'Nie udało się zrobić zrzutu ekranu',
             screenshotFailedBody: 'Nie udało się przechwycić zrzutu ekranu. Spróbuj ponownie.',
             screenshotUnsupportedPlatform: 'Zrzuty ekranu są obecnie obsługiwane tylko w systemie macOS.',
+            screenshotBrowserFallbackTitle: 'Nie znaleziono okna przeglądarki',
+            screenshotBrowserFallbackBody: 'Nie udało się znaleźć okna przeglądarki, wykonano zrzut całego ekranu.',
         },
         screenshotGallery: {
             title: 'Zrzuty ekranu',

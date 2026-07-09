@@ -523,6 +523,8 @@ export const ru: TranslationStructure = {
             screenshotFailedTitle: 'Не удалось сделать снимок экрана',
             screenshotFailedBody: 'Не удалось сделать снимок экрана. Попробуйте ещё раз.',
             screenshotUnsupportedPlatform: 'Снимки экрана пока поддерживаются только на macOS.',
+            screenshotBrowserFallbackTitle: 'Окно браузера не найдено',
+            screenshotBrowserFallbackBody: 'Не удалось найти окно браузера, сделан снимок всего экрана.',
         },
         screenshotGallery: {
             title: 'Снимки экрана',

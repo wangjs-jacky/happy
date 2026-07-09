@@ -570,6 +570,8 @@ export const ca: TranslationStructure = {
             screenshotFailedTitle: 'La captura de pantalla ha fallat',
             screenshotFailedBody: 'No s\'ha pogut fer la captura de pantalla. Torna-ho a provar.',
             screenshotUnsupportedPlatform: 'De moment, les captures de pantalla només s\'admeten a macOS.',
+            screenshotBrowserFallbackTitle: 'No s\'ha trobat la finestra del navegador',
+            screenshotBrowserFallbackBody: 'No s\'ha pogut trobar cap finestra del navegador; s\'ha capturat tota la pantalla.',
         },
         screenshotGallery: {
             title: 'Captures de pantalla',

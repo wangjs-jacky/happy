@@ -568,6 +568,8 @@ export const it: TranslationStructure = {
             screenshotFailedTitle: 'Screenshot non riuscito',
             screenshotFailedBody: 'Impossibile acquisire lo screenshot. Riprova.',
             screenshotUnsupportedPlatform: 'Per ora gli screenshot sono supportati solo su macOS.',
+            screenshotBrowserFallbackTitle: 'Finestra del browser non trovata',
+            screenshotBrowserFallbackBody: 'Impossibile trovare una finestra del browser: acquisito l\'intero schermo.',
         },
         screenshotGallery: {
             title: 'Screenshot',

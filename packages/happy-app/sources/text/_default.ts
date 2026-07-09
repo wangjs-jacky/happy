@@ -596,6 +596,8 @@ export const en = {
             screenshotFailedTitle: 'Screenshot failed',
             screenshotFailedBody: 'Could not capture the screenshot. Please try again.',
             screenshotUnsupportedPlatform: 'Screenshots are only supported on macOS for now.',
+            screenshotBrowserFallbackTitle: 'Browser window not found',
+            screenshotBrowserFallbackBody: 'Could not find a browser window, captured the full screen instead.',
         },
         screenshotGallery: {
             // Bottom drawer showing all screenshots captured in this session

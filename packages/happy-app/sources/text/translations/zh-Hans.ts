@@ -571,6 +571,8 @@ export const zhHans: TranslationStructure = {
             screenshotFailedTitle: '截屏失败',
             screenshotFailedBody: '无法截取屏幕，请重试。',
             screenshotUnsupportedPlatform: '截屏目前仅支持 macOS。',
+            screenshotBrowserFallbackTitle: '未找到浏览器窗口',
+            screenshotBrowserFallbackBody: '未找到浏览器窗口，已截取整屏。',
         },
         screenshotGallery: {
             title: '截图',

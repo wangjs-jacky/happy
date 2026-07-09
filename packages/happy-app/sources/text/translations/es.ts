@@ -570,6 +570,8 @@ export const es: TranslationStructure = {
             screenshotFailedTitle: 'Error en la captura de pantalla',
             screenshotFailedBody: 'No se pudo realizar la captura de pantalla. Inténtalo de nuevo.',
             screenshotUnsupportedPlatform: 'Las capturas de pantalla solo se admiten en macOS por ahora.',
+            screenshotBrowserFallbackTitle: 'No se encontró la ventana del navegador',
+            screenshotBrowserFallbackBody: 'No se pudo encontrar una ventana del navegador; se capturó la pantalla completa.',
         },
         screenshotGallery: {
             title: 'Capturas de pantalla',
