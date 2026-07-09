@@ -17,6 +17,19 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const zhHans: TranslationStructure = {
+    healthPanel: {
+        title: '健康打卡',
+        todayTitle: '今日打卡',
+        notLoggedToday: '今天还没记录',
+        exercise: '运动',
+        sleep: '睡眠',
+        diet: '饮食',
+        sleepTrendTitle: '本周睡眠趋势',
+        noTrendData: '暂无睡眠数据',
+        logToday: '记录今天的打卡',
+        logTodayPrompt: '帮我记录今天的健康打卡',
+        scoreLabel: ' 分',
+    },
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做点什么`,
         greetingNoName: '今天和 Paws 做点什么',

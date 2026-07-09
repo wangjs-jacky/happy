@@ -30,6 +30,19 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
  * - New translation keys must be added to ALL language files
  */
 export const en: TranslationStructure = {
+    healthPanel: {
+        title: 'Health Check-in',
+        todayTitle: "Today's Check-in",
+        notLoggedToday: 'Nothing logged today yet',
+        exercise: 'Exercise',
+        sleep: 'Sleep',
+        diet: 'Diet',
+        sleepTrendTitle: 'Recent Sleep Trend',
+        noTrendData: 'No sleep data yet',
+        logToday: "Log today's check-in",
+        logTodayPrompt: 'Help me log my health check-in for today.',
+        scoreLabel: ' pts',
+    },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hi ${name}, what should we do today?`,
         greetingNoName: 'What should we do today?',

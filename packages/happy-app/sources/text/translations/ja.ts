@@ -18,6 +18,19 @@ function plural({ count, singular, plural }: { count: number; singular: string; 
 }
 
 export const ja: TranslationStructure = {
+    healthPanel: {
+        title: 'Health Check-in',
+        todayTitle: "Today's Check-in",
+        notLoggedToday: 'Nothing logged today yet',
+        exercise: 'Exercise',
+        sleep: 'Sleep',
+        diet: 'Diet',
+        sleepTrendTitle: 'Recent Sleep Trend',
+        noTrendData: 'No sleep data yet',
+        logToday: "Log today's check-in",
+        logTodayPrompt: 'Help me log my health check-in for today.',
+        scoreLabel: ' pts',
+    },
     composeHome: {
         greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,
         greetingNoName: '今日は何をしますか？',
