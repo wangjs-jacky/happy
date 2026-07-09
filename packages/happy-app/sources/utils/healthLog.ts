@@ -122,6 +122,46 @@ export function parseHealthLog(filename: string, content: string): HealthLog {
     };
 }
 
+export interface SleepStage { key: 'deep' | 'light' | 'rem'; min: number; ratio: number }
+export interface SleepView {
+    totalMin: number | null;
+    totalLabel: string | null;     // XhYm 可读串
+    score: number | null;
+    quality: string | null;
+    bedtime: string | null;
+    wakeTime: string | null;
+    stages: SleepStage[];          // 占比之和为分母；无结构数据则空数组
+}
+
+/** 分钟 → 'XhYm'（如 241 → '4h1m'）。null 返回 null。 */
+export function formatMinutes(min: number | null): string | null {
+    if (min == null) return null;
+    return `${Math.floor(min / 60)}h${min % 60}m`;
+}
+
+/** HealthLog → 面板睡眠视图。无任何睡眠信号（无总时长/评分/结构）时返回 null。 */
+export function buildSleepView(log: HealthLog): SleepView | null {
+    const rawStages = [
+        { key: 'deep' as const, min: log.deepMin },
+        { key: 'light' as const, min: log.lightMin },
+        { key: 'rem' as const, min: log.remMin },
+    ].filter((s): s is { key: 'deep' | 'light' | 'rem'; min: number } => s.min != null && s.min > 0);
+    const sum = rawStages.reduce((a, s) => a + s.min, 0);
+    const stages: SleepStage[] = sum > 0 ? rawStages.map(s => ({ ...s, ratio: s.min / sum })) : [];
+
+    const hasAny = log.sleepTotalMin != null || log.sleepScore != null || stages.length > 0;
+    if (!hasAny) return null;
+    return {
+        totalMin: log.sleepTotalMin,
+        totalLabel: formatMinutes(log.sleepTotalMin),
+        score: log.sleepScore,
+        quality: log.sleepQuality,
+        bedtime: log.bedtime,
+        wakeTime: log.wakeTime,
+        stages,
+    };
+}
+
 /** 本地时区今天的 YYYY-MM-DD（用于定位当天日报，不能用 UTC 否则跨日错位）。 */
 export function todayLocalISO(now: Date): string {
     const y = now.getFullYear();

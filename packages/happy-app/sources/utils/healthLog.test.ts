@@ -1,6 +1,6 @@
 // packages/happy-app/sources/utils/healthLog.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseDuration, parseHealthLog } from './healthLog';
+import { parseDuration, parseHealthLog, buildSleepView } from './healthLog';
 
 const FM_0706 = `---
 date: 2026-07-06
@@ -60,5 +60,23 @@ describe('parseHealthLog 睡眠字段', () => {
         expect(l.napMin).toBe(96);      // 1h36m
         expect(l.deepMin).toBe(126);    // 2h6m，未被 日间小睡 串味
         expect(l.sleepTotalMin).toBe(479);
+    });
+});
+
+describe('buildSleepView', () => {
+    const log = parseHealthLog('2026-07-06.md', FM_0706);
+    const v = buildSleepView(log)!;
+    it('占比按各阶段之和为分母', () => {
+        // 55 + 118 + 68 = 241；深睡 55/241 ≈ 0.228
+        expect(v.stages.map(s => s.key)).toEqual(['deep', 'light', 'rem']);
+        expect(v.stages[0].ratio).toBeCloseTo(55 / 241, 3);
+        expect(v.stages[2].ratio).toBeCloseTo(68 / 241, 3);
+    });
+    it('总时长格式化为 XhYm', () => {
+        expect(v.totalLabel).toBe('4h1m');
+    });
+    it('无睡眠数据返回 null', () => {
+        const empty = parseHealthLog('x.md', '---\ndate: 2026-06-17\n---');
+        expect(buildSleepView(empty)).toBeNull();
     });
 });
