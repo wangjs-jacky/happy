@@ -1,6 +1,6 @@
 // packages/happy-app/sources/utils/healthLog.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseDuration, parseHealthLog, buildSleepView, buildExerciseView, buildDietView } from './healthLog';
+import { parseDuration, parseHealthLog, buildSleepView, buildExerciseView, buildDietView, pickSleepView } from './healthLog';
 
 const FM_0706 = `---
 date: 2026-07-06
@@ -185,5 +185,23 @@ describe('buildDietView', () => {
     it('无饮食数据返回 null', () => {
         const log = parseHealthLog('2026-06-17.md', FM_EMPTY);
         expect(buildDietView(log)).toBeNull();
+    });
+});
+
+describe('pickSleepView 兜底（今天没记录→最近一晚）', () => {
+    const todaySleep = parseHealthLog('2026-07-10.md', `---\n睡眠:\n  总时长: 6h0m\n  评分: 80\n---`);
+    const pastSleep = parseHealthLog('2026-07-09.md', `---\n睡眠:\n  总时长: 5h30m\n  评分: 74\n---`);
+    const noSleep = parseHealthLog('2026-07-10.md', `---\n饮食:\n  - 餐: 早餐\n    卡路里: 300\n---`);
+    it('今天有睡眠 → 用今天', () => {
+        expect(pickSleepView(todaySleep, [pastSleep, todaySleep])?.date).toBe('2026-07-10');
+    });
+    it('今天有报告但无睡眠 → 回退最近一晚', () => {
+        expect(pickSleepView(noSleep, [pastSleep, noSleep])?.date).toBe('2026-07-09');
+    });
+    it('今天为 null → 回退 trend 最近有睡眠的', () => {
+        expect(pickSleepView(null, [pastSleep])?.date).toBe('2026-07-09');
+    });
+    it('全无睡眠 → null', () => {
+        expect(pickSleepView(null, [noSleep])).toBeNull();
     });
 });

@@ -3,7 +3,7 @@ import { View, Text, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { SleepView } from '@/utils/healthLog';
+import { todayLocalISO, type SleepView } from '@/utils/healthLog';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { hapticsLight } from '../haptics';
 import { t } from '@/text';
@@ -32,6 +32,8 @@ export const SleepHeroCard = React.memo(function SleepHeroCard(props: { view: Sl
     ];
 
     const hasStructure = view.stages.length > 0;
+    // 今天有记录显示「今晚」，否则显示「最近一晚 · MM-DD」（兜底：今天没打卡也能看到富样式）
+    const isToday = view.date === todayLocalISO(new Date());
 
     return (
         <LinearGradient
@@ -44,7 +46,7 @@ export const SleepHeroCard = React.memo(function SleepHeroCard(props: { view: Sl
             <View style={styles.topRow}>
                 <View style={styles.leftBlock}>
                     <Text style={styles.totalLabel}>{view.totalLabel ?? '—'}</Text>
-                    <Text style={styles.totalSubLabel}>{t('healthPanel.tonightSleep')}</Text>
+                    <Text style={styles.totalSubLabel}>{isToday ? t('healthPanel.tonightSleep') : t('healthPanel.recentNightLabel', { date: view.date.slice(5) })}</Text>
                 </View>
                 {view.score != null ? (
                     <SleepScoreRing score={view.score} size={64} />

@@ -233,6 +233,7 @@ export interface SleepView {
     quality: string | null;
     bedtime: string | null;
     wakeTime: string | null;
+    date: string;                  // YYYY-MM-DD，用于「今晚 / 最近一晚·MM-DD」标签
     stages: SleepStage[];          // 占比之和为分母；无结构数据则空数组
 }
 
@@ -261,8 +262,26 @@ export function buildSleepView(log: HealthLog): SleepView | null {
         quality: log.sleepQuality,
         bedtime: log.bedtime,
         wakeTime: log.wakeTime,
+        date: log.date,
         stages,
     };
+}
+
+/**
+ * 选出 Hero 卡要展示的睡眠视图：优先今天；今天没睡眠数据就回退到 trend 里
+ * 最近一个有睡眠的日子（trend 升序，从末尾往前找）。都没有则 null。
+ * 让「多轮设计的富样式 Hero」在今天没打卡时也能显示最近一晚，不至于空着。
+ */
+export function pickSleepView(today: HealthLog | null, trend: HealthLog[]): SleepView | null {
+    if (today) {
+        const v = buildSleepView(today);
+        if (v) return v;
+    }
+    for (let i = trend.length - 1; i >= 0; i -= 1) {
+        const v = buildSleepView(trend[i]);
+        if (v) return v;
+    }
+    return null;
 }
 
 /** 本地时区今天的 YYYY-MM-DD（用于定位当天日报，不能用 UTC 否则跨日错位）。 */
