@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useFriendRequests, useProfile, useSetting } from '@/sync/storage';
+import { useRealtimeStatus, useFriendRequests, useProfile, useLocalSetting } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
 import { MainView } from './MainView';
 import { ProfileAvatarControl } from './ProfileAvatarControl';
@@ -191,7 +191,7 @@ export const SidebarView = React.memo(() => {
     const realtimeStatus = useRealtimeStatus();
     const friendRequests = useFriendRequests();
     const profile = useProfile();
-    const agents = useSetting('agents');
+    const agents = useLocalSetting('agents');
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const displayName = getDisplayName(profile) ?? t('settings.title');
 

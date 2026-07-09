@@ -30,6 +30,7 @@ import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
+import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -329,8 +330,13 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
+        // 会话属于某个「专属空间」Agent 时，右滑面板换成该 Agent 自己的面板，
+        // 而不是给 coding 用的通用能力中心。MVP 先接入健康打卡。
+        const rightPanel = isHealthCheckinSession(session?.metadata?.path)
+            ? <HealthCheckinPanel onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />
+            : <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
         return (
-            <RightSwipePanelHost panelContent={<SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />}>
+            <RightSwipePanelHost panelContent={rightPanel}>
                 {mainContent}
             </RightSwipePanelHost>
         );

@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { AgentLauncherListSchema } from './settings';
 
 //
 // Schema
@@ -25,6 +26,10 @@ export const LocalSettingsSchema = z.object({
     }).describe('Device-local Ask mode API credentials'),
     // CLI version acknowledgments - keyed by machineId
     acknowledgedCliVersions: z.record(z.string(), z.string()).describe('Acknowledged CLI versions per machine'),
+    // 「我的 Agent」启动预设。**刻意放在设备本地、不随账号同步**：账号设置是「单一加密 blob +
+    // 乐观锁 + POST 整包覆盖、后写赢」，App 各种 churn 写入会把 agents 一起带上，某次本地为空即把
+    // 服务器覆盖空，导致新建 Agent 退出重进就丢。放本地后任何同步/WS 回包都碰不到它，彻底解决。
+    agents: AgentLauncherListSchema.describe('设备本地「我的 Agent」启动预设（不随账号同步）'),
 });
 
 //
@@ -59,6 +64,7 @@ export const localSettingsDefaults: LocalSettings = {
         tavilyApiKey: '',
     },
     acknowledgedCliVersions: {},
+    agents: [],
 };
 Object.freeze(localSettingsDefaults);
 

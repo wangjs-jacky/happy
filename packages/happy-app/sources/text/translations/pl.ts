@@ -26,6 +26,19 @@ function plural({ count, one, few, many }: { count: number; one: string; few: st
  * Must match the exact structure of the English translations
  */
 export const pl: TranslationStructure = {
+    healthPanel: {
+        title: 'Health Check-in',
+        todayTitle: "Today's Check-in",
+        notLoggedToday: 'Nothing logged today yet',
+        exercise: 'Exercise',
+        sleep: 'Sleep',
+        diet: 'Diet',
+        sleepTrendTitle: 'Recent Sleep Trend',
+        noTrendData: 'No sleep data yet',
+        logToday: "Log today's check-in",
+        logTodayPrompt: 'Help me log my health check-in for today.',
+        scoreLabel: ' pts',
+    },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Cześć ${name}, co dziś zrobimy?`,
         greetingNoName: 'Co dziś zrobimy?',

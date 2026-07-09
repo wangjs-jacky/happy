@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import { useSetting, useAllMachines } from '@/sync/storage';
+import { useLocalSetting, useAllMachines } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
@@ -21,7 +21,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
-    const agents = useSetting('agents');
+    const agents = useLocalSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
     const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({

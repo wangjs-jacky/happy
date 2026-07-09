@@ -9,7 +9,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { PathPickerContent, type PickerItem } from '@/components/SessionConfigPanel';
 import { RoundButton } from '@/components/RoundButton';
-import { useSettingMutable, useAllMachines, useSessions } from '@/sync/storage';
+import { useLocalSettingMutable, useAllMachines, useSessions } from '@/sync/storage';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { entityColor } from '@/components/entityColor';
 import { Modal } from '@/modal';
@@ -42,7 +42,7 @@ export default React.memo(function AgentEditScreen() {
     const params = useLocalSearchParams<{ id?: string; kind?: string }>();
     const editingId = typeof params.id === 'string' && params.id.length > 0 ? params.id : null;
 
-    const [agents, setAgents] = useSettingMutable('agents');
+    const [agents, setAgents] = useLocalSettingMutable('agents');
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
 
@@ -264,7 +264,7 @@ export default React.memo(function AgentEditScreen() {
                         machineOnline={selectedMachineOnline}
                         onChangeValue={setPath}
                         embedded
-                        manualInput={false}
+                        manualInput
                     />
                 </ItemGroup>
 
