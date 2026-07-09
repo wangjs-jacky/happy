@@ -328,9 +328,12 @@ export async function captureScreenshot(
     const jpegPath = join(tmpdir(), `happy-shot-${stamp}.jpg`);
     try {
         await deps.runSips(buildSipsArgs(outPath, jpegPath));
+        // 压缩成功后中间的原始 PNG 已无用，删掉避免在 tmpdir 堆积（失败静默，不影响主流程）
+        await rm(outPath, { force: true }).catch(() => {});
         return { path: jpegPath, capturedTarget };
     } catch (err) {
         // 压缩失败兜底：回退返回原 PNG（可能超限，但至少不因压缩崩溃）
+        // 注意：此处不能删 outPath——它是最终返回给调用方的文件
         logger.debug('[screenshot] sips 压缩失败，回退返回原 PNG:', err);
         return { path: outPath, capturedTarget };
     }

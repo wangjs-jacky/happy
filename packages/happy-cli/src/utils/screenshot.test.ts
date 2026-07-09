@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
+import { writeFile, access } from 'fs/promises';
 import { buildScreencaptureArgs, buildSipsArgs, buildRegionCaptureArgs, parseBrowserBounds, parseWindowId, buildWindowCaptureArgs, captureScreenshot } from './screenshot';
+
+// 判断路径是否还存在（存在 resolve true，不存在 resolve false），用于断言临时文件清理
+async function exists(p: string): Promise<boolean> {
+    try {
+        await access(p);
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 describe('parseBrowserBounds', () => {
     it('正常四数字（无空格）解析为 x/y/width/height', () => {
@@ -137,6 +148,35 @@ describe('captureScreenshot（依赖注入 mock 掉 spawn 封装）', () => {
         expect(runSips).toHaveBeenCalledTimes(1);
         expect(result.path.endsWith('.png')).toBe(true);
         expect(result.capturedTarget).toBe('desktop');
+    });
+
+    onDarwin('压缩成功后删除中间 PNG（清理泄漏），只保留返回的 JPEG', async () => {
+        // runScreencapture 真写出一个 PNG 文件，让我们能验证它事后被删掉
+        let pngPath = '';
+        const runScreencapture = vi.fn(async (args: string[]) => {
+            pngPath = args[args.length - 1];
+            await writeFile(pngPath, 'fake-png');
+        });
+        const runSips = vi.fn(async (_args: string[]) => {});
+        const result = await captureScreenshot('desktop', { runScreencapture, runSips, getFrontmostBrowserWindowId: noWindowId, getFrontmostBrowserBounds: noBrowser });
+        expect(result.path.endsWith('.jpg')).toBe(true);
+        // 压缩成功后中间 PNG 必须被删除，避免在 tmpdir 堆积
+        expect(await exists(pngPath)).toBe(false);
+    });
+
+    onDarwin('压缩失败时保留 PNG（因为要返回它）', async () => {
+        let pngPath = '';
+        const runScreencapture = vi.fn(async (args: string[]) => {
+            pngPath = args[args.length - 1];
+            await writeFile(pngPath, 'fake-png');
+        });
+        const runSips = vi.fn(async (_args: string[]) => { throw new Error('sips boom'); });
+        const result = await captureScreenshot('desktop', { runScreencapture, runSips, getFrontmostBrowserWindowId: noWindowId, getFrontmostBrowserBounds: noBrowser });
+        // 压缩失败回退返回 PNG，此路径不能删
+        expect(result.path).toBe(pngPath);
+        expect(await exists(pngPath)).toBe(true);
+        // 清理测试产物
+        await import('fs/promises').then((m) => m.rm(pngPath, { force: true }));
     });
 
     onDarwin('browser 命中窗口 id：走 -l 窗口截图 + capturedTarget=browser（首选路径，不再问 bounds）', async () => {

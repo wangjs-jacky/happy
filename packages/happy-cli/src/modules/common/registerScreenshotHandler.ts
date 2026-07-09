@@ -17,15 +17,18 @@ export interface ScreenshotResponse {
     error?: string;
 }
 
-// 依赖注入：默认接真截图 + 读文件，测试时可替换避免真截屏
+// 依赖注入：默认接真截图 + 读文件 + 删文件，测试时可替换避免真截屏 / 真删文件
 interface Deps {
     capture: (t: ScreenshotTarget) => Promise<{ path: string; capturedTarget: ScreenshotTarget }>;
     readBase64: (p: string) => Promise<string>;
+    removeFile: (p: string) => Promise<void>;
 }
 
 const defaultDeps: Deps = {
     capture: captureScreenshot,
     readBase64: (p) => fs.readFile(p, 'base64'),
+    // 删除临时截图文件；失败静默（force 忽略「文件不存在」），不影响 RPC 结果
+    removeFile: (p) => fs.rm(p, { force: true }).catch(() => {}),
 };
 
 /**
@@ -41,7 +44,14 @@ export function registerScreenshotHandler(
         logger.debug('Screenshot request:', target);
         try {
             const { path: filePath, capturedTarget } = await deps.capture(target);
-            const dataBase64 = await deps.readBase64(filePath);
+            // 读完 base64 就把这个临时截图文件删掉，避免在 tmpdir 堆积（成功/失败路径都删）。
+            // 用 try/finally 保证即便 readBase64 抛错也会清理。删除失败静默，不影响主流程。
+            let dataBase64: string;
+            try {
+                dataBase64 = await deps.readBase64(filePath);
+            } finally {
+                await deps.removeFile(filePath);
+            }
             // captureScreenshot 现在返回 sips 压缩后的 JPEG（压缩失败的极端兜底会返回 PNG，
             // 但那是极端路径，App 端靠内容嗅探仍能显示，这里统一按 JPEG 上报即可）
             // targetUsed 让 App 知道请求 browser 时是否真截到了浏览器（还是回退了整屏）
