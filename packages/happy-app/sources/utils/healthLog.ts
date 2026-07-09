@@ -73,11 +73,17 @@ export function isReportFilename(name: string): boolean {
     return /^\d{4}-\d{2}-\d{2}\.md$/.test(name);
 }
 
-/** 从 frontmatter 抽某个睡眠子键的原始值（键在缩进层，故用多行匹配、取到行尾）。 */
+/**
+ * 从 frontmatter 抽某个睡眠子键的原始值（键在缩进层，故用多行匹配、取到行尾）。
+ * 先剥离 YAML 行内注释（` # …`）再去引号——否则 `总时长: 4h1m # 偏少` 会带着注释
+ * 喂进 parseDuration 直接返 null、静默丢字段（正是要防的 agent 落笔漂移）。
+ * 注：不限定在 `睡眠:` 段内（沿用本文件「定向正则、不引 YAML 库」的取舍）；
+ * 当前 schema 这些键名只出现在睡眠段，故安全。
+ */
 function extractField(fm: string, key: string): string | null {
     const m = fm.match(new RegExp(`(?:^|\\n)\\s*${key}:\\s*(.+?)\\s*(?:\\n|$)`));
     if (!m) return null;
-    return m[1].replace(/^["']|["']$/g, '');   // 去掉可能的引号
+    return m[1].replace(/\s+#.*$/, '').replace(/^["']|["']$/g, '');   // 去行内注释、去引号
 }
 
 /** 取首个 `---\n ... \n---` frontmatter；没有就退回整串（容错）。 */

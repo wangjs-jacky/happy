@@ -61,6 +61,12 @@ describe('parseHealthLog 睡眠字段', () => {
         expect(l.deepMin).toBe(126);    // 2h6m，未被 日间小睡 串味
         expect(l.sleepTotalMin).toBe(479);
     });
+    it('剥离 YAML 行内注释后再解析（防漂移静默丢字段）', () => {
+        const fm = `---\n睡眠:\n  总时长: 4h1m  # 偏少\n  深睡: 0h55m # 占比低\n---`;
+        const l = parseHealthLog('x.md', fm);
+        expect(l.sleepTotalMin).toBe(241);
+        expect(l.deepMin).toBe(55);
+    });
 });
 
 describe('buildSleepView', () => {
