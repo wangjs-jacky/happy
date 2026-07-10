@@ -29,7 +29,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Machine, Session } from '@/sync/storageTypes';
 import {
     getHardcodedPermissionModes,
-    getHardcodedModelModes,
+    getAvailableModels,
     getEffortLevelsForModel,
     getSupportsWorktree,
     type PermissionMode,
@@ -38,6 +38,7 @@ import {
 } from '@/components/modelModeOptions';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
+import { getLatestSessionModelMetadata } from '@/utils/newSessionModelMetadata';
 import {
     getCodingAgentPickerItems,
     getSessionConfigExperience,
@@ -878,9 +879,17 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
             () => getHardcodedPermissionModes(selectedAgent, t),
             [selectedAgent],
         );
+        const modelMetadata = React.useMemo(
+            () => getLatestSessionModelMetadata({
+                sessions,
+                selectedMachineId,
+                agent: selectedAgent,
+            }),
+            [selectedAgent, selectedMachineId, sessions],
+        );
         const modelModes = React.useMemo<ModelMode[]>(
-            () => getHardcodedModelModes(selectedAgent, t),
-            [selectedAgent],
+            () => getAvailableModels(selectedAgent, modelMetadata, t),
+            [modelMetadata, selectedAgent],
         );
         const configExperience = React.useMemo(
             () => getSessionConfigExperience(selectedAgent),
@@ -891,8 +900,8 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const currentModelKey = currentModel?.key ?? 'default';
 
         const effortLevels = React.useMemo<EffortLevel[]>(
-            () => getEffortLevelsForModel(selectedAgent, currentModelKey),
-            [selectedAgent, currentModelKey],
+            () => getEffortLevelsForModel(selectedAgent, currentModelKey, modelMetadata),
+            [selectedAgent, currentModelKey, modelMetadata],
         );
         const resolvedModeSelection = React.useMemo(() => (
             resolveNewSessionModeSelection({
@@ -901,8 +910,10 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                 modelMode: draft.modelMode,
                 effortLevel: draft.effortLevel,
                 agentDefaultOverrides,
+                modelOptions: modelModes,
+                effortMetadata: modelMetadata,
             })
-        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, selectedAgent]);
+        ), [agentDefaultOverrides, draft.effortLevel, draft.modelMode, draft.permissionMode, modelMetadata, modelModes, selectedAgent]);
 
         const supportsWorktree = configExperience.showWorktree && getSupportsWorktree(selectedAgent);
         const showModel = configExperience.showModeDetails && modelModes.length > 1;
