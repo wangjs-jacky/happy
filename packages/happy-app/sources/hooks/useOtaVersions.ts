@@ -19,6 +19,7 @@ export type { OtaVersion };
 
 const OSS_PUBLIC_BASE = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com';
 const PAGE_SIZE = 20;
+export const DEFAULT_OTA_RUNTIME_VERSION = '22';
 
 export interface OtaVersionsState {
     versions: OtaVersion[];
@@ -64,11 +65,11 @@ async function fetchOtaVersionBatch(channel: string, platform: string, runtime: 
     return metas.filter((version): version is OtaVersion => version !== null);
 }
 
-export async function fetchOtaVersion(channel: string, stamp: string, platform: string = 'android', runtime: string = '21'): Promise<OtaVersion | null> {
+export async function fetchOtaVersion(channel: string, stamp: string, platform: string = 'android', runtime: string = DEFAULT_OTA_RUNTIME_VERSION): Promise<OtaVersion | null> {
     return fetchOtaVersionMeta(channel, platform, runtime, stamp);
 }
 
-export function useOtaVersion(stamp: string | null, channel: string = 'preview', platform: string = 'android', runtime: string = '21'): OtaVersionDetailState {
+export function useOtaVersion(stamp: string | null, channel: string = 'preview', platform: string = 'android', runtime: string = DEFAULT_OTA_RUNTIME_VERSION): OtaVersionDetailState {
     const [version, setVersion] = React.useState<OtaVersion | null>(null);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
@@ -112,7 +113,7 @@ export function useOtaVersion(stamp: string | null, channel: string = 'preview',
     return { version, loading, error, refresh };
 }
 
-export function useOtaVersions(channel: string = 'preview', platform: string = 'android', runtime: string = '21'): OtaVersionsState {
+export function useOtaVersions(channel: string = 'preview', platform: string = 'android', runtime: string = DEFAULT_OTA_RUNTIME_VERSION): OtaVersionsState {
     const [versions, setVersions] = React.useState<OtaVersion[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [loadingMore, setLoadingMore] = React.useState(false);
