@@ -21,6 +21,7 @@ import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
 import { AnchorListSheet } from './AnchorListSheet';
 import { t } from '@/text';
+import { filterVisibleMessages } from '@/sync/messageVisibility';
 
 const SCROLL_THRESHOLD = 300;
 // How long the anchor pill lingers after the user stops scrolling.
@@ -102,7 +103,7 @@ const ChatListInternal = React.memo((props: {
         () => ({ collapseCurrentTurn }),
         [collapseCurrentTurn],
     );
-    const displayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
+    const displayItems = useGroupedMessages(filterVisibleMessages(props.messages), groupToolCalls, groupingOptions);
 
     // The user's own messages are the chat's natural chapters — surface them
     // as jump anchors. `displayIndex` indexes back into `displayItems`.

@@ -705,7 +705,7 @@ function SessionViewLoaded({
         };
     }, [sessionId]);
 
-    const visibleCount = messages.filter(m => !(m.meta as any)?.hidden).length;
+    const visibleCount = messages.filter(m => !m.meta?.hidden).length;
     const isHealth = isHealthCheckinSession(sessionWorkingPath(session));
 
     let content = (
