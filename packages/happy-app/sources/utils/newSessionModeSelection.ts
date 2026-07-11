@@ -10,6 +10,7 @@ import {
     type AgentDefaultOverrides,
 } from '@/sync/agentDefaults';
 import type { NewSessionAgentType } from '@/sync/persistence';
+import type { Metadata } from '@/sync/storageTypes';
 
 type ResolveSelectionKeyArgs = {
     draftKey: string | null | undefined;
@@ -107,12 +108,14 @@ export function resolveNewSessionModeSelection(args: {
     modelMode: string | null | undefined;
     effortLevel: string | null | undefined;
     agentDefaultOverrides: AgentDefaultOverrides | null | undefined;
+    modelOptions?: ModeOption[];
+    effortMetadata?: Metadata | null;
 }): NewSessionModeSelection {
-    const { agent, permissionMode, modelMode, effortLevel, agentDefaultOverrides } = args;
+    const { agent, permissionMode, modelMode, effortLevel, agentDefaultOverrides, effortMetadata } = args;
     const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent);
     const codeDefaults = getCodeAgentDefaults(agent);
     const permissionOptions = getHardcodedPermissionModes(agent, identityTranslate);
-    const modelOptions = getHardcodedModelModes(agent, identityTranslate);
+    const modelOptions = args.modelOptions ?? getHardcodedModelModes(agent, identityTranslate);
 
     const resolvedPermissionMode = resolveSelectionKey({
         draftKey: permissionMode,
@@ -130,7 +133,7 @@ export function resolveNewSessionModeSelection(args: {
         options: modelOptions,
     });
 
-    const effortOptions = getEffortLevelsForModel(agent, resolvedModelMode);
+    const effortOptions = getEffortLevelsForModel(agent, resolvedModelMode, effortMetadata);
     const resolvedEffortLevel = resolveEffortKey({
         draftKey: effortLevel,
         fallbackKey: effectiveDefaults.effortLevel,

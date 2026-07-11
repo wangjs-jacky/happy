@@ -1,8 +1,9 @@
 // scripts/publish-ota.js
 // 作用：把 `expo export` 的产物上传到阿里云 OSS，并生成 Expo Updates 协议要求的 manifest 清单。
-// 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>] [--skip-latest]
+// 用法：node scripts/publish-ota.js [--channel <channel>] [--platform <platform>] [--runtime-version <runtime>] [--skip-latest]
 //   --channel  发布到哪个频道，缺省 production；预览发 preview（仅装了 preview 包的设备会拉到）
 //   --platform 平台，缺省 android
+//   --runtime-version  覆盖默认 runtime；默认 preview/development=21，production=22
 //   --skip-latest 只发布时间戳版本和 meta，不覆盖频道 latest.json。PR 自动预览用它避免互相覆盖。
 //   人类可读展示信息可通过环境变量传入，或在 GitHub Actions 中从 GITHUB_EVENT_PATH 自动读取：
 //     OTA_DISPLAY_TITLE / OTA_DISPLAY_MESSAGE / OTA_SOURCE_TYPE / OTA_SOURCE_NUMBER / OTA_SOURCE_URL
@@ -19,13 +20,14 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 
-// ---- 解析命令行参数（--channel / --platform） ----
+// ---- 解析命令行参数（--channel / --platform / --runtime-version） ----
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--channel') out.channel = argv[++i];
     else if (a === '--platform') out.platform = argv[++i];
+    else if (a === '--runtime-version' || a === '--runtime') out.runtimeVersion = argv[++i];
     else if (a === '--display-title') out.displayTitle = argv[++i];
     else if (a === '--display-message') out.displayMessage = argv[++i];
     else if (a === '--source-type') out.sourceType = argv[++i];
@@ -35,6 +37,8 @@ function parseArgs(argv) {
     else if (a === '--write-latest') out.skipLatest = false;
     else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
     else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
+    else if (a.startsWith('--runtime-version=')) out.runtimeVersion = a.slice('--runtime-version='.length);
+    else if (a.startsWith('--runtime=')) out.runtimeVersion = a.slice('--runtime='.length);
     else if (a.startsWith('--display-title=')) out.displayTitle = a.slice('--display-title='.length);
     else if (a.startsWith('--display-message=')) out.displayMessage = a.slice('--display-message='.length);
     else if (a.startsWith('--source-type=')) out.sourceType = a.slice('--source-type='.length);
@@ -46,12 +50,16 @@ function parseArgs(argv) {
 }
 const ARGS = parseArgs(process.argv.slice(2));
 
+function defaultRuntimeVersion(channel) {
+  return channel === 'production' ? '22' : '21';
+}
+
 // ============ 配置区：按你自己的情况修改 ============
 const BUCKET = 'happy-app-ota-jacky';          // OSS 桶名
 const REGION = 'oss-cn-hangzhou';              // OSS 地域
-const RUNTIME_VERSION = '22';                  // 必须和 app.config.js 的 runtimeVersion 一致
 const PLATFORM = ARGS.platform || 'android';   // 平台（--platform 覆盖）
 const CHANNEL = ARGS.channel || 'production';  // 频道（--channel 覆盖），缺省 production 保持旧行为
+const RUNTIME_VERSION = ARGS.runtimeVersion || process.env.HAPPY_OTA_RUNTIME_VERSION || defaultRuntimeVersion(CHANNEL);
 const WRITE_LATEST = !ARGS.skipLatest;          // PR 预览可跳过 latest，避免覆盖其他 PR
 const DIST_DIR = path.join(__dirname, '..', 'dist'); // expo export 输出目录
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun'; // aliyun CLI 可执行名/路径

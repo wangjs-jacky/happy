@@ -105,4 +105,35 @@ describe('resolveNewSessionModeSelection', () => {
             effortLevel: 'high',
         });
     });
+
+    it('uses dynamic model options when resolving new-session defaults', () => {
+        expect(resolveNewSessionModeSelection({
+            agent: 'codex',
+            permissionMode: 'default',
+            modelMode: 'default',
+            effortLevel: null,
+            agentDefaultOverrides: {
+                codex: {
+                    modelMode: 'gpt-live',
+                    effortLevel: 'xhigh',
+                },
+            },
+            modelOptions: [
+                { key: 'default', name: 'default model' },
+                { key: 'gpt-live', name: 'gpt-live' },
+            ],
+            effortMetadata: {
+                path: '/repo',
+                host: 'machine',
+                thoughtLevels: [
+                    { code: 'minimal', value: 'minimal' },
+                    { code: 'xhigh', value: 'xhigh' },
+                ],
+            },
+        })).toEqual({
+            permissionMode: 'yolo',
+            modelMode: 'gpt-live',
+            effortLevel: 'xhigh',
+        });
+    });
 });
