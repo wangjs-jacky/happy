@@ -32,6 +32,8 @@ import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { HealthWelcomeCard } from '@/components/rightPanel/HealthWelcomeCard';
+import { shouldShowHealthWelcome } from './healthSessionView';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -703,6 +705,9 @@ function SessionViewLoaded({
         };
     }, [sessionId]);
 
+    const visibleCount = messages.filter(m => !(m.meta as any)?.hidden).length;
+    const isHealth = isHealthCheckinSession(sessionWorkingPath(session));
+
     let content = (
         <>
             <Deferred>
@@ -715,7 +720,11 @@ function SessionViewLoaded({
     const placeholder = messages.length === 0 ? (
         <>
             {isLoaded ? (
-                <EmptyMessages session={session} />
+                shouldShowHealthWelcome({ isHealth, visibleCount }) ? (
+                    <HealthWelcomeCard />
+                ) : (
+                    <EmptyMessages session={session} />
+                )
             ) : (
                 <ActivityIndicator size="small" color={theme.colors.textSecondary} />
             )}
