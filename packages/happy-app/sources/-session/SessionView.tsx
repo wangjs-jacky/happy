@@ -23,6 +23,7 @@ import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessio
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
+import { sessionWorkingPath } from '@/sync/sessionWorkingPath';
 import { t } from '@/text';
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
@@ -332,7 +333,8 @@ export const SessionView = React.memo((props: { id: string }) => {
     if (!canShowSidebar) {
         // 会话属于某个「专属空间」Agent 时，右滑面板换成该 Agent 自己的面板，
         // 而不是给 coding 用的通用能力中心。MVP 先接入健康打卡。
-        const rightPanel = isHealthCheckinSession(session?.metadata?.path)
+        const workingPath = sessionWorkingPath(session);
+        const rightPanel = isHealthCheckinSession(workingPath)
             ? <HealthCheckinPanel onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />
             : <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
         return (
