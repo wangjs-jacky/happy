@@ -8,7 +8,7 @@ import { t } from '@/text';
  * 空健康会话欢迎卡：展示 Agent 角色、三大领域图标（睡眠/运动/饮食）和引导提示。
  * 纯静态展示组件，无交互，无副作用。
  */
-export function HealthWelcomeCard() {
+export const HealthWelcomeCard = React.memo(function HealthWelcomeCard() {
     const { theme } = useUnistyles();
     return (
         <View style={styles.container}>
@@ -32,7 +32,7 @@ export function HealthWelcomeCard() {
             <Text style={styles.hint}>{t('healthPanel.welcomeHint')}</Text>
         </View>
     );
-}
+});
 
 const styles = StyleSheet.create((theme) => ({
     container: {

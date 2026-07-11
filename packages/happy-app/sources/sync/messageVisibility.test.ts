@@ -10,4 +10,12 @@ describe('filterVisibleMessages', () => {
         ] as any;
         expect(filterVisibleMessages(msgs).map((m: any) => m.id)).toEqual(['b', 'c']);
     });
+
+    it('keeps messages with meta.hidden === false', () => {
+        const msgs = [
+            { id: 'x', meta: { hidden: false } },
+            { id: 'y', meta: { hidden: true } },
+        ] as any;
+        expect(filterVisibleMessages(msgs).map((m: any) => m.id)).toEqual(['x']);
+    });
 });

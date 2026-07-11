@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // 必须在 import storage 之前 mock 所有会间接引入 react-native 的模块
 vi.mock('./sync', () => ({
@@ -43,6 +43,11 @@ function baseSession(id: string, overrides: Partial<any> = {}) {
 }
 
 describe('session spawnPath', () => {
+    beforeEach(() => {
+        saveSessionSpawnPaths({});
+        storage.setState({ sessions: {} } as any);
+    });
+
     it('updateSessionSpawnPath sets field and persists', () => {
         storage.getState().applySessions([baseSession('s1')]);
         storage.getState().updateSessionSpawnPath('s1', '/vault/健康打卡');
@@ -56,5 +61,14 @@ describe('session spawnPath', () => {
         storage.setState({ sessions: {} } as any);
         storage.getState().applySessions([baseSession('s2')]);
         expect(storage.getState().sessions['s2'].spawnPath).toBe('/vault/健康打卡');
+    });
+
+    it('metadata.path takes priority over cached spawnPath', () => {
+        // 先缓存一个旧的 spawnPath
+        saveSessionSpawnPaths({ s3: '/old/cached/path' });
+        storage.setState({ sessions: {} } as any);
+        // apply 带 metadata.path 的会话，应优先使用 metadata.path
+        storage.getState().applySessions([baseSession('s3', { metadata: { path: '/from-meta' } })]);
+        expect(storage.getState().sessions['s3'].spawnPath).toBe('/from-meta');
     });
 });

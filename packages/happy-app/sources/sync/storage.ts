@@ -417,6 +417,8 @@ export const storage = create<StorageState>()((set, get) => {
                 saveSessionModelModes(sessionModelModes);
                 sessionEffortLevels = Object.fromEntries(Object.entries(loadSessionEffortLevels()).filter(([id]) => !removedIdSet.has(id)));
                 saveSessionEffortLevels(sessionEffortLevels);
+                const filteredSpawnPaths = Object.fromEntries(Object.entries(loadSessionSpawnPaths()).filter(([id]) => !removedIdSet.has(id)));
+                saveSessionSpawnPaths(filteredSpawnPaths);
             }
 
             // Update sessions with calculated presence using centralized resolver

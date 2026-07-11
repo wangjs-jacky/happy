@@ -711,16 +711,20 @@ function SessionViewLoaded({
     const isHealth = isHealthCheckinSession(sessionWorkingPath(session));
     useHealthGreeting(sessionId);
 
+    // 健康会话按可见消息数判断是否有可渲染内容：隐藏的问候 prompt 不应把欢迎卡挤掉。
+    // 普通会话仍按原始 messages.length 走，避免影响非健康路径。
+    const hasRenderableMessages = isHealth ? visibleCount > 0 : messages.length > 0;
+
     let content = (
         <>
             <Deferred>
-                {messages.length > 0 && (
+                {hasRenderableMessages && (
                     <ChatList session={session} />
                 )}
             </Deferred>
         </>
     );
-    const placeholder = messages.length === 0 ? (
+    const placeholder = !hasRenderableMessages ? (
         <>
             {isLoaded ? (
                 shouldShowHealthWelcome({ isHealth, visibleCount }) ? (
