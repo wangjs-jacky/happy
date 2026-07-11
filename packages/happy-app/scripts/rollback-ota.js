@@ -1,8 +1,9 @@
 // scripts/rollback-ota.js
 // 作用：交互式回退自建 OTA 到任意历史版本。
-// 用法：pnpm ota:rollback [--channel <channel>] [--platform <platform>]
+// 用法：pnpm ota:rollback [--channel <channel>] [--platform <platform>] [--runtime-version <runtime>]
 //   --channel  回退哪个频道，缺省 production
 //   --platform 平台，缺省 android
+//   --runtime-version  覆盖默认 runtime；默认 preview/development=21，production=22
 //
 // 原理：每次 publish-ota.js 发布都会在 OSS 留一份按时间戳命名的 manifest 备份
 //（manifests/<platform>/<runtime>/<channel>/<时间戳>.json），而 latest.json 只是「当前线上」指针。
@@ -20,19 +21,26 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--channel') out.channel = argv[++i];
     else if (a === '--platform') out.platform = argv[++i];
+    else if (a === '--runtime-version' || a === '--runtime') out.runtimeVersion = argv[++i];
     else if (a.startsWith('--channel=')) out.channel = a.slice('--channel='.length);
     else if (a.startsWith('--platform=')) out.platform = a.slice('--platform='.length);
+    else if (a.startsWith('--runtime-version=')) out.runtimeVersion = a.slice('--runtime-version='.length);
+    else if (a.startsWith('--runtime=')) out.runtimeVersion = a.slice('--runtime='.length);
   }
   return out;
 }
 const ARGS = parseArgs(process.argv.slice(2));
 
+function defaultRuntimeVersion(channel) {
+  return channel === 'production' ? '22' : '21';
+}
+
 // ============ 配置区：与 publish-ota.js 保持一致 ============
 const BUCKET = 'happy-app-ota-jacky';
 const REGION = 'oss-cn-hangzhou';
-const RUNTIME_VERSION = '22';
 const PLATFORM = ARGS.platform || 'android';
 const CHANNEL = ARGS.channel || 'production';
+const RUNTIME_VERSION = ARGS.runtimeVersion || process.env.HAPPY_OTA_RUNTIME_VERSION || defaultRuntimeVersion(CHANNEL);
 const ALIYUN_BIN = process.env.ALIYUN_BIN || 'aliyun';
 // ==========================================================
 

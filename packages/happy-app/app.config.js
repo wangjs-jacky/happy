@@ -31,6 +31,11 @@ const otaChannel = {
     preview: "preview",
     production: "production",
 }[variant];
+const otaRuntimeVersion = {
+    development: "21",
+    preview: "21",
+    production: "22",
+}[variant];
 const localHttpException = {
     NSExceptionAllowsInsecureHTTPLoads: true,
     NSTemporaryExceptionAllowsInsecureHTTPLoads: true,
@@ -84,7 +89,7 @@ export default {
         name,
         slug: "paws",
         version: "1.7.1",
-        runtimeVersion: "22",
+        runtimeVersion: otaRuntimeVersion,
         orientation: "default",
         icon: "./sources/assets/images/icon.png",
         scheme: "paws",
