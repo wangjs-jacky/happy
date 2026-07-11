@@ -57,6 +57,7 @@ export const zhHant: TranslationStructure = {
         welcomeHint: '睡眠報告、運動數據、餐食照片 —— 我看懂並把數字記進日報。',
         dormantTitle: '休眠中',
         dormantHint: '丟一張截圖，開始記錄。',
+        greetingPrompt: '（系统）用一句不超过 25 字的温暖问候开场：如果最近有日报数据，可点一句昨天/最近的关键数字；没有就问今天想记点什么。只回一句，不要展开。',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `嗨 ${name}，今天和 Paws 做點什麼`,

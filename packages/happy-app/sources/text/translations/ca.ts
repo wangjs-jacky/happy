@@ -55,6 +55,7 @@ export const ca: TranslationStructure = {
         welcomeHint: 'Informe de son, dades d\'exercici, fotos dels àpats: els llegeixo i deso les xifres.',
         dormantTitle: 'En repòs',
         dormantHint: 'Envia una captura per començar.',
+        greetingPrompt: '（系统）用一句不超过 25 字的温暖问候开场：如果最近有日报数据，可点一句昨天/最近的关键数字；没有就问今天想记点什么。只回一句，不要展开。',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Hola ${name}, què fem avui?`,

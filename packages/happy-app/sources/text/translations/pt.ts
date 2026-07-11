@@ -55,6 +55,7 @@ export const pt: TranslationStructure = {
         welcomeHint: 'Relatório de sono, dados de treino, fotos das refeições — eu leio e salvo os números.',
         dormantTitle: 'Em repouso',
         dormantHint: 'Envie um print para começar.',
+        greetingPrompt: '（系统）用一句不超过 25 字的温暖问候开场：如果最近有日报数据，可点一句昨天/最近的关键数字；没有就问今天想记点什么。只回一句，不要展开。',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `Olá ${name}, o que vamos fazer hoje?`,

@@ -34,6 +34,8 @@ import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityH
 import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
 import { HealthWelcomeCard } from '@/components/rightPanel/HealthWelcomeCard';
 import { shouldShowHealthWelcome } from './healthSessionView';
+import { useHealthGreeting } from './useHealthGreeting';
+import { filterVisibleMessages } from '@/sync/messageVisibility';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -705,8 +707,9 @@ function SessionViewLoaded({
         };
     }, [sessionId]);
 
-    const visibleCount = messages.filter(m => !m.meta?.hidden).length;
+    const visibleCount = filterVisibleMessages(messages).length;
     const isHealth = isHealthCheckinSession(sessionWorkingPath(session));
+    useHealthGreeting(sessionId);
 
     let content = (
         <>
