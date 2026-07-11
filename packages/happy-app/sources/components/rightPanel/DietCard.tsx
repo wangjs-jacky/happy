@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { DietView, HealthLog } from '@/utils/healthLog';
 import { t } from '@/text';
+import { HealthDormantState } from './HealthDormantState';
 
 interface Props {
     view: DietView | null;
@@ -52,7 +53,7 @@ export const DietCard = React.memo(function DietCard(props: Props) {
                         )}
                     </View>
                 ) : (
-                    <Text style={styles.muted}>{t('healthPanel.noDietToday')}</Text>
+                    <HealthDormantState />
                 )}
             </View>
 
