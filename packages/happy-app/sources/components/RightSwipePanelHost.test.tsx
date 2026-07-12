@@ -1,0 +1,208 @@
+import * as React from 'react';
+import { act } from 'react';
+import { Pressable, View } from 'react-native';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RightSwipePanelHost, useRightSwipePanel } from './RightSwipePanelHost';
+
+// react-test-renderer does not publish TypeScript declarations with the package.
+// @ts-expect-error The test only needs the small create/unmount surface typed below.
+import TestRenderer from 'react-test-renderer';
+
+type SpringCompletion = (finished?: boolean) => void;
+
+const mocks = vi.hoisted(() => ({
+    gestureHandlers: {} as Record<string, (...args: any[]) => void>,
+    springCompletions: [] as Array<SpringCompletion | undefined>,
+}));
+
+vi.mock('react-native', () => ({
+    BackHandler: { addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
+    Platform: { OS: 'ios' },
+    Pressable: 'Pressable',
+    View: 'View',
+    useWindowDimensions: () => ({ width: 400, height: 800 }),
+}));
+vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+vi.mock('expo-router', () => ({
+    useNavigation: () => ({ addListener: vi.fn(() => vi.fn()) }),
+}));
+vi.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+vi.mock('react-native-unistyles', () => ({
+    useUnistyles: () => ({ theme: { colors: { surface: '#111', divider: '#333' } } }),
+}));
+vi.mock('@/utils/responsive', () => ({ useIsTablet: () => false }));
+vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
+vi.mock('react-native-drawer-layout', async () => {
+    const ReactModule = await vi.importActual<typeof import('react')>('react');
+    return { DrawerGestureContext: ReactModule.createContext(null) };
+});
+vi.mock('react-native-gesture-handler', () => {
+    const makePan = () => {
+        const pan: Record<string, any> = {};
+        for (const method of [
+            'enabled',
+            'manualActivation',
+            'onTouchesDown',
+            'onTouchesMove',
+            'onStart',
+            'onUpdate',
+            'onEnd',
+            'blocksExternalGesture',
+        ]) {
+            pan[method] = (value: unknown) => {
+                if (method.startsWith('on') && typeof value === 'function') {
+                    mocks.gestureHandlers[method] = value as (...args: any[]) => void;
+                }
+                return pan;
+            };
+        }
+        return pan;
+    };
+
+    return {
+        Gesture: { Pan: vi.fn(makePan) },
+        GestureDetector: ({ children }: { children: React.ReactNode }) => children,
+    };
+});
+vi.mock('react-native-reanimated', () => ({
+    default: { View: 'AnimatedView' },
+    runOnJS: (callback: (...args: any[]) => unknown) => callback,
+    useAnimatedStyle: (factory: () => object) => factory(),
+    useSharedValue: (value: number) => ({ value }),
+    withSpring: (_value: number, _config: unknown, completion?: SpringCompletion) => {
+        mocks.springCompletions.push(completion);
+        return _value;
+    },
+}));
+
+function CloseControl(props: { callback?: () => void; testID: string }) {
+    const panel = useRightSwipePanel();
+    return (
+        <Pressable
+            testID={props.testID}
+            onPress={() => panel?.closePanel(props.callback)}
+        />
+    );
+}
+
+function renderHost(callback?: () => void) {
+    let renderer: any;
+    act(() => {
+        renderer = TestRenderer.create(
+            <RightSwipePanelHost
+                panelContent={(
+                    <>
+                        <CloseControl callback={callback} testID="close-with-callback" />
+                        <CloseControl testID="close-without-callback" />
+                    </>
+                )}
+            >
+                <View />
+            </RightSwipePanelHost>,
+        );
+    });
+    return renderer;
+}
+
+function latestSpringCompletion(): SpringCompletion {
+    const completion = mocks.springCompletions.at(-1);
+    expect(completion).toBeTypeOf('function');
+    return completion!;
+}
+
+function findControl(renderer: any, testID: string) {
+    return renderer.root.findAllByType('Pressable').find((node: any) => node.props.testID === testID);
+}
+
+describe('RightSwipePanelHost close completion', () => {
+    const originalConsoleError = console.error;
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        mocks.gestureHandlers = {};
+        mocks.springCompletions = [];
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+            if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+            originalConsoleError(...values);
+        });
+    });
+
+    afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('calls the close callback exactly once after a finished spring', () => {
+        const callback = vi.fn();
+        const renderer = renderHost(callback);
+
+        act(() => findControl(renderer, 'close-with-callback').props.onPress());
+        const complete = latestSpringCompletion();
+        expect(callback).not.toHaveBeenCalled();
+
+        act(() => complete(true));
+        act(() => complete(true));
+
+        expect(callback).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('does not call the close callback when the spring is interrupted', () => {
+        const callback = vi.fn();
+        const renderer = renderHost(callback);
+
+        act(() => findControl(renderer, 'close-with-callback').props.onPress());
+        act(() => latestSpringCompletion()(false));
+
+        expect(callback).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('lets a newer close supersede a stale close callback', () => {
+        const first = vi.fn();
+        const second = vi.fn();
+        const renderer = renderHost(first);
+        const control = findControl(renderer, 'close-with-callback');
+
+        act(() => control.props.onPress());
+        const completeFirst = latestSpringCompletion();
+        // Re-rendering supplies the second callback through the same public context API.
+        act(() => renderer.update(
+            <RightSwipePanelHost panelContent={<CloseControl callback={second} testID="close-with-callback" />}>
+                <View />
+            </RightSwipePanelHost>,
+        ));
+        act(() => findControl(renderer, 'close-with-callback').props.onPress());
+        const completeSecond = latestSpringCompletion();
+
+        act(() => completeFirst(true));
+        expect(first).not.toHaveBeenCalled();
+        act(() => completeSecond(true));
+        expect(second).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('invalidates a pending callback when a new panel gesture starts', () => {
+        const callback = vi.fn();
+        const renderer = renderHost(callback);
+
+        act(() => findControl(renderer, 'close-with-callback').props.onPress());
+        const complete = latestSpringCompletion();
+        act(() => mocks.gestureHandlers.onStart());
+        act(() => complete(true));
+
+        expect(callback).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('preserves closePanel calls without a callback', () => {
+        const renderer = renderHost();
+
+        expect(() => {
+            act(() => findControl(renderer, 'close-without-callback').props.onPress());
+            act(() => latestSpringCompletion()(true));
+        }).not.toThrow();
+
+        act(() => renderer.unmount());
+    });
+});
