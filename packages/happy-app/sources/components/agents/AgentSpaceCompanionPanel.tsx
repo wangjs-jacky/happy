@@ -47,12 +47,12 @@ export const AgentSpaceCompanionPanel = React.memo(function AgentSpaceCompanionP
     }, []);
 
     React.useEffect(() => {
-        if (model.tips.length <= 1 || reduceMotion !== false || manuallySelected) return;
+        if (panel?.isOpen !== true || model.tips.length <= 1 || reduceMotion !== false || manuallySelected) return;
         const timer = setInterval(() => {
             setActiveTipIndex((current) => (current + 1) % model.tips.length);
         }, TIP_ROTATION_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [manuallySelected, model.tips.length, reduceMotion]);
+    }, [manuallySelected, model.tips.length, panel?.isOpen, reduceMotion]);
 
     const selectTip = React.useCallback((index: number) => {
         setManuallySelected(true);

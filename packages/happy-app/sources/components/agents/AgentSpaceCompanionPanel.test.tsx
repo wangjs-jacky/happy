@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
     closePanel: vi.fn(),
     hapticsLight: vi.fn(),
     pan: vi.fn(),
+    panelOpen: true,
     reduceMotionHandler: null as ((enabled: boolean) => void) | null,
     removeReduceMotionListener: vi.fn(),
     initialReduceMotion: false,
@@ -65,7 +66,7 @@ vi.mock('@/text', () => ({
 }));
 vi.mock('../haptics', () => ({ hapticsLight: mocks.hapticsLight }));
 vi.mock('../RightSwipePanelHost', () => ({
-    useRightSwipePanel: () => mocks.closePanel ? { closePanel: mocks.closePanel, isOpen: true, registerBackHandler: vi.fn() } : null,
+    useRightSwipePanel: () => mocks.closePanel ? { closePanel: mocks.closePanel, isOpen: mocks.panelOpen, registerBackHandler: vi.fn() } : null,
 }));
 vi.mock('react-native-gesture-handler', () => ({ Gesture: { Pan: mocks.pan } }));
 
@@ -132,6 +133,7 @@ describe('AgentSpaceCompanionPanel', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         mocks.initialReduceMotion = false;
+        mocks.panelOpen = true;
         mocks.reduceMotionHandler = null;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -162,6 +164,39 @@ describe('AgentSpaceCompanionPanel', () => {
         expect(vi.getTimerCount()).toBe(0);
 
         await resolveInitialReduceMotion();
+        expect(vi.getTimerCount()).toBe(1);
+        act(() => vi.advanceTimersByTime(7_999));
+        expect(hasText(renderer.root, 'First tip')).toBe(true);
+        act(() => vi.advanceTimersByTime(1));
+        expect(hasText(renderer.root, 'Second tip')).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('does not rotate or start a timer while the panel is closed', async () => {
+        mocks.panelOpen = false;
+        const renderer = renderPanel();
+
+        await resolveInitialReduceMotion();
+        expect(vi.getTimerCount()).toBe(0);
+        act(() => vi.advanceTimersByTime(16_000));
+        expect(hasText(renderer.root, 'First tip')).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('starts a fresh 8000ms interval from Tip 1 when the panel opens', async () => {
+        mocks.panelOpen = false;
+        const onInsertPrompt = vi.fn();
+        const renderer = renderPanel(onInsertPrompt);
+        await resolveInitialReduceMotion();
+        act(() => vi.advanceTimersByTime(16_000));
+
+        mocks.panelOpen = true;
+        act(() => renderer.update(
+            <AgentSpaceCompanionPanel agent={agent} model={model} onInsertPrompt={vi.fn()} />,
+        ));
+        expect(hasText(renderer.root, 'First tip')).toBe(true);
         expect(vi.getTimerCount()).toBe(1);
         act(() => vi.advanceTimersByTime(7_999));
         expect(hasText(renderer.root, 'First tip')).toBe(true);
@@ -273,6 +308,7 @@ describe('AgentSpaceCompanionPanel', () => {
         expect(() => act(() => action.props.onPress())).not.toThrow();
         expect(mocks.hapticsLight).toHaveBeenCalledTimes(1);
         expect(onInsertPrompt).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
 
         act(() => renderer.unmount());
         (mocks as { closePanel: typeof closePanel | null }).closePanel = closePanel;
