@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAllMachines, useAgentSpaceSessions } from '@/sync/storage';
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
+import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import type { AgentLauncher } from './launchAgent';
+import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
 import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
@@ -42,6 +43,7 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useAgentSpaceSessions(agent.machineId, agent.path);
     const { entering, enter } = useEnterAgentSpace();
+    const draft = useNewSessionDraft();
 
     // 健康打卡类 Agent（按工作目录识别）才提供「健康报告」分段；其余 Agent 只有工作台。
     const isHealth = isHealthCheckinSession(agent.path);
@@ -53,10 +55,25 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
     const headTint = withAlpha(accent, '14') ?? theme.colors.surface;
     const badgeTint = withAlpha(accent, '22') ?? theme.colors.surface;
 
-    const startSession = React.useCallback((initialInput?: string) => enter(agent, {
-        ...(initialInput !== undefined ? { initialDraft: initialInput } : {}),
-        beforeNavigate: onCloseDrawer,
-    }), [agent, enter, onCloseDrawer]);
+    const startSession = React.useCallback((initialInput?: string) => {
+        if (entering) return;
+        if (agent.kind === 'image-styles') {
+            launchAgent(agent, draft, onNavigate, initialInput !== undefined ? { initialInput } : undefined);
+            return;
+        }
+        return enter(agent, {
+            ...(initialInput !== undefined ? { initialDraft: initialInput } : {}),
+            beforeNavigate: onCloseDrawer,
+        });
+    }, [agent, draft, enter, entering, onCloseDrawer, onNavigate]);
+
+    const exitSpace = React.useCallback(() => {
+        if (!entering) onExit();
+    }, [entering, onExit]);
+
+    const navigateToHistory = React.useCallback((sessionId: string) => {
+        if (!entering) onNavigate(`/session/${sessionId}`);
+    }, [entering, onNavigate]);
 
     return (
         <View style={styles.root}>
@@ -64,7 +81,8 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
             <View style={styles.headWrap}>
                 <View style={[styles.head, { backgroundColor: headTint }]}>
                     <Pressable
-                        onPress={onExit}
+                        disabled={entering}
+                        onPress={exitSpace}
                         hitSlop={8}
                         style={({ pressed }) => [styles.back, pressed && styles.pressedDim]}
                     >
@@ -136,7 +154,8 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
                             sessions.map((session, index) => (
                                 <Pressable
                                     key={session.id}
-                                    onPress={() => onNavigate(`/session/${session.id}`)}
+                                    disabled={entering}
+                                    onPress={() => navigateToHistory(session.id)}
                                     style={({ pressed }) => [
                                         styles.sessionRow,
                                         index > 0 && styles.sessionRowDivider,

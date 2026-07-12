@@ -32,6 +32,17 @@ export function useEnterAgentSpace(): {
     const navigateToSession = useNavigateToSession();
     const [entering, setEntering] = React.useState(false);
     const enteringRef = React.useRef(false);
+    const mountedRef = React.useRef(true);
+    const operationTokenRef = React.useRef(0);
+
+    React.useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            operationTokenRef.current += 1;
+            enteringRef.current = false;
+        };
+    }, []);
 
     const enter = React.useCallback(async (
         agent: AgentLauncher,
@@ -42,6 +53,10 @@ export function useEnterAgentSpace(): {
         }
 
         enteringRef.current = true;
+        const operationToken = ++operationTokenRef.current;
+        const isCurrentOperation = () => (
+            mountedRef.current && operationTokenRef.current === operationToken
+        );
         setEntering(true);
         try {
             const machine = machines.find((candidate) => candidate.id === agent.machineId);
@@ -68,6 +83,9 @@ export function useEnterAgentSpace(): {
                 effortLevel: config.effortLevel,
                 prompt: '',
             });
+            if (!isCurrentOperation()) {
+                return { type: 'cancelled' };
+            }
             if (result.type !== 'success') {
                 return result;
             }
@@ -76,7 +94,13 @@ export function useEnterAgentSpace(): {
                 if (options?.initialDraft !== undefined) {
                     storage.getState().updateSessionDraft(result.sessionId, options.initialDraft);
                 }
+                if (!isCurrentOperation()) {
+                    return { type: 'cancelled' };
+                }
                 options?.beforeNavigate?.();
+                if (!isCurrentOperation()) {
+                    return { type: 'cancelled' };
+                }
 
                 const previousAgentSpaceId = agentSpaceId;
                 setAgentSpaceId(agent.id);
@@ -94,8 +118,10 @@ export function useEnterAgentSpace(): {
 
             return result;
         } finally {
-            enteringRef.current = false;
-            setEntering(false);
+            if (operationTokenRef.current === operationToken) {
+                enteringRef.current = false;
+                if (mountedRef.current) setEntering(false);
+            }
         }
     }, [agentSpaceId, defaults, draft, machines, navigateToSession, setAgentSpaceId, spawnSession]);
 

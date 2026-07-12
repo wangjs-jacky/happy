@@ -69,6 +69,20 @@ describe('resolveAgentLaunchConfig', () => {
         });
     });
 
+    it('retains the canonical force-Codex inference for image-style Agents', () => {
+        expect(resolveAgentLaunchConfig({
+            agent: { ...persistedAgent, kind: 'image-styles', imageStyleIds: ['style-1'] },
+            draft,
+            defaults,
+        })).toEqual({
+            type: 'success',
+            agent: 'codex',
+            permissionMode: 'default',
+            modelMode: 'draft-model',
+            effortLevel: 'high',
+        });
+    });
+
     it('falls back to resolved Agent defaults when draft mode fields are absent', () => {
         const partialDraft = {
             ...draft,

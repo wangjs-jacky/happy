@@ -11,6 +11,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     enter: vi.fn(),
     launchAgent: vi.fn(),
+    entering: false,
 }));
 
 vi.mock('react-native', () => ({
@@ -43,7 +44,7 @@ vi.mock('@/sync/storage', () => ({
 }));
 vi.mock('@/hooks/useNewSessionDraft', () => ({ useNewSessionDraft: () => ({}) }));
 vi.mock('@/hooks/useEnterAgentSpace', () => ({
-    useEnterAgentSpace: () => ({ entering: false, enter: mocks.enter }),
+    useEnterAgentSpace: () => ({ entering: mocks.entering, enter: mocks.enter }),
 }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
@@ -80,13 +81,18 @@ function findPressableByText(root: any, label: string) {
     ));
 }
 
-function renderWorkbench(props: { onNavigate: (path: string) => void; onCloseDrawer: () => void }) {
+function renderWorkbench(props: {
+    onNavigate: (path: string) => void;
+    onCloseDrawer: () => void;
+    onExit?: () => void;
+    agent?: AgentLauncher;
+}) {
     let renderer: any;
     act(() => {
         renderer = TestRenderer.create(
             <AgentSpaceWorkbench
-                agent={agent}
-                onExit={vi.fn()}
+                agent={props.agent ?? agent}
+                onExit={props.onExit ?? vi.fn()}
                 onNavigate={props.onNavigate}
                 onCloseDrawer={props.onCloseDrawer}
             />,
@@ -101,6 +107,7 @@ describe('AgentSpaceWorkbench', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.entering = false;
         mocks.enter.mockResolvedValue({ type: 'success', sessionId: 'session-1' });
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -149,6 +156,48 @@ describe('AgentSpaceWorkbench', () => {
         act(() => findPressableByText(renderer.root, 'Historical session').props.onPress());
 
         expect(onNavigate).toHaveBeenCalledWith('/session/history-1');
+        expect(mocks.enter).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('guards exit, history, new, and preset actions while entering', () => {
+        mocks.entering = true;
+        const onExit = vi.fn();
+        const onNavigate = vi.fn();
+        const renderer = renderWorkbench({ onExit, onNavigate, onCloseDrawer: vi.fn() });
+        const exit = findPressableByText(renderer.root, 'agentSpace.exit');
+        const history = findPressableByText(renderer.root, 'Historical session');
+        const preset = findPressableByText(renderer.root, 'Run preset');
+        const create = findPressableByText(renderer.root, 'agentSpace.entering');
+
+        expect(exit.props.disabled).toBe(true);
+        expect(history.props.disabled).toBe(true);
+        expect(preset.props.disabled).toBe(true);
+        expect(create.props.disabled).toBe(true);
+        act(() => {
+            exit.props.onPress();
+            history.props.onPress();
+        });
+        expect(onExit).not.toHaveBeenCalled();
+        expect(onNavigate).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('keeps image-style new sessions on the /new compose flow', async () => {
+        const imageAgent: AgentLauncher = {
+            ...agent,
+            id: 'image-agent',
+            kind: 'image-styles',
+            imageStyleIds: ['style-1'],
+        };
+        const onNavigate = vi.fn();
+        const renderer = renderWorkbench({ agent: imageAgent, onNavigate, onCloseDrawer: vi.fn() });
+
+        await act(async () => {
+            await findPressableByText(renderer.root, 'agentSpace.newSession').props.onPress();
+        });
+
+        expect(mocks.launchAgent).toHaveBeenCalledWith(imageAgent, expect.any(Object), onNavigate, undefined);
         expect(mocks.enter).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });

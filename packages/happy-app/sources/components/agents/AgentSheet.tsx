@@ -12,6 +12,7 @@ import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { createAppBuilderAgent, getAgentSubtitle } from './builtinAgents';
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
+import { useAgentSpace } from '@/hooks/useAgentSpace';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -26,6 +27,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
     const { entering, enter } = useEnterAgentSpace();
+    const { enter: enterSpace } = useAgentSpace();
     const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
         machines,
         preferredMachineId: draft.selectedMachineId,
@@ -50,12 +52,17 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
         // 持久化的「我的 Agent」→ 进入其专属空间（侧栏收敛为工作台）。内置 App Builder Agent
         // 的 id 是每次动态生成的、不适合作为持久空间锚点，保持原「直接发起新会话」行为。
         if (agents.some((a) => a.id === agent.id)) {
-            await enter(agent, { beforeNavigate: onClose });
+            if (agent.kind === 'image-styles') {
+                onClose();
+                enterSpace(agent.id);
+            } else {
+                await enter(agent, { beforeNavigate: onClose });
+            }
         } else {
             onClose();
             launchAgent(agent, draft, (p) => router.navigate(p as any));
         }
-    }, [agents, draft, enter, entering, onClose, router]);
+    }, [agents, draft, enter, entering, enterSpace, onClose, router]);
 
     const closeIfIdle = React.useCallback(() => {
         if (!entering) onClose();

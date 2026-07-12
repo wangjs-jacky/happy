@@ -247,4 +247,30 @@ describe('useEnterAgentSpace', () => {
         });
         hook.unmount();
     });
+
+    it('does not finish a pending entry after the coordinator unmounts', async () => {
+        let resolveSpawn: ((value: { type: 'success'; sessionId: string }) => void) | undefined;
+        mocks.spawnSession.mockImplementation(() => new Promise((resolve) => {
+            resolveSpawn = resolve;
+        }));
+        const beforeNavigate = vi.fn();
+        const hook = renderHook();
+        let entry: Promise<unknown>;
+
+        act(() => {
+            entry = hook.current().enter(agent, { initialDraft: 'Preset', beforeNavigate });
+        });
+        expect(mocks.spawnSession).toHaveBeenCalledTimes(1);
+        hook.unmount();
+
+        await act(async () => {
+            resolveSpawn?.({ type: 'success', sessionId: 'session-1' });
+            await entry!;
+        });
+
+        expect(mocks.updateSessionDraft).not.toHaveBeenCalled();
+        expect(beforeNavigate).not.toHaveBeenCalled();
+        expect(mocks.setAgentSpaceId).not.toHaveBeenCalled();
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+    });
 });

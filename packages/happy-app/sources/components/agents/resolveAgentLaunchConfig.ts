@@ -1,15 +1,6 @@
-import { resolveAgentDefaultConfig, type AgentDefaultOverrides } from '@/sync/agentDefaults';
+import { agentKeys, resolveAgentDefaultConfig, type AgentDefaultOverrides } from '@/sync/agentDefaults';
 import type { NewSessionAgentType } from '@/sync/persistence';
-import type { AgentLauncher } from './launchAgent';
-
-const validAgentTypes: ReadonlySet<string> = new Set([
-    'ask',
-    'claude',
-    'codex',
-    'gemini',
-    'opencode',
-    'openclaw',
-]);
+import { resolveAgentTypeForLaunch, type AgentLauncher } from './launchAgent';
 
 type DraftLaunchConfig = {
     agentType?: unknown;
@@ -29,7 +20,7 @@ export type AgentLaunchConfigResult =
     | { type: 'error'; message: string };
 
 function isNewSessionAgentType(value: unknown): value is NewSessionAgentType {
-    return typeof value === 'string' && validAgentTypes.has(value);
+    return typeof value === 'string' && (agentKeys as readonly string[]).includes(value);
 }
 
 export function resolveAgentLaunchConfig(args: {
@@ -37,7 +28,7 @@ export function resolveAgentLaunchConfig(args: {
     draft: DraftLaunchConfig;
     defaults: AgentDefaultOverrides | null | undefined;
 }): AgentLaunchConfigResult {
-    const agentType = args.agent.agentType !== undefined ? args.agent.agentType : args.draft.agentType;
+    const agentType = resolveAgentTypeForLaunch(args.agent) ?? args.draft.agentType;
     if (!isNewSessionAgentType(agentType)) {
         return { type: 'error', message: 'Invalid Agent type' };
     }

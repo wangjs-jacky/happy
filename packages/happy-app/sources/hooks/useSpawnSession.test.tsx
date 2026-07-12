@@ -222,6 +222,27 @@ describe('useSpawnSession', () => {
         hook.unmount();
     });
 
+    it('retries once with approval when directory creation is accepted', async () => {
+        mocks.machineSpawnNewSession
+            .mockResolvedValueOnce({ type: 'requestToApproveDirectoryCreation', directory: '/Users/jacky/new' })
+            .mockResolvedValueOnce({ type: 'success', sessionId: 'session-approved' });
+        mocks.confirm.mockResolvedValue(true);
+        const hook = renderHook();
+        let result;
+
+        await act(async () => {
+            result = await hook.current().spawnSession(args);
+        });
+
+        expect(result).toEqual({ type: 'success', sessionId: 'session-approved' });
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(2);
+        expect(mocks.machineSpawnNewSession.mock.calls[0][0].approvedNewDirectoryCreation).toBe(false);
+        expect(mocks.machineSpawnNewSession.mock.calls[1][0].approvedNewDirectoryCreation).toBe(true);
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        hook.unmount();
+    });
+
     it('returns and reports an RPC error once', async () => {
         mocks.spawnResult = { type: 'error', errorMessage: 'RPC unavailable' };
         const hook = renderHook();

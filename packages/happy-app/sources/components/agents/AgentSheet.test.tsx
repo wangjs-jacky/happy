@@ -187,4 +187,30 @@ describe('AgentSheet', () => {
         expect(mocks.enter).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
+
+    it('keeps persisted image-style Agents on enterSpace without spawning', async () => {
+        const imageAgent: AgentLauncher = {
+            ...agent,
+            id: 'image-agent',
+            name: 'Image Agent',
+            kind: 'image-styles',
+            imageStyleIds: ['style-1'],
+        };
+        mocks.agents = [imageAgent];
+        const onClose = vi.fn();
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<AgentSheet visible onClose={onClose} />);
+        });
+
+        await act(async () => {
+            await findPressableByText(renderer.root, imageAgent.name).props.onPress();
+        });
+
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(mocks.oldEnterSpace).toHaveBeenCalledWith(imageAgent.id);
+        expect(mocks.enter).not.toHaveBeenCalled();
+        expect(mocks.launchAgent).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
 });
