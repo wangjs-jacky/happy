@@ -210,6 +210,11 @@ export const SidebarView = React.memo(() => {
         router.navigate(path as any);
     }, [closeDrawer, router]);
 
+    const exitAgentSpace = React.useCallback(() => {
+        exitSpace();
+        go('/');
+    }, [exitSpace, go]);
+
     // 「Agent 空间模式」：进入某个 Agent 后，整个侧栏收敛为该 Agent 的专属工作台，
     // 隐藏全局用户卡/收件箱/会话列表，只看本空间。退出空间即回落到下面的常规侧栏。
     if (spaceAgent) {
@@ -217,7 +222,7 @@ export const SidebarView = React.memo(() => {
             <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>
                 <AgentSpaceWorkbench
                     agent={spaceAgent}
-                    onExit={exitSpace}
+                    onExit={exitAgentSpace}
                     onNavigate={go}
                     onCloseDrawer={closeDrawer}
                 />

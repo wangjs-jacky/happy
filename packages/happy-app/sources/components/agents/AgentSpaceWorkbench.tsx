@@ -9,7 +9,6 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
-import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
 
 /**
@@ -45,8 +44,8 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
     const { entering, enter } = useEnterAgentSpace();
     const draft = useNewSessionDraft();
 
-    // 健康打卡类 Agent（按工作目录识别）才提供「健康报告」分段；其余 Agent 只有工作台。
-    const isHealth = isHealthCheckinSession(agent.path);
+    // spaceType 是迁移/新建时一次性确定的稳定 provider 标识；运行时不再从可改名路径推断。
+    const isHealth = agent.spaceType === 'health';
     const [tab, setTab] = React.useState<SpaceTab>(isHealth ? 'health' : 'workbench');
 
     const machine = React.useMemo(() => machines.find((m) => m.id === agent.machineId), [machines, agent.machineId]);

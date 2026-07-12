@@ -53,7 +53,9 @@ vi.mock('./launchAgent', async () => {
     return { ...actual, launchAgent: mocks.launchAgent };
 });
 vi.mock('./builtinAgents', () => ({ getAgentSubtitle: (agent: AgentLauncher) => agent.path }));
-vi.mock('@/utils/healthLog', () => ({ isHealthCheckinSession: () => false }));
+vi.mock('@/utils/healthLog', () => ({
+    isHealthCheckinSession: (path: string) => path.includes('健康打卡'),
+}));
 vi.mock('./AgentSpaceHealthPanel', () => ({ AgentSpaceHealthPanel: 'AgentSpaceHealthPanel' }));
 
 const agent: AgentLauncher = {
@@ -199,6 +201,40 @@ describe('AgentSpaceWorkbench', () => {
 
         expect(mocks.launchAgent).toHaveBeenCalledWith(imageAgent, expect.any(Object), onNavigate, undefined);
         expect(mocks.enter).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('shows the health report for a renamed health space', () => {
+        const healthAgent: AgentLauncher = {
+            ...agent,
+            path: '~/renamed-space',
+            spaceType: 'health',
+        };
+        const renderer = renderWorkbench({
+            agent: healthAgent,
+            onNavigate: vi.fn(),
+            onCloseDrawer: vi.fn(),
+        });
+
+        expect(renderer.root.findAllByType('AgentSpaceHealthPanel')).toHaveLength(1);
+        expect(findPressableByText(renderer.root, 'agentSpace.tabHealth')).toBeDefined();
+        act(() => renderer.unmount());
+    });
+
+    it('does not show the health report for a default space with a health-like path', () => {
+        const defaultAgent: AgentLauncher = {
+            ...agent,
+            path: '~/健康打卡',
+            spaceType: 'default',
+        };
+        const renderer = renderWorkbench({
+            agent: defaultAgent,
+            onNavigate: vi.fn(),
+            onCloseDrawer: vi.fn(),
+        });
+
+        expect(renderer.root.findAllByType('AgentSpaceHealthPanel')).toHaveLength(0);
+        expect(findPressableByText(renderer.root, 'agentSpace.tabHealth')).toBeUndefined();
         act(() => renderer.unmount());
     });
 });
