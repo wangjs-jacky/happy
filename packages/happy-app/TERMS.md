@@ -1,83 +1,47 @@
-# Terms of Use
+# Paws Terms of Use
 
-Last updated: January 2025
+**Last updated: July 13, 2026**
 
-## Acceptance of Terms
+## Acceptance
 
-By downloading, installing, or using Happy, you agree to be bound by these Terms of Use. If you do not agree to these terms, do not use Happy.
+By downloading, installing, or using Paws, you agree to these Terms of Use. If you do not agree, do not use the software or a hosted Paws-compatible service.
 
-## About Happy
+## Open-Source Software
 
-Happy is a free, open-source mobile client for AI code assistance, released under the MIT License. The software is provided as-is by the open-source community without any warranties or guarantees.
+Paws is an independently maintained, open-source remote-control client for AI coding agents. The source code is released under the MIT License and provided **as is**, without warranties or guarantees. The full license is available in the repository at <https://github.com/wangjs-jacky/happy>.
 
-## License
+## Responsible Use
 
-Happy is licensed under the MIT License. This means you are free to:
+You are responsible for:
 
-- Use the software for any purpose, including commercial use
-- Modify the source code
-- Distribute copies of the software
-- Distribute modified versions
+- complying with applicable law and the terms of every AI provider or integration you connect;
+- reviewing agent output and changes before relying on or distributing them;
+- protecting credentials, local key material, devices, server secrets, and self-hosted infrastructure;
+- the content, commands, files, and tool permissions you send through Paws;
+- any provider, infrastructure, or network costs resulting from your use.
 
-The full MIT License text is available in the source code repository.
-
-## Acceptable Use
-
-You agree to use Happy responsibly and in compliance with all applicable laws. You must not:
-
-- Use Happy for any illegal or unauthorized purpose
-- Attempt to harm, disable, or impair the functionality of Happy
-- Use Happy to generate harmful, offensive, or inappropriate content
-- Violate the terms of service of any AI services you connect to through Happy
-- Attempt to reverse engineer security features or encryption protocols
+Do not use Paws to gain unauthorized access, disrupt systems, distribute malware, bypass security controls, or violate the rights of others.
 
 ## Third-Party Services
 
-Happy may connect to third-party AI services (such as Claude, OpenAI, etc.). You acknowledge that:
+Paws can connect to third-party agents, model providers, push services, analytics, source-control services, voice services, and infrastructure. Those services are not operated or warranted by the Paws project unless explicitly stated, and they may process data under their own terms and privacy policies.
 
-- You are responsible for complying with their terms of service
-- You need valid API keys and accounts with these services
-- Happy is not responsible for the availability or performance of third-party services
-- Costs associated with API usage are your responsibility
+## Independence
 
-## Independence and Disclaimers
-
-**Happy is an independent, community-driven project.** We are not affiliated with, endorsed by, or connected to Anthropic, Claude, OpenAI, or any other AI service providers. Happy is a third-party client that works with publicly available APIs.
-
-## Limitation of Liability
-
-**IMPORTANT:** Happy is provided "AS IS" without warranty of any kind. The developers, contributors, and distributors of Happy shall not be liable for:
-
-- Any direct, indirect, incidental, or consequential damages
-- Data loss or corruption
-- Lost profits or business interruption
-- Any claims arising from your use of Happy
+Paws is not affiliated with or endorsed by Anthropic, OpenAI, Google, GitHub, Apple, or other AI and platform providers. Paws originated from the MIT-licensed Happy project but is now maintained as an independent product and code line.
 
 ## Privacy
 
-Happy respects your privacy. The app:
+See the current [Privacy Policy](../../PRIVACY.md). The encryption boundary does not prevent an AI provider or integration selected by you from processing content required to perform your request.
 
-- Does not collect personal information without your consent
-- Stores API keys locally on your device
-- Does not share your data with third parties (except when connecting to AI services you configure)
-- May use crash reporting and analytics tools as disclosed in the Privacy Policy
+## Limitation of Liability
 
-## Changes to Terms
+To the maximum extent permitted by law, the maintainers, contributors, and distributors of Paws are not liable for direct, indirect, incidental, special, consequential, or exemplary damages, including data loss, security incidents, business interruption, or lost profits arising from use of the software or connected services.
 
-We reserve the right to update these Terms of Use at any time. Continued use of Happy after changes constitutes acceptance of the new terms.
+## Changes and Severability
 
-## Governing Law
-
-These terms shall be governed by and construed in accordance with applicable laws, without regard to conflict of law principles.
+These terms may be updated with future releases. If a provision is unenforceable, it will be limited to the minimum extent necessary while the remaining provisions continue in effect.
 
 ## Contact
 
-For questions about these Terms of Use, please visit our GitHub repository or contact the maintainers through the project's official channels.
-
-## Severability
-
-If any provision of these Terms is found to be unenforceable or invalid, that provision will be limited or eliminated to the minimum extent necessary so that these Terms will otherwise remain in full force and effect.
-
-## Entire Agreement
-
-These Terms of Use constitute the entire agreement between you and the Happy project regarding the use of the software, superseding any prior agreements or understandings.
+Use <https://github.com/wangjs-jacky/happy/issues> for general questions. Do not publish credentials, private code, or unredacted security reports in a public issue.

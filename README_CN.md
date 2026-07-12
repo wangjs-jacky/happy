@@ -21,9 +21,9 @@
 
 ---
 
-> **Paws** 是 [Happy](https://github.com/slopus/happy) 的一个独立维护、深度定制的 fork ——
-> 拥有自己的 App 构建、CLI 包、自建 OTA 更新链路和官网。本文档描述的均为**本 fork**；
-> 上游致谢见[致谢](#-致谢)。
+> **Paws** 是一个独立维护的产品与代码线，最初源自 [Happy](https://github.com/slopus/happy)。
+> 它拥有自己的 App 构建、CLI 包、发布链路、Roadmap 和官网。GitHub 保留的 fork 关系用于历史署名，
+> 不代表 Paws 需要持续同步上游。
 
 ## 🚀 快速开始
 
@@ -65,7 +65,7 @@ daemon 常驻后，App 可以远程在这台电脑上直接拉起全新会话，
 ## 🐾 为什么选 Paws？
 
 - 📱 **随时随地遥控编程 Agent** —— 支持 Claude Code、Codex、Gemini、OpenCode 及其他 ACP 兼容 Agent
-- 🔔 **可靠的推送通知** —— Android 直连 FCM，App 在前台时也照常弹通知
+- 🔔 **可靠的推送通知** —— Android 由 FCM 承载、当前经 Expo Push 服务投递，App 在前台时也照常弹通知
 - 🖼️ **完整的图片工作流** —— 新建会话即可附图、HEIC 自动转换、全屏图片查看器
 - ⚡ **一键切换设备** —— 手机接管或键盘任意键收回，无缝衔接
 - 🔐 **端到端加密** —— 同步服务器只中转密文，代码与对话内容全程私密
@@ -91,13 +91,13 @@ Claude Code / Codex / Gemini / OpenCode / ACP 兼容 Agent
 CLI 包裹住 Agent 的终端会话：平时在电脑上照常使用；从手机接管时自动切到远程模式，
 在键盘上按任意键即可收回控制权。
 
-## ✨ 相比上游 Happy 有哪些不同？
+## ✨ Paws 增加了什么？
 
 | 方向 | Paws 的做法 |
 |------|------------|
 | **品牌** | 土拨鼠吉祥物、`Paws` 应用名、专属启动页与吉祥物联动主题色 |
 | **CLI 分发** | 以 [`@wangjs-jacky/paws`](https://www.npmjs.com/package/@wangjs-jacky/paws) 发布到 npm，CI 走 trusted publishing |
-| **Android 推送** | 从 Expo Push 迁移到**直连 FCM**；前台也弹通知，点击直达会话 |
+| **Android 推送** | Android 使用 FCM 承载，当前服务端经 Expo Push 服务投递；前台也弹通知，点击直达会话 |
 | **图片能力** | 恢复图片上传、新建会话首屏附件、全屏查看器、HEIC 归一化（视觉模型可读） |
 | **OTA 更新** | 自建 OTA 链路，`preview` / `production` 双频道、每个 PR 自动出预览包，配套[版本浏览站](https://wangjs-jacky.github.io/happy-ota-site/)扫码锁定任意历史版本 |
 | **附加能力** | 基于个人 Markdown 笔记的健康打卡面板、桌面截图采集、会话 attach 命令，以及持续不断的体验修复 |
@@ -134,7 +134,7 @@ paws claude
 
 Paws 源自 [slopus](https://github.com/slopus) 团队的 [**Happy**](https://github.com/slopus/happy)
 —— 一个非常出色、慷慨采用 MIT 协议的开源项目。npm 上的 `happy` 包以及 App Store / Play
-商店中的 Happy 应用均属上游；本 fork 使用自己的 CLI（`@wangjs-jacky/paws`）与自己的 App 构建。
+商店中的 Happy 应用均属原项目；Paws 使用自己的 CLI（`@wangjs-jacky/paws`）与自己的 App 构建。
 
 ## 📄 许可证
 

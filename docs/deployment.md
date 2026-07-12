@@ -1,6 +1,6 @@
-# Deployment
+# Paws Server Deployment
 
-This document describes how to deploy the Happy backend (`packages/happy-server`) and the infrastructure it expects.
+This document describes how to deploy the Paws-compatible backend (`packages/happy-server`) and the infrastructure it expects. The published workspace package remains `happy-server-self-host`.
 
 ## Runtime overview
 - **App server:** Node.js running `tsx ./sources/main.ts` (Fastify + Socket.IO).
@@ -67,11 +67,11 @@ The deployment config expects:
 
 ## Local dev helpers
 The server package includes scripts for local infrastructure:
-- `pnpm --filter happy-server db` (Postgres in Docker)
-- `pnpm --filter happy-server redis`
-- `pnpm --filter happy-server s3` + `s3:init`
+- `pnpm --filter happy-server-self-host db` (Postgres in Docker)
+- `pnpm --filter happy-server-self-host redis`
+- `pnpm --filter happy-server-self-host s3` + `s3:init`
 
-Use `.env`/`.env.dev` to load local settings when running `pnpm --filter happy-server dev`.
+Use `.env`/`.env.dev` to load local settings when running `pnpm --filter happy-server-self-host dev`.
 
 ## Implementation references
 - Entrypoint: `packages/happy-server/sources/main.ts`

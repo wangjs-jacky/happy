@@ -1,103 +1,63 @@
-# Privacy Policy for Happy Coder
+# Paws Privacy Policy
 
-**Last Updated: January 2025**
+**Last updated: July 13, 2026**
 
 ## Overview
 
-Happy Coder is committed to protecting your privacy. This policy explains how we handle your data with our zero-knowledge encryption architecture.
+Paws is an open-source remote-control client for AI coding agents. It is designed so that session content is encrypted on Paws clients before it is stored or relayed by a compatible sync server. You may use the default configured service or operate your own server; the operator of the infrastructure you choose controls its retention, access logs, backups, and network metadata.
 
-## What We Collect
+This policy describes the Paws software in this repository. Third-party AI providers, push providers, analytics services, GitHub, npm, and infrastructure operators have their own terms and privacy policies.
 
-### Encrypted Data
-- **Messages and Code**: All your Claude Code conversations and code snippets are end-to-end encrypted on your device before transmission. We store this encrypted data but have no ability to decrypt or read it.
-- **Encryption Keys**: When you pair devices, encryption keys are transmitted between your devices in encrypted form. We cannot access or decrypt these keys.
+## Data Handled by Paws
 
-### Metadata (Not Encrypted)
-- **Message IDs**: Unique identifiers for message ordering and synchronization
-- **Timestamps**: When messages were created and synced
-- **Device IDs**: Anonymous identifiers for device pairing
-- **Session IDs**: Identifiers for your Claude Code terminal sessions
-- **Push Notification Tokens**: Device tokens for sending push notifications via Expo's push notification service
+### Encrypted session data
 
-### Analytics (PostHog)
-- **Anonymous Events**: We collect basic app usage events through PostHog to improve the app experience
-- **Privacy by Design**: All analytics events use an anonymized ID derived from a secret key - we cannot match this back to any user or account
-- **No Content Tracking**: We only track basic app usage events, never any message content, code, or personal information
-- **Opt-Out Available**: You can disable analytics collection at any time in the app settings
+Depending on the feature, Paws may synchronize encrypted messages, session state, machine state, metadata, settings, artifacts, and attachments. Encryption keys are created and held by paired clients. A compatible relay server stores and forwards encrypted payloads without needing the plaintext session content.
 
-### Subscription Management (Revenue Cat)
-- **Account ID**: Revenue Cat uses your account ID to manage subscriptions and enable premium features
-- **Backend Integration**: This ID allows us to provide additional features from our backend while maintaining end-to-end encryption for your content
-- **Data Separation**: Purchase analytics sent to PostHog use the anonymized ID instead - we cannot match Revenue Cat data with PostHog analytics
+The AI agent or provider you choose must receive the prompts, files, tool results, or other content required to perform your request. End-to-end encryption between Paws clients and the sync server does not prevent the selected local agent or third-party model provider from processing that content.
 
-## What We Don't Collect
-- Your actual code or conversation content (we can't decrypt it)
-- Personal information beyond what you voluntarily include in encrypted messages
-- Device information beyond anonymous IDs
-- Location data
+### Operational metadata
 
-## How We Use Data
+The service may process operational data needed to route and synchronize records, including account or public-key identifiers, record IDs, sequence numbers, timestamps, session and machine identifiers, connection state, IP/network logs, and push-registration tokens. Some metadata is not encrypted because the service needs it for routing, ordering, abuse prevention, or delivery.
 
-### Encrypted Data
-- Stored on our servers solely for synchronization between your devices
-- Transmitted to your paired devices when requested
-- Retained until you delete it through the app
+### Analytics
 
-### Metadata
-- Message IDs and timestamps are used to maintain proper message ordering
-- Device IDs enable secure pairing between your devices
-- Session IDs track your Claude Code terminal sessions for synchronization
-- Push notification tokens are stored to enable notifications through Expo's service
+Paws can use PostHog for anonymous product analytics when an analytics key is configured. Analytics events are intended to exclude message content, source code, prompts, and files. Users can disable analytics in App settings, and self-hosted deployments can disable analytics through configuration.
 
-### Push Notifications
-Push notifications are sent directly from your devices to each other, not from our backend. This means:
-- We never see the content of your notifications
-- Notification content is generated on your device
-- Only device-to-device communication occurs for notification content
-- We use Expo's push notification service solely as a delivery mechanism
+### Push notifications
 
-## Data Security
+Current Paws Android builds use Firebase Cloud Messaging (FCM), with token registration and server delivery currently routed through Expo Push services. Push tokens and delivery metadata may therefore be processed by the configured Paws server, Expo, and Google/Firebase. Notification payloads should not be treated as a place for sensitive source code or full conversation content.
 
-- **End-to-End Encryption**: Using TweetNaCl (same as Signal) for all sensitive data
-- **Zero-Knowledge**: We cannot decrypt your data even if compelled
-- **Secure Key Exchange**: Encryption keys are transmitted between your devices only in encrypted form that we cannot access
-- **Open Source**: Our encryption implementation is publicly auditable
-- **No Backdoors**: The architecture makes it impossible for us to access your content
+### Optional integrations
 
-## Data Retention
+Features such as voice, GitHub integration, object storage, or paid third-party services may send the minimum required data to the service selected by the user or deployment operator. Those services are outside the Paws encryption boundary and are governed by their own policies.
 
-- Encrypted messages are retained indefinitely until you delete them
-- Metadata is retained for system functionality
-- Deleted data is permanently removed from our servers within 30 days
+## What Paws Does Not Intend to Collect
 
-## Your Rights
+Paws does not require the sync server to read plaintext conversations or source code. The project does not intentionally use message or file contents for advertising or sell personal data. This does not override data handling performed by an AI provider, integration, infrastructure operator, or service you configure.
 
-You have the right to:
-- Delete all your data through the app
-- Export your encrypted data
-- Audit our open-source code
-- Use the app without providing any personal information
+## Retention and Deletion
 
-## Data Sharing
+Retention depends on the server and storage configuration. Deleting a session or account requests deletion through the configured service, but infrastructure backups, object-storage lifecycle rules, and service logs may have separate retention windows. Self-hosters are responsible for their own database, object-storage, log, backup, and deletion policies.
 
-We do not share your data with anyone. Period.
+## Security
 
-## Changes to This Policy
+Paws uses client-side cryptography and authenticated synchronization protocols, but no software can guarantee absolute security. Keep local key material, agent credentials, provider tokens, server secrets, and devices protected. Review release notes before upgrades and report suspected vulnerabilities privately when possible.
 
-We will notify users of any material changes to this privacy policy through the app. Continued use of the service after changes constitutes acceptance.
+## Your Choices
+
+You can:
+
+- self-host the Paws-compatible sync server;
+- disable analytics in App settings;
+- choose which AI agents and external integrations to use;
+- delete sessions and other records through available product controls;
+- inspect, modify, and build the open-source code.
+
+## Changes
+
+Material changes to this policy should be published with the repository or application release. Continued use after an update means the updated policy applies to subsequent use.
 
 ## Contact
 
-For privacy concerns or questions:
-- GitHub Issues: https://github.com/slopus/happy/issues
-
-## Compliance
-
-Happy Coder is designed with privacy by default and complies with:
-- GDPR (General Data Protection Regulation)
-- CCPA (California Consumer Privacy Act)
-- Privacy by Design principles
-
----
-
-**Remember**: Your encryption keys are only shared between your own devices in encrypted form. We cannot read your code or conversations even if we wanted to.
+For privacy questions or reports, open an issue at <https://github.com/wangjs-jacky/happy/issues>. Avoid including secrets, private source code, credentials, or unredacted logs in public issues.

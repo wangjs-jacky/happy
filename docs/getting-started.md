@@ -1,7 +1,8 @@
-# Happy / Paws Getting Started
+# Paws Getting Started
 
-This guide is for people who want to use this Happy/Paws fork, connect a
-computer, run the daemon, or self-host the sync server. It starts with the
+This guide is for people who want to use Paws, connect a computer, run the
+daemon, or self-host the sync server. Paws is independently maintained; its
+historical GitHub fork relationship does not change the installation path. It starts with the
 shortest path to a working setup and then covers source installs, server
 options, app builds, and troubleshooting.
 
@@ -9,9 +10,9 @@ It intentionally documents the public, reusable path only. Private local auth
 wrappers and machine-specific infrastructure scripts do not belong in this
 guide.
 
-## What Happy Does
+## What Paws Does
 
-Happy lets you control AI coding agents from another device. You run the
+Paws lets you control AI coding agents from another device. You run the
 `paws` CLI on a computer that has access to your code, then use the mobile or
 web app to watch progress, send instructions, handle permission prompts, and
 start new sessions while that computer is online.
@@ -21,11 +22,11 @@ Mobile / Web App
     |
     |  HTTP + WebSocket, end-to-end encrypted payloads
     v
-Happy Server
+Paws-compatible Sync Server
     |
     |  encrypted sync, machine presence, session state
     v
-happy CLI / daemon on your computer
+paws CLI / daemon on your computer
     |
     v
 Claude Code / Codex / Gemini / OpenCode / ACP-compatible agents
@@ -34,29 +35,22 @@ Claude Code / Codex / Gemini / OpenCode / ACP-compatible agents
 Important terms:
 
 - **App**: the remote control UI on mobile, web, or desktop.
-- **CLI**: the `happy` command you run on the machine with your project.
+- **CLI**: the `paws` command you run on the machine with your project. `happy` is retained as a compatibility alias.
 - **daemon**: the background process that keeps the machine available for
   remote session creation.
 - **server**: the sync relay. It stores and forwards encrypted records but does
   not need plaintext access to your conversations.
-- **Paws**: this fork's app branding. Production builds are named `Paws`; dev
-  and preview builds are named `Paws (dev)` and `Paws (preview)`.
+- **Paws**: the product and repository described by this guide. Production builds are named `Paws`; dev and preview builds are named `Paws (dev)` and `Paws (preview)`.
 
 ## Which Path Should I Use?
 
 | Goal | Use this path |
 |------|---------------|
-| Try the official upstream Happy package | Install the public `happy` npm package and use the official Happy app. |
-| Use this Paws fork exactly as developed here | Install the Paws app build and link the CLI from this repository source. |
+| Use Paws | Install the Paws APK and the public `@wangjs-jacky/paws` CLI package. |
 | Run your own relay server | Start with `paws server` for a single-machine test, then use Docker for a shared server. |
 | Contribute code | Create a worktree from `main`, install pnpm dependencies, and run package-specific checks. |
 
-The fork CLI package in this repo is named `@wangjs-jacky/paws`, but it is not
-published to npm. To get fork-specific behavior, build and link it from source,
-then use `paws` as the primary command. The `happy` command is kept as a
-compatibility alias because upstream docs and older habits still use that name.
-The old `happy-coder` package is obsolete on npm and should not be used for new
-installs.
+The CLI is published as `@wangjs-jacky/paws`. It installs `paws` as the primary command and also exposes `happy` for compatibility with existing scripts, configuration, and internal paths.
 
 ## Repository Map
 
@@ -80,7 +74,7 @@ Use this path if you want one phone or browser to control one computer.
 
 ### 1. Download the App
 
-For this fork, Android APK builds are published on GitHub Releases:
+Paws Android APK builds are published on GitHub Releases:
 
 - Releases page: <https://github.com/wangjs-jacky/happy/releases>
 - Latest GitHub-marked release: <https://github.com/wangjs-jacky/happy/releases/latest>
@@ -93,15 +87,13 @@ Notes:
 
 - GitHub's "Latest" marker is the safest default for normal users. Specialty
   releases can be newer but may require matching server or native configuration.
-- If you use the official upstream Happy app instead of a Paws APK, pair it with
-  the official upstream CLI package. The deep-link scheme must match between app
-  and CLI.
+- App and CLI builds must use the same `paws://` pairing scheme.
 - For self-hosting, the app and CLI must point to the same server URL.
 
 ### 2. Install the Agent CLI
 
-Happy wraps an existing coding-agent CLI. Install and sign in to the one you
-want to use before starting Happy.
+Paws wraps an existing coding-agent CLI. Install and sign in to the one you
+want to use before starting Paws.
 
 ```bash
 # Claude Code
@@ -119,40 +111,19 @@ npm install -g @google/gemini-cli
 gemini --version
 ```
 
-If the underlying agent cannot run by itself, Happy cannot fix that. Confirm
+If the underlying agent cannot run by itself, Paws cannot fix that. Confirm
 the agent is installed and authenticated first.
 
-### 3. Install the Happy CLI
+### 3. Install the Paws CLI
 
-For this fork, build and link the CLI from source:
+Install the public package:
 
 ```bash
-git clone https://github.com/wangjs-jacky/happy.git
-cd happy
-git switch main
-
-corepack enable
-pnpm install
-pnpm --filter @wangjs-jacky/paws build
-
-cd packages/happy-cli
-npm link
-
+npm install -g @wangjs-jacky/paws
 paws --version
 ```
 
-Use `paws` for this fork. `npm link` may also expose `happy`, but that name is a
-compatibility alias and is easy to confuse with the upstream public npm package.
-
-If you are using the upstream public app and do not need fork-specific behavior,
-you can install the public npm package instead:
-
-```bash
-npm install -g happy
-```
-
-Do not use `happy-coder` for new installs. The package name migrated to
-`happy`, and `happy-coder` is an old compatibility package.
+Use `paws` in new documentation and scripts. The installed `happy` command is a compatibility alias. Contributors who need to test unpublished source changes can use the source-link workflow under [Developing From Source](#developing-from-source).
 
 ### 4. Point CLI and App at the Same Server
 
@@ -258,7 +229,7 @@ If daemon state is badly stuck during local development, use:
 paws doctor clean
 ```
 
-That kills Happy-related daemon/session processes, so do not run it if you need
+That kills Paws-related daemon/session processes, so do not run it if you need
 to preserve active local sessions.
 
 ## Server Options
@@ -431,6 +402,15 @@ git switch main
 pnpm install
 ```
 
+To make the current source checkout your global development CLI:
+
+```bash
+pnpm --filter @wangjs-jacky/paws build
+cd packages/happy-cli
+npm link
+paws --version
+```
+
 ### Static Checks
 
 App:
@@ -489,7 +469,6 @@ Current app metadata is defined in `packages/happy-app/app.config.js`:
 |-------|-------|
 | Slug | `paws` |
 | App version | `1.7.1` |
-| Runtime version | `21` |
 | Production app name | `Paws` |
 | Preview app name | `Paws (preview)` |
 | Development app name | `Paws (dev)` |
@@ -497,13 +476,13 @@ Current app metadata is defined in `packages/happy-app/app.config.js`:
 | Preview package / bundle ID | `build.paws.preview` |
 | Development package / bundle ID | `build.paws.dev` |
 
-OTA channel mapping:
+Runtime and channel mapping:
 
-| `APP_ENV` | OTA channel |
-|-----------|-------------|
-| `development` | `preview` |
-| `preview` | `preview` |
-| `production` | `production` |
+| `APP_ENV` | OTA channel | Runtime version |
+|-----------|-------------|-----------------|
+| `development` | `preview` | `21` |
+| `preview` | `preview` | `21` |
+| `production` | `production` | `22` |
 
 Only JavaScript-compatible changes should be delivered by OTA. Native
 dependencies, permissions, Expo plugins, package IDs, update URLs, and runtime
@@ -544,7 +523,7 @@ Check:
 - App and CLI are from matching builds.
 - Both sides point to the same server.
 - Fork builds expect `paws://terminal?...` terminal pairing links.
-- Official upstream builds may use a different app scheme.
+- Paws builds expect the `paws://` app scheme.
 
 ### Auth Opens the Wrong Web App
 
@@ -577,14 +556,11 @@ Common causes:
 
 ### CLI Package Looks Too Old
 
-Use `happy`, not `happy-coder`, for the upstream npm package:
-
 ```bash
-npm view happy version
-npm install -g happy@latest
+npm view @wangjs-jacky/paws version
+npm install -g @wangjs-jacky/paws@latest
+paws --version
 ```
-
-For this fork, rebuild and relink from `packages/happy-cli`.
 
 ### Push Notifications Do Not Arrive
 
@@ -626,7 +602,7 @@ Read these next:
 
 Before giving this setup to another user or teammate:
 
-- [ ] They know whether they are using the official upstream package or this fork from source.
+- [ ] They installed the Paws App and `@wangjs-jacky/paws` CLI from compatible releases.
 - [ ] They know which server they should use.
 - [ ] Their phone or browser can reach that server.
 - [ ] Their app and CLI use matching pairing schemes.
