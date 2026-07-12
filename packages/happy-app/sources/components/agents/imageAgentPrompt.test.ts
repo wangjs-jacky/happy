@@ -96,6 +96,8 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('garden-gpt-image-2/image/');
         expect(prompt).toContain('mcp__happy__send_image');
         expect(prompt).toContain('完整 prompt 和 batchId');
+        expect(prompt).toContain('~/.codex/generated_images/<任务 id>/');
+        expect(prompt).toContain('不要在未检查该目录前声称');
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
 
