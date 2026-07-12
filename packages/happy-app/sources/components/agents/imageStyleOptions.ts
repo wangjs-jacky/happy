@@ -1,4 +1,5 @@
 import {
+    IMAGE_AGENT_FIRST_REQUEST_RULES,
     IMAGE_AGENT_STYLE_PRESETS,
     getImageAgentStyleLabel,
     normalizeImageAgentVariantCount,
@@ -59,6 +60,8 @@ export function buildImageStyleContinuationPrompt(
         '- 这是同一个批处理的并发锁，只用于避免两个图片任务同时运行，不限制多风格生成。',
         '- 请在同一个批处理中依次完成下面所有选中风格，不要拆成多个新任务。',
         '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
+        '',
+        ...IMAGE_AGENT_FIRST_REQUEST_RULES,
         '',
         '输入：优先使用当前会话中最近一次生成的图片作为视觉参考；如果不可用，使用最近一次上传或生成的相关图片作为参考。',
         '用户目标：基于当前结果继续生成下面选中的 GPT Image Gallery 风格。',

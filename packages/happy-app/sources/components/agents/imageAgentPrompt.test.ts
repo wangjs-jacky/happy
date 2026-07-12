@@ -99,6 +99,26 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('使用乳制品参考照片，并保留盘子的形状。');
     });
 
+    it('optimizes only reference transport before the first native image request', () => {
+        const prompt = buildImageAgentPrompt({
+            agent,
+            userPrompt: '保留完整风格和主体细节。',
+            imageCount: 6,
+            styleReferenceImageCount: 3,
+            userImageCount: 3,
+        });
+
+        expect(prompt).toContain('首次请求优化');
+        expect(prompt).toContain('第一次调用 native image_gen 前');
+        expect(prompt).toContain('1024–1536px');
+        expect(prompt).toContain('风格、身份、文字、产品细节等敏感参考图使用 1536px');
+        expect(prompt).toContain('不要放大小于目标尺寸的原图');
+        expect(prompt).toContain('只合并风格参考图');
+        expect(prompt).toContain('连续等待 8 分钟');
+        expect(prompt).toContain('同一个 batchId 内重试一次');
+        expect(prompt).toContain('不得减少参考信息、缩短风格分析、简化完整 prompt 或降低最终生成质量');
+    });
+
     it('puts user styles above built-in gallery styles and uses reference images until prompt extraction is ready', () => {
         const customStyles = [{
             id: 'user-reference/u1',
