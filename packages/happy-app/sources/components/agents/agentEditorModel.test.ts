@@ -30,6 +30,16 @@ describe('buildAgentForSave', () => {
         expect(agent.spaceType).toBe('default');
     });
 
+    it('preserves an existing health space type when the edited path looks like work', () => {
+        const existing = makeAgent({ spaceType: 'health', path: '~/健康打卡' });
+        const agent = buildAgentForSave({
+            existing,
+            agent: { ...existing, path: '~/work' },
+        });
+
+        expect(agent.spaceType).toBe('health');
+    });
+
     it('infers the space type once when creating a new Agent', () => {
         const healthAgent = makeAgent({ path: '~/健康打卡' });
         const workAgent = makeAgent({ id: 'agent-2', path: '~/work' });
