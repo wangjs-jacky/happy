@@ -24,6 +24,11 @@ function isRootPath(path: string): boolean {
     return uncParts.length <= 2;
 }
 
+function isUncShareRoot(path: string): boolean {
+    return path.startsWith('//')
+        && path.slice(2).split('/').filter(Boolean).length === 2;
+}
+
 /**
  * Produces the stable path identity shared by saved Agents and live sessions.
  * Windows drive and UNC identities are case-insensitive; POSIX identities retain case.
@@ -49,7 +54,9 @@ export function canonicalizeAgentPath(path: string | null | undefined, homeDir?:
         ? `//${normalized.replace(/^\/+/, '').replace(/\/{2,}/g, '/')}`
         : normalized.replace(/\/{2,}/g, '/');
 
-    if (!isRootPath(normalized)) {
+    if (isUncShareRoot(normalized)) {
+        normalized = `${normalized.replace(/\/+$/, '')}/`;
+    } else if (!isRootPath(normalized)) {
         normalized = normalized.replace(/\/+$/, '');
     }
 

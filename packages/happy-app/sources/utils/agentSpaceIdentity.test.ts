@@ -39,8 +39,16 @@ it('canonicalizes a tilde UNC home root identically to the direct root', () => {
     expect(fromTilde).toBe(direct);
 });
 
+it('canonicalizes a tilde UNC home without a trailing separator as a share root', () => {
+    const fromTilde = canonicalizeAgentPath('~', '\\\\Server\\Share');
+    const direct = canonicalizeAgentPath('\\\\Server\\Share\\', 'C:\\Users\\Jacky');
+
+    expect(fromTilde).toBe('//server/share/');
+    expect(fromTilde).toBe(direct);
+});
+
 it('collapses three or more leading separators to the canonical UNC prefix', () => {
-    expect(canonicalizeAgentPath('////Server///Share', undefined)).toBe('//server/share');
+    expect(canonicalizeAgentPath('////Server///Share', undefined)).toBe('//server/share/');
 });
 
 it('prefers agentSpaceId among duplicate canonical candidates', () => {
