@@ -40,4 +40,14 @@ describe('imageStyleOptions', () => {
             expect(prompt).toContain(style.promptHint);
         }
     });
+
+    it('keeps the first-request transport policy for continuation batches', () => {
+        const prompt = buildImageStyleContinuationPrompt(IMAGE_AGENT_STYLE_PRESETS.slice(0, 1));
+
+        expect(prompt).toContain('首次请求优化');
+        expect(prompt).toContain('第一次调用 native image_gen 前');
+        expect(prompt).toContain('连续等待 8 分钟');
+        expect(prompt).toContain('同一个 batchId 内重试一次');
+        expect(prompt).toContain('不得减少参考信息、缩短风格分析、简化完整 prompt 或降低最终生成质量');
+    });
 });
