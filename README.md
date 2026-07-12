@@ -1,94 +1,144 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="/.github/logotype-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="/.github/logotype-light.png">
-    <img src="/.github/logotype-dark.png" width="400" alt="Happy">
-  </picture>
-</div>
+  <img src="/.github/paws-mascot.jpg" width="300" alt="Paws mascot — a marmot in a paw-print hoodie">
 
-<h1 align="center">
-  Mobile and Web Client for Claude Code & Codex
-</h1>
+  <h1>Paws</h1>
 
-<h4 align="center">
-Use Claude Code or Codex from anywhere with end-to-end encryption.
-</h4>
+  <h4>Control the AI coding agents running on your computer — right from your phone.</h4>
 
-> Fork note: for Paws-specific APK download, source CLI install, daemon startup,
-> and self-hosting instructions, start with
-> [docs/getting-started.zh-CN.md](docs/getting-started.zh-CN.md) or
-> [docs/getting-started.md](docs/getting-started.md). The public
-> `npm install -g happy` package tracks upstream Happy; this fork's CLI is built
-> from `packages/happy-cli` and should be used as `paws` by default. The
-> `happy` commands below are the upstream quick start.
+  <p>
+    Run <code>paws claude</code> or <code>paws codex</code> on your computer, then watch progress,
+    send instructions and approve permissions from the mobile or web app.<br>
+    End-to-end encrypted. Fully self-hostable.
+  </p>
 
-<div align="center">
+[![npm](https://img.shields.io/npm/v/%40wangjs-jacky%2Fpaws?label=%40wangjs-jacky%2Fpaws&color=f59e0b)](https://www.npmjs.com/package/@wangjs-jacky/paws)
+[![Android APK](https://img.shields.io/github/v/release/wangjs-jacky/happy?label=Android%20APK&color=34d399)](https://github.com/wangjs-jacky/happy/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[📱 **iOS App**](https://apps.apple.com/us/app/happy-claude-code-client/id6748571505) • [🤖 **Android App**](https://play.google.com/store/apps/details?id=com.ex3ndr.happy) • [🌐 **Web App**](https://app.happy.engineering) • [🎥 **See a Demo**](https://youtu.be/GCS0OG9QMSE) • [📚 **Documentation**](https://happy.engineering/docs/) • [💬 **Discord**](https://discord.gg/fX9WBAhyfD)
+[🌐 **Website**](https://paws-landing-eo4.pages.dev) • [📱 **Android APK**](https://github.com/wangjs-jacky/happy/releases) • [📦 **CLI on npm**](https://www.npmjs.com/package/@wangjs-jacky/paws) • [📚 **Getting Started**](docs/getting-started.md) • [🇨🇳 **中文**](README_CN.md)
 
 </div>
 
-<img width="5178" height="2364" alt="github" src="/.github/header.png" />
+---
 
+> **Paws** is an independently maintained, heavily customized fork of
+> [Happy](https://github.com/slopus/happy) — rebranded with its own app builds, CLI package,
+> self-hosted OTA pipeline and website. Everything documented here refers to **this fork**;
+> for upstream credits see [Acknowledgements](#-acknowledgements).
 
-<h3 align="center">
-Step 1: Download App
-</h3>
+## 🚀 Quick Start
 
-<div align="center">
-<a href="https://apps.apple.com/us/app/happy-claude-code-client/id6748571505"><img width="135" height="39" alt="appstore" src="https://github.com/user-attachments/assets/45e31a11-cf6b-40a2-a083-6dc8d1f01291" /></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=com.ex3ndr.happy"><img width="135" height="39" alt="googleplay" src="https://github.com/user-attachments/assets/acbba639-858f-4c74-85c7-92a4096efbf5" /></a>
-</div>
-
-<h3 align="center">
-Step 2: Install CLI on your computer
-</h3>
+**1. Install the CLI on your computer**
 
 ```bash
-npm install -g happy
+npm install -g @wangjs-jacky/paws
 ```
 
-> Migrated from the `happy-coder` package. Thanks to [@franciscop](https://github.com/franciscop) for donating the `happy` package name!
+This provides the `paws` and `happy` commands (plus `paws-mcp` / `happy-mcp` for MCP integration).
 
-<h3 align="center">
-Step 3: Start using `happy` instead of `claude` or `codex`
-</h3>
+**2. Get the app on your phone**
+
+Download the latest **Android APK** from [GitHub Releases](https://github.com/wangjs-jacky/happy/releases)
+(arm64, sideload install). A web app is also bundled with the self-hosted server.
+
+**3. Wrap your agent and pair**
 
 ```bash
-# Instead of claude, use:
-happy claude
+# Instead of claude / codex, run:
+paws claude
 # or
-happy codex
+paws codex
 ```
 
-## How does it work?
+Scan the QR code with the app to pair — from then on the session is mirrored to your phone.
 
-On your computer, run `happy` instead of `claude` or `happy codex` instead of `codex` to start your AI through our wrapper. When you want to control your coding agent from your phone, it restarts the session in remote mode. To switch back to your computer, just press any key on your keyboard.
+**4. (Optional) Let your phone start new sessions**
 
-## 🔥 Why Happy Coder?
+```bash
+paws daemon start
+```
 
-- 📱 **Mobile access to Claude Code and Codex** - Check what your AI is building while away from your desk
-- 🔔 **Push notifications** - Get alerted when Claude Code and Codex needs permission or encounters errors
-- ⚡ **Switch devices instantly** - Take control from phone or desktop with one keypress
-- 🔐 **End-to-end encrypted** - Your code never leaves your devices unencrypted
-- 🛠️ **Open source** - Audit the code yourself. No telemetry, no tracking
+With the daemon running, the app can spawn fresh sessions on this machine remotely — no desk visit needed.
+
+For source installs, server options, app builds and troubleshooting, read the
+[Getting Started guide](docs/getting-started.md) ([中文版](docs/getting-started.zh-CN.md)).
+
+## 🐾 Why Paws?
+
+- 📱 **Remote control for your coding agents** — Claude Code, Codex, Gemini, OpenCode and other ACP-compatible agents
+- 🔔 **Reliable push notifications** — direct FCM on Android, and alerts fire even while the app is in the foreground
+- 🖼️ **Full image workflow** — attach images when creating a session, HEIC auto-normalization, fullscreen image viewer
+- ⚡ **Switch devices instantly** — take over from phone or desktop with one keypress
+- 🔐 **End-to-end encrypted** — the sync server only ever relays ciphertext; your code and conversations stay private
+- 🏠 **Fully self-hostable** — run your own sync server (Docker, zero-config PGlite) *and* your own OTA update channel
+
+## 🔧 How It Works
+
+```text
+Mobile / Web App
+    |
+    |  HTTP + WebSocket, end-to-end encrypted payloads
+    v
+Sync Server (self-hosted or upstream)
+    |
+    |  encrypted sync, machine presence, session state
+    v
+paws CLI / daemon on your computer
+    |
+    v
+Claude Code / Codex / Gemini / OpenCode / ACP-compatible agents
+```
+
+The CLI wraps your agent's terminal session. Keep working locally as usual; when you pick the
+session up from your phone it seamlessly switches to remote mode, and any keypress on your
+keyboard takes it back.
+
+## ✨ What's Different from Upstream Happy?
+
+| Area | Paws |
+|------|------|
+| **Branding** | Marmot mascot, `Paws` app name, splash & mascot-linked theme |
+| **CLI distribution** | Published on npm as [`@wangjs-jacky/paws`](https://www.npmjs.com/package/@wangjs-jacky/paws) with trusted-publishing CI |
+| **Android push** | Migrated from Expo Push to **direct FCM**; notifications also shown in-foreground, tap to jump into the session |
+| **Images** | Restored image upload, first-screen attachments, fullscreen viewer, HEIC normalization for vision models |
+| **OTA updates** | Self-hosted OTA pipeline with `preview` / `production` channels, per-PR preview builds, and a [version browser site](https://wangjs-jacky.github.io/happy-ota-site/) to pin any historical build via QR code |
+| **Extras** | Health check-in dashboard fed by your own Markdown notes, desktop screenshot capture, session attach command, and a steady stream of UX fixes |
 
 ## 📦 Project Components
 
-- **[Happy App](https://github.com/slopus/happy/tree/main/packages/happy-app)** - Web UI + mobile client (Expo)
-- **[Happy CLI](https://github.com/slopus/happy/tree/main/packages/happy-cli)** - Command-line interface for Claude Code and Codex
-- **[Happy Agent](https://github.com/slopus/happy/tree/main/packages/happy-agent)** - Remote agent control CLI (create, send, monitor sessions)
-- **[Happy Server](https://github.com/slopus/happy/tree/main/packages/happy-server)** - Backend server for encrypted sync
+| Package | What it is |
+|---------|------------|
+| [`packages/happy-app`](packages/happy-app) | Mobile + web client (Expo) — ships as the **Paws** app |
+| [`packages/happy-cli`](packages/happy-cli) | The `paws` CLI — wraps Claude Code / Codex, daemon, MCP tools |
+| [`packages/happy-server`](packages/happy-server) | Self-hostable sync server with bundled web app |
+| [`packages/happy-agent`](packages/happy-agent) | CLI for controlling agents remotely (create, send, monitor) |
+| [`packages/happy-wire`](packages/happy-wire) | Shared wire types & Zod schemas |
 
-## 🏠 Who We Are
+Related repositories:
 
-We're engineers scattered across Bay Area coffee shops and hacker houses, constantly checking how our AI coding agents are progressing on our pet projects during lunch breaks. Happy Coder was born from the frustration of not being able to peek at our AI coding tools building our side hustles while we're away from our keyboards. We believe the best tools come from scratching your own itch and sharing with the community.
+- [`paws-landing`](https://github.com/wangjs-jacky/paws-landing) — the [product website](https://paws-landing-eo4.pages.dev), built with an AI-driven design → deploy pipeline
+- [`happy-ota-site`](https://github.com/wangjs-jacky/happy-ota-site) — OTA version browser (scan a QR to pin a build)
 
-## 📚 Documentation & Contributing
+## 🏠 Self-Hosting
 
-- **[Documentation Website](https://happy.engineering/docs/)** - Learn how to use Happy Coder effectively
-- **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute, PR guidelines, and development setup
-- **[Edit docs at github.com/slopus/slopus.github.io](https://github.com/slopus/slopus.github.io)** - Help improve our documentation and guides
+The sync server is a single Docker container with zero-config embedded PGlite (or external
+PostgreSQL). Point the CLI and app at it and the loop is closed — nothing leaves your network:
 
-## License
+```bash
+export HAPPY_SERVER_URL=http://your-server:3005
+paws claude
+```
 
-MIT License - see [LICENSE](LICENSE) for details.
+See the [Getting Started guide](docs/getting-started.md) and the
+[intranet deployment manual](docs/selfhost-intranet-deploy.md) for full instructions.
+
+## 🙏 Acknowledgements
+
+Paws began as a fork of [**Happy**](https://github.com/slopus/happy) by the
+[slopus](https://github.com/slopus) team — a brilliant piece of engineering, generously MIT-licensed.
+The `happy` package on npm and the Happy apps in the App Store / Play Store belong to upstream;
+this fork ships its own CLI (`@wangjs-jacky/paws`) and its own app builds.
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE) for details.
