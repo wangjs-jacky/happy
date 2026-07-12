@@ -1,0 +1,101 @@
+name: CLI npm publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/happy-cli/**'
+      - 'packages/happy-wire/**'
+      - '.github/workflows/cli-npm-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Read package version
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./packages/happy-cli/package.json').version")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing candidate: @wangjs-jacky/paws@${VERSION}"
+
+      - name: Check npm version
+        id: npm
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view "@wangjs-jacky/paws@${{ steps.pkg.outputs.version }}" version --json >/tmp/paws-version.json 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "@wangjs-jacky/paws@${{ steps.pkg.outputs.version }} already exists on npm."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "@wangjs-jacky/paws@${{ steps.pkg.outputs.version }} is not on npm yet."
+          fi
+
+      - name: Guard - npm token present
+        if: steps.npm.outputs.exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::Missing NPM_TOKEN repository secret; cannot publish @wangjs-jacky/paws."
+            exit 1
+          fi
+
+      - name: Build package
+        if: steps.npm.outputs.exists == 'false'
+        run: pnpm --filter @wangjs-jacky/paws build
+
+      - name: Publish package
+        if: steps.npm.outputs.exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @wangjs-jacky/paws publish --access public --no-git-checks
+
+      - name: Verify published package
+        if: steps.npm.outputs.exists == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            PUBLISHED="$(npm view @wangjs-jacky/paws version --json 2>/dev/null | tr -d '"')"
+            if [ "$PUBLISHED" = "${{ steps.pkg.outputs.version }}" ]; then
+              echo "Verified @wangjs-jacky/paws@${PUBLISHED} on npm."
+              exit 0
+            fi
+            echo "npm latest is ${PUBLISHED:-unknown}; waiting for ${{ steps.pkg.outputs.version }} (attempt ${attempt}/24)"
+            sleep 5
+          done
+          echo "::error::Published package did not appear on npm as latest."
+          exit 1
+
+      - name: Report skipped publish
+        if: steps.npm.outputs.exists == 'true'
+        run: echo "Skipped publish because @wangjs-jacky/paws@${{ steps.pkg.outputs.version }} already exists on npm."
