@@ -1950,6 +1950,14 @@ export const zhHans: TranslationStructure = {
         deleteFailed: "删除推送令牌失败。",
     },
 
+    agentSpace: {
+        exit: '退出空间',
+        badge: '专属空间',
+        quickPrompts: '快捷指令',
+        sessionsTitle: '本空间会话',
+        newSession: '在此空间新建会话',
+        empty: '本空间还没有会话',
+    },
     agents: {
         cardTitle: '我的 Agent',
         add: '添加',

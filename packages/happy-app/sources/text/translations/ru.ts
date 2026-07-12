@@ -1410,6 +1410,14 @@ export const ru: TranslationStructure = {
         deleteFailed: "Не удалось удалить push-токен.",
     },
 
+    agentSpace: {
+        exit: 'Выйти из пространства',
+        badge: 'Личное пространство',
+        quickPrompts: 'Быстрые команды',
+        sessionsTitle: 'Сессии в этом пространстве',
+        newSession: 'Новая сессия в этом пространстве',
+        empty: 'В этом пространстве пока нет сессий',
+    },
     agents: {
         cardTitle: 'Мои агенты',
         add: 'Добавить',

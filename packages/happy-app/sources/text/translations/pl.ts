@@ -1411,6 +1411,14 @@ export const pl: TranslationStructure = {
         deleteFailed: "Nie udało się usunąć tokena push.",
     },
 
+    agentSpace: {
+        exit: 'Wyjdź z przestrzeni',
+        badge: 'Przestrzeń osobista',
+        quickPrompts: 'Szybkie polecenia',
+        sessionsTitle: 'Sesje w tej przestrzeni',
+        newSession: 'Nowa sesja w tej przestrzeni',
+        empty: 'Brak sesji w tej przestrzeni',
+    },
     agents: {
         cardTitle: 'Moi agenci',
         add: 'Dodaj',

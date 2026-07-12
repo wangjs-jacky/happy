@@ -1481,6 +1481,14 @@ export const zhHant: TranslationStructure = {
         deleteFailed: "刪除推播權杖失敗。",
     },
 
+    agentSpace: {
+        exit: '退出空間',
+        badge: '專屬空間',
+        quickPrompts: '快捷指令',
+        sessionsTitle: '本空間會話',
+        newSession: '在此空間新建會話',
+        empty: '本空間還沒有會話',
+    },
     agents: {
         cardTitle: '我的 Agent',
         add: '新增',

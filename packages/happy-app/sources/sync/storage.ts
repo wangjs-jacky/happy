@@ -1517,6 +1517,27 @@ export function useAllSessions(): Session[] {
     }));
 }
 
+const EMPTY_AGENT_SPACE_SESSIONS: Session[] = [];
+
+/**
+ * 「Agent 空间模式」的本空间会话列表：按 machineId+path 过滤出属于该空间的会话，活跃优先、
+ * 再按创建时间倒序。两段式（先 useShallow 选出稳定的 Session[]，再 useMemo 映射成行数据）避免
+ * 每次 storage 变更都重建行对象、触发多余渲染。machineId/path 缺失时返回空列表。
+ */
+export function useAgentSpaceSessions(machineId: string | null, path: string | null): SessionRowData[] {
+    const sessions = storage(useShallow((state) => {
+        if (!machineId || !path || !state.isDataReady) return EMPTY_AGENT_SPACE_SESSIONS;
+        return Object.values(state.sessions)
+            .filter((s) => s.metadata?.machineId === machineId && s.metadata?.path === path)
+            .sort((a, b) => (isSessionActive(b) ? 1 : 0) - (isSessionActive(a) ? 1 : 0) || b.createdAt - a.createdAt);
+    }));
+    const unreadSessionIds = storage((state) => state.unreadSessionIds);
+    return React.useMemo(
+        () => sessions.map((s) => buildSessionRowData(s, unreadSessionIds)),
+        [sessions, unreadSessionIds],
+    );
+}
+
 export function useLocalSettingMutable<K extends keyof LocalSettings>(name: K): [LocalSettings[K], (value: LocalSettings[K]) => void] {
     const setValue = React.useCallback((value: LocalSettings[K]) => {
         storage.getState().applyLocalSettings({ [name]: value });

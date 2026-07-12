@@ -1383,6 +1383,14 @@ export const ja: TranslationStructure = {
         deleteFailed: "プッシュトークンの削除に失敗しました。",
     },
 
+    agentSpace: {
+        exit: 'スペースを出る',
+        badge: '専用スペース',
+        quickPrompts: 'クイックプロンプト',
+        sessionsTitle: 'このスペースのセッション',
+        newSession: 'このスペースで新規セッション',
+        empty: 'このスペースにはまだセッションがありません',
+    },
     agents: {
         cardTitle: 'マイエージェント',
         add: '追加',
