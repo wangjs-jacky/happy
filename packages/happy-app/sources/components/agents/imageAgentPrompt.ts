@@ -80,7 +80,13 @@ export function createUserImageStylePreset(style: UserImageStyle): ImageAgentSty
         promptPath: `user-reference/${style.id}.md`,
         sourceCaseId: style.id,
         sourceRepository: 'user-reference',
-        referenceImages: shouldUseUserImageStyleReferenceImages(style) ? style.referenceImages : [],
+        // Always carry the reference images so the gallery card can render its
+        // thumbnail. Whether to actually SEND them as attachments (vs. using the
+        // extracted text prompt) is a separate decision made on the raw style via
+        // shouldUseUserImageStyleReferenceImages — see ComposeHome's
+        // selectedCustomReferenceImages. Gating this field too used to blank the
+        // thumbnail the moment a prompt was extracted (prompt-ready).
+        referenceImages: style.referenceImages,
         analysisStatus: style.analysisStatus,
         analysisError: style.analysisError,
         customPromptContent: style.promptContent,

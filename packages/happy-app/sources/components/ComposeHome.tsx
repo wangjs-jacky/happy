@@ -50,6 +50,7 @@ import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyle
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
+import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
 import type { UserImageStyle } from './agents/imageStyleTypes';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 import { Modal } from '@/modal';
@@ -424,6 +425,40 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             return;
         }
 
+        // Normalize + validate the reference images BEFORE spawning a Codex session.
+        // The CLI drops any attachment that isn't a vision-readable format, so a style
+        // built from HEIC references would otherwise spawn a session that silently
+        // receives no images and returns a confusing "no reference image detected".
+        // Doing it here also repairs older styles whose references predate the fix.
+        const attachments: AttachmentPreview[] = [];
+        for (const image of style.referenceImages) {
+            try {
+                const normalized = await normalizeImageForUpload(image.uri, image.width, image.height);
+                attachments.push({
+                    id: image.id,
+                    uri: normalized.uri,
+                    width: normalized.width,
+                    height: normalized.height,
+                    mimeType: normalized.mimeType,
+                    size: normalized.size,
+                    name: image.name,
+                    thumbhash: image.thumbhash,
+                });
+            } catch {
+                // Unreadable/unconvertible reference — skip it.
+            }
+        }
+
+        if (attachments.length === 0) {
+            updateCustomImageStyle(style.id, (current) => ({
+                ...current,
+                analysisStatus: 'failed',
+                analysisError: t('agents.customImageStyleNoReadableImages'),
+                updatedAt: Date.now(),
+            }));
+            return;
+        }
+
         try {
             const pathToUse = (selectedPath ?? '').trim() || '~';
             const absolutePath = resolveAbsolutePath(pathToUse, selectedMachine.metadata?.homeDir);
@@ -444,16 +479,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 analysisSessionId: result.sessionId,
                 analysisError: undefined,
                 updatedAt: Date.now(),
-            }));
-            const attachments = style.referenceImages.map((image) => ({
-                id: image.id,
-                uri: image.uri,
-                width: image.width,
-                height: image.height,
-                mimeType: image.mimeType,
-                size: image.size,
-                name: image.name,
-                thumbhash: image.thumbhash,
             }));
             await sync.sendMessage(result.sessionId, buildCustomImageStyleAnalysisPrompt(style.title), {
                 source: 'new_session',

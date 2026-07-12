@@ -11,6 +11,11 @@ vi.mock('@/modal', () => ({
 vi.mock('@/utils/thumbhash', () => ({
     generateThumbhash: vi.fn(),
 }));
+// Stub the normalizer so importing the hook doesn't pull in expo-image-manipulator
+// (→ expo-modules-core, which references __DEV__ and blows up in the node test env).
+vi.mock('@/utils/normalizeImageForUpload', () => ({
+    normalizeImageForUpload: vi.fn(),
+}));
 vi.mock('@/text', () => ({
     t: (key: string) => key,
 }));

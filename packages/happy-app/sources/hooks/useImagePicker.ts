@@ -14,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
+import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
 import { t } from '@/text';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 
@@ -71,7 +72,7 @@ export function useImagePicker(): UseImagePickerResult {
             mediaTypes: ['images'], // expo-image-picker ~55: MediaTypeOptions deprecated
             allowsMultipleSelection: true,
             selectionLimit: remaining,
-            quality: 1, // no recompression — preserve original for Claude
+            quality: 1, // don't let the picker recompress — normalizeImageForUpload handles format
             exif: false,
         });
 
@@ -80,11 +81,32 @@ export function useImagePicker(): UseImagePickerResult {
         // On web, selectionLimit is not enforced by the browser — clamp here.
         const assets = result.assets.slice(0, remaining);
         const previews: AttachmentPreview[] = [];
+        // Images whose bytes couldn't be read or transcoded to a vision-readable
+        // format. Surface these instead of silently dropping them, otherwise the
+        // model later reports "no image" for an attachment the user clearly added.
+        let unreadableCount = 0;
 
         for (const asset of assets) {
-            const size = asset.fileSize ?? 0;
+            if ((asset.fileSize ?? 0) > MAX_FILE_SIZE) {
+                Modal.alert(
+                    t('imageUpload.fileTooLargeTitle'),
+                    t('imageUpload.fileTooLargeMessage', { name: asset.fileName ?? 'image', maxMb: 10 }),
+                    [{ text: t('common.ok') }],
+                );
+                continue;
+            }
 
-            if (size > MAX_FILE_SIZE) {
+            // Normalize to a format the vision models can decode (HEIC/HEIF → JPEG),
+            // and read the true byte size (the picker often reports 0).
+            let normalized;
+            try {
+                normalized = await normalizeImageForUpload(asset.uri, asset.width, asset.height);
+            } catch {
+                unreadableCount++;
+                continue;
+            }
+
+            if (normalized.size > MAX_FILE_SIZE) {
                 Modal.alert(
                     t('imageUpload.fileTooLargeTitle'),
                     t('imageUpload.fileTooLargeMessage', { name: asset.fileName ?? 'image', maxMb: 10 }),
@@ -94,20 +116,28 @@ export function useImagePicker(): UseImagePickerResult {
             }
 
             // Skip thumbhash if dimensions are unavailable (prevents divide-by-zero).
-            const thumbhash = (asset.width > 0 && asset.height > 0)
-                ? await generateThumbhash(asset.uri, asset.width, asset.height)
+            const thumbhash = (normalized.width > 0 && normalized.height > 0)
+                ? await generateThumbhash(normalized.uri, normalized.width, normalized.height)
                 : undefined;
 
             previews.push({
                 id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-                uri: asset.uri,
-                width: asset.width,
-                height: asset.height,
-                mimeType: asset.mimeType ?? 'image/jpeg',
-                size,
+                uri: normalized.uri,
+                width: normalized.width,
+                height: normalized.height,
+                mimeType: normalized.mimeType,
+                size: normalized.size,
                 name: asset.fileName ?? `image_${Date.now()}.jpg`,
                 thumbhash,
             });
+        }
+
+        if (unreadableCount > 0) {
+            Modal.alert(
+                t('imageUpload.normalizeFailedTitle'),
+                t('imageUpload.normalizeFailedMessage', { count: unreadableCount }),
+                [{ text: t('common.ok') }],
+            );
         }
 
         if (previews.length > 0) {
