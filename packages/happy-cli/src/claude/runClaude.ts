@@ -8,7 +8,8 @@ import { AgentState, Metadata } from '@/api/types';
 import packageJson from '../../package.json';
 import { Credentials, readSettings } from '@/persistence';
 import { EnhancedMode, PermissionMode } from './loop';
-import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
+import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath } from '@/api/mediaAttachment';
 import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
@@ -492,8 +493,17 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     session.onFileEvent((fileEvent) => {
         const ev = fileEvent.content.data.ev;
         logger.debug(`[loop] File event received: ${ev.name} (${ev.size} bytes, ref: ${ev.ref})`);
-        const downloadPromise = (async (): Promise<{ data: Uint8Array; mimeType: string; name: string } | null> => {
+        const downloadPromise = (async (): Promise<PendingAttachment | null> => {
             try {
+                // Plaintext audio/video lane: stream to disk, never into memory,
+                // and carry only the local path to the prompt.
+                if (isPlaintextMediaEvent(ev)) {
+                    const kind = resolveMediaKind(ev);
+                    const destPath = stagedMediaPath(ev, new Date().toISOString(), 0);
+                    await session.streamAttachmentToDisk(ev.ref, destPath);
+                    logger.debug(`[loop] Streamed ${kind} attachment to ${destPath} (${ev.size} bytes)`);
+                    return { kind, localPath: destPath, size: ev.size, mimeType: ev.mimeType ?? 'application/octet-stream', name: ev.name };
+                }
                 const decrypted = await session.downloadAndDecryptAttachment(ev.ref);
                 if (!decrypted) {
                     logger.debug(`[loop] Failed to decrypt attachment: ${ev.name}`);

@@ -28,6 +28,7 @@ import {
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
 import { readImageSize } from './imageSize';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
 import axios from 'axios';
 
 function redactPresignedUrl(url: string): string {
@@ -157,7 +158,7 @@ export class ApiSessionClient extends EventEmitter {
      * null on failure), so per-message ownership is intrinsic — there is no
      * shared push-array between batches that a late download could leak into.
      */
-    private pendingDownloads: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>[] = [];
+    private pendingDownloads: Promise<PendingAttachment | null>[] = [];
     readonly rpcHandlerManager: RpcHandlerManager;
     /**
      * 会话内截图临时缓存：由 client 持有，构造时即 new，时序最早。
@@ -504,7 +505,7 @@ export class ApiSessionClient extends EventEmitter {
      * events that arrive after the swap go into a fresh bucket bound to the
      * next user-text message.
      */
-    trackAttachmentDownload(promise: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>): void {
+    trackAttachmentDownload(promise: Promise<PendingAttachment | null>): void {
         this.pendingDownloads.push(promise);
     }
 
@@ -513,12 +514,12 @@ export class ApiSessionClient extends EventEmitter {
      * to resolve, and return the successful ones. The swap-then-await order
      * guarantees that a late-arriving file event cannot leak into this batch.
      */
-    async drainAttachmentsForUserMessage(): Promise<Array<{ data: Uint8Array; mimeType: string; name: string }>> {
+    async drainAttachmentsForUserMessage(): Promise<PendingAttachment[]> {
         const downloads = this.pendingDownloads;
         this.pendingDownloads = [];
         if (downloads.length === 0) return [];
         const results = await Promise.all(downloads);
-        return results.filter((x): x is { data: Uint8Array; mimeType: string; name: string } => x !== null);
+        return results.filter((x): x is PendingAttachment => x !== null);
     }
 
     private authHeaders() {
