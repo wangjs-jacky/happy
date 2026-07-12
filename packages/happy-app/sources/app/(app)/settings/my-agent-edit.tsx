@@ -15,10 +15,11 @@ import { entityColor } from '@/components/entityColor';
 import { Modal } from '@/modal';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import type { AgentLauncher, AgentPreset } from '@/components/agents/launchAgent';
+import type { AgentPreset } from '@/components/agents/launchAgent';
 import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
 import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
+import { buildAgentForSave } from '@/components/agents/agentEditorModel';
 
 type AgentKind = 'standard' | 'image-styles';
 const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
@@ -135,20 +136,23 @@ export default React.memo(function AgentEditScreen() {
             .filter((p) => p.label.length > 0 || p.prompt.length > 0);
 
         const id = existing?.id ?? randomUUID();
-        const agent: AgentLauncher = {
-            id,
-            name: trimmedName,
-            glyph: firstGlyph(trimmedName),
-            color: existing?.color ?? entityColor(id),
-            machineId,
-            path: path.trim() || '~',
-            kind,
-            imageStyleIds: kind === 'image-styles'
-                ? (imageStyleIds.length > 0 ? imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
-                : [],
-            imageVariantsPerStyle: kind === 'image-styles' ? imageVariantsPerStyle : 1,
-            presets: kind === 'image-styles' ? [] : cleanedPresets,
-        };
+        const agent = buildAgentForSave({
+            existing,
+            agent: {
+                id,
+                name: trimmedName,
+                glyph: firstGlyph(trimmedName),
+                color: existing?.color ?? entityColor(id),
+                machineId,
+                path: path.trim() || '~',
+                kind,
+                imageStyleIds: kind === 'image-styles'
+                    ? (imageStyleIds.length > 0 ? imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
+                    : [],
+                imageVariantsPerStyle: kind === 'image-styles' ? imageVariantsPerStyle : 1,
+                presets: kind === 'image-styles' ? [] : cleanedPresets,
+            },
+        });
 
         // Preserve order on edit (replace in place); append when new.
         setAgents(

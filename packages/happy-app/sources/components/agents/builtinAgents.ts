@@ -66,6 +66,7 @@ export function createAppBuilderAgent(options: {
         machineId: machine.id,
         path: options.preferredPath || machine.metadata?.homeDir || '~',
         kind: 'standard',
+        spaceType: 'default',
         imageStyleIds: [],
         imageVariantsPerStyle: 1,
         presets: [

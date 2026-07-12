@@ -31,6 +31,7 @@ export function createBuiltinImageStyleAgent(): AgentLauncher {
         path: '~',
         presets: [],
         kind: 'image-styles',
+        spaceType: 'default',
         imageStyleIds: DEFAULT_IMAGE_STYLE_IDS,
         imageVariantsPerStyle: 1,
     };
