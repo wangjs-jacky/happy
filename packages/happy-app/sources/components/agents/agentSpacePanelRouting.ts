@@ -1,6 +1,5 @@
 import type { AgentLauncher } from './launchAgent';
 
-export type SessionRightPanel = 'capability-hub' | 'companion';
 export type SessionRightPanelSelection =
     | { type: 'capability-hub' }
     | { type: 'companion'; agent: AgentLauncher };
@@ -8,14 +7,6 @@ export type SessionRightPanelSelection =
 type SessionQuickPromptComposer = {
     setMessage: (prompt: string) => void;
 };
-
-export function selectSessionRightPanel({
-    spaceAgent,
-}: {
-    spaceAgent: AgentLauncher | null;
-}): SessionRightPanel {
-    return spaceAgent ? 'companion' : 'capability-hub';
-}
 
 export function resolveSessionRightPanel({
     spaceAgent,

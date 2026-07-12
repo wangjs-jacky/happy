@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentLauncher } from './launchAgent';
 import { matchAgentForSession } from '@/utils/agentSpaceIdentity';
-import { selectSessionRightPanel } from './agentSpacePanelRouting';
+import { resolveSessionRightPanel } from './agentSpacePanelRouting';
 
 function makeAgent(overrides: Partial<AgentLauncher> = {}): AgentLauncher {
     return {
@@ -20,13 +20,15 @@ function makeAgent(overrides: Partial<AgentLauncher> = {}): AgentLauncher {
     };
 }
 
-describe('selectSessionRightPanel', () => {
+describe('resolveSessionRightPanel', () => {
     it('keeps the capability hub for an unmatched session', () => {
-        expect(selectSessionRightPanel({ spaceAgent: null })).toBe('capability-hub');
+        expect(resolveSessionRightPanel({ spaceAgent: null })).toEqual({ type: 'capability-hub' });
     });
 
     it.each(['health', 'default'] as const)('uses the companion panel for a %s Agent space', (spaceType) => {
-        expect(selectSessionRightPanel({ spaceAgent: makeAgent({ spaceType }) })).toBe('companion');
+        const agent = makeAgent({ spaceType });
+
+        expect(resolveSessionRightPanel({ spaceAgent: agent })).toEqual({ type: 'companion', agent });
     });
 
     it('routes a tilde Agent after canonical matching finds its absolute session cwd', () => {
@@ -38,6 +40,6 @@ describe('selectSessionRightPanel', () => {
             homeDir: '/Users/jacky',
         });
 
-        expect(selectSessionRightPanel({ spaceAgent })).toBe('companion');
+        expect(resolveSessionRightPanel({ spaceAgent })).toEqual({ type: 'companion', agent: spaceAgent });
     });
 });
