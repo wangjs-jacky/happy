@@ -7,6 +7,7 @@
  * and let it run ffmpeg/whisper. These helpers decide the kind, pick a safe
  * on-disk filename, and format the prompt notice.
  */
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { configuration } from '@/configuration';
 import type { MediaAttachment } from '@/utils/MessageQueue2';
@@ -56,6 +57,38 @@ export function stagedMediaPath(ev: MediaFileEvent, stamp: string, index: number
     const safeStamp = stamp.replace(/[:.]/g, '-');
     const fileName = ext ? `${safeStamp}-${index}-${base}.${ext}` : `${safeStamp}-${index}-${base}`;
     return join(configuration.attachmentsDir, fileName);
+}
+
+/**
+ * Persist already-decrypted media bytes to the attachments dir and build the
+ * MediaAttachment. Used for the encrypted media lane (audio/video that travelled
+ * the same E2E path as images): the CLI decrypts into memory, writes to disk,
+ * and hands the model the local path. `stamp`/`index` keep concurrent downloads
+ * from colliding.
+ */
+export async function buildMediaAttachmentFromBytes(
+    ev: MediaFileEvent,
+    bytes: Uint8Array,
+    stamp: string,
+    index: number,
+): Promise<MediaAttachment> {
+    const kind = resolveMediaKind(ev);
+    const destPath = stagedMediaPath(ev, stamp, index);
+    await writeFile(destPath, bytes);
+    return {
+        kind,
+        localPath: destPath,
+        size: bytes.length,
+        mimeType: ev.mimeType ?? 'application/octet-stream',
+        name: ev.name,
+    };
+}
+
+/** Whether a file event is an audio/video attachment (by kind or mimeType). */
+export function isMediaFileEvent(ev: MediaFileEvent): boolean {
+    if (ev.kind === 'audio' || ev.kind === 'video') return true;
+    const mime = (ev.mimeType ?? '').toLowerCase();
+    return mime.startsWith('audio/') || mime.startsWith('video/');
 }
 
 function humanSize(bytes: number): string {

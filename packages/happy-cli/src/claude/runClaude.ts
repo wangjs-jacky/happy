@@ -9,7 +9,7 @@ import packageJson from '../../package.json';
 import { Credentials, readSettings } from '@/persistence';
 import { EnhancedMode, PermissionMode } from './loop';
 import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
-import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath } from '@/api/mediaAttachment';
+import { isPlaintextMediaEvent, resolveMediaKind, stagedMediaPath, isMediaFileEvent, buildMediaAttachmentFromBytes } from '@/api/mediaAttachment';
 import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
@@ -510,6 +510,14 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                     return null;
                 }
                 logger.debug(`[loop] Attachment decrypted: ${ev.name} (${decrypted.length} bytes)`);
+                // Encrypted media lane: audio/video that travelled the E2E path
+                // (like images) — write the decrypted bytes to disk and hand the
+                // model the local path instead of feeding it as an image.
+                if (isMediaFileEvent(ev)) {
+                    const media = await buildMediaAttachmentFromBytes(ev, decrypted, new Date().toISOString(), 0);
+                    logger.debug(`[loop] Staged ${media.kind} attachment to ${media.localPath} (${media.size} bytes)`);
+                    return media;
+                }
                 return { data: decrypted, mimeType: ev.mimeType ?? 'image/jpeg', name: ev.name };
             } catch (error) {
                 logger.debug(`[loop] Failed to download attachment: ${ev.name}`, { error });

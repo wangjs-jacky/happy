@@ -57,7 +57,7 @@ import {
 } from './sessionEventLocalNotification';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
-import { requestAttachmentUpload, uploadEncryptedBlob, uploadMediaFile } from './apiAttachments';
+import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
 import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
@@ -533,29 +533,14 @@ class Sync {
         for (const attachment of attachments) {
             try {
                 const kind = attachment.kind ?? 'image';
-                if (kind === 'audio' || kind === 'video') {
-                    // Plaintext media lane: stream from disk to a presigned PUT,
-                    // never reading the (up to 500MB) file into memory.
-                    const upload = await requestAttachmentUpload(
-                        this.credentials,
-                        sessionId,
-                        attachment.name,
-                        attachment.size,
-                        kind,
-                    );
-                    await uploadMediaFile(upload, attachment.uri, attachment.mimeType, this.credentials);
-                    uploaded.push({
-                        ref: upload.ref,
-                        name: attachment.name,
-                        size: attachment.size,
-                        width: 0,
-                        height: 0,
-                        kind,
-                        mimeType: attachment.mimeType,
-                    });
-                    continue;
-                }
+                const isMedia = kind === 'audio' || kind === 'video';
 
+                // Media (audio/video) reuses the exact E2E-encrypted transport as
+                // images — proven end-to-end against the current server. The only
+                // difference is the file event tags `kind` so the terminal writes
+                // the decrypted bytes to disk and injects the path (instead of
+                // feeding it as an image). Bounded by the server's size limit;
+                // plaintext OSS streaming (500MB) is a future server+OSS upgrade.
                 const bytes = await readFileBytes(attachment.uri);
                 const encrypted = encryptBlob(bytes, blobKey);
 
@@ -573,9 +558,11 @@ class Sync {
                     ref,
                     name: attachment.name,
                     size: attachment.size,
-                    width: attachment.width,
-                    height: attachment.height,
-                    thumbhash: attachment.thumbhash,
+                    width: isMedia ? 0 : attachment.width,
+                    height: isMedia ? 0 : attachment.height,
+                    thumbhash: isMedia ? undefined : attachment.thumbhash,
+                    kind: isMedia ? kind : undefined,
+                    mimeType: isMedia ? attachment.mimeType : undefined,
                 });
             } catch (err) {
                 console.error(`[attachments] Failed to upload ${attachment.name}:`, err);
@@ -665,12 +652,12 @@ class Sync {
                                     ref: att.ref,
                                     name: att.name,
                                     size: att.size,
-                                    // Media lane travels plaintext: tag kind + encrypted:false +
-                                    // real mimeType so the terminal streams it to disk (no decrypt)
-                                    // and hands the model the local path. Images omit these and
-                                    // stay on the encrypted path (encrypted defaults to true).
+                                    // Media (audio/video) travels the same encrypted path as
+                                    // images; we only tag kind + real mimeType so the terminal
+                                    // writes the decrypted bytes to disk and hands the model the
+                                    // local path. `encrypted` stays default-true (omitted).
                                     ...(att.kind === 'audio' || att.kind === 'video'
-                                        ? { kind: att.kind, encrypted: false, ...(att.mimeType ? { mimeType: att.mimeType } : {}) }
+                                        ? { kind: att.kind, ...(att.mimeType ? { mimeType: att.mimeType } : {}) }
                                         : {}),
                                     // Include image metadata when we have dimensions; thumbhash is
                                     // optional. The native iOS picker can't generate a thumbhash

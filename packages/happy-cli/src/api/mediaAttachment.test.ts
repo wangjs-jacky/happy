@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFile, rm } from 'node:fs/promises';
 import {
     isPlaintextMediaEvent,
     resolveMediaKind,
     stagedMediaPath,
     formatMediaAttachmentNotice,
+    isMediaFileEvent,
+    buildMediaAttachmentFromBytes,
     type MediaFileEvent,
 } from './mediaAttachment';
 import { buildCodexInput } from '@/codex/codexImageInput';
@@ -73,6 +76,34 @@ describe('formatMediaAttachmentNotice', () => {
         expect(notice).toContain('/tmp/v.mp3');
         expect(notice).toContain('3.0MB');
         expect(notice).toMatch(/ffmpeg|whisper/);
+    });
+});
+
+describe('isMediaFileEvent', () => {
+    it('detects by kind or mimeType, false for images', () => {
+        expect(isMediaFileEvent(ev({ kind: 'audio' }))).toBe(true);
+        expect(isMediaFileEvent(ev({ mimeType: 'video/mp4' }))).toBe(true);
+        expect(isMediaFileEvent(ev({ mimeType: 'image/png' }))).toBe(false);
+        expect(isMediaFileEvent(ev({}))).toBe(false);
+    });
+});
+
+describe('buildMediaAttachmentFromBytes', () => {
+    it('writes decrypted bytes to disk and returns a MediaAttachment with the path', async () => {
+        const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+        const att = await buildMediaAttachmentFromBytes(
+            ev({ name: 'voice.mp3', mimeType: 'audio/mpeg', kind: 'audio' }),
+            bytes,
+            '2026-07-13T00:00:00Z',
+            0,
+        );
+        expect(att.kind).toBe('audio');
+        expect(att.size).toBe(5);
+        expect(att.mimeType).toBe('audio/mpeg');
+        expect(att.localPath).toMatch(/voice\.mp3$/);
+        const written = await readFile(att.localPath);
+        expect(Array.from(written)).toEqual([1, 2, 3, 4, 5]);
+        await rm(att.localPath, { force: true });
     });
 });
 

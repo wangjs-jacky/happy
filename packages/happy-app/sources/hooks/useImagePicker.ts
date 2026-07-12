@@ -22,7 +22,9 @@ import type { AttachmentPreview, AttachmentKind } from '@/sync/attachmentTypes';
 
 export const MAX_IMAGES_PER_MESSAGE = 50;
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
-export const MAX_MEDIA_FILE_SIZE = 500 * 1024 * 1024; // 500MB — audio/video lane
+// Media currently reuses the encrypted transport (server-capped at 50MB). The
+// 500MB plaintext-OSS lane is a future server+OSS upgrade.
+export const MAX_MEDIA_FILE_SIZE = 50 * 1024 * 1024; // 50MB — audio/video lane
 
 export type { AttachmentPreview };
 
