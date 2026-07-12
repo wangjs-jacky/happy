@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 import { claudeFindLastSession } from '@/claude/utils/claudeFindLastSession';
 import { ensureDaemonRunning } from '@/daemon/ensureDaemonRunning';
@@ -56,6 +56,28 @@ function formatAttachHelp(): string {
   ].join('\n');
 }
 
+export function getSlashCommandInstallPaths(options: { homeDir?: string } = {}): string[] {
+  const homeDir = options.homeDir ?? homedir();
+  return [
+    resolve(homeDir, '.claude', 'skills', 'paws', 'SKILL.md'),
+    resolve(homeDir, '.codex', 'skills', 'paws', 'SKILL.md'),
+    resolve(homeDir, '.agents', 'skills', 'paws', 'SKILL.md'),
+  ];
+}
+
+export async function isSlashCommandInstalled(options: { homeDir?: string } = {}): Promise<boolean> {
+  const paths = getSlashCommandInstallPaths(options);
+  const contents = await Promise.all(paths.map(async (path) => {
+    try {
+      return await readFile(path, 'utf8');
+    } catch {
+      return null;
+    }
+  }));
+
+  return contents.every((content) => content?.includes('happy attach --json'));
+}
+
 function readOption(args: string[], name: string): string | undefined {
   const eqPrefix = `${name}=`;
   const eq = args.find((arg) => arg.startsWith(eqPrefix));
@@ -80,12 +102,7 @@ function resolvePath(pathValue: string, cwd: string): string {
 }
 
 export async function installSlashCommand(options: { homeDir?: string } = {}): Promise<string[]> {
-  const homeDir = options.homeDir ?? homedir();
-  const paths = [
-    resolve(homeDir, '.claude', 'skills', 'paws', 'SKILL.md'),
-    resolve(homeDir, '.codex', 'skills', 'paws', 'SKILL.md'),
-    resolve(homeDir, '.agents', 'skills', 'paws', 'SKILL.md'),
-  ];
+  const paths = getSlashCommandInstallPaths(options);
 
   for (const path of paths) {
     await mkdir(dirname(path), { recursive: true });
