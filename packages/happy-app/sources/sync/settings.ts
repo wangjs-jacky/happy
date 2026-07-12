@@ -254,11 +254,21 @@ export function mergeServerSettings(
     pendingSettings: Partial<Settings>,
     rawServerSettings: unknown,
 ): Settings {
-    const pendingHasAgents = hasOwnField(pendingSettings, 'agents');
-    const serverHasAgents = hasOwnField(rawServerSettings, 'agents');
-    const baseSettings = !pendingHasAgents && !serverHasAgents && currentSettings.agents.length > 0
-        ? { ...serverSettings, agents: currentSettings.agents }
-        : serverSettings;
+    // Fields stored in the whole-blob account settings must NOT be wiped when an
+    // incoming payload simply OMITS them — e.g. an older/other client that predates
+    // the field, or a reload/resync race. Without this guard, the server blob's
+    // absence of the field silently drops the user's local data. `agents` already
+    // had this protection; `customImageStyles` needs the same, otherwise a resync
+    // (e.g. right after an OTA reload) can erase every saved custom style.
+    // An explicit value from the server (even []) still wins, so intentional
+    // cross-device changes/deletes keep propagating.
+    let baseSettings: Settings = serverSettings;
+    if (!hasOwnField(pendingSettings, 'agents') && !hasOwnField(rawServerSettings, 'agents') && currentSettings.agents.length > 0) {
+        baseSettings = { ...baseSettings, agents: currentSettings.agents };
+    }
+    if (!hasOwnField(pendingSettings, 'customImageStyles') && !hasOwnField(rawServerSettings, 'customImageStyles') && currentSettings.customImageStyles.length > 0) {
+        baseSettings = { ...baseSettings, customImageStyles: currentSettings.customImageStyles };
+    }
 
     return Object.keys(pendingSettings).length > 0
         ? applySettings(baseSettings, pendingSettings)
