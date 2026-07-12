@@ -58,7 +58,7 @@ spawn 成功后，`navigateToSession` 是同步导航调用。调用前保存旧
 
 - 从空间工作台点击已有空间会话：直接打开，不新建。
 - 用户显式点击“在此空间新建会话”：复用同一个空间入口协调器，新建空白空间会话并共享并发保护。
-- 工作台原有 preset 芯片继续表示“以这个 preset 开始一条新会话”；它同样复用协调器，但在 spawn 成功后把 preset 写入新会话 composer，不自动发送。右侧陪伴面板动作则写入当前会话 composer。
+- 工作台原有 preset 芯片继续表示“以这个 preset 开始一条新会话”；它同样复用协调器。协调器在 spawn 成功、导航之前调用 `storage.getState().updateSessionDraft(sessionId, preset.prompt)`，目标会话的 `useDraft` 因而能在首次挂载时恢复文本，不依赖已卸载的工作台拿 composer ref，也不自动发送。右侧陪伴面板动作则写入当前已挂载会话的 composer。
 - 在一个已属于该空间的会话中打开空间工作台：只打开工作台，不新建。
 
 ### 4.4 退出空间
@@ -164,9 +164,11 @@ Agent 编辑保存时也用同一 canonical key 阻止新增重复的 `machineId
 
 ### 6.3 稳定的空间 provider 标识
 
-持久化 Agent schema 增加必填的 `spaceType: 'default' | 'health'`。`health` 是决定健康报告与健康陪伴 provider 的唯一稳定标识；展示组件不再调用 `path.includes('健康打卡')`。
+持久化 Agent 的共享 `AgentLauncherListSchema` 增加 `spaceType: z.enum(['default', 'health']).default('default')`。解析后的 `AgentLauncher` 类型中该字段必有值。`health` 是决定健康报告与健康陪伴 provider 的唯一稳定标识；展示组件不再调用 `path.includes('健康打卡')`。
 
-为了保留当前已经存在的健康打卡 Agent，在 `LocalSettingsSchema` 解析之前对原始 `settings.agents` 做一次确定性预处理：旧记录没有 `spaceType` 且现有 `isHealthCheckinSession(path)` 命中时补为 `health`，其余补为 `default`，再交给带必填 `spaceType` 的 Zod schema。补全后的值在下次 agents 设置写入时持久化；之后即使路径改名，provider 仍由 `spaceType` 决定。
+为了保留当前已经存在的健康打卡 Agent，在 `LocalSettingsSchema` 解析之前对原始 `settings.agents` 做一次确定性预处理：旧记录没有 `spaceType` 且现有 `isHealthCheckinSession(path)` 命中时补为 `health`，其余补为 `default`，再交给共享 Zod schema。补全后的值在下次 agents 设置写入时持久化；之后即使路径改名，provider 仍由 `spaceType` 决定。
+
+`AgentLauncherListSchema` 也被旧的同步 `SettingsSchema.agents` 复用，因此共享字段必须保留 `.default('default')`，确保旧同步 settings 不因缺字段整体解析失败。旧同步字段只是兼容数据，不参与运行时空间 provider；健康迁移只对运行时真源 `localSettings.agents` 的 raw 数据执行。
 
 Agent 编辑器保存时：编辑现有 Agent 必须保留 `existing.spaceType`；新建 Agent 才按当前 `isHealthCheckinSession(path)` 进行一次初始推断。该启发式只负责给没有显式类型的新/旧数据赋初值，不参与运行时 provider 路由。本期不新增用户可见的类型选择器，避免把内部 provider 配置扩成设置功能。
 
@@ -236,6 +238,8 @@ type AgentSpaceCompanionModel = {
 - 面板关闭并完成动画后调用 composer handle 的 `setTextAndSelection` 与 `focus`，光标位于提示词末尾；读屏焦点顺序回到输入区。
 - 首版不注册 Tips 横向 Pan gesture，只用分页点手动切换，确保不与 `RightSwipePanelHost` 的关闭手势竞争。
 
+为提供稳定的动画完成边界，`RightSwipePanelContextValue.closePanel` 做向后兼容的最小扩展：`closePanel(onClosed?: () => void): void`。`RightSwipePanelHost` 只在 `withSpring(0)` 的 completion 收到 `finished === true`、且完成 `setOpen(false)` 后调用一次 `onClosed`；现有无参数调用保持不变。健康快捷指令把 composer 填充与 focus 放进该回调，测试不使用任意 timeout 猜动画结束。
+
 ## 9. 国际化
 
 所有用户可见文案通过 `t(...)` 获取。英文运行时与 key 类型的真源是 `sources/text/_default.ts`，必须先更新它；再同步 `sources/text/translations/` 下的全部语言文件（包括当前未被 `text/index.ts` 直接导入的 `en.ts`，以及 `ru`、`pl`、`es`、`ca`、`it`、`pt`、`ja`、`zh-Hans`、`zh-Hant`）。健康 Tips 与动作标题/提示词也属于用户可见文案，不在组件中硬编码。
@@ -249,6 +253,7 @@ type AgentSpaceCompanionModel = {
 - `canonicalizeAgentPath` 表驱动覆盖 `~` 展开、POSIX 尾斜杠、Windows `\\`、盘符大小写、UNC 和缺失 homeDir。
 - `matchAgentForSession` 覆盖唯一候选、`agentSpaceId` 消歧、重复 Agent 无法消歧时回退、普通会话未匹配。
 - `spaceType` 解析覆盖显式 health/default、旧健康路径一次性补全和普通旧 Agent 默认值。
+- 旧同步 `SettingsSchema.agents` 缺少 `spaceType` 时仍能解析，且不会导致整个 settings 回退。
 - Agent 编辑器覆盖“编辑保留 spaceType”“新建只推断一次 spaceType”“canonical machine/path 重复时禁止保存”。
 - `resolveAgentLaunchConfig` 覆盖运行时 override、draft fallback、agent defaults fallback 和 agent type 无法解析。
 - 面板分流在空间/普通会话之间选择正确组件模型。
@@ -261,6 +266,8 @@ type AgentSpaceCompanionModel = {
 - 使用 fake timers 验证 8 秒切换、手动点分页后暂停、组件卸载清 timer、reduce-motion 时不启动 timer。
 - 分页点有 selected accessibility state；动作与分页命中区域满足 44×44 dp。
 - 快捷指令在面板关闭后调用 composer `setTextAndSelection` 和 `focus`，并把光标放到末尾。
+- `closePanel(onClosed)` 只在 spring 真正完成后调用一次回调；动画中断时不调用。
+- 工作台 preset 在导航前通过 `updateSessionDraft(sessionId, prompt)` 交接，目标会话首次挂载恢复 draft，且不发送消息。
 - Tips 没有注册横向 Pan，右面板关闭手势保持原行为。
 
 ### 10.2 静态验证
@@ -305,7 +312,7 @@ type AgentSpaceCompanionModel = {
 - [ ] 快捷指令只填入 composer，不自动发送。
 - [ ] 非健康空间只展示 Agent presets，不显示健康 Tips。
 - [ ] 普通会话通用能力中心无回归。
-- [ ] 失败路径不会留下错误 `agentSpaceId` 或重复空会话。
+- [ ] 离线、目录取消和 spawn error 等 pre-spawn 失败不会写入错误 `agentSpaceId`，也不会创建空会话；post-spawn 同步导航异常允许保留一条可从会话列表找回的空白会话，重试可能再创建一条，不承诺自动去重或删除。
 - [ ] `~`、绝对路径、尾斜杠和 Windows 分隔符均能稳定匹配同一空间；重复 Agent 不会被随机选择。
 - [ ] 8 秒轮播、手动暂停、reduce-motion、分页无障碍状态和 44×44 dp 命中区域均有自动化或真机证据。
 - [ ] 快捷指令关闭面板后获得 composer 焦点，光标位于提示词末尾。
