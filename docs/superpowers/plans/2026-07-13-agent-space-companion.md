@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Entering a persisted Agent space immediately creates a blank isolated session, and Agent-space sessions replace the generic code capability hub with a space-specific companion panel whose first provider offers fixed health Tips and editable health quick actions.
+**Goal:** Entering a persisted standard Agent space immediately creates a blank isolated session, while preserving the specialized image-style compose flow; Agent-space sessions replace the generic code capability hub with a space-specific companion panel whose first provider offers fixed health Tips and editable health quick actions.
 
 **Architecture:** Add pure Agent-space identity/model functions first, then refactor the existing session spawn hook to expose a non-navigating core and build one entry coordinator on top. Keep `RightSwipePanelHost` as the shell, route its content from the current session's canonical Agent match, and make the companion panel consume a provider-neutral view model. Preserve existing ordinary-session behavior, existing spawn behavior, and the current global navigation-stack policy.
 
@@ -455,6 +455,7 @@ Use `react-test-renderer` with mocked hooks:
 
 - `AgentSheet.test.tsx`: pressing a persisted online Agent calls `enter(agent, { beforeNavigate })`; `onClose` is not called before the mocked coordinator invokes `beforeNavigate`; a second press while entering is disabled.
 - `AgentSpaceWorkbench.test.tsx`: “new session” calls `enter(agent, { beforeNavigate: onCloseDrawer })`; a preset also passes `initialDraft`; a historical row calls `onNavigate('/session/id')` and never calls `enter`.
+- Image-style regressions: AgentSheet enters the space without coordinator spawn; Workbench new keeps `launchAgent(... /new?agentId)`; launch config still resolves image-style to Codex.
 
 - [ ] **Step 9: Run component tests to verify RED**
 
@@ -468,9 +469,9 @@ Expected: FAIL because both components still use `enterSpace`/`launchAgent` dire
 
 - [ ] **Step 10: Wire AgentSheet, AgentSpaceWorkbench and SidebarView**
 
-- AgentSheet persisted Agent click: await coordinator; keep the sheet visible/disabled while entering; close only through `beforeNavigate` after spawn success.
+- AgentSheet persisted standard Agent click: await coordinator; keep the sheet visible/disabled while entering; close only through `beforeNavigate` after spawn success. Persisted `image-styles` keeps the existing enter-space-only behavior.
 - Add a separate `onCloseDrawer` prop to AgentSpaceWorkbench. Workbench “new session” calls the coordinator with `beforeNavigate: onCloseDrawer`; it does not replace the coordinator's standard `navigateToSession`.
-- Workbench preset: call coordinator with `initialDraft: preset.prompt`; do not route through `/new` and do not send.
+- Workbench preset: call coordinator with `initialDraft: preset.prompt`; do not route through `/new` and do not send. Image-style new-session remains on `launchAgent(... /new?agentId)` so its dedicated compose UI is preserved.
 - Workbench historical-session row: keep direct navigation.
 - SidebarView passes a close-only callback for new/preset entry and retains `go(path)` for historical rows.
 

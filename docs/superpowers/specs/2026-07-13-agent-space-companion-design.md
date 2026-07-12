@@ -12,7 +12,7 @@
 
 ## 2. 目标
 
-1. 用户从空间外点击一个持久化 Agent 时，立即创建并打开一条空白空间会话。
+1. 用户从空间外点击一个持久化 standard Agent 时，立即创建并打开一条空白空间会话。
 2. 原会话保留在全局会话列表，但不继续显示，也不把消息带入新空间。
 3. Agent 空间会话不显示通用代码能力中心。
 4. 健康打卡空间的右滑面板显示固定健康 Tips 轮播和健康快捷指令。
@@ -29,12 +29,13 @@
 - 本期不把“进入空间”实现成删除、归档或覆盖原会话。
 - 本期不自动发送快捷指令。
 - 本期不新增服务端持久化模型；空间身份继续使用现有 Agent 配置与会话 metadata 推导。
+- 本期不把 `image-styles` 专用生成器强行改成标准空白会话；它继续使用已有图片 compose 流程。
 
 ## 4. 已确认的产品语义
 
 ### 4.1 从空间外进入
 
-从 Agent 列表点击持久化 Agent，执行一个原子入口流程：
+从 Agent 列表点击持久化 standard Agent，执行一个原子入口流程：
 
 1. 校验 Agent 绑定机器在线，并解析唯一的 launch config。
 2. 使用解析后的机器、规范化绝对路径、agent type、权限、模型与 effort 创建空白会话。
@@ -42,6 +43,16 @@
 4. 使用现有 `navigateToSession` 规整导航栈并打开新会话。
 
 空白会话允许 `prompt === ''`，不发送隐藏的初始化消息，不污染 transcript。
+
+### 4.1.1 `image-styles` 专用例外
+
+`image-styles` Agent 依赖 `/new?agentId=...` 的图片风格、参考图与生成数量 compose UI。它不是本期 standard Agent 空白会话入口的适用对象：
+
+- 从 AgentSheet 点击时，保持现有行为：进入该 Agent 空间，但不立即 spawn 通用空白会话。
+- 从空间工作台点击“新建”时，继续使用 `launchAgent(..., /new?agentId=...)` 打开专用 compose。
+- 其 agent type 解析仍固定为 Codex，防止未来误用 draft 中的其他 runner。
+
+该例外只保护现有专用图片流程，不影响健康打卡等 standard Agent 的“进入即新建空白会话”语义。
 
 ### 4.2 创建失败
 
@@ -304,7 +315,7 @@ type AgentSpaceCompanionModel = {
 
 ## 11. 验收标准
 
-- [ ] 从空间外进入持久化 Agent 会立即新建空白空间会话。
+- [ ] 从空间外进入持久化 standard Agent 会立即新建空白空间会话；`image-styles` 保留专用 compose 例外。
 - [ ] 新空间会话不包含原会话消息，也不包含隐藏初始化消息。
 - [ ] 原会话未被删除或归档。
 - [ ] 健康空间右滑面板没有通用代码能力卡片。
