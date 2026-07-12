@@ -82,16 +82,13 @@ describe('buildAgentSpaceCompanionModel', () => {
             'diet',
             'weekly-summary',
         ]);
-        expect(model.actions.map((action) => action.title)).toEqual([
-            "Record last night's sleep",
-            'Record an exercise',
-            "Record today's diet",
-            "Summarize this week's health",
+        const copy = defaultEnglish.agentSpace.companion;
+        expect(model.actions.map(({ title, prompt }) => ({ title, prompt }))).toEqual([
+            { title: copy.actionSleepTitle, prompt: copy.actionSleepPrompt },
+            { title: copy.actionExerciseTitle, prompt: copy.actionExercisePrompt },
+            { title: copy.actionDietTitle, prompt: copy.actionDietPrompt },
+            { title: copy.actionWeeklyTitle, prompt: copy.actionWeeklyPrompt },
         ]);
-        expect(model.actions[0]?.prompt).toMatch(/screenshot|details/i);
-        expect(model.actions[1]?.prompt).toMatch(/screenshot|details/i);
-        expect(model.actions[2]?.prompt).toMatch(/photo|screenshot|details/i);
-        expect(model.actions[3]?.prompt).toMatch(/sleep.*exercise.*diet.*next/is);
         expect(model.actions.every((action) => action.icon.length > 0)).toBe(true);
     });
 
