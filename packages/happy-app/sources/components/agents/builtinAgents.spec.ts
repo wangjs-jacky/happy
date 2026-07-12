@@ -38,8 +38,8 @@ describe('createAppBuilderAgent', () => {
         expect(agent?.id).toBe(APP_BUILDER_AGENT_ID);
         expect(agent?.machineId).toBe('m2');
         expect(agent?.path).toBe('~/work/app');
-        expect(agent?.agentType).toBe('codex');
-        expect(agent?.permissionMode).toBe('yolo');
+        expect(agent?.agentType).toBe('claude');
+        expect(agent?.permissionMode).toBe('bypassPermissions');
         expect(agent?.presets).toHaveLength(2);
     });
 
