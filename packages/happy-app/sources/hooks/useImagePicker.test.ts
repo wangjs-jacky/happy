@@ -9,6 +9,7 @@ vi.mock('expo-document-picker', () => ({
 }));
 vi.mock('react-native', () => ({
     Platform: { OS: 'web' },
+    Keyboard: { dismiss: () => {} },
 }));
 vi.mock('@/modal', () => ({
     Modal: { alert: vi.fn() },

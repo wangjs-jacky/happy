@@ -12,7 +12,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { Platform } from 'react-native';
+import { Platform, Keyboard } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
@@ -215,6 +215,10 @@ export function useImagePicker(): UseImagePickerResult {
     }, []);
 
     const pickAttachment = useCallback(() => {
+        // Dismiss the keyboard BEFORE opening the modal. The composer's input is
+        // focused (keyboard up); the modal's KeyboardAvoidingView otherwise fights
+        // the keyboard's show/hide and the sheet flickers violently on Android.
+        Keyboard.dismiss();
         // Card-style source chooser (photo vs audio/video) instead of the plain
         // OS alert row — see AttachmentSourceSheet.
         Modal.show({

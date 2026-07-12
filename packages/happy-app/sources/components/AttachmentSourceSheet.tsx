@@ -7,9 +7,9 @@
  * the modal is gone before the system picker opens.
  */
 import * as React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
 interface AttachmentSourceSheetProps {
@@ -81,7 +81,12 @@ function SourceCard({
     );
 }
 
-const styles = StyleSheet.create(() => ({
+// Plain react-native StyleSheet (static), NOT unistyles: styles created via
+// react-native-unistyles subscribe to runtime insets/dimensions, and inside the
+// modal's keyboard-avoiding view that subscription re-renders on every height
+// change and the sheet flickers violently on Android. WebAlertModal (stable in
+// this same modal host) uses this exact plain-StyleSheet + inline-theme pattern.
+const styles = StyleSheet.create({
     panel: {
         width: 320,
         maxWidth: '90%',
@@ -113,4 +118,4 @@ const styles = StyleSheet.create(() => ({
         fontSize: 13,
         textAlign: 'center',
     },
-}));
+});
