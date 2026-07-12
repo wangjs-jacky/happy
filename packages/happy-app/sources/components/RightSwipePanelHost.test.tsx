@@ -195,6 +195,18 @@ describe('RightSwipePanelHost close completion', () => {
         act(() => renderer.unmount());
     });
 
+    it('invalidates a pending callback when the host unmounts before spring completion', () => {
+        const callback = vi.fn();
+        const renderer = renderHost(callback);
+
+        act(() => findControl(renderer, 'close-with-callback').props.onPress());
+        const complete = latestSpringCompletion();
+        act(() => renderer.unmount());
+        act(() => complete(true));
+
+        expect(callback).not.toHaveBeenCalled();
+    });
+
     it('preserves closePanel calls without a callback', () => {
         const renderer = renderHost();
 

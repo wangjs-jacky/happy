@@ -261,17 +261,18 @@ describe('AgentSpaceCompanionPanel', () => {
         act(() => renderer.unmount());
     });
 
-    it('inserts directly without crashing when rendered outside the panel context', () => {
+    it('does not insert when rendered outside the panel context', async () => {
         const onInsertPrompt = vi.fn();
         const closePanel = mocks.closePanel;
         // The module mock maps a falsy closePanel to an unavailable context.
         (mocks as { closePanel: typeof mocks.closePanel | null }).closePanel = null;
         const renderer = renderPanel(onInsertPrompt);
+        await resolveInitialReduceMotion();
         const action = renderer.root.findByProps({ accessibilityLabel: 'Use quick action: Record sleep' });
 
         expect(() => act(() => action.props.onPress())).not.toThrow();
         expect(mocks.hapticsLight).toHaveBeenCalledTimes(1);
-        expect(onInsertPrompt).toHaveBeenCalledWith('Sleep prompt');
+        expect(onInsertPrompt).not.toHaveBeenCalled();
 
         act(() => renderer.unmount());
         (mocks as { closePanel: typeof closePanel | null }).closePanel = closePanel;

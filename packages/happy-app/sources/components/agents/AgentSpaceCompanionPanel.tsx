@@ -61,10 +61,7 @@ export const AgentSpaceCompanionPanel = React.memo(function AgentSpaceCompanionP
 
     const runAction = React.useCallback((action: CompanionAction) => {
         hapticsLight();
-        if (!panel) {
-            onInsertPrompt(action.prompt);
-            return;
-        }
+        if (!panel) return;
         panel.closePanel(() => onInsertPrompt(action.prompt));
     }, [onInsertPrompt, panel]);
 

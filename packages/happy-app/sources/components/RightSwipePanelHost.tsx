@@ -58,6 +58,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
     const startY = useSharedValue(0);
     const decided = useSharedValue(false);
     const backHandlerRef = React.useRef<PanelBackHandler | null>(null);
+    const mountedRef = React.useRef(true);
     const animationRequestRef = React.useRef(0);
     const pendingCloseRef = React.useRef<{ id: number; onClosed?: () => void } | null>(null);
 
@@ -67,6 +68,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
     }, []);
 
     const completePanelClose = React.useCallback((requestId: number, finished: boolean) => {
+        if (!mountedRef.current) return;
         const pending = pendingCloseRef.current;
         if (!pending || pending.id !== requestId) return;
         pendingCloseRef.current = null;
@@ -74,6 +76,14 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
         setOpen(false);
         pending.onClosed?.();
     }, []);
+
+    React.useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            supersedePanelAnimation();
+        };
+    }, [supersedePanelAnimation]);
 
     const openPanel = React.useCallback(() => {
         supersedePanelAnimation();
