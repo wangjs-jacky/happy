@@ -29,8 +29,8 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
-import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
-import { useAgentSpace } from '@/hooks/useAgentSpace';
+import { AgentSpaceExitButton, SessionRightPanelContent } from '@/components/agents/SessionAgentSpaceBoundary';
+import { useAgentSpace, useSpaceAgentForSession } from '@/hooks/useAgentSpace';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -111,9 +111,6 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
-    const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
-        sessionComposerHandleRef.current?.setMessage(prompt);
-    }, []);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -227,15 +224,9 @@ export const SessionView = React.memo((props: { id: string }) => {
     // 会话内「进入空间/退出空间」：进入 = 设 agentSpaceId + 拉出工作台抽屉；退出 = 清空间并回首页。
     const { enter: enterSpace, exit: exitSpace } = useAgentSpace();
 
-    // 会话所属「专属空间」Agent：按 machineId+path 匹配「我的 Agent」列表。命中即把会话顶栏染成
-    // 该 Agent 的 accent 皮肤（头像 + 会话名 + 进入/退出空间），保持空间感。
-    const spaceAgents = useLocalSetting('agents');
-    const spaceAgent = React.useMemo(() => {
-        const mid = session?.metadata?.machineId;
-        const p = session?.metadata?.path;
-        if (!mid || !p) return null;
-        return spaceAgents.find((a) => a.machineId === mid && a.path === p) ?? null;
-    }, [spaceAgents, session?.metadata?.machineId, session?.metadata?.path]);
+    // Resolve the session's persisted Agent once through the canonical matcher,
+    // then share that identity between the header skin and the phone panel.
+    const spaceAgent = useSpaceAgentForSession(session);
 
     const headerTitleSlot = showChip ? (
         <SessionHeaderChip
@@ -260,14 +251,10 @@ export const SessionView = React.memo((props: { id: string }) => {
         </Pressable>
     ) : undefined;
     const exitSpaceButton = spaceAgent ? (
-        <Pressable
+        <AgentSpaceExitButton
+            color={spaceTint}
             onPress={() => { exitSpace(); router.navigate('/'); }}
-            hitSlop={12}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 }}
-        >
-            <Ionicons name="exit-outline" size={20} color={spaceTint} />
-            <Text style={{ color: spaceTint, fontSize: 13, fontWeight: '600' }}>{t('agentSpace.exit')}</Text>
-        </Pressable>
+        />
     ) : undefined;
     const spaceTitleSlot = spaceAgent ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -376,9 +363,13 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        // 右滑面板统一为通用「能力中心」。健康报告等空间级 dashboard 归空间工作台的「健康报告」，
-        // 不再在会话内重复出现（避免左侧空间与右滑两处放同一份睡眠报告）。
-        const rightPanel = <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
+        const rightPanel = (
+            <SessionRightPanelContent
+                composerHandleRef={sessionComposerHandleRef}
+                sessionId={sessionId}
+                spaceAgent={spaceAgent}
+            />
+        );
         return (
             <RightSwipePanelHost panelContent={rightPanel}>
                 {mainContent}

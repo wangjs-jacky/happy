@@ -79,7 +79,7 @@ function makeSession(path: string): Session {
     };
 }
 
-function renderHook(session: Session): AgentLauncher | null {
+function renderHook(session: Session | null | undefined): AgentLauncher | null {
     let result: AgentLauncher | null = null;
 
     function HookHarness() {
@@ -125,5 +125,11 @@ describe('useSpaceAgentForSession', () => {
         ];
 
         expect(renderHook(makeSession('/Users/jacky/work'))).toBeNull();
+    });
+
+    it('returns null while the current session is not loaded yet', () => {
+        mockedStorage.agents = [makeAgent()];
+
+        expect(renderHook(undefined)).toBeNull();
     });
 });

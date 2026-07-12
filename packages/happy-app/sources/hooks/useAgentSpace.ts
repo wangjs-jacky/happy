@@ -30,19 +30,19 @@ export function useAgentSpace(): {
 }
 
 /** Resolves the saved Agent identity for a live session using its machine's canonical home path. */
-export function useSpaceAgentForSession(session: Session): AgentLauncher | null {
+export function useSpaceAgentForSession(session: Session | null | undefined): AgentLauncher | null {
     const agents = useLocalSetting('agents');
     const agentSpaceId = useLocalSetting('agentSpaceId');
     const machines = useAllMachines({ includeOffline: true });
     return React.useMemo(() => {
-        const machineId = session.metadata?.machineId;
+        const machineId = session?.metadata?.machineId;
         const homeDir = machines.find((machine) => machine.id === machineId)?.metadata?.homeDir;
         return matchAgentForSession({
             agents,
             agentSpaceId,
             machineId,
-            sessionPath: session.metadata?.path,
+            sessionPath: session?.metadata?.path,
             homeDir,
         });
-    }, [agentSpaceId, agents, machines, session.metadata?.machineId, session.metadata?.path]);
+    }, [agentSpaceId, agents, machines, session?.metadata?.machineId, session?.metadata?.path]);
 }
