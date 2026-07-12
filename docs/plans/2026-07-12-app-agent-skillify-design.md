@@ -58,8 +58,8 @@ repo。两者靠 Claude 的 Skill 发现机制自然拼起来。
 - **Fix prompt** 补一句「先确认当前工作目录就是目标 App 项目」。
 
 **取舍**：app-flow 会出现在所有 claude 会话的 skill 列表（但其 description 限定「长任务/移动端
-App」，不会乱触发）；app-flow 仍在 `labs/`、只是 symlink 到全局（后续可从 labs 提升到 `skills/`
-正式化，是干净的 follow-up）。
+App」，不会乱触发）；app-flow **永久留在 `labs/`**、只 symlink 到全局，**不提升到 `skills/`
+正式化**（除非用户明确要求）——因为该套件尚未完全测过，先在 labs 观察。
 
 ## 五、实施三条线
 
