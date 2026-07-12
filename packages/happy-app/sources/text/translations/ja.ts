@@ -1384,6 +1384,8 @@ export const ja: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: 'ワークベンチ',
+        tabHealth: '健康レポート',
         exit: 'スペースを出る',
         badge: '専用スペース',
         quickPrompts: 'クイックプロンプト',

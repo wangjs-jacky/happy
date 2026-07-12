@@ -1951,6 +1951,8 @@ export const zhHans: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: '工作台',
+        tabHealth: '健康报告',
         exit: '退出空间',
         badge: '专属空间',
         quickPrompts: '快捷指令',

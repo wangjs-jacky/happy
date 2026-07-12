@@ -1382,6 +1382,8 @@ export const ca: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: 'Tauler',
+        tabHealth: 'Informe de salut',
         exit: 'Surt de l\'espai',
         badge: 'Espai personal',
         quickPrompts: 'Ordres ràpides',

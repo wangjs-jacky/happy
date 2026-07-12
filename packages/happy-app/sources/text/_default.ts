@@ -1959,6 +1959,8 @@ export const en = {
     },
 
     agentSpace: {
+        tabWorkbench: 'Workbench',
+        tabHealth: 'Health report',
         exit: 'Exit space',
         badge: 'Personal space',
         quickPrompts: 'Quick prompts',

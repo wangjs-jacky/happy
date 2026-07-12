@@ -1411,6 +1411,8 @@ export const ru: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: 'Рабочий стол',
+        tabHealth: 'Отчёт о здоровье',
         exit: 'Выйти из пространства',
         badge: 'Личное пространство',
         quickPrompts: 'Быстрые команды',

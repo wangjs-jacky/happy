@@ -8,6 +8,8 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
+import { isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
 
 /**
  * 追加 8 位十六进制透明度得到该 accent 色的半透明版本，用于空间头/徽章底色。
@@ -16,6 +18,8 @@ import { getAgentSubtitle } from './builtinAgents';
 function withAlpha(hex: string, alpha: string): string | null {
     return /^#[0-9a-fA-F]{6}$/.test(hex) ? `${hex}${alpha}` : null;
 }
+
+type SpaceTab = 'workbench' | 'health';
 
 interface Props {
     agent: AgentLauncher;
@@ -26,9 +30,9 @@ interface Props {
 
 /**
  * 「Agent 空间模式」左侧工作台。进入某个「我的 Agent」后取代侧栏常规内容：
- * 顶部空间头（退出 + 身份 + 专属空间徽章）→ 预设快捷指令 → 仅本空间会话（按 machineId+path 过滤）
- * → 在此空间新建会话。视觉沿用统一设计系统的主题 token，只把该 Agent 的 color 作为局部 accent，
- * 不改全局主题。
+ * 顶部固定空间头（退出 + 身份 + 专属空间徽章）；健康打卡类 Agent 额外出现「工作台 / 健康报告」
+ * 分段——工作台 = 预设快捷指令 + 仅本空间会话 + 新建；健康报告 = 睡眠/运动/饮食面板（机器级读日报）。
+ * 视觉沿用统一设计系统主题 token，只把该 Agent 的 color 作为局部 accent，不改全局主题。
  */
 export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Props) => {
     const { theme } = useUnistyles();
@@ -36,6 +40,10 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
     const sessions = useAgentSpaceSessions(agent.machineId, agent.path);
+
+    // 健康打卡类 Agent（按工作目录识别）才提供「健康报告」分段；其余 Agent 只有工作台。
+    const isHealth = isHealthCheckinSession(agent.path);
+    const [tab, setTab] = React.useState<SpaceTab>(isHealth ? 'health' : 'workbench');
 
     const machine = React.useMemo(() => machines.find((m) => m.id === agent.machineId), [machines, agent.machineId]);
     const subtitle = getAgentSubtitle(agent, machine, t('agents.machineMissing'));
@@ -48,108 +56,132 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
     }, [agent, draft, onNavigate]);
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            {/* 空间头 */}
-            <View style={[styles.head, { backgroundColor: headTint }]}>
-                <Pressable
-                    onPress={onExit}
-                    hitSlop={8}
-                    style={({ pressed }) => [styles.back, pressed && styles.pressedDim]}
-                >
-                    <Ionicons name="chevron-back" size={16} color={accent} />
-                    <Text style={[styles.backText, { color: accent }]}>{t('agentSpace.exit')}</Text>
-                </Pressable>
-                <View style={styles.headRow}>
-                    <View style={[styles.avatar, { backgroundColor: accent }]}>
-                        <Text style={styles.avatarGlyph}>{agent.glyph}</Text>
-                    </View>
-                    <View style={styles.headText}>
-                        <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
-                        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
-                    </View>
-                    <View style={[styles.badge, { backgroundColor: badgeTint }]}>
-                        <Text style={[styles.badgeText, { color: accent }]} numberOfLines={1}>{t('agentSpace.badge')}</Text>
+        <View style={styles.root}>
+            {/* 固定空间头 + 分段 */}
+            <View style={styles.headWrap}>
+                <View style={[styles.head, { backgroundColor: headTint }]}>
+                    <Pressable
+                        onPress={onExit}
+                        hitSlop={8}
+                        style={({ pressed }) => [styles.back, pressed && styles.pressedDim]}
+                    >
+                        <Ionicons name="chevron-back" size={16} color={accent} />
+                        <Text style={[styles.backText, { color: accent }]}>{t('agentSpace.exit')}</Text>
+                    </Pressable>
+                    <View style={styles.headRow}>
+                        <View style={[styles.avatar, { backgroundColor: accent }]}>
+                            <Text style={styles.avatarGlyph}>{agent.glyph}</Text>
+                        </View>
+                        <View style={styles.headText}>
+                            <Text style={styles.name} numberOfLines={1}>{agent.name}</Text>
+                            <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+                        </View>
+                        <View style={[styles.badge, { backgroundColor: badgeTint }]}>
+                            <Text style={[styles.badgeText, { color: accent }]} numberOfLines={1}>{t('agentSpace.badge')}</Text>
+                        </View>
                     </View>
                 </View>
-            </View>
 
-            {/* 预设快捷指令 */}
-            {agent.presets.length > 0 && (
-                <>
-                    <Text style={styles.sectionTitle}>{t('agentSpace.quickPrompts')}</Text>
-                    <View style={styles.chipsWrap}>
-                        {agent.presets.map((preset, index) => (
-                            <Pressable
-                                key={`${preset.label}-${index}`}
-                                onPress={() => startSession(preset.prompt)}
-                                style={({ pressed }) => [styles.chip, { borderColor: accent }, pressed && styles.pressedDim]}
-                            >
-                                <Text style={[styles.chipText, { color: accent }]} numberOfLines={1}>{preset.label}</Text>
-                            </Pressable>
-                        ))}
-                    </View>
-                </>
-            )}
-
-            {/* 本空间会话 */}
-            <Text style={styles.sectionTitle}>{t('agentSpace.sessionsTitle')}</Text>
-            <View style={styles.sessionsCard}>
-                {sessions.length === 0 ? (
-                    <Text style={styles.empty}>{t('agentSpace.empty')}</Text>
-                ) : (
-                    sessions.map((session, index) => (
+                {isHealth && (
+                    <View style={styles.seg}>
                         <Pressable
-                            key={session.id}
-                            onPress={() => onNavigate(`/session/${session.id}`)}
-                            style={({ pressed }) => [
-                                styles.sessionRow,
-                                index > 0 && styles.sessionRowDivider,
-                                pressed && styles.sessionRowPressed,
-                            ]}
+                            onPress={() => setTab('workbench')}
+                            style={[styles.segBtn, tab === 'workbench' && styles.segBtnOn]}
                         >
-                            <View
-                                style={[
-                                    styles.statusDot,
-                                    { backgroundColor: session.active ? theme.colors.status.connected : theme.colors.status.disconnected },
-                                ]}
-                            />
-                            <View style={styles.sessionText}>
-                                <Text style={styles.sessionName} numberOfLines={1}>{session.name}</Text>
-                                {!!session.subtitle && (
-                                    <Text style={styles.sessionSubtitle} numberOfLines={1}>{session.subtitle}</Text>
-                                )}
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                            <Text style={[styles.segText, tab === 'workbench' && { color: accent }]}>{t('agentSpace.tabWorkbench')}</Text>
                         </Pressable>
-                    ))
+                        <Pressable
+                            onPress={() => setTab('health')}
+                            style={[styles.segBtn, tab === 'health' && styles.segBtnOn]}
+                        >
+                            <Text style={[styles.segText, tab === 'health' && { color: accent }]}>{t('agentSpace.tabHealth')}</Text>
+                        </Pressable>
+                    </View>
                 )}
             </View>
 
-            {/* 在此空间新建会话 */}
-            <Pressable
-                onPress={() => startSession()}
-                style={({ pressed }) => [styles.newBtn, { backgroundColor: accent }, pressed && styles.pressedDim]}
-            >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.newBtnText}>{t('agentSpace.newSession')}</Text>
-            </Pressable>
-        </ScrollView>
+            {/* 主体：健康报告 or 工作台 */}
+            {isHealth && tab === 'health' ? (
+                <AgentSpaceHealthPanel agent={agent} onStartSession={startSession} />
+            ) : (
+                <ScrollView style={styles.body} contentContainerStyle={styles.workbenchContent}>
+                    {/* 预设快捷指令 */}
+                    {agent.presets.length > 0 && (
+                        <>
+                            <Text style={styles.sectionTitle}>{t('agentSpace.quickPrompts')}</Text>
+                            <View style={styles.chipsWrap}>
+                                {agent.presets.map((preset, index) => (
+                                    <Pressable
+                                        key={`${preset.label}-${index}`}
+                                        onPress={() => startSession(preset.prompt)}
+                                        style={({ pressed }) => [styles.chip, { borderColor: accent }, pressed && styles.pressedDim]}
+                                    >
+                                        <Text style={[styles.chipText, { color: accent }]} numberOfLines={1}>{preset.label}</Text>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        </>
+                    )}
+
+                    {/* 本空间会话 */}
+                    <Text style={styles.sectionTitle}>{t('agentSpace.sessionsTitle')}</Text>
+                    <View style={styles.sessionsCard}>
+                        {sessions.length === 0 ? (
+                            <Text style={styles.empty}>{t('agentSpace.empty')}</Text>
+                        ) : (
+                            sessions.map((session, index) => (
+                                <Pressable
+                                    key={session.id}
+                                    onPress={() => onNavigate(`/session/${session.id}`)}
+                                    style={({ pressed }) => [
+                                        styles.sessionRow,
+                                        index > 0 && styles.sessionRowDivider,
+                                        pressed && styles.sessionRowPressed,
+                                    ]}
+                                >
+                                    <View
+                                        style={[
+                                            styles.statusDot,
+                                            { backgroundColor: session.active ? theme.colors.status.connected : theme.colors.status.disconnected },
+                                        ]}
+                                    />
+                                    <View style={styles.sessionText}>
+                                        <Text style={styles.sessionName} numberOfLines={1}>{session.name}</Text>
+                                        {!!session.subtitle && (
+                                            <Text style={styles.sessionSubtitle} numberOfLines={1}>{session.subtitle}</Text>
+                                        )}
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            ))
+                        )}
+                    </View>
+
+                    {/* 在此空间新建会话 */}
+                    <Pressable
+                        onPress={() => startSession()}
+                        style={({ pressed }) => [styles.newBtn, { backgroundColor: accent }, pressed && styles.pressedDim]}
+                    >
+                        <Ionicons name="add" size={18} color="#FFFFFF" />
+                        <Text style={styles.newBtnText}>{t('agentSpace.newSession')}</Text>
+                    </Pressable>
+                </ScrollView>
+            )}
+        </View>
     );
 });
 
 const stylesheet = StyleSheet.create((theme) => ({
-    container: {
+    root: {
         flex: 1,
     },
-    content: {
+    headWrap: {
         paddingHorizontal: 16,
-        paddingBottom: 24,
-        gap: 4,
+        paddingTop: 2,
     },
     head: {
         borderRadius: 18,
         padding: 14,
-        marginTop: 2,
         marginBottom: 6,
     },
     back: {
@@ -202,6 +234,36 @@ const stylesheet = StyleSheet.create((theme) => ({
     badgeText: {
         fontSize: 11,
         ...Typography.default('semiBold'),
+    },
+    seg: {
+        flexDirection: 'row',
+        backgroundColor: theme.colors.surfacePressed,
+        borderRadius: 12,
+        padding: 4,
+        gap: 4,
+        marginBottom: 6,
+    },
+    segBtn: {
+        flex: 1,
+        alignItems: 'center',
+        paddingVertical: 8,
+        borderRadius: 9,
+    },
+    segBtnOn: {
+        backgroundColor: theme.colors.surface,
+    },
+    segText: {
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
+    },
+    body: {
+        flex: 1,
+    },
+    workbenchContent: {
+        paddingHorizontal: 16,
+        paddingBottom: 24,
+        gap: 4,
     },
     sectionTitle: {
         fontSize: 12,

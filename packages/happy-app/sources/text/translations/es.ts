@@ -1383,6 +1383,8 @@ export const es: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: 'Panel',
+        tabHealth: 'Informe de salud',
         exit: 'Salir del espacio',
         badge: 'Espacio personal',
         quickPrompts: 'Comandos rápidos',

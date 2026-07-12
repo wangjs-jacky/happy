@@ -1482,6 +1482,8 @@ export const zhHant: TranslationStructure = {
     },
 
     agentSpace: {
+        tabWorkbench: '工作台',
+        tabHealth: '健康報告',
         exit: '退出空間',
         badge: '專屬空間',
         quickPrompts: '快捷指令',
