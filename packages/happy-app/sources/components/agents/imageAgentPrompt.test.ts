@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
     IMAGE_AGENT_STYLE_PRESETS,
     buildImageAgentPrompt,
+    createUserImageStylePreset,
     getImageAgentStyleOptionsForAgent,
     getImageAgentStylesForAgent,
+    shouldUseUserImageStyleReferenceImages,
 } from './imageAgentPrompt';
 import { createImageStyleSelectionPrompt } from './imageAgentMode';
 import type { AgentLauncher } from './launchAgent';
@@ -176,6 +178,42 @@ describe('imageAgentPrompt', () => {
         expect(prompt).toContain('低饱和暖色胶片');
         expect(prompt).toContain('避免：过曝，高锐化');
         expect(prompt).not.toContain('临时参考图');
+    });
+
+    it('keeps reference images on the preset for the gallery thumbnail even after the prompt is extracted', () => {
+        // Regression: a prompt-ready style with saved reference images must still
+        // expose them so the gallery card renders its thumbnail. The SEND decision
+        // (use extracted prompt, not attachments) is made separately via
+        // shouldUseUserImageStyleReferenceImages and must stay unaffected.
+        const referenceImages = [{
+            id: 'r1',
+            uri: 'file:///ref.jpg',
+            width: 800,
+            height: 1000,
+            mimeType: 'image/jpeg',
+            size: 123,
+            name: 'ref.jpg',
+        }];
+        const style = {
+            id: 'user-reference/u3',
+            title: '胶片风',
+            promptHint: '用户参考照片风格：胶片风。',
+            promptContent: '柔和逆光、巨幅圆形散景、通透胶片色彩。',
+            tags: [],
+            analysisStatus: 'prompt-ready' as const,
+            promptSource: 'extracted-prompt' as const,
+            referenceImages,
+            createdAt: 1,
+            updatedAt: 2,
+        };
+
+        // Display: preset carries the reference images for the thumbnail.
+        const preset = createUserImageStylePreset(style);
+        expect(preset.referenceImages).toHaveLength(1);
+        expect(preset.referenceImages?.[0].uri).toBe('file:///ref.jpg');
+
+        // Send: still gated off once a prompt is extracted (uses the text prompt).
+        expect(shouldUseUserImageStyleReferenceImages(style)).toBe(false);
     });
 
     it('keeps generated images visible without asking the agent to print path checklists', () => {
