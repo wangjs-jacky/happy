@@ -36,6 +36,7 @@ import { ensureDaemonRunning } from './daemon/ensureDaemonRunning'
 import { handleCodexCommand } from './commands/codexCommand'
 import { handleAttachCommand } from './commands/attach'
 import { promptInstallSlashCommandIfNeeded } from './commands/pawsInstallPrompt'
+import { promptCliUpdateIfNeeded } from './commands/cliUpdateCheck'
 
 
 (async () => {
@@ -45,6 +46,8 @@ import { promptInstallSlashCommandIfNeeded } from './commands/pawsInstallPrompt'
   if (!args.includes('--version')) {
     logger.debug('Starting happy CLI with args: ', process.argv)
   }
+
+  await promptCliUpdateIfNeeded({ args });
 
   // Check if first argument is a subcommand
   const subcommand = args[0]
