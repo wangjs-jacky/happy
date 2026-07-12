@@ -53,6 +53,28 @@ export interface StartOptions {
 const DEFAULT_CLAUDE_PERMISSION_MODE: PermissionMode = 'yolo';
 const DEFAULT_CLAUDE_MODEL = 'opus';
 const DEFAULT_CLAUDE_EFFORT: 'low' | 'medium' | 'high' | 'xhigh' | 'max' = 'medium';
+const PAWS_SLASH_COMMAND_RE = /<command-name>\s*\/?paws\s*<\/command-name>/i;
+
+function isPawsSlashCommandContent(content: string): boolean {
+    return PAWS_SLASH_COMMAND_RE.test(content) || content.trim() === '/paws';
+}
+
+function isPawsSlashCommandMessage(message: RawJSONLines): boolean {
+    if (message.type !== 'user') return false;
+    const content = (message as any).message?.content;
+    return typeof content === 'string' && isPawsSlashCommandContent(content);
+}
+
+function withoutAttachTriggerTurn(messages: RawJSONLines[]): RawJSONLines[] {
+    let attachTriggerIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (isPawsSlashCommandMessage(messages[i])) {
+            attachTriggerIndex = i;
+            break;
+        }
+    }
+    return attachTriggerIndex === -1 ? messages : messages.slice(0, attachTriggerIndex);
+}
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
@@ -261,17 +283,27 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         try {
             const file = await readFile(jsonlPath, 'utf-8');
             const lines = file.split('\n');
+            const parsedMessages: RawJSONLines[] = [];
+            let skippedInvalidLines = 0;
             let backfilled = 0;
             for (const line of lines) {
                 if (line.trim().length === 0) continue;
                 let parsed: unknown;
                 try { parsed = JSON.parse(line); } catch { continue; }
                 const result = RawJSONLinesSchema.safeParse(parsed);
-                if (!result.success) continue;
-                session.sendClaudeSessionMessage(result.data as RawJSONLines);
+                if (!result.success) {
+                    skippedInvalidLines += 1;
+                    continue;
+                }
+                parsedMessages.push(result.data as RawJSONLines);
+            }
+            const messagesToBackfill = withoutAttachTriggerTurn(parsedMessages);
+            for (const message of messagesToBackfill) {
+                session.sendClaudeSessionMessage(message);
                 backfilled += 1;
             }
-            logger.debug(`[FORK BACKFILL] Replayed ${backfilled} historical messages from ${jsonlPath}`);
+            const skippedAttachMessages = parsedMessages.length - messagesToBackfill.length;
+            logger.debug(`[FORK BACKFILL] Replayed ${backfilled} historical messages from ${jsonlPath}; skippedAttachMessages=${skippedAttachMessages}; skippedInvalidLines=${skippedInvalidLines}`);
             // Bind the new Happy session to the forked Claude UUID up
             // front so the metadata is consistent the moment the app
             // opens this session — even before the SDK's hook callback
@@ -337,6 +369,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             if ((raw as any).isSidechain) return;
             const content = (raw as any).message?.content;
             if (typeof content !== 'string') return;
+            if (isPawsSlashCommandContent(content)) return;
             // Drop empty / whitespace-only lines.
             if (content.trim().length === 0) return;
             // App-sent prompts will show up here because the SDK

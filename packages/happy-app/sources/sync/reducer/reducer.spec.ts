@@ -298,6 +298,57 @@ describe('reducer', () => {
         });
     });
 
+    describe('tool call lifecycle ordering', () => {
+        it('completes a tool call when its result arrives before its start message', () => {
+            const state = createReducer();
+
+            const resultMessage: NormalizedMessage = {
+                id: 'tool-result-msg',
+                localId: null,
+                createdAt: 2000,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'tool-1',
+                    content: 'ok',
+                    is_error: false,
+                    uuid: 'tool-result-uuid',
+                    parentUUID: null
+                }]
+            };
+
+            expect(reducer(state, [resultMessage]).messages).toHaveLength(0);
+
+            const startMessage: NormalizedMessage = {
+                id: 'tool-start-msg',
+                localId: null,
+                createdAt: 1000,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: 'tool-1',
+                    name: 'Bash',
+                    input: { command: 'happy attach --json' },
+                    description: 'Attach current session to Paws mobile',
+                    uuid: 'tool-start-uuid',
+                    parentUUID: null
+                }]
+            };
+
+            const result = reducer(state, [startMessage]);
+
+            expect(result.messages).toHaveLength(1);
+            expect(result.messages[0].kind).toBe('tool-call');
+            if (result.messages[0].kind === 'tool-call') {
+                expect(result.messages[0].tool.state).toBe('completed');
+                expect(result.messages[0].tool.result).toBe('ok');
+                expect(result.messages[0].tool.completedAt).toBe(2000);
+            }
+        });
+    });
+
     describe('edge cases', () => {
         it('should handle empty message array', () => {
             const state = createReducer();
@@ -1337,8 +1388,9 @@ describe('reducer', () => {
             const result2 = reducer(state, toolMessages);
             expect(result2.messages).toHaveLength(1);
             if (result2.messages[0].kind === 'tool-call') {
-                expect(result2.messages[0].tool.state).toBe('running'); // Result was ignored
-                expect(result2.messages[0].tool.result).toBeUndefined();
+                expect(result2.messages[0].tool.state).toBe('completed');
+                expect(result2.messages[0].tool.result).toBe('Success');
+                expect(result2.messages[0].tool.completedAt).toBe(1000);
             }
             
             // Result arrives again (with different message ID since it's a new message)
@@ -1361,17 +1413,7 @@ describe('reducer', () => {
             ];
             
             const result3 = reducer(state, resultMessages2, null);
-            
-            // Debug: Check if tool was properly registered
-            const toolId = 'tool-1';
-            const msgId = state.toolIdToMessageId.get(toolId);
-            const message = msgId ? state.messages.get(msgId) : null;
-            
-            expect(result3.messages).toHaveLength(1);
-            if (result3.messages[0].kind === 'tool-call') {
-                expect(result3.messages[0].tool.state).toBe('completed');
-                expect(result3.messages[0].tool.result).toBe('Success');
-            }
+            expect(result3.messages).toHaveLength(0);
         });
 
         it('should handle interleaved messages from multiple sources correctly', () => {

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const {
     mockApiClientCreate,
@@ -89,6 +92,7 @@ vi.mock('@/claude/claudeLocal', () => ({
 }));
 
 import { runClaude } from './runClaude';
+import { getProjectPath } from './utils/path';
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -119,6 +123,7 @@ describe('runClaude remote JSONL scanner', () => {
         delete process.env.HAPPY_FORKED_FROM_SESSION_ID;
         delete process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
         delete process.env.HAPPY_FORK_CLAUDE_SESSION_ID;
+        delete process.env.CLAUDE_CONFIG_DIR;
 
         mockReadSettings.mockResolvedValue({
             machineId: 'machine-1',
@@ -148,6 +153,124 @@ describe('runClaude remote JSONL scanner', () => {
             }
         }
         originalListeners.clear();
+    });
+
+    it('does not backfill the /paws attach command turn into the forked Happy session', async () => {
+        const claudeConfigDir = await mkdtemp(join(tmpdir(), 'happy-claude-config-'));
+        process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+        process.env.HAPPY_FORK_CLAUDE_SESSION_ID = 'source-claude-session';
+
+        const sourceProjectPath = getProjectPath(process.cwd());
+        await mkdir(sourceProjectPath, { recursive: true });
+        await writeFile(join(sourceProjectPath, 'source-claude-session.jsonl'), [
+            JSON.stringify({
+                type: 'user',
+                uuid: 'u-before',
+                timestamp: '2026-07-12T06:30:00.000Z',
+                message: { role: 'user', content: '你是什么模型？' },
+            }),
+            JSON.stringify({
+                type: 'assistant',
+                uuid: 'a-before',
+                timestamp: '2026-07-12T06:30:01.000Z',
+                message: { role: 'assistant', content: [{ type: 'text', text: '我是 Claude。' }] },
+            }),
+            JSON.stringify({
+                type: 'user',
+                uuid: 'u-paws',
+                timestamp: '2026-07-12T06:30:02.000Z',
+                message: {
+                    role: 'user',
+                    content: '<command-message>paws</command-message>\n<command-name>/paws</command-name>',
+                },
+            }),
+            JSON.stringify({
+                type: 'assistant',
+                uuid: 'a-paws-tool',
+                timestamp: '2026-07-12T06:30:03.000Z',
+                attributionSkill: 'paws',
+                message: {
+                    role: 'assistant',
+                    content: [{
+                        type: 'tool_use',
+                        id: 'toolu_paws',
+                        name: 'Bash',
+                        input: { command: 'happy attach --json' },
+                    }],
+                },
+            }),
+        ].join('\n'));
+
+        const sentMessages: unknown[] = [];
+        const sessionClient = {
+            sessionId: 'happy-session-1',
+            suppressNextArchiveSignal: vi.fn(),
+            skipExistingMessages: vi.fn(),
+            updateMetadata: vi.fn(),
+            sendClaudeSessionMessage: vi.fn((message: unknown) => {
+                sentMessages.push(message);
+            }),
+            onUserMessage: vi.fn(),
+            onFileEvent: vi.fn(),
+            on: vi.fn(),
+            trackAttachmentDownload: vi.fn(),
+            drainAttachmentsForUserMessage: vi.fn(async () => []),
+            downloadAndDecryptAttachment: vi.fn(),
+            getMetadata: vi.fn(() => ({})),
+            sendSessionEvent: vi.fn(),
+            updateAgentState: vi.fn(),
+            rpcHandlerManager: {
+                registerHandler: vi.fn(),
+            },
+            sendSessionDeath: vi.fn(),
+            flush: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        };
+        const api = {
+            getOrCreateMachine: vi.fn(async () => ({})),
+            getOrCreateSession: vi.fn(async () => ({
+                id: 'happy-session-1',
+                seq: 0,
+                metadata: {},
+                metadataVersion: 0,
+                agentState: {},
+                agentStateVersion: 0,
+                encryptionKey: new Uint8Array(32),
+                encryptionVariant: 'legacy' as const,
+            })),
+            sessionSyncClient: vi.fn(() => sessionClient),
+            deactivateSession: vi.fn(async () => {}),
+        };
+        mockApiClientCreate.mockResolvedValue(api);
+
+        const loopDeferred = createDeferred<number>();
+        mockLoop.mockReturnValue(loopDeferred.promise);
+
+        const runPromise = runClaude({
+            token: 'token',
+            encryption: { type: 'legacy', secret: new Uint8Array(32) },
+        } as any, {
+            startingMode: 'remote',
+            shouldStartDaemon: false,
+        });
+
+        await vi.waitFor(() => {
+            expect(mockLoop).toHaveBeenCalled();
+        });
+
+        expect(sentMessages).toHaveLength(2);
+        expect(sentMessages).toEqual([
+            expect.objectContaining({ uuid: 'u-before' }),
+            expect.objectContaining({ uuid: 'a-before' }),
+        ]);
+
+        loopDeferred.resolve(0);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('process.exit');
+        }) as never);
+        await expect(runPromise).rejects.toThrow('process.exit');
+        exitSpy.mockRestore();
+        await rm(claudeConfigDir, { recursive: true, force: true });
     });
 
     it('does not forward terminal JSONL messages while local mode owns the transcript', async () => {

@@ -8,6 +8,15 @@ import { clearDaemonState, readDaemonState } from '@/persistence';
 import { Metadata } from '@/api/types';
 import { configuration } from '@/configuration';
 
+export type SpawnDaemonSessionOptions = {
+  directory: string;
+  sessionId?: string;
+  agent?: 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+  environmentVariables?: Record<string, string>;
+  resumeClaudeSessionId?: string;
+  resumeCodexThreadId?: string;
+};
+
 async function daemonPost(path: string, body?: any): Promise<{ error?: string } | any> {
   const state = await readDaemonState();
   if (!state?.httpPort) {
@@ -100,8 +109,14 @@ export async function stopDaemonSession(sessionId: string): Promise<boolean> {
   return result.success || false;
 }
 
-export async function spawnDaemonSession(directory: string, sessionId?: string): Promise<any> {
-  const result = await daemonPost('/spawn-session', { directory, sessionId });
+export async function spawnDaemonSession(
+  optionsOrDirectory: SpawnDaemonSessionOptions | string,
+  sessionId?: string,
+): Promise<any> {
+  const body = typeof optionsOrDirectory === 'string'
+    ? { directory: optionsOrDirectory, sessionId }
+    : optionsOrDirectory;
+  const result = await daemonPost('/spawn-session', body);
   return result;
 }
 
