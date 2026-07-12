@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { en as defaultEnglish } from '@/text/_default';
 import type { AgentLauncher } from './launchAgent';
 
 vi.mock('@/text', () => ({
@@ -13,14 +14,14 @@ vi.mock('@/text', () => ({
         'agentSpace.companion.tipMorningLightBody': 'Get morning light soon after waking to help stabilize your circadian rhythm.',
         'agentSpace.companion.tipSleepWindowEyebrow': 'Tonight · 7 hours',
         'agentSpace.companion.tipSleepWindowTitle': 'Reserve a 7-hour sleep window',
-        'agentSpace.companion.tipSleepWindowBody': 'Protect the time window first, and improve one habit at a time.',
+        'agentSpace.companion.tipSleepWindowBody': 'Protect the sleep window first instead of trying to change every habit at once.',
         'agentSpace.companion.actionSleepTitle': "Record last night's sleep",
         'agentSpace.companion.actionSleepPrompt': "Help me record last night's sleep. I'll add a sleep screenshot or the exact times.",
-        'agentSpace.companion.actionExerciseTitle': 'Record exercise',
-        'agentSpace.companion.actionExercisePrompt': "Help me record today's exercise. I'll add the activity type, duration, or a screenshot.",
+        'agentSpace.companion.actionExerciseTitle': 'Record an exercise',
+        'agentSpace.companion.actionExercisePrompt': "Help me record an exercise today. I'll add the activity type, duration, or a screenshot.",
         'agentSpace.companion.actionDietTitle': "Record today's diet",
         'agentSpace.companion.actionDietPrompt': "Help me record today's diet. I'll add the food, portions, or photos.",
-        'agentSpace.companion.actionWeeklyTitle': 'Summarize this week',
+        'agentSpace.companion.actionWeeklyTitle': "Summarize this week's health",
         'agentSpace.companion.actionWeeklyPrompt': "Based on this week's health records, summarize my sleep, exercise, and diet, then suggest what I should focus on next.",
     } as Record<string, string>)[key] ?? key,
 }));
@@ -67,7 +68,7 @@ describe('buildAgentSpaceCompanionModel', () => {
             expect.objectContaining({
                 eyebrow: 'Tonight · 7 hours',
                 title: 'Reserve a 7-hour sleep window',
-                body: expect.stringContaining('one habit at a time'),
+                body: expect.stringContaining('every habit at once'),
             }),
         ]);
     });
@@ -83,9 +84,9 @@ describe('buildAgentSpaceCompanionModel', () => {
         ]);
         expect(model.actions.map((action) => action.title)).toEqual([
             "Record last night's sleep",
-            'Record exercise',
+            'Record an exercise',
             "Record today's diet",
-            'Summarize this week',
+            "Summarize this week's health",
         ]);
         expect(model.actions[0]?.prompt).toMatch(/screenshot|details/i);
         expect(model.actions[1]?.prompt).toMatch(/screenshot|details/i);
@@ -113,7 +114,7 @@ describe('buildAgentSpaceCompanionModel', () => {
     it('routes exclusively by spaceType instead of path or agent name', () => {
         const healthLikeDefault = buildAgentSpaceCompanionModel(makeAgent({
             name: 'Health Check-in',
-            path: '~/health-check-in',
+            path: '~/人生辅助系统/健康打卡',
             spaceType: 'default',
             presets: [{ label: 'Preset', prompt: 'Keep me default.' }],
         }));
@@ -126,5 +127,24 @@ describe('buildAgentSpaceCompanionModel', () => {
         expect(healthLikeDefault.tips).toEqual([]);
         expect(healthLikeDefault.actions.map((action) => action.prompt)).toEqual(['Keep me default.']);
         expect(renamedHealth.tips.map((tip) => tip.id)).toEqual(['bedtime', 'morning-light', 'sleep-window']);
+    });
+
+    it('keeps the approved health companion copy semantics in the source locale', () => {
+        expect(defaultEnglish.agentSpace.companion).toMatchObject({
+            tipBedtimeTitle: 'Be in bed by 23:30',
+            tipBedtimeBody: 'Close stimulating content 30 minutes earlier to give your brain a clear signal to sleep.',
+            tipMorningLightTitle: 'Get 10 minutes of natural light',
+            tipMorningLightBody: 'Get morning light soon after waking to help stabilize your circadian rhythm.',
+            tipSleepWindowTitle: 'Reserve a 7-hour sleep window',
+            tipSleepWindowBody: 'Protect the sleep window first instead of trying to change every habit at once.',
+            actionSleepTitle: "Record last night's sleep",
+            actionSleepPrompt: "Help me record last night's sleep. I'll add a sleep screenshot or the exact times.",
+            actionExerciseTitle: 'Record an exercise',
+            actionExercisePrompt: "Help me record an exercise today. I'll add the activity type, duration, or a screenshot.",
+            actionDietTitle: "Record today's diet",
+            actionDietPrompt: "Help me record today's diet. I'll add the food, portions, or photos.",
+            actionWeeklyTitle: "Summarize this week's health",
+            actionWeeklyPrompt: "Based on this week's health records, summarize my sleep, exercise, and diet, then suggest what I should focus on next.",
+        });
     });
 });
