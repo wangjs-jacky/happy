@@ -11,7 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { createAppBuilderAgent, getAgentSubtitle } from './builtinAgents';
-import { useAgentSpace } from '@/hooks/useAgentSpace';
+import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -25,7 +25,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const agents = useLocalSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
-    const { enter: enterSpace } = useAgentSpace();
+    const { entering, enter } = useEnterAgentSpace();
     const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
         machines,
         preferredMachineId: draft.selectedMachineId,
@@ -40,24 +40,30 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     );
 
     const goManage = React.useCallback(() => {
+        if (entering) return;
         onClose();
         router.navigate('/settings/my-agents');
-    }, [onClose, router]);
+    }, [entering, onClose, router]);
 
-    const onPickAgent = React.useCallback((agent: AgentLauncher) => {
-        onClose();
+    const onPickAgent = React.useCallback(async (agent: AgentLauncher) => {
+        if (entering) return;
         // 持久化的「我的 Agent」→ 进入其专属空间（侧栏收敛为工作台）。内置 App Builder Agent
         // 的 id 是每次动态生成的、不适合作为持久空间锚点，保持原「直接发起新会话」行为。
         if (agents.some((a) => a.id === agent.id)) {
-            enterSpace(agent.id);
+            await enter(agent, { beforeNavigate: onClose });
         } else {
+            onClose();
             launchAgent(agent, draft, (p) => router.navigate(p as any));
         }
-    }, [onClose, draft, router, agents, enterSpace]);
+    }, [agents, draft, enter, entering, onClose, router]);
+
+    const closeIfIdle = React.useCallback(() => {
+        if (!entering) onClose();
+    }, [entering, onClose]);
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <Pressable style={styles.scrim} onPress={onClose} />
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={closeIfIdle}>
+            <Pressable style={styles.scrim} disabled={entering} onPress={closeIfIdle} />
             <View style={[styles.sheet, { paddingBottom: safeArea.bottom + 12 }]}>
                 {/* Grab handle */}
                 <View style={styles.handle} />
@@ -67,6 +73,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                     <Text style={styles.title} numberOfLines={1}>{t('agents.cardTitle')}</Text>
                     <Pressable
                         onPress={goManage}
+                        disabled={entering}
                         style={({ pressed }) => [styles.manageBtn, pressed && styles.pressed]}
                         hitSlop={8}
                     >
@@ -77,6 +84,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                 {visibleAgents.length === 0 ? (
                     <Pressable
                         onPress={goManage}
+                        disabled={entering}
                         style={({ pressed }) => [styles.empty, pressed && styles.pressed]}
                     >
                         <Text style={styles.emptyText}>{t('agents.empty')}</Text>
@@ -92,7 +100,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                             return (
                                 <Pressable
                                     key={agent.id}
-                                    disabled={!online}
+                                    disabled={!online || entering}
                                     onPress={() => onPickAgent(agent)}
                                     style={({ pressed }) => [
                                         styles.row,
@@ -119,7 +127,11 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                                         <Text style={styles.subtitle} numberOfLines={1}>
                                             {agent.kind === 'image-styles' ? `${t('agents.imageStyleAgent')} · ${subtitle}` : subtitle}
                                         </Text>
-                                        {!online && (
+                                        {entering && online ? (
+                                            <Text style={styles.statusLabel} numberOfLines={1}>
+                                                {t('agentSpace.entering')}
+                                            </Text>
+                                        ) : !online && (
                                             <Text style={styles.statusLabel} numberOfLines={1}>
                                                 {missing ? t('agents.machineMissing') : t('agents.machineOffline')}
                                             </Text>

@@ -3,10 +3,10 @@ import { Text, View, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAllMachines, useAgentSpaceSessions } from '@/sync/storage';
-import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
+import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { launchAgent, type AgentLauncher } from './launchAgent';
+import type { AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
 import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
@@ -26,6 +26,8 @@ interface Props {
     onExit: () => void;
     /** 导航（由 SidebarView 传入：会先关抽屉再跳转，避免手机端抽屉盖在新页面上）。 */
     onNavigate: (path: string) => void;
+    /** 只关闭侧栏抽屉；新会话导航始终由 useEnterAgentSpace 统一执行。 */
+    onCloseDrawer: () => void;
 }
 
 /**
@@ -34,12 +36,12 @@ interface Props {
  * 分段——工作台 = 预设快捷指令 + 仅本空间会话 + 新建；健康报告 = 睡眠/运动/饮食面板（机器级读日报）。
  * 视觉沿用统一设计系统主题 token，只把该 Agent 的 color 作为局部 accent，不改全局主题。
  */
-export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Props) => {
+export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCloseDrawer }: Props) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const machines = useAllMachines({ includeOffline: true });
-    const draft = useNewSessionDraft();
     const sessions = useAgentSpaceSessions(agent.machineId, agent.path);
+    const { entering, enter } = useEnterAgentSpace();
 
     // 健康打卡类 Agent（按工作目录识别）才提供「健康报告」分段；其余 Agent 只有工作台。
     const isHealth = isHealthCheckinSession(agent.path);
@@ -51,9 +53,10 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
     const headTint = withAlpha(accent, '14') ?? theme.colors.surface;
     const badgeTint = withAlpha(accent, '22') ?? theme.colors.surface;
 
-    const startSession = React.useCallback((initialInput?: string) => {
-        launchAgent(agent, draft, onNavigate, initialInput ? { initialInput } : undefined);
-    }, [agent, draft, onNavigate]);
+    const startSession = React.useCallback((initialInput?: string) => enter(agent, {
+        ...(initialInput !== undefined ? { initialDraft: initialInput } : {}),
+        beforeNavigate: onCloseDrawer,
+    }), [agent, enter, onCloseDrawer]);
 
     return (
         <View style={styles.root}>
@@ -113,6 +116,7 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
                                 {agent.presets.map((preset, index) => (
                                     <Pressable
                                         key={`${preset.label}-${index}`}
+                                        disabled={entering}
                                         onPress={() => startSession(preset.prompt)}
                                         style={({ pressed }) => [styles.chip, { borderColor: accent }, pressed && styles.pressedDim]}
                                     >
@@ -159,11 +163,14 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
 
                     {/* 在此空间新建会话 */}
                     <Pressable
+                        disabled={entering}
                         onPress={() => startSession()}
                         style={({ pressed }) => [styles.newBtn, { backgroundColor: accent }, pressed && styles.pressedDim]}
                     >
                         <Ionicons name="add" size={18} color="#FFFFFF" />
-                        <Text style={styles.newBtnText}>{t('agentSpace.newSession')}</Text>
+                        <Text style={styles.newBtnText}>
+                            {entering ? t('agentSpace.entering') : t('agentSpace.newSession')}
+                        </Text>
                     </Pressable>
                 </ScrollView>
             )}
