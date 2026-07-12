@@ -1367,6 +1367,9 @@ export const zhHant: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: '新增附件',
+        chooseSourcePhoto: '圖片',
+        chooseSourceMedia: '音訊 / 視訊檔案',
         permissionTitle: '存取照片圖庫',
         permissionMessage: '允許存取您的照片圖庫以在訊息中附加圖片。',
         limitTitle: '已達到圖片限制',

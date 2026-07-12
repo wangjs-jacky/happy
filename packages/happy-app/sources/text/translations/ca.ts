@@ -1267,6 +1267,9 @@ export const ca: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Afegeix un adjunt',
+        chooseSourcePhoto: 'Foto o imatge',
+        chooseSourceMedia: 'Àudio o vídeo',
         permissionTitle: 'Accés a la biblioteca de fotos',
         permissionMessage: "Permet l'accés a la teva biblioteca de fotos per adjuntar imatges als missatges.",
         limitTitle: "Límit d'imatges assolit",

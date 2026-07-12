@@ -1296,6 +1296,9 @@ export const ru: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Добавить вложение',
+        chooseSourcePhoto: 'Фото или изображение',
+        chooseSourceMedia: 'Аудио или видео',
         permissionTitle: 'Доступ к библиотеке фото',
         permissionMessage: 'Разрешите доступ к вашей библиотеке фото, чтобы прикреплять изображения к сообщениям.',
         limitTitle: 'Достигнут лимит изображений',

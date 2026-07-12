@@ -4,7 +4,7 @@
  * Uses thumbhash as a blurry placeholder while the full image loads.
  */
 import * as React from 'react';
-import { View, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -72,12 +72,46 @@ function AttachmentThumbnail({
     theme: any;
 }) {
     const windowDimensions = useWindowDimensions();
-    // Build placeholder from thumbhash if available
+    const isMedia = image.kind === 'audio' || image.kind === 'video';
+    // Build placeholder from thumbhash if available (hook must run before any
+    // early return to keep hook order stable).
     const placeholder = React.useMemo(() => {
         if (!image.thumbhash) return undefined;
         const uri = thumbhashToDataUri(image.thumbhash);
         return uri ? { uri } : undefined;
     }, [image.thumbhash]);
+
+    // Audio/video have no thumbnail — render a compact card with an icon and the
+    // filename instead of trying (and failing) to load the file uri as an image.
+    if (isMedia) {
+        return (
+            <View style={[styles.thumbContainer, styles.mediaCard, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
+                <Ionicons
+                    name={image.kind === 'audio' ? 'musical-notes' : 'videocam'}
+                    size={22}
+                    color={theme.colors.text}
+                />
+                <Text numberOfLines={2} style={[styles.mediaName, { color: theme.colors.text }]}>
+                    {image.name}
+                </Text>
+                <Pressable
+                    onPress={() => onRemove(image.id)}
+                    hitSlop={6}
+                    style={(p) => [
+                        styles.removeButton,
+                        {
+                            backgroundColor: theme.colors.surfaceHigh,
+                            borderColor: theme.colors.divider,
+                            opacity: p.pressed ? 0.7 : 1,
+                        },
+                    ]}
+                >
+                    <Ionicons name="close" size={12} color={theme.colors.text} />
+                </Pressable>
+            </View>
+        );
+    }
+
     const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 64));
     const displaySize = computeInputAttachmentImageSize({
         presentation,
@@ -143,6 +177,20 @@ const styles = StyleSheet.create(() => ({
         height: THUMB_SIZE,
         overflow: 'visible',
         position: 'relative',
+    },
+    mediaCard: {
+        width: 140,
+        borderWidth: 1,
+        borderRadius: BORDER_RADIUS,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    mediaName: {
+        fontSize: 12,
+        lineHeight: 15,
     },
     thumbPressable: {
         width: THUMB_SIZE,

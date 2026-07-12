@@ -57,7 +57,7 @@ import {
 } from './sessionEventLocalNotification';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
-import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
+import { requestAttachmentUpload, uploadEncryptedBlob, uploadMediaFile } from './apiAttachments';
 import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
@@ -532,6 +532,30 @@ class Sync {
 
         for (const attachment of attachments) {
             try {
+                const kind = attachment.kind ?? 'image';
+                if (kind === 'audio' || kind === 'video') {
+                    // Plaintext media lane: stream from disk to a presigned PUT,
+                    // never reading the (up to 500MB) file into memory.
+                    const upload = await requestAttachmentUpload(
+                        this.credentials,
+                        sessionId,
+                        attachment.name,
+                        attachment.size,
+                        kind,
+                    );
+                    await uploadMediaFile(upload, attachment.uri, attachment.mimeType, this.credentials);
+                    uploaded.push({
+                        ref: upload.ref,
+                        name: attachment.name,
+                        size: attachment.size,
+                        width: 0,
+                        height: 0,
+                        kind,
+                        mimeType: attachment.mimeType,
+                    });
+                    continue;
+                }
+
                 const bytes = await readFileBytes(attachment.uri);
                 const encrypted = encryptBlob(bytes, blobKey);
 
@@ -641,6 +665,13 @@ class Sync {
                                     ref: att.ref,
                                     name: att.name,
                                     size: att.size,
+                                    // Media lane travels plaintext: tag kind + encrypted:false +
+                                    // real mimeType so the terminal streams it to disk (no decrypt)
+                                    // and hands the model the local path. Images omit these and
+                                    // stay on the encrypted path (encrypted defaults to true).
+                                    ...(att.kind === 'audio' || att.kind === 'video'
+                                        ? { kind: att.kind, encrypted: false, ...(att.mimeType ? { mimeType: att.mimeType } : {}) }
+                                        : {}),
                                     // Include image metadata when we have dimensions; thumbhash is
                                     // optional. The native iOS picker can't generate a thumbhash
                                     // without Canvas, so requiring it here would reduce the chat

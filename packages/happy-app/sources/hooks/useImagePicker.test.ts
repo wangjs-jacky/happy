@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { MAX_IMAGES_PER_MESSAGE } from './useImagePicker';
 
 vi.mock('expo-image-picker', () => ({}));
+// Same reason as normalizeImageForUpload below: importing the real
+// expo-document-picker drags in expo-modules-core (__DEV__ undefined in node).
+vi.mock('expo-document-picker', () => ({
+    getDocumentAsync: vi.fn(),
+}));
 vi.mock('react-native', () => ({
     Platform: { OS: 'web' },
 }));

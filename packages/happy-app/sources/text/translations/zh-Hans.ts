@@ -1836,6 +1836,9 @@ export const zhHans: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: '添加附件',
+        chooseSourcePhoto: '图片',
+        chooseSourceMedia: '音频 / 视频文件',
         permissionTitle: '访问照片库',
         permissionMessage: '允许访问您的照片库以在消息中附加图片。',
         limitTitle: '已达到图片限制',

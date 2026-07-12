@@ -1297,6 +1297,9 @@ export const pl: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Dodaj załącznik',
+        chooseSourcePhoto: 'Zdjęcie lub obraz',
+        chooseSourceMedia: 'Plik audio lub wideo',
         permissionTitle: 'Dostęp do biblioteki zdjęć',
         permissionMessage: 'Zezwól na dostęp do biblioteki zdjęć, aby załączać obrazy do wiadomości.',
         limitTitle: 'Osiągnięto limit obrazów',

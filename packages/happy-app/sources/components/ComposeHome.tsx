@@ -230,7 +230,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeImageAgent, agentType],
     );
     const canAttach = composeExperience.canAttach;
-    const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
     const hasImages = canAttach && selectedImages.length > 0;
     const pendingStyleImageRestoreState = React.useRef<'idle' | 'restoring' | 'done'>('idle');
 
@@ -938,7 +938,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         isSendDisabled={!canSubmit}
                         selectedImages={hasImages ? selectedImages : undefined}
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
-                        onPickImages={canAttach ? pickImages : undefined}
+                        // Image agent needs images only; the normal composer
+                        // offers the photo/audio-video chooser.
+                        onPickImages={canAttach ? (activeImageAgent ? pickImages : pickAttachment) : undefined}
                         onRemoveImage={canAttach ? removeImage : undefined}
                         onAddImages={canAttach ? addImages : undefined}
                     />
