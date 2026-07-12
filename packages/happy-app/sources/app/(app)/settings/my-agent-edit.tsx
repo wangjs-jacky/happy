@@ -19,7 +19,7 @@ import type { AgentPreset } from '@/components/agents/launchAgent';
 import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
 import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
-import { buildAgentForSave } from '@/components/agents/agentEditorModel';
+import { buildAgentForSave, validateAgentSave } from '@/components/agents/agentEditorModel';
 
 type AgentKind = 'standard' | 'image-styles';
 const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
@@ -130,6 +130,18 @@ export default React.memo(function AgentEditScreen() {
         if (!trimmedName || !machineId) {
             return;
         }
+        const pathForSave = path.trim() || '~';
+        const validation = validateAgentSave({
+            agents,
+            editingId,
+            machineId,
+            path: pathForSave,
+            homeDir: selectedMachine?.metadata?.homeDir,
+        });
+        if (!validation.ok) {
+            Modal.alert(t('agents.duplicatePath'));
+            return;
+        }
         // Drop preset rows that are entirely blank. 落库前剥离临时 _key，保持 {label, prompt} 形状。
         const cleanedPresets = presets
             .map((p) => ({ label: p.label.trim(), prompt: p.prompt.trim() }))
@@ -144,7 +156,7 @@ export default React.memo(function AgentEditScreen() {
                 glyph: firstGlyph(trimmedName),
                 color: existing?.color ?? entityColor(id),
                 machineId,
-                path: path.trim() || '~',
+                path: pathForSave,
                 kind,
                 imageStyleIds: kind === 'image-styles'
                     ? (imageStyleIds.length > 0 ? imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
@@ -161,7 +173,7 @@ export default React.memo(function AgentEditScreen() {
                 : [...agents, agent],
         );
         router.back();
-    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle]);
+    }, [name, machineId, path, agents, editingId, selectedMachine, presets, existing, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle]);
 
     const handleDelete = React.useCallback(() => {
         if (!existing) return;

@@ -1392,6 +1392,8 @@ export const ja: TranslationStructure = {
         sessionsTitle: 'このスペースのセッション',
         newSession: 'このスペースで新規セッション',
         empty: 'このスペースにはまだセッションがありません',
+        entering: 'スペースに移動中…',
+        enterFailed: 'このエージェントのスペースに移動できませんでした。',
     },
     agents: {
         cardTitle: 'マイエージェント',
@@ -1403,6 +1405,7 @@ export const ja: TranslationStructure = {
         appBuilderPresetBugfix: 'バグ修正',
         machineOffline: 'マシンがオフライン',
         machineMissing: 'マシンが見つかりません',
+        duplicatePath: 'このマシンとフォルダを使用するエージェントはすでに存在します。',
         empty: 'エージェントがありません。タップして追加。',
         title: 'マイエージェント',
         newTitle: '新規エージェント',

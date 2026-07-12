@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentForSave } from './agentEditorModel';
+import { buildAgentForSave, validateAgentSave } from './agentEditorModel';
 import type { AgentLauncher } from './launchAgent';
 
 function makeAgent(overrides: Partial<AgentLauncher> = {}): AgentLauncher {
@@ -46,5 +46,31 @@ describe('buildAgentForSave', () => {
 
         expect(buildAgentForSave({ existing: null, agent: healthAgent }).spaceType).toBe('health');
         expect(buildAgentForSave({ existing: null, agent: workAgent }).spaceType).toBe('default');
+    });
+});
+
+describe('validateAgentSave', () => {
+    it('rejects a duplicate canonical machine and path on save', () => {
+        const result = validateAgentSave({
+            agents: [makeAgent({ id: 'existing', machineId: 'm1', path: '~/work' })],
+            editingId: null,
+            machineId: 'm1',
+            path: '/Users/jacky/work/',
+            homeDir: '/Users/jacky',
+        });
+
+        expect(result).toEqual({ ok: false, reason: 'duplicate-path' });
+    });
+
+    it('excludes the Agent currently being edited from duplicate detection', () => {
+        const result = validateAgentSave({
+            agents: [makeAgent({ id: 'editing', machineId: 'm1', path: '~/work' })],
+            editingId: 'editing',
+            machineId: 'm1',
+            path: '/Users/jacky/work/',
+            homeDir: '/Users/jacky',
+        });
+
+        expect(result).toEqual({ ok: true });
     });
 });

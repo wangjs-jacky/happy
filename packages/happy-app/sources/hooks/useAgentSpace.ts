@@ -1,6 +1,8 @@
 import * as React from 'react';
-import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useAllMachines, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import type { AgentLauncher } from '@/components/agents/launchAgent';
+import type { Session } from '@/sync/storageTypes';
+import { matchAgentForSession } from '@/utils/agentSpaceIdentity';
 
 /**
  * 「Agent 空间模式」状态入口。
@@ -25,4 +27,22 @@ export function useAgentSpace(): {
     const enter = React.useCallback((id: string) => setAgentSpaceId(id), [setAgentSpaceId]);
     const exit = React.useCallback(() => setAgentSpaceId(null), [setAgentSpaceId]);
     return { agentSpaceId, agent, enter, exit };
+}
+
+/** Resolves the saved Agent identity for a live session using its machine's canonical home path. */
+export function useSpaceAgentForSession(session: Session): AgentLauncher | null {
+    const agents = useLocalSetting('agents');
+    const agentSpaceId = useLocalSetting('agentSpaceId');
+    const machines = useAllMachines({ includeOffline: true });
+    return React.useMemo(() => {
+        const machineId = session.metadata?.machineId;
+        const homeDir = machines.find((machine) => machine.id === machineId)?.metadata?.homeDir;
+        return matchAgentForSession({
+            agents,
+            agentSpaceId,
+            machineId,
+            sessionPath: session.metadata?.path,
+            homeDir,
+        });
+    }, [agentSpaceId, agents, machines, session.metadata?.machineId, session.metadata?.path]);
 }

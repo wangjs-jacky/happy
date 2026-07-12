@@ -1490,6 +1490,8 @@ export const zhHant: TranslationStructure = {
         sessionsTitle: '本空間會話',
         newSession: '在此空間新建會話',
         empty: '本空間還沒有會話',
+        entering: '正在進入空間…',
+        enterFailed: '進入這個 Agent 空間失敗。',
     },
     agents: {
         cardTitle: '我的 Agent',
@@ -1501,6 +1503,7 @@ export const zhHant: TranslationStructure = {
         appBuilderPresetBugfix: '修 Bug',
         machineOffline: '機器離線',
         machineMissing: '機器不存在',
+        duplicatePath: '已有 Agent 使用這台機器和資料夾。',
         empty: '還沒有 Agent，點擊新增',
         title: '我的 Agent',
         newTitle: '新增 Agent',

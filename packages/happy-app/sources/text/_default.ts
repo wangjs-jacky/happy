@@ -1967,6 +1967,8 @@ export const en = {
         sessionsTitle: 'Sessions in this space',
         newSession: 'New session in this space',
         empty: 'No sessions in this space yet',
+        entering: 'Entering space…',
+        enterFailed: 'Failed to enter this Agent space.',
     },
     agents: {
         cardTitle: 'My Agents',
@@ -1978,6 +1980,7 @@ export const en = {
         appBuilderPresetBugfix: 'Fix bug',
         machineOffline: 'Machine offline',
         machineMissing: 'Machine not found',
+        duplicatePath: 'An Agent already uses this machine and folder.',
         empty: 'No agents yet. Tap to add one.',
         title: 'My Agents',
         newTitle: 'New Agent',

@@ -1390,6 +1390,8 @@ export const ca: TranslationStructure = {
         sessionsTitle: 'Sessions en aquest espai',
         newSession: 'Nova sessió en aquest espai',
         empty: 'Encara no hi ha sessions en aquest espai',
+        entering: 'S’està entrant a l’espai…',
+        enterFailed: 'No s’ha pogut entrar a l’espai d’aquest agent.',
     },
     agents: {
         cardTitle: 'Els meus agents',
@@ -1401,6 +1403,7 @@ export const ca: TranslationStructure = {
         appBuilderPresetBugfix: 'Corregeix bug',
         machineOffline: 'Màquina fora de línia',
         machineMissing: 'Màquina no trobada',
+        duplicatePath: 'Ja existeix un agent per a aquesta màquina i carpeta.',
         empty: 'Encara no hi ha agents. Toca per afegir-ne un.',
         title: 'Els meus agents',
         newTitle: 'Nou agent',

@@ -32,6 +32,7 @@ import { getCurrentRealtimeSessionId, getVoiceSession } from '@/realtime/Realtim
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
+import { selectAgentSpaceSessions } from '@/utils/agentSpaceIdentity';
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1527,9 +1528,12 @@ const EMPTY_AGENT_SPACE_SESSIONS: Session[] = [];
 export function useAgentSpaceSessions(machineId: string | null, path: string | null): SessionRowData[] {
     const sessions = storage(useShallow((state) => {
         if (!machineId || !path || !state.isDataReady) return EMPTY_AGENT_SPACE_SESSIONS;
-        return Object.values(state.sessions)
-            .filter((s) => s.metadata?.machineId === machineId && s.metadata?.path === path)
-            .sort((a, b) => (isSessionActive(b) ? 1 : 0) - (isSessionActive(a) ? 1 : 0) || b.createdAt - a.createdAt);
+        return selectAgentSpaceSessions({
+            sessions: Object.values(state.sessions),
+            machineId,
+            agentPath: path,
+            homeDir: state.machines[machineId]?.metadata?.homeDir,
+        });
     }));
     const unreadSessionIds = storage((state) => state.unreadSessionIds);
     return React.useMemo(

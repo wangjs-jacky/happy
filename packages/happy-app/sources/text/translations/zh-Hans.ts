@@ -1959,6 +1959,8 @@ export const zhHans: TranslationStructure = {
         sessionsTitle: '本空间会话',
         newSession: '在此空间新建会话',
         empty: '本空间还没有会话',
+        entering: '正在进入空间…',
+        enterFailed: '进入这个 Agent 空间失败。',
     },
     agents: {
         cardTitle: '我的 Agent',
@@ -1970,6 +1972,7 @@ export const zhHans: TranslationStructure = {
         appBuilderPresetBugfix: '修 Bug',
         machineOffline: '机器离线',
         machineMissing: '机器不存在',
+        duplicatePath: '已有 Agent 使用这台机器和文件夹。',
         empty: '还没有 Agent，点击添加',
         title: '我的 Agent',
         newTitle: '新建 Agent',

@@ -1389,6 +1389,8 @@ export const pt: TranslationStructure = {
         sessionsTitle: 'Sessões neste espaço',
         newSession: 'Nova sessão neste espaço',
         empty: 'Ainda não há sessões neste espaço',
+        entering: 'Entrando no espaço…',
+        enterFailed: 'Não foi possível entrar no espaço deste agente.',
     },
     agents: {
         cardTitle: 'Meus agentes',
@@ -1400,6 +1402,7 @@ export const pt: TranslationStructure = {
         appBuilderPresetBugfix: 'Corrigir bug',
         machineOffline: 'Máquina offline',
         machineMissing: 'Máquina não encontrada',
+        duplicatePath: 'Já existe um agente para esta máquina e pasta.',
         empty: 'Ainda não há agentes. Toque para adicionar.',
         title: 'Meus agentes',
         newTitle: 'Novo agente',

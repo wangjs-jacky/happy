@@ -1419,6 +1419,8 @@ export const ru: TranslationStructure = {
         sessionsTitle: 'Сессии в этом пространстве',
         newSession: 'Новая сессия в этом пространстве',
         empty: 'В этом пространстве пока нет сессий',
+        entering: 'Вход в пространство…',
+        enterFailed: 'Не удалось войти в пространство этого агента.',
     },
     agents: {
         cardTitle: 'Мои агенты',
@@ -1430,6 +1432,7 @@ export const ru: TranslationStructure = {
         appBuilderPresetBugfix: 'Исправить баг',
         machineOffline: 'Машина офлайн',
         machineMissing: 'Машина не найдена',
+        duplicatePath: 'Агент для этой машины и папки уже существует.',
         empty: 'Пока нет агентов. Нажмите, чтобы добавить.',
         title: 'Мои агенты',
         newTitle: 'Новый агент',
