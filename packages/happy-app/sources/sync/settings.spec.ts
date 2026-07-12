@@ -388,6 +388,66 @@ describe('settings', () => {
 
             expect(merged.agents).toEqual([]);
         });
+
+        const customStyle = {
+            id: 'user-reference/u1',
+            title: '胶片风',
+            promptHint: '用户参考照片风格：胶片风。',
+            promptContent: '柔和逆光、巨幅圆形散景、通透胶片色彩。',
+            tags: [],
+            analysisStatus: 'prompt-ready' as const,
+            promptSource: 'extracted-prompt' as const,
+            referenceImages: [{
+                id: 'r1',
+                uri: 'file:///ref.jpg',
+                width: 800,
+                height: 1000,
+                mimeType: 'image/jpeg',
+                size: 123,
+                name: 'ref.jpg',
+            }],
+            createdAt: 1,
+            updatedAt: 2,
+        };
+
+        it('preserves local customImageStyles when a server payload predates the field', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                customImageStyles: [customStyle],
+            };
+            const serverRaw = {
+                viewInline: true,
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.viewInline).toBe(true);
+            expect(merged.customImageStyles).toEqual([customStyle]);
+        });
+
+        it('accepts an explicit empty customImageStyles list from the server', () => {
+            const localSettings = {
+                ...settingsDefaults,
+                customImageStyles: [customStyle],
+            };
+            const serverRaw = {
+                customImageStyles: [],
+            };
+
+            const merged = mergeServerSettings(
+                localSettings,
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.customImageStyles).toEqual([]);
+        });
     });
 
     describe('forward/backward compatibility', () => {
