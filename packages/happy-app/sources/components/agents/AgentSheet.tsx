@@ -11,7 +11,6 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { createAppBuilderAgent, getAgentSubtitle } from './builtinAgents';
-import { useAgentSpace } from '@/hooks/useAgentSpace';
 
 /**
  * 底部抽屉，列出用户配置的「我的 Agent」。
@@ -25,7 +24,6 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const agents = useLocalSetting('agents');
     const machines = useAllMachines({ includeOffline: true });
     const draft = useNewSessionDraft();
-    const { enter: enterSpace } = useAgentSpace();
     const builtinAppAgent = React.useMemo(() => createAppBuilderAgent({
         machines,
         preferredMachineId: draft.selectedMachineId,
@@ -46,14 +44,14 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
 
     const onPickAgent = React.useCallback((agent: AgentLauncher) => {
         onClose();
-        // 持久化的「我的 Agent」→ 进入其专属空间（侧栏收敛为工作台）。内置 App Builder Agent
-        // 的 id 是每次动态生成的、不适合作为持久空间锚点，保持原「直接发起新会话」行为。
+        // 持久化的「我的 Agent」→ 进入其专属空间页 /space/<id>（占据主内容区）。内置 App Builder
+        // Agent 的 id 每次动态生成、不适合作持久空间锚点，保持原「直接发起新会话」行为。
         if (agents.some((a) => a.id === agent.id)) {
-            enterSpace(agent.id);
+            router.navigate(`/space/${agent.id}` as any);
         } else {
             launchAgent(agent, draft, (p) => router.navigate(p as any));
         }
-    }, [onClose, draft, router, agents, enterSpace]);
+    }, [onClose, draft, router, agents]);
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

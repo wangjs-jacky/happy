@@ -465,6 +465,13 @@ export default function RootLayout() {
                     headerShown: false,
                 }}
             />
+            <Stack.Screen
+                name="space/[id]"
+                options={{
+                    // 空间主页自绘头（身份 + 退出空间），隐藏原生栈头避免双头 —— 同 session/new。
+                    headerShown: false,
+                }}
+            />
         </Stack>
         </CardStackScene>
     );

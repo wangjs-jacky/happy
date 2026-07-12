@@ -8,7 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
-import { isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
 
 /**

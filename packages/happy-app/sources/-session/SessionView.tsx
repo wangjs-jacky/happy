@@ -30,7 +30,7 @@ import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
-import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { SessionSpaceChip } from '@/components/SessionSpaceChip';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -225,7 +225,25 @@ export const SessionView = React.memo((props: { id: string }) => {
     const machineName = session?.metadata?.name || session?.metadata?.host || null;
     const showChip = isDataReady && !!session;
 
-    const headerTitleSlot = showChip ? (
+    // 会话所属「专属空间」Agent：按 machineId+path 匹配「我的 Agent」列表。命中即在顶栏用空间
+    // 身份 chip（accent + 头像 + 名字，点击回 /space/<id>）替代通用机器 pill，保持空间感。
+    const spaceAgents = useLocalSetting('agents');
+    const spaceAgent = React.useMemo(() => {
+        const mid = session?.metadata?.machineId;
+        const p = session?.metadata?.path;
+        if (!mid || !p) return null;
+        return spaceAgents.find((a) => a.machineId === mid && a.path === p) ?? null;
+    }, [spaceAgents, session?.metadata?.machineId, session?.metadata?.path]);
+
+    const headerTitleSlot = !showChip ? undefined : spaceAgent ? (
+        <SessionSpaceChip
+            name={spaceAgent.name}
+            glyph={spaceAgent.glyph}
+            color={spaceAgent.color}
+            online={sessionOnline}
+            onPress={() => router.navigate(`/space/${spaceAgent.id}` as any)}
+        />
+    ) : (
         <SessionHeaderChip
             agentLabel={agentLabel}
             machineName={machineName}
@@ -233,7 +251,7 @@ export const SessionView = React.memo((props: { id: string }) => {
             open={infoPanelOpen}
             onPress={() => setInfoPanelOpen(v => !v)}
         />
-    ) : undefined;
+    );
 
     // New-session button on the header's right edge. Returns to the particle
     // home (ComposeHome) to start a fresh session — not the older /new composer.
@@ -330,11 +348,9 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        // 会话属于某个「专属空间」Agent 时，右滑面板换成该 Agent 自己的面板，
-        // 而不是给 coding 用的通用能力中心。MVP 先接入健康打卡。
-        const rightPanel = isHealthCheckinSession(session?.metadata?.path)
-            ? <HealthCheckinPanel onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />
-            : <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
+        // 右滑面板统一为通用「能力中心」。健康报告等空间级 dashboard 归空间主页 /space/[id]，
+        // 不再在会话内重复出现（避免左侧空间与右滑两处放同一份睡眠报告）。
+        const rightPanel = <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
         return (
             <RightSwipePanelHost panelContent={rightPanel}>
                 {mainContent}
