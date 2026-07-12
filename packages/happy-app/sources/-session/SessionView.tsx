@@ -30,7 +30,7 @@ import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
-import { SessionSpaceChip } from '@/components/SessionSpaceChip';
+import { useAgentSpace } from '@/hooks/useAgentSpace';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -224,9 +224,11 @@ export const SessionView = React.memo((props: { id: string }) => {
     }, [session?.metadata?.flavor]);
     const machineName = session?.metadata?.name || session?.metadata?.host || null;
     const showChip = isDataReady && !!session;
+    // 会话内「进入空间/退出空间」：进入 = 设 agentSpaceId + 拉出工作台抽屉；退出 = 清空间并回首页。
+    const { enter: enterSpace, exit: exitSpace } = useAgentSpace();
 
-    // 会话所属「专属空间」Agent：按 machineId+path 匹配「我的 Agent」列表。命中即在顶栏用空间
-    // 身份 chip（accent + 头像 + 名字，点击回 /space/<id>）替代通用机器 pill，保持空间感。
+    // 会话所属「专属空间」Agent：按 machineId+path 匹配「我的 Agent」列表。命中即把会话顶栏染成
+    // 该 Agent 的 accent 皮肤（头像 + 会话名 + 进入/退出空间），保持空间感。
     const spaceAgents = useLocalSetting('agents');
     const spaceAgent = React.useMemo(() => {
         const mid = session?.metadata?.machineId;
@@ -235,15 +237,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         return spaceAgents.find((a) => a.machineId === mid && a.path === p) ?? null;
     }, [spaceAgents, session?.metadata?.machineId, session?.metadata?.path]);
 
-    const headerTitleSlot = !showChip ? undefined : spaceAgent ? (
-        <SessionSpaceChip
-            name={spaceAgent.name}
-            glyph={spaceAgent.glyph}
-            color={spaceAgent.color}
-            online={sessionOnline}
-            onPress={() => router.navigate(`/space/${spaceAgent.id}` as any)}
-        />
-    ) : (
+    const headerTitleSlot = showChip ? (
         <SessionHeaderChip
             agentLabel={agentLabel}
             machineName={machineName}
@@ -251,7 +245,38 @@ export const SessionView = React.memo((props: { id: string }) => {
             open={infoPanelOpen}
             onPress={() => setInfoPanelOpen(v => !v)}
         />
-    );
+    ) : undefined;
+
+    // 「空间皮肤」会话顶栏（第三张图）：会话属于某空间 Agent 时，顶栏染 accent 色 + 头像 + 会话名，
+    // 左「进入空间」拉出工作台抽屉、右「退出空间」离开空间回首页。发送键/气泡保持原样。
+    const spaceTint = '#FFFFFF';
+    const enterSpaceButton = spaceAgent ? (
+        <Pressable
+            onPress={() => { enterSpace(spaceAgent.id); openSessionList(); }}
+            hitSlop={12}
+            style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+        >
+            <Ionicons name="albums-outline" size={22} color={spaceTint} />
+        </Pressable>
+    ) : undefined;
+    const exitSpaceButton = spaceAgent ? (
+        <Pressable
+            onPress={() => { exitSpace(); router.navigate('/'); }}
+            hitSlop={12}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 4 }}
+        >
+            <Ionicons name="exit-outline" size={20} color={spaceTint} />
+            <Text style={{ color: spaceTint, fontSize: 13, fontWeight: '600' }}>{t('agentSpace.exit')}</Text>
+        </Pressable>
+    ) : undefined;
+    const spaceTitleSlot = spaceAgent ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 15 }}>{spaceAgent.glyph}</Text>
+            </View>
+            <Text numberOfLines={1} style={{ color: spaceTint, fontSize: 15, fontWeight: '600' }}>{headerProps.title}</Text>
+        </View>
+    ) : undefined;
 
     // New-session button on the header's right edge. Returns to the particle
     // home (ComposeHome) to start a fresh session — not the older /new composer.
@@ -300,9 +325,12 @@ export const SessionView = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         extraPathSegment={fileViewPath ?? undefined}
-                        titleSlot={headerTitleSlot}
-                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : newSessionButton}
-                        onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
+                        backgroundColor={spaceAgent ? spaceAgent.color : undefined}
+                        tintColor={spaceAgent ? spaceTint : undefined}
+                        leftSlot={enterSpaceButton}
+                        titleSlot={spaceAgent ? spaceTitleSlot : headerTitleSlot}
+                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : (spaceAgent ? exitSpaceButton : newSessionButton)}
+                        onTitlePress={session && !spaceAgent ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
                 </View>
@@ -348,7 +376,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        // 右滑面板统一为通用「能力中心」。健康报告等空间级 dashboard 归空间主页 /space/[id]，
+        // 右滑面板统一为通用「能力中心」。健康报告等空间级 dashboard 归空间工作台的「健康报告」，
         // 不再在会话内重复出现（避免左侧空间与右滑两处放同一份睡眠报告）。
         const rightPanel = <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
         return (
