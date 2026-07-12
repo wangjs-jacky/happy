@@ -6,6 +6,7 @@ import { ensureDaemonRunning } from '@/daemon/ensureDaemonRunning'
 import type { PermissionMode } from '@/api/types'
 import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
 import { collectCodexUsageSnapshot } from '@/codex/codexUsage'
+import { promptInstallSlashCommandIfNeeded } from './pawsInstallPrompt'
 
 function formatTokens(value: number | undefined | null): string {
   return typeof value === 'number' ? value.toLocaleString() : '0'
@@ -59,6 +60,10 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     } else if (codexArgs.args[i] === '--yolo') {
       permissionMode = 'yolo'
     }
+  }
+
+  if (!codexArgs.args.includes('--help') && !codexArgs.args.includes('-h')) {
+    await promptInstallSlashCommandIfNeeded({ startedBy });
   }
 
   const { credentials } = await authAndSetupMachineIfNeeded()

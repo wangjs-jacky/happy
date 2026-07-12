@@ -35,6 +35,7 @@ import { handleResumeCommand } from '@/resume/handleResumeCommand'
 import { ensureDaemonRunning } from './daemon/ensureDaemonRunning'
 import { handleCodexCommand } from './commands/codexCommand'
 import { handleAttachCommand } from './commands/attach'
+import { promptInstallSlashCommandIfNeeded } from './commands/pawsInstallPrompt'
 
 
 (async () => {
@@ -771,6 +772,10 @@ ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
     if (showVersion) {
       console.log(`happy version: ${packageJson.version}`)
       // Don't exit - continue to pass --version to Claude Code
+    }
+
+    if (!showVersion) {
+      await promptInstallSlashCommandIfNeeded({ startedBy: options.startedBy });
     }
 
     // Normal flow - auth and machine setup
