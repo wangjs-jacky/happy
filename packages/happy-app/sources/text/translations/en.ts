@@ -1396,6 +1396,16 @@ export const en: TranslationStructure = {
         deleteFailed: "Failed to delete push token.",
     },
 
+    agentSpace: {
+        tabWorkbench: 'Workbench',
+        tabHealth: 'Health report',
+        exit: 'Exit space',
+        badge: 'Personal space',
+        quickPrompts: 'Quick prompts',
+        sessionsTitle: 'Sessions in this space',
+        newSession: 'New session in this space',
+        empty: 'No sessions in this space yet',
+    },
     agents: {
         cardTitle: 'My Agents',
         add: 'Add',

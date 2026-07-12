@@ -26,11 +26,15 @@ interface DraftSetters {
     setEffortLevel?: (level: string | null) => void;
 }
 
-/** 设 draft（顺序：先 machine 后 path，因 setMachineId 会清空 path）后导航到预填的新建会话页。 */
+/**
+ * 设 draft（顺序：先 machine 后 path，因 setMachineId 会清空 path）后导航到预填的新建会话页。
+ * `initialInput` 用于「空间模式」里点预设快捷指令时预填提示词；缺省清空输入。
+ */
 export function launchAgent(
     agent: AgentLauncher,
     draft: DraftSetters,
     navigate: (path: string) => void,
+    options?: { initialInput?: string },
 ): void {
     draft.setMachineId(agent.machineId);
     draft.setPath(agent.path);
@@ -40,6 +44,6 @@ export function launchAgent(
     if (agent.modelMode) draft.setModelMode?.(agent.modelMode);
     if (agent.effortLevel !== undefined) draft.setEffortLevel?.(agent.effortLevel);
     draft.setSessionType('simple');
-    draft.setInput('');
+    draft.setInput(options?.initialInput ?? '');
     navigate(`/new?agentId=${agent.id}`);
 }

@@ -325,3 +325,11 @@ export function buildDietView(log: HealthLog): DietView | null {
     if (log.meals.length === 0 && log.intakeKcal === null) return null;
     return { meals: log.meals, intakeKcal: log.intakeKcal };
 }
+
+/**
+ * 判断某工作目录是否属于「健康打卡」Agent（MVP：按目录名识别）。用于决定空间是否展示
+ * 「健康报告」分段。放在 healthLog（纯工具）里，避免为一个判定函数依赖整个面板组件。
+ */
+export function isHealthCheckinSession(path: string | null | undefined): boolean {
+    return !!path && path.includes('健康打卡');
+}

@@ -19,6 +19,8 @@ interface ChatHeaderViewProps {
      * are ignored — the slot handles its own press behaviour.
      */
     titleSlot?: React.ReactNode;
+    /** Replaces the ☰ / back buttons on the left edge (e.g. a themed "enter space" button). */
+    leftSlot?: React.ReactNode;
     /** Optional content rendered at the right edge of the header (used by file-view / diff overlays). */
     rightSlot?: React.ReactNode;
     onTitlePress?: () => void;
@@ -35,13 +37,19 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     folderName,
     extraPathSegment,
     titleSlot,
+    leftSlot,
     rightSlot,
     onTitlePress,
     onBackPress,
     onListPress,
+    backgroundColor,
+    tintColor,
     isConnected = true,
 }) => {
     const { theme } = useUnistyles();
+    // 「空间皮肤」会话顶栏时，由调用方传入 accent 底色 + 白色 tint；缺省回退到主题默认。
+    const headerBg = backgroundColor ?? theme.colors.header.background;
+    const headerTint = tintColor ?? theme.colors.header.tint;
     const insets = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const isTablet = useIsTablet();
@@ -52,26 +60,30 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
     const hasExtra = !!extraPathSegment;
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top, backgroundColor: theme.colors.header.background }]}>
+        <View style={[styles.container, { paddingTop: insets.top, backgroundColor: headerBg }]}>
             <View style={styles.contentWrapper}>
                 <View style={[styles.content, { height: headerHeight }]}>
-                    {showListButton && (
-                        <Pressable onPress={onListPress} hitSlop={15} style={styles.listButton}>
-                            <Ionicons
-                                name="menu-outline"
-                                size={26}
-                                color={theme.colors.header.tint}
-                            />
-                        </Pressable>
-                    )}
-                    {showBackButton && (
-                        <Pressable onPress={onBackPress} hitSlop={15} style={styles.backButton}>
-                            <Ionicons
-                                name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
-                                size={24}
-                                color={theme.colors.header.tint}
-                            />
-                        </Pressable>
+                    {leftSlot ? leftSlot : (
+                        <>
+                            {showListButton && (
+                                <Pressable onPress={onListPress} hitSlop={15} style={styles.listButton}>
+                                    <Ionicons
+                                        name="menu-outline"
+                                        size={26}
+                                        color={headerTint}
+                                    />
+                                </Pressable>
+                            )}
+                            {showBackButton && (
+                                <Pressable onPress={onBackPress} hitSlop={15} style={styles.backButton}>
+                                    <Ionicons
+                                        name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
+                                        size={24}
+                                        color={headerTint}
+                                    />
+                                </Pressable>
+                            )}
+                        </>
                     )}
                     {titleSlot ? (
                         <View style={styles.titleContainer}>
@@ -100,7 +112,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                                             style={[
                                                 styles.title,
                                                 hasExtra && styles.titleWithExtra,
-                                                { color: theme.colors.header.tint, ...Typography.default() },
+                                                { color: headerTint, ...Typography.default() },
                                             ]}
                                         >
                                             {title}
@@ -113,7 +125,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                                         <Text
                                             numberOfLines={1}
                                             ellipsizeMode="middle"
-                                            style={[styles.extraPath, { color: theme.colors.header.tint, ...Typography.mono() }]}
+                                            style={[styles.extraPath, { color: headerTint, ...Typography.mono() }]}
                                         >
                                             {extraPathSegment}
                                         </Text>
@@ -124,7 +136,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             <Text
                                 numberOfLines={1}
                                 ellipsizeMode="tail"
-                                style={[styles.title, { color: theme.colors.header.tint, ...Typography.default() }]}
+                                style={[styles.title, { color: headerTint, ...Typography.default() }]}
                             >
                                 {title}
                             </Text>
