@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: cli-npm-publish-${{ github.ref }}
@@ -32,10 +33,16 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Check npm CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --version
+          node --version
 
       - name: Read package version
         id: pkg
@@ -59,25 +66,39 @@ jobs:
             echo "@wangjs-jacky/paws@${{ steps.pkg.outputs.version }} is not on npm yet."
           fi
 
-      - name: Guard - npm token present
-        if: steps.npm.outputs.exists == 'false'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::Missing NPM_TOKEN repository secret; cannot publish @wangjs-jacky/paws."
-            exit 1
-          fi
-
       - name: Build package
         if: steps.npm.outputs.exists == 'false'
         run: pnpm --filter @wangjs-jacky/paws build
+
+      - name: Pack package
+        if: steps.npm.outputs.exists == 'false'
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/paws-publish
+          pnpm --filter @wangjs-jacky/paws pack --pack-destination /tmp/paws-publish
+          TARBALL="$(find /tmp/paws-publish -maxdepth 1 -name '*.tgz' -print -quit)"
+          if [ -z "${TARBALL}" ]; then
+            echo "::error::Package tarball was not generated."
+            exit 1
+          fi
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
 
       - name: Publish package
         if: steps.npm.outputs.exists == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --filter @wangjs-jacky/paws publish --access public --no-git-checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+            echo "Publishing with NPM_TOKEN."
+          else
+            echo "Publishing with npm trusted publishing (GitHub OIDC)."
+          fi
+          npm publish "${{ steps.pack.outputs.tarball }}" --access public
 
       - name: Verify published package
         if: steps.npm.outputs.exists == 'false'
