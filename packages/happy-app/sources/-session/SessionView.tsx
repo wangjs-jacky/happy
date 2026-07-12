@@ -23,6 +23,7 @@ import { storage, useIsDataReady, useLocalSetting, useSessionMessages, useSessio
 import { useSession } from '@/sync/storage';
 import { Session } from '@/sync/storageTypes';
 import { sync } from '@/sync/sync';
+import { sessionWorkingPath } from '@/sync/sessionWorkingPath';
 import { t } from '@/text';
 import { isRunningOnMac } from '@/utils/platform';
 import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/utils/responsive';
@@ -31,6 +32,10 @@ import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
 import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { HealthWelcomeCard } from '@/components/rightPanel/HealthWelcomeCard';
+import { shouldShowHealthWelcome } from './healthSessionView';
+import { useHealthGreeting } from './useHealthGreeting';
+import { filterVisibleMessages } from '@/sync/messageVisibility';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -332,7 +337,8 @@ export const SessionView = React.memo((props: { id: string }) => {
     if (!canShowSidebar) {
         // 会话属于某个「专属空间」Agent 时，右滑面板换成该 Agent 自己的面板，
         // 而不是给 coding 用的通用能力中心。MVP 先接入健康打卡。
-        const rightPanel = isHealthCheckinSession(session?.metadata?.path)
+        const workingPath = sessionWorkingPath(session);
+        const rightPanel = isHealthCheckinSession(workingPath)
             ? <HealthCheckinPanel onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />
             : <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
         return (
@@ -701,19 +707,31 @@ function SessionViewLoaded({
         };
     }, [sessionId]);
 
+    const visibleCount = filterVisibleMessages(messages).length;
+    const isHealth = isHealthCheckinSession(sessionWorkingPath(session));
+    useHealthGreeting(sessionId);
+
+    // 健康会话按可见消息数判断是否有可渲染内容：隐藏的问候 prompt 不应把欢迎卡挤掉。
+    // 普通会话仍按原始 messages.length 走，避免影响非健康路径。
+    const hasRenderableMessages = isHealth ? visibleCount > 0 : messages.length > 0;
+
     let content = (
         <>
             <Deferred>
-                {messages.length > 0 && (
+                {hasRenderableMessages && (
                     <ChatList session={session} />
                 )}
             </Deferred>
         </>
     );
-    const placeholder = messages.length === 0 ? (
+    const placeholder = !hasRenderableMessages ? (
         <>
             {isLoaded ? (
-                <EmptyMessages session={session} />
+                shouldShowHealthWelcome({ isHealth, visibleCount }) ? (
+                    <HealthWelcomeCard />
+                ) : (
+                    <EmptyMessages session={session} />
+                )
             ) : (
                 <ActivityIndicator size="small" color={theme.colors.textSecondary} />
             )}

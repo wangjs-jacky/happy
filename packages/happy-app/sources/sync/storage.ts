@@ -23,7 +23,7 @@ import { LocalSettings, applyLocalSettings } from "./localSettings";
 import { Purchases, customerInfoToPurchases } from "./purchases";
 import { Profile } from "./profile";
 import { UserProfile, RelationshipUpdatedEvent } from "./friendTypes";
-import { loadSettings, loadLocalSettings, saveLocalSettings, saveSettings, loadPurchases, savePurchases, loadProfile, saveProfile, loadSessionDrafts, saveSessionDrafts, loadSessionPermissionModes, saveSessionPermissionModes, loadSessionModelModes, saveSessionModelModes, loadSessionEffortLevels, saveSessionEffortLevels } from "./persistence";
+import { loadSettings, loadLocalSettings, saveLocalSettings, saveSettings, loadPurchases, savePurchases, loadProfile, saveProfile, loadSessionDrafts, saveSessionDrafts, loadSessionPermissionModes, saveSessionPermissionModes, loadSessionModelModes, saveSessionModelModes, loadSessionEffortLevels, saveSessionEffortLevels, loadSessionSpawnPaths, saveSessionSpawnPaths } from "./persistence";
 import { collectPersistedSessionPermissionModes, resolveRestoredSessionPermissionMode } from './sessionPermissionModes';
 import type { CustomerInfo } from './revenueCat/types';
 import React from "react";
@@ -205,6 +205,7 @@ interface StorageState {
     updateSessionPermissionMode: (sessionId: string, mode: string | null) => void;
     updateSessionModelMode: (sessionId: string, mode: string | null) => void;
     updateSessionEffortLevel: (sessionId: string, level: string | null) => void;
+    updateSessionSpawnPath: (sessionId: string, path: string | null) => void;
     resetSessionAgentOverrides: (sessionId: string) => void;
     // Artifact methods
     applyArtifacts: (artifacts: DecryptedArtifact[]) => void;
@@ -398,6 +399,7 @@ export const storage = create<StorageState>()((set, get) => {
             const savedPermissionModes = isInitialLoad ? sessionPermissionModes : {};
             const savedModelModes = isInitialLoad ? sessionModelModes : {};
             const savedEffortLevels = isInitialLoad ? sessionEffortLevels : {};
+            const savedSpawnPaths = isInitialLoad ? loadSessionSpawnPaths() : {};
 
             const incomingSessionIds = new Set(sessions.map((session) => session.id));
             const { sessions: mergedSessions, removedIds } = createSessionApplyBase(
@@ -415,6 +417,8 @@ export const storage = create<StorageState>()((set, get) => {
                 saveSessionModelModes(sessionModelModes);
                 sessionEffortLevels = Object.fromEntries(Object.entries(loadSessionEffortLevels()).filter(([id]) => !removedIdSet.has(id)));
                 saveSessionEffortLevels(sessionEffortLevels);
+                const filteredSpawnPaths = Object.fromEntries(Object.entries(loadSessionSpawnPaths()).filter(([id]) => !removedIdSet.has(id)));
+                saveSessionSpawnPaths(filteredSpawnPaths);
             }
 
             // Update sessions with calculated presence using centralized resolver
@@ -444,6 +448,11 @@ export const storage = create<StorageState>()((set, get) => {
                 const existingEffortLevel = state.sessions[session.id]?.effortLevel ?? null;
                 const resolvedEffortLevel = existingEffortLevel ?? savedEffortLevels[session.id] ?? session.effortLevel ?? null;
 
+                const existingSpawnPath = state.sessions[session.id]?.spawnPath ?? null;
+                const savedSpawnPath = savedSpawnPaths[session.id] ?? null;
+                // metadata.path 到手即以其为准；否则回退内存/本地缓存
+                const resolvedSpawnPath = session.metadata?.path ?? existingSpawnPath ?? savedSpawnPath ?? null;
+
                 mergedSessions[session.id] = {
                     ...session,
                     presence,
@@ -451,6 +460,7 @@ export const storage = create<StorageState>()((set, get) => {
                     permissionMode: resolvedPermissionMode,
                     modelMode: resolvedModelMode,
                     effortLevel: resolvedEffortLevel,
+                    spawnPath: resolvedSpawnPath,
                 };
             });
 
@@ -1111,6 +1121,24 @@ export const storage = create<StorageState>()((set, get) => {
             return {
                 ...state,
                 sessions: updatedSessions
+            };
+        }),
+        updateSessionSpawnPath: (sessionId: string, path: string | null) => set((state) => {
+            const session = state.sessions[sessionId];
+            if (!session) return state;
+            const normalized = path?.trim() ? path : null;
+            const allPaths: Record<string, string> = {};
+            Object.entries(state.sessions).forEach(([id, sess]) => {
+                if (id === sessionId) {
+                    if (normalized) allPaths[id] = normalized;
+                } else if (sess.spawnPath) {
+                    allPaths[id] = sess.spawnPath;
+                }
+            });
+            saveSessionSpawnPaths(allPaths);
+            return {
+                ...state,
+                sessions: { ...state.sessions, [sessionId]: { ...session, spawnPath: normalized } },
             };
         }),
         resetSessionAgentOverrides: (sessionId: string) => set((state) => {

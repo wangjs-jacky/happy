@@ -439,6 +439,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 throw new Error(result.type === 'error' ? result.errorMessage : t('agents.customImageStyleMissingLocalAgent'));
             }
             await sync.refreshSessions();
+            storage.getState().updateSessionSpawnPath(result.sessionId, spawnDirectory);
             updateCustomImageStyle(style.id, (current) => ({
                 ...current,
                 analysisSessionId: result.sessionId,

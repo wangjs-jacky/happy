@@ -96,6 +96,8 @@ type SendMessageOptions = {
     source?: MessageSentSource;
     /** Optional image attachments to send before the text message. */
     attachments?: AttachmentPreview[];
+    /** 若为 true，该消息不在聊天流渲染成用户气泡，但 Agent 回复正常显示。 */
+    hidden?: boolean;
 };
 
 class Sync {
@@ -589,7 +591,7 @@ class Sync {
         }
 
         const modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
-        const { displayText, source = 'chat', attachments } = options ?? {};
+        const { displayText, source = 'chat', attachments, hidden } = options ?? {};
 
         // Image attachments are wired into the Claude and Codex pipelines; both
         // runners drain file events and forward the images to the model. Other
@@ -704,7 +706,8 @@ class Sync {
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
-                ...(displayText && { displayText }) // Add displayText if provided
+                ...(displayText && { displayText }), // Add displayText if provided
+                ...(hidden ? { hidden: true } : {}) // 隐藏消息不在聊天流渲染
             }
         };
         const encryptedRawRecord = await encryption.encryptRawRecord(content);

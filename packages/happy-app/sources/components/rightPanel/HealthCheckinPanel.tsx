@@ -18,6 +18,7 @@ import { hapticsLight } from '../haptics';
 import { useRightSwipePanel } from '../RightSwipePanelHost';
 import { t } from '@/text';
 import { SleepHeroCard } from './SleepHeroCard';
+import { HealthDormantState } from './HealthDormantState';
 import { SleepTrendCard } from './SleepTrendCard';
 import { HealthDomainSwitcher } from './HealthDomainSwitcher';
 import { ExerciseCard } from './ExerciseCard';
@@ -224,12 +225,7 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
                                 if (view) {
                                     return <SleepHeroCard view={view} />;
                                 }
-                                return (
-                                    <View style={styles.card}>
-                                        <Text style={styles.cardTitle}>{t('healthPanel.todayTitle')}</Text>
-                                        <Text style={styles.muted}>{t('healthPanel.notLoggedToday')}</Text>
-                                    </View>
-                                );
+                                return <HealthDormantState />;
                             })()}
 
                             {/* 本周睡眠趋势 */}

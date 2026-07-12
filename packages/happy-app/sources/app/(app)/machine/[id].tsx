@@ -5,7 +5,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Typography } from '@/constants/Typography';
-import { useSessions, useAllMachines, useMachine } from '@/sync/storage';
+import { useSessions, useAllMachines, useMachine, storage } from '@/sync/storage';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import type { Session } from '@/sync/storageTypes';
 import { machineStopDaemon, machineUpdateMetadata, machineDelete } from '@/sync/ops';
@@ -326,6 +326,7 @@ export default function MachineDetailScreen() {
             switch (result.type) {
                 case 'success':
                     // Dismiss machine picker & machine detail screen
+                    storage.getState().updateSessionSpawnPath(result.sessionId, absolutePath);
                     router.back();
                     router.back();
                     navigateToSession(result.sessionId);

@@ -153,6 +153,23 @@ export function saveSessionDrafts(drafts: Record<string, string>) {
     mmkv.set('session-drafts', JSON.stringify(drafts));
 }
 
+export function loadSessionSpawnPaths(): Record<string, string> {
+    const raw = mmkv.getString('session-spawn-paths');
+    if (raw) {
+        try {
+            return JSON.parse(raw);
+        } catch (e) {
+            console.error('Failed to parse session spawn paths', e);
+            return {};
+        }
+    }
+    return {};
+}
+
+export function saveSessionSpawnPaths(paths: Record<string, string>) {
+    mmkv.set('session-spawn-paths', JSON.stringify(paths));
+}
+
 export function loadNewSessionDraft(): NewSessionDraft | null {
     const raw = mmkv.getString(NEW_SESSION_DRAFT_KEY);
     if (!raw) {

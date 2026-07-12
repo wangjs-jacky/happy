@@ -78,6 +78,7 @@ export function useSpawnSession() {
                 case 'success':
                     await sync.refreshSessions();
                     const sessionStorage = storage.getState();
+                    sessionStorage.updateSessionSpawnPath(result.sessionId, spawnDirectory);
                     if (permissionMode !== undefined) {
                         sessionStorage.updateSessionPermissionMode(result.sessionId, permissionMode);
                     }
