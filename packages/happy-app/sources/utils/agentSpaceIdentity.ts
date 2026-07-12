@@ -38,15 +38,15 @@ export function canonicalizeAgentPath(path: string | null | undefined, homeDir?:
         if (!homeDir) {
             return null;
         }
-        const normalizedHome = homeDir.replace(/\\/g, '/').replace(/\/+$/, '');
+        const normalizedHome = homeDir.replace(/\\/g, '/');
         normalized = normalized === '~'
-            ? (normalizedHome || '/')
-            : `${normalizedHome}/${normalized.slice(2)}`;
+            ? normalizedHome
+            : `${normalizedHome.replace(/\/+$/, '')}/${normalized.slice(2)}`;
     }
 
     const isUnc = normalized.startsWith('//');
     normalized = isUnc
-        ? `//${normalized.slice(2).replace(/\/{2,}/g, '/')}`
+        ? `//${normalized.replace(/^\/+/, '').replace(/\/{2,}/g, '/')}`
         : normalized.replace(/\/{2,}/g, '/');
 
     if (!isRootPath(normalized)) {

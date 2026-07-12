@@ -21,6 +21,28 @@ it('returns null when a tilde path has no home directory', () => {
     expect(canonicalizeAgentPath('~/work', undefined)).toBeNull();
 });
 
+it('canonicalizes a tilde Windows drive root identically to the direct root', () => {
+    const fromTilde = canonicalizeAgentPath('~', 'C:\\');
+    const direct = canonicalizeAgentPath('C:\\', 'C:\\');
+
+    expect(fromTilde).toBe('c:/');
+    expect(direct).toBe('c:/');
+    expect(fromTilde).toBe(direct);
+});
+
+it('canonicalizes a tilde UNC home root identically to the direct root', () => {
+    const fromTilde = canonicalizeAgentPath('~', '\\\\Server\\Share\\');
+    const direct = canonicalizeAgentPath('\\\\Server\\Share\\', 'C:\\Users\\Jacky');
+
+    expect(fromTilde).toBe('//server/share/');
+    expect(direct).toBe('//server/share/');
+    expect(fromTilde).toBe(direct);
+});
+
+it('collapses three or more leading separators to the canonical UNC prefix', () => {
+    expect(canonicalizeAgentPath('////Server///Share', undefined)).toBe('//server/share');
+});
+
 it('prefers agentSpaceId among duplicate canonical candidates', () => {
     const agents = [
         { id: 'first', machineId: 'm1', path: '~/work' },
