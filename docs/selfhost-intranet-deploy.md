@@ -1,23 +1,23 @@
-# Happy 内网自托管实操部署手册
+# Paws 内网自托管实操部署手册
 
 > 目标：在**公司内网**部署一套自己的 happy-server，让团队的 CLI（电脑端）与 App（手机/网页端）全部连到内网服务器，业务数据不出内网。
 >
-> 适用版本：本 fork（默认服务器地址 `https://47.115.228.20:8443`）。所有结论均对照源码核实，关键出处标注 `file:line`。
+> 适用版本：当前 Paws `main`。默认服务地址可能随构建配置变化；自托管时以 App 和 CLI 实际配置为准。关键结论标注源码位置。
 
 ---
 
 ## 〇、先理解架构（30 秒）
 
 ```
-   手机/网页 App            内网服务器(本手册部署)            开发者电脑(happy CLI)
+   手机/网页 App            内网服务器(本手册部署)            开发者电脑(paws CLI)
   ┌──────────┐  WS+HTTP   ┌────────────────────┐   WS    ┌──────────────┐
-  │ happy-app │ ───加密──→ │   happy-server     │ ←加密── │ happy daemon │
+  │ Paws App  │ ───加密──→ │   happy-server     │ ←加密── │ paws daemon  │
   │  (遥控器) │ ←──────── │  (盲中继, PGlite)  │ ──RPC─→ │  + 会话进程  │
   └──────────┘            └────────────────────┘         └──────────────┘
 ```
 
 - **服务器是「盲中继」**：端到端加密下，服务器看不到任何会话内容，只转发加密 blob。换内网地址不影响加密。
-- **唯一硬公网依赖**：手机推送走 `https://exp.host`（Expo → APNs/FCM），`packages/happy-server/sources/app/push/pushSend.ts:7`。纯隔离内网下推送会失效，但**核心远程操控走 WebSocket 长连，不依赖推送**。
+- **推送需要公网**：当前 token 与服务端发送链路使用 Expo Push 服务，再由平台推送网络投递；见 `packages/happy-server/sources/app/push/pushSend.ts` 与 App `pushRegistration.ts`。纯隔离内网下推送会失效，但**核心远程操控走 WebSocket 长连，不依赖推送**。
 
 ---
 
@@ -25,7 +25,7 @@
 
 | 方案 | 命令 | 适用 | 依赖 |
 |------|------|------|------|
-| **A. 单机一键** | `happy server` | 自己一个人本机测试 | 无（CLI 自带） |
+| **A. 单机一键** | `paws server` | 自己一个人本机测试 | Paws CLI + `happy-server-self-host` |
 | **B. Docker Standalone**（本手册主推） | `docker compose up -d` | 团队共享的内网服务器 | 仅 Docker |
 | C. 完整生产 | `Dockerfile.server` + 外部 PG/Redis/MinIO | 大规模、高可用 | PostgreSQL+Redis+S3 |
 
@@ -38,7 +38,7 @@
 ## 二、前置条件
 
 - 一台内网服务器（Linux x86_64 或 arm64），装好 **Docker + Docker Compose v2**。
-- 内网固定 IP 或内网 DNS 域名，例：`192.168.1.100` 或 `happy.corp.internal`。
+- 内网固定 IP 或内网 DNS 域名，例：`192.168.1.100` 或 `paws.corp.internal`。
 - 开放端口 `3005`（API + WebSocket 同端口）。
 - 服务器能临时联公网用于 **构建镜像**（拉 node 基础镜、装依赖）。构建完成后**运行时不需要公网**（除非要推送）。
 
@@ -149,7 +149,7 @@ pnpm --filter happy-app ...   # 参照仓库 webapp 构建脚本
 # 方式一：环境变量（临时/单会话）
 export HAPPY_SERVER_URL=http://192.168.1.100:3005
 export HAPPY_WEBAPP_URL=http://192.168.1.100:3005
-happy        # 启动会话，扫码鉴权
+paws         # 启动会话，扫码鉴权
 
 # 方式二：写进 ~/.happy/settings.json（持久）
 # { "serverUrl": "http://192.168.1.100:3005", "webappUrl": "http://192.168.1.100:3005" }
@@ -185,7 +185,7 @@ curl -s http://192.168.1.100:3005/metrics | head
 # 3) CLI 连通 + 鉴权
 export HAPPY_SERVER_URL=http://192.168.1.100:3005
 export HAPPY_WEBAPP_URL=http://192.168.1.100:3005
-happy
+paws
 #   终端应显示二维码；用已指向内网的 App 扫码 → 完成 challenge-response 鉴权
 
 # 4) 远程操控闭环
@@ -235,7 +235,7 @@ docker compose exec happy-server sh -c 'ls -la /data'
 | Standalone 启动/必填 env | `packages/happy-server/sources/standalone.ts:111-163` |
 | 健康检查端点 | `packages/happy-server/sources/app/api/utils/enableMonitoring.ts:27` |
 | CLI serverUrl/webappUrl 解析 | `packages/happy-cli/src/configuration.ts`（URL precedence 段） |
-| CLI 一键自托管 `happy server` | `packages/happy-cli/src/commands/server.ts:62` |
+| CLI 一键自托管 `paws server` | `packages/happy-cli/src/commands/server.ts` |
 | App serverUrl 解析 | `packages/happy-app/sources/sync/serverConfig.ts:10-15` |
-| 推送硬依赖 exp.host | `packages/happy-server/sources/app/push/pushSend.ts:7` |
+| 推送服务依赖 | `packages/happy-server/sources/app/push/pushSend.ts`、`packages/happy-app/sources/sync/pushRegistration.ts` |
 | 根 Standalone 镜像 | `Dockerfile` |

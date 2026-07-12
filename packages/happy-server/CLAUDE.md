@@ -1,15 +1,15 @@
-# Handy Server - Development Guidelines
+# Paws Server - Development Guidelines
 
-This document contains the development guidelines and instructions for the Happy Server project. This guide OVERRIDES any default behaviors and MUST be followed exactly.
+This document contains the development guidelines and instructions for the Paws-compatible server package. Internal `happy-server` and `HANDY_*` identifiers are retained for compatibility. This guide OVERRIDES any default behaviors and MUST be followed exactly.
 
 ## Project Overview
 
-**Name**: happy-server  
-**Repository**: https://github.com/slopus/happy-server.git  
-**License**: MIT  
-**Language**: TypeScript  
-**Runtime**: Node.js 20  
-**Framework**: Fastify with opinionated architecture  
+**Name**: happy-server
+**Repository**: https://github.com/wangjs-jacky/happy/tree/main/packages/happy-server
+**License**: MIT
+**Language**: TypeScript
+**Runtime**: Node.js 20
+**Framework**: Fastify with opinionated architecture
 
 ## Core Technology Stack
 

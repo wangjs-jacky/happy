@@ -1,73 +1,56 @@
-# Happy Coder Content Creator Brief
+# Paws Content Creator Brief
 
-## Key Features
+## One-Sentence Description
 
-Happy Coder is an open-source mobile app that lets developers control AI coding agents (Claude Code, Codex, Gemini-CLI) from their phone.
+Paws is an open-source App and CLI that lets developers control AI coding agents running on their own computers from another device.
 
-- Control Claude Code from iOS, Android, or web browser
-- Runs on YOUR hardware (laptop, desktop, server, Raspberry Pi)
-- No subscription fees or cloud costs - completely free (you still need to pay your AI model provider for Claude Code, Codex, Text to Speech, Speach to Text, etc..)
-- Push notifications when agents need input or hit errors
-- End-to-end encrypted connection between devices
-- Run multiple coding agents in parallel
-- Voice input for hands-free control
-- Works with your existing dev setup and tools
+## Features Worth Demonstrating
 
-## Key Value Props
+- Start or continue Claude Code, Codex, Gemini, OpenCode, and ACP-compatible sessions.
+- Watch streaming progress and send follow-up instructions from Android or web.
+- Receive permission and completion notifications.
+- Attach images and inspect generated-image results.
+- Switch between keyboard control and remote control.
+- Run multiple sessions and machines from one interface.
+- Use end-to-end encrypted synchronization and a self-hostable server.
 
-- On Happy Coder, I can manage Claude Code from my phone without paying $600/year
-- On Happy Coder, I never miss when Claude gets stuck on a permission prompt
-- Happy Coder runs on my own computer, not expensive cloud servers
-- On Happy Coder, I can check on long-running tasks without returning to my desk
-- Happy Coder is open source - I can audit, modify, or self-host everything
-- On Happy Coder, I can run multiple agents in parallel and switch between them instantly
-- Happy Coder keeps my code on my machines with end-to-end encryption
-- On Happy Coder, I can keep coding while commuting, eating, or away from my desk
+## Accurate Positioning
 
-## Example Hooks
+- Paws runs the agent on the user's computer; it is not a hosted coding model.
+- Users still need accounts, credentials, and any paid access required by their selected AI providers.
+- Paws is independently maintained and is not affiliated with Anthropic, OpenAI, Google, or the original Happy project.
+- Android distribution currently uses GitHub Releases. Do not claim an official App Store or Google Play listing.
+- Use measured, demonstrated behavior. Do not invent savings, user counts, performance numbers, or security guarantees.
 
-- "I saved $600/year by switching from [competitor] to the open-source Happy Coder"
-- "Claude asked for sudo permission... and I was at the gym"
-- "That moment when your 2-hour refactor gets stuck 5 minutes after you leave"
-- "Running 3 Claude Code agents in parallel from my phone while getting coffee"
-- "Why pay $50/month for a middleman to relay text to Claude?"
-- "I left for lunch and Claude was still working when I got back"
-- "Managing my coding agents from the train saved me 2 hours today"
-- "Finally, a mobile app for Claude Code that doesn't cost more than Netflix"
-- "My code never leaves my laptop, but I can control it from anywhere"
-- "Open source alternative to all those $600/year coding apps"
+## Suggested Story Angles
 
-## Requirements for Content
+- A long-running refactor asks for permission after you leave the desk.
+- You start a task on a workstation and check its progress from your phone.
+- Multiple agent sessions are visible without reopening every terminal.
+- A self-hoster keeps the relay and web client on infrastructure they control.
+- Image attachments and generated results stay connected to the coding session.
 
-- Clearly say "Happy Coder" in the video or caption
-- Mention it's free and open source
-- Include link to github.com/slopus/happy
-- Show actual usage (QR code connection, mobile control, push notifications)
-- Emphasize running on YOUR hardware, not cloud servers
-- Compare to paid alternatives ($50/month or $600/year competitors)
-- Minimum video length: 15 seconds
-- Use the GitHub star count as social proof when relevant
+## Content Requirements
 
-## Prohibited Content
+- Use the product name **Paws**.
+- Show real Paws UI or terminal output from a current release.
+- Explain that the agent still runs on the user's machine.
+- Mention that the project is open source and can be self-hosted.
+- Link to the Paws repository or product site.
+- Review agent output before presenting it as correct.
 
-- Don't claim AI does all the work (it doesn't)
-- Don't suggest you can code without reviewing output
-- Don't promise income or job guarantees
-- No misleading claims about AI capabilities
-- Don't show fake notification counts or metrics
+## Do Not Claim
 
-## Target Audiences
+- that Paws replaces the AI provider or includes provider usage;
+- that users can safely merge agent output without review;
+- absolute security, zero risk, guaranteed uptime, or guaranteed privacy from third-party providers;
+- official affiliation with model vendors or the original Happy project;
+- App Store, Play Store, user-count, or revenue milestones that have not shipped.
 
-**Students**: CS students who can't afford $600/year subscriptions
-**Remote Workers**: Developers who work from coffee shops, co-working spaces
-**Parents**: Developer parents who get interrupted constantly
-**Commuters**: Developers with long commutes who want to stay productive
-**Open Source Enthusiasts**: Developers who prefer owning their tools
+## Links
 
-## Resources
-
-- GitHub: https://github.com/slopus/happy
-- Website: https://happy.engineering
-- iOS App: https://apps.apple.com/us/app/happy-claude-code-client/id6748571505
-- Android App: https://play.google.com/store/apps/details?id=com.ex3ndr.happy
-- Web App: https://app.happy.engineering/
+- Product site: <https://paws-landing-eo4.pages.dev>
+- GitHub: <https://github.com/wangjs-jacky/happy>
+- Android APK: <https://github.com/wangjs-jacky/happy/releases>
+- npm CLI: <https://www.npmjs.com/package/@wangjs-jacky/paws>
+- Getting started: <https://github.com/wangjs-jacky/happy/blob/main/docs/getting-started.md>
