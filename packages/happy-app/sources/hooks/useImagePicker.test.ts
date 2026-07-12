@@ -21,6 +21,11 @@ vi.mock('@/utils/thumbhash', () => ({
 vi.mock('@/utils/normalizeImageForUpload', () => ({
     normalizeImageForUpload: vi.fn(),
 }));
+// AttachmentSourceSheet drags in @expo/vector-icons + unistyles (expo-modules-core
+// → __DEV__ undefined in node). Not exercised by these constant-focused tests.
+vi.mock('@/components/AttachmentSourceSheet', () => ({
+    AttachmentSourceSheet: () => null,
+}));
 vi.mock('@/text', () => ({
     t: (key: string) => key,
 }));

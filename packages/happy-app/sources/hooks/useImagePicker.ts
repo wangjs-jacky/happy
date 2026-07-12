@@ -16,6 +16,7 @@ import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
+import { AttachmentSourceSheet } from '@/components/AttachmentSourceSheet';
 import { t } from '@/text';
 import type { AttachmentPreview, AttachmentKind } from '@/sync/attachmentTypes';
 
@@ -212,15 +213,15 @@ export function useImagePicker(): UseImagePickerResult {
     }, []);
 
     const pickAttachment = useCallback(() => {
-        Modal.alert(
-            t('imageUpload.chooseSourceTitle'),
-            undefined,
-            [
-                { text: t('imageUpload.chooseSourcePhoto'), onPress: () => { void pickImages(); } },
-                { text: t('imageUpload.chooseSourceMedia'), onPress: () => { void pickMedia(); } },
-                { text: t('common.cancel'), style: 'cancel' },
-            ],
-        );
+        // Card-style source chooser (photo vs audio/video) instead of the plain
+        // OS alert row — see AttachmentSourceSheet.
+        Modal.show({
+            component: AttachmentSourceSheet,
+            props: {
+                onPickPhoto: () => { void pickImages(); },
+                onPickMedia: () => { void pickMedia(); },
+            },
+        });
     }, [pickImages, pickMedia]);
 
     const removeImage = useCallback((id: string) => {
