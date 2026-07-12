@@ -29,6 +29,11 @@ function isUncShareRoot(path: string): boolean {
         && path.slice(2).split('/').filter(Boolean).length === 2;
 }
 
+function hasUncIntent(path: string): boolean {
+    return path.startsWith('\\\\')
+        || (path.startsWith('//') && !path.startsWith('///'));
+}
+
 /**
  * Produces the stable path identity shared by saved Agents and live sessions.
  * Windows drive and UNC identities are case-insensitive; POSIX identities retain case.
@@ -38,18 +43,19 @@ export function canonicalizeAgentPath(path: string | null | undefined, homeDir?:
         return null;
     }
 
+    let isUnc = hasUncIntent(path);
     let normalized = path.replace(/\\/g, '/');
     if (normalized === '~' || normalized.startsWith('~/')) {
         if (!homeDir) {
             return null;
         }
+        isUnc = hasUncIntent(homeDir);
         const normalizedHome = homeDir.replace(/\\/g, '/');
         normalized = normalized === '~'
             ? normalizedHome
             : `${normalizedHome.replace(/\/+$/, '')}/${normalized.slice(2)}`;
     }
 
-    const isUnc = normalized.startsWith('//');
     normalized = isUnc
         ? `//${normalized.replace(/^\/+/, '').replace(/\/{2,}/g, '/')}`
         : normalized.replace(/\/{2,}/g, '/');

@@ -21,6 +21,14 @@ it('returns null when a tilde path has no home directory', () => {
     expect(canonicalizeAgentPath('~/work', undefined)).toBeNull();
 });
 
+it('collapses redundant POSIX leading separators while preserving case', () => {
+    expect(canonicalizeAgentPath('///Users/Jacky/', '/Users/jacky')).toBe('/Users/Jacky');
+});
+
+it('canonicalizes redundant POSIX root separators to one slash', () => {
+    expect(canonicalizeAgentPath('///', '/Users/jacky')).toBe('/');
+});
+
 it('canonicalizes a tilde Windows drive root identically to the direct root', () => {
     const fromTilde = canonicalizeAgentPath('~', 'C:\\');
     const direct = canonicalizeAgentPath('C:\\', 'C:\\');
@@ -47,8 +55,12 @@ it('canonicalizes a tilde UNC home without a trailing separator as a share root'
     expect(fromTilde).toBe(direct);
 });
 
-it('collapses three or more leading separators to the canonical UNC prefix', () => {
-    expect(canonicalizeAgentPath('////Server///Share', undefined)).toBe('//server/share/');
+it('preserves explicit canonical UNC intent', () => {
+    expect(canonicalizeAgentPath('//Server/Share', undefined)).toBe('//server/share/');
+});
+
+it('does not infer UNC intent from three or more forward slashes', () => {
+    expect(canonicalizeAgentPath('////Server///Share', undefined)).toBe('/Server/Share');
 });
 
 it('prefers agentSpaceId among duplicate canonical candidates', () => {
