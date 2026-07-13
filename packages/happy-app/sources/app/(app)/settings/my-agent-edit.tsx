@@ -19,6 +19,7 @@ import type { AgentLauncher, AgentPreset } from '@/components/agents/launchAgent
 import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
 import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
+import { getHardcodedModelModes, getEffortLevelsForModel } from '@/components/modelModeOptions';
 
 type AgentKind = 'standard' | 'image-styles';
 const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
@@ -58,6 +59,8 @@ export default React.memo(function AgentEditScreen() {
     const [kind, setKind] = React.useState<AgentKind>(initialKind);
     const [machineId, setMachineId] = React.useState<string | null>(existing?.machineId ?? null);
     const [path, setPath] = React.useState(existing?.path ?? '~');
+    const [modelMode, setModelMode] = React.useState<string | null>(existing?.modelMode ?? null);
+    const [effortLevel, setEffortLevel] = React.useState<string | null>(existing?.effortLevel ?? null);
     const [imageStyleIds, setImageStyleIds] = React.useState<string[]>(
         () => existing?.kind === 'image-styles'
             ? (existing.imageStyleIds?.length ? existing.imageStyleIds : DEFAULT_IMAGE_STYLE_IDS)
@@ -148,6 +151,8 @@ export default React.memo(function AgentEditScreen() {
                 : [],
             imageVariantsPerStyle: kind === 'image-styles' ? imageVariantsPerStyle : 1,
             presets: kind === 'image-styles' ? [] : cleanedPresets,
+            modelMode: modelMode || undefined,
+            effortLevel,
         };
 
         // Preserve order on edit (replace in place); append when new.
@@ -157,7 +162,7 @@ export default React.memo(function AgentEditScreen() {
                 : [...agents, agent],
         );
         router.back();
-    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle]);
+    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle, modelMode, effortLevel]);
 
     const handleDelete = React.useCallback(() => {
         if (!existing) return;
@@ -267,6 +272,47 @@ export default React.memo(function AgentEditScreen() {
                         manualInput
                     />
                 </ItemGroup>
+
+                {/* 模型和 Effort（仅 standard agent） */}
+                {kind === 'standard' && (
+                    <>
+                        <ItemGroup title={t('agents.model', 'Default Model')}>
+                            {getHardcodedModelModes('claude', t).map((option) => (
+                                <Item
+                                    key={option.key}
+                                    title={option.name}
+                                    subtitle={option.description ?? undefined}
+                                    onPress={() => setModelMode(option.key === 'default' ? null : option.key)}
+                                    showChevron={false}
+                                    rightElement={
+                                        modelMode === option.key || (option.key === 'default' && !modelMode) ? (
+                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                        ) : undefined
+                                    }
+                                />
+                            ))}
+                        </ItemGroup>
+
+                        {modelMode && (
+                            <ItemGroup title={t('agents.effort', 'Effort Level')}>
+                                {getEffortLevelsForModel('claude', modelMode).map((option) => (
+                                    <Item
+                                        key={option.key}
+                                        title={option.name}
+                                        subtitle={option.description ?? undefined}
+                                        onPress={() => setEffortLevel(option.key)}
+                                        showChevron={false}
+                                        rightElement={
+                                            effortLevel === option.key ? (
+                                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                            ) : undefined
+                                        }
+                                    />
+                                ))}
+                            </ItemGroup>
+                        )}
+                    </>
+                )}
 
                 {kind === 'image-styles' ? (
                     <>
