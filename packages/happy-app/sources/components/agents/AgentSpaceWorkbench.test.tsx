@@ -10,17 +10,21 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     enter: vi.fn(),
+    hapticsLight: vi.fn(),
     launchAgent: vi.fn(),
     entering: false,
 }));
 
 vi.mock('react-native', () => ({
+    Platform: { OS: 'android' },
     Text: 'Text',
     View: 'View',
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+vi.mock('@/components/haptics', () => ({ hapticsLight: mocks.hapticsLight }));
+vi.mock('@/components/SessionActionsPopover', () => ({ SessionActionsPopover: 'SessionActionsPopover' }));
 vi.mock('react-native-unistyles', () => {
     const mockTheme = {
         colors: {
@@ -159,6 +163,23 @@ describe('AgentSpaceWorkbench', () => {
 
         expect(onNavigate).toHaveBeenCalledWith('/session/history-1');
         expect(mocks.enter).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('opens the existing session actions popover from a native long press', () => {
+        const renderer = renderWorkbench({ onNavigate: vi.fn(), onCloseDrawer: vi.fn() });
+        const history = findPressableByText(renderer.root, 'Historical session');
+
+        expect(history.props.onLongPress).toEqual(expect.any(Function));
+        act(() => history.props.onLongPress({ nativeEvent: { pageX: 120, pageY: 240 } }));
+
+        expect(mocks.hapticsLight).toHaveBeenCalledOnce();
+        const popover = renderer.root.findByType('SessionActionsPopover');
+        expect(popover.props).toMatchObject({
+            anchor: { type: 'point', x: 120, y: 240 },
+            sessionId: 'history-1',
+            visible: true,
+        });
         act(() => renderer.unmount());
     });
 

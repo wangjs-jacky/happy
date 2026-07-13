@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, View, Pressable, ScrollView } from 'react-native';
+import { Text, View, Pressable, ScrollView, Platform, type GestureResponderEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAllMachines, useAgentSpaceSessions } from '@/sync/storage';
@@ -10,6 +10,8 @@ import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
+import { hapticsLight } from '@/components/haptics';
+import { SessionActionsPopover, type SessionActionsAnchor } from '@/components/SessionActionsPopover';
 
 /**
  * 追加 8 位十六进制透明度得到该 accent 色的半透明版本，用于空间头/徽章底色。
@@ -43,6 +45,10 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
     const sessions = useAgentSpaceSessions(agent.machineId, agent.path);
     const { entering, enter } = useEnterAgentSpace();
     const draft = useNewSessionDraft();
+    const [sessionActions, setSessionActions] = React.useState<{
+        anchor: SessionActionsAnchor;
+        sessionId: string;
+    } | null>(null);
 
     // spaceType 是迁移/新建时一次性确定的稳定 provider 标识；运行时不再从可改名路径推断。
     const isHealth = agent.spaceType === 'health';
@@ -73,6 +79,19 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
     const navigateToHistory = React.useCallback((sessionId: string) => {
         if (!entering) onNavigate(`/session/${sessionId}`);
     }, [entering, onNavigate]);
+
+    const openSessionActions = React.useCallback((sessionId: string, event: GestureResponderEvent) => {
+        if (entering || Platform.OS === 'web') return;
+        hapticsLight();
+        setSessionActions({
+            sessionId,
+            anchor: {
+                type: 'point',
+                x: event.nativeEvent.pageX,
+                y: event.nativeEvent.pageY,
+            },
+        });
+    }, [entering]);
 
     return (
         <View style={styles.root}>
@@ -154,6 +173,7 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
                                 <Pressable
                                     key={session.id}
                                     disabled={entering}
+                                    onLongPress={(event) => openSessionActions(session.id, event)}
                                     onPress={() => navigateToHistory(session.id)}
                                     style={({ pressed }) => [
                                         styles.sessionRow,
@@ -178,6 +198,14 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCl
                             ))
                         )}
                     </View>
+                    {sessionActions && (
+                        <SessionActionsPopover
+                            anchor={sessionActions.anchor}
+                            onClose={() => setSessionActions(null)}
+                            sessionId={sessionActions.sessionId}
+                            visible
+                        />
+                    )}
 
                     {/* 在此空间新建会话 */}
                     <Pressable

@@ -286,6 +286,23 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
+    it('lets a long Agent session title shrink before the exit control', () => {
+        mocks.isDataReady = true;
+        mocks.spaceAgent = makeAgent();
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(<SessionView id="session-1" />);
+        });
+
+        const title = renderer.root.findAllByType('Text').find((node: any) => node.props.children === 'Health session');
+        expect(title).toBeDefined();
+        expect(title.props.style).toMatchObject({ flex: 1, minWidth: 0 });
+        expect(title.parent.props.style).toMatchObject({ flex: 1, minWidth: 0 });
+
+        act(() => renderer.unmount());
+    });
+
     it('keeps the ordinary phone capability hub and omits Agent exit chrome', () => {
         let renderer: any;
 

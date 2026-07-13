@@ -257,11 +257,11 @@ export const SessionView = React.memo((props: { id: string }) => {
         />
     ) : undefined;
     const spaceTitleSlot = spaceAgent ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
                 <Text style={{ fontSize: 15 }}>{spaceAgent.glyph}</Text>
             </View>
-            <Text numberOfLines={1} style={{ color: spaceTint, fontSize: 15, fontWeight: '600' }}>{headerProps.title}</Text>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={{ flex: 1, minWidth: 0, color: spaceTint, fontSize: 15, fontWeight: '600' }}>{headerProps.title}</Text>
         </View>
     ) : undefined;
 
