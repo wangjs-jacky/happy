@@ -128,9 +128,9 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
                     onPress={() => cycleMascot(-1)}
                     hitSlop={12}
                     accessibilityRole="button"
-                    style={({ pressed }) => [styles.arrow, { opacity: pressed ? 0.35 : 1 }]}
+                    style={({ pressed }) => [styles.arrowBtn, { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
                 >
-                    <Ionicons name="chevron-back" size={28} color={theme.colors.textSecondary} />
+                    <Ionicons name="chevron-back" size={22} color={theme.colors.textSecondary} />
                 </Pressable>
                 <GestureDetector gesture={pan}>
                     <Animated.View style={animStyle}>
@@ -145,9 +145,9 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
                     onPress={() => cycleMascot(1)}
                     hitSlop={12}
                     accessibilityRole="button"
-                    style={({ pressed }) => [styles.arrow, { opacity: pressed ? 0.35 : 1 }]}
+                    style={({ pressed }) => [styles.arrowBtn, { opacity: pressed ? 0.6 : 1, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
                 >
-                    <Ionicons name="chevron-forward" size={28} color={theme.colors.textSecondary} />
+                    <Ionicons name="chevron-forward" size={22} color={theme.colors.textSecondary} />
                 </Pressable>
             </View>
             <View style={styles.dots}>
@@ -162,16 +162,25 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
 const styles = StyleSheet.create((theme) => ({
     container: {
         alignItems: 'center',
+        alignSelf: 'stretch',   // 撑满卡片宽度，箭头才能贴到两侧边界
     },
     row: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
+        justifyContent: 'space-between',   // 箭头分居两端，吉祥物居中
+        width: '100%',
+        maxWidth: 340,          // 平板等宽屏下别让箭头分得太开
+        paddingHorizontal: 8,
     },
-    arrow: {
-        padding: 8,
+    arrowBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,       // 圆形玻璃按钮
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: 'rgba(128,128,128,0.14)',   // 半透明磨砂填充，营造玻璃质感（明暗主题都成立）
+        borderWidth: 0.5,
+        borderColor: 'rgba(128,128,128,0.22)',       // 细微高光边，勾出玻璃边缘
     },
     dots: {
         flexDirection: 'row',
