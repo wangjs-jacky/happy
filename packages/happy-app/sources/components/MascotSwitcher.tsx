@@ -93,10 +93,19 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
             })
             .onEnd((e) => {
                 if (Math.abs(e.translationX) > SWIPE_THRESHOLD) {
+                    // 切换：瞬间归位再触发 crossfade。
+                    // 否则回弹动画(withTiming 260ms)会和主题快照 captureRef 赛跑，
+                    // 截图恰好抓到「回弹途中偏在左侧」的那一帧并冻成残影盖在顶层淡出，
+                    // 表现为切换瞬间左侧闪一下旧图。切换本就被全屏 crossfade 溶解盖住，
+                    // 这里不需要可见回弹，直接归位保证截图抓到的是居中态。
+                    translateX.value = 0;
+                    opacity.value = 1;
                     runOnJS(cycleMascot)(e.translationX < 0 ? 1 : -1);   // 左滑下一个，右滑上一个
+                } else {
+                    // 未达阈值：不切换，平滑回弹
+                    translateX.value = withTiming(0, { duration: 260 });
+                    opacity.value = withTiming(1, { duration: 260 });
                 }
-                translateX.value = withTiming(0, { duration: 260 });
-                opacity.value = withTiming(1, { duration: 260 });
             });
         if (drawerPan) {
             g.blocksExternalGesture(drawerPan);
