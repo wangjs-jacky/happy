@@ -249,6 +249,7 @@ export const ru: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Папка',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -257,6 +258,12 @@ export const ru: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'Эта папка пуста',
+        },
+        folderBrowser: {
+            upOneLevel: 'На уровень выше',
+            loadError: 'Не удалось загрузить папку',
+            retry: 'Повторить',
         },
         meta: {
             available: 'Available in session',

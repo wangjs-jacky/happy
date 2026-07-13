@@ -264,6 +264,7 @@ export const ja: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'フォルダ',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -272,6 +273,12 @@ export const ja: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'このフォルダは空です',
+        },
+        folderBrowser: {
+            upOneLevel: '一つ上に戻る',
+            loadError: 'このフォルダを読み込めませんでした',
+            retry: '再試行',
         },
         meta: {
             available: 'Available in session',

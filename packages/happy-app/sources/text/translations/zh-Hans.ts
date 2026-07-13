@@ -264,6 +264,7 @@ export const zhHans: TranslationStructure = {
             images: '生成图片',
             artifacts: 'Artifacts',
             files: '文件',
+            folderBrowser: '文件夹',
         },
         empty: {
             sessionActions: '当前会话还没有可用操作',
@@ -272,6 +273,12 @@ export const zhHans: TranslationStructure = {
             images: '当前会话还没有生成图片',
             artifacts: '当前会话还没有关联 artifacts',
             files: '当前会话还没有触达文件',
+            folderBrowser: '这个文件夹是空的',
+        },
+        folderBrowser: {
+            upOneLevel: '上一层',
+            loadError: '无法加载此文件夹',
+            retry: '重试',
         },
         meta: {
             available: '当前会话可用',

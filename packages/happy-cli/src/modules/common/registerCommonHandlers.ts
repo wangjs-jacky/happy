@@ -8,7 +8,7 @@ import { homedir } from 'os';
 import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
-import { validatePath } from './pathSecurity';
+import { validatePath, validateReadPath } from './pathSecurity';
 import { registerScreenshotHandler } from './registerScreenshotHandler';
 import { registerGetScreenshotByIdHandler } from './registerGetScreenshotByIdHandler';
 import type { ScreenshotStore } from '@/utils/screenshotStore';
@@ -285,8 +285,8 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
     rpcHandlerManager.registerHandler<ReadFileRequest, ReadFileResponse>('readFile', async (data) => {
         logger.debug('Read file request:', data.path);
 
-        // Validate path is within working directory
-        const validation = validatePath(data.path, workingDirectory);
+        // Read is allowed anywhere under the machine HOME (see validateReadPath).
+        const validation = validateReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }
@@ -372,7 +372,7 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
         logger.debug('List directory request:', data.path);
 
         // Validate path is within working directory
-        const validation = validatePath(data.path, workingDirectory);
+        const validation = validateReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }
@@ -490,7 +490,7 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
         logger.debug('Get directory tree request:', data.path, 'maxDepth:', data.maxDepth);
 
         // Validate path is within working directory
-        const validation = validatePath(data.path, workingDirectory);
+        const validation = validateReadPath(data.path, workingDirectory, homedir());
         if (!validation.valid) {
             return { success: false, error: validation.error };
         }

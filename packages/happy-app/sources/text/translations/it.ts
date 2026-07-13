@@ -261,6 +261,7 @@ export const it: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Cartella',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -269,6 +270,12 @@ export const it: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'Questa cartella è vuota',
+        },
+        folderBrowser: {
+            upOneLevel: 'Su di un livello',
+            loadError: 'Impossibile caricare questa cartella',
+            retry: 'Riprova',
         },
         meta: {
             available: 'Available in session',
