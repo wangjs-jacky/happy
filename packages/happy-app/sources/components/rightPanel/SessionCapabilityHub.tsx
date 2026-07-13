@@ -15,11 +15,14 @@ import { QuickPromptEditorModal } from './QuickPromptEditorModal';
 import type { SessionActionItem } from '@/hooks/useSessionQuickActions';
 import type { Session } from '@/sync/storageTypes';
 import type { CapabilityKey, QuickPromptCapabilityItem } from './sessionCapabilityHubModel';
+import { formatPathRelativeToHome } from '@/utils/sessionUtils';
+import { SessionFolderBrowserView } from './SessionFolderBrowserView';
+import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 
-type CapabilityPanelKey = CapabilityKey | 'sessionActions';
+type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
-const BLOCK_ORDER: CapabilityPanelKey[] = ['sessionActions', 'skills', 'quickPrompts', 'images', 'artifacts', 'files'];
+const BLOCK_ORDER: CapabilityPanelKey[] = ['sessionActions', 'skills', 'quickPrompts', 'images', 'folderBrowser', 'files'];
 
 export const SessionCapabilityHub = React.memo(function SessionCapabilityHub(props: {
     sessionId?: string;
@@ -57,6 +60,10 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 }) {
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
+    // 取会话工作目录与家目录，用于文件夹浏览卡片
+    const rootPath = props.session.metadata?.path ?? null;
+    const homeDir = props.session.metadata?.homeDir ?? null;
+    const folderCount = useFolderRootCount(props.sessionId, rootPath);
     const panel = useRightSwipePanel();
     const [quickPrompts, setQuickPrompts] = useSettingMutable('quickPrompts');
     const [selectedKey, setSelectedKey] = React.useState<CapabilityPanelKey | null>(null);
@@ -144,6 +151,21 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
             );
         }
 
+        // 文件夹浏览详情视图：分支必须在通用 return 之前，使 selectedKey narrow 为 CapabilityKey
+        if (selectedKey === 'folderBrowser') {
+            if (!rootPath || !homeDir) {
+                return null;
+            }
+            return (
+                <SessionFolderBrowserView
+                    homeDir={homeDir}
+                    onExit={() => setSelectedKey(null)}
+                    rootPath={rootPath}
+                    sessionId={sessionId}
+                />
+            );
+        }
+
         return (
             <CapabilityHubDetailView
                 count={model.details[selectedKey].length}
@@ -182,6 +204,21 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                                 onPress={() => setSelectedKey(key)}
                                 preview={getSessionActionsPreview(actionItems)}
                                 title={t('rightPanelCapabilityHub.blocks.sessionActions')}
+                            />
+                        );
+                    }
+
+                    // 文件夹浏览卡：不在 model.blocks 中，单独渲染，必须在 find 之前
+                    if (key === 'folderBrowser') {
+                        return (
+                            <CapabilityBlockCard
+                                count={folderCount ?? 0}
+                                disabled={!rootPath}
+                                icon={<Ionicons color={rootPath ? theme.colors.text : theme.colors.textSecondary} name="folder-outline" size={16} />}
+                                key={key}
+                                onPress={rootPath ? () => setSelectedKey(key) : undefined}
+                                preview={rootPath ? formatPathRelativeToHome(rootPath, homeDir ?? undefined) : null}
+                                title={t('rightPanelCapabilityHub.blocks.folderBrowser')}
                             />
                         );
                     }
@@ -233,9 +270,7 @@ const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() 
                     <CapabilityBlockCard
                         count={0}
                         disabled={true}
-                        icon={key === 'sessionActions'
-                            ? <Ionicons color={theme.colors.textSecondary} name="ellipsis-horizontal-circle-outline" size={17} />
-                            : renderBlockIcon(key, theme.colors.textSecondary)}
+                        icon={renderPanelIcon(key, theme.colors.textSecondary)}
                         key={key}
                         preview={null}
                         title={t(`rightPanelCapabilityHub.blocks.${key}` as const)}
@@ -259,6 +294,17 @@ function renderBlockIcon(key: CapabilityKey, color: string) {
         case 'files':
             return <Octicons color={color} name="file-code" size={15} />;
     }
+}
+
+// 统一图标函数：兼容 sessionActions / folderBrowser 等非 CapabilityKey 的面板 key
+function renderPanelIcon(key: CapabilityPanelKey, color: string) {
+    if (key === 'sessionActions') {
+        return <Ionicons color={color} name="ellipsis-horizontal-circle-outline" size={17} />;
+    }
+    if (key === 'folderBrowser') {
+        return <Ionicons color={color} name="folder-outline" size={16} />;
+    }
+    return renderBlockIcon(key, color);
 }
 
 const styles = StyleSheet.create(() => ({
