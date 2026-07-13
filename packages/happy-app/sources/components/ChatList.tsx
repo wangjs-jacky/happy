@@ -16,6 +16,7 @@ import { DisplayItem, ToolGroupItem, useGroupedMessages } from '@/hooks/useGroup
 import { Octicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { KeyboardController } from 'react-native-keyboard-controller';
 import { Modal } from '@/modal';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
@@ -359,6 +360,14 @@ const ChatListInternal = React.memo((props: {
     }, []);
 
     const openAnchorSheet = useCallback(() => {
+        // The anchor sheet is a pure jump list — no text input — so it never
+        // needs to avoid the keyboard. Dismiss the keyboard before showing it:
+        // BaseModal wraps content in a KeyboardAvoidingView, and opening the
+        // sheet while the keyboard is still animating drives that view's
+        // re-centering (which, together with the sheet's runtime-subscribed
+        // styles, produced the "modal jitters violently" bug). Closing the
+        // keyboard first removes the reflow trigger entirely.
+        KeyboardController.dismiss();
         Modal.show({
             component: AnchorListSheet,
             props: {
