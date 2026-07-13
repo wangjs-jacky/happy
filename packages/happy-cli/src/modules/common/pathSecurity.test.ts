@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
-import { validatePath } from './pathSecurity';
+import { validatePath, validateReadPath } from './pathSecurity';
+import { homedir } from 'os';
+import { join } from 'path';
 
 describe('validatePath', () => {
     const workingDir = resolve('/home/user/project');
@@ -41,5 +43,32 @@ describe('validatePath', () => {
             valid: true,
             resolvedPath: resolve('/home/user/project'),
         });
+    });
+});
+
+describe('validateReadPath', () => {
+    const home = homedir();
+    const cwd = join(home, 'projects', 'demo');
+
+    it('allows an absolute path anywhere inside home', () => {
+        expect(validateReadPath(join(home, 'other', 'file.ts'), cwd, home).valid).toBe(true);
+    });
+
+    it('allows the containment root itself', () => {
+        expect(validateReadPath(home, cwd, home).valid).toBe(true);
+    });
+
+    it('resolves relative paths against the working directory', () => {
+        const r = validateReadPath('src/index.ts', cwd, home);
+        expect(r.valid).toBe(true);
+        expect(r.resolvedPath).toBe(join(cwd, 'src/index.ts'));
+    });
+
+    it('denies an absolute path outside home', () => {
+        expect(validateReadPath('/etc/passwd', cwd, home).valid).toBe(false);
+    });
+
+    it('denies traversal that escapes home', () => {
+        expect(validateReadPath(join(home, '..', 'someone-else'), cwd, home).valid).toBe(false);
     });
 });
