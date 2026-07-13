@@ -24,7 +24,7 @@ type Props = {
 type PanelBackHandler = () => boolean;
 
 type RightSwipePanelContextValue = {
-    closePanel: () => void;
+    closePanel: (onClosed?: () => void) => void;
     isOpen: boolean;
     registerBackHandler: (handler: PanelBackHandler) => () => void;
 };
@@ -58,21 +58,49 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
     const startY = useSharedValue(0);
     const decided = useSharedValue(false);
     const backHandlerRef = React.useRef<PanelBackHandler | null>(null);
+    const mountedRef = React.useRef(true);
+    const animationRequestRef = React.useRef(0);
+    const pendingCloseRef = React.useRef<{ id: number; onClosed?: () => void } | null>(null);
+
+    const supersedePanelAnimation = React.useCallback(() => {
+        animationRequestRef.current += 1;
+        pendingCloseRef.current = null;
+    }, []);
+
+    const completePanelClose = React.useCallback((requestId: number, finished: boolean) => {
+        if (!mountedRef.current) return;
+        const pending = pendingCloseRef.current;
+        if (!pending || pending.id !== requestId) return;
+        pendingCloseRef.current = null;
+        if (!finished) return;
+        setOpen(false);
+        pending.onClosed?.();
+    }, []);
+
+    React.useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            supersedePanelAnimation();
+        };
+    }, [supersedePanelAnimation]);
 
     const openPanel = React.useCallback(() => {
+        supersedePanelAnimation();
         hapticsLight();
         setOpen(true);
         progress.value = withSpring(1, SPRING_CONFIG);
-    }, [progress]);
+    }, [progress, supersedePanelAnimation]);
 
-    const closePanel = React.useCallback(() => {
+    const closePanel = React.useCallback((onClosed?: () => void) => {
+        const requestId = animationRequestRef.current + 1;
+        animationRequestRef.current = requestId;
+        pendingCloseRef.current = { id: requestId, onClosed };
         hapticsLight();
         progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
-            if (finished) {
-                runOnJS(setOpen)(false);
-            }
+            runOnJS(completePanelClose)(requestId, finished === true);
         });
-    }, [progress]);
+    }, [completePanelClose, progress]);
 
     const registerBackHandler = React.useCallback((handler: PanelBackHandler) => {
         backHandlerRef.current = handler;
@@ -142,6 +170,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
             })
             .onStart(() => {
                 'worklet';
+                runOnJS(supersedePanelAnimation)();
                 startProgress.value = progress.value;
             })
             .onUpdate((e) => {
@@ -174,7 +203,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
             pan.blocksExternalGesture(drawerPan);
         }
         return pan;
-    }, [closePanel, decided, drawerPan, enabled, open, openPanel, panelWidth, progress, startProgress, startX, startY]);
+    }, [decided, drawerPan, enabled, open, panelWidth, progress, startProgress, startX, startY, supersedePanelAnimation]);
 
     const externalHorizontalGestures = React.useMemo(() => [horizontalGesture], [horizontalGesture]);
 
@@ -247,7 +276,7 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
                         </Animated.View>
                         {open && (
                             <Pressable
-                                onPress={closePanel}
+                                onPress={() => closePanel()}
                                 style={{
                                     position: 'absolute',
                                     top: 0,

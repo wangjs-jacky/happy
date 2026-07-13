@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentLauncherListSchema } from './settings';
 
 //
@@ -83,8 +84,37 @@ Object.freeze(localSettingsDefaults);
 // Parsing
 //
 
+function migrateLegacyAgentSpaceTypes(settings: unknown): unknown {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        return settings;
+    }
+
+    const agents = (settings as { agents?: unknown }).agents;
+    if (!Array.isArray(agents)) {
+        return settings;
+    }
+
+    let changed = false;
+    const migratedAgents = agents.map((agent) => {
+        if (!agent || typeof agent !== 'object' || Array.isArray(agent) || Object.prototype.hasOwnProperty.call(agent, 'spaceType')) {
+            return agent;
+        }
+
+        changed = true;
+        const path = typeof (agent as { path?: unknown }).path === 'string'
+            ? (agent as { path: string }).path
+            : undefined;
+        return {
+            ...agent,
+            spaceType: isHealthCheckinSession(path) ? 'health' : 'default',
+        };
+    });
+
+    return changed ? { ...settings, agents: migratedAgents } : settings;
+}
+
 export function localSettingsParse(settings: unknown): LocalSettings {
-    const parsed = LocalSettingsSchemaPartial.safeParse(settings);
+    const parsed = LocalSettingsSchemaPartial.safeParse(migrateLegacyAgentSpaceTypes(settings));
     if (!parsed.success) {
         return { ...localSettingsDefaults };
     }

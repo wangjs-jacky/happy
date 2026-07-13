@@ -6,6 +6,7 @@ export interface AgentLauncher {
     id: string; name: string; glyph: string; color: string;
     machineId: string; path: string; presets: AgentPreset[];
     kind: 'standard' | 'image-styles';
+    spaceType: 'default' | 'health';
     imageStyleIds: string[];
     imageVariantsPerStyle: number;
     agentType?: NewSessionAgentType;
@@ -13,6 +14,10 @@ export interface AgentLauncher {
     modelMode?: string;
     effortLevel?: string | null;
     builtin?: boolean;
+}
+
+export function resolveAgentTypeForLaunch(agent: AgentLauncher): NewSessionAgentType | undefined {
+    return agent.agentType ?? (agent.kind === 'image-styles' ? 'codex' : undefined);
 }
 
 interface DraftSetters {
@@ -38,7 +43,7 @@ export function launchAgent(
 ): void {
     draft.setMachineId(agent.machineId);
     draft.setPath(agent.path);
-    const agentType = agent.agentType ?? (agent.kind === 'image-styles' ? 'codex' : undefined);
+    const agentType = resolveAgentTypeForLaunch(agent);
     if (agentType) draft.setAgentType(agentType);
     if (agent.permissionMode) draft.setPermissionMode?.(agent.permissionMode);
     if (agent.modelMode) draft.setModelMode?.(agent.modelMode);

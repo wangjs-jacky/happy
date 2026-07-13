@@ -56,6 +56,7 @@ export const AgentLauncherListSchema = z.array(z.object({
     machineId: z.string(),
     path: z.string(),
     kind: z.enum(['standard', 'image-styles']).default('standard'),
+    spaceType: z.enum(['default', 'health']).default('default'),
     imageStyleIds: z.array(z.string()).default([]),
     imageVariantsPerStyle: z.number().int().min(1).max(4).default(1),
     presets: z.array(z.object({

@@ -95,7 +95,12 @@ describe('settings', () => {
             });
             it('parses a valid agent entry', () => {
                 const a = { id: 'x1', name: '工作日程', glyph: '日', color: '#5e5791', machineId: 'm1', path: '~/work', presets: [{ label: '看今天', prompt: '列出今天事项' }] };
-                expect(settingsParse({ agents: [a] }).agents).toEqual([{ ...a, kind: 'standard', imageStyleIds: [], imageVariantsPerStyle: 1 }]);
+                expect(settingsParse({ agents: [a] }).agents).toEqual([{ ...a, kind: 'standard', spaceType: 'default', imageStyleIds: [], imageVariantsPerStyle: 1 }]);
+            });
+            it('defaults legacy synchronized agents to the default space type', () => {
+                const legacy = { id: 'legacy', name: 'Legacy', glyph: 'L', color: '#5e5791', machineId: 'm1', path: '~/健康打卡', presets: [] };
+
+                expect(settingsParse({ agents: [legacy] }).agents[0]?.spaceType).toBe('default');
             });
             it('parses GPT Image 2 style generator agents', () => {
                 const a = {
@@ -106,6 +111,7 @@ describe('settings', () => {
                     machineId: 'm1',
                     path: '~/work',
                     kind: 'image-styles',
+                    spaceType: 'default',
                     imageStyleIds: ['premium-studio', 'white-product'],
                     imageVariantsPerStyle: 2,
                     presets: [],
@@ -345,6 +351,7 @@ describe('settings', () => {
             machineId: 'machine-1',
             path: '~/jacky-github/happy',
             kind: 'standard' as const,
+            spaceType: 'default' as const,
             imageStyleIds: [],
             imageVariantsPerStyle: 1,
             presets: [{ label: 'Plan', prompt: 'Make a plan' }],

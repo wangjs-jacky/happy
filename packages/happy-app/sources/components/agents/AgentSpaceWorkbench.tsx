@@ -1,15 +1,17 @@
 import * as React from 'react';
-import { Text, View, Pressable, ScrollView } from 'react-native';
+import { Text, View, Pressable, ScrollView, Platform, type GestureResponderEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAllMachines, useAgentSpaceSessions } from '@/sync/storage';
+import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { launchAgent, type AgentLauncher } from './launchAgent';
 import { getAgentSubtitle } from './builtinAgents';
-import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentSpaceHealthPanel } from './AgentSpaceHealthPanel';
+import { hapticsLight } from '@/components/haptics';
+import { SessionActionsPopover, type SessionActionsAnchor } from '@/components/SessionActionsPopover';
 
 /**
  * 追加 8 位十六进制透明度得到该 accent 色的半透明版本，用于空间头/徽章底色。
@@ -26,6 +28,8 @@ interface Props {
     onExit: () => void;
     /** 导航（由 SidebarView 传入：会先关抽屉再跳转，避免手机端抽屉盖在新页面上）。 */
     onNavigate: (path: string) => void;
+    /** 只关闭侧栏抽屉；新会话导航始终由 useEnterAgentSpace 统一执行。 */
+    onCloseDrawer: () => void;
 }
 
 /**
@@ -34,15 +38,20 @@ interface Props {
  * 分段——工作台 = 预设快捷指令 + 仅本空间会话 + 新建；健康报告 = 睡眠/运动/饮食面板（机器级读日报）。
  * 视觉沿用统一设计系统主题 token，只把该 Agent 的 color 作为局部 accent，不改全局主题。
  */
-export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Props) => {
+export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate, onCloseDrawer }: Props) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const machines = useAllMachines({ includeOffline: true });
-    const draft = useNewSessionDraft();
     const sessions = useAgentSpaceSessions(agent.machineId, agent.path);
+    const { entering, enter } = useEnterAgentSpace();
+    const draft = useNewSessionDraft();
+    const [sessionActions, setSessionActions] = React.useState<{
+        anchor: SessionActionsAnchor;
+        sessionId: string;
+    } | null>(null);
 
-    // 健康打卡类 Agent（按工作目录识别）才提供「健康报告」分段；其余 Agent 只有工作台。
-    const isHealth = isHealthCheckinSession(agent.path);
+    // spaceType 是迁移/新建时一次性确定的稳定 provider 标识；运行时不再从可改名路径推断。
+    const isHealth = agent.spaceType === 'health';
     const [tab, setTab] = React.useState<SpaceTab>(isHealth ? 'health' : 'workbench');
 
     const machine = React.useMemo(() => machines.find((m) => m.id === agent.machineId), [machines, agent.machineId]);
@@ -52,8 +61,37 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
     const badgeTint = withAlpha(accent, '22') ?? theme.colors.surface;
 
     const startSession = React.useCallback((initialInput?: string) => {
-        launchAgent(agent, draft, onNavigate, initialInput ? { initialInput } : undefined);
-    }, [agent, draft, onNavigate]);
+        if (entering) return;
+        if (agent.kind === 'image-styles') {
+            launchAgent(agent, draft, onNavigate, initialInput !== undefined ? { initialInput } : undefined);
+            return;
+        }
+        return enter(agent, {
+            ...(initialInput !== undefined ? { initialDraft: initialInput } : {}),
+            beforeNavigate: onCloseDrawer,
+        });
+    }, [agent, draft, enter, entering, onCloseDrawer, onNavigate]);
+
+    const exitSpace = React.useCallback(() => {
+        if (!entering) onExit();
+    }, [entering, onExit]);
+
+    const navigateToHistory = React.useCallback((sessionId: string) => {
+        if (!entering) onNavigate(`/session/${sessionId}`);
+    }, [entering, onNavigate]);
+
+    const openSessionActions = React.useCallback((sessionId: string, event: GestureResponderEvent) => {
+        if (entering || Platform.OS === 'web') return;
+        hapticsLight();
+        setSessionActions({
+            sessionId,
+            anchor: {
+                type: 'point',
+                x: event.nativeEvent.pageX,
+                y: event.nativeEvent.pageY,
+            },
+        });
+    }, [entering]);
 
     return (
         <View style={styles.root}>
@@ -61,7 +99,8 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
             <View style={styles.headWrap}>
                 <View style={[styles.head, { backgroundColor: headTint }]}>
                     <Pressable
-                        onPress={onExit}
+                        disabled={entering}
+                        onPress={exitSpace}
                         hitSlop={8}
                         style={({ pressed }) => [styles.back, pressed && styles.pressedDim]}
                     >
@@ -113,6 +152,7 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
                                 {agent.presets.map((preset, index) => (
                                     <Pressable
                                         key={`${preset.label}-${index}`}
+                                        disabled={entering}
                                         onPress={() => startSession(preset.prompt)}
                                         style={({ pressed }) => [styles.chip, { borderColor: accent }, pressed && styles.pressedDim]}
                                     >
@@ -132,7 +172,9 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
                             sessions.map((session, index) => (
                                 <Pressable
                                     key={session.id}
-                                    onPress={() => onNavigate(`/session/${session.id}`)}
+                                    disabled={entering}
+                                    onLongPress={(event) => openSessionActions(session.id, event)}
+                                    onPress={() => navigateToHistory(session.id)}
                                     style={({ pressed }) => [
                                         styles.sessionRow,
                                         index > 0 && styles.sessionRowDivider,
@@ -156,14 +198,25 @@ export const AgentSpaceWorkbench = React.memo(({ agent, onExit, onNavigate }: Pr
                             ))
                         )}
                     </View>
+                    {sessionActions && (
+                        <SessionActionsPopover
+                            anchor={sessionActions.anchor}
+                            onClose={() => setSessionActions(null)}
+                            sessionId={sessionActions.sessionId}
+                            visible
+                        />
+                    )}
 
                     {/* 在此空间新建会话 */}
                     <Pressable
+                        disabled={entering}
                         onPress={() => startSession()}
                         style={({ pressed }) => [styles.newBtn, { backgroundColor: accent }, pressed && styles.pressedDim]}
                     >
                         <Ionicons name="add" size={18} color="#FFFFFF" />
-                        <Text style={styles.newBtnText}>{t('agentSpace.newSession')}</Text>
+                        <Text style={styles.newBtnText}>
+                            {entering ? t('agentSpace.entering') : t('agentSpace.newSession')}
+                        </Text>
                     </Pressable>
                 </ScrollView>
             )}

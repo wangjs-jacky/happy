@@ -18,6 +18,7 @@ const agent: AgentLauncher = {
     machineId: 'm1',
     path: '~/work',
     kind: 'image-styles',
+    spaceType: 'default',
     imageStyleIds: ['premium-studio', 'white-product'],
     imageVariantsPerStyle: 2,
     presets: [],

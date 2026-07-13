@@ -20,6 +20,7 @@ const savedImageAgent: AgentLauncher = {
     path: '~/images',
     presets: [],
     kind: 'image-styles',
+    spaceType: 'default',
     imageStyleIds: ['white-product'],
     imageVariantsPerStyle: 2,
 };
@@ -33,6 +34,7 @@ describe('imageAgentMode', () => {
         const agent = createBuiltinImageStyleAgent();
 
         expect(agent.kind).toBe('image-styles');
+        expect(agent.spaceType).toBe('default');
         expect(agent.presets).toEqual([]);
         expect(agent.imageVariantsPerStyle).toBe(1);
         expect(agent.imageStyleIds).toEqual(IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id));
