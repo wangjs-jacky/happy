@@ -1,12 +1,12 @@
-# Happy CLI Codebase Overview
+# Paws CLI Codebase Overview
 
 ## Project Overview
 
-Happy CLI (`handy-cli`) is a command-line tool that wraps Claude Code to enable remote control and session sharing. It's part of a three-component system:
+Paws CLI (`@wangjs-jacky/paws`) is a command-line tool that wraps multiple AI coding agents for remote control and session sharing. Internal `happy-*` identifiers and the `happy` command remain compatibility surfaces. The main system components are:
 
-1. **handy-cli** (this project) - CLI wrapper for Claude Code
-2. **handy** - React Native mobile client
-3. **handy-server** - Node.js server with Prisma (hosted at https://api.happy-servers.com/)
+1. **happy-cli** (this package) - Paws CLI, daemon, and agent runners
+2. **happy-app** - React Native / Expo Paws client
+3. **happy-server** - self-hostable Node.js sync server with Prisma/PGlite
 
 ## Code Style Preferences
 

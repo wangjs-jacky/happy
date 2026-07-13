@@ -56,12 +56,18 @@ export const AgentLauncherListSchema = z.array(z.object({
     machineId: z.string(),
     path: z.string(),
     kind: z.enum(['standard', 'image-styles']).default('standard'),
+    spaceType: z.enum(['default', 'health']).default('default'),
     imageStyleIds: z.array(z.string()).default([]),
     imageVariantsPerStyle: z.number().int().min(1).max(4).default(1),
     presets: z.array(z.object({
         label: z.string(),
         prompt: z.string(),
     })).default([]),
+    // 空间预设的默认引擎 / 模型 / 思考强度（进入该 Agent 新建会话时套用）。
+    agentType: z.enum(['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw']).optional(),
+    permissionMode: z.string().optional(),
+    modelMode: z.string().optional(),
+    effortLevel: z.string().nullish(),
 })).default([]);
 
 export const SettingsSchema = z.object({
@@ -254,11 +260,21 @@ export function mergeServerSettings(
     pendingSettings: Partial<Settings>,
     rawServerSettings: unknown,
 ): Settings {
-    const pendingHasAgents = hasOwnField(pendingSettings, 'agents');
-    const serverHasAgents = hasOwnField(rawServerSettings, 'agents');
-    const baseSettings = !pendingHasAgents && !serverHasAgents && currentSettings.agents.length > 0
-        ? { ...serverSettings, agents: currentSettings.agents }
-        : serverSettings;
+    // Fields stored in the whole-blob account settings must NOT be wiped when an
+    // incoming payload simply OMITS them — e.g. an older/other client that predates
+    // the field, or a reload/resync race. Without this guard, the server blob's
+    // absence of the field silently drops the user's local data. `agents` already
+    // had this protection; `customImageStyles` needs the same, otherwise a resync
+    // (e.g. right after an OTA reload) can erase every saved custom style.
+    // An explicit value from the server (even []) still wins, so intentional
+    // cross-device changes/deletes keep propagating.
+    let baseSettings: Settings = serverSettings;
+    if (!hasOwnField(pendingSettings, 'agents') && !hasOwnField(rawServerSettings, 'agents') && currentSettings.agents.length > 0) {
+        baseSettings = { ...baseSettings, agents: currentSettings.agents };
+    }
+    if (!hasOwnField(pendingSettings, 'customImageStyles') && !hasOwnField(rawServerSettings, 'customImageStyles') && currentSettings.customImageStyles.length > 0) {
+        baseSettings = { ...baseSettings, customImageStyles: currentSettings.customImageStyles };
+    }
 
     return Object.keys(pendingSettings).length > 0
         ? applySettings(baseSettings, pendingSettings)

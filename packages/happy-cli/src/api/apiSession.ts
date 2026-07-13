@@ -1,6 +1,9 @@
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
-import { readFile } from 'node:fs/promises'
+import { readFile, unlink } from 'node:fs/promises'
+import { createWriteStream } from 'node:fs'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { basename } from 'node:path'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
@@ -25,6 +28,7 @@ import {
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
 import { readImageSize } from './imageSize';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
 import axios from 'axios';
 
 function redactPresignedUrl(url: string): string {
@@ -62,6 +66,26 @@ function enrichAttachmentDownloadError(error: unknown, phase: string, url: strin
         return enriched;
     }
     return error instanceof Error ? error : new Error(String(error));
+}
+
+/**
+ * Stream an HTTP response body straight to a file on disk, backpressured, never
+ * buffering the whole payload in memory. This is the plaintext audio/video lane
+ * (blobs up to 500MB); on any failure the partial file is unlinked so callers
+ * never observe a truncated file. Exported for unit testing against a real
+ * local HTTP server (no mocks).
+ */
+export async function streamResponseBodyToFile(response: Response, destPath: string): Promise<void> {
+    if (!response.body) {
+        throw new Error('attachment download returned no body to stream');
+    }
+    try {
+        await pipeline(Readable.fromWeb(response.body as any), createWriteStream(destPath));
+    } catch (error) {
+        await unlink(destPath).catch(() => {});
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`attachment stream-to-disk failed: ${message}`);
+    }
 }
 
 /**
@@ -134,7 +158,7 @@ export class ApiSessionClient extends EventEmitter {
      * null on failure), so per-message ownership is intrinsic — there is no
      * shared push-array between batches that a late download could leak into.
      */
-    private pendingDownloads: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>[] = [];
+    private pendingDownloads: Promise<PendingAttachment | null>[] = [];
     readonly rpcHandlerManager: RpcHandlerManager;
     /**
      * 会话内截图临时缓存：由 client 持有，构造时即 new，时序最早。
@@ -338,6 +362,23 @@ export class ApiSessionClient extends EventEmitter {
      * presigned URL that does not accept extra headers.
      */
     async downloadAttachment(ref: string): Promise<Uint8Array> {
+        const response = await this.openAttachmentDownload(ref, 60000);
+        const buffer = await response.arrayBuffer();
+        return new Uint8Array(buffer);
+    }
+
+    /**
+     * Resolve a ref to a fetched, ok Response ready to read/stream.
+     *
+     * POST /request-download → { downloadUrl }, then GET it. Local-storage
+     * downloadUrls point back at our own happy server and need the Bearer
+     * token; presigned S3 URLs carry auth in the query string and reject extra
+     * headers, so only those go out unauthenticated. The serverUrl may be a
+     * loopback address while the server builds the URL from its PUBLIC_URL
+     * host, so an exact prefix match misses — detect presigned S3 by the
+     * X-Amz-* / Signature query params instead.
+     */
+    private async openAttachmentDownload(ref: string, timeoutMs: number): Promise<Response> {
         const requestUrl = `${configuration.serverUrl}/v1/sessions/${this.sessionId}/attachments/request-download`;
         let requestRes;
         try {
@@ -357,20 +398,12 @@ export class ApiSessionClient extends EventEmitter {
             throw new Error('request-download returned no downloadUrl');
         }
 
-        // Local-storage download URLs point back at our own happy server and
-        // require the Bearer token. The configured serverUrl may be a loopback
-        // address (the CLI reaches the server over localhost) while the server
-        // builds the download URL from its PUBLIC_URL host — so an exact
-        // serverUrl prefix match misses, the token gets dropped, and the
-        // local-storage endpoint rejects the GET with 401. Presigned S3 URLs
-        // instead carry their auth in the query string and reject extra
-        // headers, so only those should go out unauthenticated.
         const isPresignedS3 = /[?&](X-Amz-Algorithm|X-Amz-Signature|X-Amz-Credential|Signature|Expires)=/.test(downloadUrl);
         const headers: Record<string, string> = {};
         if (!isPresignedS3) {
             headers['Authorization'] = `Bearer ${this.token}`;
         }
-        const abort = AbortSignal.timeout(60000);
+        const abort = AbortSignal.timeout(timeoutMs);
         let response: Response;
         try {
             response = await fetch(downloadUrl, {
@@ -385,8 +418,20 @@ export class ApiSessionClient extends EventEmitter {
             const body = await response.text().catch(() => '');
             throw new Error(`attachment download failed: ${response.status}${body ? ` ${body}` : ''}`);
         }
-        const buffer = await response.arrayBuffer();
-        return new Uint8Array(buffer);
+        return response;
+    }
+
+    /**
+     * Stream a plaintext (unencrypted) attachment straight to disk without ever
+     * holding the whole file in memory. Used for the audio/video lane, where a
+     * blob can be up to 500MB — an arrayBuffer() there would OOM the daemon,
+     * especially with several sessions downloading concurrently. On any failure
+     * the half-written file is removed so callers never see a truncated file.
+     */
+    async streamAttachmentToDisk(ref: string, destPath: string): Promise<void> {
+        // Longer timeout than the buffered path: 500MB over a slow link needs more headroom.
+        const response = await this.openAttachmentDownload(ref, 15 * 60 * 1000);
+        await streamResponseBodyToFile(response, destPath);
     }
 
     /**
@@ -460,7 +505,7 @@ export class ApiSessionClient extends EventEmitter {
      * events that arrive after the swap go into a fresh bucket bound to the
      * next user-text message.
      */
-    trackAttachmentDownload(promise: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>): void {
+    trackAttachmentDownload(promise: Promise<PendingAttachment | null>): void {
         this.pendingDownloads.push(promise);
     }
 
@@ -469,12 +514,12 @@ export class ApiSessionClient extends EventEmitter {
      * to resolve, and return the successful ones. The swap-then-await order
      * guarantees that a late-arriving file event cannot leak into this batch.
      */
-    async drainAttachmentsForUserMessage(): Promise<Array<{ data: Uint8Array; mimeType: string; name: string }>> {
+    async drainAttachmentsForUserMessage(): Promise<PendingAttachment[]> {
         const downloads = this.pendingDownloads;
         this.pendingDownloads = [];
         if (downloads.length === 0) return [];
         const results = await Promise.all(downloads);
-        return results.filter((x): x is { data: Uint8Array; mimeType: string; name: string } => x !== null);
+        return results.filter((x): x is PendingAttachment => x !== null);
     }
 
     private authHeaders() {

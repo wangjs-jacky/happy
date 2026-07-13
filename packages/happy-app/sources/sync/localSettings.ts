@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import { isHealthCheckinSession } from '@/utils/healthLog';
 import { AgentLauncherListSchema } from './settings';
 
 //
@@ -18,6 +19,10 @@ export const LocalSettingsSchema = z.object({
     consoleLoggingEnabled: z.boolean().describe('Enable console output in production builds'),
     verboseLogging: z.boolean().describe('Log all network requests and responses'),
     zenMode: z.boolean().describe('Hide all sidebars and non-essential UI for focused work'),
+    // 「Agent 空间模式」：进入某个「我的 Agent」后，左侧侧栏收敛为该 Agent 的专属工作台
+    // （仅本空间会话 + 预设快捷指令 + 退出空间）。存 agent id；null 为全局视图。刻意放设备本地、
+    // 不随账号同步（同 agents/zenMode），避免被同步 churn 冲掉。
+    agentSpaceId: z.string().nullable().describe('当前进入的「我的 Agent」空间（agent id），null 为全局视图'),
     hapticFeedbackEnabled: z.boolean().describe('Enable haptic (vibration) feedback for interactions'),
     askApi: z.object({
         apiKey: z.string().describe('DeepSeek-compatible API key for Ask mode'),
@@ -60,6 +65,7 @@ export const localSettingsDefaults: LocalSettings = {
     consoleLoggingEnabled: false,
     verboseLogging: false,
     zenMode: false,
+    agentSpaceId: null,
     hapticFeedbackEnabled: true,
     askApi: {
         apiKey: '',
@@ -78,8 +84,37 @@ Object.freeze(localSettingsDefaults);
 // Parsing
 //
 
+function migrateLegacyAgentSpaceTypes(settings: unknown): unknown {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        return settings;
+    }
+
+    const agents = (settings as { agents?: unknown }).agents;
+    if (!Array.isArray(agents)) {
+        return settings;
+    }
+
+    let changed = false;
+    const migratedAgents = agents.map((agent) => {
+        if (!agent || typeof agent !== 'object' || Array.isArray(agent) || Object.prototype.hasOwnProperty.call(agent, 'spaceType')) {
+            return agent;
+        }
+
+        changed = true;
+        const path = typeof (agent as { path?: unknown }).path === 'string'
+            ? (agent as { path: string }).path
+            : undefined;
+        return {
+            ...agent,
+            spaceType: isHealthCheckinSession(path) ? 'health' : 'default',
+        };
+    });
+
+    return changed ? { ...settings, agents: migratedAgents } : settings;
+}
+
 export function localSettingsParse(settings: unknown): LocalSettings {
-    const parsed = LocalSettingsSchemaPartial.safeParse(settings);
+    const parsed = LocalSettingsSchemaPartial.safeParse(migrateLegacyAgentSpaceTypes(settings));
     if (!parsed.success) {
         return { ...localSettingsDefaults };
     }

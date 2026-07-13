@@ -1,6 +1,6 @@
 # Happy Agent
 
-CLI client for controlling Happy Coder agents remotely.
+CLI client for controlling Paws agent sessions remotely.
 
 Unlike `happy-cli` which both runs and controls agents, `happy-agent` only controls them — listing machines, spawning sessions on a machine, creating sessions, sending messages, reading history, monitoring state, and stopping sessions.
 
@@ -23,7 +23,7 @@ cd packages/happy-agent && npm link
 Happy Agent uses account authentication via QR code, the same flow as linking a device in the Happy mobile app.
 
 ```bash
-# Authenticate by scanning QR code with the Happy mobile app
+# Authenticate by scanning the QR code with the Paws mobile app
 happy-agent auth login
 
 # Check authentication status

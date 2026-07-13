@@ -21,7 +21,8 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configuration } from '@/configuration';
 import { logger } from '@/ui/logger';
-import type { PendingAttachment } from '@/utils/MessageQueue2';
+import { isMediaAttachment, type PendingAttachment } from '@/utils/MessageQueue2';
+import { formatMediaAttachmentNotice } from '@/api/mediaAttachment';
 import type { InputItem } from './codexAppServerTypes';
 
 type DetectedImage = { mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; ext: 'png' | 'jpg' | 'gif' | 'webp' };
@@ -66,6 +67,9 @@ export function materializeCodexImageItems(
 ): Array<{ type: 'localImage'; path: string }> {
     const items: Array<{ type: 'localImage'; path: string }> = [];
     attachments.forEach((att, index) => {
+        if (isMediaAttachment(att)) {
+            return; // audio/video handled as a text notice, not a localImage
+        }
         const detected = detectCodexImage(att.data);
         if (!detected) {
             logger.debug(`[codex] Skipping unsupported attachment (no magic-byte match): ${att.name}, claimed mimeType=${att.mimeType}`);
@@ -86,13 +90,16 @@ export function materializeCodexImageItems(
     return items;
 }
 
-/** Build the full Codex input array: staged images first, then the text. */
+/** Build the full Codex input array: staged images first, then the text
+ *  (with any audio/video local-path notice prepended to the user prompt). */
 export function buildCodexInput(
     prompt: string,
     attachments: PendingAttachment[] | undefined,
 ): InputItem[] {
     const images = attachments && attachments.length > 0 ? materializeCodexImageItems(attachments) : [];
-    return [...images, { type: 'text', text: prompt }];
+    const mediaNotice = formatMediaAttachmentNotice((attachments ?? []).filter(isMediaAttachment));
+    const text = mediaNotice ? `${mediaNotice}\n\n${prompt}` : prompt;
+    return [...images, { type: 'text', text }];
 }
 
 export function buildCodexImageAttachmentNotice(

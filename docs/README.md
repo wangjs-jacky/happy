@@ -1,10 +1,14 @@
-# Happy Docs
+# Paws Documentation
 
-This folder documents how Happy works internally, with a focus on protocol, backend architecture, deployment, and the CLI tool. Start here.
+This folder documents Paws: the app, CLI, self-host server, protocols, deployment, and current product direction. Paws is independently maintained; the retained GitHub fork relationship is historical attribution, not an upstream-sync commitment.
+
+Internal package names and compatibility identifiers still use `happy-*` in many places. Keep those exact names when they refer to code, environment variables, storage paths, wire packages, or the `happy` CLI alias. Historical plans, research, and architecture records may also retain the original Happy name so that links and implementation history stay traceable.
 
 ## Index
-- getting-started.md: Public-friendly onboarding for users, self-hosters, and contributors: app download, CLI install, pairing, daemon, server options, source development, OTA basics, troubleshooting, and handoff checklist.
-- getting-started.zh-CN.md: Chinese onboarding for this fork: APK download, CLI source link, daemon startup, self-hosting, troubleshooting, and handoff checklist.
+- `getting-started.md`: English onboarding for users, self-hosters, and contributors.
+- `getting-started.zh-CN.md`: Chinese onboarding for users, self-hosters, and contributors.
+- `CONTRIBUTING.md`: Paws repository workflow, worktrees, checks, and pull requests.
+- `roadmap.md`: Current shipped foundations and prioritized work.
 - protocol.md: Wire protocol (WebSocket), payload formats, sequencing, and concurrency rules.
 - realtime-sync-and-rpc.md: High-level overview of realtime socket management and RPC control flow.
 - api.md: HTTP endpoints and authentication flows.
@@ -26,5 +30,7 @@ This folder documents how Happy works internally, with a focus on protocol, back
 - competition/AGENTS.md: structure and rules for storing competitor research results without committing raw checkouts.
 
 ## Conventions
-- Paths and field names reflect the current implementation in `packages/happy-server`.
-- Examples are illustrative; the canonical source is the code.
+- Product-facing prose uses **Paws**.
+- Paths, package names, environment variables, storage directories, and protocol fields use their exact implementation names, even when they contain `happy` or `HANDY`.
+- `plans/`, `research/`, `experimental/`, and `competition/` are historical or exploratory records; do not treat every statement in them as current product behavior.
+- Examples are illustrative. Current package manifests, `packages/happy-app/app.config.js`, workflows, and source code are canonical.

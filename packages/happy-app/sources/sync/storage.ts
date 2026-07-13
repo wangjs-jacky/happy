@@ -32,6 +32,7 @@ import { getCurrentRealtimeSessionId, getVoiceSession } from '@/realtime/Realtim
 import { isMutableTool } from "@/components/tools/knownTools";
 import { DecryptedArtifact } from "./artifactTypes";
 import { FeedItem } from "./feedTypes";
+import { selectAgentSpaceSessions } from '@/utils/agentSpaceIdentity';
 
 // Debounce timer for realtimeMode changes
 let realtimeModeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1515,6 +1516,30 @@ export function useAllSessions(): Session[] {
         if (!state.isDataReady) return [];
         return Object.values(state.sessions).sort((a, b) => b.updatedAt - a.updatedAt);
     }));
+}
+
+const EMPTY_AGENT_SPACE_SESSIONS: Session[] = [];
+
+/**
+ * 「Agent 空间模式」的本空间会话列表：按 machineId+path 过滤出属于该空间的会话，活跃优先、
+ * 再按创建时间倒序。两段式（先 useShallow 选出稳定的 Session[]，再 useMemo 映射成行数据）避免
+ * 每次 storage 变更都重建行对象、触发多余渲染。machineId/path 缺失时返回空列表。
+ */
+export function useAgentSpaceSessions(machineId: string | null, path: string | null): SessionRowData[] {
+    const sessions = storage(useShallow((state) => {
+        if (!machineId || !path || !state.isDataReady) return EMPTY_AGENT_SPACE_SESSIONS;
+        return selectAgentSpaceSessions({
+            sessions: Object.values(state.sessions),
+            machineId,
+            agentPath: path,
+            homeDir: state.machines[machineId]?.metadata?.homeDir,
+        });
+    }));
+    const unreadSessionIds = storage((state) => state.unreadSessionIds);
+    return React.useMemo(
+        () => sessions.map((s) => buildSessionRowData(s, unreadSessionIds)),
+        [sessions, unreadSessionIds],
+    );
 }
 
 export function useLocalSettingMutable<K extends keyof LocalSettings>(name: K): [LocalSettings[K], (value: LocalSettings[K]) => void] {

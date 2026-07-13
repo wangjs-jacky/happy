@@ -29,8 +29,8 @@ import { useDeviceType, useHeaderHeight, useIsLandscape, useIsTablet } from '@/u
 import { FilesSidebar, SidebarMode } from '@/components/FilesSidebar';
 import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
-import { SessionCapabilityHub } from '@/components/rightPanel/SessionCapabilityHub';
-import { HealthCheckinPanel, isHealthCheckinSession } from '@/components/rightPanel/HealthCheckinPanel';
+import { AgentSpaceExitButton, SessionRightPanelContent } from '@/components/agents/SessionAgentSpaceBoundary';
+import { useAgentSpace, useSpaceAgentForSession } from '@/hooks/useAgentSpace';
 import { prefetchPierreDiff } from '@/components/diff/PierreDiffView';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
@@ -111,9 +111,6 @@ export const SessionView = React.memo((props: { id: string }) => {
     }));
 
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
-    const handleInsertQuickPrompt = React.useCallback((prompt: string) => {
-        sessionComposerHandleRef.current?.setMessage(prompt);
-    }, []);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -224,6 +221,12 @@ export const SessionView = React.memo((props: { id: string }) => {
     }, [session?.metadata?.flavor]);
     const machineName = session?.metadata?.name || session?.metadata?.host || null;
     const showChip = isDataReady && !!session;
+    // 会话内「进入空间/退出空间」：进入 = 设 agentSpaceId + 拉出工作台抽屉；退出 = 清空间并回首页。
+    const { enter: enterSpace, exit: exitSpace } = useAgentSpace();
+
+    // Resolve the session's persisted Agent once through the canonical matcher,
+    // then share that identity between the header skin and the phone panel.
+    const spaceAgent = useSpaceAgentForSession(session);
 
     const headerTitleSlot = showChip ? (
         <SessionHeaderChip
@@ -233,6 +236,33 @@ export const SessionView = React.memo((props: { id: string }) => {
             open={infoPanelOpen}
             onPress={() => setInfoPanelOpen(v => !v)}
         />
+    ) : undefined;
+
+    // 「空间皮肤」会话顶栏（第三张图）：会话属于某空间 Agent 时，顶栏染 accent 色 + 头像 + 会话名，
+    // 左「进入空间」拉出工作台抽屉、右「退出空间」离开空间回首页。发送键/气泡保持原样。
+    const spaceTint = '#FFFFFF';
+    const enterSpaceButton = spaceAgent ? (
+        <Pressable
+            onPress={() => { enterSpace(spaceAgent.id); openSessionList(); }}
+            hitSlop={12}
+            style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+        >
+            <Ionicons name="albums-outline" size={22} color={spaceTint} />
+        </Pressable>
+    ) : undefined;
+    const exitSpaceButton = spaceAgent ? (
+        <AgentSpaceExitButton
+            color={spaceTint}
+            onPress={() => { exitSpace(); router.navigate('/'); }}
+        />
+    ) : undefined;
+    const spaceTitleSlot = spaceAgent ? (
+        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 15 }}>{spaceAgent.glyph}</Text>
+            </View>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={{ flex: 1, minWidth: 0, color: spaceTint, fontSize: 15, fontWeight: '600' }}>{headerProps.title}</Text>
+        </View>
     ) : undefined;
 
     // New-session button on the header's right edge. Returns to the particle
@@ -282,9 +312,12 @@ export const SessionView = React.memo((props: { id: string }) => {
                         folderName={headerProps.folderName}
                         isConnected={headerProps.isConnected}
                         extraPathSegment={fileViewPath ?? undefined}
-                        titleSlot={headerTitleSlot}
-                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : newSessionButton}
-                        onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
+                        backgroundColor={spaceAgent ? spaceAgent.color : undefined}
+                        tintColor={spaceAgent ? spaceTint : undefined}
+                        leftSlot={enterSpaceButton}
+                        titleSlot={spaceAgent ? spaceTitleSlot : headerTitleSlot}
+                        rightSlot={(diffViewOpen || !!fileViewPath) ? headerRightSlot : (spaceAgent ? exitSpaceButton : newSessionButton)}
+                        onTitlePress={session && !spaceAgent ? () => router.push(`/session/${sessionId}/info`) : undefined}
                         onListPress={openSessionList}
                     />
                 </View>
@@ -330,11 +363,13 @@ export const SessionView = React.memo((props: { id: string }) => {
     );
 
     if (!canShowSidebar) {
-        // 会话属于某个「专属空间」Agent 时，右滑面板换成该 Agent 自己的面板，
-        // 而不是给 coding 用的通用能力中心。MVP 先接入健康打卡。
-        const rightPanel = isHealthCheckinSession(session?.metadata?.path)
-            ? <HealthCheckinPanel onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />
-            : <SessionCapabilityHub onInsertQuickPrompt={handleInsertQuickPrompt} sessionId={sessionId} />;
+        const rightPanel = (
+            <SessionRightPanelContent
+                composerHandleRef={sessionComposerHandleRef}
+                sessionId={sessionId}
+                spaceAgent={spaceAgent}
+            />
+        );
         return (
             <RightSwipePanelHost panelContent={rightPanel}>
                 {mainContent}
@@ -541,8 +576,9 @@ function SessionViewLoaded({
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
 
-    // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
-    const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
+    // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
+    // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
+    const { selectedImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
 
     // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
     // screenshots; opening the drawer clears it (handled inside the drawer).
@@ -733,7 +769,7 @@ function SessionViewLoaded({
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}
             selectedImages={selectedImages}
-            onPickImages={pickImages}
+            onPickImages={pickAttachment}
             onRemoveImage={removeImage}
             onAddImages={addImages}
             onCaptureScreenshot={desktopScreenshotEnabled ? handleCaptureScreenshot : undefined}

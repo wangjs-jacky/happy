@@ -14,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useDrawerHaptics } from './useDrawerHaptics';
 import { AgentSheet } from './agents/AgentSheet';
+import { useAgentSpace } from '@/hooks/useAgentSpace';
+import { AgentSpaceWorkbench } from './agents/AgentSpaceWorkbench';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -193,15 +195,40 @@ export const SidebarView = React.memo(() => {
     const profile = useProfile();
     const agents = useLocalSetting('agents');
     const [sheetOpen, setSheetOpen] = React.useState(false);
+    const { agent: spaceAgent, exit: exitSpace } = useAgentSpace();
     const displayName = getDisplayName(profile) ?? t('settings.title');
+
+    const closeDrawer = React.useCallback(() => {
+        navigation.dispatch(DrawerActions.closeDrawer());
+    }, [navigation]);
 
     // Navigate, closing the drawer first. On phone the drawer is a `front` overlay
     // that would otherwise stay open on top of the pushed screen; on desktop the
     // drawer is permanent so closeDrawer is a harmless no-op.
     const go = React.useCallback((path: string) => {
-        navigation.dispatch(DrawerActions.closeDrawer());
+        closeDrawer();
         router.navigate(path as any);
-    }, [navigation, router]);
+    }, [closeDrawer, router]);
+
+    const exitAgentSpace = React.useCallback(() => {
+        exitSpace();
+        go('/');
+    }, [exitSpace, go]);
+
+    // 「Agent 空间模式」：进入某个 Agent 后，整个侧栏收敛为该 Agent 的专属工作台，
+    // 隐藏全局用户卡/收件箱/会话列表，只看本空间。退出空间即回落到下面的常规侧栏。
+    if (spaceAgent) {
+        return (
+            <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>
+                <AgentSpaceWorkbench
+                    agent={spaceAgent}
+                    onExit={exitAgentSpace}
+                    onNavigate={go}
+                    onCloseDrawer={closeDrawer}
+                />
+            </View>
+        );
+    }
 
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>

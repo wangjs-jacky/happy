@@ -4,6 +4,7 @@ import { launchAgent, type AgentLauncher } from './launchAgent';
 const agent: AgentLauncher = {
     id: 'a1', name: '工作日程', glyph: '日', color: '#5e5791',
     machineId: 'm1', path: '~/work/schedule', kind: 'standard',
+    spaceType: 'default',
     imageStyleIds: [],
     imageVariantsPerStyle: 1,
     presets: [],

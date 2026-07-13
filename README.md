@@ -21,10 +21,10 @@
 
 ---
 
-> **Paws** is an independently maintained, heavily customized fork of
-> [Happy](https://github.com/slopus/happy) — rebranded with its own app builds, CLI package,
-> self-hosted OTA pipeline and website. Everything documented here refers to **this fork**;
-> for upstream credits see [Acknowledgements](#-acknowledgements).
+> **Paws** is an independently maintained product and codebase that originated from
+> [Happy](https://github.com/slopus/happy). It has its own app builds, CLI package,
+> release pipeline, roadmap, and website. The retained GitHub fork relationship is historical
+> attribution, not an upstream-sync commitment.
 
 ## 🚀 Quick Start
 
@@ -66,7 +66,7 @@ For source installs, server options, app builds and troubleshooting, read the
 ## 🐾 Why Paws?
 
 - 📱 **Remote control for your coding agents** — Claude Code, Codex, Gemini, OpenCode and other ACP-compatible agents
-- 🔔 **Reliable push notifications** — direct FCM on Android, and alerts fire even while the app is in the foreground
+- 🔔 **Reliable push notifications** — FCM-backed Android delivery through the current Expo Push integration, including foreground alerts
 - 🖼️ **Full image workflow** — attach images when creating a session, HEIC auto-normalization, fullscreen image viewer
 - ⚡ **Switch devices instantly** — take over from phone or desktop with one keypress
 - 🔐 **End-to-end encrypted** — the sync server only ever relays ciphertext; your code and conversations stay private
@@ -93,13 +93,13 @@ The CLI wraps your agent's terminal session. Keep working locally as usual; when
 session up from your phone it seamlessly switches to remote mode, and any keypress on your
 keyboard takes it back.
 
-## ✨ What's Different from Upstream Happy?
+## ✨ What Paws Adds
 
 | Area | Paws |
 |------|------|
 | **Branding** | Marmot mascot, `Paws` app name, splash & mascot-linked theme |
 | **CLI distribution** | Published on npm as [`@wangjs-jacky/paws`](https://www.npmjs.com/package/@wangjs-jacky/paws) with trusted-publishing CI |
-| **Android push** | Migrated from Expo Push to **direct FCM**; notifications also shown in-foreground, tap to jump into the session |
+| **Android push** | FCM-backed Android notifications delivered through the current Expo Push service integration; notifications also show in-foreground and open the target session |
 | **Images** | Restored image upload, first-screen attachments, fullscreen viewer, HEIC normalization for vision models |
 | **OTA updates** | Self-hosted OTA pipeline with `preview` / `production` channels, per-PR preview builds, and a [version browser site](https://wangjs-jacky.github.io/happy-ota-site/) to pin any historical build via QR code |
 | **Extras** | Health check-in dashboard fed by your own Markdown notes, desktop screenshot capture, session attach command, and a steady stream of UX fixes |
@@ -136,8 +136,8 @@ See the [Getting Started guide](docs/getting-started.md) and the
 
 Paws began as a fork of [**Happy**](https://github.com/slopus/happy) by the
 [slopus](https://github.com/slopus) team — a brilliant piece of engineering, generously MIT-licensed.
-The `happy` package on npm and the Happy apps in the App Store / Play Store belong to upstream;
-this fork ships its own CLI (`@wangjs-jacky/paws`) and its own app builds.
+The `happy` package on npm and the Happy apps in the App Store / Play Store belong to the original project;
+Paws ships its own CLI (`@wangjs-jacky/paws`) and its own app builds.
 
 ## 📄 License
 

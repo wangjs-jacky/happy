@@ -31,92 +31,125 @@ export interface SpawnSessionArgs {
     environmentVariables?: Record<string, string>;
 }
 
+export type SpawnSessionCoreResult =
+    | { type: 'success'; sessionId: string }
+    | { type: 'cancelled' }
+    | { type: 'error'; message: string };
+
 /**
- * Inline session spawn used by the compose-first home so the user can type and
- * send without first opening /new. It mirrors the core of /new's `handleSend`
- * (resolve path → spawn → send initial message → navigate, with the
- * directory-creation approval round-trip). Worktree *creation* (the '__new__'
- * case) is still handled by /new; this hook is for the straightforward "machine
- * online, no new worktree" path. Image attachments ride along with the initial
- * message for agents that support them.
+ * Inline session spawn used by the compose-first home. The non-navigating core
+ * resolves/spawns/configures a session, while `spawn` preserves the existing
+ * send-once then navigate behavior for current callers.
  */
 export function useSpawnSession() {
     const navigateToSession = useNavigateToSession();
     const [sending, setSending] = React.useState(false);
+    const sendingOperations = React.useRef(0);
+    const beginSending = React.useCallback(() => {
+        sendingOperations.current += 1;
+        if (sendingOperations.current === 1) setSending(true);
+    }, []);
+    const endSending = React.useCallback(() => {
+        sendingOperations.current = Math.max(0, sendingOperations.current - 1);
+        if (sendingOperations.current === 0) setSending(false);
+    }, []);
+
+    const spawnSession = React.useCallback(async (
+        args: SpawnSessionArgs,
+        approvedNewDirectoryCreation: boolean = false,
+    ): Promise<SpawnSessionCoreResult> => {
+        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, environmentVariables } = args;
+        if (!isMachineOnline(machine)) {
+            const message = t('newSession.machineOffline');
+            Modal.alert(t('common.error'), message);
+            return { type: 'error', message };
+        }
+
+        beginSending();
+        try {
+            const pathToUse = (path ?? '').trim() || '~';
+            const absolutePath = resolveAbsolutePath(pathToUse, machine.metadata?.homeDir);
+
+            // Existing worktree → spawn directly in it. Worktree creation remains
+            // owned by /new and is not supported by this straightforward core.
+            const spawnDirectory = (worktreeKey && worktreeKey !== '__none__' && worktreeKey !== '__new__')
+                ? worktreeKey
+                : absolutePath;
+
+            const runSpawn = async (approved: boolean): Promise<SpawnSessionCoreResult> => {
+                const result = await machineSpawnNewSession({
+                    machineId,
+                    directory: spawnDirectory,
+                    approvedNewDirectoryCreation: approved,
+                    agent,
+                    environmentVariables,
+                });
+
+                switch (result.type) {
+                    case 'success': {
+                        await sync.refreshSessions();
+                        const sessionStorage = storage.getState();
+                        if (permissionMode !== undefined) {
+                            sessionStorage.updateSessionPermissionMode(result.sessionId, permissionMode);
+                        }
+                        if (modelMode !== undefined) {
+                            sessionStorage.updateSessionModelMode(result.sessionId, modelMode);
+                        }
+                        if (effortLevel !== undefined) {
+                            sessionStorage.updateSessionEffortLevel(result.sessionId, effortLevel);
+                        }
+                        return { type: 'success', sessionId: result.sessionId };
+                    }
+                    case 'requestToApproveDirectoryCreation': {
+                        const approved = await Modal.confirm(
+                            t('composeHome.createDirectoryTitle'),
+                            t('composeHome.createDirectoryMessage', { path: result.directory }),
+                            { cancelText: t('common.cancel'), confirmText: t('common.create') },
+                        );
+                        return approved ? runSpawn(true) : { type: 'cancelled' };
+                    }
+                    case 'error':
+                        Modal.alert(t('common.error'), result.errorMessage);
+                        return { type: 'error', message: result.errorMessage };
+                }
+            };
+
+            return await runSpawn(approvedNewDirectoryCreation);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to start session';
+            Modal.alert(t('common.error'), message);
+            return { type: 'error', message };
+        } finally {
+            endSending();
+        }
+    }, [beginSending, endSending]);
 
     // Returns true when a session was created (so callers can clear their input).
     const spawn = React.useCallback(async (
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, prompt, images, environmentVariables } = args;
-        if (!isMachineOnline(machine)) {
-            Modal.alert(t('common.error'), t('newSession.machineOffline'));
-            return false;
-        }
-
-        setSending(true);
+        beginSending();
         try {
-            const pathToUse = (path ?? '').trim() || '~';
-            const absolutePath = resolveAbsolutePath(pathToUse, machine.metadata?.homeDir);
-
-            // Existing worktree → spawn directly in it. Worktree *creation* ('__new__')
-            // is handled by /new, not here (the caller falls back for that case).
-            const spawnDirectory = (worktreeKey && worktreeKey !== '__none__' && worktreeKey !== '__new__')
-                ? worktreeKey
-                : absolutePath;
-
-            const result = await machineSpawnNewSession({
-                machineId,
-                directory: spawnDirectory,
-                approvedNewDirectoryCreation,
-                agent,
-                environmentVariables,
-            });
-
-            switch (result.type) {
-                case 'success':
-                    await sync.refreshSessions();
-                    const sessionStorage = storage.getState();
-                    if (permissionMode !== undefined) {
-                        sessionStorage.updateSessionPermissionMode(result.sessionId, permissionMode);
-                    }
-                    if (modelMode !== undefined) {
-                        sessionStorage.updateSessionModelMode(result.sessionId, modelMode);
-                    }
-                    if (effortLevel !== undefined) {
-                        sessionStorage.updateSessionEffortLevel(result.sessionId, effortLevel);
-                    }
-                    const attachments = images && images.length > 0 ? images : undefined;
-                    if (prompt || attachments) {
-                        await sync.sendMessage(result.sessionId, prompt, { source: 'new_session', attachments });
-                    }
-                    navigateToSession(result.sessionId);
-                    return true;
-                case 'requestToApproveDirectoryCreation': {
-                    const approved = await Modal.confirm(
-                        t('composeHome.createDirectoryTitle'),
-                        t('composeHome.createDirectoryMessage', { path: result.directory }),
-                        { cancelText: t('common.cancel'), confirmText: t('common.create') },
-                    );
-                    if (approved) {
-                        return await spawn(args, true);
-                    }
-                    return false;
-                }
-                case 'error':
-                    Modal.alert(t('common.error'), result.errorMessage);
-                    return false;
+            const result = await spawnSession(args, approvedNewDirectoryCreation);
+            if (result.type !== 'success') {
+                return false;
             }
-            return false;
+
+            const attachments = args.images && args.images.length > 0 ? args.images : undefined;
+            if (args.prompt || attachments) {
+                await sync.sendMessage(result.sessionId, args.prompt, { source: 'new_session', attachments });
+            }
+            navigateToSession(result.sessionId);
+            return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
             Modal.alert(t('common.error'), message);
             return false;
         } finally {
-            setSending(false);
+            endSending();
         }
-    }, [navigateToSession]);
+    }, [beginSending, endSending, navigateToSession, spawnSession]);
 
-    return { sending, spawn };
+    return { sending, spawnSession, spawn };
 }

@@ -35,6 +35,16 @@ const MAX_RECOMMENDED_CONTINUATION_STYLES = 10;
 export const MIN_IMAGE_AGENT_VARIANTS_PER_STYLE = 1;
 export const MAX_IMAGE_AGENT_VARIANTS_PER_STYLE = 4;
 
+export const IMAGE_AGENT_FIRST_REQUEST_RULES = [
+    '首次请求优化（只优化传输与调度，不牺牲效果）：',
+    '- 在第一次调用 native image_gen 前就完成参考图传输预处理，不要等第一次调用挂起后再补救。',
+    '- 保留原始文件不动，只创建高质量临时传输副本：普通构图/场景参考图使用 1024px 长边，风格、身份、文字、产品细节等敏感参考图使用 1536px 长边（即按内容在 1024–1536px 内选择）；保持方向、色彩和清晰度，不要放大小于目标尺寸的原图，禁止反复压缩。',
+    '- 如果参考图数量超过 native 工具上限（通常为 5 张），只合并风格参考图为清晰 contact sheet；主体参考图保持独立，并在 prompt 中明确每张图的角色。',
+    '- 这些调整只作用于传输副本；不得减少参考信息、缩短风格分析、简化完整 prompt 或降低最终生成质量。',
+    '- native 调用正常可能耗时数分钟；若连续等待 8 分钟仍无图片、错误或进度输出，判定本次调用挂起。终止当前调用，并在同一个 batchId 内重试一次；这不算第二个批处理，生成锁继续有效。',
+    '- 重试时只能继续优化输入文件体积或参考板布局，必须保持相同的创意方案、风格约束、主体保真要求和最终生成质量。',
+] as const;
+
 export function shouldUseUserImageStyleReferenceImages(style: Pick<UserImageStyle, 'analysisStatus' | 'promptContent' | 'referenceImages'>): boolean {
     return style.referenceImages.length > 0 && !(style.analysisStatus === 'prompt-ready' && !!style.promptContent?.trim());
 }
@@ -174,6 +184,8 @@ export function buildImageAgentPrompt(args: {
         '- 在每个选中风格的输出都保存完成，或任务明确失败之前，不要启动第二个批处理。',
         '- 如果当前会话里已经有另一个图片生成任务在运行，请报告图片生成器已被锁定，不要重复启动新的任务。',
         '',
+        ...IMAGE_AGENT_FIRST_REQUEST_RULES,
+        '',
         inputLine,
         styleReferenceImageCount > 0 ? '自定义风格规则：先分析前面的临时风格参考图，抽取可复用的视觉风格，再应用到本次用户素材或用户描述；不要把风格参考图里的主体误替换成本次主体。Prompt 已提炼完成的自定义风格会直接出现在风格清单里，不需要额外参考图。' : '',
         `用户目标：${userPrompt}`,
@@ -183,6 +195,7 @@ export function buildImageAgentPrompt(args: {
         '- 将 prompt 保存到 garden-gpt-image-2/prompt/，将图片保存到 garden-gpt-image-2/image/。',
         '- 为本次批处理生成一个稳定 batchId（例如 gpt-image-2-YYYYMMDD-HHMMSS），同一批所有图片都使用这个 batchId。',
         '- 每保存一张 PNG/JPEG 后，立即用绝对本地路径调用 mcp__happy__send_image 内联发送，并传入本张图片对应的完整 prompt 和 batchId。不要对本地文件使用 Markdown 图片语法。',
+        '- 如果切到 native / 宿主图像工具，工具可能会把 PNG/JPEG 先保存到 ~/.codex/generated_images/<任务 id>/；生成后必须用 find/ls 确认实际文件，复制一份到 garden-gpt-image-2/image/，再调用 mcp__happy__send_image。不要在未检查该目录前声称“没有本地路径”或“无法返回”。',
         '- 不要在对话里展示生成过程、命令输出、完整 prompt 或路径清单。',
         '- 最终回复：如果全部成功，先只写“完成。”；不要输出 prompt 文件路径、图片文件路径或清单。如有失败的风格，只简短说明失败的风格 id 和原因。',
         '- 最终回复末尾附上下面这些 GPT Image Gallery 推荐选项，保持 option 内容原样，不要改写 style id；客户端会把它们渲染成可多选风格推荐。',

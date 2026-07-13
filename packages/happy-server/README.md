@@ -1,10 +1,10 @@
-# Happy Server
+# Paws Self-Host Server
 
-Minimal backend for open-source end-to-end encrypted Claude Code clients.
+Self-hostable synchronization backend for Paws clients and supported AI coding agents.
 
-## What is Happy?
+## What It Does
 
-Happy Server is the synchronization backbone for secure Claude Code clients. It enables multiple devices to share encrypted conversations while maintaining complete privacy - the server never sees your messages, only encrypted blobs it cannot read.
+The server is the synchronization backbone for Paws. It lets multiple clients exchange encrypted session records while keeping plaintext conversations on paired clients and the selected agent/provider path. Internal package names still use `happy-server-self-host` for compatibility.
 
 ## Features
 
@@ -15,25 +15,23 @@ Happy Server is the synchronization backbone for secure Claude Code clients. It 
 - 🔑 **Cryptographic Auth** - No passwords stored, only public key signatures
 - ⚡ **Real-time Sync** - WebSocket-based synchronization across all your devices
 - 📱 **Multi-device** - Seamless session management across phones, tablets, and computers
-- 🔔 **Push Notifications** - Notify when Claude Code finishes tasks or needs permissions (encrypted, we can't see the content)
+- 🔔 **Push Notifications** - Deliver attention and completion signals through the configured push provider
 - 🌐 **Distributed Ready** - Built to scale horizontally when needed
 
 ## How It Works
 
-Your Claude Code clients generate encryption keys locally and use Happy Server as a secure relay. Messages are end-to-end encrypted before leaving your device. The server's job is simple: store encrypted blobs and sync them between your devices in real-time.
+Paws clients generate and hold encryption keys locally and use the server as a relay. Session payloads are encrypted before synchronization. The server stores and routes records, machine/session presence, and delivery metadata needed for realtime operation.
 
 ## Hosting
 
-**You don't need to self-host!** Our free cloud Happy Server at `happy-api.slopus.com` is just as secure as running your own. Since all data is end-to-end encrypted before it reaches our servers, we literally cannot read your messages even if we wanted to. The encryption happens on your device, and only you have the keys.
-
-That said, Happy Server is open source and self-hostable if you prefer running your own infrastructure. The security model is identical whether you use our servers or your own.
+Paws can use the service configured in the App and CLI, or this package can run on infrastructure you control. Self-hosters are responsible for TLS, access control, backups, logs, retention, object-storage policy, monitoring, and upgrades. Review the root privacy policy before operating a service for other users.
 
 ## Self-Hosting with Docker
 
 The standalone Docker image runs everything in a single container with no external dependencies (no Postgres, no Redis, no S3).
 
 ```bash
-docker build -t happy-server -f Dockerfile .
+docker build -t paws-server -f Dockerfile .
 ```
 
 Run from the monorepo root:
@@ -41,8 +39,8 @@ Run from the monorepo root:
 ```bash
 docker run -p 3005:3005 \
   -e HANDY_MASTER_SECRET=<your-secret> \
-  -v happy-data:/data \
-  happy-server
+  -v paws-data:/data \
+  paws-server
 ```
 
 This uses:
@@ -50,7 +48,7 @@ This uses:
 - **Local filesystem** - for file uploads (stored in `/data/files`)
 - **In-memory event bus** - no Redis needed
 
-Data persists in the `happy-data` Docker volume across container restarts.
+Data persists in the `paws-data` Docker volume across container restarts.
 
 ### Environment Variables
 

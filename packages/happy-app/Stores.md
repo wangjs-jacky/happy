@@ -1,85 +1,53 @@
-# App Store & Google Play Store Information
+# Paws Distribution Metadata
 
-## App Name
-Happy Coder
+This document is the source copy for release listings and future store submissions. As of July 2026, the maintained Android distribution is a sideloadable APK on GitHub Releases; do not claim an active Paws App Store or Google Play listing unless one has actually shipped.
 
-## Subtitle / Short Description
-Claude Code on the go
+## Product Metadata
 
-## Categories
-- **App Store Primary**: Developer Tools
-- **App Store Secondary**: Productivity
-- **Google Play**: Productivity > Developer Tools
+- **App name:** Paws
+- **Short description:** Control AI coding agents from another device
+- **Categories:** Developer Tools, Productivity
+- **License:** MIT
+- **Production package / bundle ID:** `build.paws`
+- **Preview package / bundle ID:** `build.paws.preview`
+- **Development package / bundle ID:** `build.paws.dev`
 
-## Keywords
-claude, code, ai, programming, developer, tools, encrypted, secure, coding, assistant, mobile, sync, offline, notifications, privacy
+## Short Listing
 
-## App Description / Full Description
+Paws is an open-source mobile and web companion for AI coding agents. Start Claude Code, Codex, Gemini, OpenCode, or another ACP-compatible agent on your computer, then follow progress, send instructions, handle permission requests, and remotely start sessions from another device.
 
-Happy Coder is the secure mobile companion for Claude Code that lets you continue your AI coding sessions anywhere (not affiliated with Anthropic). Built by developers who needed to check on Claude's progress during coffee breaks, this app brings the full Claude Code experience to your phone with military-grade encryption.
+## Full Description
 
-**Important**: This app requires Claude Code to be installed on your computer. Happy Coder is a companion app that connects to your existing Claude Code setup.
+Paws keeps long-running AI coding sessions within reach when you leave the terminal. The CLI and daemon run on the computer that has your repository; the App connects through an end-to-end encrypted synchronization layer.
 
-**Key Features:**
+Key capabilities:
 
-• Continue Claude Code sessions seamlessly between desktop and mobile
-• Push notifications for permission requests and task completion
-• Access conversation history even when your terminal is offline
-• End-to-end encryption - your code stays private
-• Real-time streaming of Claude's responses
-• Zero-knowledge architecture - we can't read your data
+- control supported coding agents from Android, web, or desktop experiments;
+- receive notifications when a session needs attention;
+- switch between local terminal control and remote control;
+- send images and supported attachments to agent sessions;
+- run multiple sessions and inspect their state from one App;
+- operate a self-hosted sync server and web client;
+- inspect and modify the complete open-source implementation.
 
-**How It Works:**
-1. Install the happy CLI on your computer
-2. Scan a QR code to securely pair your devices
-3. Use 'happy' instead of 'claude' to start encrypted sessions
-4. Switch between desktop and mobile instantly
+Paws requires a supported agent CLI and account on the computer where the code lives. Model-provider access, usage limits, and charges remain the user's responsibility.
 
-Perfect for developers who:
-- Want to monitor long-running tasks on the go
-- Need secure access to proprietary code discussions
-- Value privacy and open-source transparency
-- Work from coffee shops, trains, or anywhere
+## Search Terms
 
-Happy Coder uses the same encryption as Signal (TweetNaCl) and is completely open source. Your encryption keys never leave your device, and all data is encrypted before transmission.
+AI coding agent, Claude Code, Codex, Gemini CLI, OpenCode, ACP, developer tools, remote control, encrypted sync, self-hosted, coding assistant
 
-Built by Bay Area engineers who believe the best tools come from scratching your own itch. We needed a way to securely check on our AI coding assistant while away from our desks - so we built it and shared it with the community.
+## Current Distribution URLs
 
-Your code. Your privacy. Your Claude Code companion.
+- Product site: <https://paws-landing-eo4.pages.dev>
+- Source and support: <https://github.com/wangjs-jacky/happy>
+- Android APK releases: <https://github.com/wangjs-jacky/happy/releases>
+- CLI package: <https://www.npmjs.com/package/@wangjs-jacky/paws>
+- Privacy policy: <https://github.com/wangjs-jacky/happy/blob/main/PRIVACY.md>
 
-## Promotional Text
-**App Store (170 chars)**: Securely continue your Claude Code sessions on mobile. End-to-end encrypted, open source, with push notifications for completed tasks. Your AI coding assistant, anywhere.
+## Store Submission Checklist
 
-**Google Play (80 chars)**: Secure mobile Claude Code companion. Encrypted, open source, with notifications.
-
-## What's New (for updates)
-- Initial release
-- End-to-end encryption for all messages
-- Push notifications for permissions and task completion
-- Offline access to conversation history
-- Real-time sync with desktop sessions
-
-## URLs
-
-### Privacy Policy
-https://github.com/slopus/happy/blob/main/PRIVACY.md
-
-### Support / Contact
-https://github.com/slopus/happy/issues
-
-### Website / Marketing
-https://github.com/slopus/happy
-
-## Additional Google Play Requirements
-
-### Content Rating
-Everyone
-
-### Target Audience
-Developers and software engineers
-
-### Contains Ads
-No
-
-### In-App Purchases
-No
+- Confirm the package ID and version from `app.config.js`.
+- Replace GitHub APK language with the actual store URL only after publication.
+- Verify screenshots and copy against the current production build.
+- Declare current permissions, analytics, push, and third-party integrations accurately.
+- Do not reuse upstream Happy store URLs, package IDs, screenshots, reviews, or branding.

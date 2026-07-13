@@ -979,7 +979,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                 {props.onPickImages && (
                                     <Pressable
                                         accessibilityRole="button"
-                                        accessibilityLabel={t('agents.imageUploadCta')}
+                                        accessibilityLabel={t('imageUpload.chooseSourceTitle')}
                                         onPress={() => {
                                             hapticsLight();
                                             props.onPickImages?.();
@@ -992,8 +992,8 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
                                         ]}
                                     >
                                         <Ionicons
-                                            name="image-outline"
-                                            size={16}
+                                            name="attach"
+                                            size={18}
                                             color={(props.selectedImages?.length ?? 0) > 0
                                                 ? theme.colors.radio.active
                                                 : theme.colors.button.secondary.tint}

@@ -22,6 +22,8 @@ export const systemPrompt = trimIdent(`
 
     Whenever you need to show the user an image (one you generated, edited, or any local image file), you MUST call the mcp__happy__send_image tool with the absolute local path to the image (PNG/JPEG). Do NOT just print the file path, and do NOT use Markdown image syntax (e.g. ![](path)) — neither renders as an image in the Happy client, and in a plain terminal the user would see nothing. Only send_image makes the image actually visible to the user.
 
+    If you use a host-native image generation tool, first check the tool/runtime-provided generated image directory, especially ~/.codex/generated_images/<task-id>/, for the actual PNG/JPEG output. If the user requested a specific output directory, copy the generated file there and leave the original in place. Do not claim that an image cannot be returned because the image tool response omitted a path until you have checked the generated image directory. Once a local PNG/JPEG exists, call mcp__happy__send_image with that absolute path.
+
     # OTA preview metadata
 
     If you publish or verify a Happy OTA update as part of the task, include a machine-readable block before any final <options> block so Happy can surface it in the UI:
