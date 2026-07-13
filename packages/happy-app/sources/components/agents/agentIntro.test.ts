@@ -1,36 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
-
-// Set __DEV__ before any imports
-declare global {
-    var __DEV__: boolean;
-}
-globalThis.__DEV__ = false;
-
-// Mock react-native and dependent modules before importing agentIntro
-vi.mock('react-native', () => ({
-    StyleSheet: { create: (fn: any) => fn({}, {}) },
-    ScrollView: () => null,
-    View: () => null,
-    Text: () => null,
-    Pressable: () => null,
-    ActivityIndicator: () => null,
-}));
-
-vi.mock('@expo/vector-icons', () => ({
-    Ionicons: () => null,
-}));
-
-vi.mock('react-native-unistyles', () => ({
-    StyleSheet: { create: (fn: any) => fn({}, {}) },
-    useUnistyles: () => ({ theme: {}, styles: {} }),
-}));
-
-vi.mock('@/components/rightPanel/HealthCheckinPanel', () => ({
-    isHealthCheckinSession: (path: string | null | undefined) => {
-        return !!path && path.includes('健康打卡');
-    },
-}));
-
+import { describe, it, expect } from 'vitest';
 import { resolveAgentIntroKind } from './agentIntro';
 
 describe('resolveAgentIntroKind', () => {

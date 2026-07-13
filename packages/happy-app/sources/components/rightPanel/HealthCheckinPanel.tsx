@@ -24,6 +24,7 @@ import { HealthDomainSwitcher } from './HealthDomainSwitcher';
 import { ExerciseCard } from './ExerciseCard';
 import { DietCard } from './DietCard';
 import { useLocalSettingMutable } from '@/sync/storage';
+export { isHealthCheckinSession } from './isHealthCheckinSession';
 
 /**
  * 健康打卡 Agent 的右滑面板：替代通用「能力中心」，展示这个空间自己的东西——
@@ -260,11 +261,6 @@ export const HealthCheckinPanel = React.memo(function HealthCheckinPanel(props: 
         </ScrollView>
     );
 });
-
-/** SessionView 用它判断当前会话是否属于健康打卡 Agent（MVP：按工作目录名识别）。 */
-export function isHealthCheckinSession(path: string | null | undefined): boolean {
-    return !!path && path.includes('健康打卡');
-}
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
