@@ -10,11 +10,14 @@
  *   2. PUT encrypted blob to uploadUrl
  *   3. Embed ref in the file event sent to the CLI
  */
+import { uploadAsync, FileSystemUploadType } from 'expo-file-system/legacy';
 import { AuthCredentials } from '@/auth/tokenStorage';
 import { getServerUrl } from './serverConfig';
 import { appendFormFile } from './uploadFormFile';
+import type { AttachmentKind } from './attachmentTypes';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — encrypted image lane
+export const MAX_MEDIA_FILE_SIZE = 500 * 1024 * 1024; // 500MB — plaintext audio/video lane
 
 /**
  * If a self-hosted server's request-upload / request-download response points
@@ -56,6 +59,7 @@ export async function requestAttachmentUpload(
     sessionId: string,
     filename: string,
     size: number,
+    kind: AttachmentKind = 'image',
 ): Promise<RequestUploadResult> {
     const API_ENDPOINT = getServerUrl();
 
@@ -65,12 +69,15 @@ export async function requestAttachmentUpload(
             'Authorization': `Bearer ${credentials.token}`,
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ filename, size }),
+        // Only send kind for the media lane; omitting it keeps the request
+        // byte-identical to the existing image path.
+        body: JSON.stringify(kind === 'image' ? { filename, size } : { filename, size, kind }),
     });
 
     if (!response.ok) {
         if (response.status === 413) {
-            throw new Error(`Attachment too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
+            const limit = kind === 'image' ? MAX_FILE_SIZE : MAX_MEDIA_FILE_SIZE;
+            throw new Error(`Attachment too large (max ${limit / 1024 / 1024}MB)`);
         }
         if (response.status === 404) {
             throw new Error('Session not found');
@@ -80,6 +87,47 @@ export async function requestAttachmentUpload(
 
     const result = await response.json() as RequestUploadResult;
     return { ...result, uploadUrl: rewriteLoopbackHost(result.uploadUrl) };
+}
+
+/**
+ * Stream a plaintext audio/video file straight from disk to the upload URL,
+ * never reading it into JS memory. Uses expo-file-system uploadAsync in BINARY
+ * mode so a 500MB file uploads with constant memory — the whole reason the
+ * audio/video lane is plaintext (an in-memory encrypt of 500MB would OOM the
+ * phone). Server signs a presigned PUT for the media lane, so we PUT the raw
+ * bytes with the file's real Content-Type.
+ */
+export async function uploadMediaFile(
+    upload: { uploadUrl: string; method: 'PUT' | 'POST' },
+    fileUri: string,
+    mimeType: string,
+    credentials: AuthCredentials,
+): Promise<void> {
+    if (upload.method !== 'PUT') {
+        // Media always uses presigned PUT (S3) or the local PUT endpoint; a POST
+        // policy would force a multipart form buffer, defeating the streaming.
+        throw new Error(`Media upload expected PUT, got ${upload.method}`);
+    }
+    const serverUrl = getServerUrl();
+    const headers: Record<string, string> = { 'Content-Type': mimeType };
+    if (upload.uploadUrl.startsWith(serverUrl)) {
+        headers['Authorization'] = `Bearer ${credentials.token}`;
+    }
+
+    let result;
+    try {
+        result = await uploadAsync(upload.uploadUrl, fileUri, {
+            httpMethod: 'PUT',
+            uploadType: FileSystemUploadType.BINARY_CONTENT,
+            headers,
+        });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Media upload (PUT) network error to ${upload.uploadUrl}: ${message}`);
+    }
+    if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Media upload (PUT) failed: ${result.status} at ${upload.uploadUrl}`);
+    }
 }
 
 /**

@@ -22,6 +22,8 @@ const fileInputSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number().optional(),
+    kind: z.enum(['image', 'audio', 'video']).optional(),
+    mimeType: z.string().optional(),
     image: z.object({
         width: z.number(),
         height: z.number(),
@@ -34,12 +36,50 @@ const MAX_IMAGE_WIDTH = 280;
 const MAX_IMAGE_HEIGHT = 360;
 const DEFAULT_ASPECT = 4 / 3; // when wire-format omits image{} dimensions
 
+function humanSize(bytes: number | undefined): string | null {
+    if (!bytes || bytes <= 0) return null;
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+    return `${bytes}B`;
+}
+
 export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
-    const { theme } = useUnistyles();
     const parsed = fileInputSchema.safeParse(tool.input);
     if (!parsed.success) return null;
+    // Audio/video have no visual thumbnail — render a compact card (icon +
+    // filename + size) instead of trying to load the blob as an image.
+    if (parsed.data.kind === 'audio' || parsed.data.kind === 'video') {
+        return <MediaFileCard name={parsed.data.name} kind={parsed.data.kind} size={parsed.data.size} />;
+    }
+    return <ImageFileView name={parsed.data.name} image={parsed.data.image} ref_={parsed.data.ref} sessionId={sessionId} />;
+});
 
-    const { name, image, ref } = parsed.data;
+function MediaFileCard({ name, kind, size }: { name: string; kind: 'audio' | 'video'; size?: number }) {
+    const { theme } = useUnistyles();
+    const sizeLabel = humanSize(size);
+    return (
+        <View style={styles.inlineContainer}>
+            <View style={[styles.mediaCard, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
+                <Ionicons name={kind === 'audio' ? 'musical-notes' : 'videocam'} size={20} color={theme.colors.text} />
+                <View style={styles.mediaMeta}>
+                    <Text style={[styles.filename, { color: theme.colors.text }]} numberOfLines={1}>{name}</Text>
+                    <Text style={[styles.mediaSub, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                        {kind === 'audio' ? '音频' : '视频'}{sizeLabel ? ` · ${sizeLabel}` : ''}
+                    </Text>
+                </View>
+            </View>
+        </View>
+    );
+}
+
+function ImageFileView({ name, image, ref_, sessionId }: {
+    name: string;
+    image?: { width: number; height: number; thumbhash?: string };
+    ref_: string;
+    sessionId?: string;
+}) {
+    const { theme } = useUnistyles();
+    const ref = ref_;
 
     const placeholder = React.useMemo(() => {
         if (!image?.thumbhash) return undefined;
@@ -88,7 +128,7 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
             <Text style={[styles.filename, { color: theme.colors.textSecondary }]} numberOfLines={1}>{name}</Text>
         </View>
     );
-});
+}
 
 const styles = StyleSheet.create(() => ({
     inlineContainer: {
@@ -119,5 +159,23 @@ const styles = StyleSheet.create(() => ({
     filename: {
         fontSize: 13,
         fontWeight: '500',
+    },
+    mediaCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        borderWidth: 1,
+        borderRadius: BORDER_RADIUS,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        alignSelf: 'flex-start',
+        maxWidth: 260,
+    },
+    mediaMeta: {
+        flexShrink: 1,
+    },
+    mediaSub: {
+        fontSize: 11,
+        marginTop: 1,
     },
 }));

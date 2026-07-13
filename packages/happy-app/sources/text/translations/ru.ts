@@ -1296,6 +1296,9 @@ export const ru: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Добавить вложение',
+        chooseSourcePhoto: 'Фото или изображение',
+        chooseSourceMedia: 'Аудио или видео',
         permissionTitle: 'Доступ к библиотеке фото',
         permissionMessage: 'Разрешите доступ к вашей библиотеке фото, чтобы прикреплять изображения к сообщениям.',
         limitTitle: 'Достигнут лимит изображений',
@@ -1476,6 +1479,9 @@ export const ru: TranslationStructure = {
         presetLabelPlaceholder: 'Метка',
         presetPromptPlaceholder: 'Промпт',
         agentKind: 'Agent type',
+        agentFlavor: 'Coding agent',
+        agentFlavorFooter: 'Overrides model & effort options below. Leave on default to follow global settings.',
+        followDefault: 'Follow default',
         standardAgent: 'Standard Agent',
         standardAgentSubtitle: 'Launch a configured coding agent with optional prompt presets.',
         imageStyleAgent: 'GPT Image 2 Styles',

@@ -1269,6 +1269,9 @@ export const ja: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: '添付を追加',
+        chooseSourcePhoto: '写真・画像',
+        chooseSourceMedia: '音声・動画ファイル',
         permissionTitle: 'フォトライブラリへのアクセス',
         permissionMessage: 'メッセージに画像を添付するには、フォトライブラリへのアクセスを許可してください。',
         limitTitle: '画像の上限に達しました',
@@ -1449,6 +1452,9 @@ export const ja: TranslationStructure = {
         presetLabelPlaceholder: 'ラベル',
         presetPromptPlaceholder: 'プロンプト',
         agentKind: 'Agent type',
+        agentFlavor: 'Coding agent',
+        agentFlavorFooter: 'Overrides model & effort options below. Leave on default to follow global settings.',
+        followDefault: 'Follow default',
         standardAgent: 'Standard Agent',
         standardAgentSubtitle: 'Launch a configured coding agent with optional prompt presets.',
         imageStyleAgent: 'GPT Image 2 Styles',

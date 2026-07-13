@@ -61,6 +61,10 @@ const sessionFileEventSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number(),
+    // Audio/video attachments tag kind + mimeType so the chat bubble renders a
+    // media card (icon + filename) instead of an image thumbnail. Absent → image.
+    kind: z.enum(['image', 'audio', 'video']).optional(),
+    mimeType: z.string().optional(),
     source: z.enum(['user', 'generated']).optional(),
     prompt: z.string().optional(),
     batchId: z.string().optional(),
@@ -715,15 +719,19 @@ function normalizeSessionEnvelope(
                         ref: envelope.ev.ref,
                         name: envelope.ev.name,
                         size: envelope.ev.size,
+                        ...(envelope.ev.kind ? { kind: envelope.ev.kind } : {}),
+                        ...(envelope.ev.mimeType ? { mimeType: envelope.ev.mimeType } : {}),
                         ...(envelope.ev.source ? { source: envelope.ev.source } : {}),
                         ...(envelope.ev.prompt ? { prompt: envelope.ev.prompt } : {}),
                         ...(envelope.ev.batchId ? { batchId: envelope.ev.batchId } : {}),
                         ...(envelope.ev.localPath ? { localPath: envelope.ev.localPath } : {}),
                         ...maybeImageMetadata
                     },
-                    description: envelope.ev.image
-                        ? `${envelope.ev.source === 'generated' ? 'Generated image' : 'Attached image'}: ${envelope.ev.name} (${envelope.ev.image.width}x${envelope.ev.image.height})`
-                        : `Attached file: ${envelope.ev.name}`,
+                    description: envelope.ev.kind === 'audio' || envelope.ev.kind === 'video'
+                        ? `Attached ${envelope.ev.kind}: ${envelope.ev.name}`
+                        : envelope.ev.image
+                            ? `${envelope.ev.source === 'generated' ? 'Generated image' : 'Attached image'}: ${envelope.ev.name} (${envelope.ev.image.width}x${envelope.ev.image.height})`
+                            : `Attached file: ${envelope.ev.name}`,
                     uuid: contentUUID,
                     parentUUID
                 },

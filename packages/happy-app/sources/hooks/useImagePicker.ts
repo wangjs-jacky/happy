@@ -11,25 +11,44 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { Platform } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import { Platform, Keyboard } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
+import { AttachmentSourceSheet } from '@/components/AttachmentSourceSheet';
 import { t } from '@/text';
-import type { AttachmentPreview } from '@/sync/attachmentTypes';
+import type { AttachmentPreview, AttachmentKind } from '@/sync/attachmentTypes';
 
 export const MAX_IMAGES_PER_MESSAGE = 50;
-export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
+// Media currently reuses the encrypted transport (server-capped at 50MB). The
+// 500MB plaintext-OSS lane is a future server+OSS upgrade.
+export const MAX_MEDIA_FILE_SIZE = 50 * 1024 * 1024; // 50MB — audio/video lane
 
 export type { AttachmentPreview };
 
 type UseImagePickerResult = {
     selectedImages: AttachmentPreview[];
     pickImages: () => Promise<void>;
+    /** Pick audio/video files via the system document picker (plaintext lane). */
+    pickMedia: () => Promise<void>;
+    /** Show a chooser (photo vs audio/video), then run the matching picker. */
+    pickAttachment: () => void;
     removeImage: (id: string) => void;
     clearImages: () => void;
     addImages: (images: AttachmentPreview[]) => void;
 };
+
+/** Classify a document-picker asset's mimeType into our media kinds. */
+function mediaKindFromMime(mimeType: string | undefined, name: string): AttachmentKind {
+    const mime = (mimeType ?? '').toLowerCase();
+    if (mime.startsWith('audio/')) return 'audio';
+    if (mime.startsWith('video/')) return 'video';
+    const ext = (name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
+    if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(ext)) return 'audio';
+    return 'video';
+}
 
 export function useImagePicker(): UseImagePickerResult {
     const [selectedImages, setSelectedImages] = useState<AttachmentPreview[]>([]);
@@ -145,6 +164,83 @@ export function useImagePicker(): UseImagePickerResult {
         }
     }, [requestPermission]);
 
+    const pickMedia = useCallback(async () => {
+        const remaining = MAX_IMAGES_PER_MESSAGE - selectedCountRef.current;
+        if (remaining <= 0) {
+            Modal.alert(
+                t('imageUpload.limitTitle'),
+                t('imageUpload.limitMessage', { max: MAX_IMAGES_PER_MESSAGE }),
+                [{ text: t('common.ok') }],
+            );
+            return;
+        }
+
+        // Audio isn't in the photo library and video needs its real container, so
+        // media goes through the system document picker, not expo-image-picker.
+        const result = await DocumentPicker.getDocumentAsync({
+            type: ['audio/*', 'video/*'],
+            multiple: true,
+            copyToCacheDirectory: true, // stable file:// uri for streaming upload
+        });
+        if (result.canceled || !result.assets?.length) return;
+
+        const assets = result.assets.slice(0, remaining);
+        const previews: AttachmentPreview[] = [];
+        for (const asset of assets) {
+            const size = asset.size ?? 0;
+            if (size > MAX_MEDIA_FILE_SIZE) {
+                Modal.alert(
+                    t('imageUpload.fileTooLargeTitle'),
+                    t('imageUpload.fileTooLargeMessage', { name: asset.name ?? 'file', maxMb: MAX_MEDIA_FILE_SIZE / 1024 / 1024 }),
+                    [{ text: t('common.ok') }],
+                );
+                continue;
+            }
+            const name = asset.name ?? `media_${Date.now()}`;
+            previews.push({
+                id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                uri: asset.uri,
+                width: 0,
+                height: 0,
+                mimeType: asset.mimeType ?? 'application/octet-stream',
+                size,
+                name,
+                kind: mediaKindFromMime(asset.mimeType, name),
+            });
+        }
+
+        if (previews.length > 0) {
+            setSelectedImages(prev => [...prev, ...previews].slice(0, MAX_IMAGES_PER_MESSAGE));
+        }
+    }, []);
+
+    const pickAttachment = useCallback(() => {
+        // Card-style source chooser (photo vs audio/video) — see AttachmentSourceSheet.
+        const show = () => Modal.show({
+            component: AttachmentSourceSheet,
+            props: {
+                onPickPhoto: () => { void pickImages(); },
+                onPickMedia: () => { void pickMedia(); },
+            },
+        });
+
+        // If the composer keyboard is up, mounting the modal now makes its
+        // KeyboardAvoidingView bounce between the keyboard-up and keyboard-down
+        // positions while the keyboard animates away. Wait until the keyboard has
+        // FULLY hidden before showing the sheet (with a timeout fallback for IMEs
+        // that don't emit keyboardDidHide). Dismissing alone isn't enough — the
+        // modal must mount into a settled layout.
+        if (Keyboard.isVisible()) {
+            let shown = false;
+            const doShow = () => { if (!shown) { shown = true; show(); } };
+            const sub = Keyboard.addListener('keyboardDidHide', () => { sub.remove(); doShow(); });
+            setTimeout(() => { sub.remove(); doShow(); }, 400);
+            Keyboard.dismiss();
+        } else {
+            show();
+        }
+    }, [pickImages, pickMedia]);
+
     const removeImage = useCallback((id: string) => {
         setSelectedImages(prev => prev.filter(img => img.id !== id));
     }, []);
@@ -161,5 +257,5 @@ export function useImagePicker(): UseImagePickerResult {
         });
     }, []);
 
-    return { selectedImages, pickImages, removeImage, clearImages, addImages };
+    return { selectedImages, pickImages, pickMedia, pickAttachment, removeImage, clearImages, addImages };
 }

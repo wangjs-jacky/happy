@@ -1266,6 +1266,9 @@ export const it: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Aggiungi allegato',
+        chooseSourcePhoto: 'Foto o immagine',
+        chooseSourceMedia: 'Audio o video',
         permissionTitle: 'Accesso alla libreria foto',
         permissionMessage: "Consenti l'accesso alla tua libreria foto per allegare immagini ai messaggi.",
         limitTitle: 'Limite immagini raggiunto',
@@ -1446,6 +1449,9 @@ export const it: TranslationStructure = {
         presetLabelPlaceholder: 'Etichetta',
         presetPromptPlaceholder: 'Prompt',
         agentKind: 'Agent type',
+        agentFlavor: 'Coding agent',
+        agentFlavorFooter: 'Overrides model & effort options below. Leave on default to follow global settings.',
+        followDefault: 'Follow default',
         standardAgent: 'Standard Agent',
         standardAgentSubtitle: 'Launch a configured coding agent with optional prompt presets.',
         imageStyleAgent: 'GPT Image 2 Styles',

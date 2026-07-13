@@ -1836,6 +1836,9 @@ export const zhHans: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: '添加附件',
+        chooseSourcePhoto: '图片',
+        chooseSourceMedia: '音频 / 视频文件',
         permissionTitle: '访问照片库',
         permissionMessage: '允许访问您的照片库以在消息中附加图片。',
         limitTitle: '已达到图片限制',
@@ -2016,6 +2019,9 @@ export const zhHans: TranslationStructure = {
         presetLabelPlaceholder: '标签',
         presetPromptPlaceholder: '指令内容',
         agentKind: 'Agent 类型',
+        agentFlavor: '编码 Agent',
+        agentFlavorFooter: '覆盖下方的模型与思考强度选项。保持默认则跟随全局设置。',
+        followDefault: '跟随默认',
         standardAgent: '标准 Agent',
         standardAgentSubtitle: '启动已配置的编码 Agent，可附带预设指令。',
         imageStyleAgent: 'GPT Image 2 风格',

@@ -4,6 +4,14 @@
  * hooks/ imports from sync/, so sync/ cannot import from hooks/.
  */
 
+/**
+ * Attachment lane:
+ * - 'image' (default): E2E-encrypted, read into memory, sent as base64/localImage.
+ * - 'audio' | 'video': plaintext, streamed from disk straight to OSS, no
+ *   thumbnail; the terminal streams it back to disk and hands the model a path.
+ */
+export type AttachmentKind = 'image' | 'audio' | 'video';
+
 export type AttachmentPreview = {
     /** Stable unique identifier for use as React key and for removal. */
     id: string;
@@ -15,6 +23,8 @@ export type AttachmentPreview = {
     size: number;
     name: string;
     thumbhash?: string;
+    /** Absent → 'image' (back-compat with the existing image-only pipeline). */
+    kind?: AttachmentKind;
 };
 
 /** Result of a successful attachment upload — ready to build a file event. */
@@ -25,4 +35,6 @@ export type UploadedAttachment = {
     width: number;
     height: number;
     thumbhash?: string;
+    kind?: AttachmentKind;
+    mimeType?: string;
 };

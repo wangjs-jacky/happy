@@ -381,6 +381,9 @@ export const en = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Add attachment',
+        chooseSourcePhoto: 'Photo or image',
+        chooseSourceMedia: 'Audio or video file',
         permissionTitle: 'Photo Library Access',
         permissionMessage: 'Allow access to your photo library to attach images to messages.',
         limitTitle: 'Image Limit Reached',
@@ -2024,6 +2027,9 @@ export const en = {
         presetLabelPlaceholder: 'Label',
         presetPromptPlaceholder: 'Prompt',
         agentKind: 'Agent type',
+        agentFlavor: 'Coding agent',
+        agentFlavorFooter: 'Overrides model & effort options below. Leave on default to follow global settings.',
+        followDefault: 'Follow default',
         standardAgent: 'Standard Agent',
         standardAgentSubtitle: 'Launch a configured coding agent with optional prompt presets.',
         imageStyleAgent: 'GPT Image 2 Styles',

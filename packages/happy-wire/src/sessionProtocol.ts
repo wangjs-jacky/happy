@@ -49,6 +49,11 @@ export const sessionFileEventSchema = z.object({
   name: z.string(),
   size: z.number(),
   mimeType: z.string().optional(),
+  // 附件语义类型。缺省视为 'image'（兼容历史 file event，那时只有图片）。
+  kind: z.enum(['image', 'audio', 'video']).optional(),
+  // 附件是否 E2E 加密。缺省视为 true（兼容历史图片走整块加密路径）；
+  // 音视频走明文流式直传 OSS，发 false，终端据此跳过解密、走流式落盘。
+  encrypted: z.boolean().optional(),
   source: z.enum(['user', 'generated']).optional(),
   prompt: z.string().optional(),
   batchId: z.string().optional(),

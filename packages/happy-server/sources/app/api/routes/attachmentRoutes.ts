@@ -16,8 +16,16 @@ import { Fastify } from '../types';
 import { db } from '@/storage/db';
 import { s3client, s3bucket, isLocalStorage, getLocalFilesDir, putLocalFile } from '@/storage/files';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+// Images travel E2E-encrypted and are read whole into memory on both ends, so
+// they stay capped at 50MB. Audio/video travel plaintext and are streamed to
+// disk on both ends (never buffered), so they get a much larger ceiling.
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane / local PUT endpoint
+const MAX_MEDIA_SIZE = 500 * 1024 * 1024; // 500MB — plaintext audio/video lane
 const PRESIGNED_TTL_SECONDS = 15 * 60; // 15 minutes (design spec)
+
+function maxSizeForKind(kind: 'image' | 'audio' | 'video' | undefined): number {
+    return kind === 'audio' || kind === 'video' ? MAX_MEDIA_SIZE : MAX_FILE_SIZE;
+}
 
 // Per-user, per-process token bucket for request-upload. Best-effort flood
 // protection — on a multi-process deploy each instance counts independently,
@@ -89,7 +97,12 @@ export function attachmentRoutes(app: Fastify) {
             }),
             body: z.object({
                 filename: z.string(),
-                size: z.number().max(MAX_FILE_SIZE),
+                // Upper bound is the media ceiling; the per-kind limit is
+                // enforced in the handler so images still reject above 50MB.
+                size: z.number().max(MAX_MEDIA_SIZE),
+                // Attachment lane. Omitted → 'image' (back-compat with existing
+                // clients that only ever uploaded encrypted images).
+                kind: z.enum(['image', 'audio', 'video']).optional(),
             }),
             response: {
                 200: z.object({
@@ -106,8 +119,9 @@ export function attachmentRoutes(app: Fastify) {
         preHandler: app.authenticate,
     }, async (request, reply) => {
         const { sessionId } = request.params;
-        const { size } = request.body;
+        const { size, kind } = request.body;
         const userId = request.userId;
+        const isMedia = kind === 'audio' || kind === 'video';
 
         if (!checkUploadRate(userId)) {
             return reply.code(429).send({ error: 'Too many upload requests. Try again in a minute.' });
@@ -121,13 +135,16 @@ export function attachmentRoutes(app: Fastify) {
             return reply.code(404).send({ error: 'Session not found' });
         }
 
-        if (size > MAX_FILE_SIZE) {
-            return reply.code(413).send({ error: 'File too large (max 50MB)' });
+        const maxSize = maxSizeForKind(kind);
+        if (size > maxSize) {
+            return reply.code(413).send({ error: `File too large (max ${Math.floor(maxSize / (1024 * 1024))}MB)` });
         }
 
-        // Always .enc — encrypted opaque blobs, never trust client filename for path.
+        // Images are encrypted opaque blobs (.enc). Audio/video are plaintext
+        // (.media); either way the ref is a random UUID path — never trust the
+        // client filename for the storage key.
         const attachmentId = crypto.randomUUID();
-        const attachmentFile = `${attachmentId}.enc`;
+        const attachmentFile = isMedia ? `${attachmentId}.media` : `${attachmentId}.enc`;
         const ref = `sessions/${sessionId}/attachments/${attachmentFile}`;
 
         if (isLocalStorage()) {
@@ -137,11 +154,20 @@ export function attachmentRoutes(app: Fastify) {
             const baseUrl = resolveBaseUrl(request);
             const uploadUrl = `${baseUrl}/v1/sessions/${sessionId}/attachments/${attachmentFile}`;
             return reply.send({ ref, uploadUrl, method: 'PUT' });
+        } else if (isMedia) {
+            // S3 mode, audio/video: presigned PUT. A 500MB plaintext file must
+            // be streamed from disk (expo-file-system uploadAsync BINARY) — a
+            // POST policy form upload would force buffering. PUT cannot enforce
+            // content-length in the signature, so size is bounded only by the
+            // client-honest request-upload call above + the per-user rate
+            // limit + the private bucket. Acceptable for self-hosted use.
+            const uploadUrl = await s3client.presignedPutObject(s3bucket, ref, PRESIGNED_TTL_SECONDS);
+            return reply.send({ ref, uploadUrl, method: 'PUT' });
         } else {
-            // S3 mode: presigned POST policy with content-length-range so S3
-            // itself rejects oversize uploads — a presigned PUT cannot enforce
-            // size and would let a client honest about size in the auth call
-            // PUT 500MB at the URL afterwards.
+            // S3 mode, image: presigned POST policy with content-length-range so
+            // S3 itself rejects oversize uploads — a presigned PUT cannot
+            // enforce size and would let a client honest about size in the auth
+            // call PUT 500MB at the URL afterwards.
             const policy = s3client.newPostPolicy();
             policy.setBucket(s3bucket);
             policy.setKey(ref);

@@ -4,6 +4,7 @@ import {
   createEnvelope,
   sessionEnvelopeSchema,
   sessionEventSchema,
+  sessionFileEventSchema,
   type SessionEvent,
 } from './sessionProtocol';
 
@@ -55,6 +56,43 @@ describe('session protocol schemas', () => {
     expect(sessionEventSchema.safeParse({ t: 'start', title: 1 }).success).toBe(false);
     expect(sessionEventSchema.safeParse({ t: 'service' }).success).toBe(false);
     expect(sessionEventSchema.safeParse({ t: 'not-real' }).success).toBe(false);
+  });
+
+  it('accepts audio/video file events with kind + encrypted:false', () => {
+    const audio = {
+      t: 'file',
+      ref: 'upload-audio',
+      name: 'voice.mp3',
+      size: 3_500_000,
+      mimeType: 'audio/mpeg',
+      kind: 'audio',
+      encrypted: false,
+    };
+    const video = {
+      t: 'file',
+      ref: 'upload-video',
+      name: 'clip.mp4',
+      size: 210_000_000,
+      mimeType: 'video/mp4',
+      kind: 'video',
+      encrypted: false,
+    };
+    expect(sessionEventSchema.safeParse(audio).success).toBe(true);
+    expect(sessionEventSchema.safeParse(video).success).toBe(true);
+  });
+
+  it('stays backward compatible: legacy image file events omit kind/encrypted', () => {
+    const legacy = { t: 'file', ref: 'upload-legacy', name: 'old.png', size: 2048, mimeType: 'image/png' };
+    const parsed = sessionFileEventSchema.parse(legacy);
+    // 旧端不发这两个字段：解析成功且缺省为 undefined，由消费端按「image / encrypted」兜底。
+    expect(parsed.kind).toBeUndefined();
+    expect(parsed.encrypted).toBeUndefined();
+  });
+
+  it('rejects invalid kind value', () => {
+    expect(
+      sessionEventSchema.safeParse({ t: 'file', ref: 'x', name: 'x', size: 1, kind: 'pdf' }).success,
+    ).toBe(false);
   });
 
   it('validates envelopes that include turn/subagent', () => {
