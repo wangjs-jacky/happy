@@ -20,6 +20,17 @@ import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import type { Session } from '@/sync/storageTypes';
 import { IMAGE_AGENT_STYLE_PRESETS, getImageAgentStyleLabel } from '@/components/agents/imageAgentPrompt';
 import { getHardcodedModelModes, getEffortLevelsForModel } from '@/components/modelModeOptions';
+import type { NewSessionAgentType } from '@/sync/persistence';
+
+// 与 SessionConfigPanel 的会话创建选择器保持一致：可配置的编码 Agent 引擎。
+const AGENT_FLAVORS: { key: NewSessionAgentType; label: string }[] = [
+    { key: 'claude', label: 'claude code' },
+    { key: 'codex', label: 'codex' },
+    { key: 'opencode', label: 'opencode' },
+    { key: 'gemini', label: 'gemini' },
+    { key: 'openclaw', label: 'openclaw' },
+    { key: 'ask', label: 'ask' },
+];
 
 type AgentKind = 'standard' | 'image-styles';
 const DEFAULT_IMAGE_STYLE_IDS = IMAGE_AGENT_STYLE_PRESETS.map((style) => style.id);
@@ -59,6 +70,7 @@ export default React.memo(function AgentEditScreen() {
     const [kind, setKind] = React.useState<AgentKind>(initialKind);
     const [machineId, setMachineId] = React.useState<string | null>(existing?.machineId ?? null);
     const [path, setPath] = React.useState(existing?.path ?? '~');
+    const [agentType, setAgentType] = React.useState<NewSessionAgentType | null>(existing?.agentType ?? null);
     const [modelMode, setModelMode] = React.useState<string | null>(existing?.modelMode ?? null);
     const [effortLevel, setEffortLevel] = React.useState<string | null>(existing?.effortLevel ?? null);
     const [imageStyleIds, setImageStyleIds] = React.useState<string[]>(
@@ -112,6 +124,12 @@ export default React.memo(function AgentEditScreen() {
     const addPreset = React.useCallback(() => {
         setPresets((prev) => [...prev, { _key: randomUUID(), label: '', prompt: '' }]);
     }, []);
+    // 切换 Agent 引擎时，model/effort 的可选集会变，重置以免残留不兼容的旧值。
+    const selectAgentType = React.useCallback((next: NewSessionAgentType | null) => {
+        setAgentType(next);
+        setModelMode(null);
+        setEffortLevel(null);
+    }, []);
     const selectKind = React.useCallback((nextKind: AgentKind) => {
         setKind(nextKind);
         if (nextKind === 'image-styles' && imageStyleIds.length === 0) {
@@ -151,6 +169,7 @@ export default React.memo(function AgentEditScreen() {
                 : [],
             imageVariantsPerStyle: kind === 'image-styles' ? imageVariantsPerStyle : 1,
             presets: kind === 'image-styles' ? [] : cleanedPresets,
+            agentType: kind === 'image-styles' ? undefined : (agentType ?? undefined),
             modelMode: modelMode || undefined,
             effortLevel,
         };
@@ -162,7 +181,7 @@ export default React.memo(function AgentEditScreen() {
                 : [...agents, agent],
         );
         router.back();
-    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle, modelMode, effortLevel]);
+    }, [name, machineId, path, presets, existing, agents, setAgents, router, kind, imageStyleIds, imageVariantsPerStyle, agentType, modelMode, effortLevel]);
 
     const handleDelete = React.useCallback(() => {
         if (!existing) return;
@@ -273,44 +292,76 @@ export default React.memo(function AgentEditScreen() {
                     />
                 </ItemGroup>
 
-                {/* 模型和 Effort（仅 standard agent） */}
+                {/* Agent 引擎 → 模型 → Effort 三级联动（仅 standard agent） */}
                 {kind === 'standard' && (
                     <>
-                        <ItemGroup title={t('agents.model', 'Default Model')}>
-                            {getHardcodedModelModes('claude', t).map((option) => (
+                        <ItemGroup title={t('agents.agentFlavor')} footer={t('agents.agentFlavorFooter')}>
+                            <Item
+                                title={t('agents.followDefault')}
+                                onPress={() => selectAgentType(null)}
+                                showChevron={false}
+                                rightElement={!agentType ? (
+                                    <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                ) : undefined}
+                            />
+                            {AGENT_FLAVORS.map((flavor) => (
                                 <Item
-                                    key={option.key}
-                                    title={option.name}
-                                    subtitle={option.description ?? undefined}
-                                    onPress={() => setModelMode(option.key === 'default' ? null : option.key)}
+                                    key={flavor.key}
+                                    title={flavor.label}
+                                    onPress={() => selectAgentType(flavor.key)}
                                     showChevron={false}
-                                    rightElement={
-                                        modelMode === option.key || (option.key === 'default' && !modelMode) ? (
-                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                        ) : undefined
-                                    }
+                                    rightElement={agentType === flavor.key ? (
+                                        <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                    ) : undefined}
                                 />
                             ))}
                         </ItemGroup>
 
-                        {modelMode && (
-                            <ItemGroup title={t('agents.effort', 'Effort Level')}>
-                                {getEffortLevelsForModel('claude', modelMode).map((option) => (
-                                    <Item
-                                        key={option.key}
-                                        title={option.name}
-                                        subtitle={option.description ?? undefined}
-                                        onPress={() => setEffortLevel(option.key)}
-                                        showChevron={false}
-                                        rightElement={
-                                            effortLevel === option.key ? (
-                                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                            ) : undefined
-                                        }
-                                    />
-                                ))}
-                            </ItemGroup>
-                        )}
+                        {agentType && (() => {
+                            const modelOptions = getHardcodedModelModes(agentType, t);
+                            const effortOptions = modelMode ? getEffortLevelsForModel(agentType, modelMode) : [];
+                            return (
+                                <>
+                                    {modelOptions.length > 0 && (
+                                        <ItemGroup title={t('agentDefaults.fieldModel')}>
+                                            {modelOptions.map((option) => (
+                                                <Item
+                                                    key={option.key}
+                                                    title={option.name}
+                                                    subtitle={option.description ?? undefined}
+                                                    onPress={() => setModelMode(option.key === 'default' ? null : option.key)}
+                                                    showChevron={false}
+                                                    rightElement={
+                                                        modelMode === option.key || (option.key === 'default' && !modelMode) ? (
+                                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                            ))}
+                                        </ItemGroup>
+                                    )}
+
+                                    {effortOptions.length > 0 && (
+                                        <ItemGroup title={t('agentDefaults.fieldEffort')}>
+                                            {effortOptions.map((option) => (
+                                                <Item
+                                                    key={option.key}
+                                                    title={option.name}
+                                                    subtitle={option.description ?? undefined}
+                                                    onPress={() => setEffortLevel(option.key)}
+                                                    showChevron={false}
+                                                    rightElement={
+                                                        effortLevel === option.key ? (
+                                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                            ))}
+                                        </ItemGroup>
+                                    )}
+                                </>
+                            );
+                        })()}
                     </>
                 )}
 
