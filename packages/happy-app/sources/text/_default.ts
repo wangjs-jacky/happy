@@ -261,6 +261,7 @@ export const en = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Folder',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -269,6 +270,12 @@ export const en = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'This folder is empty',
+        },
+        folderBrowser: {
+            upOneLevel: 'Up one level',
+            loadError: 'Could not load this folder',
+            retry: 'Retry',
         },
         meta: {
             available: 'Available in session',

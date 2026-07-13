@@ -262,6 +262,7 @@ export const pt: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Pasta',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -270,6 +271,12 @@ export const pt: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'Esta pasta está vazia',
+        },
+        folderBrowser: {
+            upOneLevel: 'Subir um nível',
+            loadError: 'Não foi possível carregar esta pasta',
+            retry: 'Tentar novamente',
         },
         meta: {
             available: 'Available in session',

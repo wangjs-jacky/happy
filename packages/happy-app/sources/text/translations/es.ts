@@ -263,6 +263,7 @@ export const es: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Carpeta',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -271,6 +272,12 @@ export const es: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'Esta carpeta está vacía',
+        },
+        folderBrowser: {
+            upOneLevel: 'Subir un nivel',
+            loadError: 'No se pudo cargar esta carpeta',
+            retry: 'Reintentar',
         },
         meta: {
             available: 'Available in session',

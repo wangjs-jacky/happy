@@ -280,6 +280,7 @@ export const pl: TranslationStructure = {
             images: 'Generated Images',
             artifacts: 'Artifacts',
             files: 'Files',
+            folderBrowser: 'Folder',
         },
         empty: {
             sessionActions: 'No actions available for this session',
@@ -288,6 +289,12 @@ export const pl: TranslationStructure = {
             images: 'No generated images in this session yet',
             artifacts: 'No linked artifacts yet',
             files: 'No touched files yet',
+            folderBrowser: 'Ten folder jest pusty',
+        },
+        folderBrowser: {
+            upOneLevel: 'Poziom wyżej',
+            loadError: 'Nie można załadować folderu',
+            retry: 'Spróbuj ponownie',
         },
         meta: {
             available: 'Available in session',

@@ -263,6 +263,7 @@ export const zhHant: TranslationStructure = {
             images: '生成圖片',
             artifacts: 'Artifacts',
             files: '檔案',
+            folderBrowser: '資料夾',
         },
         empty: {
             sessionActions: '目前會話還沒有可用操作',
@@ -271,6 +272,12 @@ export const zhHant: TranslationStructure = {
             images: '目前會話還沒有生成圖片',
             artifacts: '目前會話還沒有關聯 artifacts',
             files: '目前會話還沒有觸達檔案',
+            folderBrowser: '此資料夾為空',
+        },
+        folderBrowser: {
+            upOneLevel: '上一層',
+            loadError: '無法載入此資料夾',
+            retry: '重試',
         },
         meta: {
             available: '目前會話可用',
