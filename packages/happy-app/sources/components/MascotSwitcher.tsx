@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { View } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DrawerGestureContext } from 'react-native-drawer-layout';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { getMascotImage, MASCOT_IDS, resolveMascotId, getMascotTheme } from '@/components/mascots';
 import { hapticsLight } from '@/components/haptics';
@@ -15,6 +16,7 @@ import { runThemeTransition } from '@/components/ThemeTransition';
 // 设置页头部「土拨鼠 logo」滑动切换器
 // ------------------------------------------------------------------
 // 在吉祥物图上左右滑动即可切换形象（6 套，两端循环），切换时轻震动反馈。
+// 两侧另有小箭头，点击等价于左右滑动（左=上一个 / 右=下一个），方便不想滑动时直接点切。
 // 下方一排小圆点指示当前是第几个。拖拽过程图片跟手平移 + 轻微淡出，松手回弹。
 //
 // 与抽屉手势的争抢——照搬上游表格横滑（HorizontalScrollView，commit #64）的「裁判 Pan」方案：
@@ -37,6 +39,7 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
     const currentIndex = MASCOT_IDS.indexOf(currentId);
 
     const drawerPan = React.useContext(DrawerGestureContext);
+    const { theme } = useUnistyles();   // 箭头图标颜色需运行时主题值（expo-vector-icons 的 color 走直接属性）
 
     // 在手势 worklet（UI 线程）里读写的共享值
     const translateX = useSharedValue(0);
@@ -120,15 +123,33 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
 
     return (
         <View style={styles.container}>
-            <GestureDetector gesture={pan}>
-                <Animated.View style={animStyle}>
-                    <Image
-                        source={getMascotImage(currentId)}
-                        contentFit="contain"
-                        style={{ width: MASCOT_SIZE, height: MASCOT_SIZE }}
-                    />
-                </Animated.View>
-            </GestureDetector>
+            <View style={styles.row}>
+                <Pressable
+                    onPress={() => cycleMascot(-1)}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.arrow, { opacity: pressed ? 0.35 : 1 }]}
+                >
+                    <Ionicons name="chevron-back" size={28} color={theme.colors.textSecondary} />
+                </Pressable>
+                <GestureDetector gesture={pan}>
+                    <Animated.View style={animStyle}>
+                        <Image
+                            source={getMascotImage(currentId)}
+                            contentFit="contain"
+                            style={{ width: MASCOT_SIZE, height: MASCOT_SIZE }}
+                        />
+                    </Animated.View>
+                </GestureDetector>
+                <Pressable
+                    onPress={() => cycleMascot(1)}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.arrow, { opacity: pressed ? 0.35 : 1 }]}
+                >
+                    <Ionicons name="chevron-forward" size={28} color={theme.colors.textSecondary} />
+                </Pressable>
+            </View>
             <View style={styles.dots}>
                 {MASCOT_IDS.map((id, i) => (
                     <View key={id} style={[styles.dot, i === currentIndex ? styles.dotActive : null]} />
@@ -141,6 +162,16 @@ export const MascotSwitcher = React.memo(function MascotSwitcher() {
 const styles = StyleSheet.create((theme) => ({
     container: {
         alignItems: 'center',
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    arrow: {
+        padding: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     dots: {
         flexDirection: 'row',
