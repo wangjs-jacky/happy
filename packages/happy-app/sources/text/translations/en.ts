@@ -1516,6 +1516,7 @@ export const en: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Save',
         delete: 'Delete',
+        recentTitle: 'Recent',
     },
 
 } as const;

@@ -1530,6 +1530,7 @@ export const ru: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Сохранить',
         delete: 'Удалить',
+        recentTitle: 'Недавние',
     },
 
 } as const;

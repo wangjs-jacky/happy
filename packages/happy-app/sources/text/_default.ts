@@ -2078,6 +2078,7 @@ export const en = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Save',
         delete: 'Delete',
+        recentTitle: 'Recent',
     },
 
 } as const;

@@ -2070,6 +2070,7 @@ export const zhHans: TranslationStructure = {
         imageStyleRetroIcons: '复古图标',
         save: '保存',
         delete: '删除',
+        recentTitle: '最近',
     },
 
 } as const;

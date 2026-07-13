@@ -1501,6 +1501,7 @@ export const ca: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Desa',
         delete: 'Elimina',
+        recentTitle: 'Recents',
     },
 
 } as const;

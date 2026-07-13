@@ -1500,6 +1500,7 @@ export const it: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Salva',
         delete: 'Elimina',
+        recentTitle: 'Recenti',
     },
 
 } as const;

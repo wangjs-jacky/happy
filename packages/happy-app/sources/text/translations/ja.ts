@@ -1503,6 +1503,7 @@ export const ja: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: '保存',
         delete: '削除',
+        recentTitle: '最近',
     },
 
 } as const;

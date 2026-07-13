@@ -1601,6 +1601,7 @@ export const zhHant: TranslationStructure = {
         imageStyleRetroIcons: '復古圖標',
         save: '儲存',
         delete: '刪除',
+        recentTitle: '最近',
     },
 
 } as const;

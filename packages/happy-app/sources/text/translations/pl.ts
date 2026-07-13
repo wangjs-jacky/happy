@@ -1531,6 +1531,7 @@ export const pl: TranslationStructure = {
         imageStyleRetroIcons: 'Retro icons',
         save: 'Zapisz',
         delete: 'Usuń',
+        recentTitle: 'Ostatnie',
     },
 
 } as const;
