@@ -5,13 +5,13 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
 /**
- * 空健康会话欢迎卡：展示 Agent 角色、三大领域图标（睡眠/运动/饮食）和引导提示。
- * 纯静态展示组件，无交互，无副作用。
+ * 健康欢迎内容体（无外层 flex）：图标 + 角色 + 引导 + 睡眠/运动/饮食三域 + hint。
+ * 供两处复用：会话内空态卡（HealthWelcomeCard，居中全屏）与落地页引导（AgentLandingIntro，顶部对齐）。
  */
-export const HealthWelcomeCard = React.memo(function HealthWelcomeCard() {
+export const HealthWelcomeContent = React.memo(function HealthWelcomeContent() {
     const { theme } = useUnistyles();
     return (
-        <View style={styles.container}>
+        <View style={styles.content}>
             <Ionicons name="heart-circle-outline" size={64} color={theme.colors.text} />
             <Text style={styles.role}>{t('healthPanel.welcomeRole')}</Text>
             <Text style={styles.subtitle}>{t('healthPanel.welcomeSubtitle')}</Text>
@@ -34,11 +34,26 @@ export const HealthWelcomeCard = React.memo(function HealthWelcomeCard() {
     );
 });
 
+/**
+ * 空健康会话欢迎卡：内容居中撑满。纯静态展示，无交互无副作用。
+ */
+export const HealthWelcomeCard = React.memo(function HealthWelcomeCard() {
+    return (
+        <View style={styles.container}>
+            <HealthWelcomeContent />
+        </View>
+    );
+});
+
 const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
+        paddingHorizontal: 24,
+    },
+    content: {
+        alignItems: 'center',
         paddingHorizontal: 24,
         gap: 12,
     },
