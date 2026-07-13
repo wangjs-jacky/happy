@@ -215,19 +215,30 @@ export function useImagePicker(): UseImagePickerResult {
     }, []);
 
     const pickAttachment = useCallback(() => {
-        // Dismiss the keyboard BEFORE opening the modal. The composer's input is
-        // focused (keyboard up); the modal's KeyboardAvoidingView otherwise fights
-        // the keyboard's show/hide and the sheet flickers violently on Android.
-        Keyboard.dismiss();
-        // Card-style source chooser (photo vs audio/video) instead of the plain
-        // OS alert row — see AttachmentSourceSheet.
-        Modal.show({
+        // Card-style source chooser (photo vs audio/video) — see AttachmentSourceSheet.
+        const show = () => Modal.show({
             component: AttachmentSourceSheet,
             props: {
                 onPickPhoto: () => { void pickImages(); },
                 onPickMedia: () => { void pickMedia(); },
             },
         });
+
+        // If the composer keyboard is up, mounting the modal now makes its
+        // KeyboardAvoidingView bounce between the keyboard-up and keyboard-down
+        // positions while the keyboard animates away. Wait until the keyboard has
+        // FULLY hidden before showing the sheet (with a timeout fallback for IMEs
+        // that don't emit keyboardDidHide). Dismissing alone isn't enough — the
+        // modal must mount into a settled layout.
+        if (Keyboard.isVisible()) {
+            let shown = false;
+            const doShow = () => { if (!shown) { shown = true; show(); } };
+            const sub = Keyboard.addListener('keyboardDidHide', () => { sub.remove(); doShow(); });
+            setTimeout(() => { sub.remove(); doShow(); }, 400);
+            Keyboard.dismiss();
+        } else {
+            show();
+        }
     }, [pickImages, pickMedia]);
 
     const removeImage = useCallback((id: string) => {
