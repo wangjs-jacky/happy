@@ -37,6 +37,7 @@ const fileInputSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number().optional(),
+    kind: z.enum(['image', 'audio', 'video']).optional(),
     image: z.object({
         width: z.number(),
         height: z.number(),
@@ -51,16 +52,18 @@ type GalleryImage = {
     width?: number;
     height?: number;
     thumbhash?: string;
+    kind?: 'image' | 'audio' | 'video';
+    size?: number;
 };
 
-/** Extract renderable image descriptors from a run of `file` messages. */
+/** Extract renderable descriptors from a run of `file` messages. */
 function toGalleryImages(messages: Message[]): GalleryImage[] {
     const result: GalleryImage[] = [];
     for (const msg of messages) {
         if (msg.kind !== 'tool-call' || msg.tool.name !== 'file') continue;
         const parsed = fileInputSchema.safeParse(msg.tool.input);
         if (!parsed.success) continue;
-        const { ref, name, image } = parsed.data;
+        const { ref, name, image, kind, size } = parsed.data;
         result.push({
             id: msg.id,
             ref,
@@ -68,9 +71,18 @@ function toGalleryImages(messages: Message[]): GalleryImage[] {
             width: image?.width,
             height: image?.height,
             thumbhash: image?.thumbhash,
+            kind,
+            size,
         });
     }
     return result;
+}
+
+function galleryHumanSize(bytes: number | undefined): string | null {
+    if (!bytes || bytes <= 0) return null;
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+    return `${bytes}B`;
 }
 
 export const AttachmentGalleryView = React.memo<{
@@ -173,6 +185,37 @@ function useClock(enabled: boolean): number {
 }
 
 const GalleryThumbnail = React.memo<{
+    image: GalleryImage;
+    sessionId: string;
+    presentation: AttachmentGalleryPresentation;
+    onResolved: (id: string, uri: string | null) => void;
+    onOpen: (id: string) => void;
+}>(({ image, sessionId, presentation, onResolved, onOpen }) => {
+    // Audio/video have no thumbnail — render a compact card (icon + filename +
+    // size). Dispatch before any image hooks so hook order stays stable.
+    if (image.kind === 'audio' || image.kind === 'video') {
+        return <GalleryMediaCard image={image} />;
+    }
+    return <GalleryImageThumb image={image} sessionId={sessionId} presentation={presentation} onResolved={onResolved} onOpen={onOpen} />;
+});
+
+function GalleryMediaCard({ image }: { image: GalleryImage }) {
+    const { theme } = useUnistyles();
+    const sizeLabel = galleryHumanSize(image.size);
+    return (
+        <View style={[styles.mediaCard, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
+            <Ionicons name={image.kind === 'audio' ? 'musical-notes' : 'videocam'} size={20} color={theme.colors.text} />
+            <View style={styles.mediaMeta}>
+                <Text style={[styles.mediaName, { color: theme.colors.text }]} numberOfLines={1}>{image.name}</Text>
+                <Text style={[styles.mediaSub, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                    {image.kind === 'audio' ? '音频' : '视频'}{sizeLabel ? ` · ${sizeLabel}` : ''}
+                </Text>
+            </View>
+        </View>
+    );
+}
+
+const GalleryImageThumb = React.memo<{
     image: GalleryImage;
     sessionId: string;
     presentation: AttachmentGalleryPresentation;
@@ -344,5 +387,26 @@ const styles = StyleSheet.create(() => ({
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    mediaCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        borderWidth: 1,
+        borderRadius: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        maxWidth: 240,
+    },
+    mediaMeta: {
+        flexShrink: 1,
+    },
+    mediaName: {
+        fontSize: 13,
+        fontWeight: '500',
+    },
+    mediaSub: {
+        fontSize: 11,
+        marginTop: 1,
     },
 }));

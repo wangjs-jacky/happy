@@ -2,8 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { MAX_IMAGES_PER_MESSAGE } from './useImagePicker';
 
 vi.mock('expo-image-picker', () => ({}));
+// Same reason as normalizeImageForUpload below: importing the real
+// expo-document-picker drags in expo-modules-core (__DEV__ undefined in node).
+vi.mock('expo-document-picker', () => ({
+    getDocumentAsync: vi.fn(),
+}));
 vi.mock('react-native', () => ({
     Platform: { OS: 'web' },
+    Keyboard: { dismiss: () => {} },
 }));
 vi.mock('@/modal', () => ({
     Modal: { alert: vi.fn() },
@@ -15,6 +21,11 @@ vi.mock('@/utils/thumbhash', () => ({
 // (→ expo-modules-core, which references __DEV__ and blows up in the node test env).
 vi.mock('@/utils/normalizeImageForUpload', () => ({
     normalizeImageForUpload: vi.fn(),
+}));
+// AttachmentSourceSheet drags in @expo/vector-icons + unistyles (expo-modules-core
+// → __DEV__ undefined in node). Not exercised by these constant-focused tests.
+vi.mock('@/components/AttachmentSourceSheet', () => ({
+    AttachmentSourceSheet: () => null,
 }));
 vi.mock('@/text', () => ({
     t: (key: string) => key,

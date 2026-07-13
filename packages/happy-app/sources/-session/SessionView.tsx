@@ -585,8 +585,9 @@ function SessionViewLoaded({
     const isDisconnected = !sessionStatus.isConnected;
     const resumeCommandBlock = getResumeCommandBlock(session);
 
-    // Image attachment state（图片上传已转正，会话内默认可用，不再依赖实验开关）
-    const { selectedImages, pickImages, removeImage, clearImages, addImages } = useImagePicker();
+    // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
+    // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
+    const { selectedImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
 
     // Screenshot gallery drawer (能力 B). Reactive red-dot signal for unseen
     // screenshots; opening the drawer clears it (handled inside the drawer).
@@ -777,7 +778,7 @@ function SessionViewLoaded({
             showAbortButton={sessionStatus.state === 'thinking' || sessionStatus.state === 'waiting'}
             onFileViewerPress={experiments && !isTablet ? handleFileViewerPress : undefined}
             selectedImages={selectedImages}
-            onPickImages={pickImages}
+            onPickImages={pickAttachment}
             onRemoveImage={removeImage}
             onAddImages={addImages}
             onCaptureScreenshot={desktopScreenshotEnabled ? handleCaptureScreenshot : undefined}

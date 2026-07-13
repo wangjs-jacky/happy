@@ -1266,6 +1266,9 @@ export const it: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: 'Aggiungi allegato',
+        chooseSourcePhoto: 'Foto o immagine',
+        chooseSourceMedia: 'Audio o video',
         permissionTitle: 'Accesso alla libreria foto',
         permissionMessage: "Consenti l'accesso alla tua libreria foto per allegare immagini ai messaggi.",
         limitTitle: 'Limite immagini raggiunto',

@@ -17,6 +17,8 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
 import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
+import { isMediaAttachment } from '@/utils/MessageQueue2';
+import { formatMediaAttachmentNotice } from '@/api/mediaAttachment';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configuration } from '@/configuration';
@@ -350,7 +352,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             const attachments = msg.attachments ?? [];
                             if (attachments.length > 0) {
                                 const contentBlocks: ContentBlockParam[] = [];
+                                // Audio/video are already streamed to disk; inject their
+                                // paths as a text notice and let the model run ffmpeg/whisper.
+                                const mediaItems = attachments.filter(isMediaAttachment);
+                                const mediaNotice = formatMediaAttachmentNotice(mediaItems);
                                 for (const att of attachments) {
+                                    if (isMediaAttachment(att)) {
+                                        continue; // handled via mediaNotice text below
+                                    }
                                     // Archive the ORIGINAL full-resolution bytes to the staging
                                     // dir before they are base64'd and handed to the SDK (which
                                     // downscales images to the model's max dimensions). This is
@@ -386,8 +395,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                         },
                                     });
                                 }
-                                contentBlocks.push({ type: 'text' as const, text: msg.message });
-                                logger.debug(`[remote] Combined ${contentBlocks.length - 1} image(s) with text message`);
+                                const text = mediaNotice ? `${mediaNotice}\n\n${msg.message}` : msg.message;
+                                contentBlocks.push({ type: 'text' as const, text });
+                                logger.debug(`[remote] Combined ${contentBlocks.length - 1} image block(s) + ${mediaItems.length} media path(s) with text message`);
                                 return {
                                     message: contentBlocks,
                                     mode: msg.mode,

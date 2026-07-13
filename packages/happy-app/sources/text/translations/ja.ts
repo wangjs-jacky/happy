@@ -1269,6 +1269,9 @@ export const ja: TranslationStructure = {
     },
 
     imageUpload: {
+        chooseSourceTitle: '添付を追加',
+        chooseSourcePhoto: '写真・画像',
+        chooseSourceMedia: '音声・動画ファイル',
         permissionTitle: 'フォトライブラリへのアクセス',
         permissionMessage: 'メッセージに画像を添付するには、フォトライブラリへのアクセスを許可してください。',
         limitTitle: '画像の上限に達しました',

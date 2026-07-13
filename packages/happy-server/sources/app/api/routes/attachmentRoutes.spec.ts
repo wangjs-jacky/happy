@@ -16,6 +16,7 @@ const {
         uploads: new Map<string, Buffer>(),
         useLocalStorage: true,
         s3PostUrl: "https://s3.test/post-url",
+        s3PutUrl: "https://s3.test/put-url",
         s3GetUrl: "https://s3.test/get-url",
         s3PolicyMaxLength: 0,
     };
@@ -64,6 +65,7 @@ const {
                 formData: { key: _policy.key, policy: "stub-policy" },
             })),
             presignedGetObject: vi.fn(async (_bucket: string, _key: string, _ttl: number) => state.s3GetUrl),
+            presignedPutObject: vi.fn(async (_bucket: string, _key: string, _ttl: number) => state.s3PutUrl),
         },
         s3bucket: "test-bucket",
         isLocalStorage: vi.fn(() => state.useLocalStorage),
@@ -205,6 +207,65 @@ describe("attachmentRoutes — request-upload", () => {
         });
         // Zod schema rejects size > 50MB at validation stage with 400.
         expect([400, 413]).toContain(res.statusCode);
+    });
+
+    it("returns a presigned PUT + .media ref for an audio attachment in S3 mode", async () => {
+        seedSession("s1", "u1");
+        state.useLocalStorage = false;
+        app = await createApp();
+
+        const res = await app.inject({
+            method: "POST",
+            url: "/v1/sessions/s1/attachments/request-upload",
+            headers: { "x-user-id": "u1" },
+            payload: { filename: "voice.mp3", size: 3 * 1024 * 1024, kind: "audio" },
+        });
+
+        expect(res.statusCode).toBe(200);
+        const body = res.json();
+        expect(body.method).toBe("PUT");
+        expect(body.uploadUrl).toBe("https://s3.test/put-url");
+        expect(body.formFields).toBeUndefined();
+        expect(body.ref).toMatch(/^sessions\/s1\/attachments\/[A-Fa-f0-9-]+\.media$/);
+    });
+
+    it("allows video up to 500MB but still rejects it above that", async () => {
+        seedSession("s1", "u1");
+        state.useLocalStorage = false;
+        app = await createApp();
+
+        const ok = await app.inject({
+            method: "POST",
+            url: "/v1/sessions/s1/attachments/request-upload",
+            headers: { "x-user-id": "u1" },
+            payload: { filename: "clip.mp4", size: 400 * 1024 * 1024, kind: "video" },
+        });
+        expect(ok.statusCode).toBe(200);
+        expect(ok.json().method).toBe("PUT");
+
+        const tooBig = await app.inject({
+            method: "POST",
+            url: "/v1/sessions/s1/attachments/request-upload",
+            headers: { "x-user-id": "u1" },
+            payload: { filename: "clip.mp4", size: 500 * 1024 * 1024 + 1, kind: "video" },
+        });
+        expect([400, 413]).toContain(tooBig.statusCode);
+    });
+
+    it("still caps images at 50MB even though the media ceiling is higher", async () => {
+        seedSession("s1", "u1");
+        state.useLocalStorage = false;
+        app = await createApp();
+
+        const res = await app.inject({
+            method: "POST",
+            url: "/v1/sessions/s1/attachments/request-upload",
+            headers: { "x-user-id": "u1" },
+            // Under the 500MB body-schema ceiling but over the 50MB image limit:
+            // must be rejected by the per-kind handler check, not accepted.
+            payload: { filename: "big.png", size: 60 * 1024 * 1024, kind: "image" },
+        });
+        expect(res.statusCode).toBe(413);
     });
 });
 
