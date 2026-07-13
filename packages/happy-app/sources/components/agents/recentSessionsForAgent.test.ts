@@ -47,4 +47,11 @@ describe('recentSessionsForAgent', () => {
     it('无匹配返回空数组', () => {
         expect(recentSessionsForAgent({ agent: agent('mac', '/Users/jacky/none'), sessions: [], machines: m })).toEqual([]);
     });
+
+    it('机器缺失(无 homeDir)时 ~ 路径不解析 → 匹配不上绝对路径会话', () => {
+        const sessions = [session('a', 'mac', '/Users/jacky/health', 100)];
+        // machines 为空 → 找不到 'mac' → homeDir undefined → agent '~/health' 保持字面量
+        const out = recentSessionsForAgent({ agent: agent('mac', '~/health'), sessions, machines: [] });
+        expect(out.map(s => s.id)).toEqual([]);
+    });
 });
