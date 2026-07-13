@@ -51,6 +51,8 @@ import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import type { UserImageStyle } from './agents/imageStyleTypes';
+import { AgentLandingIntro } from '@/components/agents/AgentLandingIntro';
+import { AgentRecentList } from '@/components/agents/AgentRecentList';
 import { buildAskApiEnvironment, isAskApiConfigured } from '@/utils/askApiConfig';
 import { Modal } from '@/modal';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
@@ -730,15 +732,25 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             >
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
-                    <Text style={styles.greeting}>
-                        {displayAgent
-                            ? t('composeHome.greetingAgent', { name: displayAgent.name })
-                            : activeImageAgent
+                    {displayAgent && !activeImageAgent ? (
+                        <ScrollView
+                            style={styles.landingScroll}
+                            contentContainerStyle={styles.landingContent}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                        >
+                            <AgentLandingIntro agent={displayAgent} />
+                            <AgentRecentList agent={displayAgent} />
+                        </ScrollView>
+                    ) : (
+                        <Text style={styles.greeting}>
+                            {activeImageAgent
                                 ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
                                 : name
                                     ? t('composeHome.greeting', { name })
                                     : t('composeHome.greetingNoName')}
-                    </Text>
+                        </Text>
+                    )}
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
@@ -1049,6 +1061,13 @@ const styles = StyleSheet.create((theme) => ({
         lineHeight: 34,
         color: theme.colors.text,
         maxWidth: 360,
+    },
+    landingScroll: {
+        flex: 1,
+        width: '100%',
+    },
+    landingContent: {
+        paddingBottom: 16,
     },
     composer: {
         paddingHorizontal: 14,
