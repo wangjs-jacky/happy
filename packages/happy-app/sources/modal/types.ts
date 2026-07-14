@@ -44,6 +44,14 @@ export interface CustomModalConfig extends BaseModalConfig {
     type: 'custom';
     component: ComponentType<any>;
     props?: any;
+    /**
+     * Whether the modal should shift its content up to avoid the keyboard.
+     * Defaults to true. Set false for modals with NO text input (e.g. pure
+     * jump/selection sheets): on Android, BaseModal's KeyboardAvoidingView
+     * (behavior="height") inside an RN <Modal> oscillates its height every
+     * frame while the keyboard is open, making the sheet jitter violently.
+     */
+    avoidKeyboard?: boolean;
 }
 
 export type ModalConfig = AlertModalConfig | ConfirmModalConfig | PromptModalConfig | CustomModalConfig;
