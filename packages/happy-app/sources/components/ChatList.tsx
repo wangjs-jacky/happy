@@ -374,6 +374,9 @@ const ChatListInternal = React.memo((props: {
                 anchors: anchorsRef.current,
                 onSelect: scrollToAnchor,
             },
+            // No text input in this sheet → don't let BaseModal wrap it in a
+            // KeyboardAvoidingView (the Android jitter source). This is the fix.
+            avoidKeyboard: false,
         } as any);
     }, [scrollToAnchor]);
 

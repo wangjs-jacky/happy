@@ -23,6 +23,13 @@ interface BaseModalProps {
     animationType?: 'fade' | 'slide' | 'none';
     transparent?: boolean;
     closeOnBackdrop?: boolean;
+    /**
+     * Shift content up to avoid the keyboard. Defaults to true. Pass false for
+     * modals with no text input — on Android the KeyboardAvoidingView
+     * (behavior="height") inside an RN <Modal> re-computes its height every
+     * frame while the keyboard is open, which makes the modal jitter violently.
+     */
+    avoidKeyboard?: boolean;
 }
 
 export function BaseModal({
@@ -31,7 +38,8 @@ export function BaseModal({
     children,
     animationType = 'fade',
     transparent = true,
-    closeOnBackdrop = true
+    closeOnBackdrop = true,
+    avoidKeyboard = true
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -57,6 +65,14 @@ export function BaseModal({
         }
     };
 
+    // Only wrap in a KeyboardAvoidingView when the modal actually needs to dodge
+    // the keyboard. For input-less modals this wrapper is the source of the
+    // Android "modal jitters while keyboard is open" bug, so we use a plain View.
+    const Container: React.ComponentType<any> = avoidKeyboard ? KeyboardAvoidingView : View;
+    const containerProps = avoidKeyboard
+        ? { behavior: (Platform.OS === 'ios' ? 'padding' : 'height') as 'padding' | 'height' }
+        : {};
+
     return (
         <Modal
             visible={visible}
@@ -64,9 +80,9 @@ export function BaseModal({
             animationType={animationType}
             onRequestClose={onClose}
         >
-            <KeyboardAvoidingView
+            <Container
                 style={styles.container}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                {...containerProps}
                 {...webEventHandlers}
             >
                 <TouchableWithoutFeedback onPress={handleBackdropPress}>
@@ -99,7 +115,7 @@ export function BaseModal({
                 >
                     {children}
                 </Animated.View>
-            </KeyboardAvoidingView>
+            </Container>
         </Modal>
     );
 }
