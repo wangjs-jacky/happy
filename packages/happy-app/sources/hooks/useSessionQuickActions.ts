@@ -23,6 +23,7 @@ import { buildSessionTitleTranscript } from '@/utils/sessionTitleTranscript';
 import { canRegenerateSessionTitle } from '@/utils/sessionTitleRegeneration';
 import { buildSessionQuickActionItems } from './sessionQuickActionItems';
 import { useSessionManagementPreferences } from './useSessionManagementPreferences';
+import { shareSessionToOpenBird } from '@/utils/shareSessionToOpenBird';
 
 export interface SessionActionItem {
     id: string;
@@ -320,6 +321,19 @@ export function useSessionQuickActions(
         performRegenerateTitle();
     }, [performRegenerateTitle]);
 
+    // Share the full session history to OpenBird as a temporary (1h) web page.
+    // Loads history → serializes to the shared contract envelope (uploading any
+    // images to get public URLs) → publishes → copies the URL to clipboard.
+    const [sharingToOpenBird, performShareToOpenBird] = useHappyAction(async () => {
+        await sync.ensureMessagesLoaded(session.id);
+        const messages = storage.getState().sessionMessages[session.id]?.messages ?? [];
+        await shareSessionToOpenBird(session, messages);
+    });
+
+    const shareToOpenBird = React.useCallback(() => {
+        performShareToOpenBird();
+    }, [performShareToOpenBird]);
+
     // Permanently delete a session. If it is still active, first try to stop
     // the CLI process so the server accepts the delete.
     const [deletingSession, performDelete] = useHappyAction(async () => {
@@ -398,6 +412,7 @@ export function useSessionQuickActions(
                 resume: t('sessionInfo.resumeSession'),
                 rename: t('sessionInfo.renameSession'),
                 regenerateTitle: t('sessionInfo.regenerateTitle'),
+                shareToOpenBird: t('sessionInfo.shareToOpenBird'),
                 fork: t('session.forkAction'),
                 duplicate: t('session.duplicateAction'),
                 copyMetadata: t('sessionInfo.copyMetadata'),
@@ -412,6 +427,7 @@ export function useSessionQuickActions(
                 resumeSession,
                 renameSession,
                 regenerateTitle,
+                shareToOpenBird,
                 forkSession,
                 openDuplicateSheet,
                 copySessionMetadata,
@@ -441,6 +457,7 @@ export function useSessionQuickActions(
         openDuplicateSheet,
         onSelectSession,
         regenerateTitle,
+        shareToOpenBird,
         renameSession,
         resumeAvailability.canShowResume,
         resumeSession,
@@ -482,6 +499,8 @@ export function useSessionQuickActions(
         openDuplicateSheet,
         regenerateTitle,
         regeneratingTitle,
+        shareToOpenBird,
+        sharingToOpenBird,
         renameSession,
         renamingSession,
         resumeSession,

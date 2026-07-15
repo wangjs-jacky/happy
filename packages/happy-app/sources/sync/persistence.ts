@@ -12,6 +12,7 @@ const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';
 const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-count';
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
 const SESSION_MANAGEMENT_KEY = 'session-management-v1';
+const OPENBIRD_SHARE_LINKS_KEY = 'openbird-share-links-v1';
 
 export type NewSessionAgentType = 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -231,6 +232,56 @@ export function loadSessionManagementPreferences(): SessionManagementPreferences
 
 export function saveSessionManagementPreferences(preferences: SessionManagementPreferences) {
     mmkv.set(SESSION_MANAGEMENT_KEY, JSON.stringify(preferences));
+}
+
+export interface OpenBirdShareLink {
+    /** 最近一次发布该会话得到的 OpenBird 分享页 URL。 */
+    url: string;
+    /** 发布时间戳（毫秒），用于展示/排序，暂未在 UI 使用。 */
+    sharedAt: number;
+}
+
+/**
+ * 每个 sessionId 记住最近一次分享到 OpenBird 的链接，用于「复制已有链接 / 重新发布」。
+ * 纯本地个人状态，不进加密的会话 metadata。
+ */
+export function loadOpenBirdShareLinks(): Record<string, OpenBirdShareLink> {
+    const raw = mmkv.getString(OPENBIRD_SHARE_LINKS_KEY);
+    if (!raw) {
+        return {};
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') {
+            return {};
+        }
+        const result: Record<string, OpenBirdShareLink> = {};
+        for (const [sessionId, value] of Object.entries(parsed as Record<string, unknown>)) {
+            if (value && typeof value === 'object') {
+                const entry = value as Record<string, unknown>;
+                if (typeof entry.url === 'string' && entry.url.length > 0) {
+                    result[sessionId] = {
+                        url: entry.url,
+                        sharedAt: typeof entry.sharedAt === 'number' ? entry.sharedAt : Date.now(),
+                    };
+                }
+            }
+        }
+        return result;
+    } catch (e) {
+        console.error('Failed to parse OpenBird share links', e);
+        return {};
+    }
+}
+
+export function loadOpenBirdShareLink(sessionId: string): OpenBirdShareLink | null {
+    return loadOpenBirdShareLinks()[sessionId] ?? null;
+}
+
+export function saveOpenBirdShareLink(sessionId: string, link: OpenBirdShareLink) {
+    const links = loadOpenBirdShareLinks();
+    links[sessionId] = link;
+    mmkv.set(OPENBIRD_SHARE_LINKS_KEY, JSON.stringify(links));
 }
 
 export function loadRegisteredPushToken(): string | null {

@@ -8,6 +8,7 @@ const labels = {
     resume: 'Resume',
     rename: 'Rename',
     regenerateTitle: 'Regenerate title',
+    shareToOpenBird: 'Share to OpenBird',
     fork: 'Fork',
     duplicate: 'Duplicate',
     copyMetadata: 'Copy metadata',
@@ -23,6 +24,7 @@ const callbacks = {
     resumeSession: vi.fn(),
     renameSession: vi.fn(),
     regenerateTitle: vi.fn(),
+    shareToOpenBird: vi.fn(),
     forkSession: vi.fn(),
     openDuplicateSheet: vi.fn(),
     copySessionMetadata: vi.fn(),
@@ -53,6 +55,7 @@ describe('buildSessionQuickActionItems', () => {
             'pin',
             'details',
             'rename',
+            'share-openbird',
             'archive',
             'delete',
         ]);
@@ -75,6 +78,7 @@ describe('buildSessionQuickActionItems', () => {
             'unpin',
             'details',
             'rename',
+            'share-openbird',
             'delete',
         ]);
     });
@@ -99,6 +103,7 @@ describe('buildSessionQuickActionItems', () => {
             'pin',
             'details',
             'rename',
+            'share-openbird',
             'delete',
         ]);
     });
@@ -120,6 +125,7 @@ describe('buildSessionQuickActionItems', () => {
             'details',
             'rename',
             'regenerate-title',
+            'share-openbird',
             'archive',
             'delete',
         ]);

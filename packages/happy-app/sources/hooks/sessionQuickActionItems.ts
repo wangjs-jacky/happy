@@ -7,6 +7,7 @@ interface SessionQuickActionLabels {
     resume: string;
     rename: string;
     regenerateTitle: string;
+    shareToOpenBird: string;
     fork: string;
     duplicate: string;
     copyMetadata: string;
@@ -22,6 +23,7 @@ interface SessionQuickActionCallbacks {
     resumeSession: () => void;
     renameSession: () => void;
     regenerateTitle: () => void;
+    shareToOpenBird: () => void;
     forkSession: () => void;
     openDuplicateSheet: () => void;
     copySessionMetadata: () => void;
@@ -75,6 +77,8 @@ export function buildSessionQuickActionItems({
     if (canRegenerateTitle) {
         items.push({ id: 'regenerate-title', icon: 'refresh-outline', label: labels.regenerateTitle, onPress: callbacks.regenerateTitle });
     }
+
+    items.push({ id: 'share-openbird', icon: 'share-outline', label: labels.shareToOpenBird, onPress: callbacks.shareToOpenBird });
 
     if (canShowResume) {
         items.push({ id: 'resume', icon: 'play-circle-outline', label: labels.resume, onPress: callbacks.resumeSession });
