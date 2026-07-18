@@ -290,6 +290,13 @@ export class CodexAppServerClient {
         return true;
     }
 
+    private isForeignThreadNotification(params: any): boolean {
+        const notificationThreadId = params?.threadId;
+        return typeof notificationThreadId === 'string'
+            && this._threadId !== null
+            && notificationThreadId !== this._threadId;
+    }
+
     private emitRawTurnCompletion(
         turnId: string | null,
         status: string | null,
@@ -329,6 +336,13 @@ export class CodexAppServerClient {
     private handleRawNotification(method: string, params: any): boolean {
         if (!this.shouldHandleRawNotification(method)) {
             return false;
+        }
+
+        // App-server also forwards sub-agent thread notifications over this
+        // connection. They must not mutate or complete the active root turn.
+        // Notifications without a usable threadId retain legacy compatibility.
+        if (this.isForeignThreadNotification(params)) {
+            return true;
         }
 
         if (method === 'turn/started') {

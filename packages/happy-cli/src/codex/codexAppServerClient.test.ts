@@ -1005,6 +1005,289 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('ignores raw notifications from child threads without mutating the active root turn', async () => {
+        let stdout: NodeJS.ReadableStream & { push: (chunk: string) => void };
+        const proc = createMockProcess({
+            pid: 3008,
+            onRequest: (msg, processStdout) => {
+                stdout = processStdout;
+
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(processStdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-root', path: '/tmp/thread-root' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(processStdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-root', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(processStdout, {
+                            method: 'turn/started',
+                            params: {
+                                threadId: 'thread-root',
+                                turn: { id: 'turn-root', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        const rawFileChanges = (client as any).rawFileChangesByItemId as Map<string, unknown>;
+        const rawFileChangeSet = vi.spyOn(rawFileChanges, 'set');
+        const rawFileChangeDelete = vi.spyOn(rawFileChanges, 'delete');
+
+        let settled = false;
+        const rootTurn = client.sendTurnAndWait('run the root task').then((result) => {
+            settled = true;
+            return result;
+        });
+        await waitFor(() => events.some((event) => event.type === 'task_started' && event.turn_id === 'turn-root'));
+
+        const childParams = { threadId: 'thread-child', turnId: 'turn-child' };
+        pushJsonLine(stdout!, {
+            method: 'turn/started',
+            params: {
+                threadId: 'thread-child',
+                turn: { id: 'turn-child', items: [], status: 'inProgress', error: null },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'item/started',
+            params: {
+                ...childParams,
+                item: {
+                    type: 'commandExecution',
+                    id: 'child-command',
+                    command: 'printf child',
+                    cwd: '/tmp/project',
+                    status: 'inProgress',
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'item/completed',
+            params: {
+                ...childParams,
+                item: {
+                    type: 'commandExecution',
+                    id: 'child-command',
+                    command: 'printf child',
+                    cwd: '/tmp/project',
+                    aggregatedOutput: 'child',
+                    exitCode: 0,
+                    status: 'completed',
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'item/started',
+            params: {
+                ...childParams,
+                item: {
+                    type: 'fileChange',
+                    id: 'child-patch',
+                    status: 'inProgress',
+                    changes: [{ path: 'child.txt', type: 'add', content: 'child' }],
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'item/completed',
+            params: {
+                ...childParams,
+                item: {
+                    type: 'fileChange',
+                    id: 'child-patch',
+                    status: 'completed',
+                    changes: [{ path: 'child.txt', type: 'add', content: 'child' }],
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'item/completed',
+            params: {
+                ...childParams,
+                item: {
+                    type: 'agentMessage',
+                    id: 'child-message',
+                    text: 'Approved.',
+                    phase: 'final_answer',
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'thread/status/changed',
+            params: { threadId: 'thread-child', status: { type: 'idle' } },
+        });
+        pushJsonLine(stdout!, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-child',
+                turn: { id: 'turn-child', items: [], status: 'completed', error: null },
+            },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(client.threadId).toBe('thread-root');
+        expect(client.turnId).toBe('turn-root');
+        expect(settled).toBe(false);
+        expect(rawFileChanges.size).toBe(0);
+        expect(rawFileChangeSet).not.toHaveBeenCalled();
+        expect(rawFileChangeDelete).not.toHaveBeenCalled();
+        expect(events.filter((event) => event.type === 'task_started')).toEqual([
+            expect.objectContaining({ turn_id: 'turn-root' }),
+        ]);
+        expect(events.some((event) => event.type === 'agent_message' && event.message === 'Approved.')).toBe(false);
+        expect(events.some((event) => event.type === 'task_complete')).toBe(false);
+        expect(events.some((event) => event.type === 'exec_command_begin' || event.type === 'exec_command_end')).toBe(false);
+        expect(events.some((event) => event.type === 'patch_apply_begin' || event.type === 'patch_apply_end')).toBe(false);
+
+        pushJsonLine(stdout!, {
+            method: 'item/completed',
+            params: {
+                threadId: 'thread-root',
+                turnId: 'turn-root',
+                item: {
+                    type: 'agentMessage',
+                    id: 'root-message',
+                    text: 'Root finished.',
+                    phase: 'final_answer',
+                },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-root',
+                turn: { id: 'turn-root', items: [], status: 'completed', error: null },
+            },
+        });
+
+        await expect(rootTurn).resolves.toEqual({ aborted: false });
+        expect(events.filter((event) => event.type === 'agent_message')).toEqual([
+            expect.objectContaining({ message: 'Root finished.' }),
+        ]);
+        expect(events.filter((event) => event.type === 'task_complete')).toEqual([
+            expect.objectContaining({ turn_id: 'turn-root' }),
+        ]);
+
+        await client.disconnect();
+    });
+
+    it('keeps accepting raw notifications that omit threadId', async () => {
+        const proc = createMockProcess({
+            pid: 3009,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-no-notification-id', path: '/tmp/thread-no-notification-id' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-no-notification-id', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'turn/started',
+                            params: {
+                                turn: { id: 'turn-no-notification-id', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                turnId: 'turn-no-notification-id',
+                                item: {
+                                    type: 'agentMessage',
+                                    id: 'message-no-notification-id',
+                                    text: 'Compatible.',
+                                    phase: 'final_answer',
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        await expect(client.sendTurnAndWait('stay compatible')).resolves.toEqual({ aborted: false });
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'task_started', turn_id: 'turn-no-notification-id' }),
+            expect.objectContaining({ type: 'agent_message', message: 'Compatible.' }),
+            expect.objectContaining({ type: 'task_complete', turn_id: 'turn-no-notification-id' }),
+        ]));
+
+        await client.disconnect();
+    });
+
     it('maps raw file change items into legacy patch events', async () => {
         const proc = createMockProcess({
             pid: 3003,
