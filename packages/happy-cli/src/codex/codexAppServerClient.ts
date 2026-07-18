@@ -266,16 +266,18 @@ export class CodexAppServerClient {
         return typeof status === 'string' && status.length > 0 ? status : null;
     }
 
-    private shouldHandleRawNotification(method: string): boolean {
-        const isRawNotification = method === 'thread/started'
+    private isRawNotificationMethod(method: string): boolean {
+        return method === 'thread/started'
             || method === 'turn/started'
             || method === 'turn/completed'
             || method === 'thread/settings/updated'
             || method === 'thread/status/changed'
             || method === 'thread/tokenUsage/updated'
             || method.startsWith('item/');
+    }
 
-        if (!isRawNotification) {
+    private shouldHandleRawNotification(method: string): boolean {
+        if (!this.isRawNotificationMethod(method)) {
             return false;
         }
 
@@ -334,15 +336,15 @@ export class CodexAppServerClient {
     }
 
     private handleRawNotification(method: string, params: any): boolean {
-        if (!this.shouldHandleRawNotification(method)) {
-            return false;
+        // Consume foreign raw notifications before protocol selection. In
+        // particular, legacy mode otherwise falls through to the v2 lifecycle
+        // fallback below and can still complete the active root turn.
+        if (this.isRawNotificationMethod(method) && this.isForeignThreadNotification(params)) {
+            return true;
         }
 
-        // App-server also forwards sub-agent thread notifications over this
-        // connection. They must not mutate or complete the active root turn.
-        // Notifications without a usable threadId retain legacy compatibility.
-        if (this.isForeignThreadNotification(params)) {
-            return true;
+        if (!this.shouldHandleRawNotification(method)) {
+            return false;
         }
 
         if (method === 'turn/started') {

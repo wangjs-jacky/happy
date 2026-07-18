@@ -1209,7 +1209,121 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('keeps accepting raw notifications that omit threadId', async () => {
+    it('ignores child lifecycle notifications after the legacy protocol is selected', async () => {
+        let stdout: NodeJS.ReadableStream & { push: (chunk: string) => void };
+        const proc = createMockProcess({
+            pid: 3010,
+            onRequest: (msg, processStdout) => {
+                stdout = processStdout;
+
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(processStdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-legacy-root', path: '/tmp/thread-legacy-root' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(processStdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-legacy-root', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(processStdout, {
+                            method: 'codex/event',
+                            params: {
+                                id: 'turn-legacy-root',
+                                msg: { type: 'task_started', turn_id: 'turn-legacy-root' },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        let settled = false;
+        const rootTurn = client.sendTurnAndWait('run with legacy notifications').then((result) => {
+            settled = true;
+            return result;
+        });
+        await waitFor(() => events.some((event) => event.type === 'task_started'));
+        expect((client as any).notificationProtocol).toBe('legacy');
+
+        pushJsonLine(stdout!, {
+            method: 'turn/started',
+            params: {
+                threadId: 'thread-legacy-child',
+                turn: { id: 'turn-legacy-child', items: [], status: 'inProgress', error: null },
+            },
+        });
+        pushJsonLine(stdout!, {
+            method: 'thread/status/changed',
+            params: { threadId: 'thread-legacy-child', status: { type: 'idle' } },
+        });
+        pushJsonLine(stdout!, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-legacy-child',
+                turn: { id: 'turn-legacy-child', items: [], status: 'completed', error: null },
+            },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect((client as any).notificationProtocol).toBe('legacy');
+        expect(client.threadId).toBe('thread-legacy-root');
+        expect(client.turnId).toBe('turn-legacy-root');
+        expect((client as any).pendingTurnCompletion).not.toBeNull();
+        expect(settled).toBe(false);
+        expect(events.filter((event) => event.type === 'task_started')).toHaveLength(1);
+        expect(events.some((event) => event.type === 'task_complete')).toBe(false);
+
+        pushJsonLine(stdout!, {
+            method: 'turn/completed',
+            params: {
+                threadId: 'thread-legacy-root',
+                turn: { id: 'turn-legacy-root', items: [], status: 'completed', error: null },
+            },
+        });
+
+        await expect(rootTurn).resolves.toEqual({ aborted: false });
+        expect(events.filter((event) => event.type === 'task_complete')).toEqual([
+            expect.objectContaining({ turn_id: 'turn-legacy-root' }),
+        ]);
+
+        await client.disconnect();
+    });
+
+    it('keeps accepting raw notifications with missing or non-string threadId', async () => {
         const proc = createMockProcess({
             pid: 3009,
             onRequest: (msg, stdout) => {
@@ -1247,6 +1361,7 @@ describe('CodexAppServerClient sandbox integration', () => {
                         pushJsonLine(stdout, {
                             method: 'item/completed',
                             params: {
+                                threadId: 123,
                                 turnId: 'turn-no-notification-id',
                                 item: {
                                     type: 'agentMessage',
