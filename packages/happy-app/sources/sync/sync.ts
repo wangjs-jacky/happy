@@ -16,7 +16,7 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
-import { normalizeDecryptedMessage, normalizeDecryptedMessages } from './messageNormalization';
+import { normalizeDecryptedMessages, normalizeRealtimeDecryptedMessage } from './messageNormalization';
 import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
@@ -99,7 +99,7 @@ type SendMessageOptions = {
     attachments?: AttachmentPreview[];
 };
 
-export class Sync {
+class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
     serverID!: string;
@@ -2177,7 +2177,10 @@ export class Sync {
             if (updateData.body.message) {
                 const decrypted = await encryption.decryptMessage(updateData.body.message);
                 if (decrypted) {
-                    lastMessage = normalizeDecryptedMessage(decrypted, updateData.seq);
+                    lastMessage = normalizeRealtimeDecryptedMessage(decrypted, {
+                        seq: updateData.seq,
+                        body: updateData.body,
+                    });
 
                     // Check for task lifecycle events to update thinking state
                     // This ensures UI updates even if volatile activity updates are lost
@@ -2752,7 +2755,7 @@ export class Sync {
     // Apply store
     //
 
-    applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
+    private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
         let m: Message[] = [];
         for (let messageId of result.changed) {

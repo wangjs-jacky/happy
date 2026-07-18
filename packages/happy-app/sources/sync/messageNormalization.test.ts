@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDecryptedMessage, normalizeDecryptedMessages } from './messageNormalization';
+import { normalizeDecryptedMessage, normalizeDecryptedMessages, normalizeRealtimeDecryptedMessage } from './messageNormalization';
 import type { DecryptedMessage } from './storageTypes';
+import { createReducer, reducer } from './reducer/reducer';
 
 const turnStart = (id: string): DecryptedMessage => ({
     id,
@@ -26,9 +27,33 @@ describe('message normalization source sequence', () => {
         expect(normalized[0]).toMatchObject({ content: { type: 'turn-lifecycle', seq: 12 } });
     });
 
-    it('forwards realtime update sequence', () => {
-        expect(normalizeDecryptedMessage(turnStart('realtime'), 88)).toMatchObject({
+    it('forwards the realtime source message sequence', () => {
+        expect(normalizeDecryptedMessage(turnStart('realtime'), { seq: 88 })).toMatchObject({
             content: { type: 'turn-lifecycle', seq: 88 },
         });
+    });
+
+    it('keeps realtime and fetched lifecycle in the per-message sequence domain', () => {
+        const realtimeUpdate = { seq: 1000, body: { message: { seq: 10 } } };
+        const realtime = normalizeRealtimeDecryptedMessage(turnStart('realtime-start'), realtimeUpdate);
+        const fetchedEnd: DecryptedMessage = {
+            ...turnStart('fetched-end'),
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'session',
+                    data: {
+                        id: 'fetched-end', time: 101, role: 'agent', turn: 'turn-1',
+                        ev: { t: 'turn-end', status: 'completed' },
+                    },
+                },
+            },
+        };
+        const [fetched] = normalizeDecryptedMessages([{ seq: 11 }], [fetchedEnd]);
+        const state = createReducer();
+
+        reducer(state, [realtime!, fetched]);
+
+        expect(state.rootTurnLifecycle).toMatchObject({ status: 'completed', seq: 11 });
     });
 });

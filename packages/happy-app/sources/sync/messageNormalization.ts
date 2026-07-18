@@ -3,15 +3,22 @@ import { type NormalizedMessage, normalizeRawMessage } from './typesRaw';
 
 export function normalizeDecryptedMessage(
     decrypted: DecryptedMessage,
-    sourceSeq: number,
+    sourceMessage: { seq: number },
 ): NormalizedMessage | null {
     return normalizeRawMessage(
         decrypted.id,
         decrypted.localId,
         decrypted.createdAt,
         decrypted.content,
-        sourceSeq,
+        sourceMessage.seq,
     );
+}
+
+export function normalizeRealtimeDecryptedMessage(
+    decrypted: DecryptedMessage,
+    update: { seq: number; body: { message: { seq: number } } },
+): NormalizedMessage | null {
+    return normalizeDecryptedMessage(decrypted, update.body.message);
 }
 
 export function normalizeDecryptedMessages(
@@ -23,7 +30,7 @@ export function normalizeDecryptedMessages(
         const decrypted = decryptedMessages[i];
         const source = sourceMessages[i];
         if (!decrypted || !source) continue;
-        const normalized = normalizeDecryptedMessage(decrypted, source.seq);
+        const normalized = normalizeDecryptedMessage(decrypted, source);
         if (normalized) normalizedMessages.push(normalized);
     }
     return normalizedMessages;

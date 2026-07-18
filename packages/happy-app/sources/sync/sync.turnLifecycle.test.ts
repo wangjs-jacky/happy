@@ -69,7 +69,7 @@ vi.mock('./sessionEventLocalNotification', () => ({
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
-import { Sync } from './sync';
+import { sync } from './sync';
 
 const terminal = (id: string, seq: number): NormalizedMessage => ({
     id,
@@ -82,10 +82,12 @@ const terminal = (id: string, seq: number): NormalizedMessage => ({
 
 describe('Sync root lifecycle ready callback', () => {
     it('calls voiceHooks.onReady with the real session id once and ignores stale replay', () => {
-        const sync = new Sync();
+        const applyMessages = (sync as unknown as {
+            applyMessages: (sessionId: string, messages: NormalizedMessage[]) => void;
+        }).applyMessages;
 
-        sync.applyMessages('session-1', [terminal('current', 2)]);
-        sync.applyMessages('session-1', [terminal('stale', 1)]);
+        applyMessages.call(sync, 'session-1', [terminal('current', 2)]);
+        applyMessages.call(sync, 'session-1', [terminal('stale', 1)]);
 
         expect(onReady).toHaveBeenCalledTimes(1);
         expect(onReady).toHaveBeenCalledWith('session-1');
