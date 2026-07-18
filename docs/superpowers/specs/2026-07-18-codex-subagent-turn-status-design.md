@@ -74,17 +74,23 @@ invisible lifecycle record instead of dropping start or collapsing end into a
 status-less generic `ready` event. The normalized record contains:
 
 - `status`: `running`, `completed`, `failed`, or `cancelled`;
+- server message `seq` when available;
 - `createdAt` and message id, inherited from the encrypted message record.
 
 This is separate from the existing generic `ready` event used by voice hooks,
-so completion UI does not change that callback contract.
+but reducing a terminal lifecycle record still sets the reducer's existing
+`hasReadyEvent` flag. `voiceHooks.onReady` therefore keeps firing once for root
+turn completion without depending on the normalized content shape.
 
 The session-message reducer owns a local `rootTurnLifecycle` value. It applies
 each lifecycle record through a small reducer and only accepts a record newer
-than its watermark. Ordering is `(createdAt, messageId)` lexicographically;
-message id is the deterministic tie-breaker when timestamps match. The state
-lives in `SessionMessages`, not `Session`, so server session refreshes cannot
-overwrite it.
+than its watermark. Server message `seq` is the primary ordering key. The sync
+layer passes the API/realtime record sequence into normalization; for direct or
+legacy records without a sequence, the fallback is `(createdAt, arrivalOrder)`,
+where `arrivalOrder` is a monotonic counter local to that session-message
+reducer. A sequenced lifecycle record always outranks an unsequenced record
+once the session has observed a sequence. The state lives in `SessionMessages`,
+not `Session`, so server session refreshes cannot overwrite it.
 
 Realtime delivery, initial latest-page loading, and older-page replay all pass
 through the same reducer. Consequently an older page arriving after a live
@@ -99,10 +105,11 @@ Status mapping is exact at the unified protocol boundary:
 - `turn-end: cancelled` becomes `cancelled`.
 
 The existing CLI mapper remains responsible for converting legacy Codex MCP
-events into these valid session-protocol statuses: `task_complete` is completed
-unless it carries an error; `turn_aborted` is cancelled unless its reason or
-error indicates failure. Unknown provider statuses never reach App lifecycle
-state directly.
+events into these valid session-protocol statuses. An explicit valid status
+(`completed`, `failed`, `cancelled`, plus normalized spelling `canceled`) wins.
+Otherwise `task_complete` is completed unless it carries an error, while
+`turn_aborted` is cancelled unless its reason or error indicates failure.
+Unknown provider statuses never reach App lifecycle state directly.
 
 ### 3. Present task state separately from connectivity
 
@@ -158,8 +165,12 @@ still work.
   the retained result, then falls back to online waiting.
 - A live completion followed by an older-page load does not roll state back.
 - A newer start followed by a late older end remains running.
+- Equal-timestamp start/end markers applied in either arrival order resolve by
+  server sequence.
 - Initial latest-page loading restores lifecycle before visible status renders.
 - Server session refresh leaves message-owned lifecycle state intact.
+- Terminal lifecycle reduction still raises `hasReadyEvent` and invokes the
+  existing voice-ready path.
 
 ## Verification
 
