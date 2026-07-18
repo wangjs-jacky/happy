@@ -17,7 +17,6 @@ import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { normalizeDecryptedMessage, normalizeDecryptedMessages } from './messageNormalization';
-import { notifyReadyEvent } from './syncMessageEffects';
 import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
@@ -100,7 +99,7 @@ type SendMessageOptions = {
     attachments?: AttachmentPreview[];
 };
 
-class Sync {
+export class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
     serverID!: string;
@@ -2753,7 +2752,7 @@ class Sync {
     // Apply store
     //
 
-    private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
+    applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
         let m: Message[] = [];
         for (let messageId of result.changed) {
@@ -2765,7 +2764,9 @@ class Sync {
         if (m.length > 0) {
             voiceHooks.onMessages(sessionId, m);
         }
-        notifyReadyEvent(sessionId, result.hasReadyEvent, voiceHooks.onReady);
+        if (result.hasReadyEvent) {
+            voiceHooks.onReady(sessionId);
+        }
     }
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
