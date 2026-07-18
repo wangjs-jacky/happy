@@ -2945,6 +2945,71 @@ describe('reducer', () => {
     });
 
     describe('session protocol lifecycle and subagent sidechains', () => {
+        const lifecycle = (
+            id: string,
+            status: 'running' | 'completed' | 'failed' | 'cancelled',
+            createdAt: number,
+            seq?: number,
+        ): NormalizedMessage => ({
+            id,
+            localId: null,
+            createdAt,
+            role: 'event',
+            content: { type: 'turn-lifecycle', status, ...(seq === undefined ? {} : { seq }) },
+            isSidechain: false,
+        });
+
+        it.each(['completed', 'failed', 'cancelled'] as const)('retains accepted %s terminal lifecycle invisibly', (status) => {
+            const state = createReducer();
+            const result = reducer(state, [lifecycle(`end-${status}`, status, 1000, 2)]);
+
+            expect(result.messages).toHaveLength(0);
+            expect(result.hasReadyEvent).toBe(true);
+            expect(state.rootTurnLifecycle).toMatchObject({ status, seq: 2, createdAt: 1000, arrivalOrder: 1 });
+        });
+
+        it('replaces a completed lifecycle with the next start', () => {
+            const state = createReducer();
+            reducer(state, [lifecycle('end', 'completed', 1000, 1)]);
+            const result = reducer(state, [lifecycle('start', 'running', 1001, 2)]);
+
+            expect(result.hasReadyEvent).toBeUndefined();
+            expect(state.rootTurnLifecycle?.status).toBe('running');
+        });
+
+        it('uses sequence as the primary watermark in either arrival order and ignores stale terminals', () => {
+            const forward = createReducer();
+            reducer(forward, [lifecycle('old-forward', 'completed', 1000, 10)]);
+            reducer(forward, [lifecycle('new-forward', 'running', 1000, 11)]);
+            expect(forward.rootTurnLifecycle?.status).toBe('running');
+
+            const reverse = createReducer();
+            reducer(reverse, [lifecycle('new-reverse', 'running', 1000, 11)]);
+            const stale = reducer(reverse, [lifecycle('old-reverse', 'completed', 2000, 10)]);
+            expect(reverse.rootTurnLifecycle?.status).toBe('running');
+            expect(stale.hasReadyEvent).toBeUndefined();
+        });
+
+        it('lets sequenced lifecycle replace unsequenced state regardless of timestamp', () => {
+            const state = createReducer();
+            reducer(state, [lifecycle('unsequenced', 'completed', 9000)]);
+            reducer(state, [lifecycle('sequenced', 'running', 100, 1)]);
+            const rejected = reducer(state, [lifecycle('late-unsequenced', 'failed', 10000)]);
+
+            expect(state.rootTurnLifecycle).toMatchObject({ status: 'running', seq: 1 });
+            expect(rejected.hasReadyEvent).toBeUndefined();
+        });
+
+        it('orders unsequenced lifecycle by timestamp then reducer-local arrival', () => {
+            const state = createReducer();
+            reducer(state, [lifecycle('newer-time', 'completed', 2000)]);
+            reducer(state, [lifecycle('older-time', 'failed', 1000)]);
+            expect(state.rootTurnLifecycle?.status).toBe('completed');
+
+            reducer(state, [lifecycle('same-time-later', 'cancelled', 2000)]);
+            expect(state.rootTurnLifecycle).toMatchObject({ status: 'cancelled', arrivalOrder: 3 });
+        });
+
         it('sets hasReadyEvent for ready events without creating visible messages', () => {
             const state = createReducer();
             const result = reducer(state, [{

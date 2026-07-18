@@ -13,7 +13,7 @@ import { Session, Machine, GitStatus } from "./storageTypes";
 import { createSessionApplyBase, type SessionApplyOptions } from "./sessionApply";
 import type { GitStatusFiles } from "./gitStatusFiles";
 import type { ProjectFilesList } from "./projectFiles";
-import { createReducer, reducer, ReducerState } from "./reducer/reducer";
+import { createReducer, reducer, ReducerState, RootTurnLifecycle } from "./reducer/reducer";
 import { Message } from "./typesMessage";
 import { NormalizedMessage } from "./typesRaw";
 import { isMachineOnline } from '@/utils/machineUtils';
@@ -1447,7 +1447,8 @@ export function useSessionMessages(sessionId: string): {
     messages: Message[],
     isLoaded: boolean,
     hasMoreOlder: boolean,
-    isLoadingOlder: boolean
+    isLoadingOlder: boolean,
+    rootTurnLifecycle: RootTurnLifecycle | null,
 } {
     return storage(useShallow((state) => {
         const session = state.sessionMessages[sessionId];
@@ -1455,7 +1456,8 @@ export function useSessionMessages(sessionId: string): {
             messages: session?.messages ?? emptyArray,
             isLoaded: session?.isLoaded ?? false,
             hasMoreOlder: session?.hasMoreOlder ?? false,
-            isLoadingOlder: session?.isLoadingOlder ?? false
+            isLoadingOlder: session?.isLoadingOlder ?? false,
+            rootTurnLifecycle: session?.reducerState.rootTurnLifecycle ?? null,
         };
     }));
 }

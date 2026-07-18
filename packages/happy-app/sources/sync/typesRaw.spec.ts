@@ -1706,7 +1706,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             }
         });
 
-        it('maps turn-end to ready event and drops turn-start', () => {
+        it('maps session turn lifecycle events with their source sequence', () => {
             const turnStart = normalizeRawMessage('db-5', null, 1, {
                 ...base,
                 content: {
@@ -1719,27 +1719,33 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                         ev: { t: 'turn-start' }
                     }
                 }
-            });
-            expect(turnStart).toBeNull();
-
-            const turnEnd = normalizeRawMessage('db-6', null, 1, {
-                ...base,
-                content: {
-                    type: 'session',
-                    data: {
-                        id: 'env-6',
-                        time: 1,
-                        role: 'agent',
-                        turn: 'turn-5',
-                        ev: { t: 'turn-end', status: 'completed' }
-                    }
-                }
-            });
-            expect(turnEnd).toMatchObject({
-                id: 'env-6',
+            }, 41);
+            expect(turnStart).toMatchObject({
+                id: 'env-5',
                 role: 'event',
-                content: { type: 'ready' }
+                content: { type: 'turn-lifecycle', status: 'running', seq: 41 }
             });
+
+            for (const [status, seq] of [['completed', 42], ['failed', 43], ['cancelled', 44]] as const) {
+                const turnEnd = normalizeRawMessage(`db-${status}`, null, 1, {
+                    ...base,
+                    content: {
+                        type: 'session',
+                        data: {
+                            id: `env-${status}`,
+                            time: 1,
+                            role: 'agent',
+                            turn: 'turn-5',
+                            ev: { t: 'turn-end', status }
+                        }
+                    }
+                }, seq);
+                expect(turnEnd).toMatchObject({
+                    id: `env-${status}`,
+                    role: 'event',
+                    content: { type: 'turn-lifecycle', status, seq }
+                });
+            }
         });
 
         it('normalizes file events with required size and optional image metadata', () => {

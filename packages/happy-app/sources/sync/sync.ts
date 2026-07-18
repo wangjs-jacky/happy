@@ -16,6 +16,8 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
+import { normalizeDecryptedMessage, normalizeDecryptedMessages } from './messageNormalization';
+import { notifyReadyEvent } from './syncMessageEffects';
 import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
@@ -2032,15 +2034,7 @@ class Sync {
     ) => {
         if (messages.length === 0) return;
         const decryptedMessages = await encryption.decryptMessages(messages);
-        const normalizedMessages: NormalizedMessage[] = [];
-        for (let i = 0; i < decryptedMessages.length; i++) {
-            const decrypted = decryptedMessages[i];
-            if (!decrypted) continue;
-            const normalized = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
-            if (normalized) {
-                normalizedMessages.push(normalized);
-            }
-        }
+        const normalizedMessages = normalizeDecryptedMessages(messages, decryptedMessages);
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages);
         }
@@ -2184,7 +2178,7 @@ class Sync {
             if (updateData.body.message) {
                 const decrypted = await encryption.decryptMessage(updateData.body.message);
                 if (decrypted) {
-                    lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
+                    lastMessage = normalizeDecryptedMessage(decrypted, updateData.seq);
 
                     // Check for task lifecycle events to update thinking state
                     // This ensures UI updates even if volatile activity updates are lost
@@ -2771,9 +2765,7 @@ class Sync {
         if (m.length > 0) {
             voiceHooks.onMessages(sessionId, m);
         }
-        if (result.hasReadyEvent) {
-            voiceHooks.onReady(sessionId);
-        }
+        notifyReadyEvent(sessionId, result.hasReadyEvent, voiceHooks.onReady);
     }
 
     private applySessions = (sessions: (Omit<Session, "presence"> & {
