@@ -554,7 +554,7 @@ function SessionViewLoaded({
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
-    const { messages, isLoaded } = useSessionMessages(sessionId);
+    const { messages, isLoaded, rootTurnLifecycle } = useSessionMessages(sessionId);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
@@ -566,7 +566,7 @@ function SessionViewLoaded({
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
 
-    const sessionStatus = useSessionStatus(session);
+    const sessionStatus = useSessionStatus(session, rootTurnLifecycle?.status);
     const sessionUsage = useSessionUsage(sessionId);
     const alwaysShowContextSize = useSetting('alwaysShowContextSize');
     const experiments = useSetting('experiments');

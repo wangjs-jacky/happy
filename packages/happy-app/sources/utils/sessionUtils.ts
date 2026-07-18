@@ -1,10 +1,19 @@
 import * as React from 'react';
 import { useUnistyles } from 'react-native-unistyles';
 import { Session } from '@/sync/storageTypes';
+import type { RootTurnLifecycleStatus } from '@/sync/typesRaw';
 import { t } from '@/text';
 import { buildResumeCommand, buildResumeCommandBlock, ResumeCommandBlock } from './resumeCommand';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
+export type ComposerSessionState = SessionState | 'completed' | 'failed' | 'cancelled';
+
+export type SessionStatusColors = {
+    accent: string;
+    success: string;
+    warning: string;
+    error: string;
+};
 
 export interface SessionStatus {
     state: SessionState;
@@ -16,18 +25,22 @@ export interface SessionStatus {
     isPulsing?: boolean;
 }
 
+export interface ComposerSessionStatus extends Omit<SessionStatus, 'state'> {
+    state: ComposerSessionState;
+}
+
 /**
  * Get the current state of a session based on presence and thinking status.
  * Uses centralized session state from storage.ts
  */
-export function useSessionStatus(session: Session): SessionStatus {
-    const { theme } = useUnistyles();
+export function resolveSessionStatus(
+    session: Session,
+    lifecycleStatus: RootTurnLifecycleStatus | undefined,
+    colors: SessionStatusColors,
+    vibingMessage: string,
+): ComposerSessionStatus {
     const isOnline = session.presence === "online";
-    const hasPermissions = (session.agentState?.requests && Object.keys(session.agentState.requests).length > 0 ? true : false);
-
-    const vibingMessage = React.useMemo(() => {
-        return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
-    }, [isOnline, hasPermissions, session.thinking]);
+    const hasPermissions = !!(session.agentState?.requests && Object.keys(session.agentState.requests).length > 0);
 
     if (!isOnline) {
         return {
@@ -40,7 +53,6 @@ export function useSessionStatus(session: Session): SessionStatus {
         };
     }
 
-    // Check if permission is required
     if (hasPermissions) {
         return {
             state: 'permission_required',
@@ -59,9 +71,26 @@ export function useSessionStatus(session: Session): SessionStatus {
             isConnected: true,
             statusText: vibingMessage,
             shouldShowStatus: true,
-            statusColor: theme.colors.accent,
-            statusDotColor: theme.colors.accent,
+            statusColor: colors.accent,
+            statusDotColor: colors.accent,
             isPulsing: true
+        };
+    }
+
+    if (lifecycleStatus === 'completed' || lifecycleStatus === 'failed' || lifecycleStatus === 'cancelled') {
+        const terminalStatus = {
+            completed: { text: t('status.taskCompleted'), color: colors.success },
+            failed: { text: t('status.taskFailed'), color: colors.error },
+            cancelled: { text: t('status.taskCancelled'), color: colors.warning },
+        }[lifecycleStatus];
+        return {
+            state: lifecycleStatus,
+            isConnected: true,
+            statusText: terminalStatus.text,
+            shouldShowStatus: true,
+            statusColor: terminalStatus.color,
+            statusDotColor: terminalStatus.color,
+            isPulsing: false,
         };
     }
 
@@ -73,6 +102,25 @@ export function useSessionStatus(session: Session): SessionStatus {
         statusColor: '#34C759',
         statusDotColor: '#34C759'
     };
+}
+
+export function useSessionStatus(session: Session): SessionStatus;
+export function useSessionStatus(session: Session, lifecycleStatus: RootTurnLifecycleStatus | undefined): ComposerSessionStatus;
+export function useSessionStatus(session: Session, lifecycleStatus?: RootTurnLifecycleStatus): ComposerSessionStatus {
+    const { theme } = useUnistyles();
+    const isOnline = session.presence === "online";
+    const hasPermissions = (session.agentState?.requests && Object.keys(session.agentState.requests).length > 0 ? true : false);
+
+    const vibingMessage = React.useMemo(() => {
+        return vibingMessages[Math.floor(Math.random() * vibingMessages.length)].toLowerCase() + '…';
+    }, [isOnline, hasPermissions, session.thinking]);
+
+    return resolveSessionStatus(session, lifecycleStatus, {
+        accent: theme.colors.accent,
+        success: theme.colors.success,
+        warning: theme.colors.warning,
+        error: theme.colors.status.error,
+    }, vibingMessage);
 }
 
 /**
