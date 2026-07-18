@@ -25,8 +25,9 @@ completed root turn still has no explicit completion acknowledgement.
   root `task_started`, `task_complete`, and `turn-end` events.
 - The App must distinguish connectivity from the most recent root-turn result.
 - `已完成`, `失败`, or `已取消` remains visible until the next root turn starts.
-- Existing Claude, ACP, OpenCode, and non-session-protocol behavior remains
-  unchanged.
+- Provider message content and non-session-protocol ingestion remain unchanged;
+  all flavors using the unified session protocol gain the same explicit root
+  turn-result label.
 
 ## Non-Goals
 
@@ -39,9 +40,11 @@ completed root turn still has no explicit completion acknowledgement.
 
 ### 1. Scope raw Codex notifications to the active root thread
 
-`CodexAppServerClient` already owns the active root thread id. Before mapping a
-raw notification that carries `params.threadId`, it will compare that id with
-the active root id.
+`CodexAppServerClient` already owns the active root thread id. The app-server
+protocol places thread identity at the top-level `params.threadId` for its
+thread-scoped raw notifications. At the start of raw-notification handling,
+before any state mutation, the client will compare a string `params.threadId`
+with the active root id.
 
 Notifications from another thread are ignored by the root event mapper. In
 particular they may not:
@@ -52,36 +55,60 @@ particular they may not:
   `turn_aborted` events;
 - mutate root command/file-change bookkeeping.
 
-Notifications without a thread id retain the current compatibility behavior,
-because older app-server versions may omit the field. Root notifications whose
-thread id matches the active thread continue through the existing mapper.
+Notifications with a non-string or missing thread id retain the current
+compatibility behavior, because older app-server versions may omit the field.
+The client deliberately does not guess identity from nested objects. Root
+notifications whose thread id matches the active thread continue through the
+existing mapper. Thus the strict root-only guarantee applies whenever the
+provider supplies its canonical thread id; the missing-id path is an explicit
+backwards-compatibility exception.
 
 This is deliberately a filtering fix rather than a new sub-agent rendering
 feature. Parent-thread Codex events still provide the root agent's commentary,
 tool calls, and final response.
 
-### 2. Carry the root turn result into local App session state
+### 2. Preserve ordered root lifecycle markers during normalization
 
-The App will add an optional local-only root-turn result to `Session`, with the
-values `completed`, `failed`, and `cancelled`. It is not part of the server API
-or encrypted session metadata.
+Session-protocol `turn-start` and `turn-end` envelopes will normalize to an
+invisible lifecycle record instead of dropping start or collapsing end into a
+status-less generic `ready` event. The normalized record contains:
 
-The sync boundary is the single writer:
+- `status`: `running`, `completed`, `failed`, or `cancelled`;
+- `createdAt` and message id, inherited from the encrypted message record.
 
-- root `turn-end` sets the result from the protocol event status;
-- legacy root `task_complete` sets `completed`;
-- legacy root `turn_aborted` maps to `failed` or `cancelled` using its status;
-- the next root `turn-start` or legacy `task_started` clears the result before
-  setting `thinking: true`.
+This is separate from the existing generic `ready` event used by voice hooks,
+so completion UI does not change that callback contract.
 
-Initial message loading also inspects lifecycle events in the fetched page and
-restores the newest lifecycle state, so reopening a chat does not immediately
-lose the completion label. A newer turn start always wins over an older end.
+The session-message reducer owns a local `rootTurnLifecycle` value. It applies
+each lifecycle record through a small reducer and only accepts a record newer
+than its watermark. Ordering is `(createdAt, messageId)` lexicographically;
+message id is the deterministic tie-breaker when timestamps match. The state
+lives in `SessionMessages`, not `Session`, so server session refreshes cannot
+overwrite it.
+
+Realtime delivery, initial latest-page loading, and older-page replay all pass
+through the same reducer. Consequently an older page arriving after a live
+completion cannot roll state backwards, while reopening a chat restores the
+newest lifecycle marker present in fetched history.
+
+Status mapping is exact at the unified protocol boundary:
+
+- `turn-start` becomes `running`;
+- `turn-end: completed` becomes `completed`;
+- `turn-end: failed` becomes `failed`;
+- `turn-end: cancelled` becomes `cancelled`.
+
+The existing CLI mapper remains responsible for converting legacy Codex MCP
+events into these valid session-protocol statuses: `task_complete` is completed
+unless it carries an error; `turn_aborted` is cancelled unless its reason or
+error indicates failure. Unknown provider statuses never reach App lifecycle
+state directly.
 
 ### 3. Present task state separately from connectivity
 
-`useSessionStatus` keeps presence as the source of connection truth. Its
-priority becomes:
+`useSessionMessages` exposes `rootTurnLifecycle` alongside visible messages.
+`useSessionStatus` accepts that lifecycle value while keeping presence as the
+source of connection truth. Its priority becomes:
 
 1. disconnected;
 2. permission required;
@@ -89,41 +116,50 @@ priority becomes:
 4. most recent root-turn result;
 5. connected and waiting.
 
-The composer status text for root-turn results is localized as `已完成`, `失败`,
-and `已取消`. These labels remain until the next root turn begins. The existing
-green presence dot/header chip continues to communicate that the session is
-online; completion is not treated as disconnection.
+When lifecycle is `running`, the existing thinking state remains authoritative.
+When a new `turn-start` is reduced, the prior result is replaced immediately,
+so its label disappears before the next response begins.
+
+The composer status text for root-turn results is localized in every supported
+locale (`已完成`, `失败`, and `已取消` in Chinese). These labels remain until the
+next root turn begins. The existing green presence dot/header chip continues to
+communicate that the session is online; completion is not treated as
+disconnection. Permission continues to outrank thinking, matching current UI
+behavior when both states are present.
 
 ## Error Handling and Compatibility
 
 - Missing `threadId` remains accepted for backwards compatibility.
 - A foreign-thread notification is consumed but produces no root event.
-- Unknown completion statuses fall back to `failed`, matching the conservative
-  lifecycle treatment already used by the session protocol.
-- Optional local state keeps older cached/API session records valid without a
-  storage migration.
+- Session lifecycle state is local message-derived state and requires no server
+  schema or persisted-session migration.
 
 ## Tests
 
 ### CLI regression
 
 Simulate one app-server connection with an active root thread and a child
-thread. Assert that child `agentMessage(final_answer)`, idle, and
-`turn/completed` notifications do not emit root text or completion and do not
-resolve the pending root turn. Then emit the matching root final answer and
-completion and assert exactly one root completion.
+thread. Send foreign `turn/started`, command execution, file change,
+`agentMessage(final_answer)`, idle, and `turn/completed` notifications. Assert
+they do not change the root `_turnId`, resolve the pending root turn, emit root
+text/lifecycle/tool events, or mutate root file-change bookkeeping. Then emit
+the matching root final answer and completion and assert exactly one root
+completion.
 
 Retain a compatibility test proving that raw notifications without `threadId`
 still work.
 
 ### App regression
 
-- Lifecycle reduction records completed, failed, and cancelled root results.
-- A subsequent turn start clears the result.
+- Lifecycle normalization retains start and the exact end status.
+- Lifecycle reduction records running, completed, failed, and cancelled root
+  results; a subsequent turn start replaces the prior result.
 - `useSessionStatus` prefers working/permission/disconnected states, then shows
   the retained result, then falls back to online waiting.
-- History replay uses the newest lifecycle marker rather than batch arrival
-  order.
+- A live completion followed by an older-page load does not roll state back.
+- A newer start followed by a late older end remains running.
+- Initial latest-page loading restores lifecycle before visible status renders.
+- Server session refresh leaves message-owned lifecycle state intact.
 
 ## Verification
 
@@ -132,4 +168,3 @@ still work.
 - `happy-cli` typecheck.
 - `happy-app` typecheck.
 - `git diff --check`.
-
