@@ -35,6 +35,20 @@ for (const viewport of viewports) {
     });
 }
 
+test('Web 启动不会注册无效的 push token listener', async ({ page }) => {
+    const unsupportedPushTokenWarnings: string[] = [];
+    page.on('console', (message) => {
+        if (message.type() === 'warning' && message.text().includes('Listening to push token changes')) {
+            unsupportedPushTokenWarnings.push(message.text());
+        }
+    });
+
+    await page.goto(new URL('/new', authenticatedWebUrl).toString());
+    await expect(page.getByRole('textbox')).toBeVisible();
+
+    expect(unsupportedPushTokenWarnings).toEqual([]);
+});
+
 test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(authenticatedWebUrl);
