@@ -51,9 +51,9 @@
 | WEB-004 | 页面加载 | Web 端 push token change listener 不受支持 | 待全量审计确认是否应在 Web 跳过注册 |
 | WEB-005 | 页面加载 | `props.pointerEvents` 已弃用 | 待按组件堆栈定位调用点 |
 | WEB-006 | 打开外观页 | `"shadow*" style props are deprecated. Use "boxShadow".` | 待按外观页实际渲染组件定位 |
-| WEB-007 | PC 首页点击 hamburger | permanent sidebar 已经可见，但按钮仍显示且点击无任何行为 | Batch 01 已修复，等待 PR |
-| WEB-008 | PC 首页与 `/new` 欢迎标题 | 1470px 视口仍被限制为 360px，最后一个汉字孤立换行 | 已由 [无侧栏截图](web-interaction-audit/screenshots/batch-01-new-greeting-baseline.jpg) 与 DOM 尺寸确认，进入后续独立批次 |
-| WEB-009 | PC `/new` 返回与头部控件 | 局部返回与全局导航重叠；全局 Web 返回错误依赖导航器栈；800px 附近机器 chip 命中区也有碰撞风险 | Batch 01 统一桌面返回、使用浏览器真实历史，并按共享几何动态预留头部空间，等待 PR |
+| WEB-007 | PC 首页点击 hamburger | permanent sidebar 已经可见，但按钮仍显示且点击无任何行为 | Batch 01 已修复，由 PR #205 合入 `main` |
+| WEB-008 | PC 首页与 `/new` 欢迎标题 | 问候语仍沿用移动端左侧定位，没有进入桌面居中的 800px 输入内容列；360px 行宽还会让原中文标题的末字孤立换行 | Batch 02 已保存[修复前](web-interaction-audit/screenshots/batch-02-new-greeting-before.jpg)与[修复后](web-interaction-audit/screenshots/batch-02-new-greeting-after.jpg)截图；自动化同时保护左边界和代表性中文标题单行排版 |
+| WEB-009 | PC `/new` 返回与头部控件 | 局部返回与全局导航重叠；全局 Web 返回错误依赖导航器栈；800px 附近机器 chip 命中区也有碰撞风险 | Batch 01 已修复，由 PR #205 合入 `main` |
 
 ## POC 验收检查点
 

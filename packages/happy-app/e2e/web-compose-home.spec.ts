@@ -54,6 +54,37 @@ test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
     await page.screenshot({ path: 'test-results/desktop-sidebar-navigation.png', fullPage: true });
 });
 
+test('桌面问候语与输入框内容列对齐且代表性中文标题保持单行', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(new URL('/new', authenticatedWebUrl).toString());
+    await expect(page.getByRole('textbox')).toBeVisible();
+
+    const greeting = page.locator('[data-testid="compose-home-greeting"]:visible');
+    const composerContent = page.locator('[data-testid="message-composer-content"]:visible');
+    const greetingBox = await greeting.boundingBox();
+    const composerContentBox = await composerContent.boundingBox();
+
+    expect(greetingBox).not.toBeNull();
+    expect(composerContentBox).not.toBeNull();
+    expect(Math.abs(greetingBox!.x - composerContentBox!.x)).toBeLessThanOrEqual(1);
+
+    const representativeGreetingFitsOneLine = await greeting.evaluate((element) => {
+        const probe = element.cloneNode() as HTMLElement;
+        probe.removeAttribute('data-testid');
+        probe.textContent = '嗨 jacky，今天和 Paws 做点什么';
+        probe.style.position = 'fixed';
+        probe.style.visibility = 'hidden';
+        probe.style.pointerEvents = 'none';
+        element.parentElement!.appendChild(probe);
+
+        const { height } = probe.getBoundingClientRect();
+        const lineHeight = Number.parseFloat(window.getComputedStyle(probe).lineHeight);
+        probe.remove();
+        return height <= lineHeight + 1;
+    });
+    expect(representativeGreetingFitsOneLine).toBe(true);
+});
+
 test('手机首页保留菜单按钮并能打开抽屉', async ({ page }) => {
     await page.setViewportSize({ width: 799, height: 900 });
     await page.goto(authenticatedWebUrl);
