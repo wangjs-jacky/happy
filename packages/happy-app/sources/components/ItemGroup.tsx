@@ -10,6 +10,7 @@ import {
 import { Typography } from '@/constants/Typography';
 import { layout } from './layout';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { multiplyColorOpacity } from '@/utils/colorOpacity';
 
 interface ItemChildProps {
     showDivider?: boolean;
@@ -59,11 +60,6 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         marginHorizontal: Platform.select({ ios: 16, default: 12 }),
         borderRadius: Platform.select({ ios: 10, default: 16 }),
         overflow: 'hidden',
-        shadowColor: theme.colors.shadow.color,
-        shadowOffset: { width: 0, height: 0.33 },
-        shadowOpacity: theme.colors.shadow.opacity,
-        shadowRadius: 0,
-        elevation: 1
     },
     footer: {
         paddingTop: Platform.select({ ios: 6, default: 8 }),
@@ -82,6 +78,20 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
 export const ItemGroup = React.memo<ItemGroupProps>((props) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
+    const contentShadowStyle: ViewStyle = Platform.OS === 'web'
+        ? {
+            boxShadow: `0 0.33px 0 ${multiplyColorOpacity(
+                theme.colors.shadow.color,
+                theme.colors.shadow.opacity,
+            )}`,
+        }
+        : {
+            shadowColor: theme.colors.shadow.color,
+            shadowOffset: { width: 0, height: 0.33 },
+            shadowOpacity: theme.colors.shadow.opacity,
+            shadowRadius: 0,
+            elevation: 1,
+        };
 
     const {
         title,
@@ -115,7 +125,7 @@ export const ItemGroup = React.memo<ItemGroupProps>((props) => {
                 )}
 
                 {/* Content Container */}
-                <View style={[styles.contentContainer, containerStyle]}>
+                <View style={[styles.contentContainer, contentShadowStyle, containerStyle]}>
                     {React.Children.map(children, (child, index) => {
                         if (React.isValidElement<ItemChildProps>(child)) {
                             // Don't add props to React.Fragment

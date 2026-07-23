@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import {
     View,
     Modal,
-    TouchableWithoutFeedback,
+    Pressable,
     Animated,
     StyleSheet,
     KeyboardAvoidingView,
@@ -40,13 +40,13 @@ export function BaseModal({
             Animated.timing(fadeAnim, {
                 toValue: 1,
                 duration: 200,
-                useNativeDriver: true
+                useNativeDriver: Platform.OS !== 'web'
             }).start();
         } else {
             Animated.timing(fadeAnim, {
                 toValue: 0,
                 duration: 200,
-                useNativeDriver: true
+                useNativeDriver: Platform.OS !== 'web'
             }).start();
         }
     }, [visible, fadeAnim]);
@@ -69,19 +69,23 @@ export function BaseModal({
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 {...webEventHandlers}
             >
-                <TouchableWithoutFeedback onPress={handleBackdropPress}>
-                    <Animated.View 
-                        style={[
-                            styles.backdrop,
-                            {
-                                opacity: fadeAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, 0.5]
-                                })
-                            }
-                        ]}
+                <Animated.View
+                    style={[
+                        styles.backdrop,
+                        {
+                            opacity: fadeAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 0.5]
+                            })
+                        }
+                    ]}
+                >
+                    <Pressable
+                        accessible={false}
+                        onPress={handleBackdropPress}
+                        style={StyleSheet.absoluteFill}
                     />
-                </TouchableWithoutFeedback>
+                </Animated.View>
                 
                 <Animated.View
                     style={[

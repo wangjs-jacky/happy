@@ -5,6 +5,8 @@ import { AlertModalConfig, ConfirmModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import { getModalShadowStyle } from './modalShadow';
+import { t } from '@/text';
 
 interface WebAlertModalProps {
     config: AlertModalConfig | ConfirmModalConfig;
@@ -27,10 +29,10 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
 
     const buttons = isConfirm
         ? [
-            { text: config.cancelText || 'Cancel', style: 'cancel' as const },
-            { text: config.confirmText || 'OK', style: config.destructive ? 'destructive' as const : 'default' as const }
+            { text: config.cancelText || t('common.cancel'), style: 'cancel' as const },
+            { text: config.confirmText || t('common.ok'), style: config.destructive ? 'destructive' as const : 'default' as const }
         ]
-        : config.buttons || [{ text: 'OK', style: 'default' as const }];
+        : config.buttons || [{ text: t('common.ok'), style: 'default' as const }];
 
     const styles = StyleSheet.create({
         container: {
@@ -38,14 +40,7 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
             borderRadius: 14,
             width: 270,
             overflow: 'hidden',
-            shadowColor: theme.colors.shadow.color,
-            shadowOffset: {
-                width: 0,
-                height: 2
-            },
-            shadowOpacity: 0.25,
-            shadowRadius: 4,
-            elevation: 5
+            ...getModalShadowStyle(theme.colors.shadow.color),
         },
         content: {
             paddingHorizontal: 16,

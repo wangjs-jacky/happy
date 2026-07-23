@@ -120,6 +120,7 @@ export default React.memo(() => {
     const [requestingPushPermission, setRequestingPushPermission] = useState(false);
     const [refreshingPushToken, setRefreshingPushToken] = useState(false);
     const [deletingPushToken, setDeletingPushToken] = useState<string | null>(null);
+    const pushNotificationsUnsupported = Platform.OS === 'web' || pushPermission?.status === 'unsupported';
 
     // Get the current secret key
     const currentSecret = auth.credentials?.secret || '';
@@ -521,15 +522,19 @@ export default React.memo(() => {
                 >
                     <Item
                         title={t('pushNotifications.permission')}
-                        detail={formatPushPermissionLabel(pushPermission)}
-                        subtitle={formatPushPermissionSubtitle(pushPermission)}
+                        detail={pushNotificationsUnsupported
+                            ? t('pushNotifications.permissionUnavailable')
+                            : formatPushPermissionLabel(pushPermission)}
+                        subtitle={pushNotificationsUnsupported
+                            ? t('pushNotifications.subtitleUnsupported')
+                            : formatPushPermissionSubtitle(pushPermission)}
                         icon={<Ionicons name="notifications-outline" size={29} color={theme.colors.accent} />}
                         loading={loadingPushSettings}
                         showChevron={false}
                     />
                     <Item
                         title={t('pushNotifications.requestAgain')}
-                        subtitle={pushPermission?.status === 'unsupported'
+                        subtitle={pushNotificationsUnsupported
                             ? t('pushNotifications.requestAgainUnsupported')
                             : pushPermission?.canAskAgain
                             ? t('pushNotifications.requestAgainCanAsk')
@@ -537,18 +542,20 @@ export default React.memo(() => {
                         icon={<Ionicons name="shield-checkmark-outline" size={29} color="#34C759" />}
                         onPress={handlePushPermissionRequest}
                         loading={requestingPushPermission}
-                        disabled={requestingPushPermission || loadingPushSettings || pushPermission?.status === 'unsupported' || !auth.credentials}
+                        disabled={requestingPushPermission || loadingPushSettings || pushNotificationsUnsupported || !auth.credentials}
                         showChevron={false}
                     />
                     <Item
                         title={t('pushNotifications.reRegister')}
-                        subtitle={currentPushToken
-                            ? t('pushNotifications.currentToken', { fingerprint: formatPushTokenFingerprint(currentPushToken) })
-                            : t('pushNotifications.reRegisterSubtitle')}
+                        subtitle={pushNotificationsUnsupported
+                            ? t('pushNotifications.requestAgainUnsupported')
+                            : currentPushToken
+                                ? t('pushNotifications.currentToken', { fingerprint: formatPushTokenFingerprint(currentPushToken) })
+                                : t('pushNotifications.reRegisterSubtitle')}
                         icon={<Ionicons name="refresh-outline" size={29} color="#FF9500" />}
                         onPress={handleRefreshCurrentPushToken}
                         loading={refreshingPushToken}
-                        disabled={refreshingPushToken || loadingPushSettings || !auth.credentials}
+                        disabled={refreshingPushToken || loadingPushSettings || pushNotificationsUnsupported || !auth.credentials}
                         showChevron={false}
                     />
                 </ItemGroup>

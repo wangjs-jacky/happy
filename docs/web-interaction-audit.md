@@ -54,6 +54,10 @@
 | WEB-007 | PC 首页点击 hamburger | permanent sidebar 已经可见，但按钮仍显示且点击无任何行为 | Batch 01 已修复，由 PR #205 合入 `main` |
 | WEB-008 | PC 首页与 `/new` 欢迎标题 | 问候语仍沿用移动端左侧定位，没有进入桌面居中的 800px 输入内容列；360px 行宽还会让原中文标题的末字孤立换行 | Batch 02 已保存[修复前](web-interaction-audit/screenshots/batch-02-new-greeting-before.jpg)与[修复后](web-interaction-audit/screenshots/batch-02-new-greeting-after.jpg)截图；自动化同时保护左边界和代表性中文标题单行排版 |
 | WEB-009 | PC `/new` 返回与头部控件 | 局部返回与全局导航重叠；全局 Web 返回错误依赖导航器栈；800px 附近机器 chip 命中区也有碰撞风险 | Batch 01 已修复，由 PR #205 合入 `main` |
+| WEB-010 | Web 首次打开应用确认弹窗 | 同时出现 `shadow*`、`TouchableWithoutFeedback` 与 `useNativeDriver` 三类弃用或不支持警告 | Batch 06 已迁移 Web 阴影、背景点击组件和动画驱动；E2E 通过登出确认弹窗保护控制台 |
+| WEB-011 | Web 账户页的推送通知分组 | 页面已经显示“不支持”，但“重新注册此设备”仍可点击，点击只会弹出错误 | Batch 06 已在 `unsupported` 状态禁用入口并显示平台说明；E2E 保护不会再弹出无效错误 |
+| WEB-012 | 中文界面的 Web 确认弹窗 | 默认取消按钮仍硬编码为 `Cancel`，与页面和弹窗正文语言不一致 | Batch 06 已让 Alert 与 Prompt 的默认按钮统一使用项目翻译函数 |
+| WEB-013 | Web 自定义弹窗与命令面板模块 | 扩展背景点击回归后，依次暴露设置分组和命令面板的两处 `shadow*` 警告；命令面板实际打开还沿用弃用背景组件和原生动画驱动 | Batch 06 已迁移两处 Web 阴影，并同步修复命令面板背景层与动画驱动；同一弹窗 E2E 保护懒加载路径 |
 
 ## POC 验收检查点
 

@@ -4,6 +4,8 @@ import { BaseModal } from './BaseModal';
 import { PromptModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';
 import { useUnistyles } from 'react-native-unistyles';
+import { getModalShadowStyle } from './modalShadow';
+import { t } from '@/text';
 
 interface WebPromptModalProps {
     config: PromptModalConfig;
@@ -51,14 +53,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             borderRadius: 14,
             width: 270,
             overflow: 'hidden',
-            shadowColor: theme.colors.shadow.color,
-            shadowOffset: {
-                width: 0,
-                height: 2
-            },
-            shadowOpacity: 0.25,
-            shadowRadius: 4,
-            elevation: 5
+            ...getModalShadowStyle(theme.colors.shadow.color),
         },
         content: {
             paddingHorizontal: 16,
@@ -163,7 +158,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                             styles.cancelText,
                             Typography.default()
                         ]}>
-                            {config.cancelText || 'Cancel'}
+                            {config.cancelText || t('common.cancel')}
                         </Text>
                     </Pressable>
                     <View style={styles.buttonSeparator} />
@@ -178,7 +173,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                             styles.buttonText,
                             Typography.default('semiBold')
                         ]}>
-                            {config.confirmText || 'OK'}
+                            {config.confirmText || t('common.ok')}
                         </Text>
                     </Pressable>
                 </View>
