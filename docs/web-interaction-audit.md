@@ -23,9 +23,21 @@
 | 严重级别 | P1：每次侧栏导航都会新增开发期控制台错误 |
 | 根因 | `SidebarNavigator` 知道桌面使用 permanent drawer，但 `SidebarView` 未接收该布局信息，导航前仍无条件派发 `DrawerActions.closeDrawer()` |
 | 修复 | 由 `SidebarNavigator` 显式传入 `closeDrawerOnNavigate`；手机抽屉保持原行为，桌面 permanent drawer 只执行路由导航 |
-| 自动化回归 | `SidebarView.test.tsx` 覆盖手机需要关闭、桌面不应关闭两种行为 |
+| 自动化回归 | `SidebarView.test.tsx` 覆盖关闭行为；`SidebarNavigator.test.tsx` 覆盖 desktop/tablet → `false`、phone → `true` 的调用方映射 |
 | 浏览器回归 | 修复后重复操作一、操作二，均正常导航，点击时间窗口内错误和警告为 0 |
-| 状态 | POC 已修复，等待用户验收 |
+| 交叉审查 | 独立审查发现调用方集成测试缺口；已用“临时恢复回归 → 测试失败 → 恢复修复 → 测试通过”证明回归保护有效 |
+| 状态 | POC 已由用户验收，进入 PR 验证与合并流程 |
+
+## POC 使用的工具与方法
+
+| 目的 | 工具或方法 | 使用方式 |
+|---|---|---|
+| 动态复现 | Browser Control | 复用登录态，从点击前时间戳截取新增控制台日志 |
+| 根因定位 | systematic debugging | 从 `CLOSE_DRAWER` 日志反查派发点，再比较 phone drawer 与 desktop permanent drawer |
+| 隔离修改 | sibling Git worktree | 从最新 `main` 创建独立分支；按项目规范在 pnpm worktree 内重新安装依赖 |
+| 回归保护 | TDD / regression proof | 组件测试覆盖行为，导航器集成测试覆盖布局到 prop 的映射 |
+| 交叉检查 | 独立代码审查 | 检查实现边界、移动端兼容、测试有效性和文档准确性 |
+| 完成验证 | verification before completion | 定向测试、完整测试、类型检查、Web 导出、浏览器原路径回放 |
 
 ## POC 期间发现的其他问题
 

@@ -26,7 +26,7 @@ type SpaceTab = 'workbench' | 'health';
 interface Props {
     agent: AgentLauncher;
     onExit: () => void;
-    /** 导航（由 SidebarView 传入：会先关抽屉再跳转，避免手机端抽屉盖在新页面上）。 */
+    /** 导航（由 SidebarView 传入：可关闭布局先关抽屉再跳转，桌面 permanent drawer 直接跳转）。 */
     onNavigate: (path: string) => void;
     /** 只关闭侧栏抽屉；新会话导航始终由 useEnterAgentSpace 统一执行。 */
     onCloseDrawer: () => void;
