@@ -237,9 +237,9 @@ export const RightSwipePanelHost = React.memo(function RightSwipePanelHost({ chi
                             <View style={{ width: windowWidth }}>
                                 {children}
                                 <Animated.View
-                                    pointerEvents="none"
                                     style={[
                                         {
+                                            pointerEvents: 'none',
                                             position: 'absolute',
                                             top: 0,
                                             left: 0,

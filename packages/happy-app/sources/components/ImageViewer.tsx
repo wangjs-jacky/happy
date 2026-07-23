@@ -126,7 +126,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
             </ScrollView>
 
             {!single && (
-                <View pointerEvents="none" style={[styles.counter, { top: insets.top + 14 }]}>
+                <View style={[styles.counter, { top: insets.top + 14, pointerEvents: 'none' }]}>
                     <Text style={styles.counterText}>{currentIndex + 1} / {sources.length}</Text>
                 </View>
             )}

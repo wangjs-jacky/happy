@@ -382,7 +382,8 @@ export async function startEnvironmentServices(name: string): Promise<void> {
     writePidFile(envDir, "web", webPid);
 
     try {
-        await waitFor(() => isPortInUse(config.expoPort), 30_000, "web");
+        // Metro 首次构建依赖较多，冷启动在开发机上可能超过 30 秒。
+        await waitFor(() => isPortInUse(config.expoPort), 120_000, "web");
     } catch {
         throw new Error(`Web failed to start. Check logs: ${webLogFile}`);
     }

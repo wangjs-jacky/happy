@@ -157,10 +157,27 @@ describe('responsive utilities', () => {
         it('should handle web platform', () => {
             const result = determineDeviceType({
                 diagonalInches: 15, // Large monitor
-                platform: 'web'
+                platform: 'web',
+                widthPoints: 1440,
             });
 
             expect(result).toBe('tablet'); // Large screens are considered tablets
+        });
+
+        it('Web 布局只按视口宽度判断，不受高度形成的对角线影响', () => {
+            const narrowTallViewport = determineDeviceType({
+                diagonalInches: 20,
+                platform: 'web',
+                widthPoints: 799,
+            });
+            const wideShortViewport = determineDeviceType({
+                diagonalInches: 2,
+                platform: 'web',
+                widthPoints: 800,
+            });
+
+            expect(narrowTallViewport).toBe('phone');
+            expect(wideShortViewport).toBe('tablet');
         });
     });
 

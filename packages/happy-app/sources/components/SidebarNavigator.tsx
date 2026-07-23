@@ -146,6 +146,7 @@ const PersistentHeader = React.memo(() => {
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const router = useRouter();
+    const { width: windowWidth } = useWindowDimensions();
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const inTauri = isTauri();
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
@@ -184,13 +185,16 @@ const PersistentHeader = React.memo(() => {
 
     const canGoBackEffective = canGoBack || overlayCanBack;
     const canGoForwardEffective = canGoForward || overlayCanForward;
+    const sidebarWidth = windowWidth >= 800
+        ? Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360)
+        : 0;
 
     return (
         <View
             style={{
                 position: 'absolute',
                 top: 0,
-                left: 0,
+                left: sidebarWidth + 16,
                 right: 0,
                 paddingTop: safeArea.top,
                 paddingLeft: isMacTauri ? TAURI_HEADER_CONTROL_LEFT : 16,
@@ -199,14 +203,14 @@ const PersistentHeader = React.memo(() => {
                 flexDirection: 'row',
                 alignItems: 'center',
                 zIndex: 1100,
+                pointerEvents: 'box-none',
             }}
-            pointerEvents="box-none"
             {...(inTauri ? { dataSet: { tauriDragRegion: 'true' } } : {})}
         >
             {/* Zen / Back / Forward buttons */}
             <View
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                pointerEvents="auto"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, pointerEvents: 'auto' }}
+                testID="desktop-navigation-controls"
                 {...(inTauri ? { dataSet: { tauriDragRegion: 'false' } } : {})}
             >
                 <Pressable

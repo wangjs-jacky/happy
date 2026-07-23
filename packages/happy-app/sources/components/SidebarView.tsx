@@ -233,7 +233,7 @@ export const SidebarView = React.memo(() => {
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + 12 }]}>
             {/* User card — avatar opens the photo, camera changes it, the rest opens settings. */}
-            <View style={styles.userCard}>
+            <View style={styles.userCard} testID="sidebar-user-card">
                 <ProfileAvatarControl profile={profile} size={40} />
                 <Pressable
                     onPress={() => go('/settings')}

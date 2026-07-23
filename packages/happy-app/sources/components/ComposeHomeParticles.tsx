@@ -205,7 +205,7 @@ export const ComposeHomeParticles = React.memo(({ mode }: Props) => {
     }, [blueCfg, size.w, size.h]);
 
     return (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none" onLayout={onLayout}>
+        <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]} onLayout={onLayout}>
             <Canvas style={styles.canvas}>
                 <Points points={greenPts} mode="points" color={pal.green} style="stroke" strokeWidth={3} strokeCap="round" opacity={pal.opacity}>
                     {pal.glow > 0 ? <BlurMask blur={pal.glow} style="solid" /> : null}

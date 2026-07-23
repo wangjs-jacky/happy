@@ -265,7 +265,7 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
                     submitBehavior="newline"
                 />
             ) : (
-                <View pointerEvents="none">
+                <View style={{ pointerEvents: 'none' }}>
                     <Text
                         style={[
                             textStyle,

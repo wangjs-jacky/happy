@@ -1,6 +1,9 @@
 // Pure calculation functions for device dimensions
 // These functions have no dependencies on React Native or platform-specific APIs
 
+// 与 Unistyles 的 lg 断点保持一致；Web 布局只按视口宽度切换。
+export const WEB_TABLET_MIN_WIDTH = 800;
+
 // Calculate device dimensions in inches
 export function calculateDeviceDimensions(params: {
     widthPoints: number;  // Logical points (what RN Dimensions.get returns)
@@ -37,8 +40,13 @@ export function determineDeviceType(params: {
     platform: string;
     isPad?: boolean;
     tabletThresholdInches?: number; // Default is 9 inches
+    widthPoints?: number;
 }): 'phone' | 'tablet' {
-    const { diagonalInches, platform, isPad, tabletThresholdInches = 9 } = params;
+    const { diagonalInches, platform, isPad, tabletThresholdInches = 9, widthPoints } = params;
+
+    if (platform === 'web' && widthPoints !== undefined) {
+        return widthPoints >= WEB_TABLET_MIN_WIDTH ? 'tablet' : 'phone';
+    }
     
     // iOS-specific check: iPads with diagonal > 9" are tablets
     // This treats iPad Mini (7.9-8.3") as a phone

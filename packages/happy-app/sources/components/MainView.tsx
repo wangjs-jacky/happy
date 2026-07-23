@@ -3,10 +3,8 @@ import { View, ActivityIndicator } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRealtimeStatus } from '@/sync/storage';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
-import { useIsTablet } from '@/utils/responsive';
 import { EmptySessionsTablet } from './EmptySessionsTablet';
 import { SessionsList } from './SessionsList';
-import { EmptyMainScreen } from './EmptyMainScreen';
 import { ComposeHome } from './ComposeHome';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { Typography } from '@/constants/Typography';
@@ -53,11 +51,6 @@ const styles = StyleSheet.create((theme) => ({
         flexDirection: 'column',
         backgroundColor: theme.colors.groupped.background,
     },
-    emptyStateContentContainer: {
-        flex: 1,
-        flexBasis: 0,
-        flexGrow: 1,
-    },
     titleContainer: {
         flex: 1,
         alignItems: 'center',
@@ -90,7 +83,6 @@ const styles = StyleSheet.create((theme) => ({
 export const MainView = React.memo(({ variant }: MainViewProps) => {
     const { theme } = useUnistyles();
     const sessionListViewData = useVisibleSessionListViewData();
-    const isTablet = useIsTablet();
     const realtimeStatus = useRealtimeStatus();
 
     // Sidebar variant
@@ -125,20 +117,7 @@ export const MainView = React.memo(({ variant }: MainViewProps) => {
         );
     }
 
-    // Phone variant
-    // Tablet in phone mode - the sessions list lives in the sidebar, so the
-    // main area acts as the "detail" pane. Show the same get-started empty
-    // state used on phone instead of a blank view, otherwise the desktop
-    // layout looks like it is stuck loading when no session is selected yet.
-    if (isTablet) {
-        return (
-            <View style={styles.emptyStateContentContainer}>
-                <EmptyMainScreen />
-            </View>
-        );
-    }
-
-    // Regular phone mode: compose-first home.
+    // 首页主区域在所有宽度下都保持 compose-first；宽屏差异只由外层侧栏承担。
     // The session list now lives in the swipe drawer (SidebarView); settings sits in
     // the top-left of ComposeHome. The old bottom TabBar + per-tab content is gone.
     return (

@@ -172,7 +172,7 @@ export const OtaPreviewFloatingButton = React.memo(function OtaPreviewFloatingBu
     }
 
     return (
-        <View pointerEvents="box-none" style={styles.overlay}>
+        <View style={[styles.overlay, { pointerEvents: 'box-none' }]}>
             <GestureDetector gesture={gesture}>
                 <Animated.View
                     accessible

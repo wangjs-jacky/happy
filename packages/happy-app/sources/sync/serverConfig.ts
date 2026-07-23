@@ -5,10 +5,17 @@ const serverConfigStorage = new MMKV({ id: 'server-config' });
 
 const SERVER_KEY = 'custom-server-url';
 const LOG_SERVER_KEY = 'log-server-url';
-const DEFAULT_SERVER_URL = 'https://47.115.228.20:8443';
+const DEFAULT_SERVER_URL = 'http://47.115.228.20:3005';
+const LEGACY_DEFAULT_SERVER_URL = 'https://47.115.228.20:8443';
 
 export function getServerUrl(): string {
-    return serverConfigStorage.getString(SERVER_KEY) ||
+    const storedUrl = serverConfigStorage.getString(SERVER_KEY);
+    // 清理旧版本默认地址，让已有设备自动切换到新的 API 端口。
+    if (storedUrl === LEGACY_DEFAULT_SERVER_URL) {
+        serverConfigStorage.delete(SERVER_KEY);
+    }
+
+    return (storedUrl === LEGACY_DEFAULT_SERVER_URL ? undefined : storedUrl) ||
            (globalThis as any).__HAPPY_CONFIG__?.serverUrl ||
            process.env.EXPO_PUBLIC_HAPPY_SERVER_URL ||
            DEFAULT_SERVER_URL;

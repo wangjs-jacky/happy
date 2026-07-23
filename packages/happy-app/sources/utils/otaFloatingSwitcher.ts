@@ -1,4 +1,5 @@
 export interface OtaFloatingSwitcherRuntime {
+    platform?: string | null;
     appConfigChannel?: string | null;
     updatesChannel?: string | null;
     applicationId?: string | null;
@@ -13,6 +14,10 @@ function normalize(value?: string | null): string | null {
 }
 
 export function shouldShowOtaFloatingSwitcher(runtime: OtaFloatingSwitcherRuntime): boolean {
+    if (normalize(runtime.platform) === 'web') {
+        return false;
+    }
+
     const appConfigChannel = normalize(runtime.appConfigChannel);
     const updatesChannel = normalize(runtime.updatesChannel);
     const applicationId = normalize(runtime.applicationId);

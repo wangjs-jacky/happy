@@ -77,7 +77,7 @@ const ThemeTransitionOverlay = React.memo(function ThemeTransitionOverlay() {
 
     if (!uri) return null;
     return (
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+        <Animated.View style={[StyleSheet.absoluteFill, style, { pointerEvents: 'none' }]}>
             <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" onLoad={onLoaded} />
         </Animated.View>
     );
