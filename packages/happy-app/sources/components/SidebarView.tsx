@@ -270,6 +270,7 @@ export const SidebarView = React.memo(({
             {/* New Session button */}
             <Pressable
                 onPress={() => go('/new')}
+                testID="sidebar-new-session-button"
                 style={({ pressed }) => [
                     styles.newSessionButton,
                     pressed && styles.newSessionButtonPressed,

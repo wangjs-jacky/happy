@@ -53,3 +53,54 @@ test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
 
     await page.screenshot({ path: 'test-results/desktop-sidebar-navigation.png', fullPage: true });
 });
+
+test('手机首页保留菜单按钮并能打开抽屉', async ({ page }) => {
+    await page.setViewportSize({ width: 799, height: 900 });
+    await page.goto(authenticatedWebUrl);
+    await expect(page.getByRole('textbox')).toBeVisible();
+
+    const phoneDrawerButton = page.getByTestId('compose-home-drawer-button');
+    const sidebarCard = page.getByTestId('sidebar-user-card');
+    await expect(phoneDrawerButton).toBeVisible();
+    const closedSidebarBox = await sidebarCard.boundingBox();
+    expect(closedSidebarBox).not.toBeNull();
+    expect(closedSidebarBox!.x + closedSidebarBox!.width).toBeLessThanOrEqual(0);
+
+    await phoneDrawerButton.click();
+    await expect.poll(async () => (await sidebarCard.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+});
+
+for (const width of [800, 1280]) {
+    test(`宽度 ${width}px 的桌面首页不显示手机抽屉菜单`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(authenticatedWebUrl);
+        await expect(page.getByRole('textbox')).toBeVisible();
+
+        await expect(page.getByTestId('compose-home-drawer-button')).toHaveCount(0);
+    });
+}
+
+for (const width of [800, 1280]) {
+    test(`宽度 ${width}px 的 /new 使用全局返回，且头部控件命中区域不重叠`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(authenticatedWebUrl);
+        await expect(page.getByRole('textbox')).toBeVisible();
+        await page.getByTestId('sidebar-new-session-button').click();
+        await expect(page).toHaveURL(new URL('/new', authenticatedWebUrl).toString());
+
+        await expect(page.getByTestId('compose-home-back-button')).toHaveCount(0);
+        const navigationControls = page.getByTestId('desktop-navigation-controls');
+        const backButton = page.getByTestId('desktop-navigation-back-button');
+        const modelChip = page.locator('[data-testid="compose-home-model-chip"]:visible');
+        const controlsBox = await navigationControls.boundingBox();
+        const modelChipBox = await modelChip.boundingBox();
+        expect(controlsBox).not.toBeNull();
+        expect(modelChipBox).not.toBeNull();
+        expect(modelChipBox!.x - 8).toBeGreaterThanOrEqual(controlsBox!.x + controlsBox!.width + 10);
+        await expect(backButton).toBeEnabled();
+        await backButton.click();
+
+        await expect(page).toHaveURL(authenticatedWebUrl);
+        await expect(page.getByRole('textbox')).toBeVisible();
+    });
+}

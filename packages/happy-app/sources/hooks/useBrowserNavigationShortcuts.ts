@@ -1,6 +1,7 @@
 import { useModal } from '@/modal';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
 import {
+    canRouteBack,
     canRouteForward,
     canUseRouteBack,
     getNavigatorCanGoBack,
@@ -15,6 +16,14 @@ import { Platform } from 'react-native';
 
 function runRouteBack(router: ReturnType<typeof useRouter>): boolean {
     const nav = useBrowserNavigationStore.getState();
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        if (!nav.routeHistory || !canRouteBack(nav.routeHistory)) {
+            return false;
+        }
+        nav.markRouteBack();
+        window.history.back();
+        return true;
+    }
     if (!nav.routeHistory || !canUseRouteBack(nav.routeHistory, getNavigatorCanGoBack(router))) {
         return false;
     }

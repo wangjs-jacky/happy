@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View, Text, Pressable, LayoutAnimation, ScrollView } from 'react-native';
+import { View, Text, Pressable, LayoutAnimation, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -7,11 +7,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Header } from './navigation/Header';
+import { layout } from './layout';
 import { MessageComposer } from './MessageComposer';
 import type { MultiTextInputHandle } from './MultiTextInput';
 import { SessionConfigPanel, type SessionConfigPanelHandle } from './SessionConfigPanel';
 import { ComposeHomeParticles } from './ComposeHomeParticles';
-import { useHeaderHeight } from '@/utils/responsive';
+import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
+import { getPersistentHeaderContentInset, TAURI_HEADER_CONTROL_LEFT } from '@/utils/desktopNavigationLayout';
+import { isTauri } from '@/utils/isTauri';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { storage, useProfile, useAllMachines, useLocalSetting, useSetting, useSettingMutable } from '@/sync/storage';
@@ -96,11 +99,9 @@ function getMachineName(machine: Machine | undefined): string | null {
  * elsewhere. Creating a new worktree / spawning on an offline machine is not
  * supported here.
  *
- * Two variants:
- *  - 'home'   (default): the phone home. Header shows the drawer hamburger (session
- *             list) on the left and the settings avatar on the right.
- *  - 'screen': pushed as the `/new` route (tablet empty state, command palette,
- *             home header "+", …). Header shows a back button and drops the avatar.
+ * 两种模式：
+ *  - 'home'（默认）：主首页；手机布局左侧显示会话抽屉按钮，所有布局右侧显示设置头像。
+ *  - 'screen'：作为 `/new` 路由打开；手机布局显示局部返回按钮，桌面布局使用持久导航控件。
  */
 type ComposeHomeProps = {
     variant?: 'home' | 'screen';
@@ -113,6 +114,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
+    const isTablet = useIsTablet();
+    const { width: windowWidth } = useWindowDimensions();
+    const inTauri = isTauri();
+    const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
     const profile = useProfile();
     const machines = useAllMachines();
     const askApi = useLocalSetting('askApi');
@@ -310,7 +315,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [router]);
 
     const goBack = React.useCallback(() => {
-        router.back();
+        if (router.canGoBack()) {
+            router.back();
+            return;
+        }
+        router.replace('/');
     }, [router]);
 
     const openImageStyleMode = React.useCallback(() => {
@@ -678,6 +687,16 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     // isSendDisabled) instead of letting a doomed spawn through.
     const canSpawn = online && worktreeKey !== '__new__';
     const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
+    const persistentHeaderContentInset = isTablet
+        ? getPersistentHeaderContentInset({
+            windowWidth,
+            headerMaxWidth: layout.headerMaxWidth,
+            headerHorizontalPadding: Platform.select({ ios: 8, default: 16 }) ?? 16,
+            controlStartPadding: isMacTauri ? TAURI_HEADER_CONTROL_LEFT : 0,
+            buttonCount: Platform.OS === 'web' ? 3 : 2,
+            targetHitSlop: 8,
+        })
+        : 0;
 
     const modelChip = (
         <View style={styles.modelChip}>
@@ -708,7 +727,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     })}
                 </View>
             )}
-            <Pressable onPress={togglePanel} hitSlop={8} style={styles.modelChipTarget}>
+            <Pressable
+                onPress={togglePanel}
+                hitSlop={8}
+                style={styles.modelChipTarget}
+                testID="compose-home-model-chip"
+            >
                 <View style={[styles.dot, { backgroundColor: online ? theme.colors.status.connected : theme.colors.status.disconnected }]} />
                 <Text style={styles.modelChipMachine} numberOfLines={1}>
                     {machineName ?? t('agentInput.noMachinesAvailable')}
@@ -725,16 +749,27 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 title={modelChip}
                 headerShadowVisible={false}
                 headerTransparent={true}
+                headerContentLeftInset={persistentHeaderContentInset}
                 headerLeft={() => (
-                    isScreen ? (
-                        <Pressable onPress={goBack} hitSlop={12} style={styles.headerButton}>
+                    isScreen && !isTablet ? (
+                        <Pressable
+                            onPress={goBack}
+                            hitSlop={12}
+                            style={styles.headerButton}
+                            testID="compose-home-back-button"
+                        >
                             <Ionicons name="chevron-back" size={28} color={theme.colors.header.tint} />
                         </Pressable>
-                    ) : (
-                        <Pressable onPress={openDrawer} hitSlop={12} style={styles.headerButton}>
+                    ) : !isScreen && !isTablet ? (
+                        <Pressable
+                            onPress={openDrawer}
+                            hitSlop={12}
+                            style={styles.headerButton}
+                            testID="compose-home-drawer-button"
+                        >
                             <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
                         </Pressable>
-                    )
+                    ) : null
                 )}
                 headerRight={isScreen ? undefined : () => (
                     <Pressable onPress={openSettings} hitSlop={12} style={styles.headerButton}>
