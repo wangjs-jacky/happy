@@ -1221,7 +1221,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 </View>
                             )}
 
-                            <View style={{ opacity: isOffline ? 0.4 : 1 }} pointerEvents={isOffline ? 'none' : 'auto'}>
+                            <View style={{ opacity: isOffline ? 0.4 : 1, pointerEvents: isOffline ? 'none' : 'auto' }}>
                                 {configExperience.showPath && (
                                     <>
                                         <Pressable

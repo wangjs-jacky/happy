@@ -431,8 +431,7 @@ const ChatListInternal = React.memo((props: {
                 <Animated.View
                     entering={FadeIn.duration(180)}
                     exiting={FadeOut.duration(260)}
-                    style={styles.anchorPillContainer}
-                    pointerEvents="box-none"
+                    style={[styles.anchorPillContainer, { pointerEvents: 'box-none' }]}
                 >
                     <Pressable
                         onPress={openAnchorSheet}

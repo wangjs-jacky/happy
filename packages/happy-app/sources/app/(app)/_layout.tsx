@@ -349,12 +349,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="dev/masked-progress"
-                options={{
-                    headerTitle: t('devTools.maskedProgress'),
-                }}
-            />
-            <Stack.Screen
                 name="dev/shimmer-demo"
                 options={{
                     headerTitle: t('devTools.shimmerView'),

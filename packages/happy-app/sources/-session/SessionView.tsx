@@ -396,8 +396,8 @@ export const SessionView = React.memo((props: { id: string }) => {
                 {mainContent}
                 {diffViewOpen && canShowSidebar && (
                     <View
-                        pointerEvents="box-none"
                         style={{
+                            pointerEvents: 'box-none',
                             position: 'absolute',
                             top: safeArea.top + headerHeight,
                             left: 0,
@@ -415,8 +415,8 @@ export const SessionView = React.memo((props: { id: string }) => {
                 )}
                 {fileViewPath && canShowSidebar && (
                     <View
-                        pointerEvents="box-none"
                         style={{
+                            pointerEvents: 'box-none',
                             position: 'absolute',
                             top: safeArea.top + headerHeight,
                             left: 0,

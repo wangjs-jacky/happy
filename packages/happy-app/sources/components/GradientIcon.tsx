@@ -42,7 +42,7 @@ export const GradientIcon = React.memo(function GradientIcon({
                 style={StyleSheet.absoluteFill}
             />
             {/* 顶部高光，增加立体质感 */}
-            <View style={styles.gloss} pointerEvents="none" />
+            <View style={[styles.gloss, { pointerEvents: 'none' }]} />
             <Ionicons name={name} size={size * 0.58} color="#FFFFFF" style={styles.glyph} />
         </View>
     );

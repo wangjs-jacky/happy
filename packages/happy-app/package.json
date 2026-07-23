@@ -210,6 +210,7 @@
     "@expo/config-plugins": "~55.0.0",
     "@expo/ngrok": "^4.1.0",
     "@material/material-color-utilities": "^0.3.0",
+    "@playwright/test": "^1.61.1",
     "@stablelib/hex": "^2.0.1",
     "@types/react": "~19.1.10",
     "babel-plugin-transform-remove-console": "^6.9.4",

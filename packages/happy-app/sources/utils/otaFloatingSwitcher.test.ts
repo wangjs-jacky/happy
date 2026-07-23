@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { shouldShowOtaFloatingSwitcher } from './otaFloatingSwitcher';
 
 describe('shouldShowOtaFloatingSwitcher', () => {
+    it('does not mount the native OTA switcher on web', () => {
+        expect(shouldShowOtaFloatingSwitcher({
+            platform: 'web',
+            appConfigChannel: 'preview',
+            updatesChannel: 'preview',
+            applicationId: 'build.paws.preview',
+            isDev: true,
+            devModeEnabled: true,
+        })).toBe(false);
+    });
+
     it('shows whenever developer mode is enabled', () => {
         expect(shouldShowOtaFloatingSwitcher({
             appConfigChannel: 'production',

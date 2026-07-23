@@ -233,6 +233,7 @@ export default function RootLayout() {
     const appConfig = React.useMemo(() => loadAppConfig(), []);
     const devModeEnabled = __DEV__ || useLocalSetting('devModeEnabled');
     const showOtaFloatingSwitcher = shouldShowOtaFloatingSwitcher({
+        platform: Platform.OS,
         appConfigChannel: appConfig.otaChannel,
         updatesChannel: Updates.channel,
         applicationId: Application.applicationId,
