@@ -82,6 +82,73 @@ test('Web 外观设置不会使用已弃用的 shadow 样式或 pointerEvents �
     expect(deprecatedPointerEventsWarnings).toEqual([]);
 });
 
+test('Web 弹窗不会触发已弃用样式、组件或原生动画警告', async ({ page }) => {
+    const modalWarnings: string[] = [];
+    page.on('console', (message) => {
+        if (
+            message.type() === 'warning'
+            && (
+                message.text().includes('"shadow*" style props are deprecated')
+                || message.text().includes('TouchableWithoutFeedback is deprecated')
+                || message.text().includes('useNativeDriver` is not supported')
+            )
+        ) {
+            modalWarnings.push(message.text());
+        }
+    });
+
+    await page.goto(authenticatedWebUrl);
+    await expect(page.getByRole('textbox')).toBeVisible();
+    await page.goto(new URL('/settings/account', authenticatedWebUrl).toString());
+    await page.getByText('Logout', { exact: true }).click();
+    await expect(page.getByText('Are you sure you want to logout?', { exact: false })).toBeVisible();
+    await page.getByText('Cancel', { exact: true }).click();
+
+    await page.goto(new URL('/dev/modal-demo', authenticatedWebUrl).toString());
+    await page.getByText('Custom Modal', { exact: true }).first().click();
+    const customModalMessage = page.getByText(
+        'This is a completely custom modal component. You can put anything in here!',
+        { exact: true },
+    );
+    await expect(customModalMessage).toBeVisible();
+    await page.getByText('Custom Modal', { exact: true }).last().click();
+    await expect(customModalMessage).toBeVisible();
+    await page.mouse.click(10, 10);
+    await expect(customModalMessage).toHaveCount(0);
+
+    expect(modalWarnings).toEqual([]);
+});
+
+test('Web 账户页不会让用户触发不支持的推送重新注册', async ({ page }) => {
+    await page.goto(authenticatedWebUrl);
+    await expect(page.getByRole('textbox')).toBeVisible();
+    await page.goto(new URL('/settings/account', authenticatedWebUrl).toString());
+    await expect(page.getByText('Unavailable', { exact: true })).toBeVisible();
+
+    const reRegisterAction = page.getByText('Re-register This Device', { exact: true });
+    const isDisabled = await reRegisterAction.evaluate((element) => {
+        let current: HTMLElement | null = element as HTMLElement;
+        while (current) {
+            if (
+                current.getAttribute('aria-disabled') === 'true'
+                || ('disabled' in current && (current as HTMLButtonElement).disabled)
+            ) {
+                return true;
+            }
+            current = current.parentElement;
+        }
+        return false;
+    });
+    expect(isDisabled).toBe(true);
+
+    await reRegisterAction.click({ force: true });
+    await page.waitForTimeout(300);
+
+    await expect(
+        page.getByText('Push notifications are not enabled for this device yet.', { exact: true }),
+    ).toHaveCount(0);
+});
+
 test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(authenticatedWebUrl);

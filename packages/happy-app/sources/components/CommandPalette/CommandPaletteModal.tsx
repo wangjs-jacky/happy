@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import {
     View,
     Modal,
-    TouchableWithoutFeedback,
+    Pressable,
     Animated,
     StyleSheet,
     KeyboardAvoidingView,
@@ -31,13 +31,13 @@ export function CommandPaletteModal({
                 Animated.timing(fadeAnim, {
                     toValue: 1,
                     duration: 200,
-                    useNativeDriver: true
+                    useNativeDriver: Platform.OS !== 'web'
                 }),
                 Animated.spring(scaleAnim, {
                     toValue: 1,
                     friction: 10,
                     tension: 60,
-                    useNativeDriver: true
+                    useNativeDriver: Platform.OS !== 'web'
                 })
             ]).start();
         }
@@ -49,12 +49,12 @@ export function CommandPaletteModal({
             Animated.timing(fadeAnim, {
                 toValue: 0,
                 duration: 150,
-                useNativeDriver: true
+                useNativeDriver: Platform.OS !== 'web'
             }),
             Animated.timing(scaleAnim, {
                 toValue: 0.95,
                 duration: 150,
-                useNativeDriver: true
+                useNativeDriver: Platform.OS !== 'web'
             })
         ]).start(() => {
             setIsModalVisible(false);
@@ -86,19 +86,23 @@ export function CommandPaletteModal({
                 style={styles.container}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
-                <TouchableWithoutFeedback onPress={handleBackdropPress}>
-                    <Animated.View 
-                        style={[
-                            styles.backdrop,
-                            {
-                                opacity: fadeAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, 0.7]
-                                })
-                            }
-                        ]}
+                <Animated.View
+                    style={[
+                        styles.backdrop,
+                        {
+                            opacity: fadeAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0, 0.7]
+                            })
+                        }
+                    ]}
+                >
+                    <Pressable
+                        accessible={false}
+                        onPress={handleBackdropPress}
+                        style={StyleSheet.absoluteFill}
                     />
-                </TouchableWithoutFeedback>
+                </Animated.View>
                 
                 <Animated.View
                     style={[

@@ -58,14 +58,21 @@ const styles = StyleSheet.create({
             maxHeight: 500, // Fallback for native
         }),
         overflow: 'hidden',
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 20,
-        },
-        shadowOpacity: 0.25,
-        shadowRadius: 40,
-        elevation: 20,
+        ...Platform.select({
+            web: {
+                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: {
+                    width: 0,
+                    height: 20,
+                },
+                shadowOpacity: 0.25,
+                shadowRadius: 40,
+                elevation: 20,
+            },
+        }),
         borderWidth: 1,
         borderColor: 'rgba(0, 0, 0, 0.08)',
     },
