@@ -112,6 +112,6 @@ pointerEvents={visible ? 'auto' : 'none'}
 - 独立代码审查：第一轮无 Critical，发现 1 个 Important——新样式位于数组开头会改变
   原 prop 的覆盖优先级；将 `pointerEvents` 移到数组最后并重跑 E2E 后，复审确认该项已
   关闭，无剩余 Critical/Important。
-- PR：等待创建。
-- CI：等待执行。
-- merge commit：等待合并。
+- PR：[#208](https://github.com/wangjs-jacky/happy/pull/208)。
+- CI：`typecheck` 通过；`publish-preview` 通过，并生成独立 preview OTA 历史版本。
+- merge commit：`b45db4da140e6a23d20e065146ba7a9f58fab2e9`。
