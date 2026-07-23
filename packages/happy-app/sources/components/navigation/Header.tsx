@@ -21,6 +21,7 @@ interface HeaderProps {
     headerShadowVisible?: boolean;
     headerTransparent?: boolean;
     safeAreaEnabled?: boolean;
+    headerContentLeftInset?: number;
 }
 
 export const Header = React.memo((props: HeaderProps) => {
@@ -39,6 +40,7 @@ export const Header = React.memo((props: HeaderProps) => {
         headerShadowVisible = true,
         headerTransparent = false,
         safeAreaEnabled = true,
+        headerContentLeftInset = 0,
     } = props;
 
     const insets = useSafeAreaInsets();
@@ -64,7 +66,15 @@ export const Header = React.memo((props: HeaderProps) => {
     return (
         <View style={[containerStyle]}>
             <View style={styles.contentWrapper}>
-                <View style={[styles.content, { height: headerHeight }]}>
+                <View
+                    style={[
+                        styles.content,
+                        {
+                            height: headerHeight,
+                            paddingLeft: (Platform.select({ ios: 8, default: 16 }) ?? 16) + headerContentLeftInset,
+                        },
+                    ]}
+                >
                     <View style={styles.leftContainer}>
                         {headerLeft && headerLeft()}
                     </View>

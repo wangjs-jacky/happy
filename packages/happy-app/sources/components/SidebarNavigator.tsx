@@ -13,12 +13,14 @@ import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { isTauri } from '@/utils/isTauri';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
-import { DEFAULT_APP_ZOOM } from '@/hooks/useTauriZoom';
-import { canRouteForward, canUseRouteBack, getNavigatorCanGoBack } from '@/navigation/browserNavigation';
+import { canRouteBack, canRouteForward, canUseRouteBack, getNavigatorCanGoBack } from '@/navigation/browserNavigation';
 import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
 import { useSessionSelection } from '@/hooks/useSessionSelection';
-
-const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
+import {
+    getDesktopSidebarWidth,
+    getPersistentHeaderPointerEvents,
+    TAURI_HEADER_CONTROL_LEFT,
+} from '@/utils/desktopNavigationLayout';
 
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
@@ -34,7 +36,7 @@ export const SidebarNavigator = React.memo(() => {
     // Calculate target drawer width
     const fullDrawerWidth = React.useMemo(() => {
         if (!isDesktopLayout) return 320;
-        return Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360);
+        return getDesktopSidebarWidth(windowWidth);
     }, [windowWidth, isDesktopLayout]);
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;
 
@@ -156,7 +158,9 @@ const PersistentHeader = React.memo(() => {
     const overlayCanBack = useOverlayNav((s) => s.canBack);
     const overlayCanForward = useOverlayNav((s) => s.canForward);
     const canGoBack = routeHistory
-        ? canUseRouteBack(routeHistory, getNavigatorCanGoBack(router))
+        ? Platform.OS === 'web'
+            ? canRouteBack(routeHistory)
+            : canUseRouteBack(routeHistory, getNavigatorCanGoBack(router))
         : false;
 
     const handleZenToggle = React.useCallback(() => {
@@ -168,6 +172,12 @@ const PersistentHeader = React.memo(() => {
         // so the chat → diff → file flow can be unwound without a close X.
         if (useOverlayNav.getState().back()) return;
         const nav = useBrowserNavigationStore.getState();
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            if (!nav.routeHistory || !canRouteBack(nav.routeHistory)) return;
+            nav.markRouteBack();
+            window.history.back();
+            return;
+        }
         if (!nav.routeHistory || !canUseRouteBack(nav.routeHistory, getNavigatorCanGoBack(router))) return;
         nav.markRouteBack();
         router.back();
@@ -185,9 +195,7 @@ const PersistentHeader = React.memo(() => {
 
     const canGoBackEffective = canGoBack || overlayCanBack;
     const canGoForwardEffective = canGoForward || overlayCanForward;
-    const sidebarWidth = windowWidth >= 800
-        ? Math.min(Math.max(Math.floor(windowWidth * 0.3), 250), 360)
-        : 0;
+    const sidebarWidth = getDesktopSidebarWidth(windowWidth);
 
     return (
         <View
@@ -203,7 +211,13 @@ const PersistentHeader = React.memo(() => {
                 flexDirection: 'row',
                 alignItems: 'center',
                 zIndex: 1100,
-                pointerEvents: 'box-none',
+                // RN Web 无法稳定转换 style.pointerEvents="box-none"：全宽浮层在控件外
+                // 仍可能成为命中目标。普通 Web 使用 none，并由子控件的 auto 恢复点击；
+                // Tauri 与原生端保留 box-none，避免破坏窗口拖拽区。
+                pointerEvents: getPersistentHeaderPointerEvents({
+                    isWeb: Platform.OS === 'web',
+                    inTauri,
+                }),
             }}
             {...(inTauri ? { dataSet: { tauriDragRegion: 'true' } } : {})}
         >
@@ -226,7 +240,13 @@ const PersistentHeader = React.memo(() => {
                         tintColor={zenMode ? theme.colors.textLink : theme.colors.header.tint}
                     />
                 </Pressable>
-                <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
+                <Pressable
+                    onPress={handleBack}
+                    disabled={!canGoBackEffective}
+                    hitSlop={10}
+                    style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}
+                    testID="desktop-navigation-back-button"
+                >
                     <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
                 </Pressable>
                 {Platform.OS === 'web' && (

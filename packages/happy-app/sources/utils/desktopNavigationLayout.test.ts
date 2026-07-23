@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+import {
+    getDesktopSidebarWidth,
+    getPersistentHeaderPointerEvents,
+    getPersistentHeaderContentInset,
+    getPersistentNavigationControlsWidth,
+} from './desktopNavigationLayout';
+
+describe('desktopNavigationLayout', () => {
+    it.each([
+        { width: 799, expected: 0 },
+        { width: 800, expected: 250 },
+        { width: 1280, expected: 360 },
+        { width: 1600, expected: 360 },
+    ])('calculates the desktop sidebar width at $width px', ({ width, expected }) => {
+        expect(getDesktopSidebarWidth(width)).toBe(expected);
+    });
+
+    it('calculates the rendered controls width from the real button geometry', () => {
+        expect(getPersistentNavigationControlsWidth(3)).toBe(92);
+        expect(getPersistentNavigationControlsWidth(2)).toBe(60);
+    });
+
+    it.each([
+        { isWeb: true, inTauri: false, expected: 'none' },
+        { isWeb: true, inTauri: true, expected: 'box-none' },
+        { isWeb: false, inTauri: false, expected: 'box-none' },
+    ] as const)(
+        'uses $expected pointer events for isWeb=$isWeb, inTauri=$inTauri',
+        ({ isWeb, inTauri, expected }) => {
+            expect(getPersistentHeaderPointerEvents({ isWeb, inTauri })).toBe(expected);
+        },
+    );
+
+    it.each([
+        { width: 800, expected: 114 },
+        { width: 1280, expected: 54 },
+        { width: 1470, expected: 0 },
+    ])('only reserves the Web header area that overlaps at $width px', ({ width, expected }) => {
+        expect(getPersistentHeaderContentInset({
+            windowWidth: width,
+            headerMaxWidth: 800,
+            headerHorizontalPadding: 16,
+            buttonCount: 3,
+            targetHitSlop: 8,
+        })).toBe(expected);
+    });
+});
