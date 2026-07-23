@@ -48,7 +48,7 @@
 |---|---|---|---|
 | WEB-002 | 旧基线点击“新建会话” | `CanvasKit is not defined`，随后大量 `PictureRecorder` 异常 | 最新 `origin/main` 已通过 `ComposeHomeParticles.web.tsx` 处理；修复基线上未再复现 |
 | WEB-003 | 旧基线启动 | 路由文件缺少默认导出、布局声明了不存在的开发路由 | 最新 `origin/main` 已调整路由文件位置和声明；修复基线上未再复现 |
-| WEB-004 | 页面加载 | Web 端 push token change listener 不受支持 | 待全量审计确认是否应在 Web 跳过注册 |
+| WEB-004 | 页面加载 | Web 端 push token change listener 不受支持，每次干净启动都会产生警告 | Batch 03 已在依赖自动注册副作用处增加 Web 平台守卫；E2E 保护控制台，PR 状态见批次记录 |
 | WEB-005 | 页面加载 | `props.pointerEvents` 已弃用 | 待按组件堆栈定位调用点 |
 | WEB-006 | 打开外观页 | `"shadow*" style props are deprecated. Use "boxShadow".` | 待按外观页实际渲染组件定位 |
 | WEB-007 | PC 首页点击 hamburger | permanent sidebar 已经可见，但按钮仍显示且点击无任何行为 | Batch 01 已修复，由 PR #205 合入 `main` |
