@@ -130,6 +130,6 @@ Web export: passed
 ## 十、交叉审查、PR 与合并
 
 - 独立代码审查：三轮均无 Critical；Tauri drag region、固定偏移和返回语义 3 个 Important 已按共享布局、平台分支和浏览器真实历史修正。最终复审确认代码无阻塞项；旧版截图也已用最终实现重新采集。
-- PR：等待创建。
-- CI：等待执行。
-- merge commit：等待合并。
+- PR：[#205](https://github.com/wangjs-jacky/happy/pull/205)。
+- CI：`typecheck` 通过；`publish-preview` 通过，并生成独立 preview OTA 历史版本。
+- merge commit：`d7a8173ff1e46ffd74a3fa5b9e9c1ead9a6f1daf`。

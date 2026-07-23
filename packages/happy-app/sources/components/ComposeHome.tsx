@@ -789,15 +789,20 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             >
                 <View style={styles.greetWrap}>
                     <ComposeHomeParticles mode={theme.dark ? 'dark' : 'light'} />
-                    <Text style={styles.greeting}>
-                        {displayAgent
-                            ? t('composeHome.greetingAgent', { name: displayAgent.name })
-                            : activeImageAgent
-                                ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
-                                : name
-                                    ? t('composeHome.greeting', { name })
-                                    : t('composeHome.greetingNoName')}
-                    </Text>
+                    <View style={styles.greetingContent}>
+                        <Text
+                            style={[styles.greeting, isTablet && styles.greetingDesktop]}
+                            testID="compose-home-greeting"
+                        >
+                            {displayAgent
+                                ? t('composeHome.greetingAgent', { name: displayAgent.name })
+                                : activeImageAgent
+                                    ? t('composeHome.greetingAgent', { name: t('agents.imageStyleAgent') })
+                                    : name
+                                        ? t('composeHome.greeting', { name })
+                                        : t('composeHome.greetingNoName')}
+                        </Text>
+                    </View>
                 </View>
 
                 <View style={[styles.composer, { paddingBottom: insets.bottom + 12 }]}>
@@ -1104,12 +1109,20 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 26,
         paddingTop: 28,
     },
+    greetingContent: {
+        width: '100%',
+        maxWidth: layout.maxWidth,
+        alignSelf: 'center',
+    },
     greeting: {
         ...Typography.display('semiBold'),
         fontSize: 26,
         lineHeight: 34,
         color: theme.colors.text,
         maxWidth: 360,
+    },
+    greetingDesktop: {
+        maxWidth: 520,
     },
     composer: {
         paddingHorizontal: 14,

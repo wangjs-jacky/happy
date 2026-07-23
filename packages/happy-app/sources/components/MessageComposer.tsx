@@ -819,7 +819,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             <View style={[
                 styles.innerContainer,
                 { maxWidth: layout.maxWidth }
-            ]}>
+            ]} testID="message-composer-content">
                 {/* Autocomplete suggestions overlay */}
                 {suggestions.length > 0 && (
                     <View style={[
