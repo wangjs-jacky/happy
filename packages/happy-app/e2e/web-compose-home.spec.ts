@@ -49,6 +49,20 @@ test('Web 启动不会注册无效的 push token listener', async ({ page }) => 
     expect(unsupportedPushTokenWarnings).toEqual([]);
 });
 
+test('Web 启动不会使用已弃用的 pointerEvents 组件属性', async ({ page }) => {
+    const deprecatedPointerEventsWarnings: string[] = [];
+    page.on('console', (message) => {
+        if (message.type() === 'warning' && message.text().includes('props.pointerEvents is deprecated')) {
+            deprecatedPointerEventsWarnings.push(message.text());
+        }
+    });
+
+    await page.goto(new URL('/new', authenticatedWebUrl).toString());
+    await expect(page.getByRole('textbox')).toBeVisible();
+
+    expect(deprecatedPointerEventsWarnings).toEqual([]);
+});
+
 test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(authenticatedWebUrl);

@@ -96,6 +96,6 @@ error：0
 - TypeScript：passed。
 - Web export：passed。
 - 独立代码审查：第一轮无 Critical，发现 1 个 Important——依赖存在但目标文件改名时补丁会 fail-open；改为依赖存在、目标缺失立即报错后，复审确认该项已关闭，无剩余 Critical/Important。
-- PR：等待创建。
-- CI：等待执行。
-- merge commit：等待合并。
+- PR：[#207](https://github.com/wangjs-jacky/happy/pull/207)。
+- CI：`typecheck` 通过；`publish-preview` 通过，并生成独立 preview OTA 历史版本。
+- merge commit：`fd1971aded07e63ffe16d041cc41c20603ca1b0a`。

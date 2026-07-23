@@ -7,6 +7,7 @@ require('../patches/expose-pierre-diffs-style.cjs');
 require('../patches/force-preact-cjs.cjs');
 require('../patches/fix-pierre-trees-preact-hooks.cjs');
 require('../patches/skip-expo-notifications-web-token-listener.cjs');
+require('../patches/fix-react-navigation-web-pointer-events.cjs');
 
 if (process.env.SKIP_HAPPY_WIRE_BUILD === '1') {
   console.log('[postinstall] SKIP_HAPPY_WIRE_BUILD=1, skipping @slopus/happy-wire build');
