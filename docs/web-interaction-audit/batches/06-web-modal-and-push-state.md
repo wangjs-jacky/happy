@@ -156,6 +156,6 @@ Web 不支持操作错误弹窗：0
 - Web export：passed；首屏加载占位注入成功，临时 Metro 配置已经恢复。
 - 独立代码审查：首轮 2 个 Important、2 个 Minor 均已关闭；命令面板追加修复复审后
   Critical、Important、Minor 均为 0，可以合并。
-- PR：等待创建。
+- PR：[#210](https://github.com/wangjs-jacky/happy/pull/210)。
 - CI：等待执行。
 - merge commit：等待合并。
