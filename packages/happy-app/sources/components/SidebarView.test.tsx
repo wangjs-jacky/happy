@@ -110,4 +110,22 @@ describe('SidebarView Agent space exit', () => {
         expect(mocks.navigate).toHaveBeenCalledWith('/');
         act(() => renderer.unmount());
     });
+
+    it('does not close a permanent desktop drawer before navigation', () => {
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarView closeDrawerOnNavigate={false} />,
+            );
+        });
+
+        const workbench = renderer.root.findByType('AgentSpaceWorkbench');
+        act(() => workbench.props.onExit());
+
+        expect(mocks.exitSpace).toHaveBeenCalledOnce();
+        expect(mocks.dispatch).not.toHaveBeenCalled();
+        expect(mocks.navigate).toHaveBeenCalledWith('/');
+        act(() => renderer.unmount());
+    });
 });

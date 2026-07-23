@@ -122,8 +122,8 @@ export const SidebarNavigator = React.memo(() => {
     }, [isDesktopLayout, drawerWidth, windowWidth, auth.isAuthenticated, fullDrawerWidth, selectionMode, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
-        () => <SidebarView />,
-        []
+        () => <SidebarView closeDrawerOnNavigate={!isDesktopLayout} />,
+        [isDesktopLayout]
     );
 
     return (

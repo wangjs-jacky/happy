@@ -184,7 +184,13 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
-export const SidebarView = React.memo(() => {
+interface SidebarViewProps {
+    closeDrawerOnNavigate?: boolean;
+}
+
+export const SidebarView = React.memo(({
+    closeDrawerOnNavigate = true,
+}: SidebarViewProps) => {
     useDrawerHaptics();
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
@@ -199,12 +205,15 @@ export const SidebarView = React.memo(() => {
     const displayName = getDisplayName(profile) ?? t('settings.title');
 
     const closeDrawer = React.useCallback(() => {
+        if (!closeDrawerOnNavigate) {
+            return;
+        }
         navigation.dispatch(DrawerActions.closeDrawer());
-    }, [navigation]);
+    }, [closeDrawerOnNavigate, navigation]);
 
     // Navigate, closing the drawer first. On phone the drawer is a `front` overlay
     // that would otherwise stay open on top of the pushed screen; on desktop the
-    // drawer is permanent so closeDrawer is a harmless no-op.
+    // drawer is permanent, so SidebarNavigator disables the close action.
     const go = React.useCallback((path: string) => {
         closeDrawer();
         router.navigate(path as any);
