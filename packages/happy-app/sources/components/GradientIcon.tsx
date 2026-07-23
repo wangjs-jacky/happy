@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import Color from 'color';
 
 //
 // 渐变图标 chip
@@ -18,6 +19,15 @@ type GradientIconProps = {
     size?: number;
 };
 
+function withOpacity(color: string, alpha: number): string {
+    try {
+        const parsed = Color(color);
+        return parsed.alpha(parsed.alpha() * alpha).rgb().string();
+    } catch {
+        return color;
+    }
+}
+
 export const GradientIcon = React.memo(function GradientIcon({
     name,
     colors = ['#7B8CFF', '#5856D6'],
@@ -31,8 +41,19 @@ export const GradientIcon = React.memo(function GradientIcon({
                     width: size,
                     height: size,
                     borderRadius: size * 0.3,
-                    shadowColor: colors[1],
                 },
+                Platform.select({
+                    web: {
+                        boxShadow: `0 2px 5px ${withOpacity(colors[1], 0.45)}`,
+                    },
+                    default: {
+                        shadowColor: colors[1],
+                        shadowOpacity: 0.45,
+                        shadowRadius: 5,
+                        shadowOffset: { width: 0, height: 2 },
+                        elevation: 4,
+                    },
+                }),
             ]}
         >
             <LinearGradient
@@ -53,10 +74,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
-        shadowOpacity: 0.45,
-        shadowRadius: 5,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 4,
     },
     gloss: {
         position: 'absolute',

@@ -49,8 +49,8 @@
 | WEB-002 | 旧基线点击“新建会话” | `CanvasKit is not defined`，随后大量 `PictureRecorder` 异常 | 最新 `origin/main` 已通过 `ComposeHomeParticles.web.tsx` 处理；修复基线上未再复现 |
 | WEB-003 | 旧基线启动 | 路由文件缺少默认导出、布局声明了不存在的开发路由 | 最新 `origin/main` 已调整路由文件位置和声明；修复基线上未再复现 |
 | WEB-004 | 页面加载 | Web 端 push token change listener 不受支持，每次干净启动都会产生警告 | Batch 03 已在依赖自动注册副作用处增加 Web 平台守卫；E2E 保护控制台，PR 状态见批次记录 |
-| WEB-005 | 页面加载 | React Navigation 的 Web 场景容器仍使用已弃用的 `props.pointerEvents` | Batch 04 已将 Web 分支迁移到 `style.pointerEvents`；E2E 保护控制台，PR 状态见批次记录 |
-| WEB-006 | 打开外观页 | `"shadow*" style props are deprecated. Use "boxShadow".` | 待按外观页实际渲染组件定位 |
+| WEB-005 | 页面加载 | React Navigation 的 Web 场景容器与页面头部仍使用已弃用的 `props.pointerEvents` | Batch 04 修复场景容器；Batch 05 补齐带头部路由的 `Screen` Web 分支与 E2E 覆盖 |
+| WEB-006 | 打开外观页 | `"shadow*" style props are deprecated. Use "boxShadow".` | Batch 05 已将渐变图标的 Web 阴影迁移到 `boxShadow`，同时保留原生阴影；PR 状态见批次记录 |
 | WEB-007 | PC 首页点击 hamburger | permanent sidebar 已经可见，但按钮仍显示且点击无任何行为 | Batch 01 已修复，由 PR #205 合入 `main` |
 | WEB-008 | PC 首页与 `/new` 欢迎标题 | 问候语仍沿用移动端左侧定位，没有进入桌面居中的 800px 输入内容列；360px 行宽还会让原中文标题的末字孤立换行 | Batch 02 已保存[修复前](web-interaction-audit/screenshots/batch-02-new-greeting-before.jpg)与[修复后](web-interaction-audit/screenshots/batch-02-new-greeting-after.jpg)截图；自动化同时保护左边界和代表性中文标题单行排版 |
 | WEB-009 | PC `/new` 返回与头部控件 | 局部返回与全局导航重叠；全局 Web 返回错误依赖导航器栈；800px 附近机器 chip 命中区也有碰撞风险 | Batch 01 已修复，由 PR #205 合入 `main` |

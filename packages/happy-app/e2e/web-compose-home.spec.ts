@@ -63,6 +63,25 @@ test('Web 启动不会使用已弃用的 pointerEvents 组件属性', async ({ p
     expect(deprecatedPointerEventsWarnings).toEqual([]);
 });
 
+test('Web 外观设置不会使用已弃用的 shadow 样式或 pointerEvents 组件属性', async ({ page }) => {
+    const deprecatedShadowWarnings: string[] = [];
+    const deprecatedPointerEventsWarnings: string[] = [];
+    page.on('console', (message) => {
+        if (message.type() === 'warning' && message.text().includes('"shadow*" style props are deprecated')) {
+            deprecatedShadowWarnings.push(message.text());
+        }
+        if (message.type() === 'warning' && message.text().includes('props.pointerEvents is deprecated')) {
+            deprecatedPointerEventsWarnings.push(message.text());
+        }
+    });
+
+    await page.goto(new URL('/settings/appearance', authenticatedWebUrl).toString());
+    await page.waitForFunction(() => document.querySelectorAll('[role="switch"]').length > 0);
+
+    expect(deprecatedShadowWarnings).toEqual([]);
+    expect(deprecatedPointerEventsWarnings).toEqual([]);
+});
+
 test('桌面侧栏导航控件不覆盖用户卡片', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(authenticatedWebUrl);
