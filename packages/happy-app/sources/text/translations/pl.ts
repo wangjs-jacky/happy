@@ -504,6 +504,15 @@ export const pl: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'Wpisz polecenie lub wyszukaj...',
+        noCommandsFound: 'Nie znaleziono poleceń',
+        navigation: 'Nawigacja',
+        recentSessions: 'Ostatnie sesje',
+        system: 'System',
+        newSessionSubtitle: 'Rozpocznij nową sesję czatu',
+        allSessionsSubtitle: 'Przeglądaj historię czatów',
+        settingsSubtitle: 'Skonfiguruj preferencje aplikacji',
+        developerSubtitle: 'Otwórz narzędzia programistyczne',
+        switchToSession: 'Przełącz na sesję',
     },
 
     server: {

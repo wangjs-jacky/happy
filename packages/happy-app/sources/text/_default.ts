@@ -518,6 +518,15 @@ export const en = {
 
     commandPalette: {
         placeholder: 'Type a command or search...',
+        noCommandsFound: 'No commands found',
+        navigation: 'Navigation',
+        recentSessions: 'Recent Sessions',
+        system: 'System',
+        newSessionSubtitle: 'Start a new chat session',
+        allSessionsSubtitle: 'Browse your chat history',
+        settingsSubtitle: 'Configure your preferences',
+        developerSubtitle: 'Access developer tools',
+        switchToSession: 'Switch to session',
     },
 
     server: {

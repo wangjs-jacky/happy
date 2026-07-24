@@ -165,6 +165,7 @@ export default function FeaturesSettingsScreen() {
                         icon={<Ionicons name="keypad-outline" size={29} color={theme.colors.accent} />}
                         rightElement={
                             <Switch
+                                accessibilityLabel={t('settingsFeatures.commandPalette')}
                                 value={commandPaletteEnabled}
                                 onValueChange={setCommandPaletteEnabled}
                             />

@@ -4,6 +4,7 @@ import { Command } from './types';
 import { Typography } from '@/constants/Typography';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
+import { multiplyColorOpacity } from '@/utils/colorOpacity';
 
 interface CommandPaletteItemProps {
     command: Command;
@@ -30,11 +31,17 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
     }, []);
     
     const pressableProps: any = {
+        testID: `command-palette-item-${command.id}`,
         style: ({ pressed }: any) => [
             styles.container,
-            isSelected && styles.selected,
-            isHovered && !isSelected && styles.hovered,
-            pressed && Platform.OS === 'web' && styles.pressed
+            isSelected && {
+                backgroundColor: theme.colors.surfaceHighest,
+                borderColor: multiplyColorOpacity(theme.colors.accent, 0.2),
+            },
+            isHovered && !isSelected && { backgroundColor: theme.colors.surfaceHigh },
+            pressed && Platform.OS === 'web' && {
+                backgroundColor: multiplyColorOpacity(theme.colors.accent, 0.12),
+            },
         ],
         onPress,
     };
@@ -49,27 +56,27 @@ export function CommandPaletteItem({ command, isSelected, onPress, onHover }: Co
         <Pressable {...pressableProps}>
             <View style={styles.content}>
                 {command.icon && (
-                    <View style={styles.iconContainer}>
+                    <View style={[styles.iconContainer, { backgroundColor: theme.colors.surfaceHigh }]}>
                         <Ionicons 
                             name={command.icon as any} 
                             size={20} 
-                            color={isSelected ? theme.colors.accent : '#666'}
+                            color={isSelected ? theme.colors.accent : theme.colors.textSecondary}
                         />
                     </View>
                 )}
                 <View style={styles.textContainer}>
-                    <Text style={[styles.title, Typography.default()]}>
+                    <Text style={[styles.title, Typography.default(), { color: theme.colors.text }]}>
                         {command.title}
                     </Text>
                     {command.subtitle && (
-                        <Text style={[styles.subtitle, Typography.default()]}>
+                        <Text style={[styles.subtitle, Typography.default(), { color: theme.colors.textSecondary }]}>
                             {command.subtitle}
                         </Text>
                     )}
                 </View>
                 {command.shortcut && (
-                    <View style={styles.shortcutContainer}>
-                        <Text style={[styles.shortcut, Typography.mono()]}>
+                    <View style={[styles.shortcutContainer, { backgroundColor: theme.colors.surfaceHigh }]}>
+                        <Text style={[styles.shortcut, Typography.mono(), { color: theme.colors.textSecondary }]}>
                             {command.shortcut}
                         </Text>
                     </View>
@@ -90,16 +97,6 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: 'transparent',
     },
-    selected: {
-        backgroundColor: '#F0F7FF',
-        borderColor: '#007AFF20',
-    },
-    pressed: {
-        backgroundColor: '#F5F5F5',
-    },
-    hovered: {
-        backgroundColor: '#F8F8F8',
-    },
     content: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -109,7 +106,6 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 8,
-        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 12,
@@ -120,24 +116,20 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 15,
-        color: '#000',
         marginBottom: 2,
         letterSpacing: -0.2,
     },
     subtitle: {
         fontSize: 13,
-        color: '#666',
         letterSpacing: -0.1,
     },
     shortcutContainer: {
         paddingHorizontal: 10,
         paddingVertical: 5,
-        backgroundColor: 'rgba(0, 0, 0, 0.04)',
         borderRadius: 6,
     },
     shortcut: {
         fontSize: 12,
-        color: '#666',
         fontWeight: '500',
     },
 });

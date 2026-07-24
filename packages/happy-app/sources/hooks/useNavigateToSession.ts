@@ -1,5 +1,6 @@
 import type { Router } from "expo-router"
 import { useRouter } from "expo-router"
+import { useCallback } from 'react';
 import { storage } from '@/sync/storage';
 import { trackSessionSwitched } from '@/track';
 
@@ -30,7 +31,7 @@ export function navigateToSession(router: Router, sessionId: string) {
 
 export function useNavigateToSession() {
     const router = useRouter();
-    return (sessionId: string) => {
+    return useCallback((sessionId: string) => {
         navigateToSession(router, sessionId);
-    }
+    }, [router]);
 }

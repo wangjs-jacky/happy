@@ -487,6 +487,15 @@ export const ca: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'Escriu una comanda o cerca...',
+        noCommandsFound: 'No s’ha trobat cap comanda',
+        navigation: 'Navegació',
+        recentSessions: 'Sessions recents',
+        system: 'Sistema',
+        newSessionSubtitle: 'Inicia una sessió de xat nova',
+        allSessionsSubtitle: 'Consulta l’historial de xats',
+        settingsSubtitle: 'Configura les preferències',
+        developerSubtitle: 'Obre les eines de desenvolupament',
+        switchToSession: 'Canvia a la sessió',
     },
 
     server: {

@@ -485,6 +485,15 @@ export const it: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'Digita un comando o cerca...',
+        noCommandsFound: 'Nessun comando trovato',
+        navigation: 'Navigazione',
+        recentSessions: 'Sessioni recenti',
+        system: 'Sistema',
+        newSessionSubtitle: 'Avvia una nuova sessione di chat',
+        allSessionsSubtitle: 'Sfoglia la cronologia delle chat',
+        settingsSubtitle: 'Configura le preferenze',
+        developerSubtitle: 'Apri gli strumenti per sviluppatori',
+        switchToSession: 'Passa alla sessione',
     },
 
     server: {

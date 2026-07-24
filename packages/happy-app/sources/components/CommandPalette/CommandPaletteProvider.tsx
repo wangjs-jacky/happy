@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { storage } from '@/sync/storage';
 import { useShallow } from 'zustand/react/shallow';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
+import { t } from '@/text';
 
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -23,10 +24,10 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             // Navigation commands
             {
                 id: 'new-session',
-                title: 'New Session',
-                subtitle: 'Start a new chat session',
+                title: t('newSession.title'),
+                subtitle: t('commandPalette.newSessionSubtitle'),
                 icon: 'add-circle-outline',
-                category: 'Sessions',
+                category: t('sessionHistory.title'),
                 shortcut: '⌘N',
                 action: () => {
                     router.navigate('/new');
@@ -34,20 +35,20 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             },
             {
                 id: 'sessions',
-                title: 'View All Sessions',
-                subtitle: 'Browse your chat history',
+                title: t('sessionHistory.viewAll'),
+                subtitle: t('commandPalette.allSessionsSubtitle'),
                 icon: 'chatbubbles-outline',
-                category: 'Sessions',
+                category: t('sessionHistory.title'),
                 action: () => {
                     router.push('/');
                 }
             },
             {
                 id: 'settings',
-                title: 'Settings',
-                subtitle: 'Configure your preferences',
+                title: t('settings.title'),
+                subtitle: t('commandPalette.settingsSubtitle'),
                 icon: 'settings-outline',
-                category: 'Navigation',
+                category: t('commandPalette.navigation'),
                 shortcut: '⌘,',
                 action: () => {
                     router.push('/settings');
@@ -55,20 +56,20 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             },
             {
                 id: 'account',
-                title: 'Account',
-                subtitle: 'Manage your account',
+                title: t('settings.account'),
+                subtitle: t('settings.accountSubtitle'),
                 icon: 'person-circle-outline',
-                category: 'Navigation',
+                category: t('commandPalette.navigation'),
                 action: () => {
                     router.push('/settings/account');
                 }
             },
             {
                 id: 'connect',
-                title: 'Connect Device',
-                subtitle: 'Connect a new device via web',
+                title: t('settingsAccount.linkNewDevice'),
+                subtitle: t('settingsAccount.linkNewDeviceSubtitle'),
                 icon: 'link-outline',
-                category: 'Navigation',
+                category: t('commandPalette.navigation'),
                 action: () => {
                     router.push('/terminal/connect');
                 }
@@ -81,13 +82,13 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
             .slice(0, 5);
 
         recentSessions.forEach(session => {
-            const sessionName = session.metadata?.name || `Session ${session.id.slice(0, 6)}`;
+            const sessionName = session.metadata?.name || `${t('machine.untitledSession')} ${session.id.slice(0, 6)}`;
             cmds.push({
                 id: `session-${session.id}`,
                 title: sessionName,
-                subtitle: session.metadata?.path || 'Switch to session',
+                subtitle: session.metadata?.path || t('commandPalette.switchToSession'),
                 icon: 'time-outline',
-                category: 'Recent Sessions',
+                category: t('commandPalette.recentSessions'),
                 action: () => {
                     navigateToSession(session.id);
                 }
@@ -97,10 +98,10 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         // System commands
         cmds.push({
             id: 'sign-out',
-            title: 'Sign Out',
-            subtitle: 'Sign out of your account',
+            title: t('settingsAccount.logout'),
+            subtitle: t('settingsAccount.logoutSubtitle'),
             icon: 'log-out-outline',
-            category: 'System',
+            category: t('commandPalette.system'),
             action: async () => {
                 await logout();
             }
@@ -110,10 +111,10 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         if (__DEV__) {
             cmds.push({
                 id: 'dev-menu',
-                title: 'Developer Menu',
-                subtitle: 'Access developer tools',
+                title: t('settings.developerTools'),
+                subtitle: t('commandPalette.developerSubtitle'),
                 icon: 'code-slash-outline',
-                category: 'Developer',
+                category: t('settings.developer'),
                 action: () => {
                     router.push('/dev');
                 }
@@ -121,7 +122,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         }
 
         return cmds;
-    }, [router, logout, sessions]);
+    }, [router, logout, sessions, navigateToSession]);
 
     const showCommandPalette = useCallback(() => {
         if (Platform.OS !== 'web' || !commandPaletteEnabled) return;

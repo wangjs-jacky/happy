@@ -487,6 +487,15 @@ export const zhHant: TranslationStructure = {
 
     commandPalette: {
         placeholder: '輸入命令或搜尋...',
+        noCommandsFound: '找不到命令',
+        navigation: '導覽',
+        recentSessions: '最近工作階段',
+        system: '系統',
+        newSessionSubtitle: '開始新的聊天工作階段',
+        allSessionsSubtitle: '瀏覽聊天記錄',
+        settingsSubtitle: '設定應用程式偏好',
+        developerSubtitle: '開啟開發者工具',
+        switchToSession: '切換到此工作階段',
     },
 
     server: {

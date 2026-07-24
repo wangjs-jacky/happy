@@ -4,6 +4,8 @@ import { CommandPaletteInput } from './CommandPaletteInput';
 import { CommandPaletteResults } from './CommandPaletteResults';
 import { useCommandPalette } from './useCommandPalette';
 import { Command } from './types';
+import { useUnistyles } from 'react-native-unistyles';
+import { multiplyColorOpacity } from '@/utils/colorOpacity';
 
 interface CommandPaletteProps {
     commands: Command[];
@@ -11,6 +13,7 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+    const { theme } = useUnistyles();
     const {
         searchQuery,
         selectedIndex,
@@ -28,7 +31,16 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
     }
 
     return (
-        <View style={styles.container}>
+        <View
+            testID="command-palette"
+            style={[
+                styles.container,
+                {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: multiplyColorOpacity(theme.colors.text, 0.12),
+                },
+            ]}
+        >
             <CommandPaletteInput
                 value={searchQuery}
                 onChangeText={handleSearchChange}
@@ -47,7 +59,6 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
 
 const styles = StyleSheet.create({
     container: {
-        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         width: '100%',
         maxWidth: 800, // Increased from 640 for wider input
@@ -74,6 +85,5 @@ const styles = StyleSheet.create({
             },
         }),
         borderWidth: 1,
-        borderColor: 'rgba(0, 0, 0, 0.08)',
     },
 });

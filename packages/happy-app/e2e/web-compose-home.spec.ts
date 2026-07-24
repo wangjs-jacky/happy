@@ -119,6 +119,83 @@ test('Web 弹窗不会触发已弃用样式、组件或原生动画警告', asyn
     expect(modalWarnings).toEqual([]);
 });
 
+test('Web 深色命令面板跟随主题并支持完整关闭交互', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(new URL('/settings/appearance', authenticatedWebUrl).toString());
+    await page.getByText('Terminal', { exact: true }).click();
+    await page.goto(new URL('/settings/features', authenticatedWebUrl).toString());
+
+    const featureSwitches = page.getByRole('switch');
+    await expect(featureSwitches).toHaveCount(10);
+    const commandPaletteSwitch = page.getByRole('switch', { name: 'Command Palette' });
+    await expect(commandPaletteSwitch).not.toBeChecked();
+    await commandPaletteSwitch.click();
+
+    await page.keyboard.press('Meta+KeyK');
+    const commandInput = page.getByTestId('command-palette-input');
+    await expect(commandInput).toBeVisible();
+
+    const paletteColors = await page.evaluate(() => {
+        const input = document.querySelector('[data-testid="command-palette-input"]');
+        const palette = document.querySelector('[data-testid="command-palette"]');
+        const selected = document.querySelector('[data-testid="command-palette-item-new-session"]');
+        if (!input || !palette || !selected) {
+            throw new Error('找不到命令面板主题探针');
+        }
+        return {
+            input: window.getComputedStyle(input).color,
+            surface: window.getComputedStyle(palette).backgroundColor,
+            selected: window.getComputedStyle(selected).backgroundColor,
+        };
+    });
+    expect(paletteColors).toEqual({
+        input: 'rgb(229, 229, 231)',
+        surface: 'rgb(19, 19, 22)',
+        selected: 'rgb(32, 32, 38)',
+    });
+
+    await commandInput.press('Escape');
+    await expect(commandInput).toHaveCount(0);
+
+    await page.keyboard.press('Meta+KeyK');
+    await expect(page.getByTestId('command-palette-input')).toBeVisible();
+    await page.mouse.click(10, 10);
+    await expect(page.getByTestId('command-palette-input')).toHaveCount(0);
+
+    await commandPaletteSwitch.click();
+    await expect(commandPaletteSwitch).not.toBeChecked();
+
+    await page.goto(new URL('/settings/appearance', authenticatedWebUrl).toString());
+    await page.getByText('Caramel', { exact: true }).click();
+});
+
+test.describe('中文 Web 命令面板', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('静态命令、类别和空结果均完成本地化', async ({ page }) => {
+        await page.goto(new URL('/settings/features', authenticatedWebUrl).toString());
+
+        const commandPaletteSwitch = page.getByRole('switch', { name: '命令面板' });
+        await expect(commandPaletteSwitch).not.toBeChecked();
+        await commandPaletteSwitch.click();
+        await page.keyboard.press('Meta+KeyK');
+
+        const commandInput = page.getByTestId('command-palette-input');
+        await expect(commandInput).toHaveAttribute('placeholder', '输入命令或搜索...');
+        await expect(page.getByText('导航', { exact: true })).toBeVisible();
+        await expect(page.getByText('开始新会话', { exact: true })).toBeVisible();
+        await expect(page.getByText('配置应用偏好', { exact: true })).toBeVisible();
+
+        await commandInput.fill('不会匹配任何命令的关键词');
+        await expect(page.getByText('未找到命令', { exact: true })).toBeVisible();
+
+        await commandInput.press('Escape');
+        await commandPaletteSwitch.click();
+        await expect(commandPaletteSwitch).not.toBeChecked();
+    });
+});
+
 test('Web 账户页不会让用户触发不支持的推送重新注册', async ({ page }) => {
     await page.goto(authenticatedWebUrl);
     await expect(page.getByRole('textbox')).toBeVisible();
