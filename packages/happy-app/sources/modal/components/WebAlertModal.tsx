@@ -110,6 +110,7 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
                         <React.Fragment key={index}>
                             {index > 0 && <View style={styles.buttonSeparator} />}
                             <Pressable
+                                accessibilityRole="button"
                                 style={({ pressed }) => [
                                     styles.button,
                                     pressed && styles.buttonPressed

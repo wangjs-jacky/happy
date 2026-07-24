@@ -34,6 +34,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="git-branch-outline" size={29} color="#5AC8FA" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('featuresInterface.fileDiffsSidebar')}
                             value={fileDiffsSidebar}
                             onValueChange={setFileDiffsSidebar}
                         />
@@ -46,6 +47,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="layers-outline" size={29} color="#AF52DE" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.groupToolCalls')}
                             value={groupToolCalls}
                             onValueChange={setGroupToolCalls}
                         />
@@ -65,6 +67,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="flask-outline" size={29} color="#5856D6" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.experimentalFeatures')}
                             value={experiments}
                             onValueChange={setExperiments}
                         />
@@ -77,6 +80,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="text-outline" size={29} color="#34C759" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.markdownCopyV2')}
                             value={markdownCopyV2}
                             onValueChange={setMarkdownCopyV2}
                         />
@@ -89,6 +93,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="eye-off-outline" size={29} color="#FF9500" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.hideInactiveSessions')}
                             value={hideInactiveSessions}
                             onValueChange={setHideInactiveSessions}
                         />
@@ -101,6 +106,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="play-circle-outline" size={29} color="#30D158" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('featuresInterface.resumeSession')}
                             value={expResumeSession}
                             onValueChange={setExpResumeSession}
                         />
@@ -113,6 +119,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="camera-outline" size={29} color="#00C7BE" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.desktopScreenshot')}
                             value={expDesktopScreenshot}
                             onValueChange={setExpDesktopScreenshot}
                         />
@@ -133,6 +140,7 @@ export default function FeaturesSettingsScreen() {
                     icon={<Ionicons name="analytics-outline" size={29} color="#FF3B30" />}
                     rightElement={
                         <Switch
+                            accessibilityLabel={t('settingsFeatures.disableAnalytics')}
                             value={analyticsOptOut}
                             onValueChange={setAnalyticsOptOut}
                         />
@@ -153,6 +161,7 @@ export default function FeaturesSettingsScreen() {
                         icon={<Ionicons name="return-down-forward-outline" size={29} color={theme.colors.accent} />}
                         rightElement={
                             <Switch
+                                accessibilityLabel={t('settingsFeatures.enterToSend')}
                                 value={agentInputEnterToSend}
                                 onValueChange={setAgentInputEnterToSend}
                             />
