@@ -48,6 +48,7 @@ export default function AskApiSettingsScreen() {
                         {t('askApiSettings.apiKey')}
                     </Text>
                     <TextInput
+                        accessibilityLabel={t('askApiSettings.apiKey')}
                         value={askApi.apiKey}
                         onChangeText={updateApiKey}
                         placeholder={t('askApiSettings.apiKeyPlaceholder')}
@@ -71,6 +72,7 @@ export default function AskApiSettingsScreen() {
                         {t('askApiSettings.baseUrl')}
                     </Text>
                     <TextInput
+                        accessibilityLabel={t('askApiSettings.baseUrl')}
                         value={askApi.baseUrl}
                         onChangeText={updateBaseUrl}
                         placeholder={t('askApiSettings.baseUrlPlaceholder')}
@@ -94,6 +96,7 @@ export default function AskApiSettingsScreen() {
                         {t('askApiSettings.tavilyApiKey')}
                     </Text>
                     <TextInput
+                        accessibilityLabel={t('askApiSettings.tavilyApiKey')}
                         value={askApi.tavilyApiKey}
                         onChangeText={updateTavilyApiKey}
                         placeholder={t('askApiSettings.tavilyApiKeyPlaceholder')}
