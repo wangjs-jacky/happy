@@ -53,7 +53,7 @@ async function getVoiceUsage(
 
     if (!res.ok) {
         log({ module: 'voice' }, `ElevenLabs conversations query failed: ${res.status}`);
-        return { usedSeconds: 0, conversationCount: 0 };
+        throw new Error(`ElevenLabs conversations query failed: ${res.status}`);
     }
 
     const data = (await res.json()) as {
@@ -216,14 +216,12 @@ export function voiceRoutes(app: Fastify) {
         },
     }, async (request, reply) => {
         const userId = request.userId;
-
-        const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-        if (!elevenLabsApiKey) {
-            return reply.code(500).send({ error: 'ELEVENLABS_API_KEY not configured' });
-        }
-
         const elevenUserId = deriveElevenUserId(userId);
         const hardLimitSeconds = getVoiceHardLimitSeconds(userId);
+        const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+        if (!elevenLabsApiKey) {
+            return reply.send({ available: false as const });
+        }
 
         try {
             const [{ usedSeconds, conversationCount }, subscribed] = await Promise.all([
@@ -231,6 +229,7 @@ export function voiceRoutes(app: Fastify) {
                 hasActiveSubscription(userId),
             ]);
             return reply.send({
+                available: true as const,
                 usedSeconds,
                 limitSeconds: subscribed ? hardLimitSeconds : VOICE_FREE_LIMIT_SECONDS,
                 conversationCount,
@@ -239,7 +238,7 @@ export function voiceRoutes(app: Fastify) {
             });
         } catch (error) {
             log({ module: 'voice' }, `Failed to get voice usage for user ${userId}: ${error}`);
-            return reply.code(500).send({ error: 'Failed to get voice usage' });
+            return reply.send({ available: false as const });
         }
     });
 }
