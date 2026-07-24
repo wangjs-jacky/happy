@@ -122,6 +122,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/usage"
+                options={{
+                    headerTitle: t('settings.usage'),
+                }}
+            />
+            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),

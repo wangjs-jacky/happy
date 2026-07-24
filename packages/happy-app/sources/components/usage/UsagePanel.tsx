@@ -88,6 +88,19 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.status.error,
         textAlign: 'center',
     },
+    emptyContainer: {
+        alignItems: 'center',
+        backgroundColor: theme.colors.surface,
+        borderRadius: 12,
+        gap: 10,
+        marginHorizontal: 16,
+        paddingVertical: 36,
+    },
+    emptyText: {
+        fontSize: 15,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+    },
     metricToggle: {
         flexDirection: 'row',
         justifyContent: 'center',
@@ -118,7 +131,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const auth = useAuth();
     const [period, setPeriod] = useState<TimePeriod>('7days');
     const [chartMetric, setChartMetric] = useState<'tokens' | 'cost'>('tokens');
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [usageData, setUsageData] = useState<UsageDataPoint[]>([]);
     const [totals, setTotals] = useState({
@@ -129,33 +142,48 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     });
     
     useEffect(() => {
-        loadUsageData();
-    }, [period, sessionId]);
-    
-    const loadUsageData = async () => {
-        if (!auth.credentials) {
-            setError('Not authenticated');
-            return;
-        }
-        
-        setLoading(true);
-        setError(null);
-        
-        try {
-            const response = await getUsageForPeriod(auth.credentials, period, sessionId);
-            setUsageData(response.usage || []);
-            setTotals(calculateTotals(response.usage || []));
-        } catch (err) {
-            console.error('Failed to load usage data:', err);
-            if (err instanceof HappyError) {
-                setError(err.message);
-            } else {
-                setError('Failed to load usage data');
+        let cancelled = false;
+
+        const loadUsageData = async () => {
+            const credentials = auth.credentials;
+            if (!credentials) {
+                setError('Not authenticated');
+                setLoading(false);
+                return;
             }
-        } finally {
-            setLoading(false);
-        }
-    };
+
+            setLoading(true);
+            setError(null);
+
+            try {
+                const response = await getUsageForPeriod(credentials, period, sessionId);
+                if (cancelled) {
+                    return;
+                }
+                setUsageData(response.usage || []);
+                setTotals(calculateTotals(response.usage || []));
+            } catch (err) {
+                if (cancelled) {
+                    return;
+                }
+                console.error('Failed to load usage data:', err);
+                if (err instanceof HappyError) {
+                    setError(err.message);
+                } else {
+                    setError('Failed to load usage data');
+                }
+            } finally {
+                if (!cancelled) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        void loadUsageData();
+        return () => {
+            cancelled = true;
+        };
+    }, [auth.credentials, period, sessionId]);
     
     const formatTokens = (tokens: number): string => {
         if (tokens >= 1000000) {
@@ -203,12 +231,18 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     return (
         <ScrollView style={styles.container}>
             {/* Period Selector */}
-            <View style={styles.periodSelector}>
+            <View
+                style={styles.periodSelector}
+                accessibilityRole="tablist"
+                accessibilityLabel={t('settings.usage')}
+            >
                 {(['today', '7days', '30days'] as TimePeriod[]).map((p) => (
                     <Pressable
                         key={p}
                         style={[styles.periodButton, period === p && styles.periodButtonActive]}
                         onPress={() => setPeriod(p)}
+                        accessibilityRole="tab"
+                        aria-selected={period === p}
                     >
                         <Text style={[styles.periodText, period === p && styles.periodTextActive]}>
                             {periodLabels[p]}
@@ -228,6 +262,13 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                     <Text style={styles.statValue}>{formatCost(totals.totalCost)}</Text>
                 </View>
             </View>
+
+            {usageData.length === 0 && (
+                <View style={styles.emptyContainer} accessibilityLiveRegion="polite">
+                    <Ionicons name="bar-chart-outline" size={36} color={theme.colors.textSecondary} />
+                    <Text style={styles.emptyText}>{t('usage.noData')}</Text>
+                </View>
+            )}
             
             {/* Usage Chart */}
             {usageData.length > 0 && (
@@ -235,10 +276,16 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                     <Text style={styles.sectionTitle}>{t('usage.usageOverTime')}</Text>
                     
                     {/* Metric Toggle */}
-                    <View style={styles.metricToggle}>
+                    <View
+                        style={styles.metricToggle}
+                        accessibilityRole="tablist"
+                        accessibilityLabel={t('usage.usageOverTime')}
+                    >
                         <Pressable
                             style={[styles.metricButton, chartMetric === 'tokens' && styles.metricButtonActive]}
                             onPress={() => setChartMetric('tokens')}
+                            accessibilityRole="tab"
+                            aria-selected={chartMetric === 'tokens'}
                         >
                             <Text style={[styles.metricText, chartMetric === 'tokens' && styles.metricTextActive]}>
                                 {t('usage.tokens')}
@@ -247,6 +294,8 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                         <Pressable
                             style={[styles.metricButton, chartMetric === 'cost' && styles.metricButtonActive]}
                             onPress={() => setChartMetric('cost')}
+                            accessibilityRole="tab"
+                            aria-selected={chartMetric === 'cost'}
                         >
                             <Text style={[styles.metricText, chartMetric === 'cost' && styles.metricTextActive]}>
                                 {t('usage.cost')}

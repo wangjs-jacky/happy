@@ -2,6 +2,12 @@ import { expect, test } from '@playwright/test';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 
+function authenticatedRoute(pathname: string): string {
+    const url = new URL(authenticatedWebUrl);
+    url.pathname = pathname;
+    return url.toString();
+}
+
 const viewports = [
     { name: '窄屏', width: 799, height: 900 },
     { name: '断点宽度', width: 800, height: 900 },
@@ -395,5 +401,50 @@ test.describe('中文 Web 语言设置', () => {
         await expect(page.getByText('需要重启应用', { exact: true })).toBeVisible();
         await page.getByText('取消', { exact: true }).click();
         await expect(page.getByText('需要重启应用', { exact: true })).toHaveCount(0);
+    });
+});
+
+test.describe('中文 Web 资料与使用情况设置', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('使用情况提供可见标题、周期按钮语义和空数据反馈', async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.goto(authenticatedRoute('/settings/usage'));
+
+        const visibleTitle = page.getByText('使用情况', { exact: true }).filter({ visible: true });
+        await expect(visibleTitle).toBeVisible();
+        const titleBox = await visibleTitle.boundingBox();
+        expect(titleBox).not.toBeNull();
+        expect(titleBox!.width).toBeGreaterThan(0);
+        expect(titleBox!.height).toBeGreaterThan(0);
+
+        await expect(page.getByText('暂无使用数据', { exact: true })).toBeVisible();
+        await expect(page.getByRole('tablist', { name: '使用情况' })).toBeVisible();
+        const todayButton = page.getByRole('tab', { name: '今天' });
+        const weekButton = page.getByRole('tab', { name: '过去 7 天' });
+        const monthButton = page.getByRole('tab', { name: '过去 30 天' });
+        await expect(todayButton).toBeVisible();
+        await expect(weekButton).toBeVisible();
+        await expect(monthButton).toBeVisible();
+        await expect(weekButton).toHaveAttribute('aria-selected', 'true');
+
+        await todayButton.click();
+        await expect(todayButton).toHaveAttribute('aria-selected', 'true');
+        await expect(weekButton).toHaveAttribute('aria-selected', 'false');
+    });
+
+    test('资料保存操作暴露按钮语义并在可逆编辑后恢复禁用', async ({ page }) => {
+        await page.goto(authenticatedRoute('/settings/profile'));
+
+        const saveButton = page.getByRole('button', { name: '保存' });
+        const nameInput = page.getByRole('textbox', { name: '姓名' });
+        await expect(saveButton).toBeDisabled();
+
+        const originalName = await nameInput.inputValue();
+        await nameInput.fill(`${originalName}x`);
+        await expect(saveButton).toBeEnabled();
+
+        await nameInput.fill(originalName);
+        await expect(saveButton).toBeDisabled();
     });
 });

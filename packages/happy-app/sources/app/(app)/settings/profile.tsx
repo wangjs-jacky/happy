@@ -130,6 +130,9 @@ export default function ProfileSettingsScreen() {
         <Pressable
             onPress={handleSave}
             disabled={!canSave}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.save')}
+            aria-busy={saving}
             style={[styles.saveButton, !canSave && styles.saveButtonDisabled]}
         >
             {saving ? (
@@ -166,6 +169,7 @@ export default function ProfileSettingsScreen() {
                         <TextInput
                             value={name}
                             onChangeText={setName}
+                            accessibilityLabel={t('settingsAccount.name')}
                             placeholder={t('settingsAccount.namePlaceholder')}
                             placeholderTextColor={theme.colors.textSecondary}
                             style={styles.textInput}
