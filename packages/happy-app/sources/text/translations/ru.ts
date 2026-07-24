@@ -642,6 +642,15 @@ export const ru: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'Введите команду или поиск...',
+        noCommandsFound: 'Команды не найдены',
+        navigation: 'Навигация',
+        recentSessions: 'Недавние сессии',
+        system: 'Система',
+        newSessionSubtitle: 'Начните новую сессию чата',
+        allSessionsSubtitle: 'Просмотрите историю чатов',
+        settingsSubtitle: 'Настройте параметры приложения',
+        developerSubtitle: 'Откройте инструменты разработчика',
+        switchToSession: 'Переключиться на сессию',
     },
 
     agentInput: {

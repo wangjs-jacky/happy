@@ -487,6 +487,15 @@ export const es: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'Escriba un comando o busque...',
+        noCommandsFound: 'No se encontraron comandos',
+        navigation: 'Navegación',
+        recentSessions: 'Sesiones recientes',
+        system: 'Sistema',
+        newSessionSubtitle: 'Inicia una nueva sesión de chat',
+        allSessionsSubtitle: 'Consulta tu historial de chat',
+        settingsSubtitle: 'Configura tus preferencias',
+        developerSubtitle: 'Abre las herramientas de desarrollo',
+        switchToSession: 'Cambiar a la sesión',
     },
 
     server: {

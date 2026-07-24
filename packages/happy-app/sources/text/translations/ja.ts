@@ -488,6 +488,15 @@ export const ja: TranslationStructure = {
 
     commandPalette: {
         placeholder: 'コマンドを入力または検索...',
+        noCommandsFound: 'コマンドが見つかりません',
+        navigation: 'ナビゲーション',
+        recentSessions: '最近のセッション',
+        system: 'システム',
+        newSessionSubtitle: '新しいチャットセッションを開始',
+        allSessionsSubtitle: 'チャット履歴を表示',
+        settingsSubtitle: 'アプリの設定を変更',
+        developerSubtitle: '開発者ツールを開く',
+        switchToSession: 'このセッションに切り替える',
     },
 
     server: {

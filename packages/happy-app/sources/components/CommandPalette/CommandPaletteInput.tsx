@@ -2,6 +2,8 @@ import React from 'react';
 import { View, TextInput, StyleSheet, Platform } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
+import { useUnistyles } from 'react-native-unistyles';
+import { multiplyColorOpacity } from '@/utils/colorOpacity';
 
 interface CommandPaletteInputProps {
     value: string;
@@ -11,6 +13,7 @@ interface CommandPaletteInputProps {
 }
 
 export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef }: CommandPaletteInputProps) {
+    const { theme } = useUnistyles();
     const handleKeyDown = React.useCallback((e: any) => {
         if (Platform.OS === 'web' && onKeyPress) {
             const key = e.nativeEvent.key;
@@ -25,14 +28,23 @@ export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef 
     }, [onKeyPress]);
 
     return (
-        <View style={styles.container}>
+        <View
+            style={[
+                styles.container,
+                {
+                    backgroundColor: theme.colors.surfaceHigh,
+                    borderBottomColor: multiplyColorOpacity(theme.colors.text, 0.12),
+                },
+            ]}
+        >
             <TextInput
+                testID="command-palette-input"
                 ref={inputRef}
-                style={[styles.input, Typography.default()]}
+                style={[styles.input, Typography.default(), { color: theme.colors.text }]}
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={t('commandPalette.placeholder')}
-                placeholderTextColor="#999"
+                placeholderTextColor={theme.colors.textSecondary}
                 autoFocus
                 autoCorrect={false}
                 autoCapitalize="none"
@@ -47,14 +59,11 @@ export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef 
 const styles = StyleSheet.create({
     container: {
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(0, 0, 0, 0.06)',
-        backgroundColor: '#FAFAFA',
     },
     input: {
         paddingHorizontal: 32,
         paddingVertical: 24,
         fontSize: 20,
-        color: '#000',
         letterSpacing: -0.3,
         // Remove outline on web
         ...(Platform.OS === 'web' ? {

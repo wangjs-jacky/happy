@@ -488,6 +488,15 @@ export const zhHans: TranslationStructure = {
 
     commandPalette: {
         placeholder: '输入命令或搜索...',
+        noCommandsFound: '未找到命令',
+        navigation: '导航',
+        recentSessions: '最近会话',
+        system: '系统',
+        newSessionSubtitle: '开始新的聊天会话',
+        allSessionsSubtitle: '浏览聊天历史',
+        settingsSubtitle: '配置应用偏好',
+        developerSubtitle: '打开开发者工具',
+        switchToSession: '切换到该会话',
     },
 
     server: {

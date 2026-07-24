@@ -3,6 +3,8 @@ import { View, ScrollView, Text, StyleSheet, Platform } from 'react-native';
 import { Command, CommandCategory } from './types';
 import { CommandPaletteItem } from './CommandPaletteItem';
 import { Typography } from '@/constants/Typography';
+import { useUnistyles } from 'react-native-unistyles';
+import { t } from '@/text';
 
 interface CommandPaletteResultsProps {
     categories: CommandCategory[];
@@ -17,6 +19,7 @@ export function CommandPaletteResults({
     onSelectCommand, 
     onSelectionChange 
 }: CommandPaletteResultsProps) {
+    const { theme } = useUnistyles();
     const scrollViewRef = useRef<ScrollView>(null);
     const itemRefs = useRef<{ [key: number]: View | null }>({});
     
@@ -42,8 +45,8 @@ export function CommandPaletteResults({
     if (categories.length === 0 || allCommands.length === 0) {
         return (
             <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, Typography.default()]}>
-                    No commands found
+                <Text style={[styles.emptyText, Typography.default(), { color: theme.colors.textSecondary }]}>
+                    {t('commandPalette.noCommandsFound')}
                 </Text>
             </View>
         );
@@ -86,7 +89,13 @@ export function CommandPaletteResults({
 
                 return (
                     <View key={category.id}>
-                        <Text style={[styles.categoryTitle, Typography.default('semiBold')]}>
+                        <Text
+                            style={[
+                                styles.categoryTitle,
+                                Typography.default('semiBold'),
+                                { color: theme.colors.textSecondary },
+                            ]}
+                        >
                             {category.title}
                         </Text>
                         {categoryCommands}
@@ -113,7 +122,6 @@ const styles = StyleSheet.create({
     },
     emptyText: {
         fontSize: 15,
-        color: '#999',
         letterSpacing: -0.2,
     },
     categoryTitle: {
@@ -121,7 +129,6 @@ const styles = StyleSheet.create({
         paddingTop: 16,
         paddingBottom: 8,
         fontSize: 12,
-        color: '#999',
         textTransform: 'uppercase',
         letterSpacing: 0.8,
         fontWeight: '600',
