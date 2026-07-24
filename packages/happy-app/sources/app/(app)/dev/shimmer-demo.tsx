@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { Stack } from 'expo-router';
 import { ShimmerView } from '@/components/ShimmerView';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -15,15 +16,17 @@ export default function ShimmerDemoScreen() {
                 }}
             />
             
-            <ScrollView style={styles.container}>
+            <ScrollView style={styles.container} testID="dev-shimmer-screen">
                 <View style={styles.content}>
-                    <Text style={styles.pageTitle}>{t('devTools.shimmerViewExamples')}</Text>
-                    <Text style={styles.description}>
+                    <Text style={styles.pageTitle} testID="dev-shimmer-heading">
+                        {t('devTools.shimmerViewExamples')}
+                    </Text>
+                    <Text style={styles.description} testID="dev-shimmer-secondary">
                         {t('devTools.shimmerViewDescription')}
                     </Text>
 
                     <ItemGroup title={t('devTools.textShimmer')}>
-                        <View style={styles.example}>
+                        <View style={styles.example} testID="dev-shimmer-elevated">
                             <ShimmerView style={styles.shimmerContainer}>
                                 <Text style={styles.shimmerText}>{t('devTools.loadingContent')}</Text>
                             </ShimmerView>
@@ -125,10 +128,10 @@ export default function ShimmerDemoScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
-        backgroundColor: '#F2F2F7',
+        backgroundColor: theme.colors.groupped.background,
     },
     content: {
         flex: 1,
@@ -137,13 +140,14 @@ const styles = StyleSheet.create({
     pageTitle: {
         fontSize: 28,
         fontWeight: 'bold',
+        color: theme.colors.text,
         marginTop: 20,
         marginBottom: 8,
         paddingHorizontal: 16,
     },
     description: {
         fontSize: 16,
-        color: '#666',
+        color: theme.colors.textSecondary,
         marginBottom: 20,
         paddingHorizontal: 16,
     },
@@ -151,22 +155,22 @@ const styles = StyleSheet.create({
         paddingVertical: 20,
         paddingHorizontal: 16,
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
+        backgroundColor: theme.colors.surface,
     },
     shimmerText: {
         fontSize: 24,
         fontWeight: 'bold',
-        color: '#333',
+        color: theme.colors.text,
     },
     titleText: {
         fontSize: 28,
         fontWeight: 'bold',
-        color: '#000',
+        color: theme.colors.text,
         marginBottom: 8,
     },
     subtitleText: {
         fontSize: 16,
-        color: '#666',
+        color: theme.colors.textSecondary,
     },
     iconContainer: {
         flex: 1,
@@ -185,7 +189,7 @@ const styles = StyleSheet.create({
         width: 50,
         height: 50,
         borderRadius: 25,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         marginRight: 12,
     },
     cardInfo: {
@@ -194,14 +198,14 @@ const styles = StyleSheet.create({
     },
     nameLine: {
         height: 16,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         borderRadius: 4,
         marginBottom: 8,
         width: '60%',
     },
     dateLine: {
         height: 12,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         borderRadius: 4,
         width: '40%',
     },
@@ -210,7 +214,7 @@ const styles = StyleSheet.create({
     },
     contentLine: {
         height: 12,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         borderRadius: 4,
         width: '100%',
     },
@@ -223,13 +227,13 @@ const styles = StyleSheet.create({
         width: 100,
         height: 100,
         borderRadius: 50,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         marginBottom: 20,
     },
     rectangle: {
         width: 150,
         height: 40,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
         borderRadius: 8,
         marginBottom: 20,
     },
@@ -237,7 +241,7 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: '#888',
+        backgroundColor: theme.colors.textSecondary,
     },
     shimmerContainer: {
         width: 300,
@@ -271,6 +275,6 @@ const styles = StyleSheet.create({
     fullWidthText: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#333',
+        color: theme.colors.text,
     },
-});
+}));

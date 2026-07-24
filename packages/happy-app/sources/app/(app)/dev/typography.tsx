@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ScrollView, View, Text, StyleSheet } from 'react-native';
+import { ScrollView, View, Text } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -8,14 +9,14 @@ import { t } from '@/text';
 const TextSample = ({ title, style, text = t('devTools.quickBrownFox') }: { title: string; style: any; text?: string }) => (
     <View style={styles.sampleContainer}>
         <Text style={styles.sampleTitle}>{title}</Text>
-        <Text style={[{ fontSize: 16 }, style]}>{text}</Text>
+        <Text style={[styles.sampleText, { fontSize: 16 }, style]}>{text}</Text>
     </View>
 );
 
 const CodeSample = ({ title, style }: { title: string; style: any }) => (
     <View style={styles.sampleContainer}>
         <Text style={styles.sampleTitle}>{title}</Text>
-        <Text style={[{ fontSize: 14 }, style]}>
+        <Text style={[styles.codeText, { fontSize: 14 }, style]}>
             {`const greeting = "Hello, World!";\nconsole.log(greeting);`}
         </Text>
     </View>
@@ -23,11 +24,13 @@ const CodeSample = ({ title, style }: { title: string; style: any }) => (
 
 export default function TypographyScreen() {
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} testID="dev-typography-screen">
             <View style={styles.content}>
                 {/* IBM Plex Sans (Default) */}
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>{t('devTools.ibmPlexSansDefault')}</Text>
+                    <Text style={styles.sectionTitle} testID="dev-typography-heading">
+                        {t('devTools.ibmPlexSansDefault')}
+                    </Text>
                     
                     <TextSample 
                         title={t('devTools.regular400')}
@@ -74,7 +77,7 @@ export default function TypographyScreen() {
                         style={{ fontSize: 28, ...Typography.logo() }}
                         text="Paws"
                     />
-                    <Text style={styles.note}>
+                    <Text style={styles.note} testID="dev-typography-secondary">
                         {t('devTools.logoFontNote')}
                     </Text>
                 </View>
@@ -85,7 +88,7 @@ export default function TypographyScreen() {
                     
                     {[12, 14, 16, 18, 20, 24, 28, 32, 36].map(size => (
                         <View key={size} style={styles.fontSizeItem}>
-                            <Text style={{ fontSize: size, ...Typography.default() }}>
+                            <Text style={[styles.sampleText, { fontSize: size }, Typography.default()]}>
                                 {t('devTools.fontSizeSample', { size })}
                             </Text>
                         </View>
@@ -119,8 +122,8 @@ export default function TypographyScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>{t('devTools.usageExamples')}</Text>
                     
-                    <View style={styles.codeBlock}>
-                        <Text style={{ ...Typography.mono(), fontSize: 12 }}>
+                    <View style={styles.codeBlock} testID="dev-typography-elevated">
+                        <Text style={[styles.codeText, Typography.mono(), { fontSize: 12 }]}>
 {`// Default typography (IBM Plex Sans)
 <Text style={{ fontSize: 16, ...Typography.default() }}>Regular</Text>
 <Text style={{ fontSize: 16, ...Typography.default('semiBold') }}>Bold</Text>
@@ -138,10 +141,10 @@ export default function TypographyScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.surface,
     },
     content: {
         padding: 16,
@@ -151,8 +154,14 @@ const styles = StyleSheet.create({
     },
     sampleTitle: {
         fontSize: 14,
-        color: 'rgba(0,0,0,0.5)',
+        color: theme.colors.textSecondary,
         marginBottom: 4,
+    },
+    sampleText: {
+        color: theme.colors.text,
+    },
+    codeText: {
+        color: theme.colors.text,
     },
     section: {
         marginBottom: 32,
@@ -160,19 +169,20 @@ const styles = StyleSheet.create({
     sectionTitle: {
         fontSize: 20,
         fontWeight: '600',
+        color: theme.colors.text,
         marginBottom: 16,
     },
     note: {
         fontSize: 14,
-        color: 'rgba(0,0,0,0.5)',
+        color: theme.colors.textSecondary,
         marginTop: 8,
     },
     fontSizeItem: {
         marginBottom: 12,
     },
     codeBlock: {
-        backgroundColor: '#f0f0f0',
+        backgroundColor: theme.colors.surfaceHigh,
         padding: 16,
         borderRadius: 8,
     },
-});
+}));

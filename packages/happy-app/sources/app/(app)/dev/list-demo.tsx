@@ -60,6 +60,7 @@ export default function ListDemoScreen() {
                         <Switch
                             value={isEnabled}
                             onValueChange={setIsEnabled}
+                            accessibilityLabel={t('devTools.toggleSwitch')}
                         />
                     }
                     showChevron={false}
