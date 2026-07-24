@@ -7,7 +7,9 @@ import {
     ViewStyle, 
     TextStyle,
     Platform,
-    ActivityIndicator
+    ActivityIndicator,
+    AccessibilityRole,
+    AccessibilityState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -41,6 +43,10 @@ export interface ItemProps {
     pressableStyle?: StyleProp<ViewStyle>;
     copy?: boolean | string;
     testID?: string;
+    accessibilityRole?: AccessibilityRole;
+    accessibilityLabel?: string;
+    accessibilityState?: AccessibilityState;
+    'aria-checked'?: boolean | 'mixed';
 }
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
@@ -146,6 +152,10 @@ export const Item = React.memo<ItemProps>((props) => {
         pressableStyle,
         copy,
         testID,
+        accessibilityRole,
+        accessibilityLabel,
+        accessibilityState,
+        'aria-checked': ariaChecked,
     } = props;
 
     // Handle copy functionality
@@ -232,7 +242,7 @@ export const Item = React.memo<ItemProps>((props) => {
                     >
                         {title}
                     </Text>
-                    {subtitle && (() => {
+                    {subtitle ? (() => {
                         // Allow multiline when requested or when content contains line breaks
                         const effectiveLines = subtitleLines !== undefined
                             ? (subtitleLines <= 0 ? undefined : subtitleLines)
@@ -245,12 +255,12 @@ export const Item = React.memo<ItemProps>((props) => {
                                 {subtitle}
                             </Text>
                         );
-                    })()}
+                    })() : null}
                 </View>
 
                 {/* Right Section */}
                 <View style={styles.rightSection}>
-                    {detail && !rightElement && (
+                    {detail && !rightElement ? (
                         <Text 
                             style={[
                                 styles.detail, 
@@ -261,7 +271,7 @@ export const Item = React.memo<ItemProps>((props) => {
                         >
                             {detail}
                         </Text>
-                    )}
+                    ) : null}
                     {loading && (
                         <ActivityIndicator 
                             size="small" 
@@ -299,6 +309,13 @@ export const Item = React.memo<ItemProps>((props) => {
         return (
             <Pressable
                 testID={testID}
+                accessibilityRole={accessibilityRole ?? 'button'}
+                accessibilityLabel={accessibilityLabel}
+                aria-checked={ariaChecked}
+                accessibilityState={{
+                    ...accessibilityState,
+                    disabled: Boolean(disabled || loading || accessibilityState?.disabled),
+                }}
                 onPress={handlePress}
                 onLongPress={onLongPress ? handleLongPress : undefined}
                 onPressIn={handlePressIn}

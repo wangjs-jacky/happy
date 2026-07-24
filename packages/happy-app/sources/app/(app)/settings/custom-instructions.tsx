@@ -56,6 +56,7 @@ export default React.memo(function CustomInstructionsScreen() {
                             ]}
                             value={value}
                             onChangeText={setValue}
+                            accessibilityLabel={t('customInstructions.label')}
                             placeholder={t('customInstructions.placeholder')}
                             placeholderTextColor={theme.colors.input.placeholder}
                             onFocus={() => setFocused(true)}

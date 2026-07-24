@@ -448,3 +448,55 @@ test.describe('中文 Web 资料与使用情况设置', () => {
         await expect(saveButton).toBeDisabled();
     });
 });
+
+test.describe('中文 Web 自定义指令与 Skills 设置', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('自定义指令输入框使用可见标签且适配 800px 桌面断点', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/custom-instructions'));
+
+        const instructions = page.getByRole('textbox', { name: '指令内容' });
+        await expect(instructions).toBeVisible();
+        const inputBox = await instructions.boundingBox();
+        expect(inputBox).not.toBeNull();
+        expect(inputBox!.width).toBeGreaterThan(450);
+
+        await instructions.focus();
+        await expect(instructions).toBeFocused();
+        await page.keyboard.press('Tab');
+        await expect(instructions).not.toBeFocused();
+    });
+
+    test('Skills 空态或搜索交互不会产生 key 或文本节点错误', async ({ page }) => {
+        const renderErrors: string[] = [];
+        page.on('console', (message) => {
+            if (
+                message.type() === 'error'
+                && (
+                    message.text().includes('Encountered two children with the same key')
+                    || message.text().includes('Unexpected text node')
+                )
+            ) {
+                renderErrors.push(message.text());
+            }
+        });
+
+        await page.goto(authenticatedRoute('/settings/skills'));
+        const search = page.getByRole('textbox', { name: '搜索名称或触发词…' });
+        const noMachine = page.getByText('无在线机器，请先连接一台机器', { exact: true });
+        await expect(search.or(noMachine)).toBeVisible();
+
+        if (await search.isVisible()) {
+            await search.fill('zzzz-audit-no-match');
+            await expect(page.getByText('无匹配的 Skills', { exact: true })).toBeVisible();
+            await search.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+            await search.press('Backspace');
+            await expect(search).toHaveValue('');
+        } else {
+            await expect(noMachine).toBeVisible();
+        }
+
+        expect(renderErrors).toEqual([]);
+    });
+});
