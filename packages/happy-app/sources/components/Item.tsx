@@ -222,6 +222,14 @@ export const Item = React.memo<ItemProps>((props) => {
     const isInteractive = handlePress || onLongPress || (copy && !isWeb);
     const showAccessory = isInteractive && showChevron && !rightElement;
     const chevronSize = (isIOS && !isWeb) ? 17 : 24;
+    const generatedAccessibilityLabel = [title, subtitle, detail]
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => value.replace(/\s+/g, ' ').trim())
+        .filter(value => value.length > 0)
+        .filter((value, index, values) => index === 0 || value !== values[index - 1])
+        .join(', ');
+    const explicitAccessibilityLabel = accessibilityLabel?.replace(/\s+/g, ' ').trim();
+    const resolvedAccessibilityLabel = explicitAccessibilityLabel || generatedAccessibilityLabel;
 
     const titleColor = destructive ? styles.titleDestructive : (selected ? styles.titleSelected : styles.titleNormal);
     const containerPadding = subtitle ? styles.containerWithSubtitle : styles.containerWithoutSubtitle;
@@ -312,7 +320,7 @@ export const Item = React.memo<ItemProps>((props) => {
             <Pressable
                 testID={testID}
                 accessibilityRole={accessibilityRole ?? 'button'}
-                accessibilityLabel={accessibilityLabel}
+                accessibilityLabel={resolvedAccessibilityLabel}
                 aria-checked={ariaChecked}
                 aria-expanded={ariaExpanded}
                 accessibilityState={{

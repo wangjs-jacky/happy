@@ -751,3 +751,38 @@ test.describe('中文 Web 收件箱与好友语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 });
+
+test.describe('中文 Web 设置总览与开发者工具语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('列表入口排除装饰节点并保留业务详情，且更新日志导航正常', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings'));
+
+        for (const name of ['更新日志, 查看最新更新和改进', '报告问题', '隐私政策', '服务条款']) {
+            await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+        }
+        await expect(page.getByRole('button', { name: /^主题设置, .+/ })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: /^语言切换, .+/ })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: /^Claude Code, (活跃|连接账户)$/ })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: /^GitHub, (已连接为 @.+|连接您的 GitHub 账户)$/ })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: /^版本, .+/ })).toHaveCount(1);
+
+        await page.getByRole('button', { name: '更新日志, 查看最新更新和改进', exact: true }).click();
+        await expect.poll(() => new URL(page.url()).pathname).toBe('/changelog');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+
+        await page.goto(authenticatedRoute('/dev'));
+        for (const name of [
+            '列表组件, Item、ItemGroup 和 ItemList 演示',
+            '排版, 所有排版样式',
+            '颜色, 调色板和主题',
+            '工具视图, 工具调用可视化组件',
+            '输入样式, 10+ 种不同的输入框样式',
+            '模态系统, Alert、confirm 和自定义弹窗',
+        ]) {
+            await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+});
