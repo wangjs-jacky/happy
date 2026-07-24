@@ -1065,6 +1065,7 @@ export const zhHans: TranslationStructure = {
         messageDemosSubtitle: '各种消息类型和组件',
         invertedListTest: '倒置列表测试',
         invertedListTestSubtitle: '测试带键盘的倒置 FlatList',
+        nativeOnly: '仅原生端可用',
         toolViewsSubtitle: '工具调用可视化组件',
         shimmerViewSubtitle: '带遮罩的闪烁加载效果',
         multiTextInputSubtitle: '自动增长的多行文本输入',

@@ -1096,6 +1096,7 @@ export const en = {
         messageDemosSubtitle: 'Various message types and components',
         invertedListTest: 'Inverted List Test',
         invertedListTestSubtitle: 'Test inverted FlatList with keyboard',
+        nativeOnly: 'Native only',
         toolViewsSubtitle: 'Tool call visualization components',
         shimmerViewSubtitle: 'Shimmer loading effects with masks',
         multiTextInputSubtitle: 'Auto-growing multiline text input',

@@ -37,6 +37,7 @@ export interface MultiTextInputHandle {
 // the New Architecture (Fabric) `setNativeProps({ text })` is a no-op — driving
 // `value` is the only text path that actually clears/replaces the field.
 interface MultiTextInputProps {
+    accessibilityLabel?: string;
     value?: string;
     defaultValue?: string;
     onChangeText?: (text: string) => void;
@@ -51,10 +52,12 @@ interface MultiTextInputProps {
     onKeyPress?: OnKeyPressCallback;
     onSelectionChange?: (selection: { start: number; end: number }) => void;
     onStateChange?: (state: TextInputState) => void;
+    testID?: string;
 }
 
 export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, MultiTextInputProps>((props, ref) => {
     const {
+        accessibilityLabel,
         value,
         defaultValue,
         onChangeText,
@@ -64,7 +67,8 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
         lineHeight = MULTI_TEXT_INPUT_LINE_HEIGHT,
         onKeyPress,
         onSelectionChange,
-        onStateChange
+        onStateChange,
+        testID,
     } = props;
 
     const isControlled = value !== undefined;
@@ -247,6 +251,8 @@ export const MultiTextInput = React.memo(React.forwardRef<MultiTextInputHandle, 
             {editable ? (
                 <TextInput
                     ref={inputRef}
+                    accessibilityLabel={accessibilityLabel}
+                    testID={testID}
                     style={textStyle}
                     placeholder={placeholder}
                     placeholderTextColor={theme.colors.input.placeholder}

@@ -146,5 +146,5 @@
 
 - 独立代码审查：首轮 Critical 0 / Important 1 / Minor 3；关闭临时配置提交边界并修订三项后，复审 Critical 0 / Important 0 / Minor 0。
 - PR：[#222](https://github.com/wangjs-jacky/happy/pull/222)。
-- CI：待最终填写。
-- merge commit：待最终填写。
+- CI：typecheck、publish-preview passed。
+- merge commit：`0389bfd13a3594d9f28eb878e733fa11db697e88`。
