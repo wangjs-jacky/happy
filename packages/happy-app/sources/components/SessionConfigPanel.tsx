@@ -281,6 +281,10 @@ export function PathPickerContent({
     onDone,
     embedded = false,
     manualInput = true,
+    inputPlaceholder,
+    customPathLabel = 'using custom path above',
+    recentLabel = 'Recent',
+    emptyRecentLabel = 'no recent projects yet',
 }: {
     title: string;
     items: PickerItem[];
@@ -292,6 +296,10 @@ export function PathPickerContent({
     onDone?: () => void;
     embedded?: boolean;
     manualInput?: boolean;
+    inputPlaceholder?: string;
+    customPathLabel?: string;
+    recentLabel?: string;
+    emptyRecentLabel?: string;
 }) {
     const { theme } = useUnistyles();
     const inputRef = React.useRef<TextInput>(null);
@@ -381,7 +389,8 @@ export function PathPickerContent({
                     onChangeText={onChangeValue}
                     onSelectionChange={handleSelectionChange}
                     selection={selection}
-                    placeholder={manualInput ? 'Enter project path' : 'Select project path'}
+                    accessibilityLabel={title}
+                    placeholder={inputPlaceholder ?? (manualInput ? 'Enter project path' : 'Select project path')}
                     placeholderTextColor={theme.colors.textSecondary}
                     style={[
                         pickerStyles.pathTextInput,
@@ -560,7 +569,7 @@ export function PathPickerContent({
 
                     {manualInput && isCustomPath && (
                         <Text style={[pickerStyles.pathMetaText, { color: theme.colors.textSecondary }]}>
-                            using custom path above
+                            {customPathLabel}
                         </Text>
                     )}
 
@@ -585,7 +594,7 @@ export function PathPickerContent({
                     )}
 
                     <Text style={[pickerStyles.sectionLabel, { color: theme.colors.textSecondary }]}>
-                        Recent
+                        {recentLabel}
                     </Text>
 
                     <OptionListContainer embedded={embedded}>
@@ -625,7 +634,7 @@ export function PathPickerContent({
 
                         {items.length === 0 && (
                             <Text style={[pickerStyles.emptyText, { color: theme.colors.textSecondary }]}>
-                                no recent projects yet
+                                {emptyRecentLabel}
                             </Text>
                         )}
                     </OptionListContainer>

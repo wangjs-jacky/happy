@@ -80,6 +80,7 @@ export const RoundButton = React.memo((props: { size?: RoundButtonSize, display?
 
     return (
         <Pressable
+            accessibilityRole="button"
             disabled={doLoading || props.disabled}
             hitSlop={size.hitSlop}
             style={(p) => ([

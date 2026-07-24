@@ -47,6 +47,7 @@ export interface ItemProps {
     accessibilityLabel?: string;
     accessibilityState?: AccessibilityState;
     'aria-checked'?: boolean | 'mixed';
+    'aria-expanded'?: boolean;
 }
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
@@ -156,6 +157,7 @@ export const Item = React.memo<ItemProps>((props) => {
         accessibilityLabel,
         accessibilityState,
         'aria-checked': ariaChecked,
+        'aria-expanded': ariaExpanded,
     } = props;
 
     // Handle copy functionality
@@ -312,6 +314,7 @@ export const Item = React.memo<ItemProps>((props) => {
                 accessibilityRole={accessibilityRole ?? 'button'}
                 accessibilityLabel={accessibilityLabel}
                 aria-checked={ariaChecked}
+                aria-expanded={ariaExpanded}
                 accessibilityState={{
                     ...accessibilityState,
                     disabled: Boolean(disabled || loading || accessibilityState?.disabled),
