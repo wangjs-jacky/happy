@@ -143,6 +143,6 @@ Escape 关闭：通过
 - Web export：passed；首屏加载占位注入成功，临时 Metro 配置已经恢复。
 - 独立代码审查：首轮 2 个 Important、4 个 Minor 均已关闭；增量复审追加 2 个 Minor
   也已关闭；最终复审 Critical、Important、Minor 均为 0，可以合并。
-- PR：等待创建。
-- CI：等待执行。
-- merge commit：等待合并。
+- PR：[#211](https://github.com/wangjs-jacky/happy/pull/211)。
+- CI：`typecheck`、`publish-preview` 均通过。
+- merge commit：`e53f6c083e815edd55c54eb777dc7cc3f8720ec7`。

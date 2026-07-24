@@ -40,6 +40,7 @@ export interface ItemProps {
     dividerInset?: number;
     pressableStyle?: StyleProp<ViewStyle>;
     copy?: boolean | string;
+    testID?: string;
 }
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
@@ -143,7 +144,8 @@ export const Item = React.memo<ItemProps>((props) => {
         showDivider = true,
         dividerInset = isIOS ? 15 : 16,
         pressableStyle,
-        copy
+        copy,
+        testID,
     } = props;
 
     // Handle copy functionality
@@ -296,6 +298,7 @@ export const Item = React.memo<ItemProps>((props) => {
     if (isInteractive) {
         return (
             <Pressable
+                testID={testID}
                 onPress={handlePress}
                 onLongPress={onLongPress ? handleLongPress : undefined}
                 onPressIn={handlePressIn}
@@ -319,5 +322,5 @@ export const Item = React.memo<ItemProps>((props) => {
         );
     }
 
-    return <View style={[{ opacity: disabled ? 0.5 : 1 }, pressableStyle]}>{content}</View>;
+    return <View testID={testID} style={[{ opacity: disabled ? 0.5 : 1 }, pressableStyle]}>{content}</View>;
 });

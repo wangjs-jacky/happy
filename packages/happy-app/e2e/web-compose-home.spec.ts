@@ -326,3 +326,74 @@ for (const width of [800, 1280]) {
         await expect(page.getByRole('textbox')).toBeVisible();
     });
 }
+
+test.describe('中文 Web 语音设置', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('开发者诊断完成本地化、保持紧凑且页面加载没有失败 Fetch', async ({ page }) => {
+        await page.goto(authenticatedWebUrl);
+        await expect(page.getByRole('textbox')).toBeVisible();
+
+        const voicePage = await page.context().newPage();
+        const failedFetchStatuses: number[] = [];
+        const failedUsageFetchRequests: string[] = [];
+        voicePage.on('response', (response) => {
+            if (response.request().resourceType() === 'fetch' && response.status() >= 400) {
+                failedFetchStatuses.push(response.status());
+            }
+        });
+        voicePage.on('requestfailed', (request) => {
+            if (request.resourceType() === 'fetch' && request.method() === 'GET') {
+                failedUsageFetchRequests.push(request.failure()?.errorText ?? 'unknown');
+            }
+        });
+
+        await voicePage.setViewportSize({ width: 1280, height: 900 });
+        await voicePage.goto(new URL('/settings/voice', authenticatedWebUrl).toString());
+
+        await expect(voicePage.getByText('开发者', { exact: true })).toBeVisible();
+        const statusTitle = voicePage.getByText('语音实验状态', { exact: true });
+        await expect(statusTitle).toBeVisible();
+        await expect(voicePage.getByText('重置语音计数', { exact: true })).toBeVisible();
+        await expect(voicePage.getByText(/Voice 升级推荐：对照组/)).toBeVisible();
+        await expect(voicePage.getByText(/来源：默认值/)).toBeVisible();
+        await expect(voicePage.getByText(/访问方式：Paws 服务器访问控制/)).toBeVisible();
+        await expect(voicePage.getByText(/实验功能设置：(开启|关闭)/)).toBeVisible();
+        await expect(voicePage.getByText(/软付费墙展示次数：0/)).toBeVisible();
+        await expect(voicePage.getByText(/新手引导提示词加载次数：0/)).toBeVisible();
+        await expect(voicePage.getByText(/Voice 消息数：0/)).toBeVisible();
+
+        await expect(voicePage.getByTestId('voice-usage-loading')).toHaveCount(0);
+        const statusRowBox = await voicePage.getByTestId('voice-experiment-status-row').boundingBox();
+        const resetRowBox = await voicePage.getByTestId('voice-reset-counters-row').boundingBox();
+        const developerFooterBox = await voicePage.getByText(
+            '当前 Voice 灰度发布的开发者诊断与本地控制。除非同时启用“直接连接”和自定义 ElevenLabs 代理，否则付费 Voice 的访问控制由 Paws 服务器处理。',
+            { exact: true },
+        ).boundingBox();
+        expect(statusRowBox).not.toBeNull();
+        expect(resetRowBox).not.toBeNull();
+        expect(developerFooterBox).not.toBeNull();
+        expect(statusRowBox!.height).toBeLessThanOrEqual(resetRowBox!.height + 1);
+        expect(statusRowBox!.y + statusRowBox!.height).toBeLessThanOrEqual(resetRowBox!.y);
+        expect(resetRowBox!.y + resetRowBox!.height).toBeLessThanOrEqual(developerFooterBox!.y);
+        expect(failedFetchStatuses).toEqual([]);
+        expect(failedUsageFetchRequests).toEqual([]);
+        await voicePage.screenshot({
+            path: 'test-results/voice-settings-desktop-zh.png',
+            fullPage: true,
+        });
+    });
+});
+
+test.describe('中文 Web 语言设置', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('切换语言前使用待确认语义并允许取消', async ({ page }) => {
+        await page.goto(new URL('/settings/language', authenticatedWebUrl).toString());
+        await page.getByText('English', { exact: true }).click();
+
+        await expect(page.getByText('需要重启应用', { exact: true })).toBeVisible();
+        await page.getByText('取消', { exact: true }).click();
+        await expect(page.getByText('需要重启应用', { exact: true })).toHaveCount(0);
+    });
+});

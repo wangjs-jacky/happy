@@ -25,12 +25,22 @@ export const VoiceConversationResponseSchema = z.discriminatedUnion('allowed', [
 
 export type VoiceConversationResponse = z.infer<typeof VoiceConversationResponseSchema>;
 
-export const VoiceUsageResponseSchema = z.object({
+const VoiceUsageAvailableResponseSchema = z.object({
+    available: z.literal(true),
     usedSeconds: z.number(),
     limitSeconds: z.number(),
     conversationCount: z.number(),
     conversationLimit: z.number(),
     elevenUserId: z.string(),
 });
+
+const VoiceUsageUnavailableResponseSchema = z.object({
+    available: z.literal(false),
+});
+
+export const VoiceUsageResponseSchema = z.discriminatedUnion('available', [
+    VoiceUsageAvailableResponseSchema,
+    VoiceUsageUnavailableResponseSchema,
+]);
 
 export type VoiceUsageResponse = z.infer<typeof VoiceUsageResponseSchema>;
