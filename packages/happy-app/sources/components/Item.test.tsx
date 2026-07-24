@@ -57,13 +57,35 @@ describe('Item 可访问语义', () => {
         consoleErrorSpy.mockRestore();
     });
 
-    it('交互 Item 默认暴露 button 角色', () => {
+    it('只有标题的交互 Item 默认暴露同名 button', () => {
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(<Item title="重试" onPress={() => {}} />);
         });
 
-        expect(renderer.root.findByType('Pressable').props.accessibilityRole).toBe('button');
+        const pressable = renderer.root.findByType('Pressable');
+        expect(pressable.props.accessibilityRole).toBe('button');
+        expect(pressable.props.accessibilityLabel).toBe('重试');
+
+        act(() => renderer.unmount());
+    });
+
+    it('标题、说明和详情组成排除装饰节点的业务名称', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <Item
+                    title="更新日志"
+                    subtitle={'  查看最新\n更新和改进  '}
+                    detail="动态详情"
+                    onPress={() => {}}
+                />,
+            );
+        });
+
+        const pressable = renderer.root.findByType('Pressable');
+        expect(pressable.props.accessibilityRole).toBe('button');
+        expect(pressable.props.accessibilityLabel).toBe('更新日志, 查看最新 更新和改进, 动态详情');
 
         act(() => renderer.unmount());
     });
@@ -75,6 +97,7 @@ describe('Item 可访问语义', () => {
                 <Item
                     title="机器 A"
                     onPress={() => {}}
+                    accessibilityLabel="  选择机器 A  "
                     accessibilityRole="radio"
                     aria-checked
                 />,
@@ -82,8 +105,22 @@ describe('Item 可访问语义', () => {
         });
 
         const pressable = renderer.root.findByType('Pressable');
+        expect(pressable.props.accessibilityLabel).toBe('选择机器 A');
         expect(pressable.props.accessibilityRole).toBe('radio');
         expect(pressable.props['aria-checked']).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('显式空白名称会回退到生成名称', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <Item title="版本" accessibilityLabel="   " onPress={() => {}} />,
+            );
+        });
+
+        expect(renderer.root.findByType('Pressable').props.accessibilityLabel).toBe('版本');
 
         act(() => renderer.unmount());
     });
