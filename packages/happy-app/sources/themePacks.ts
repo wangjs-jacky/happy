@@ -137,3 +137,14 @@ export function resolveThemeName(pack: ThemePackId, isDark: boolean): AppThemeNa
     const id = (THEME_PACK_IDS.includes(pack) ? pack : 'caramel');
     return `${id}${isDark ? 'Dark' : 'Light'}` as AppThemeName;
 }
+
+/** 保留当前主题包，仅切换亮暗模式。 */
+export function resolveThemeMode(
+    currentThemeName: AppThemeName | string | null | undefined,
+    isDark: boolean,
+): AppThemeName {
+    const pack = THEME_PACK_IDS.find((id) => (
+        currentThemeName === `${id}Light` || currentThemeName === `${id}Dark`
+    )) ?? 'caramel';
+    return resolveThemeName(pack, isDark);
+}

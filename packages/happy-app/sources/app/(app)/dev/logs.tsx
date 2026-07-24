@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { View, Text, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { log, MAX_APP_LOG_ENTRIES } from '@/log';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
@@ -12,6 +12,7 @@ import { t } from '@/text';
 
 export default function LogsScreen() {
     const { theme } = useUnistyles();
+    const styles = stylesheet;
     const [logs, setLogs] = React.useState<string[]>([]);
     const flatListRef = React.useRef<FlatList>(null);
 
@@ -72,25 +73,15 @@ export default function LogsScreen() {
     };
 
     const renderLogItem = ({ item, index }: { item: string; index: number }) => (
-        <View style={{
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderBottomWidth: 1,
-            borderBottomColor: '#F0F0F0'
-        }}>
-            <Text style={{
-                fontFamily: 'IBMPlexMono-Regular',
-                fontSize: 12,
-                color: '#333',
-                lineHeight: 16
-            }}>
+        <View style={styles.logItem}>
+            <Text style={styles.logText}>
                 {item}
             </Text>
         </View>
     );
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
+        <View style={styles.screen} testID="dev-logs-screen">
             {/* Header with actions */}
             <ItemList>
                 <ItemGroup
@@ -102,12 +93,16 @@ export default function LogsScreen() {
                         subtitle={t('devTools.addTestLogSubtitle')}
                         icon={<Ionicons name="add-circle-outline" size={24} color="#34C759" />}
                         onPress={handleAddTestLog}
+                        testID="dev-logs-add"
+                        accessibilityLabel={t('devTools.addTestLog')}
                     />
                     <Item 
                         title={t('devTools.copyAllLogs')}
                         icon={<Ionicons name="copy-outline" size={24} color={theme.colors.accent} />}
                         onPress={handleCopyAll}
                         disabled={logs.length === 0}
+                        testID="dev-logs-copy"
+                        accessibilityLabel={t('devTools.copyAllLogs')}
                     />
                     <Item 
                         title={t('devTools.clearAllLogs')}
@@ -115,34 +110,21 @@ export default function LogsScreen() {
                         onPress={handleClear}
                         disabled={logs.length === 0}
                         destructive={true}
+                        testID="dev-logs-clear"
+                        accessibilityLabel={t('devTools.clearAllLogs')}
                     />
                 </ItemGroup>
             </ItemList>
 
             {/* Logs display */}
-            <View style={{ flex: 1, backgroundColor: '#FFFFFF', margin: 16, borderRadius: 8 }}>
+            <View style={styles.logSurface} testID="dev-logs-surface">
                 {logs.length === 0 ? (
-                    <View style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        padding: 32
-                    }}>
-                        <Ionicons name="document-text-outline" size={48} color="#C0C0C0" />
-                        <Text style={{
-                            fontSize: 16,
-                            color: '#999',
-                            marginTop: 16,
-                            textAlign: 'center'
-                        }}>
+                    <View style={styles.emptyState}>
+                        <Ionicons name="document-text-outline" size={48} color={theme.colors.textSecondary} />
+                        <Text style={styles.emptyTitle}>
                             {t('devTools.noLogsYet')}
                         </Text>
-                        <Text style={{
-                            fontSize: 14,
-                            color: '#C0C0C0',
-                            marginTop: 8,
-                            textAlign: 'center'
-                        }}>
+                        <Text style={styles.emptyDescription}>
                             {t('devTools.logsWillAppear')}
                         </Text>
                     </View>
@@ -161,3 +143,47 @@ export default function LogsScreen() {
         </View>
     );
 }
+
+const stylesheet = StyleSheet.create((theme) => ({
+    screen: {
+        flex: 1,
+        backgroundColor: theme.colors.groupped.background,
+    },
+    logSurface: {
+        flex: 1,
+        backgroundColor: theme.colors.surface,
+        margin: 16,
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    logItem: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.divider,
+    },
+    logText: {
+        fontFamily: 'IBMPlexMono-Regular',
+        fontSize: 12,
+        color: theme.colors.text,
+        lineHeight: 16,
+    },
+    emptyState: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 32,
+    },
+    emptyTitle: {
+        fontSize: 16,
+        color: theme.colors.textSecondary,
+        marginTop: 16,
+        textAlign: 'center',
+    },
+    emptyDescription: {
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+        marginTop: 8,
+        textAlign: 'center',
+    },
+}));

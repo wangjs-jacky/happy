@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, Switch, Dimensions } from 'react-native';
+import { Platform, View, Text, ScrollView, Pressable, Switch, useWindowDimensions } from 'react-native';
 import { StyleSheet, UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { t } from '@/text';
-
-const { width: screenWidth } = Dimensions.get('window');
+import { resolveThemeMode } from '@/themePacks';
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
         flex: 1,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: theme.colors.groupped.background,
     },
     scrollContent: {
         padding: 16,
@@ -20,31 +19,38 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         backgroundColor: theme.colors.surface,
         borderRadius: 12,
         padding: 16,
-        shadowColor: '#000',
-        shadowOffset: {
-            width: 0,
-            height: 2,
-        },
-        shadowOpacity: 0.1,
-        shadowRadius: 3.84,
-        elevation: 5,
+        ...Platform.select({
+            web: {
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: {
+                    width: 0,
+                    height: 2,
+                },
+                shadowOpacity: 0.1,
+                shadowRadius: 3.84,
+                elevation: 5,
+            },
+        }),
     },
     sectionTitle: {
         fontSize: 20,
         fontWeight: 'bold',
         marginBottom: 12,
-        color: '#333',
+        color: theme.colors.text,
     },
     themeCard: {
         padding: 16,
         borderRadius: 8,
         marginBottom: 12,
-        backgroundColor: theme.colors.surface,
+        backgroundColor: theme.colors.surfaceHigh,
         borderWidth: 2,
-        borderColor: theme.colors.surface,
+        borderColor: theme.colors.divider,
     },
     themeText: {
-        color: 'white',
+        color: theme.colors.text,
         fontSize: 16,
         fontWeight: '600',
         textAlign: 'center',
@@ -83,7 +89,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     },
     responsiveBox: {
         flex: 1,
-        backgroundColor: theme.colors.surface,  // TODO: change to primary
+        backgroundColor: theme.colors.surfaceHigh,
         padding: 16,
         borderRadius: 8,
         minHeight: 80,
@@ -118,7 +124,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         fontFamily: 'monospace',
     },
     themeButton: {
-        backgroundColor: theme.colors.surface,  // TODO: change to primary
+        backgroundColor: theme.colors.surfaceHigh,
         padding: 12,
         borderRadius: 8,
         marginHorizontal: 4,
@@ -126,7 +132,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         alignItems: 'center',
     },
     themeButtonText: {
-        color: 'white',
+        color: theme.colors.text,
         fontWeight: '600',
     },
     switchContainer: {
@@ -136,7 +142,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         marginBottom: 12,
     },
     adaptiveBox: {
-        backgroundColor: theme.colors.surface,  // TODO: change to primary
+        backgroundColor: theme.colors.surfaceHigh,
         padding: {
             xs: 8,
             sm: 12,
@@ -154,7 +160,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         marginBottom: 8,
     },
     adaptiveText: {
-        color: 'white',
+        color: theme.colors.text,
         fontSize: {
             xs: 12,
             sm: 14,
@@ -168,27 +174,25 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
 
 export default function UnistylesDemo() {
     const { theme, rt } = useUnistyles();
+    const { width: screenWidth } = useWindowDimensions();
     const styles = stylesheet;
     const [showRuntimeInfo, setShowRuntimeInfo] = useState(true);
     const runtimeThemeName = rt.themeName ?? t('common.unknown');
     const runtimeBreakpoint = rt.breakpoint ?? t('common.unknown');
+    const isDarkTheme = typeof rt.themeName === 'string' && rt.themeName.endsWith('Dark');
 
     const switchTheme = (mode: 'light' | 'dark') => {
-        // 主题名已改为「主题包 + 明暗」结构，dev 演示用默认焦糖包
-        UnistylesRuntime.setTheme(mode === 'dark' ? 'caramelDark' : 'caramelLight');
-    };
-
-    const toggleColorScheme = () => {
-        // Note: ColorScheme is typically system-controlled in React Native
-        console.log('Color scheme toggle requested - this would typically be system controlled');
+        UnistylesRuntime.setTheme(resolveThemeMode(rt.themeName, mode === 'dark'));
     };
 
     return (
-        <View style={styles.container}>
+        <View style={styles.container} testID="dev-unistyles-screen">
             <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
                 {/* Theme Demo */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>{t('devTools.themeSystem')}</Text>
+                <View style={styles.section} testID="dev-unistyles-theme-section">
+                    <Text style={styles.sectionTitle} testID="dev-unistyles-theme-heading">
+                        {t('devTools.themeSystem')}
+                    </Text>
                     <View style={styles.themeCard}>
                         <Text style={styles.themeText}>
                             {t('devTools.currentTheme', { theme: runtimeThemeName })}
@@ -198,16 +202,30 @@ export default function UnistylesDemo() {
                         </Text>
                     </View>
 
-                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+                    <View
+                        style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                        accessibilityRole="radiogroup"
+                        accessibilityLabel={t('devTools.themeSystem')}
+                    >
                         <Pressable
                             style={styles.themeButton}
                             onPress={() => switchTheme('light')}
+                            accessibilityRole="radio"
+                            accessibilityLabel={t('devTools.light')}
+                            accessibilityState={{ checked: !isDarkTheme }}
+                            aria-checked={!isDarkTheme}
+                            testID="dev-unistyles-theme-light"
                         >
                             <Text style={styles.themeButtonText}>{t('devTools.light')}</Text>
                         </Pressable>
                         <Pressable
                             style={styles.themeButton}
                             onPress={() => switchTheme('dark')}
+                            accessibilityRole="radio"
+                            accessibilityLabel={t('devTools.dark')}
+                            accessibilityState={{ checked: isDarkTheme }}
+                            aria-checked={isDarkTheme}
+                            testID="dev-unistyles-theme-dark"
                         >
                             <Text style={styles.themeButtonText}>{t('devTools.dark')}</Text>
                         </Pressable>
@@ -217,7 +235,10 @@ export default function UnistylesDemo() {
                 {/* Breakpoints Demo */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>{t('devTools.responsiveBreakpoints')}</Text>
-                    <Text style={{ marginBottom: 12, color: '#666' }}>
+                    <Text
+                        style={{ marginBottom: 12, color: theme.colors.textSecondary }}
+                        testID="dev-unistyles-breakpoint-description"
+                    >
                         {t('devTools.currentBreakpoint', { breakpoint: runtimeBreakpoint, width: screenWidth })}
                     </Text>
 
@@ -232,10 +253,10 @@ export default function UnistylesDemo() {
 
                     <View style={styles.responsiveContainer}>
                         <View style={styles.responsiveBox}>
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 1 })}</Text>
+                            <Text style={{ color: theme.colors.text, fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 1 })}</Text>
                         </View>
                         <View style={styles.responsiveBox}>
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 2 })}</Text>
+                            <Text style={{ color: theme.colors.text, fontWeight: 'bold' }}>{t('devTools.boxLabel', { number: 2 })}</Text>
                         </View>
                     </View>
                 </View>
@@ -258,7 +279,7 @@ export default function UnistylesDemo() {
                 {/* Adaptive Components */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>{t('devTools.adaptiveComponents')}</Text>
-                    <Text style={{ marginBottom: 12, color: '#666' }}>
+                    <Text style={{ marginBottom: 12, color: theme.colors.textSecondary }}>
                         {t('devTools.adaptiveComponentsDescription')}
                     </Text>
 
@@ -276,10 +297,14 @@ export default function UnistylesDemo() {
                     <Text style={styles.sectionTitle}>{t('devTools.runtimeInformation')}</Text>
 
                     <View style={styles.switchContainer}>
-                        <Text style={{ fontSize: 16, color: '#333' }}>{t('devTools.showRuntimeDetails')}</Text>
+                        <Text style={{ fontSize: 16, color: theme.colors.text }}>{t('devTools.showRuntimeDetails')}</Text>
                         <Switch
                             value={showRuntimeInfo}
                             onValueChange={setShowRuntimeInfo}
+                            accessibilityLabel={t('devTools.showRuntimeDetails')}
+                            accessibilityState={{ checked: showRuntimeInfo }}
+                            aria-checked={showRuntimeInfo}
+                            testID="dev-unistyles-runtime-toggle"
                         />
                     </View>
 
@@ -328,14 +353,6 @@ export default function UnistylesDemo() {
                         </>
                     )}
 
-                    <Pressable
-                        style={[styles.themeButton, { marginTop: 12 }]}
-                        onPress={toggleColorScheme}
-                    >
-                        <Text style={styles.themeButtonText}>
-                            {t('devTools.toggleColorScheme', { scheme: rt.colorScheme })}
-                        </Text>
-                    </Pressable>
                 </View>
 
                 {/* Color Scheme Demo */}

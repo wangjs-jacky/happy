@@ -1072,3 +1072,103 @@ test.describe('中文 Web 输入与倒序列表演示', () => {
         );
     });
 });
+
+test.describe('中文 Web 运行时演示', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('日志操作具备稳定名称且应用内测试汇总跟随深色主题', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/logs'));
+
+        await expect(page.getByTestId('dev-logs-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        await expect(page.getByTestId('dev-logs-surface')).toHaveCSS(
+            'background-color',
+            'rgb(19, 19, 22)',
+        );
+        await expect(page.getByRole('button', { name: '添加测试日志', exact: true })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: '复制全部日志', exact: true })).toHaveCount(1);
+        const clearLogs = page.getByRole('button', { name: '清除全部日志', exact: true });
+        await expect(clearLogs).toHaveCount(1);
+
+        await page.getByRole('button', { name: '添加测试日志', exact: true }).click();
+        await clearLogs.click();
+        const clearDialog = page.getByRole('dialog', { name: '清除日志', exact: true });
+        await expect(clearDialog).toBeVisible();
+        await clearDialog.getByRole('button', { name: '取消', exact: true }).click();
+        await expect(clearDialog).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+
+        await page.goto(authenticatedRoute('/dev/tests'));
+        await page.getByRole('button', { name: /运行全部测试/ }).click();
+        const summary = page.getByTestId('dev-tests-summary');
+        await expect(summary).toBeVisible();
+        await expect(summary).toHaveCSS('background-color', 'rgb(19, 19, 22)');
+        const totalTests = Number(await page.getByTestId('dev-tests-total').textContent());
+        const passedTests = Number(await page.getByTestId('dev-tests-passed').textContent());
+        const failedTests = Number(await page.getByTestId('dev-tests-failed').textContent());
+        expect(totalTests).toBeGreaterThan(0);
+        expect(passedTests).toBe(totalTests);
+        expect(failedTests).toBe(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+
+    test('Unistyles 主题选择保留主题包并暴露实时状态', async ({ page }) => {
+        const deprecatedShadowWarnings: string[] = [];
+        page.on('console', (message) => {
+            if (
+                message.type() === 'warning'
+                && message.text().includes('"shadow*" style props are deprecated')
+            ) {
+                deprecatedShadowWarnings.push(message.text());
+            }
+        });
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/unistyles-demo'));
+
+        await expect(page.getByTestId('dev-unistyles-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        await expect(page.getByTestId('dev-unistyles-theme-heading')).toHaveCSS(
+            'color',
+            'rgb(229, 229, 231)',
+        );
+        const themeGroup = page.getByRole('radiogroup', { name: '主题系统', exact: true });
+        const lightTheme = themeGroup.getByRole('radio', { name: '浅色', exact: true });
+        const darkTheme = themeGroup.getByRole('radio', { name: '深色', exact: true });
+        await expect(lightTheme).toHaveAttribute('aria-checked', 'false');
+        await expect(darkTheme).toHaveAttribute('aria-checked', 'true');
+
+        await lightTheme.click();
+        await expect(page.getByText('当前主题：terminalLight', { exact: true })).toBeVisible();
+        await expect(lightTheme).toHaveAttribute('aria-checked', 'true');
+        await darkTheme.click();
+        await expect(page.getByText('当前主题：terminalDark', { exact: true })).toBeVisible();
+        await expect(darkTheme).toHaveAttribute('aria-checked', 'true');
+
+        const runtimeSwitch = page.getByRole('switch', { name: '显示运行时详情', exact: true });
+        await expect(runtimeSwitch).toBeChecked();
+        await runtimeSwitch.click();
+        await expect(runtimeSwitch).not.toBeChecked();
+        await runtimeSwitch.click();
+        await expect(runtimeSwitch).toBeChecked();
+
+        await expect(page.getByTestId('dev-unistyles-color-scheme')).toHaveCount(0);
+        await expect(page.getByTestId('dev-unistyles-breakpoint-description')).toContainText('800');
+        await expect(page.getByTestId('dev-unistyles-breakpoint-description')).not.toContainText('1440');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+        expect(deprecatedShadowWarnings).toEqual([]);
+
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Caramel', { exact: true }).click();
+    });
+});

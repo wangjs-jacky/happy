@@ -5,7 +5,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { testRunner, TestSuite, TestResult } from '@/dev/testRunner';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 
@@ -23,6 +23,7 @@ interface TestRunState {
 
 export default function TestsScreen() {
     const { theme } = useUnistyles();
+    const styles = stylesheet;
     const [state, setState] = React.useState<TestRunState>({
         running: false,
         results: []
@@ -67,32 +68,38 @@ export default function TestsScreen() {
     const failedTests = totalTests - passedTests;
 
     return (
-        <ItemList>
+        <ItemList style={styles.screen} testID="dev-tests-screen">
             {/* Summary */}
             {state.results.length > 0 && (
-                <View style={{ padding: 16, backgroundColor: 'white' }}>
+                <View style={styles.summary} testID="dev-tests-summary">
                     <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
                         <View style={{ flex: 1 }}>
-                            <Text style={{ ...Typography.mono(), fontSize: 32, fontWeight: '600' }}>
+                            <Text style={styles.summaryValue} testID="dev-tests-total">
                                 {totalTests}
                             </Text>
-                            <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
+                            <Text style={styles.summaryLabel}>
                                 {t('devTools.totalTests')}
                             </Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={{ ...Typography.mono(), fontSize: 32, fontWeight: '600', color: '#34C759' }}>
+                            <Text
+                                style={{ ...Typography.mono(), fontSize: 32, fontWeight: '600', color: '#34C759' }}
+                                testID="dev-tests-passed"
+                            >
                                 {passedTests}
                             </Text>
-                            <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
+                            <Text style={styles.summaryLabel}>
                                 {t('devTools.passed')}
                             </Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={{ ...Typography.mono(), fontSize: 32, fontWeight: '600', color: failedTests > 0 ? '#FF3B30' : '#8E8E93' }}>
+                            <Text
+                                style={{ ...Typography.mono(), fontSize: 32, fontWeight: '600', color: failedTests > 0 ? '#FF3B30' : '#8E8E93' }}
+                                testID="dev-tests-failed"
+                            >
                                 {failedTests}
                             </Text>
-                            <Text style={{ ...Typography.default(), fontSize: 14, color: '#8E8E93' }}>
+                            <Text style={styles.summaryLabel}>
                                 {t('devTools.failed')}
                             </Text>
                         </View>
@@ -148,7 +155,7 @@ export default function TestsScreen() {
             {state.results.map(suite => (
                 <ItemGroup key={suite.name} title={t('devTools.suiteResults', { suite: suite.name })}>
                     {suite.tests.map((test, index) => (
-                        <View key={index} style={{ backgroundColor: 'white' }}>
+                        <View key={index} style={styles.resultItem}>
                             <View style={{ 
                                 padding: 16, 
                                 flexDirection: 'row', 
@@ -161,10 +168,10 @@ export default function TestsScreen() {
                                     color={test.passed ? "#34C759" : "#FF3B30"} 
                                 />
                                 <View style={{ flex: 1 }}>
-                                    <Text style={{ ...Typography.default(), fontSize: 16 }}>
+                                    <Text style={styles.resultTitle}>
                                         {test.name}
                                     </Text>
-                                    <Text style={{ ...Typography.mono(), fontSize: 12, color: '#8E8E93', marginTop: 2 }}>
+                                    <Text style={styles.resultDuration}>
                                         {test.duration}ms
                                     </Text>
                                 </View>
@@ -196,7 +203,7 @@ export default function TestsScreen() {
             {state.running && (
                 <View style={{ padding: 32, alignItems: 'center' }}>
                     <ActivityIndicator size="large" color={theme.colors.accent} />
-                    <Text style={{ ...Typography.default(), fontSize: 16, color: '#8E8E93', marginTop: 16 }}>
+                    <Text style={styles.runningText}>
                         {t('devTools.runningTests')}
                     </Text>
                 </View>
@@ -204,3 +211,44 @@ export default function TestsScreen() {
         </ItemList>
     );
 }
+
+const stylesheet = StyleSheet.create((theme) => ({
+    screen: {
+        backgroundColor: theme.colors.groupped.background,
+    },
+    summary: {
+        padding: 16,
+        backgroundColor: theme.colors.surface,
+    },
+    summaryValue: {
+        ...Typography.mono(),
+        fontSize: 32,
+        fontWeight: '600',
+        color: theme.colors.text,
+    },
+    summaryLabel: {
+        ...Typography.default(),
+        fontSize: 14,
+        color: theme.colors.textSecondary,
+    },
+    resultItem: {
+        backgroundColor: theme.colors.surface,
+    },
+    resultTitle: {
+        ...Typography.default(),
+        fontSize: 16,
+        color: theme.colors.text,
+    },
+    resultDuration: {
+        ...Typography.mono(),
+        fontSize: 12,
+        color: theme.colors.textSecondary,
+        marginTop: 2,
+    },
+    runningText: {
+        ...Typography.default(),
+        fontSize: 16,
+        color: theme.colors.textSecondary,
+        marginTop: 16,
+    },
+}));
