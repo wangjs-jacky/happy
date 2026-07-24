@@ -209,7 +209,8 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
         >
             {props.language && <Text selectable={props.selectable} style={style.codeLanguage}>{props.language}</Text>}
             <HorizontalScrollView
-                contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16 }}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 16, alignItems: 'flex-start' }}
+                testID="markdown-code-scroll"
             >
                 <SimpleSyntaxHighlighter
                     code={props.content}
@@ -238,7 +239,11 @@ function RenderImageBlock(props: { url: string, alt: string, first: boolean, las
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
             {/* Tap to open the fullscreen zoomable viewer. */}
-            <Pressable onPress={() => imageViewer.open({ uri: props.url })}>
+            <Pressable
+                onPress={() => imageViewer.open({ uri: props.url })}
+                accessibilityRole="button"
+                accessibilityLabel={accessibleLabel}
+            >
                 <Image
                     source={{ uri: props.url }}
                     style={style.image}
@@ -590,8 +595,8 @@ function RenderTableBlock(props: {
             {/* flexGrow:0 stops iOS from stretching the horizontal ScrollView
                 vertically to fill the parent — the cause of the table's frame
                 extending down past the last row into empty space. */}
-            <HorizontalScrollView style={{ flexGrow: 0 }}>
-                <View>
+            <HorizontalScrollView style={{ flexGrow: 0 }} testID="markdown-table-scroll">
+                <View style={{ alignSelf: 'flex-start' }}>
                     {/* Header row */}
                     <View style={[style.tableRow, style.tableHeaderRow]}>
                         {props.headers.map((header, colIndex) => (
@@ -1130,6 +1135,7 @@ const style = StyleSheet.create((theme) => ({
         paddingHorizontal: 12,
         paddingVertical: 8,
         alignItems: 'flex-start',
+        flexShrink: 0,
     },
     tableCellBorderRight: {
         borderRightWidth: 1,

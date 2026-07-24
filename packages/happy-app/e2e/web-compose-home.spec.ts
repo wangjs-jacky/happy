@@ -872,3 +872,77 @@ test.describe('中文 Web 安全组件演示主题与语义', () => {
         );
     });
 });
+
+test.describe('中文 Web 消息与工具演示', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('消息表格与代码在窄屏内横向滚动，图片操作具备名称', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/dev/messages-demo'));
+
+        const tableScroll = page.getByTestId('markdown-table-scroll').first();
+        const codeScroll = page.getByTestId('markdown-code-scroll').first();
+        await expect(tableScroll).toBeVisible();
+        await expect(codeScroll).toBeVisible();
+
+        for (const scrollArea of [tableScroll, codeScroll]) {
+            const dimensions = await scrollArea.evaluate((element) => ({
+                clientWidth: element.clientWidth,
+                scrollWidth: element.scrollWidth,
+            }));
+            expect(dimensions.scrollWidth).toBeGreaterThan(dimensions.clientWidth);
+        }
+
+        await expect(page.getByRole('button', {
+            name: 'Markdown renderable image',
+            exact: true,
+        })).toHaveCount(1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+
+    test('工具页跟随深色主题并让七组筛选呈现完整示例', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/tools2'));
+
+        await expect(page.getByTestId('dev-tools-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        await expect(page.getByTestId('dev-tools-heading')).toHaveCSS('color', 'rgb(229, 229, 231)');
+        await expect(page.getByTestId('dev-tools-description')).toHaveCSS('color', 'rgb(107, 107, 118)');
+
+        for (const filter of [
+            { id: 'all', keys: ['read', 'readError', 'edit', 'bash', 'bashRunning', 'bashError', 'bashLongCommand', 'bashMultiline', 'bashLargeOutput', 'bashNoOutput', 'bashWithWarnings', 'search', 'write', 'toolPending', 'toolApproved', 'toolDenied', 'toolCanceled'] },
+            { id: 'read', keys: ['read', 'readError'] },
+            { id: 'edit', keys: ['edit'] },
+            { id: 'bash', keys: ['bash', 'bashRunning', 'bashError', 'bashLongCommand', 'bashMultiline', 'bashLargeOutput', 'bashNoOutput', 'bashWithWarnings'] },
+            { id: 'other', keys: ['search', 'write'] },
+            { id: 'permissions', keys: ['toolPending', 'toolApproved', 'toolDenied', 'toolCanceled'] },
+            { id: 'status', keys: ['bashRunning', 'bash', 'bashError', 'toolDenied', 'toolCanceled'] },
+        ]) {
+            const radio = page.getByTestId(`dev-tools-filter-${filter.id}`);
+            await expect(radio).toHaveAttribute('role', 'radio');
+            await radio.click();
+            await expect(radio).toHaveAttribute('aria-checked', 'true');
+            const renderedKeys = await page.locator('[data-testid^="dev-tool-example-"]')
+                .evaluateAll((elements) => elements.map((element) => (
+                    element.getAttribute('data-testid')?.replace('dev-tool-example-', '')
+                )));
+            expect(renderedKeys).toEqual(filter.keys);
+            expect(new Set(renderedKeys).size).toBe(renderedKeys.length);
+        }
+
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Caramel', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/tools2'));
+        await expect(page.getByTestId('dev-tools-screen')).toHaveCSS(
+            'background-color',
+            'rgb(26, 21, 18)',
+        );
+    });
+});
