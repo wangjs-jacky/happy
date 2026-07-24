@@ -110,6 +110,6 @@ React Native Web 不会根据图标、视觉按钮样式或相邻文本自动推
 ## 八、PR、CI 与合并
 
 - 独立代码审查：最终复审 Critical 0、Important 0、Minor 0。
-- PR：待创建。
+- PR：[#218](https://github.com/wangjs-jacky/happy/pull/218)。
 - CI：待执行。
 - merge commit：待合并。
