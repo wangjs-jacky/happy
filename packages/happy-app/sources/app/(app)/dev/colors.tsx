@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ScrollView, View, Text, StyleSheet } from 'react-native';
+import { ScrollView, View, Text } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 
@@ -28,11 +29,14 @@ const ColorPair = ({ name, bg, text }: { name: string; bg: string; text: string 
 
 export default function ColorsScreen() {
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} testID="dev-colors-screen">
             <View style={styles.content}>
                 {/* iOS System Colors */}
                 <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, Typography.default('semiBold')]}>
+                    <Text
+                        style={[styles.sectionTitle, Typography.default('semiBold')]}
+                        testID="dev-colors-heading"
+                    >
                         {t('devTools.iosSystemColors')}
                     </Text>
                     
@@ -100,8 +104,8 @@ export default function ColorsScreen() {
                         {t('devTools.usageExamples')}
                     </Text>
                     
-                    <View style={styles.codeBlock}>
-                        <Text style={{ ...Typography.mono(), fontSize: 12 }}>
+                    <View style={styles.codeBlock} testID="dev-colors-elevated">
+                        <Text style={[styles.codeText, Typography.mono(), { fontSize: 12 }]}>
 {`// iOS System Colors
 const tintColor = '#007AFF';
 const successColor = '#34C759';
@@ -153,10 +157,10 @@ const groupedBackground = '#F2F2F7';`}
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.surface,
     },
     content: {
         padding: 16,
@@ -166,6 +170,7 @@ const styles = StyleSheet.create({
     },
     sectionTitle: {
         fontSize: 20,
+        color: theme.colors.text,
         marginBottom: 16,
     },
     swatchContainer: {
@@ -177,9 +182,12 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     codeBlock: {
-        backgroundColor: '#f0f0f0',
+        backgroundColor: theme.colors.surfaceHigh,
         padding: 16,
         borderRadius: 8,
+    },
+    codeText: {
+        color: theme.colors.text,
     },
     colorGrid: {
         gap: 8,
@@ -195,4 +203,4 @@ const styles = StyleSheet.create({
     colorItemTextDark: {
         color: '#111827',
     },
-});
+}));

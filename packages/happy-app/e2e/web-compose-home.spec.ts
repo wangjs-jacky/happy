@@ -786,3 +786,89 @@ test.describe('中文 Web 设置总览与开发者工具语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 });
+
+test.describe('中文 Web 安全组件演示主题与语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('排版、颜色和闪烁页跟随深色主题，列表开关有名称且可恢复', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+
+        for (const demo of [
+            {
+                path: '/dev/typography',
+                screen: 'dev-typography-screen',
+                heading: 'dev-typography-heading',
+                background: 'rgb(19, 19, 22)',
+                secondary: 'dev-typography-secondary',
+                elevated: 'dev-typography-elevated',
+                elevatedBackground: 'rgb(24, 24, 28)',
+            },
+            {
+                path: '/dev/colors',
+                screen: 'dev-colors-screen',
+                heading: 'dev-colors-heading',
+                background: 'rgb(19, 19, 22)',
+                elevated: 'dev-colors-elevated',
+                elevatedBackground: 'rgb(24, 24, 28)',
+            },
+            {
+                path: '/dev/shimmer-demo',
+                screen: 'dev-shimmer-screen',
+                heading: 'dev-shimmer-heading',
+                background: 'rgb(10, 10, 11)',
+                secondary: 'dev-shimmer-secondary',
+                elevated: 'dev-shimmer-elevated',
+                elevatedBackground: 'rgb(19, 19, 22)',
+            },
+        ]) {
+            await page.goto(authenticatedRoute(demo.path));
+            const screen = page.getByTestId(demo.screen);
+            const heading = page.getByTestId(demo.heading);
+            await expect(screen).toBeVisible();
+            await expect(screen).toHaveCSS('background-color', demo.background);
+            await expect(heading).toHaveCSS('color', 'rgb(229, 229, 231)');
+            if (demo.secondary) {
+                await expect(page.getByTestId(demo.secondary)).toHaveCSS('color', 'rgb(107, 107, 118)');
+            }
+            await expect(page.getByTestId(demo.elevated)).toHaveCSS(
+                'background-color',
+                demo.elevatedBackground,
+            );
+            expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+        }
+
+        await page.emulateMedia({ colorScheme: 'light' });
+        await page.goto(authenticatedRoute('/dev/typography'));
+        await expect(page.getByTestId('dev-typography-screen')).toHaveCSS(
+            'background-color',
+            'rgb(255, 255, 255)',
+        );
+        await expect(page.getByTestId('dev-typography-heading')).toHaveCSS('color', 'rgb(22, 32, 26)');
+        await expect(page.getByTestId('dev-typography-secondary')).toHaveCSS('color', 'rgb(107, 122, 112)');
+        await expect(page.getByTestId('dev-typography-elevated')).toHaveCSS(
+            'background-color',
+            'rgb(237, 241, 237)',
+        );
+
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.goto(authenticatedRoute('/dev/list-demo'));
+        const toggle = page.getByRole('switch', { name: '开关', exact: true });
+        await expect(toggle).toHaveCount(1);
+        await expect(toggle).not.toBeChecked();
+        await toggle.click();
+        await expect(toggle).toBeChecked();
+        await toggle.click();
+        await expect(toggle).not.toBeChecked();
+
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Caramel', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/typography'));
+        await expect(page.getByTestId('dev-typography-screen')).toHaveCSS(
+            'background-color',
+            'rgb(36, 28, 23)',
+        );
+    });
+});
