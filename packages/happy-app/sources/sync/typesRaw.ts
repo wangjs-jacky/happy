@@ -28,8 +28,13 @@ const agentEventSchema = z.discriminatedUnion('type', [z.object({
     endsAt: z.number(),
 }), z.object({
     type: z.literal('ready'),
+}), z.object({
+    type: z.literal('turn-lifecycle'),
+    status: z.enum(['running', 'completed', 'failed', 'cancelled']),
+    seq: z.number().optional(),
 })]);
 export type AgentEvent = z.infer<typeof agentEventSchema>;
+export type RootTurnLifecycleStatus = Extract<AgentEvent, { type: 'turn-lifecycle' }>['status'];
 
 const sessionTextEventSchema = z.object({
     t: z.literal('text'),
@@ -550,6 +555,7 @@ function normalizeSessionEnvelope(
     localId: string | null,
     createdAt: number,
     meta: MessageMeta | undefined,
+    sourceSeq?: number,
 ): NormalizedMessage | null {
     // Session protocol requires turn id on all agent-originated envelopes.
     // Drop malformed agent events without turn to avoid attaching stray messages.
@@ -564,7 +570,15 @@ function normalizeSessionEnvelope(
     const contentUUID = envelope.id;
 
     if (envelope.ev.t === 'turn-start') {
-        return null;
+        return {
+            id: messageId,
+            localId,
+            createdAt: messageCreatedAt,
+            role: 'event',
+            isSidechain: false,
+            content: { type: 'turn-lifecycle', status: 'running', ...(sourceSeq === undefined ? {} : { seq: sourceSeq }) },
+            meta,
+        } satisfies NormalizedMessage;
     }
 
     if (envelope.ev.t === 'start' || envelope.ev.t === 'stop') {
@@ -579,7 +593,7 @@ function normalizeSessionEnvelope(
             createdAt: messageCreatedAt,
             role: 'event',
             isSidechain: false,
-            content: { type: 'ready' },
+            content: { type: 'turn-lifecycle', status: envelope.ev.status, ...(sourceSeq === undefined ? {} : { seq: sourceSeq }) },
             meta
         } satisfies NormalizedMessage;
     }
@@ -751,7 +765,7 @@ function normalizeSessionEnvelope(
     return null;
 }
 
-export function normalizeRawMessage(id: string, localId: string | null, createdAt: number, raw: RawRecord): NormalizedMessage | null {
+export function normalizeRawMessage(id: string, localId: string | null, createdAt: number, raw: RawRecord, sourceSeq?: number): NormalizedMessage | null {
     // Zod transform handles normalization during validation
     let parsed = rawRecordSchema.safeParse(raw);
     if (!parsed.success) {
@@ -778,6 +792,7 @@ export function normalizeRawMessage(id: string, localId: string | null, createdA
             localId,
             createdAt,
             raw.meta,
+            sourceSeq,
         );
     }
     if (raw.role === 'agent') {
@@ -1023,7 +1038,7 @@ export function normalizeRawMessage(id: string, localId: string | null, createdA
             }
         }
         if (raw.content.type === 'session') {
-            return normalizeSessionEnvelope(raw.content.data, localId, createdAt, raw.meta);
+            return normalizeSessionEnvelope(raw.content.data, localId, createdAt, raw.meta, sourceSeq);
         }
         // ACP (Agent Communication Protocol) - unified format for all agent providers
         if (raw.content.type === 'acp') {

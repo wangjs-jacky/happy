@@ -111,7 +111,7 @@
  */
 
 import { Message, ToolCall } from "../typesMessage";
-import { AgentEvent, NormalizedMessage, UsageData } from "../typesRaw";
+import { AgentEvent, NormalizedMessage, RootTurnLifecycleStatus, UsageData } from "../typesRaw";
 import { createTracer, traceMessages, TracerState } from "./reducerTracer";
 import { AgentState, TodoItem, TodoItemsSchema } from "../storageTypes";
 import { MessageMeta } from "../typesMessageMeta";
@@ -178,6 +178,15 @@ export type ReducerState = {
         contextSize: number;
         timestamp: number;
     };
+    rootTurnLifecycle?: RootTurnLifecycle;
+    rootTurnLifecycleArrivalCounter: number;
+};
+
+export type RootTurnLifecycle = {
+    status: RootTurnLifecycleStatus;
+    seq?: number;
+    createdAt: number;
+    arrivalOrder: number;
 };
 
 export function createReducer(): ReducerState {
@@ -190,7 +199,8 @@ export function createReducer(): ReducerState {
         localIds: new Map(),
         messageIds: new Map(),
         sidechains: new Map(),
-        tracerState: createTracer()
+        tracerState: createTracer(),
+        rootTurnLifecycleArrivalCounter: 0,
     }
 };
 
@@ -257,7 +267,18 @@ export type ReducerResult = {
         contextSize: number;
     };
     hasReadyEvent?: boolean;
+    rootTurnLifecycle?: RootTurnLifecycle;
 };
+
+function shouldAcceptRootTurnLifecycle(current: RootTurnLifecycle | undefined, incoming: RootTurnLifecycle): boolean {
+    if (!current) return true;
+    if (current.seq !== undefined) {
+        return incoming.seq !== undefined && incoming.seq > current.seq;
+    }
+    if (incoming.seq !== undefined) return true;
+    if (incoming.createdAt !== current.createdAt) return incoming.createdAt > current.createdAt;
+    return incoming.arrivalOrder > current.arrivalOrder;
+}
 
 function updateLatestTodos(state: ReducerState, value: unknown, timestamp: number) {
     const parsed = TodoItemsSchema.safeParse(value);
@@ -350,6 +371,23 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
             continue;
         }
         if (state.messageIds.has(msg.id)) {
+            continue;
+        }
+
+        if (msg.role === 'event' && msg.content.type === 'turn-lifecycle') {
+            state.messageIds.set(msg.id, msg.id);
+            const incoming: RootTurnLifecycle = {
+                status: msg.content.status,
+                ...(msg.content.seq === undefined ? {} : { seq: msg.content.seq }),
+                createdAt: msg.createdAt,
+                arrivalOrder: ++state.rootTurnLifecycleArrivalCounter,
+            };
+            if (shouldAcceptRootTurnLifecycle(state.rootTurnLifecycle, incoming)) {
+                state.rootTurnLifecycle = incoming;
+                if (incoming.status !== 'running') {
+                    hasReadyEvent = true;
+                }
+            }
             continue;
         }
 
@@ -1168,7 +1206,8 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
             cacheRead: state.latestUsage.cacheRead,
             contextSize: state.latestUsage.contextSize
         } : undefined,
-        hasReadyEvent: hasReadyEvent || undefined
+        hasReadyEvent: hasReadyEvent || undefined,
+        rootTurnLifecycle: state.rootTurnLifecycle,
     };
 }
 

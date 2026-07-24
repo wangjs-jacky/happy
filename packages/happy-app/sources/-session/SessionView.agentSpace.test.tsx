@@ -2,6 +2,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentLauncher } from '@/components/agents/launchAgent';
+import type { RootTurnLifecycle } from '@/sync/reducer/reducer';
 import {
     AgentSpaceExitButton,
     SessionRightPanelContent,
@@ -27,6 +28,13 @@ const mocks = vi.hoisted(() => ({
     routerPush: vi.fn(),
     routerBack: vi.fn(),
     navigationDispatch: vi.fn(),
+    useSessionStatus: vi.fn(),
+    rootTurnLifecycle: {
+        status: 'completed',
+        seq: 2,
+        createdAt: 2,
+        arrivalOrder: 1,
+    } as RootTurnLifecycle,
     session: {
         id: 'session-1',
         seq: 1,
@@ -181,7 +189,13 @@ vi.mock('@/sync/storage', () => ({
     useIsDataReady: () => mocks.isDataReady,
     useLocalSetting: (key: string) => key === 'acknowledgedCliVersions' ? {} : false,
     useSession: () => mocks.session,
-    useSessionMessages: () => ({ messages: [], isLoaded: true }),
+    useSessionMessages: () => ({
+        messages: [],
+        isLoaded: true,
+        hasMoreOlder: false,
+        isLoadingOlder: false,
+        rootTurnLifecycle: mocks.rootTurnLifecycle,
+    }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'fileDiffsSidebar' ? mocks.fileDiffsSidebarEnabled : false,
 }));
@@ -207,14 +221,7 @@ vi.mock('@/utils/sessionUtils', () => ({
     formatPathRelativeToHome: (path: string) => path,
     getResumeCommandBlock: () => null,
     getSessionName: () => 'Health session',
-    useSessionStatus: () => ({
-        isConnected: true,
-        state: 'connected',
-        statusColor: '#ffffff',
-        statusDotColor: '#00ff00',
-        statusText: 'Online',
-        isPulsing: false,
-    }),
+    useSessionStatus: (...args: unknown[]) => mocks.useSessionStatus(...args),
 }));
 vi.mock('@/utils/versionUtils', () => ({ isVersionSupported: () => true, MINIMUM_CLI_VERSION: '0.0.0' }));
 vi.mock('@/-session/sessionOverlayNav', () => ({
@@ -258,6 +265,15 @@ describe('SessionView Agent-space boundary', () => {
         mocks.windowWidth = 390;
         mocks.spaceAgent = null;
         mocks.useSpaceAgentForSession.mockImplementation(() => mocks.spaceAgent);
+        mocks.useSessionStatus.mockReturnValue({
+            isConnected: true,
+            state: 'completed',
+            statusColor: '#34C759',
+            statusDotColor: '#34C759',
+            statusText: 'task completed',
+            shouldShowStatus: true,
+            isPulsing: false,
+        });
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -312,6 +328,28 @@ describe('SessionView Agent-space boundary', () => {
 
         expect(renderer.root.findAllByType('SessionCapabilityHub')).toHaveLength(1);
         expect(renderer.root.findAllByProps({ accessibilityLabel: 'Exit space' })).toHaveLength(0);
+
+        act(() => renderer.unmount());
+    });
+
+    it('forwards the terminal root lifecycle to composer status and hides abort', () => {
+        mocks.isDataReady = true;
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(<SessionView id="session-1" />);
+        });
+
+        expect(mocks.useSessionStatus).toHaveBeenCalledWith(mocks.session, 'completed');
+        expect(renderer.root.findByType('MessageComposer').props).toMatchObject({
+            showAbortButton: false,
+            connectionStatus: {
+                text: 'task completed',
+                color: '#34C759',
+                dotColor: '#34C759',
+                isPulsing: false,
+            },
+        });
 
         act(() => renderer.unmount());
     });
