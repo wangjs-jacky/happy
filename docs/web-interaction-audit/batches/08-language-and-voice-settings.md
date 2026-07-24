@@ -147,6 +147,6 @@
 
 - 独立代码审查：首轮 1 个 Critical、2 个 Important、1 个 Minor，增量复审追加 1 个
   Minor，全部关闭；最终复审 Critical、Important、Minor 均为 0。
-- PR：等待创建。
+- PR：[#212](https://github.com/wangjs-jacky/happy/pull/212)。
 - CI：等待执行。
 - merge commit：等待合并。
