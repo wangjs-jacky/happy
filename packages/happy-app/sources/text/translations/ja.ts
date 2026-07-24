@@ -248,6 +248,7 @@ export const ja: TranslationStructure = {
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
         promptMissing: 'Prompt was not recorded for this image.',
+        openImage: '画像を開く',
         openSession: 'Open session',
     },
 
@@ -1226,6 +1227,9 @@ export const ja: TranslationStructure = {
         new: '新規アーティファクト',
         edit: 'アーティファクトを編集',
         delete: '削除',
+        untitled: '無題',
+        emptyBody: '内容なし',
+        deleteError: 'アーティファクトの削除に失敗しました。再試行してください。',
         updateError: 'アーティファクトの更新に失敗しました。再試行してください。',
         notFound: 'アーティファクトが見つかりません',
         discardChanges: '変更を破棄しますか？',

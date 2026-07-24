@@ -247,6 +247,7 @@ export const zhHant: TranslationStructure = {
         emptyTitle: '還沒有生成圖片',
         emptyDescription: '透過 send_image 傳送的生成圖片同步到 App 後，會出現在這裡。',
         promptMissing: '這張圖沒有記錄 Prompt。',
+        openImage: '開啟圖片',
         openSession: '打開會話',
     },
 
@@ -1324,6 +1325,9 @@ export const zhHant: TranslationStructure = {
         new: '新建工件',
         edit: '編輯工件',
         delete: '刪除',
+        untitled: '無標題',
+        emptyBody: '暫無內容',
+        deleteError: '刪除工件失敗。請重試。',
         updateError: '更新工件失敗。請重試。',
         notFound: '未找到工件',
         discardChanges: '放棄更改？',

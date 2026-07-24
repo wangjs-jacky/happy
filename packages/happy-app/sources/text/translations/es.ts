@@ -247,6 +247,7 @@ export const es: TranslationStructure = {
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
         promptMissing: 'Prompt was not recorded for this image.',
+        openImage: 'Abrir imagen',
         openSession: 'Open session',
     },
 
@@ -1225,6 +1226,9 @@ export const es: TranslationStructure = {
         new: 'Nuevo artefacto',
         edit: 'Editar artefacto',
         delete: 'Eliminar',
+        untitled: 'Sin título',
+        emptyBody: 'Sin contenido',
+        deleteError: 'No se pudo eliminar el artefacto. Inténtalo de nuevo.',
         updateError: 'No se pudo actualizar el artefacto. Por favor, intenta de nuevo.',
         notFound: 'Artefacto no encontrado',
         discardChanges: '¿Descartar cambios?',

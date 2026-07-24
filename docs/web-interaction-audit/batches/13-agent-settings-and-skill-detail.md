@@ -111,5 +111,5 @@ React Native Web 不会根据视觉勾号自动推断选择控件语义，也不
 
 - 独立代码审查：最终复审 Critical 0、Important 0、Minor 0。
 - PR：[#217](https://github.com/wangjs-jacky/happy/pull/217)。
-- CI：待执行。
-- merge commit：待合并。
+- CI：typecheck、publish-preview passed。
+- merge commit：`049143143a3b76fb48d0ea727456a106131415bb`。

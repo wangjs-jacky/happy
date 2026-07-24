@@ -247,6 +247,7 @@ export const ca: TranslationStructure = {
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
         promptMissing: 'Prompt was not recorded for this image.',
+        openImage: 'Obre la imatge',
         openSession: 'Open session',
     },
 
@@ -1224,6 +1225,9 @@ export const ca: TranslationStructure = {
         new: 'Nou artefacte',
         edit: 'Edita artefacte',
         delete: 'Elimina',
+        untitled: 'Sense títol',
+        emptyBody: 'Sense contingut',
+        deleteError: 'No s\'ha pogut eliminar l\'artefacte. Torna-ho a provar.',
         updateError: 'No s\'ha pogut actualitzar l\'artefacte. Si us plau, torna-ho a provar.',
         notFound: 'Artefacte no trobat',
         discardChanges: 'Descartar els canvis?',
