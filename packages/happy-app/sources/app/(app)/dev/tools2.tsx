@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { Stack } from 'expo-router';
 import { ToolView } from '@/components/tools/ToolView';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -360,17 +361,12 @@ export function formatTime(date: Date): string {
     };
 
     const renderExample = (key: string, example: any) => {
-        if (selectedExample !== 'all' && selectedExample !== key) {
-            return null;
-        }
-
         return (
-            <View key={key} style={styles.exampleContainer}>
+            <View key={key} style={styles.exampleContainer} testID={`dev-tool-example-${key}`}>
                 <Text style={styles.exampleTitle}>{key}</Text>
                 <ToolView 
                     tool={example} 
                     metadata={null}
-                    onPress={() => console.log(`Pressed tool: ${key}`)}
                 />
             </View>
         );
@@ -384,50 +380,90 @@ export function formatTime(date: Date): string {
                 }}
             />
             
-            <ScrollView style={styles.container}>
+            <ScrollView style={styles.container} testID="dev-tools-screen">
                 <View style={styles.content}>
-                    <Text style={styles.pageTitle}>{t('devTools.toolViewComponents')}</Text>
-                    <Text style={styles.description}>
+                    <Text style={styles.pageTitle} testID="dev-tools-heading">{t('devTools.toolViewComponents')}</Text>
+                    <Text style={styles.description} testID="dev-tools-description">
                         {t('devTools.toolViewComponentsDescription')}
                     </Text>
 
-                    <ItemGroup title={t('devTools.filterExamples')}>
-                        <Item
-                            title={t('devTools.allExamples')}
-                            selected={selectedExample === 'all'}
-                            onPress={() => setSelectedExample('all')}
-                        />
-                        <Item
-                            title={t('devTools.readTool')}
-                            selected={selectedExample === 'read'}
-                            onPress={() => setSelectedExample('read')}
-                        />
-                        <Item
-                            title={t('devTools.editTool')}
-                            selected={selectedExample === 'edit'}
-                            onPress={() => setSelectedExample('edit')}
-                        />
-                        <Item
-                            title={t('devTools.bashTool')}
-                            selected={selectedExample === 'bash'}
-                            onPress={() => setSelectedExample('bash')}
-                        />
-                        <Item
-                            title={t('devTools.otherTools')}
-                            selected={selectedExample === 'other'}
-                            onPress={() => setSelectedExample('other')}
-                        />
-                        <Item
-                            title={t('devTools.permissionStates')}
-                            selected={selectedExample === 'permissions'}
-                            onPress={() => setSelectedExample('permissions')}
-                        />
-                        <Item
-                            title={t('devTools.statusIcons')}
-                            selected={selectedExample === 'status'}
-                            onPress={() => setSelectedExample('status')}
-                        />
-                    </ItemGroup>
+                    <View
+                        accessibilityRole="radiogroup"
+                        accessibilityLabel={t('devTools.filterExamples')}
+                    >
+                        <ItemGroup title={t('devTools.filterExamples')}>
+                            <Item
+                                title={t('devTools.allExamples')}
+                                selected={selectedExample === 'all'}
+                                onPress={() => setSelectedExample('all')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'all' }}
+                                aria-checked={selectedExample === 'all'}
+                                showChevron={false}
+                                testID="dev-tools-filter-all"
+                            />
+                            <Item
+                                title={t('devTools.readTool')}
+                                selected={selectedExample === 'read'}
+                                onPress={() => setSelectedExample('read')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'read' }}
+                                aria-checked={selectedExample === 'read'}
+                                showChevron={false}
+                                testID="dev-tools-filter-read"
+                            />
+                            <Item
+                                title={t('devTools.editTool')}
+                                selected={selectedExample === 'edit'}
+                                onPress={() => setSelectedExample('edit')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'edit' }}
+                                aria-checked={selectedExample === 'edit'}
+                                showChevron={false}
+                                testID="dev-tools-filter-edit"
+                            />
+                            <Item
+                                title={t('devTools.bashTool')}
+                                selected={selectedExample === 'bash'}
+                                onPress={() => setSelectedExample('bash')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'bash' }}
+                                aria-checked={selectedExample === 'bash'}
+                                showChevron={false}
+                                testID="dev-tools-filter-bash"
+                            />
+                            <Item
+                                title={t('devTools.otherTools')}
+                                selected={selectedExample === 'other'}
+                                onPress={() => setSelectedExample('other')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'other' }}
+                                aria-checked={selectedExample === 'other'}
+                                showChevron={false}
+                                testID="dev-tools-filter-other"
+                            />
+                            <Item
+                                title={t('devTools.permissionStates')}
+                                selected={selectedExample === 'permissions'}
+                                onPress={() => setSelectedExample('permissions')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'permissions' }}
+                                aria-checked={selectedExample === 'permissions'}
+                                showChevron={false}
+                                testID="dev-tools-filter-permissions"
+                            />
+                            <Item
+                                title={t('devTools.statusIcons')}
+                                selected={selectedExample === 'status'}
+                                onPress={() => setSelectedExample('status')}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selectedExample === 'status' }}
+                                aria-checked={selectedExample === 'status'}
+                                showChevron={false}
+                                testID="dev-tools-filter-status"
+                            />
+                        </ItemGroup>
+                    </View>
 
                     <View style={styles.examplesSection}>
                         <Text style={styles.sectionTitle}>{t('devTools.examples')}</Text>
@@ -495,10 +531,10 @@ export function formatTime(date: Date): string {
     );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
-        backgroundColor: '#F2F2F7',
+        backgroundColor: theme.colors.groupped.background,
     },
     content: {
         flex: 1,
@@ -509,10 +545,11 @@ const styles = StyleSheet.create({
         marginTop: 20,
         marginBottom: 8,
         paddingHorizontal: 16,
+        color: theme.colors.text,
     },
     description: {
         fontSize: 16,
-        color: '#666',
+        color: theme.colors.textSecondary,
         marginBottom: 20,
         paddingHorizontal: 16,
     },
@@ -522,6 +559,7 @@ const styles = StyleSheet.create({
         marginTop: 24,
         marginBottom: 16,
         paddingHorizontal: 16,
+        color: theme.colors.text,
     },
     examplesSection: {
         paddingBottom: 40,
@@ -533,7 +571,7 @@ const styles = StyleSheet.create({
     exampleTitle: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#666',
+        color: theme.colors.textSecondary,
         marginBottom: 8,
         textTransform: 'uppercase',
     },
@@ -543,15 +581,15 @@ const styles = StyleSheet.create({
         marginTop: 20,
         marginBottom: 12,
         paddingHorizontal: 16,
-        color: '#333',
+        color: theme.colors.text,
     },
     statusSection: {
         paddingHorizontal: 16,
     },
     statusDescription: {
         fontSize: 14,
-        color: '#666',
+        color: theme.colors.textSecondary,
         marginBottom: 16,
         lineHeight: 20,
     },
-});
+}));

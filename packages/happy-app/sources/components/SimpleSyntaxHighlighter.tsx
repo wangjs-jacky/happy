@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 
@@ -294,13 +294,18 @@ export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = (
   };
 
   return (
-    <View>
+    <View
+      style={Platform.OS === 'web'
+        ? ({ alignSelf: 'flex-start', width: 'max-content' } as any)
+        : { alignSelf: 'flex-start' }}
+    >
       <Text 
         selectable={selectable}
         style={{ 
           fontFamily: Typography.mono().fontFamily,
           fontSize: 14,
           lineHeight: 20,
+          ...(Platform.OS === 'web' ? ({ whiteSpace: 'pre' } as any) : {}),
         }}
       >
         {tokens.map((token, index) => (
