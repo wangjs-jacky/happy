@@ -233,6 +233,7 @@ export const ru: TranslationStructure = {
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
         promptMissing: 'Prompt was not recorded for this image.',
+        openImage: 'Открыть изображение',
         openSession: 'Open session',
     },
 
@@ -1253,6 +1254,9 @@ export const ru: TranslationStructure = {
         new: 'Новый артефакт',
         edit: 'Редактировать артефакт',
         delete: 'Удалить',
+        untitled: 'Без названия',
+        emptyBody: 'Нет содержимого',
+        deleteError: 'Не удалось удалить артефакт. Попробуйте ещё раз.',
         updateError: 'Не удалось обновить артефакт. Пожалуйста, попробуйте еще раз.',
         notFound: 'Артефакт не найден',
         discardChanges: 'Отменить изменения?',

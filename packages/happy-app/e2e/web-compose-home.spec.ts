@@ -638,3 +638,78 @@ test.describe('中文 Web Agent 配置语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 });
+
+test.describe('中文 Web 工件与生成图片语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('工件空态、新建表单和校验提示均具备稳定语义', async ({ page }) => {
+        const debugLogs: string[] = [];
+        page.on('console', (message) => {
+            if (message.text().includes('ArtifactsScreen:')) {
+                debugLogs.push(message.text());
+            }
+        });
+
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/artifacts'));
+
+        await expect(page.getByText('暂无工件', { exact: true })).toBeVisible();
+        const createButton = page.getByRole('button', { name: '新建工件', exact: true });
+        await expect(createButton).toHaveCount(1);
+        await createButton.click();
+        await expect.poll(() => new URL(page.url()).pathname).toBe('/artifacts/new');
+
+        await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveCount(1);
+        await expect(page.getByRole('textbox', { name: '内容', exact: true })).toHaveCount(1);
+        const saveButton = page.getByRole('button', { name: '保存', exact: true });
+        await expect(saveButton).toHaveCount(1);
+        await saveButton.click();
+
+        const dialog = page.getByRole('dialog', { name: '错误', exact: true });
+        await expect(dialog).toBeVisible();
+        await expect(dialog).toHaveAccessibleDescription('请输入标题或内容');
+        await dialog.getByRole('button', { name: '确定', exact: true }).click();
+        await expect(dialog).toHaveCount(0);
+
+        await page.getByRole('textbox', { name: '标题', exact: true }).fill('隔离测试工件');
+        await page.getByRole('textbox', { name: '内容', exact: true }).fill('仅用于本次隔离 E2E，环境结束后自动删除。');
+        await saveButton.click();
+        await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/artifacts\/[^/]+$/);
+
+        const editButton = page.getByRole('button', { name: '编辑工件', exact: true });
+        const deleteButton = page.getByRole('button', { name: '删除', exact: true });
+        await expect(editButton).toHaveCount(1);
+        await expect(deleteButton).toHaveCount(1);
+
+        await editButton.click();
+        await expect.poll(() => new URL(page.url()).pathname).toMatch(/^\/artifacts\/edit\/[^/]+$/);
+        await expect(page.getByRole('textbox', { name: '标题', exact: true })).toHaveCount(1);
+        await expect(page.getByRole('textbox', { name: '内容', exact: true })).toHaveCount(1);
+        await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
+        await page.goBack();
+
+        await deleteButton.click();
+        const deleteDialog = page.getByRole('dialog', { name: '删除工件？', exact: true });
+        await expect(deleteDialog).toBeVisible();
+        await deleteDialog.getByRole('button', { name: '取消', exact: true }).click();
+        await expect(deleteDialog).toHaveCount(0);
+
+        await deleteButton.click();
+        await page.getByRole('dialog', { name: '删除工件？', exact: true })
+            .getByRole('button', { name: '删除', exact: true })
+            .click();
+        await expect.poll(() => new URL(page.url()).pathname).toBe('/artifacts');
+        await expect(page.getByText('暂无工件', { exact: true })).toBeVisible();
+
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+        expect(debugLogs).toEqual([]);
+    });
+
+    test('生成图片空态适配 800px 且不产生水平溢出', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/generated-images'));
+
+        await expect(page.getByText('还没有生成图片', { exact: true })).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+});

@@ -248,6 +248,7 @@ export const zhHans: TranslationStructure = {
         emptyTitle: '还没有生成图片',
         emptyDescription: '通过 send_image 发送的生成图片同步到 App 后，会出现在这里。',
         promptMissing: '这张图没有记录 Prompt。',
+        openImage: '打开图片',
         openSession: '打开会话',
     },
 
@@ -1793,6 +1794,9 @@ export const zhHans: TranslationStructure = {
         new: '新建工件',
         edit: '编辑工件',
         delete: '删除',
+        untitled: '无标题',
+        emptyBody: '暂无内容',
+        deleteError: '删除工件失败。请重试。',
         updateError: '更新工件失败。请重试。',
         notFound: '未找到工件',
         discardChanges: '放弃更改？',

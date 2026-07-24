@@ -245,6 +245,7 @@ export const en = {
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
         promptMissing: 'Prompt was not recorded for this image.',
+        openImage: 'Open image',
         openSession: 'Open session',
     },
 
@@ -1833,6 +1834,9 @@ export const en = {
         new: 'New Artifact',
         edit: 'Edit Artifact',
         delete: 'Delete',
+        untitled: 'Untitled',
+        emptyBody: 'No content',
+        deleteError: 'Failed to delete artifact. Please try again.',
         updateError: 'Failed to update artifact. Please try again.',
         notFound: 'Artifact not found',
         discardChanges: 'Discard changes?',

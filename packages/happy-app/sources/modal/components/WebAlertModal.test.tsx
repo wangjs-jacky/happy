@@ -17,7 +17,9 @@ vi.mock('react-native', () => ({
     View: 'View',
 }));
 vi.mock('./BaseModal', () => ({
-    BaseModal: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    BaseModal: ({ children, ...props }: { children: React.ReactNode }) => (
+        React.createElement('base-modal', props, children)
+    ),
 }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('./modalShadow', () => ({ getModalShadowStyle: () => ({}) }));
@@ -78,6 +80,33 @@ describe('WebAlertModal 可访问语义', () => {
 
         expect(renderer.root.findAllByType('Pressable').map((node: any) => node.props.accessibilityRole))
             .toEqual(['button', 'button']);
+
+        act(() => renderer.unmount());
+    });
+
+    it('把标题作为名称，并把说明文本关联为可访问描述', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <WebAlertModal
+                    config={{
+                        id: 'alert-label-test',
+                        type: 'alert',
+                        title: '错误',
+                        message: '请输入标题或内容',
+                    }}
+                    onClose={() => {}}
+                />,
+            );
+        });
+
+        const modal = renderer.root.findByType('base-modal');
+        const message = renderer.root.findAllByType('Text')
+            .find((node: any) => node.children.includes('请输入标题或内容'));
+        expect(modal.props.accessibilityLabel).toBe('错误');
+        expect(modal.props.accessibilityHint).toBe('请输入标题或内容');
+        expect(message).toBeDefined();
+        expect(modal.props['aria-describedby']).toBe(message!.props.nativeID);
 
         act(() => renderer.unmount());
     });

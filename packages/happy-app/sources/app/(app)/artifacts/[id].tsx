@@ -153,7 +153,7 @@ export default function ArtifactDetailScreen() {
             console.error('Failed to delete artifact:', err);
             Modal.alert(
                 t('common.error'),
-                'Failed to delete artifact'
+                t('artifacts.deleteError')
             );
         } finally {
             setIsDeleting(false);
@@ -216,10 +216,13 @@ export default function ArtifactDetailScreen() {
             <Stack.Screen 
                 options={{
                     headerShown: true,
-                    headerTitle: artifact.title || 'Untitled',
+                    headerTitle: artifact.title || t('artifacts.untitled'),
                     headerRight: () => (
                         <View style={{ flexDirection: 'row' }}>
                             <Pressable
+                                accessibilityLabel={t('artifacts.edit')}
+                                accessibilityRole="button"
+                                accessibilityState={{ disabled: isDeleting }}
                                 onPress={handleEdit}
                                 style={{ padding: 8, marginRight: 8 }}
                                 disabled={isDeleting}
@@ -227,6 +230,9 @@ export default function ArtifactDetailScreen() {
                                 <Ionicons name="create-outline" size={22} color={styles.title.color} />
                             </Pressable>
                             <Pressable
+                                accessibilityLabel={t('artifacts.delete')}
+                                accessibilityRole="button"
+                                accessibilityState={{ disabled: isDeleting }}
                                 onPress={handleDelete}
                                 style={{ padding: 8 }}
                                 disabled={isDeleting}
@@ -256,7 +262,7 @@ export default function ArtifactDetailScreen() {
                                 !artifact.title && styles.untitledTitle
                             ]}
                         >
-                            {artifact.title || 'Untitled'}
+                            {artifact.title || t('artifacts.untitled')}
                         </Text>
                         <Text style={styles.meta}>
                             {formattedDate}
@@ -268,7 +274,7 @@ export default function ArtifactDetailScreen() {
                             <MarkdownView markdown={artifact.body} />
                         ) : (
                             <Text style={styles.emptyBody}>
-                                No content
+                                {t('artifacts.emptyBody')}
                             </Text>
                         )}
                     </View>

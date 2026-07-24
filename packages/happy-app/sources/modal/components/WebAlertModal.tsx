@@ -17,6 +17,7 @@ interface WebAlertModalProps {
 export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps) {
     const { theme } = useUnistyles();
     const isConfirm = config.type === 'confirm';
+    const descriptionId = React.useId();
     
     const handleButtonPress = (buttonIndex: number) => {
         if (isConfirm && onConfirm) {
@@ -92,14 +93,24 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
     });
 
     return (
-        <BaseModal visible={true} onClose={onClose} closeOnBackdrop={false}>
+        <BaseModal
+            visible={true}
+            onClose={onClose}
+            closeOnBackdrop={false}
+            accessibilityLabel={config.title}
+            accessibilityHint={config.message}
+            aria-describedby={config.message ? descriptionId : undefined}
+        >
             <View style={styles.container}>
                 <View style={styles.content}>
                     <Text style={[styles.title, Typography.default('semiBold')]}>
                         {config.title}
                     </Text>
                     {config.message && (
-                        <Text style={[styles.message, Typography.default()]}>
+                        <Text
+                            nativeID={descriptionId}
+                            style={[styles.message, Typography.default()]}
+                        >
                             {config.message}
                         </Text>
                     )}

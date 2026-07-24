@@ -23,6 +23,9 @@ interface BaseModalProps {
     animationType?: 'fade' | 'slide' | 'none';
     transparent?: boolean;
     closeOnBackdrop?: boolean;
+    accessibilityLabel?: string;
+    accessibilityHint?: string;
+    'aria-describedby'?: string;
 }
 
 export function BaseModal({
@@ -31,7 +34,10 @@ export function BaseModal({
     children,
     animationType = 'fade',
     transparent = true,
-    closeOnBackdrop = true
+    closeOnBackdrop = true,
+    accessibilityLabel,
+    accessibilityHint,
+    'aria-describedby': ariaDescribedBy,
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -59,6 +65,11 @@ export function BaseModal({
 
     return (
         <Modal
+            accessibilityHint={accessibilityHint}
+            accessibilityLabel={accessibilityLabel}
+            {...(Platform.OS === 'web' && ariaDescribedBy
+                ? { 'aria-describedby': ariaDescribedBy }
+                : {})}
             visible={visible}
             transparent={transparent}
             animationType={animationType}

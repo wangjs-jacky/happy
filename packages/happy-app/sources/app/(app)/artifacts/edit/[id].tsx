@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, TextInput, Pressable, ActivityIndicator, Platform, KeyboardAvoidingView as RNKeyboardAvoidingView } from 'react-native';
+import { View, ScrollView, TextInput, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -7,7 +7,6 @@ import { t } from '@/text';
 import { layout } from '@/components/layout';
 import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useArtifact } from '@/sync/storage';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
@@ -179,6 +178,9 @@ export default function EditArtifactScreen() {
     
     const HeaderRight = React.useCallback(() => (
         <Pressable
+            accessibilityLabel={t('common.save')}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !hasChanges || isSaving }}
             style={[styles.headerButton, (!hasChanges || isSaving) && styles.headerButtonDisabled]}
             onPress={handleSave}
             disabled={!hasChanges || isSaving}
@@ -262,6 +264,7 @@ export default function EditArtifactScreen() {
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>{t('artifacts.titleLabel')}</Text>
                             <TextInput
+                                accessibilityLabel={t('artifacts.titleLabel')}
                                 style={[
                                     styles.input,
                                     titleFocused && styles.inputFocused,
@@ -287,6 +290,7 @@ export default function EditArtifactScreen() {
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>{t('artifacts.bodyLabel')}</Text>
                             <TextInput
+                                accessibilityLabel={t('artifacts.bodyLabel')}
                                 style={[
                                     styles.input,
                                     styles.textArea,
