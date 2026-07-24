@@ -115,25 +115,32 @@ export default React.memo(function SkillsScreen() {
         <ItemList>
             {/* Machine switcher (only when there is more than one) */}
             {machines.length > 1 && (
-                <ItemGroup title={t('settingsSkills.machine')}>
-                    {machines.map((m) => {
-                        const name = m.metadata?.displayName || m.metadata?.host || m.id;
-                        const isSelected = m.id === selectedMachineId;
-                        return (
-                            <Item
-                                key={m.id}
-                                title={name}
-                                icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />}
-                                selected={isSelected}
-                                showChevron={false}
-                                rightElement={isSelected ? (
-                                    <Ionicons name="checkmark" size={22} color={theme.colors.button.primary.background} />
-                                ) : undefined}
-                                onPress={() => setSelectedMachineId(m.id)}
-                            />
-                        );
-                    })}
-                </ItemGroup>
+                <View
+                    accessibilityRole="radiogroup"
+                    accessibilityLabel={t('settingsSkills.machine')}
+                >
+                    <ItemGroup title={t('settingsSkills.machine')}>
+                        {machines.map((m) => {
+                            const name = m.metadata?.displayName || m.metadata?.host || m.id;
+                            const isSelected = m.id === selectedMachineId;
+                            return (
+                                <Item
+                                    key={m.id}
+                                    title={name}
+                                    icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.textSecondary} />}
+                                    selected={isSelected}
+                                    showChevron={false}
+                                    rightElement={isSelected ? (
+                                        <Ionicons name="checkmark" size={22} color={theme.colors.button.primary.background} />
+                                    ) : undefined}
+                                    onPress={() => setSelectedMachineId(m.id)}
+                                    accessibilityRole="radio"
+                                    aria-checked={isSelected}
+                                />
+                            );
+                        })}
+                    </ItemGroup>
+                </View>
             )}
 
             {/* Search */}
@@ -147,6 +154,7 @@ export default React.memo(function SkillsScreen() {
                         ]}
                         value={query}
                         onChangeText={setQuery}
+                        accessibilityLabel={t('settingsSkills.searchPlaceholder')}
                         placeholder={t('settingsSkills.searchPlaceholder')}
                         placeholderTextColor={theme.colors.input.placeholder}
                         autoCapitalize="none"

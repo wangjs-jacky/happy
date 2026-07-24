@@ -1,5 +1,14 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { parseTriggers, parseSkillList, readSkillFileBase64 } from './skills';
+import {
+    parseTriggers,
+    parseSkillList,
+    readSkillFileBase64,
+    SKILL_DESCRIPTION_AWK,
+} from './skills';
 
 describe('parseTriggers', () => {
     it('抽取中文「触发词：」列表', () => {
@@ -43,6 +52,38 @@ describe('parseSkillList', () => {
     it('name 为空时回退到父目录名', () => {
         const raw = '/Users/x/.claude/skills/foo/SKILL.md\x1f\x1fBar.';
         expect(parseSkillList(raw)[0].name).toBe('foo');
+    });
+    it('按路径去重，避免同一个 Skill 产生重复 React key', () => {
+        const line = '/Users/x/.agents/skills/foo/SKILL.md\x1ffoo\x1fBar.';
+        expect(parseSkillList(`${line}\x1e${line}`)).toHaveLength(1);
+    });
+    it('不会把 YAML 多行描述标记符当成可见描述', () => {
+        const raw = '/Users/x/.agents/skills/foo/SKILL.md\x1ffoo\x1f>';
+        expect(parseSkillList(raw)[0]).toMatchObject({
+            description: '',
+            triggers: [],
+        });
+    });
+    it('扫描脚本会折叠 YAML 多行描述，而不是返回块标记符', () => {
+        const directory = mkdtempSync(join(tmpdir(), 'happy-skill-description-'));
+        const file = join(directory, 'SKILL.md');
+        writeFileSync(file, [
+            '---',
+            'name: demo',
+            'description: >',
+            '  第一行说明，',
+            '  第二行说明。',
+            'metadata:',
+            '  owner: demo',
+            '---',
+        ].join('\n'));
+
+        try {
+            expect(execFileSync('awk', [SKILL_DESCRIPTION_AWK, file], { encoding: 'utf8' }).trim())
+                .toBe('第一行说明， 第二行说明。');
+        } finally {
+            rmSync(directory, { recursive: true });
+        }
     });
     it('空输出返回空数组', () => {
         expect(parseSkillList('')).toEqual([]);

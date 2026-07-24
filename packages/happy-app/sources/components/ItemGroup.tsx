@@ -144,13 +144,13 @@ export const ItemGroup = React.memo<ItemGroupProps>((props) => {
                 </View>
 
                 {/* Footer */}
-                {footer && (
+                {footer ? (
                     <View style={[styles.footer, footerStyle]}>
                         <Text style={[styles.footerText, footerTextStyle]}>
                             {footer}
                         </Text>
                     </View>
-                )}
+                ) : null}
             </View>
         </View>
     );

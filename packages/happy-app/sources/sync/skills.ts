@@ -25,11 +25,40 @@ function splitList(s: string): string[] {
 
 const UNIT = '\x1f';
 const RECORD = '\x1e';
+const YAML_BLOCK_SCALAR = /^[>|][+-]?$/;
+
+export const SKILL_DESCRIPTION_AWK = String.raw`
+/^description:[[:space:]]*/ {
+  line = $0
+  sub(/^description:[[:space:]]*/, "", line)
+  if (line ~ /^[>|][+-]?[[:space:]]*$/) {
+    in_block = 1
+    next
+  }
+  gsub(/^"|"$/, "", line)
+  print line
+  exit
+}
+in_block {
+  if ($0 ~ /^[^[:space:]]/) exit
+  line = $0
+  sub(/^[[:space:]]+/, "", line)
+  if (line != "") {
+    if (description != "") description = description " "
+    description = description line
+  }
+}
+END {
+  if (in_block && description != "") print description
+}
+`.trim();
 
 export function parseSkillList(raw: string): SkillEntry[] {
     if (!raw?.trim()) return [];
+    const seenPaths = new Set<string>();
     return raw.split(RECORD).map(line => line.trim()).filter(Boolean).map(line => {
-        const [path = '', name = '', description = ''] = line.split(UNIT);
+        const [path = '', name = '', rawDescription = ''] = line.split(UNIT);
+        const description = YAML_BLOCK_SCALAR.test(rawDescription.trim()) ? '' : rawDescription;
         return {
             path,
             name: name || path.split('/').slice(-2, -1)[0] || path,
@@ -37,7 +66,11 @@ export function parseSkillList(raw: string): SkillEntry[] {
             triggers: parseTriggers(description),
             source: path.includes('/plugins/') ? 'plugin' as const : 'personal' as const,
         };
-    }).filter(e => e.path);
+    }).filter((entry) => {
+        if (!entry.path || seenPaths.has(entry.path)) return false;
+        seenPaths.add(entry.path);
+        return true;
+    });
 }
 
 /** 在宿主机扫描所有 SKILL.md 并解析为 SkillEntry[] */
@@ -45,18 +78,22 @@ export async function scanSkills(machineId: string, options?: { cwd?: string }):
     // 扫描 Claude、Codex、Agents 三套常见 skill 根。
     // 对会话右侧面板，调用方可传 cwd，这样项目内 .agents/skills 也会被纳入。
     // NUL 分隔遍历，避免路径含空格/通配符时被 word-splitting 拆坏。
-    // 注：desc 只取 frontmatter 中 description 的首行——多行 YAML 标量会被截断，
-    // 但足够提炼触发词；详情页读全文不受影响。awk 顺手剥掉值两侧的引号。
+    // description 支持 YAML 的单行值与 >、| 块标量，并压平为单行预览。
+    // parseSkillList 还会按路径去重，防止多个链接根扫描到同一文件时产生重复 key。
     const cmd = String.raw`
+agents_home=$(cd "$HOME/.agents/skills" 2>/dev/null && pwd -P)
+agents_project=$(cd "$PWD/.agents/skills" 2>/dev/null && pwd -P)
 { find -L "$HOME/.claude/skills" -maxdepth 2 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.claude/plugins" -maxdepth 8 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.codex/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.codex/plugins" -maxdepth 8 -name SKILL.md -print0 2>/dev/null;
   find -L "$HOME/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
-  find -L "$PWD/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null; } |
+  if [ -n "$agents_project" ] && [ "$agents_project" != "$agents_home" ]; then
+    find -L "$PWD/.agents/skills" -maxdepth 4 -name SKILL.md -print0 2>/dev/null;
+  fi; } |
 while IFS= read -r -d '' f; do
   name=$(awk -F': *' '/^name:/{v=$2; gsub(/^"|"$/,"",v); print v; exit}' "$f")
-  desc=$(awk '/^description:/{sub(/^description: */,""); gsub(/^"|"$/,"",$0); print; exit}' "$f")
+  desc=$(awk '${SKILL_DESCRIPTION_AWK}' "$f")
   printf '%s\x1f%s\x1f%s\x1e' "$f" "$name" "$desc"
 done
 `;
