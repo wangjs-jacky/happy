@@ -97,5 +97,5 @@ Ask API 使用独立的 `Text` 绘制字段标题，但 `TextInput` 没有
 
 - 独立代码审查：最终复审 Critical 0、Important 0、Minor 0。
 - PR：[#216](https://github.com/wangjs-jacky/happy/pull/216)。
-- CI：待执行。
-- merge commit：待合并。
+- CI：typecheck、publish-preview passed。
+- merge commit：`de3ff2befb8a3564d5d6a5691c53cde049a596df`。

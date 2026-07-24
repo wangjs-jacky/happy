@@ -235,6 +235,7 @@ export default React.memo(function AgentEditScreen() {
                     <View style={styles.inputRow}>
                         <TextInput
                             style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
+                            accessibilityLabel={t('agents.name')}
                             value={name}
                             onChangeText={setName}
                             placeholder={t('agents.namePlaceholder')}
@@ -246,52 +247,62 @@ export default React.memo(function AgentEditScreen() {
                 </ItemGroup>
 
                 {/* Agent 类型 */}
-                <ItemGroup title={t('agents.agentKind')}>
-                    <Item
-                        title={t('agents.standardAgent')}
-                        subtitle={t('agents.standardAgentSubtitle')}
-                        icon={<Ionicons name="terminal-outline" size={29} color={theme.colors.accent} />}
-                        onPress={() => selectKind('standard')}
-                        showChevron={false}
-                        rightElement={kind === 'standard' ? (
-                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                        ) : undefined}
-                    />
-                    <Item
-                        title={t('agents.imageStyleAgent')}
-                        subtitle={t('agents.imageStyleAgentSubtitle')}
-                        icon={<Ionicons name="images-outline" size={29} color={theme.colors.accent} />}
-                        onPress={() => selectKind('image-styles')}
-                        showChevron={false}
-                        rightElement={kind === 'image-styles' ? (
-                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                        ) : undefined}
-                    />
-                </ItemGroup>
+                <View accessibilityRole="radiogroup" accessibilityLabel={t('agents.agentKind')}>
+                    <ItemGroup title={t('agents.agentKind')}>
+                        <Item
+                            title={t('agents.standardAgent')}
+                            subtitle={t('agents.standardAgentSubtitle')}
+                            icon={<Ionicons name="terminal-outline" size={29} color={theme.colors.accent} />}
+                            onPress={() => selectKind('standard')}
+                            showChevron={false}
+                            accessibilityRole="radio"
+                            aria-checked={kind === 'standard'}
+                            rightElement={kind === 'standard' ? (
+                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                            ) : undefined}
+                        />
+                        <Item
+                            title={t('agents.imageStyleAgent')}
+                            subtitle={t('agents.imageStyleAgentSubtitle')}
+                            icon={<Ionicons name="images-outline" size={29} color={theme.colors.accent} />}
+                            onPress={() => selectKind('image-styles')}
+                            showChevron={false}
+                            accessibilityRole="radio"
+                            aria-checked={kind === 'image-styles'}
+                            rightElement={kind === 'image-styles' ? (
+                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                            ) : undefined}
+                        />
+                    </ItemGroup>
+                </View>
 
                 {/* 机器 */}
-                <ItemGroup title={t('agents.machine')}>
-                    {machines.length === 0 ? (
-                        <Item title={t('agents.noMachines')} disabled showChevron={false} />
-                    ) : (
-                        machines.map((m) => {
-                            const label = m.metadata?.displayName ?? m.metadata?.host ?? m.id;
-                            const selected = machineId === m.id;
-                            return (
-                                <Item
-                                    key={m.id}
-                                    title={label}
-                                    subtitle={isMachineOnline(m) ? t('status.online') : t('agents.machineOffline')}
-                                    onPress={() => setMachineId(m.id)}
-                                    showChevron={false}
-                                    rightElement={selected ? (
-                                        <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                    ) : undefined}
-                                />
-                            );
-                        })
-                    )}
-                </ItemGroup>
+                <View accessibilityRole="radiogroup" accessibilityLabel={t('agents.machine')}>
+                    <ItemGroup title={t('agents.machine')}>
+                        {machines.length === 0 ? (
+                            <Item title={t('agents.noMachines')} disabled showChevron={false} />
+                        ) : (
+                            machines.map((m) => {
+                                const label = m.metadata?.displayName ?? m.metadata?.host ?? m.id;
+                                const selected = machineId === m.id;
+                                return (
+                                    <Item
+                                        key={m.id}
+                                        title={label}
+                                        subtitle={isMachineOnline(m) ? t('status.online') : t('agents.machineOffline')}
+                                        onPress={() => setMachineId(m.id)}
+                                        showChevron={false}
+                                        accessibilityRole="radio"
+                                        aria-checked={selected}
+                                        rightElement={selected ? (
+                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                        ) : undefined}
+                                    />
+                                );
+                            })
+                        )}
+                    </ItemGroup>
+                </View>
 
                 {/* 文件夹路径 */}
                 <ItemGroup title={t('agents.folder')}>
@@ -305,33 +316,43 @@ export default React.memo(function AgentEditScreen() {
                         onChangeValue={setPath}
                         embedded
                         manualInput
+                        inputPlaceholder={t('agents.folderPlaceholder')}
+                        customPathLabel={t('agents.folderCustomPath')}
+                        recentLabel={t('agents.folderRecent')}
+                        emptyRecentLabel={t('agents.folderNoRecent')}
                     />
                 </ItemGroup>
 
                 {/* Agent 引擎 → 模型 → Effort 三级联动（仅 standard agent） */}
                 {kind === 'standard' && (
                     <>
-                        <ItemGroup title={t('agents.agentFlavor')} footer={t('agents.agentFlavorFooter')}>
-                            <Item
-                                title={t('agents.followDefault')}
-                                onPress={() => selectAgentType(null)}
-                                showChevron={false}
-                                rightElement={!agentType ? (
-                                    <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                ) : undefined}
-                            />
-                            {AGENT_FLAVORS.map((flavor) => (
+                        <View accessibilityRole="radiogroup" accessibilityLabel={t('agents.agentFlavor')}>
+                            <ItemGroup title={t('agents.agentFlavor')} footer={t('agents.agentFlavorFooter')}>
                                 <Item
-                                    key={flavor.key}
-                                    title={flavor.label}
-                                    onPress={() => selectAgentType(flavor.key)}
+                                    title={t('agents.followDefault')}
+                                    onPress={() => selectAgentType(null)}
                                     showChevron={false}
-                                    rightElement={agentType === flavor.key ? (
+                                    accessibilityRole="radio"
+                                    aria-checked={!agentType}
+                                    rightElement={!agentType ? (
                                         <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
                                     ) : undefined}
                                 />
-                            ))}
-                        </ItemGroup>
+                                {AGENT_FLAVORS.map((flavor) => (
+                                    <Item
+                                        key={flavor.key}
+                                        title={flavor.label}
+                                        onPress={() => selectAgentType(flavor.key)}
+                                        showChevron={false}
+                                        accessibilityRole="radio"
+                                        aria-checked={agentType === flavor.key}
+                                        rightElement={agentType === flavor.key ? (
+                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                        ) : undefined}
+                                    />
+                                ))}
+                            </ItemGroup>
+                        </View>
 
                         {agentType && (() => {
                             const modelOptions = getHardcodedModelModes(agentType, t);
@@ -339,41 +360,50 @@ export default React.memo(function AgentEditScreen() {
                             return (
                                 <>
                                     {modelOptions.length > 0 && (
-                                        <ItemGroup title={t('agentDefaults.fieldModel')}>
-                                            {modelOptions.map((option) => (
-                                                <Item
-                                                    key={option.key}
-                                                    title={option.name}
-                                                    subtitle={option.description ?? undefined}
-                                                    onPress={() => setModelMode(option.key === 'default' ? null : option.key)}
-                                                    showChevron={false}
-                                                    rightElement={
-                                                        modelMode === option.key || (option.key === 'default' && !modelMode) ? (
-                                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                                        ) : undefined
-                                                    }
-                                                />
-                                            ))}
-                                        </ItemGroup>
+                                        <View accessibilityRole="radiogroup" accessibilityLabel={t('agentDefaults.fieldModel')}>
+                                            <ItemGroup title={t('agentDefaults.fieldModel')}>
+                                                {modelOptions.map((option) => {
+                                                    const selected = modelMode === option.key || (option.key === 'default' && !modelMode);
+                                                    return (
+                                                        <Item
+                                                            key={option.key}
+                                                            title={option.name}
+                                                            subtitle={option.description ?? undefined}
+                                                            onPress={() => setModelMode(option.key === 'default' ? null : option.key)}
+                                                            showChevron={false}
+                                                            accessibilityRole="radio"
+                                                            aria-checked={selected}
+                                                            rightElement={selected ? (
+                                                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                                            ) : undefined}
+                                                        />
+                                                    );
+                                                })}
+                                            </ItemGroup>
+                                        </View>
                                     )}
 
                                     {effortOptions.length > 0 && (
-                                        <ItemGroup title={t('agentDefaults.fieldEffort')}>
-                                            {effortOptions.map((option) => (
-                                                <Item
-                                                    key={option.key}
-                                                    title={option.name}
-                                                    subtitle={option.description ?? undefined}
-                                                    onPress={() => setEffortLevel(option.key)}
-                                                    showChevron={false}
-                                                    rightElement={
-                                                        effortLevel === option.key ? (
-                                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                                        ) : undefined
-                                                    }
-                                                />
-                                            ))}
-                                        </ItemGroup>
+                                        <View accessibilityRole="radiogroup" accessibilityLabel={t('agentDefaults.fieldEffort')}>
+                                            <ItemGroup title={t('agentDefaults.fieldEffort')}>
+                                                {effortOptions.map((option) => (
+                                                    <Item
+                                                        key={option.key}
+                                                        title={option.name}
+                                                        subtitle={option.description ?? undefined}
+                                                        onPress={() => setEffortLevel(option.key)}
+                                                        showChevron={false}
+                                                        accessibilityRole="radio"
+                                                        aria-checked={effortLevel === option.key}
+                                                        rightElement={
+                                                            effortLevel === option.key ? (
+                                                                <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                                            ) : undefined
+                                                        }
+                                                    />
+                                                ))}
+                                            </ItemGroup>
+                                        </View>
                                     )}
                                 </>
                             );
@@ -391,6 +421,9 @@ export default React.memo(function AgentEditScreen() {
                                         <Pressable
                                             key={style.id}
                                             onPress={() => toggleImageStyle(style.id)}
+                                            accessibilityRole="checkbox"
+                                            accessibilityLabel={getImageAgentStyleLabel(style)}
+                                            aria-checked={selected}
                                             style={({ pressed }) => [
                                                 styles.styleChip,
                                                 selected && styles.styleChipSelected,
@@ -412,19 +445,23 @@ export default React.memo(function AgentEditScreen() {
                             </View>
                         </ItemGroup>
 
-                        <ItemGroup title={t('agents.imageVariants')}>
-                            {[1, 2, 3, 4].map((count) => (
-                                <Item
-                                    key={count}
-                                    title={t('agents.imageVariantsPerStyle', { count })}
-                                    onPress={() => setImageVariantsPerStyle(count)}
-                                    showChevron={false}
-                                    rightElement={imageVariantsPerStyle === count ? (
-                                        <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
-                                    ) : undefined}
-                                />
-                            ))}
-                        </ItemGroup>
+                        <View accessibilityRole="radiogroup" accessibilityLabel={t('agents.imageVariants')}>
+                            <ItemGroup title={t('agents.imageVariants')}>
+                                {[1, 2, 3, 4].map((count) => (
+                                    <Item
+                                        key={count}
+                                        title={t('agents.imageVariantsPerStyle', { count })}
+                                        onPress={() => setImageVariantsPerStyle(count)}
+                                        showChevron={false}
+                                        accessibilityRole="radio"
+                                        aria-checked={imageVariantsPerStyle === count}
+                                        rightElement={imageVariantsPerStyle === count ? (
+                                            <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
+                                        ) : undefined}
+                                    />
+                                ))}
+                            </ItemGroup>
+                        </View>
                     </>
                 ) : (
                     <ItemGroup title={t('agents.presets')}>
@@ -433,6 +470,7 @@ export default React.memo(function AgentEditScreen() {
                                 <View style={styles.presetInputs}>
                                     <TextInput
                                         style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
+                                        accessibilityLabel={t('agents.presetLabelPlaceholder')}
                                         value={preset.label}
                                         onChangeText={(v) => updatePreset(index, { label: v })}
                                         placeholder={t('agents.presetLabelPlaceholder')}
@@ -442,6 +480,7 @@ export default React.memo(function AgentEditScreen() {
                                     />
                                     <TextInput
                                         style={[styles.input, styles.presetPrompt, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
+                                        accessibilityLabel={t('agents.presetPromptPlaceholder')}
                                         value={preset.prompt}
                                         onChangeText={(v) => updatePreset(index, { prompt: v })}
                                         placeholder={t('agents.presetPromptPlaceholder')}

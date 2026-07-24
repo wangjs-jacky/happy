@@ -581,3 +581,60 @@ test.describe('中文 Web 服务配置设置语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 });
+
+test.describe('中文 Web Agent 配置语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('智能体默认设置暴露展开状态与单选语义', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/agents'));
+
+        const permissionField = page.getByRole('button', { name: /权限/ }).first();
+        await expect(permissionField).toHaveAttribute('aria-expanded', 'false');
+
+        await permissionField.click();
+        await expect(permissionField).toHaveAttribute('aria-expanded', 'true');
+
+        const permissionGroup = page.getByRole('radiogroup', { name: '权限' }).first();
+        await expect(permissionGroup).toBeVisible();
+        await expect(permissionGroup.getByRole('radio', { name: /使用代码默认值/ })).toBeChecked();
+
+        await permissionField.click();
+        await expect(permissionField).toHaveAttribute('aria-expanded', 'false');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+
+    test('新建 Agent 表单具备输入与选择语义且不保存配置', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/my-agent-edit'));
+
+        await expect(page.getByRole('textbox', { name: '名称' })).toHaveCount(1);
+        await expect(page.getByRole('textbox', { name: '文件夹' })).toHaveAttribute('placeholder', '文件夹路径，如 ~');
+        await expect(page.getByText('using custom path above', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('Recent', { exact: true })).toHaveCount(0);
+        await expect(page.getByText('no recent projects yet', { exact: true })).toHaveCount(0);
+
+        const kindGroup = page.getByRole('radiogroup', { name: 'Agent 类型' });
+        await expect(kindGroup.getByRole('radio', { name: /标准 Agent/ })).toBeChecked();
+        await expect(kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ })).not.toBeChecked();
+
+        await kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ }).click();
+        await expect(kindGroup.getByRole('radio', { name: /GPT Image 2 风格/ })).toBeChecked();
+        await expect(page.getByRole('checkbox', { name: '山野旅行速写手帐' })).toBeChecked();
+
+        const variants = page.getByRole('radiogroup', { name: '生成张数' });
+        await expect(variants.getByRole('radio', { name: '每种风格 1 张' })).toBeChecked();
+
+        await kindGroup.getByRole('radio', { name: /标准 Agent/ }).click();
+        const flavorGroup = page.getByRole('radiogroup', { name: '编码 Agent' });
+        await expect(flavorGroup.getByRole('radio', { name: '跟随默认' })).toBeChecked();
+
+        await page.getByRole('button', { name: '添加预设' }).click();
+        await expect(page.getByRole('textbox', { name: '标签' })).toHaveCount(1);
+        await expect(page.getByRole('textbox', { name: '指令内容' })).toHaveCount(1);
+        await page.getByRole('button', { name: '删除' }).click();
+
+        await expect(page.getByRole('button', { name: '保存' })).toBeDisabled();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+});

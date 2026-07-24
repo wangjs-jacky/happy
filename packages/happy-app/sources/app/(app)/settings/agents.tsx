@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -77,6 +78,8 @@ export default function AgentDefaultsSettingsScreen() {
             subtitle={subtitle}
             onPress={() => updateOverride(agent, field, value)}
             showChevron={false}
+            accessibilityRole="radio"
+            aria-checked={selected}
             rightElement={selected ? (
                 <Ionicons name="checkmark" size={20} color={theme.colors.header.tint} />
             ) : undefined}
@@ -101,9 +104,13 @@ export default function AgentDefaultsSettingsScreen() {
                     detail={detail}
                     icon={<Ionicons name={config.icon} size={29} color="#5856D6" />}
                     onPress={() => setExpanded(isExpanded ? null : { agent, field: config.field })}
+                    aria-expanded={isExpanded}
                 />
                 {isExpanded && (
-                    <>
+                    <View
+                        accessibilityRole="radiogroup"
+                        accessibilityLabel={config.title}
+                    >
                         {renderOption(
                             agent,
                             config.field,
@@ -120,7 +127,7 @@ export default function AgentDefaultsSettingsScreen() {
                             hasOverride && overrideValue === option.key,
                             option.key,
                         ))}
-                    </>
+                    </View>
                 )}
             </React.Fragment>
         );
