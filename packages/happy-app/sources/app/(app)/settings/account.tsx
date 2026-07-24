@@ -503,6 +503,7 @@ export default React.memo(() => {
                         subtitle={analyticsOptOut ? t('settingsAccount.analyticsDisabled') : t('settingsAccount.analyticsEnabled')}
                         rightElement={
                             <Switch
+                                accessibilityLabel={t('settingsAccount.analytics')}
                                 value={!analyticsOptOut}
                                 onValueChange={(value) => {
                                     const optOut = !value;

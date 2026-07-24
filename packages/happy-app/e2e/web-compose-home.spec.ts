@@ -500,3 +500,54 @@ test.describe('中文 Web 自定义指令与 Skills 设置', () => {
         expect(renderErrors).toEqual([]);
     });
 });
+
+test.describe('中文 Web 功能与账户设置语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('所有功能开关使用可见标题作为名称并支持可逆切换', async ({ page }) => {
+        await page.goto(authenticatedRoute('/settings/features'));
+
+        const switchNames = [
+            '文件差异侧边栏',
+            '分组工具调用',
+            '实验功能',
+            'Markdown 复制 v2',
+            '隐藏非活跃会话',
+            '恢复会话',
+            '桌面截图',
+            '禁用分析',
+            '回车发送',
+            '命令面板',
+        ];
+        await expect(page.getByRole('switch')).toHaveCount(switchNames.length);
+        for (const name of switchNames) {
+            await expect(page.getByRole('switch', { name, exact: true })).toHaveCount(1);
+        }
+
+        const analyticsSwitch = page.getByRole('switch', { name: '禁用分析', exact: true });
+        const wasChecked = await analyticsSwitch.isChecked();
+        await analyticsSwitch.click();
+        try {
+            await expect(analyticsSwitch).toBeChecked({ checked: !wasChecked });
+        } finally {
+            if (await analyticsSwitch.isChecked() !== wasChecked) {
+                await analyticsSwitch.click();
+            }
+        }
+        await expect(analyticsSwitch).toBeChecked({ checked: wasChecked });
+    });
+
+    test('账户分析开关和破坏性确认框使用稳定按钮语义', async ({ page }) => {
+        await page.goto(authenticatedRoute('/settings/account'));
+
+        await expect(page.getByRole('switch', { name: '分析', exact: true })).toBeVisible();
+        await page.getByText('登出', { exact: true }).click();
+
+        const dialog = page.getByRole('dialog');
+        await expect(dialog).toBeVisible();
+        await expect(dialog.getByRole('button', { name: '取消', exact: true })).toBeVisible();
+        await expect(dialog.getByRole('button', { name: '登出', exact: true })).toBeVisible();
+        await dialog.getByRole('button', { name: '取消', exact: true }).click();
+        await expect(dialog).toHaveCount(0);
+    });
+});

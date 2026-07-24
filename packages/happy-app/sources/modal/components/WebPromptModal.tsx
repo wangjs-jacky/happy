@@ -147,6 +147,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                 
                 <View style={styles.buttonContainer}>
                     <Pressable
+                        accessibilityRole="button"
                         style={({ pressed }) => [
                             styles.button,
                             pressed && styles.buttonPressed
@@ -163,6 +164,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                     </Pressable>
                     <View style={styles.buttonSeparator} />
                     <Pressable
+                        accessibilityRole="button"
                         style={({ pressed }) => [
                             styles.button,
                             pressed && styles.buttonPressed
