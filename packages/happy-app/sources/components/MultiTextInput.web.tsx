@@ -45,6 +45,8 @@ interface MultiTextInputProps {
     paddingBottom?: number;
     paddingLeft?: number;
     paddingRight?: number;
+    accessibilityLabel?: string;
+    testID?: string;
     onKeyPress?: OnKeyPressCallback;
     onSelectionChange?: (selection: { start: number; end: number }) => void;
     onStateChange?: (state: TextInputState) => void;
@@ -58,6 +60,8 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
         placeholder,
         maxHeight = 120,
         lineHeight = MULTI_TEXT_INPUT_LINE_HEIGHT,
+        accessibilityLabel,
+        testID,
         onKeyPress,
         onSelectionChange,
         onStateChange
@@ -204,6 +208,8 @@ export const MultiTextInput = React.forwardRef<MultiTextInputHandle, MultiTextIn
                     paddingRight: props.paddingRight,
                 }}
                 placeholder={placeholder}
+                aria-label={accessibilityLabel}
+                data-testid={testID}
                 {...(isControlled ? { value } : { defaultValue })}
                 onChange={handleChange}
                 onSelect={handleSelect}

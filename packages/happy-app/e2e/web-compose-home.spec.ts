@@ -946,3 +946,129 @@ test.describe('中文 Web 消息与工具演示', () => {
         );
     });
 });
+
+test.describe('中文 Web 输入与倒序列表演示', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('倒序列表控件具备选择语义且 Web 不会启用 LegendList', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/inverted-list'));
+
+        await expect(page.getByTestId('dev-inverted-list-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        await expect(page.getByRole('radiogroup', { name: '列表实现：' })).toHaveCount(1);
+        await expect(page.getByRole('radiogroup', { name: '内边距方式：' })).toHaveCount(1);
+        await expect(page.getByRole('radio')).toHaveCount(6);
+
+        const flatList = page.getByTestId('dev-inverted-list-type-flat');
+        await flatList.click();
+        await expect(flatList).toHaveAttribute('aria-checked', 'true');
+
+        const headerFooter = page.getByTestId('dev-inverted-list-padding-header-footer');
+        await headerFooter.click();
+        await expect(headerFooter).toHaveAttribute('aria-checked', 'true');
+
+        const legendList = page.getByTestId('dev-inverted-list-type-legend');
+        await expect(legendList).toHaveAttribute('role', 'radio');
+        await expect(legendList).toHaveAttribute('aria-disabled', 'true');
+        await expect(legendList).toHaveAttribute('aria-checked', 'false');
+        await expect(legendList).toHaveAccessibleName('LegendList, 仅原生端可用');
+
+        const input = page.getByRole('textbox', { name: '输入消息...' });
+        const send = page.getByRole('button', { name: '发送', exact: true });
+        await expect(send).toBeDisabled();
+        await input.fill('本地倒序列表回归');
+        await expect(send).toBeEnabled();
+        await send.click();
+        await expect(page.getByText('本地倒序列表回归', { exact: true })).toBeVisible();
+        await expect(input).toHaveValue('');
+
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+
+    test('多行输入与输入样式在深色主题下可操作且不会污染 Tab 顺序', async ({ page }) => {
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Terminal', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/multi-text-input'));
+
+        await expect(page.getByTestId('dev-multi-text-input-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        const inputNames = [
+            '基础用法',
+            '带初始值',
+            '限制高度（60px）',
+            '更大高度（200px）',
+            '键盘处理',
+        ];
+        for (const name of inputNames) {
+            await expect(page.getByRole('textbox', { name, exact: true })).toHaveCount(1);
+        }
+
+        const basicInput = page.getByRole('textbox', { name: '基础用法', exact: true });
+        await basicInput.fill('可访问名称回归');
+        await expect(basicInput).toHaveValue('可访问名称回归');
+
+        const keyboardInput = page.getByRole('textbox', { name: '键盘处理', exact: true });
+        await keyboardInput.fill('按键清空回归');
+        await keyboardInput.press('Escape');
+        await expect(keyboardInput).toHaveValue('');
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+
+        await page.goto(authenticatedRoute('/dev/input-styles'));
+        await expect(page.getByTestId('dev-input-styles-screen')).toHaveCSS(
+            'background-color',
+            'rgb(10, 10, 11)',
+        );
+        await expect(page.getByTestId('dev-input-styles-heading')).toHaveCSS(
+            'color',
+            'rgb(229, 229, 231)',
+        );
+        await expect(page.getByTestId('dev-input-styles-description')).toHaveCSS(
+            'color',
+            'rgb(107, 107, 118)',
+        );
+
+        const styleCards = page.locator('[data-testid^="dev-input-style-"]');
+        await expect(styleCards).toHaveCount(22);
+        for (let index = 0; index < 22; index += 1) {
+            const card = styleCards.nth(index);
+            await expect(card).toHaveAttribute('role', 'radio');
+            await card.click();
+            await expect(card).toHaveAttribute('aria-checked', 'true');
+        }
+
+        const nestedFocusableCount = await styleCards.evaluateAll((cards) => (
+            cards.reduce(
+                (count, card) => count + card.querySelectorAll('[tabindex="0"]').length,
+                0,
+            )
+        ));
+        expect(nestedFocusableCount).toBe(0);
+
+        const previewInputs = page
+            .getByTestId('dev-input-styles-screen')
+            .getByRole('textbox', { includeHidden: true });
+        await expect(previewInputs).toHaveCount(23);
+        for (let index = 0; index < 23; index += 1) {
+            await expect(previewInputs.nth(index)).toHaveAttribute('tabindex', '-1');
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Caramel', { exact: true }).click();
+        await page.goto(authenticatedRoute('/dev/input-styles'));
+        await expect(page.getByTestId('dev-input-styles-screen')).toHaveCSS(
+            'background-color',
+            'rgb(26, 21, 18)',
+        );
+    });
+});

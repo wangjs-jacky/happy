@@ -1,5 +1,12 @@
 import * as React from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Platform } from 'react-native';
+import {
+    View,
+    Text,
+    ScrollView,
+    Pressable as NativePressable,
+    TextInput as NativeTextInput,
+    Platform,
+} from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
@@ -12,6 +19,41 @@ type InputStyle = {
     description: string;
     preview: React.ReactNode;
 };
+
+const StaticPreviewContext = React.createContext(false);
+
+function Pressable(props: React.ComponentProps<typeof NativePressable>) {
+    const isStaticPreview = React.useContext(StaticPreviewContext);
+    if (isStaticPreview) {
+        const children = typeof props.children === 'function'
+            ? props.children({ pressed: false, hovered: false } as any)
+            : props.children;
+        return <View style={props.style as any}>{children}</View>;
+    }
+    return <NativePressable {...props} />;
+}
+
+function TextInput(props: React.ComponentProps<typeof NativeTextInput>) {
+    const isStaticPreview = React.useContext(StaticPreviewContext);
+    return (
+        <NativeTextInput
+            {...props}
+            editable={isStaticPreview ? false : props.editable}
+            focusable={isStaticPreview ? false : props.focusable}
+            tabIndex={isStaticPreview ? -1 : props.tabIndex}
+        />
+    );
+}
+
+function StaticPreview(props: { children: React.ReactNode }) {
+    return (
+        <StaticPreviewContext.Provider value>
+            <View style={{ pointerEvents: 'none' }} aria-hidden={true}>
+                {props.children}
+            </View>
+        </StaticPreviewContext.Provider>
+    );
+}
 
 export default function InputStylesDemo() {
     const { theme } = useUnistyles();
@@ -1833,9 +1875,9 @@ export default function InputStylesDemo() {
                 bottom: safeArea.bottom,
                 left: 0,
                 right: 0,
-                backgroundColor: '#fff',
+                backgroundColor: theme.colors.surface,
                 borderTopWidth: 1,
-                borderTopColor: '#e0e0e0',
+                borderTopColor: theme.colors.divider,
                 ...Platform.select({
                     ios: {
                         shadowColor: '#000',
@@ -1852,20 +1894,23 @@ export default function InputStylesDemo() {
                     <Text style={{
                         textAlign: 'center',
                         fontSize: 12,
-                        color: '#666',
+                        color: theme.colors.textSecondary,
                         marginBottom: 4,
                         ...Typography.default(),
                     }}>
                         {t('devTools.activeInputStyle', { name: style.name })}
                     </Text>
-                    {style.preview}
+                    <StaticPreview>{style.preview}</StaticPreview>
                 </View>
             </View>
         );
     };
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
+        <View
+            style={{ flex: 1, backgroundColor: theme.colors.groupped.background }}
+            testID="dev-input-styles-screen"
+        >
             <ScrollView 
                 style={{ flex: 1 }}
                 contentContainerStyle={{ 
@@ -1878,74 +1923,89 @@ export default function InputStylesDemo() {
                     fontWeight: 'bold',
                     marginBottom: 8,
                     paddingHorizontal: 16,
+                    color: theme.colors.text,
                     ...Typography.default('semiBold'),
-                }}>
+                }}
+                    testID="dev-input-styles-heading"
+                >
                     {t('devTools.inputStyleVariantsTitle')}
                 </Text>
                 <Text style={{
                     fontSize: 14,
-                    color: '#666',
+                    color: theme.colors.textSecondary,
                     marginBottom: 24,
                     paddingHorizontal: 16,
                     ...Typography.default(),
-                }}>
+                }}
+                    testID="dev-input-styles-description"
+                >
                     {t('devTools.inputStyleVariantsDescription')}
                 </Text>
 
-                {inputStyles.map((style) => (
-                    <Pressable
-                        key={style.id}
-                        onPress={() => setSelectedStyle(style.id)}
-                        style={{
-                            marginHorizontal: 16,
-                            marginBottom: 16,
-                            backgroundColor: '#fff',
-                            borderRadius: 12,
-                            overflow: 'hidden',
-                            borderWidth: selectedStyle === style.id ? 2 : 1,
-                            borderColor: selectedStyle === style.id ? theme.colors.accent : '#e0e0e0',
-                        }}
-                    >
-                        <View style={{
-                            paddingHorizontal: 16,
-                            paddingTop: 12,
-                            paddingBottom: 8,
-                        }}>
+                <View
+                    accessibilityRole="radiogroup"
+                    accessibilityLabel={t('devTools.inputStyleVariantsTitle')}
+                >
+                    {inputStyles.map((style) => (
+                        <Pressable
+                            key={style.id}
+                            onPress={() => setSelectedStyle(style.id)}
+                            accessibilityRole="radio"
+                            accessibilityLabel={style.name}
+                            accessibilityState={{ checked: selectedStyle === style.id }}
+                            aria-checked={selectedStyle === style.id}
+                            testID={`dev-input-style-${style.id}`}
+                            style={{
+                                marginHorizontal: 16,
+                                marginBottom: 16,
+                                backgroundColor: theme.colors.surface,
+                                borderRadius: 12,
+                                overflow: 'hidden',
+                                borderWidth: selectedStyle === style.id ? 2 : 1,
+                                borderColor: selectedStyle === style.id ? theme.colors.accent : theme.colors.divider,
+                            }}
+                        >
                             <View style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 4,
+                                paddingHorizontal: 16,
+                                paddingTop: 12,
+                                paddingBottom: 8,
                             }}>
-                                <Text style={{
-                                    fontSize: 18,
-                                    fontWeight: '600',
-                                    color: '#000',
-                                    ...Typography.default('semiBold'),
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginBottom: 4,
                                 }}>
-                                    {style.name}
+                                    <Text style={{
+                                        fontSize: 18,
+                                        fontWeight: '600',
+                                        color: theme.colors.text,
+                                        ...Typography.default('semiBold'),
+                                    }}>
+                                        {style.name}
+                                    </Text>
+                                    {selectedStyle === style.id && (
+                                        <Ionicons name="checkmark-circle" size={24} color={theme.colors.accent} />
+                                    )}
+                                </View>
+                                <Text style={{
+                                    fontSize: 14,
+                                    color: theme.colors.textSecondary,
+                                    marginBottom: 12,
+                                    ...Typography.default(),
+                                }}>
+                                    {style.description}
                                 </Text>
-                                {selectedStyle === style.id && (
-                                    <Ionicons name="checkmark-circle" size={24} color={theme.colors.accent} />
-                                )}
                             </View>
-                            <Text style={{
-                                fontSize: 14,
-                                color: '#666',
-                                marginBottom: 12,
-                                ...Typography.default(),
+                            <View style={{
+                                borderTopWidth: 1,
+                                borderTopColor: theme.colors.divider,
                             }}>
-                                {style.description}
-                            </Text>
-                        </View>
-                        <View style={{
-                            borderTopWidth: 1,
-                            borderTopColor: '#f0f0f0',
-                        }}>
-                            {style.preview}
-                        </View>
-                    </Pressable>
-                ))}
+                                <StaticPreview>{style.preview}</StaticPreview>
+                            </View>
+                        </Pressable>
+                    ))}
+                </View>
             </ScrollView>
             
             {renderActiveInput()}
