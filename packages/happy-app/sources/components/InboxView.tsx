@@ -79,6 +79,8 @@ function HeaderRightTablet() {
     const { theme } = useUnistyles();
     return (
         <Pressable
+            accessibilityLabel={t('friends.addFriend')}
+            accessibilityRole="button"
             onPress={() => {
                 trackFriendsSearch();
                 router.push('/friends/search');

@@ -20,6 +20,23 @@ export function UserSearchResult({
     const router = useRouter();
     const displayName = getDisplayName(user);
     const avatarUrl = user.avatar?.url || user.avatar?.path;
+
+    const getButtonLabel = () => {
+        if (isProcessing) {
+            return t('friends.addFriend');
+        }
+
+        switch (user.status) {
+            case 'friend':
+                return t('friends.alreadyFriends');
+            case 'pending':
+                return t('friends.requestPending');
+            case 'requested':
+                return t('friends.requestSent');
+            default:
+                return t('friends.addFriend');
+        }
+    };
     
     // Determine button state based on relationship status
     const getButtonContent = () => {
@@ -42,24 +59,31 @@ export function UserSearchResult({
     const isDisabled = isProcessing || user.status === 'friend' || user.status === 'pending' || user.status === 'requested';
 
     return (
-        <Pressable 
-            style={styles.container}
-            onPress={() => router.push(`/user/${user.id}`)}
-        >
+        <View style={styles.container}>
             <View style={styles.content}>
-                <Avatar
-                    id={user.id}
-                    size={48}
-                    imageUrl={avatarUrl}
-                    thumbhash={user.avatar?.thumbhash}
-                />
-                
-                <View style={styles.info}>
-                    <Text style={styles.name}>{displayName}</Text>
-                    <Text style={styles.username}>@{user.username}</Text>
-                </View>
+                <Pressable
+                    accessibilityLabel={`${displayName}, @${user.username}`}
+                    accessibilityRole="button"
+                    style={styles.profileButton}
+                    onPress={() => router.push(`/user/${user.id}`)}
+                >
+                    <Avatar
+                        id={user.id}
+                        size={48}
+                        imageUrl={avatarUrl}
+                        thumbhash={user.avatar?.thumbhash}
+                    />
+
+                    <View style={styles.info}>
+                        <Text style={styles.name}>{displayName}</Text>
+                        <Text style={styles.username}>@{user.username}</Text>
+                    </View>
+                </Pressable>
 
                 <TouchableOpacity
+                    accessibilityLabel={getButtonLabel()}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: isDisabled }}
                     style={[
                         styles.button, 
                         isDisabled && styles.buttonDisabled
@@ -70,7 +94,7 @@ export function UserSearchResult({
                     {getButtonContent()}
                 </TouchableOpacity>
             </View>
-        </Pressable>
+        </View>
     );
 }
 
@@ -90,6 +114,11 @@ const styles = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         padding: 16,
+    },
+    profileButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     info: {
         flex: 1,

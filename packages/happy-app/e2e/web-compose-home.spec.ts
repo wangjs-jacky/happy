@@ -713,3 +713,41 @@ test.describe('中文 Web 工件与生成图片语义', () => {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
     });
 });
+
+test.describe('中文 Web 收件箱与好友语义', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('空态添加入口和好友搜索输入框具备稳定语义', async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/inbox'));
+
+        await expect(page.getByText('收件箱为空', { exact: true })).toBeVisible();
+        const inboxAddButton = page.getByRole('button', {
+            name: '添加好友',
+            exact: true,
+        });
+        await expect(inboxAddButton).toHaveCount(1);
+        await inboxAddButton.click();
+        await expect.poll(() => new URL(page.url()).pathname).toBe('/friends/search');
+
+        const searchInput = page.getByRole('textbox', {
+            name: '输入用户名搜索好友',
+            exact: true,
+        });
+        await expect(searchInput).toHaveCount(1);
+        await searchInput.click();
+        await expect(searchInput).toBeFocused();
+
+        await page.goto(authenticatedRoute('/friends'));
+        await expect(page.getByText('您还没有好友', { exact: true })).toBeVisible();
+        const friendsAddButton = page.getByRole('button', {
+            name: '添加好友',
+            exact: true,
+        });
+        await expect(friendsAddButton).toHaveCount(1);
+        await friendsAddButton.click();
+        await expect.poll(() => new URL(page.url()).pathname).toBe('/friends/search');
+
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+});

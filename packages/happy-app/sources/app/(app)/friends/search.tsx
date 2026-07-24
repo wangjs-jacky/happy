@@ -37,12 +37,10 @@ export default function SearchFriendsScreen() {
 
             if (updatedProfile) {
                 trackFriendsConnect();
-                console.log(t('friends.requestSent'));
             } else {
                 await Modal.alert(t('friends.bothMustHaveGithub'));
             }
         } catch (error: any) {
-            console.error('Failed to send friend request:', error);
             if (error.message?.includes('yourself')) {
                 await Modal.alert(t('friends.cannotAddYourself'));
             } else {
@@ -82,6 +80,7 @@ export default function SearchFriendsScreen() {
                 >
                     <View style={styles.searchContainer}>
                         <TextInput
+                            accessibilityLabel={t('friends.searchInstructions')}
                             style={styles.searchInput}
                             placeholder={t('friends.searchPlaceholder')}
                             placeholderTextColor="#999999"

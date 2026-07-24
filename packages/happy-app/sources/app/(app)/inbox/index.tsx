@@ -99,6 +99,8 @@ export default function InboxPage() {
                 <View style={[styles.header, { paddingTop: insets.top }]}>
                     <View style={[styles.headerContent, { height: headerHeight }]}>
                         <Pressable
+                            accessibilityLabel={t('common.back')}
+                            accessibilityRole="button"
                             onPress={() => router.back()}
                             style={styles.backButton}
                             hitSlop={15}
