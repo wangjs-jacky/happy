@@ -14,6 +14,15 @@ const viewports = [
     { name: '宽屏', width: 1280, height: 900 },
 ] as const;
 
+const expectedIsolatedDevRouteLoadEvidence = {
+    warningCount: 0,
+    errorCount: 6,
+    failedRequestCount: 6,
+    consoleErrorKinds: Array(6).fill('resource-load'),
+    failedRequestTypes: Array(6).fill('fetch'),
+    failedRequestReasons: Array(6).fill('net::ERR_CONNECTION_REFUSED'),
+};
+
 for (const viewport of viewports) {
     test(`${viewport.name}首页可输入且没有 OTA 蒙层`, async ({ page }) => {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -1170,5 +1179,179 @@ test.describe('中文 Web 运行时演示', () => {
 
         await page.goto(authenticatedRoute('/settings/appearance'));
         await page.getByText('Caramel', { exact: true }).click();
+    });
+});
+
+test.describe('中文 Web 二维码与会话编辑器演示', () => {
+    test.use({ locale: 'zh-CN' });
+
+    test('二维码空输入保持页面稳定且所有图形都有持久名称', async ({ page }) => {
+        let warningCount = 0;
+        let errorCount = 0;
+        let failedRequestCount = 0;
+        const consoleErrorKinds: string[] = [];
+        const failedRequestTypes: string[] = [];
+        const failedRequestReasons: string[] = [];
+        page.on('console', (message) => {
+            if (message.type() === 'warning') warningCount += 1;
+            if (message.type() === 'error') {
+                errorCount += 1;
+                consoleErrorKinds.push(
+                    message.text().includes('Failed to load resource')
+                        ? 'resource-load'
+                        : 'other',
+                );
+            }
+        });
+        page.on('requestfailed', (request) => {
+            if (['fetch', 'xhr'].includes(request.resourceType())) {
+                failedRequestCount += 1;
+                failedRequestTypes.push(request.resourceType());
+                const reason = request.failure()?.errorText;
+                failedRequestReasons.push(
+                    reason?.startsWith('net::')
+                        ? reason.split(' ')[0]
+                        : 'other',
+                );
+            }
+        });
+
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/dev/qr-test'));
+
+        const screen = page.getByTestId('dev-qr-screen');
+        const input = page.getByTestId('dev-qr-custom-input');
+        await expect(screen).toBeVisible();
+        await expect(input).toHaveAccessibleName(/.+/);
+        await expect(screen.getByRole('img')).toHaveCount(17);
+        await page.waitForTimeout(300);
+        const loadEvidence = {
+            warningCount,
+            errorCount,
+            failedRequestCount,
+            consoleErrorKinds: [...consoleErrorKinds].sort(),
+            failedRequestTypes: [...failedRequestTypes].sort(),
+            failedRequestReasons: [...failedRequestReasons].sort(),
+        };
+        expect(loadEvidence).toEqual(expectedIsolatedDevRouteLoadEvidence);
+        const actionBaseline = { warningCount, errorCount, failedRequestCount };
+
+        await input.fill('');
+
+        await expect(screen).toBeVisible();
+        await expect(screen.getByRole('img')).toHaveCount(16);
+        await expect(page).toHaveURL(authenticatedRoute('/dev/qr-test'));
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+        expect({
+            warningCount: warningCount - actionBaseline.warningCount,
+            errorCount: errorCount - actionBaseline.errorCount,
+            failedRequestCount: failedRequestCount - actionBaseline.failedRequestCount,
+        }).toEqual({
+            warningCount: 0,
+            errorCount: 0,
+            failedRequestCount: 0,
+        });
+    });
+
+    test('会话编辑器配置与选择器暴露完整语义且没有空操作焦点', async ({ page }) => {
+        let warningCount = 0;
+        let errorCount = 0;
+        let failedRequestCount = 0;
+        const consoleErrorKinds: string[] = [];
+        const failedRequestTypes: string[] = [];
+        const failedRequestReasons: string[] = [];
+        page.on('console', (message) => {
+            if (message.type() === 'warning') warningCount += 1;
+            if (message.type() === 'error') {
+                errorCount += 1;
+                consoleErrorKinds.push(
+                    message.text().includes('Failed to load resource')
+                        ? 'resource-load'
+                        : 'other',
+                );
+            }
+        });
+        page.on('requestfailed', (request) => {
+            if (['fetch', 'xhr'].includes(request.resourceType())) {
+                failedRequestCount += 1;
+                failedRequestTypes.push(request.resourceType());
+                const reason = request.failure()?.errorText;
+                failedRequestReasons.push(
+                    reason?.startsWith('net::')
+                        ? reason.split(' ')[0]
+                        : 'other',
+                );
+            }
+        });
+
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/dev/session-composer'));
+
+        const screen = page.getByTestId('dev-composer-screen');
+        await expect(screen).toBeVisible();
+        for (const testID of [
+            'dev-composer-machine',
+            'dev-composer-path',
+            'dev-composer-agent',
+            'dev-composer-model',
+            'dev-composer-effort',
+            'dev-composer-permission',
+            'dev-composer-worktree',
+        ]) {
+            const trigger = page.getByTestId(testID);
+            await expect(trigger).toHaveAttribute('role', 'button');
+            await expect(trigger).toHaveAccessibleName(/.+/);
+        }
+        await page.waitForTimeout(300);
+        const loadEvidence = {
+            warningCount,
+            errorCount,
+            failedRequestCount,
+            consoleErrorKinds: [...consoleErrorKinds].sort(),
+            failedRequestTypes: [...failedRequestTypes].sort(),
+            failedRequestReasons: [...failedRequestReasons].sort(),
+        };
+        expect(loadEvidence).toEqual(expectedIsolatedDevRouteLoadEvidence);
+        const actionBaseline = { warningCount, errorCount, failedRequestCount };
+
+        const machine = page.getByTestId('dev-composer-machine');
+        await expect(machine).toHaveAttribute('aria-expanded', 'false');
+        await machine.click();
+        await expect(machine).toHaveAttribute('aria-expanded', 'true');
+
+        const picker = page.getByTestId('dev-composer-picker');
+        await expect(picker).toHaveAttribute('role', 'dialog');
+        await expect(picker).toHaveAccessibleName(/.+/);
+        await expect(picker.getByRole('radiogroup')).toHaveCount(1);
+        await expect(picker.getByRole('radio')).toHaveCount(3);
+        await expect(picker.getByRole('radio', { checked: true })).toHaveCount(1);
+        await expect(picker.getByRole('textbox')).toHaveAccessibleName(/.+/);
+        await picker.getByRole('radio').nth(1).click();
+        await expect(picker).toHaveCount(0);
+
+        const input = page.getByTestId('dev-composer-input');
+        await expect(input).toHaveAccessibleName(/.+/);
+        await input.fill('本地演示');
+        const collapsedConfig = page.getByTestId('dev-composer-config-toggle');
+        await expect(collapsedConfig).toHaveAttribute('role', 'button');
+        await expect(collapsedConfig).toHaveAttribute('aria-expanded', 'false');
+        const sendVisual = page.getByTestId('dev-composer-send-visual');
+        await expect(sendVisual).not.toHaveAttribute('role', /.+/);
+        await expect(sendVisual).not.toHaveAttribute('tabindex', /.+/);
+        await expect(sendVisual).not.toHaveAttribute('aria-label', /.+/);
+        await expect(sendVisual.locator('[role="button"], [tabindex="0"]')).toHaveCount(0);
+        await expect(screen.locator('[tabindex="0"]:not([role]):not([aria-label])')).toHaveCount(0);
+        await input.fill('');
+
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+        expect({
+            warningCount: warningCount - actionBaseline.warningCount,
+            errorCount: errorCount - actionBaseline.errorCount,
+            failedRequestCount: failedRequestCount - actionBaseline.failedRequestCount,
+        }).toEqual({
+            warningCount: 0,
+            errorCount: 0,
+            failedRequestCount: 0,
+        });
     });
 });

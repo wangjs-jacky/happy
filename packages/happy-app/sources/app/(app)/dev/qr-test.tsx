@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, ScrollView } from 'react-native';
 import { QRCode } from '@/components/qr';
-import { RoundButton } from '@/components/RoundButton';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
@@ -68,7 +67,7 @@ export default function QRTest() {
     const errorLevels: Array<'low' | 'medium' | 'quartile' | 'high'> = ['low', 'medium', 'quartile', 'high'];
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView style={styles.container} testID="dev-qr-screen">
             {/* Custom QR Code */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>{t('devTools.customQrCode')}</Text>
@@ -78,11 +77,21 @@ export default function QRTest() {
                     onChangeText={setCustomData}
                     placeholder={t('devTools.enterDataHere')}
                     placeholderTextColor={theme.colors.input.placeholder}
+                    accessibilityLabel={t('devTools.customQrCode')}
+                    testID="dev-qr-custom-input"
                     multiline
                 />
                 <View style={styles.qrContainer}>
                     <Text style={styles.qrLabel}>{t('devTools.customData')}</Text>
-                    <QRCode data={customData} size={200} />
+                    {customData.length > 0 ? (
+                        <QRCode
+                            data={customData}
+                            size={200}
+                            accessibilityLabel={t('devTools.customData')}
+                        />
+                    ) : (
+                        <Text style={styles.qrLabel}>{t('devTools.enterDataHere')}</Text>
+                    )}
                 </View>
             </View>
 
@@ -92,7 +101,7 @@ export default function QRTest() {
                 {testData.map((item, index) => (
                     <View key={index} style={styles.qrContainer}>
                         <Text style={styles.qrLabel}>{item.label}: {item.data}</Text>
-                        <QRCode data={item.data} size={180} />
+                        <QRCode data={item.data} size={180} accessibilityLabel={item.label} />
                     </View>
                 ))}
             </View>
@@ -104,7 +113,11 @@ export default function QRTest() {
                     {sizes.map((size) => (
                         <View key={size} style={[styles.qrContainer, { margin: 5 }]}>
                             <Text style={styles.qrLabel}>{size}x{size}</Text>
-                            <QRCode data="Size test" size={size} />
+                            <QRCode
+                                data="Size test"
+                                size={size}
+                                accessibilityLabel={`${t('devTools.differentSizes')} ${size}x${size}`}
+                            />
                         </View>
                     ))}
                 </View>
@@ -121,6 +134,7 @@ export default function QRTest() {
                                 data="Error correction test with some longer text to see differences"
                                 size={150} 
                                 errorCorrectionLevel={level}
+                                accessibilityLabel={`${t('devTools.errorCorrectionLevels')} ${level}`}
                             />
                         </View>
                     ))}
@@ -138,6 +152,7 @@ export default function QRTest() {
                             size={150} 
                             foregroundColor="#0066CC"
                             backgroundColor="#FFFFFF"
+                            accessibilityLabel={t('devTools.blueOnWhite')}
                         />
                     </View>
                     <View style={[styles.qrContainer, { margin: 5 }]}>
@@ -147,6 +162,7 @@ export default function QRTest() {
                             size={150} 
                             foregroundColor="#FFFFFF"
                             backgroundColor="#333333"
+                            accessibilityLabel={t('devTools.whiteOnDark')}
                         />
                     </View>
                 </View>
@@ -161,6 +177,7 @@ export default function QRTest() {
                         data="This is a very long text that should be encoded into a QR code to test how the component handles larger amounts of data. The QR code should automatically adjust its version to accommodate all this text while maintaining readability and scannability."
                         size={250}
                         errorCorrectionLevel="high"
+                        accessibilityLabel={t('devTools.longTextHandling')}
                     />
                 </View>
             </View>

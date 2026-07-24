@@ -35,17 +35,20 @@ import {
     type EffortLevel,
 } from '@/components/modelModeOptions';
 
-// Agent icon assets
-const agentIcons = {
-    ask: require('@/assets/images/icon-claude.png'),
-    claude: require('@/assets/images/icon-claude.png'),
-    codex: require('@/assets/images/icon-gpt.png'),
-    opencode: require('@/assets/images/icon-gpt.png'),
-    openclaw: require('@/assets/images/icon-openclaw.png'),
-    gemini: require('@/assets/images/icon-gemini.png'),
-};
-
 type AgentKey = 'ask' | 'claude' | 'codex' | 'opencode' | 'openclaw' | 'gemini';
+type AgentIconSources = Record<AgentKey, React.ComponentProps<typeof Image>['source']>;
+
+function getAgentIconSources(): AgentIconSources {
+    return {
+        ask: require('@/assets/images/icon-claude.png'),
+        claude: require('@/assets/images/icon-claude.png'),
+        codex: require('@/assets/images/icon-gpt.png'),
+        opencode: require('@/assets/images/icon-gpt.png'),
+        openclaw: require('@/assets/images/icon-openclaw.png'),
+        gemini: require('@/assets/images/icon-gemini.png'),
+    };
+}
+
 const AGENTS: { key: AgentKey; label: string }[] = [
     { key: 'ask', label: 'ask' },
     { key: 'opencode', label: 'opencode' },
@@ -173,7 +176,11 @@ function BottomSheet({
             onRequestClose={onClose}
         >
             <View style={sheetStyles.overlay}>
-                <TouchableWithoutFeedback onPress={onClose}>
+                <TouchableWithoutFeedback
+                    onPress={onClose}
+                    accessible={false}
+                    focusable={false}
+                >
                     <Animated.View style={[sheetStyles.backdrop, { opacity: fadeAnim }]} />
                 </TouchableWithoutFeedback>
                 <Animated.View
@@ -228,6 +235,10 @@ function PickerContent({
                 key={item.key}
                 style={(p) => [pickerStyles.option, p.pressed && pickerStyles.optionPressed]}
                 onPress={() => onSelect(item.key)}
+                accessibilityRole="radio"
+                accessibilityLabel={item.label}
+                accessibilityState={{ checked: isSelected }}
+                aria-checked={isSelected}
             >
                 <Octicons
                     name={isSelected ? 'check-circle-fill' : 'circle'}
@@ -240,7 +251,11 @@ function PickerContent({
     };
 
     return (
-        <View style={pickerStyles.container}>
+        <View
+            style={pickerStyles.container}
+            accessibilityRole="radiogroup"
+            accessibilityLabel={title}
+        >
             <Text style={[pickerStyles.title, { color: theme.colors.text }]}>{title}</Text>
 
             <View style={[pickerStyles.searchRow, { backgroundColor: theme.colors.input.background }]}>
@@ -249,6 +264,7 @@ function PickerContent({
                     value={search}
                     onChangeText={setSearch}
                     placeholder={searchPlaceholder ?? t('devTools.searchPlaceholder')}
+                    accessibilityLabel={searchPlaceholder ?? t('devTools.searchPlaceholder')}
                     placeholderTextColor={theme.colors.textSecondary}
                     style={[pickerStyles.searchInput, { color: theme.colors.text }]}
                     autoCapitalize="none"
@@ -272,7 +288,11 @@ function PickerContent({
     );
 }
 
-function SessionComposerDemo() {
+function SessionComposerDemo({
+    agentIconSources,
+}: {
+    agentIconSources?: AgentIconSources;
+} = {}) {
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
@@ -387,6 +407,10 @@ function SessionComposerDemo() {
     }, []);
 
     const agent = AGENTS.find(a => a.key === selectedAgent)!;
+    const agentIcons = React.useMemo(
+        () => agentIconSources ?? getAgentIconSources(),
+        [agentIconSources],
+    );
     const currentPermission = permissionModes[permissionIndex] ?? permissionModes[0];
     const currentEffort = effortLevels[effortIndex] ?? effortLevels[0];
     const permissionStyle = currentPermission?.key !== 'default' ? getPermissionStyle(currentPermission.key) : null;
@@ -434,6 +458,7 @@ function SessionComposerDemo() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? Constants.statusBarHeight + headerHeight : 0}
             style={styles.container}
+            testID="dev-composer-screen"
         >
             <View style={styles.inner}>
                 <View style={{ maxWidth: layout.maxWidth, width: '100%', alignSelf: 'center', paddingHorizontal: 12, gap: 8, paddingTop: 12 }}>
@@ -446,6 +471,11 @@ function SessionComposerDemo() {
                                 <Pressable
                                     style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                     onPress={() => togglePicker('machine')}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${t('devTools.machine')}: ${machineName}`}
+                                    accessibilityState={{ expanded: activePicker === 'machine' }}
+                                    aria-expanded={activePicker === 'machine'}
+                                    testID="dev-composer-machine"
                                 >
                                     <Ionicons name="desktop-outline" size={15} color={theme.colors.textSecondary} />
                                     <Text style={styles.configLabel} numberOfLines={1}>
@@ -457,6 +487,11 @@ function SessionComposerDemo() {
                                 <Pressable
                                     style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                     onPress={() => togglePicker('path')}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${t('devTools.project')}: ${pathName}`}
+                                    accessibilityState={{ expanded: activePicker === 'path' }}
+                                    aria-expanded={activePicker === 'path'}
+                                    testID="dev-composer-path"
                                 >
                                     <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
                                     <Text style={styles.configLabel} numberOfLines={1}>
@@ -469,6 +504,9 @@ function SessionComposerDemo() {
                                     <Pressable
                                         onPress={cycleAgent}
                                         style={(p) => [{ flexDirection: 'row', alignItems: 'center', gap: 8 }, p.pressed && styles.configRowPressed]}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`${t('agents.title')}: ${agent.label}`}
+                                        testID="dev-composer-agent"
                                     >
                                         <Image
                                             source={agentIcons[agent.key]}
@@ -484,7 +522,13 @@ function SessionComposerDemo() {
                                     {showModel && (
                                         <>
                                             <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                            <Pressable onPress={cycleModel} style={(p) => [p.pressed && styles.configRowPressed]}>
+                                            <Pressable
+                                                onPress={cycleModel}
+                                                style={(p) => [p.pressed && styles.configRowPressed]}
+                                                accessibilityRole="button"
+                                                accessibilityLabel={`${t('agentInput.model.title')}: ${currentModel.name}`}
+                                                testID="dev-composer-model"
+                                            >
                                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                     {currentModel.name}
                                                 </Text>
@@ -495,7 +539,13 @@ function SessionComposerDemo() {
                                     {showEffort && (
                                         <>
                                             <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                            <Pressable onPress={cycleEffort} style={(p) => [p.pressed && styles.configRowPressed]}>
+                                            <Pressable
+                                                onPress={cycleEffort}
+                                                style={(p) => [p.pressed && styles.configRowPressed]}
+                                                accessibilityRole="button"
+                                                accessibilityLabel={`${t('agentInput.effort.title')}: ${currentEffort?.name ?? ''}`}
+                                                testID="dev-composer-effort"
+                                            >
                                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                     {currentEffort?.name}
                                                 </Text>
@@ -509,6 +559,9 @@ function SessionComposerDemo() {
                                     <Pressable
                                         style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                         onPress={cyclePermission}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`${t('agentInput.permissionMode.title')}: ${currentPermission?.name ?? ''}`}
+                                        testID="dev-composer-permission"
                                     >
                                         <Ionicons
                                             name={permissionStyle?.icon ?? 'shield-outline'}
@@ -526,6 +579,11 @@ function SessionComposerDemo() {
                                     <Pressable
                                         style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                         onPress={() => togglePicker('worktree')}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`${t('devTools.worktree')}: ${worktreeLabel}`}
+                                        accessibilityState={{ expanded: activePicker === 'worktree' }}
+                                        aria-expanded={activePicker === 'worktree'}
+                                        testID="dev-composer-worktree"
                                     >
                                         <MaterialCommunityIcons name="tree" size={15} color={theme.colors.textSecondary} />
                                         <Text style={styles.configLabel} numberOfLines={1}>
@@ -539,6 +597,11 @@ function SessionComposerDemo() {
                             <Pressable
                                 style={(p) => [styles.collapsedRow, p.pressed && styles.configRowPressed]}
                                 onPress={toggleConfig}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${t('devTools.project')}: ${pathName}`}
+                                accessibilityState={{ expanded: false }}
+                                aria-expanded={false}
+                                testID="dev-composer-config-toggle"
                             >
                                 <Ionicons name="folder-outline" size={15} color={theme.colors.textSecondary} />
                                 <Text style={[styles.configLabel, { flex: 1 }]} numberOfLines={1}>
@@ -551,7 +614,12 @@ function SessionComposerDemo() {
 
                     {/* Web: inline popover */}
                     {Platform.OS === 'web' && activePicker && pickerData && (
-                        <View style={[styles.popover, { backgroundColor: theme.colors.header.background }]}>
+                        <View
+                            style={[styles.popover, { backgroundColor: theme.colors.header.background }]}
+                            role="dialog"
+                            accessibilityLabel={pickerData.title}
+                            testID="dev-composer-picker"
+                        >
                             <PickerContent {...pickerData} onSelect={handlePickerSelect} />
                         </View>
                     )}
@@ -562,6 +630,9 @@ function SessionComposerDemo() {
                     <Pressable
                         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1 }}
                         onPress={() => setActivePicker(null)}
+                        accessible={false}
+                        focusable={false}
+                        tabIndex={-1}
                     />
                 )}
 
@@ -577,6 +648,8 @@ function SessionComposerDemo() {
                                     value={prompt}
                                     onChangeText={setPrompt}
                                     placeholder={t('devTools.sessionComposerPrompt')}
+                                    accessibilityLabel={t('devTools.sessionComposerPrompt')}
+                                    testID="dev-composer-input"
                                     lineHeight={MULTI_TEXT_INPUT_LINE_HEIGHT}
                                     paddingTop={COMPOSER_INPUT_VERTICAL_PADDING}
                                     paddingBottom={COMPOSER_INPUT_VERTICAL_PADDING}
@@ -586,25 +659,16 @@ function SessionComposerDemo() {
                             <View style={[
                                 styles.sendButton,
                                 hasText ? styles.sendButtonActive : styles.sendButtonInactive,
-                            ]}>
-                                <Pressable
-                                    style={(p) => ({
-                                        width: '100%',
-                                        height: '100%',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        opacity: p.pressed ? 0.7 : 1,
-                                    })}
-                                    disabled={!hasText}
-                                    onPress={() => {}}
-                                >
-                                    <Octicons
-                                        name="arrow-up"
-                                        size={16}
-                                        color={theme.colors.button.primary.tint}
-                                        style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
-                                    />
-                                </Pressable>
+                            ]}
+                                testID="dev-composer-send-visual"
+                                accessible={false}
+                            >
+                                <Octicons
+                                    name="arrow-up"
+                                    size={16}
+                                    color={theme.colors.button.primary.tint}
+                                    style={{ marginTop: Platform.OS === 'web' ? 2 : 0 }}
+                                />
                             </View>
                         </View>
                     </View>
