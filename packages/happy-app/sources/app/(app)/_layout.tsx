@@ -279,10 +279,12 @@ export default function RootLayout() {
                     headerBackTitle: t('common.back'),
                     headerRight: () => (
                         <TouchableOpacity
+                            accessibilityLabel={t('friends.addFriend')}
+                            accessibilityRole="button"
                             onPress={() => navigation.navigate('friends/search' as never)}
                             style={{ paddingHorizontal: 16 }}
                         >
-                            <Text style={{ color: theme.colors.button.primary.tint, fontSize: 16 }}>
+                            <Text style={{ color: theme.colors.header.tint, fontSize: 16 }}>
                                 {t('friends.addFriend')}
                             </Text>
                         </TouchableOpacity>
