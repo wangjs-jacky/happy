@@ -154,6 +154,6 @@
 ## 九、PR、CI 与合并
 
 - 独立代码审查：首轮发现 Web 属性转发和 E2E 计数两项缺口；修订后 Critical 0 / Important 0 / Minor 0。
-- PR：待创建。
+- PR：[#223](https://github.com/wangjs-jacky/happy/pull/223)。
 - CI：待最终填写。
 - merge commit：待最终填写。
