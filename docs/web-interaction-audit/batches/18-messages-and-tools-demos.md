@@ -145,6 +145,6 @@
 ## 九、PR、CI 与合并
 
 - 独立代码审查：首轮 Critical 0 / Important 1 / Minor 3；关闭临时配置提交边界并修订三项后，复审 Critical 0 / Important 0 / Minor 0。
-- PR：待最终填写。
+- PR：[#222](https://github.com/wangjs-jacky/happy/pull/222)。
 - CI：待最终填写。
 - merge commit：待最终填写。
