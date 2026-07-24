@@ -33,6 +33,7 @@ interface QRCodeProps {
     errorCorrectionLevel?: 'low' | 'medium' | 'quartile' | 'high';
     foregroundColor?: string;
     backgroundColor?: string;
+    accessibilityLabel?: string;
 }
 
 export const QRCode = React.memo((props: QRCodeProps) => {
@@ -41,7 +42,8 @@ export const QRCode = React.memo((props: QRCodeProps) => {
         size = 200,
         errorCorrectionLevel = 'medium',
         foregroundColor = '#000000',
-        backgroundColor = '#FFFFFF'
+        backgroundColor = '#FFFFFF',
+        accessibilityLabel,
     } = props;
 
     // Generate QR matrix
@@ -118,12 +120,17 @@ export const QRCode = React.memo((props: QRCodeProps) => {
                 width: size,
                 height: size,
             }}
+            accessible={Boolean(accessibilityLabel)}
+            role={accessibilityLabel ? 'img' : undefined}
+            accessibilityLabel={accessibilityLabel}
         >
             <svg
                 width={size}
                 height={size}
                 viewBox={`0 0 ${size} ${size}`}
                 style={{ display: 'block', borderRadius: moduleSize }}
+                aria-hidden
+                focusable="false"
             >
                 {/* Background */}
                 <rect
