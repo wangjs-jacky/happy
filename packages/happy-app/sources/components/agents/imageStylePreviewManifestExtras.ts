@@ -10,6 +10,14 @@ export const EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePrevie
         "width": 480,
         "height": 640
     },
+    "reference-retro-halftone/portrait/1": {
+        "fileName": "retro-halftone-portrait.jpg",
+        "sourceSet": "curated-reference-examples",
+        "sourceCaseId": "retro-halftone-reference/01-portrait",
+        "sourceIndex": 1,
+        "width": 480,
+        "height": 640
+    },
     "reference-tiramisu/vintage-film-cafe/1": {
         "fileName": "tiramisu-vintage-film-cafe-20260706-025730.jpg",
         "sourceSet": "curated-reference-examples",

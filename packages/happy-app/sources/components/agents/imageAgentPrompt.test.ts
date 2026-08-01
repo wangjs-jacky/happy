@@ -49,6 +49,7 @@ describe('imageAgentPrompt', () => {
 
     it('includes curated reference article styles without local Obsidian labels', () => {
         const mountainStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-voxcat/wild-mountain-sketchbook/1');
+        const retroHalftoneStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-retro-halftone/portrait/1');
         const tiramisuStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-tiramisu/vintage-film-cafe/1');
         const dogStyle = IMAGE_AGENT_STYLE_PRESETS.find((preset) => preset.id === 'reference-dog/healing-watercolor/1');
 
@@ -57,6 +58,11 @@ describe('imageAgentPrompt', () => {
         expect(mountainStyle?.promptContent).toContain('outdoor travel sketchbook');
         expect(mountainStyle?.templateRef).not.toContain('local-obsidian');
         expect(mountainStyle?.promptHint).not.toMatch(/OBA|Obsidian/i);
+        expect(retroHalftoneStyle?.sourceRepository).toBe('curated-reference-examples');
+        expect(retroHalftoneStyle?.promptPath).toContain('retro-halftone-portrait');
+        expect(retroHalftoneStyle?.promptContent).toContain('retro editorial comic');
+        expect(retroHalftoneStyle?.promptContent).toContain('preserving the person\'s recognizable identity');
+        expect(retroHalftoneStyle?.templateRef).not.toContain('local-obsidian');
         expect(tiramisuStyle?.sourceRepository).toBe('curated-reference-examples');
         expect(tiramisuStyle?.promptPath).toContain('tiramisu-vintage-film-cafe');
         expect(tiramisuStyle?.promptContent).toContain('nostalgic 35mm film');
