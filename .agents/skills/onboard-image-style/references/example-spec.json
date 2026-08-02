@@ -1,0 +1,26 @@
+{
+  "referenceSha256": [
+    "1111111111111111111111111111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "category": {
+    "id": "reference-motion-street",
+    "label": "动态街拍案例",
+    "accent": "#A86C45"
+  },
+  "style": {
+    "id": "reference-motion-street/cinematic-flow/1",
+    "title": "时光流影街拍",
+    "templateRef": "reference-examples/motion-street-reference/cinematic-flow.md",
+    "templateLabel": "Cinematic Street Flow",
+    "promptHint": "主体清晰、环境人流形成横向慢门拖影的暖调电影街拍效果。",
+    "promptContent": "Transform the source photo into a warm cinematic street photograph while preserving the main subject's recognizable identity, pose, clothing, and sharp facial detail. Keep the subject visually anchored and comparatively crisp while surrounding pedestrians, bicycles, or traffic become layered horizontal slow-shutter motion trails. Use a realistic urban environment, shallow depth, warm amber and muted olive color grading, restrained film grain, soft highlight bloom, natural shadow contrast, and a candid documentary mood. Motion must pass around rather than through the subject. Do not add Before or After labels, split-screen comparison layouts, phone UI, logos, watermarks, duplicated people, damaged anatomy, artificial light streaks, or unrelated scene details.",
+    "promptPath": "garden-gpt-image-2/prompt/cinematic-street-flow.md",
+    "sourceCaseId": "motion-street-reference/01-cinematic-flow"
+  },
+  "preview": {
+    "source": "/replace/with/original-generated-cover.jpg",
+    "fileName": "cinematic-street-flow.jpg",
+    "sourceIndex": 1
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Onboard Image Style"
+  short_description: "Turn example images into a built-in Paws gallery style"
+  default_prompt: "Use $onboard-image-style to add a built-in image style from the attached examples."
