@@ -25,6 +25,12 @@ export const EXTRA_IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
         "label": "小狗案例",
         "accent": "#6E8B5B",
         "count": 21
+    },
+    {
+        "id": "reference-motion-blur",
+        "label": "动态街拍案例",
+        "accent": "#A86C45",
+        "count": 1
     }
 ];
 
@@ -643,6 +649,20 @@ export const EXTRA_IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
         "promptContent": "Use the attached reference photo as the identity and content anchor. Preserve the recognizable subject, core colors, and emotional atmosphere, but reinterpret it in the requested visual format. Keep the result polished and intentional. Avoid random extra logos, watermarks, QR codes, timestamps, broken text, unreadable dense copy, duplicate faces, distorted anatomy, and clutter. If a layout normally needs text, use clean placeholder typography or very short simple English labels only, never dense paragraphs.\nCreate a warm bento-grid memory card about this sleepy cafe dog. Use 7-8 rounded modules: large hero dog module, paw detail, color palette, tiny mood note block, sofa texture, cafe light, little heart icon, date placeholder. Apple-newsroom meets diary scrapbook, visual-heavy, minimal placeholder text.",
         "promptPath": "garden-gpt-image-2/prompt/batch-suitable-20260705-191705/dog-bento-memory-card.md",
         "sourceCaseId": "dog-reference/21-bento-memory-card",
+        "sourceRepository": "curated-reference-examples"
+    },
+    {
+        "id": "reference-motion-blur/cinematic-street-flow/1",
+        "title": "慢门流影街拍",
+        "templateRef": "reference-examples/motion-blur-reference/cinematic-street-flow.md",
+        "templateLabel": "Cinematic Street Flow",
+        "promptHint": "主体清晰、周围人流形成横向慢门拖影的暖调电影街拍；保留人物身份、姿态和服装特征。",
+        "promptContent": "Transform the source photo into a warm cinematic slow-shutter street portrait while preserving the main subject's recognizable identity, face, expression, pose, clothing silhouette, and framing. Keep the subject as the crisp, stable visual anchor with sharp eyes, skin, hands, and garment edges, while pedestrians, bicycles, or light urban traffic move around them in believable horizontal motion blur. Use a real contemporary city street with documentary depth and natural perspective, warm amber late-afternoon light, muted olive and cocoa shadows, subtle highlight bloom, restrained analog film grain, and measured cinematic contrast. Motion must stay in the environment and pass around the subject rather than smearing through their face or body. Avoid before-and-after layouts, PRE or AI labels, phone UI, text, logos, watermarks, duplicated people, distorted anatomy, fantasy light trails, heavy HDR, artificial bokeh, or unrelated source-scene details.",
+        "promptPath": "garden-gpt-image-2/prompt/cinematic-street-flow.md",
+        "sourceCaseId": "motion-blur-reference/01-cinematic-street-flow",
+        "categoryId": "reference-motion-blur",
+        "categoryLabel": "动态街拍案例",
+        "categoryAccent": "#A86C45",
         "sourceRepository": "curated-reference-examples"
     }
 ];

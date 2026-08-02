@@ -353,5 +353,13 @@ export const EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePrevie
         "sourceIndex": 21,
         "width": 640,
         "height": 426
+    },
+    "reference-motion-blur/cinematic-street-flow/1": {
+        "fileName": "cinematic-street-flow.png",
+        "sourceSet": "curated-reference-examples",
+        "sourceCaseId": "motion-blur-reference/01-cinematic-street-flow",
+        "sourceIndex": 1,
+        "width": 480,
+        "height": 640
     }
 };

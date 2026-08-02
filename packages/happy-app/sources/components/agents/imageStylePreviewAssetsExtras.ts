@@ -46,4 +46,5 @@ export const EXTRA_IMAGE_STYLE_PREVIEW_ASSETS: Record<string, ImageSourcePropTyp
     "reference-dog/banner-hero/1": require('@/assets/images/gpt-image-2/reference-examples/dog-banner-hero.jpg'),
     "reference-dog/retro-icons/1": require('@/assets/images/gpt-image-2/reference-examples/dog-retro-icons.jpg'),
     "reference-dog/bento-memory-card/1": require('@/assets/images/gpt-image-2/reference-examples/dog-bento-memory-card.jpg'),
+    "reference-motion-blur/cinematic-street-flow/1": require('@/assets/images/gpt-image-2/reference-examples/cinematic-street-flow.png'),
 };
