@@ -57,6 +57,16 @@ Paws 需要让 Agent 生成的 MP4 在当前会话中直接出现在手机端，
 
 “私有 bucket + 15 分钟 presigned URL”控制的是访问权限，不是端到端加密。OSS 管理员、拥有存储凭据的进程以及对象存储服务本身仍能看到媒体内容。因此，明文媒体不能在未经显式产品决策的情况下被描述为等价于现有图片安全模型。
 
+### 2.5 已确认的部分决策
+
+2026-08-05 讨论确认：
+
+- PR 验收视频使用独立存储，不复用会话附件桶、OTA bucket 或 Git 历史。
+- bucket 名称确定为 `happy-acceptance-video-jacky`。
+- 该 bucket 只承担最终验收 MP4；允许为每个 MP4 配套一个 `artifact.json` 元数据文件，不扩展为通用附件桶。
+- Before / After 图片继续使用 GitHub commit 或 PR 附件；Playwright trace/report 继续使用 CI Artifact；Obsidian 只记录结论和链接。
+- 当前只确认名称与职责；bucket 尚未创建，访问策略、保留期和加密方式仍待讨论。
+
 ## 3. 决策驱动因素
 
 本 ADR 需要同时满足：
@@ -104,9 +114,9 @@ Paws 需要让 Agent 生成的 MP4 在当前会话中直接出现在手机端，
 
 结论：适合作为即时会话交付，不适合作为 PR 证据的唯一事实来源。
 
-### 方案 C：新增独立验收产物存储（建议方向，尚未接受）
+### 方案 C：新增独立验收视频存储（已选择方向）
 
-候选 bucket 名：`happy-acceptance-artifacts-jacky`。名称、访问策略和保留期仍需讨论，当前不存在，也不得因本 ADR 自动创建。
+bucket 名称：`happy-acceptance-video-jacky`。该名称与独立存储方向已经确认；访问策略和保留期仍需讨论。bucket 当前不存在，也不得因本 ADR 自动创建。
 
 优点：
 
@@ -121,7 +131,7 @@ Paws 需要让 Agent 生成的 MP4 在当前会话中直接出现在手机端，
 - 若 bucket 保持 private，PR 需要稳定的鉴权网关，不能直接嵌 presigned URL。
 - 若允许公开读取，必须建立强制脱敏检查和清晰的公开范围。
 
-结论：职责最清楚，是本 ADR 的建议方向；具体访问模型必须先确定。
+结论：职责最清楚，已选择为本 ADR 的目标方向；具体访问模型必须先确定。
 
 ### 方案 D：Obsidian 作为默认传输或事实来源
 
@@ -203,7 +213,6 @@ Obsidian 和 OTA 不实现这个 Interface：前者是知识记录，后者是�
 ```text
 repos/happy/pulls/<pr-number>/commits/<commit-sha>/cases/<case-id>/
   acceptance.mp4
-  poster.webp
   artifact.json
 ```
 
@@ -302,18 +311,17 @@ PR 中至少携带：
 
 以下项目需要产品所有者明确接受，不能由实现者默认：
 
-1. 是否接受新增独立 Acceptance Artifact bucket？候选名是否可用？
-2. 验收证据默认是 `private`，还是允许经过脱敏检查后成为 `public-sanitized`？
-3. open、merged、closed-unmerged PR 的媒体分别保留多久？
-4. Session 音视频选择流式 E2E 加密、小文件整块加密，还是显式明文模式？
-5. PR reviewer 的稳定入口由 GitHub、Paws 鉴权网关还是独立 Artifact Gateway 提供？
-6. 是否要求所有验收 MP4 同时生成 poster、manifest、sha256 和时间码？
-7. 当前已提交到 PR #248 的 MP4 是保留为文档样例，还是在合并前从分支历史中移除？
-8. 是否为附件 bucket 与 OTA bucket 分别另开 Lifecycle/SSE ADR？
+1. 验收证据默认是 `private`，还是允许经过脱敏检查后成为 `public-sanitized`？
+2. open、merged、closed-unmerged PR 的媒体分别保留多久？
+3. Session 音视频选择流式 E2E 加密、小文件整块加密，还是显式明文模式？
+4. PR reviewer 的稳定入口由 GitHub、Paws 鉴权网关还是独立 Artifact Gateway 提供？
+5. 是否要求所有验收 MP4 同时生成 `artifact.json`、sha256 和时间码？
+6. 当前已提交到 PR #248 的 MP4 是保留为文档样例，还是在合并前从分支历史中移除？
+7. 是否为附件 bucket 与 OTA bucket 分别另开 Lifecycle/SSE ADR？
 
 ## 11. 验收本 ADR 的完成条件
 
-- 上述 8 个待决项均有明确结论与负责人。
+- 上述 7 个待决项均有明确结论与负责人。
 - 状态从 `Proposed` 改为 `Accepted`，记录接受日期。
 - PR #248 的实现和 SOP 与接受后的模型一致。
 - 真实手机验证覆盖上传、重新签名播放、URL 过期后恢复、Session 删除和 PR 稳定链接。
