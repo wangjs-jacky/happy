@@ -1,7 +1,7 @@
 # ADR-0001：Paws 临时验收视频的存储与手机交付
 
-- 状态：**Accepted**
-- 接受日期：2026-08-05
+- 状态：**Proposed — 待用户确认功能清单**
+- 提案日期：2026-08-05
 - 影响范围：Paws App、CLI、Server、Web E2E、PR 验收流程
 - 关联实现原型：PR [#248](https://github.com/wangjs-jacky/happy/pull/248)
 - 核心原则：验收视频是临时的会话产物，不是 Git 文档、长期 PR 附件或 OTA 发布资源
@@ -19,7 +19,30 @@
 - 视频是临时验收文件，应自动清理。
 - 当前阶段以功能闭环为优先；脱敏、端到端加密和进一步安全加固另开专题。
 
-## 2. 决策
+## 2. 推荐方案（待决策）
+
+本节目前是推荐方案，不代表已经批准实施。PR #249 保持 Draft；在用户确认第 9 节之前，不创建 bucket、不修改生产配置，也不合并或重写 PR #248。
+
+### 2.0 待确认的实现功能
+
+| ID | 分类 | 要实现的功能 | 可验收结果 |
+| --- | --- | --- | --- |
+| VIDEO-001 | 产品能力 | Playwright 通过后生成 H.264、`yuv420p`、`faststart` 的最终 MP4，并完成 `ffprobe` 与完整解码校验 | 不合格或失败过程的视频不会发布 |
+| VIDEO-002 | 产品能力 | CLI/MCP 提供单一 `publishAcceptanceVideo` 入口，只接受 MP4，并把最终文件归一化到仓库外目录 | 调用者不接触 bucket、签名 URL 或 object key |
+| VIDEO-003 | 产品能力 | Server 鉴权并签发 PUT/GET URL；CLI 直传 OSS，手机直读 OSS | Server 不代理视频字节、不占用 ECS 文件盘 |
+| VIDEO-004 | 产品能力 | 当前对话写入 Video 事件；App 显示内联播放器、文件名、大小和有效期 | 手机可播放、暂停、拖动进度 |
+| VIDEO-005 | 产品能力 | 播放 URL 过期时自动刷新一次；对象已清理时显示“验收视频已过期” | 不出现永久 loading，也不要求重新跑 E2E |
+| VIDEO-006 | 清理能力 | 本地最终 MP4 保留 24 小时；发布时和 daemon 启动时清理过期文件 | 本地临时目录不会无限增长 |
+| VIDEO-007 | 清理能力 | OSS Lifecycle 在 7 天后删除；删除 Session 时 best-effort 清理对应前缀 | 云端临时视频不会长期累积 |
+| VIDEO-008 | Git 强制门禁 | 最终 MP4 固定写到仓库外；`.gitignore` 忽略视频；CI 扫描所有 Git tracked 视频扩展并阻止 PR 合并 | `*.mp4`、`*.mov`、`*.m4v`、`*.webm` 不能进入仓库历史 |
+| VIDEO-009 | 回归能力 | 覆盖上传、Video 事件、播放器、URL 刷新、过期态、本地清理、Lifecycle 配置和 Session 删除的自动化测试 | 核心链路可重复回归，不依赖口头确认 |
+| VIDEO-010 | 历史修复 | 基于干净 `main` 重建 PR #248 的实现提交，不保留其已提交 MP4 的旧 commit | #248 分支历史本身不再包含视频 blob |
+
+以下是**流程规范**，不是产品功能，也不能替代上面的技术门禁：
+
+- PR 只记录 Case、E2E 命令、Video ID、时长、有效期和手机确认状态。
+- PR 不记录本机绝对路径、临时签名 URL 或视频二进制。
+- Obsidian 不参与交付；脱敏与额外安全加固继续作为独立专题。
 
 ### 2.1 独立临时视频 bucket
 
@@ -168,10 +191,17 @@ publishAcceptanceVideo({ path, name?, durationMs? }): Promise<AcceptanceVideo>
 
 ### 5.1 Git
 
-- 验收 MP4 不允许提交到 Git，也不使用 Git LFS。
-- 删除后仍存在于历史的提交不合格。
-- PR #248 中已经提交的 MP4 必须在合并前从该分支历史移除，不能只追加一个删除 commit。
-- Git 中只保留 E2E spec、必要的源码、测试代码和文本结果。
+“不进入 Git”必须由实现门禁保证，不能只依赖开发者记住规则：
+
+1. 发布 interface 把最终 MP4 固定写入 `~/.happy/acceptance-videos/`，不允许把仓库内的 `docs/`、`test-results/` 等路径作为最终稳定目录。
+2. 根 `.gitignore` 增加 `*.mp4`、`*.mov`、`*.m4v`、`*.webm`，降低普通 `git add` 误提交概率。
+3. 新增仓库脚本 `check:no-tracked-videos`，基于 `git ls-files` 扫描上述扩展；发现任何 tracked 视频就以非零状态退出。
+4. GitHub Actions 的必过检查执行该脚本。因此 `.gitignore` 只做第一层提示，CI 才是防止 `git add -f`、已跟踪文件或误操作进入主分支的强制门禁。
+5. 当前不设置视频 allowlist。未来如产品确实需要仓库内视频资产，必须单独修改 ADR 和检查器，不通过临时例外绕过。
+6. 不使用 Git LFS；删除后仍存在于历史的提交仍视为不合格。
+7. PR #248 中已经提交的 MP4 必须通过基于干净 `main` 重建提交的方式从分支历史移除，不能只追加一个删除 commit。
+
+Git 中可以保留 E2E spec、实现源码、测试代码、文本结果和按现有视觉门禁要求提交的 PNG/JPEG Before/After 截图。
 
 ### 5.2 PR
 
@@ -228,3 +258,22 @@ PR 不保存：
 - 删除 Session 会触发对应视频前缀清理。
 - PR #248 的 MP4 已从分支历史移除。
 - PR 记录 Case、结果、Video ID、有效期和手机确认状态，但不携带视频二进制。
+
+## 9. 用户确认闸门
+
+以下选择在 PR #249 中保持“待确认”，未确认前不开始运行时代码和基础设施实施：
+
+| 确认项 | 推荐值 | 当前状态 |
+| --- | --- | --- |
+| 独立 bucket | `happy-acceptance-video-jacky`，不与 attachments/OTA 混用 | 待确认 |
+| 文件类型 | 只接受最终 MP4，不做通用附件 | 待确认 |
+| 传输方式 | CLI 直传 OSS、手机直读 OSS，Server 只签名 | 待确认 |
+| 本地保留期 | 24 小时 | 待确认 |
+| OSS 保留期 | 7 天 | 待确认 |
+| 单文件上限 | 500MB | 待确认 |
+| Git 强制门禁 | `.gitignore` + `git ls-files` CI 检查，无 allowlist | 待确认 |
+| PR 记录内容 | 只记 Case/结果/Video ID/时长/有效期/手机状态 | 待确认 |
+| #248 处理 | 从干净 `main` 重建实现历史，移除视频 blob 后再评审 | 待确认 |
+| 安全范围 | 当前只做私有 bucket 与短期签名 URL；脱敏、E2EE、KMS 另开专题 | 待确认 |
+
+用户确认这组默认值后，ADR 才改为 `Accepted`；随后按 `VIDEO-001` 至 `VIDEO-010` 实施和验收。
