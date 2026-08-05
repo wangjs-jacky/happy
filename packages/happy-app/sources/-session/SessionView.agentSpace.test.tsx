@@ -499,7 +499,7 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
-    it('uses the labeled new-session action and the same /new route as the sidebar', () => {
+    it('uses the comment-plus icon without a persistent label on native', () => {
         mocks.isDataReady = true;
         let renderer: any;
 
@@ -510,22 +510,53 @@ describe('SessionView Agent-space boundary', () => {
         const action = renderer.root.findByProps({ testID: 'session-header-new-session-button' });
         expect(action.props.accessibilityLabel).toBe('sidebar.newSession');
         expect(action.props.style).toMatchObject({
-            minHeight: 32,
-            borderRadius: 16,
-            backgroundColor: '#7c5cbf',
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            backgroundColor: '#202020',
         });
         expect(mocks.styleUseVariants).toHaveBeenCalledWith({ pressState: 'idle' });
         expect(renderer.root.findByProps({ testID: 'session-header-new-session-icon' }).props).toMatchObject({
-            name: 'add-outline',
-            size: 18,
+            name: 'comment-plus-outline',
+            size: 22,
         });
-        const label = action.findAllByType('Text').find((node: any) => node.props.children === 'sidebar.newSession');
-        expect(label?.props).toMatchObject({ numberOfLines: 1, ellipsizeMode: 'tail' });
+        expect(action.findAllByType('Text')).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'session-header-new-session-tooltip' })).toHaveLength(0);
         act(() => action.props.onPressIn());
         expect(mocks.styleUseVariants).toHaveBeenCalledWith({ pressState: 'pressed' });
         act(() => action.props.onPressOut());
         act(() => action.props.onPress());
         expect(mocks.routerNavigate).toHaveBeenCalledWith('/new');
+
+        act(() => renderer.unmount());
+    });
+
+    it('shows the new-session label only while the web action is hovered or focused', () => {
+        mocks.isDataReady = true;
+        mocks.platformOS = 'web';
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(<SessionView id="session-1" />);
+        });
+
+        let action = renderer.root.findByProps({ testID: 'session-header-new-session-button' });
+        expect(renderer.root.findAllByProps({ testID: 'session-header-new-session-tooltip' })).toHaveLength(0);
+
+        act(() => action.props.onHoverIn());
+        let tooltip = renderer.root.findByProps({ testID: 'session-header-new-session-tooltip' });
+        expect(tooltip.findByType('Text').props.children).toBe('sidebar.newSession');
+
+        act(() => action.props.onHoverOut());
+        expect(renderer.root.findAllByProps({ testID: 'session-header-new-session-tooltip' })).toHaveLength(0);
+
+        action = renderer.root.findByProps({ testID: 'session-header-new-session-button' });
+        act(() => action.props.onFocus());
+        tooltip = renderer.root.findByProps({ testID: 'session-header-new-session-tooltip' });
+        expect(tooltip.findByType('Text').props.children).toBe('sidebar.newSession');
+
+        act(() => action.props.onBlur());
+        expect(renderer.root.findAllByProps({ testID: 'session-header-new-session-tooltip' })).toHaveLength(0);
 
         act(() => renderer.unmount());
     });

@@ -55,7 +55,7 @@ import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { isVersionSupported, MINIMUM_CLI_VERSION } from '@/utils/versionUtils';
 import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
@@ -86,29 +86,47 @@ function SessionNewSessionAction({
 }) {
     const { theme } = useUnistyles();
     const [pressed, setPressed] = React.useState(false);
+    const [hovered, setHovered] = React.useState(false);
+    const [focused, setFocused] = React.useState(false);
     workspaceStyles.useVariants({ pressState: pressed ? 'pressed' : 'idle' });
+    const tooltipVisible = Platform.OS === 'web' && (hovered || focused);
 
     return (
-        <Pressable
-            accessibilityLabel={t('sidebar.newSession')}
-            accessibilityRole="button"
-            onPress={onPress}
-            onPressIn={() => setPressed(true)}
-            onPressOut={() => setPressed(false)}
-            hitSlop={10}
-            style={workspaceStyles.headerAction}
-            testID="session-header-new-session-button"
-        >
-            <Ionicons
-                name="add-outline"
-                size={18}
-                color={theme.colors.button.primary.tint}
-                testID="session-header-new-session-icon"
-            />
-            <Text numberOfLines={1} ellipsizeMode="tail" style={workspaceStyles.headerActionText}>
-                {t('sidebar.newSession')}
-            </Text>
-        </Pressable>
+        <View style={workspaceStyles.headerActionWrapper}>
+            <Pressable
+                accessibilityLabel={t('sidebar.newSession')}
+                accessibilityRole="button"
+                onBlur={() => setFocused(false)}
+                onFocus={() => setFocused(true)}
+                onHoverIn={() => setHovered(true)}
+                onHoverOut={() => setHovered(false)}
+                onPress={onPress}
+                onPressIn={() => setPressed(true)}
+                onPressOut={() => setPressed(false)}
+                hitSlop={10}
+                style={workspaceStyles.headerAction}
+                testID="session-header-new-session-button"
+            >
+                <MaterialCommunityIcons
+                    name="comment-plus-outline"
+                    size={22}
+                    color={theme.colors.header.tint}
+                    testID="session-header-new-session-icon"
+                />
+            </Pressable>
+            {tooltipVisible && (
+                <View
+                    accessibilityRole="text"
+                    style={workspaceStyles.headerActionTooltip}
+                    testID="session-header-new-session-tooltip"
+                >
+                    <View style={workspaceStyles.headerActionTooltipArrow} />
+                    <Text numberOfLines={1} style={workspaceStyles.headerActionTooltipText}>
+                        {t('sidebar.newSession')}
+                    </Text>
+                </View>
+            )}
+        </View>
     );
 }
 
@@ -344,8 +362,8 @@ export const SessionView = React.memo((props: { id: string }) => {
         />
     ) : null;
 
-    // Match the permanent sidebar's explicit /new destination and visible label.
-    // The text makes the isolated top-right action understandable before click.
+    // Match the permanent sidebar's explicit /new destination. The header stays
+    // compact on every device; pointer and keyboard users get the label on demand.
     const newSessionButton = (
         <SessionNewSessionAction onPress={() => router.navigate('/new')} />
     );
@@ -1175,16 +1193,18 @@ function CenteredInputWidth(props: {
 }
 
 const workspaceStyles = StyleSheet.create((theme) => ({
+    headerActionWrapper: {
+        position: 'relative',
+        alignItems: 'flex-end',
+        zIndex: 1500,
+    },
     headerAction: {
-        minHeight: 32,
-        flexDirection: 'row',
+        width: 36,
+        height: 36,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
-        paddingHorizontal: 11,
-        paddingVertical: 6,
-        borderRadius: 16,
-        backgroundColor: theme.colors.button.primary.background,
+        borderRadius: 10,
+        backgroundColor: theme.colors.surfaceHigh,
         variants: {
             pressState: {
                 idle: {
@@ -1196,15 +1216,41 @@ const workspaceStyles = StyleSheet.create((theme) => ({
             },
         },
     },
+    headerActionTooltip: {
+        position: 'absolute',
+        top: 43,
+        right: -4,
+        zIndex: 1600,
+        minWidth: 92,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        alignItems: 'center',
+        borderRadius: 10,
+        backgroundColor: '#3F3F43',
+        pointerEvents: 'none',
+    },
+    headerActionTooltipArrow: {
+        position: 'absolute',
+        top: -6,
+        right: 16,
+        width: 0,
+        height: 0,
+        borderLeftWidth: 6,
+        borderRightWidth: 6,
+        borderBottomWidth: 6,
+        borderLeftColor: 'transparent',
+        borderRightColor: 'transparent',
+        borderBottomColor: '#3F3F43',
+    },
+    headerActionTooltipText: {
+        color: '#FFFFFF',
+        fontSize: 13,
+        fontWeight: '600',
+    },
     headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 5,
-    },
-    headerActionText: {
-        color: theme.colors.button.primary.tint,
-        fontSize: 12,
-        fontWeight: '600',
     },
     desktopMain: {
         flex: 1,
