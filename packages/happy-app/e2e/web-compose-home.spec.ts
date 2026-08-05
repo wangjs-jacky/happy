@@ -617,6 +617,72 @@ test('活跃会话页面复用左右拖拽与折叠约束', async ({ page, reque
     await expect(rightPanel).toBeVisible();
 });
 
+test('活跃会话新建入口在 PC 悬浮显示文字且移动端保持纯图标', async ({ page, request }, testInfo) => {
+    const sessionId = await createE2ESession(request);
+    const sessionUrl = authenticatedRoute(`/session/${sessionId}`);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(sessionUrl);
+
+    const desktopAction = page.locator('[data-testid="session-header-new-session-button"]:visible');
+    const tooltip = page.getByTestId('session-header-new-session-tooltip');
+    await expect(desktopAction).toBeVisible();
+    const label = await desktopAction.getAttribute('aria-label');
+    expect(label).toBeTruthy();
+    expect(await desktopAction.textContent()).not.toContain(label!);
+    await expect(tooltip).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('desktop-default-1280x720.png') });
+
+    const desktopActionBox = await desktopAction.boundingBox();
+    expect(desktopActionBox).not.toBeNull();
+    expect(Math.abs(desktopActionBox!.width - desktopActionBox!.height)).toBeLessThanOrEqual(1);
+
+    await desktopAction.hover();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(label!);
+    const tooltipBox = await tooltip.boundingBox();
+    expect(tooltipBox).not.toBeNull();
+    expect(tooltipBox!.y).toBeGreaterThanOrEqual(desktopActionBox!.y + desktopActionBox!.height);
+    expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(1280);
+    await page.screenshot({ path: testInfo.outputPath('desktop-hover-1280x720.png') });
+
+    await page.mouse.move(1, 1);
+    await expect(tooltip).toHaveCount(0);
+    await desktopAction.focus();
+    await expect(tooltip).toHaveText(label!);
+    await desktopAction.blur();
+    await expect(tooltip).toHaveCount(0);
+
+    for (const viewport of [
+        { width: 1440, height: 900 },
+        { width: 1920, height: 1080 },
+    ]) {
+        await page.setViewportSize(viewport);
+        await page.goto(sessionUrl);
+        const action = page.locator('[data-testid="session-header-new-session-button"]:visible');
+        await expect(action).toBeVisible();
+        expect(await action.textContent()).not.toContain(label!);
+        await expect(tooltip).toHaveCount(0);
+        await action.hover();
+        await expect(tooltip).toHaveText(label!);
+        await page.screenshot({
+            path: testInfo.outputPath(`desktop-hover-${viewport.width}x${viewport.height}.png`),
+        });
+        await page.mouse.move(1, 1);
+        await expect(tooltip).toHaveCount(0);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(sessionUrl);
+    const mobileAction = page.locator('[data-testid="session-header-new-session-button"]:visible');
+    await expect(mobileAction).toBeVisible();
+    expect(await mobileAction.textContent()).not.toContain(label!);
+    await expect(tooltip).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('mobile-default.png') });
+    await mobileAction.click();
+    await expect(page).toHaveURL(/\/new(?:\?.*)?$/);
+});
+
 test('桌面问候语与输入框内容列对齐且代表性中文标题保持单行', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(new URL('/new', authenticatedWebUrl).toString());
