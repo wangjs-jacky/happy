@@ -65,6 +65,9 @@ const sessionFileEventSchema = z.object({
     // media card (icon + filename) instead of an image thumbnail. Absent → image.
     kind: z.enum(['image', 'audio', 'video']).optional(),
     mimeType: z.string().optional(),
+    // Explicit false selects the plaintext streaming/playback lane. Missing
+    // remains encrypted for backward compatibility with legacy attachments.
+    encrypted: z.boolean().optional(),
     source: z.enum(['user', 'generated']).optional(),
     prompt: z.string().optional(),
     batchId: z.string().optional(),
@@ -721,6 +724,7 @@ function normalizeSessionEnvelope(
                         size: envelope.ev.size,
                         ...(envelope.ev.kind ? { kind: envelope.ev.kind } : {}),
                         ...(envelope.ev.mimeType ? { mimeType: envelope.ev.mimeType } : {}),
+                        ...(envelope.ev.encrypted !== undefined ? { encrypted: envelope.ev.encrypted } : {}),
                         ...(envelope.ev.source ? { source: envelope.ev.source } : {}),
                         ...(envelope.ev.prompt ? { prompt: envelope.ev.prompt } : {}),
                         ...(envelope.ev.batchId ? { batchId: envelope.ev.batchId } : {}),

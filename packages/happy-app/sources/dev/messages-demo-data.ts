@@ -37,6 +37,25 @@ function createSectionTitle(id: string, text: string, timeOffset: number = 0): M
 }
 
 export const debugMessages: Message[] = [
+    // Generated media artifact — used by Playwright to verify that an agent
+    // MP4 remains an individual file card and opens the inline player.
+    {
+        id: 'generated-video-demo',
+        localId: null,
+        createdAt: Date.now() - 205000,
+        kind: 'tool-call',
+        tool: createToolCall('file', 'completed', {
+            ref: 'sessions/demo-messages-session/attachments/acceptance.mp4',
+            name: 'acceptance.mp4',
+            size: 2048,
+            kind: 'video',
+            mimeType: 'video/mp4',
+            encrypted: false,
+            source: 'generated',
+        }, null, 'Attached video: acceptance.mp4'),
+        children: [],
+    },
+
     // User message
     {
         id: 'user-1',

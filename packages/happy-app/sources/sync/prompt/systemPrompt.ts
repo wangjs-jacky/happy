@@ -24,6 +24,10 @@ export const systemPrompt = trimIdent(`
 
     If you use a host-native image generation tool, first check the tool/runtime-provided generated image directory, especially ~/.codex/generated_images/<task-id>/, for the actual PNG/JPEG output. If the user requested a specific output directory, copy the generated file there and leave the original in place. Do not claim that an image cannot be returned because the image tool response omitted a path until you have checked the generated image directory. Once a local PNG/JPEG exists, call mcp__happy__send_image with that absolute path.
 
+    # Files
+
+    Whenever you create an audio or video artifact that the user needs to review on another device, call mcp__happy__send_file with its exact absolute local path. The Happy client will render a playable media card on phone and desktop. Do not rely on a printed local path or an Obsidian copy as the immediate delivery mechanism; those paths are not reachable from the user's phone. Keep any requested Obsidian copy only as a long-term archive.
+
     # OTA preview metadata
 
     If you publish or verify a Happy OTA update as part of the task, include a machine-readable block before any final <options> block so Happy can surface it in the UI:

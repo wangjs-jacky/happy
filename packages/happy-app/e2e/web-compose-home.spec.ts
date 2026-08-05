@@ -1,6 +1,7 @@
 import { expect, test, type Locator } from '@playwright/test';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
+const tinyMp4Base64 = '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';
 
 function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
@@ -1248,6 +1249,48 @@ test.describe('中文 Web 消息与工具演示', () => {
         expect(layout.hostWidth).toBeGreaterThan(800);
         expect(layout.galleryWidth).toBeLessThanOrEqual(800);
         expect(Math.abs(layout.leftGap - layout.rightGap)).toBeLessThanOrEqual(1);
+    });
+
+    test('Agent 生成的 MP4 在会话内直接展开播放器', async ({ page }, testInfo) => {
+        await page.route('**/v1/sessions/demo-messages-session/attachments/request-download', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    downloadUrl: 'https://files.test/acceptance.mp4?X-Amz-Signature=e2e',
+                }),
+            });
+        });
+        await page.route('https://files.test/acceptance.mp4**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'video/mp4',
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                body: Buffer.from(tinyMp4Base64, 'base64'),
+            });
+        });
+
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.goto(authenticatedRoute('/dev/messages-demo'));
+
+        const card = page.getByTestId('media-attachment-card');
+        await expect(card).toBeVisible();
+        await expect(card).toContainText('acceptance.mp4');
+        await expect(card).toContainText('点击播放');
+        if (process.env.HAPPY_E2E_RECORD === '1') {
+            await page.waitForTimeout(1_500);
+        }
+        await card.click();
+
+        const player = page.getByTestId('media-attachment-player');
+        const video = player.locator('video');
+        await expect(player).toBeVisible();
+        await expect(video).toHaveAttribute('controls', '');
+        await expect(video).toHaveAttribute('src', /acceptance\.mp4/);
+        await page.screenshot({ path: testInfo.outputPath('generated-mp4-inline-player.png'), fullPage: true });
+        if (process.env.HAPPY_E2E_RECORD === '1') {
+            await page.waitForTimeout(2_500);
+        }
     });
 
     test('消息表格与代码在窄屏内横向滚动，图片操作具备名称', async ({ page }) => {

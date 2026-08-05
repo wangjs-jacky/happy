@@ -1842,6 +1842,41 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             }
         });
 
+        it('preserves the plaintext marker for a generated video card', () => {
+            const normalized = normalizeRawMessage('db-video-1', null, 1, {
+                ...base,
+                content: {
+                    type: 'session',
+                    data: {
+                        id: 'env-video-1',
+                        time: 1,
+                        role: 'user',
+                        ev: {
+                            t: 'file',
+                            ref: 'sessions/s1/attachments/clip.mp4',
+                            name: 'clip.mp4',
+                            size: 2048,
+                            source: 'generated',
+                            kind: 'video',
+                            mimeType: 'video/mp4',
+                            encrypted: false,
+                        },
+                    },
+                },
+            });
+
+            expect(normalized && normalized.role === 'agent' ? normalized.content[0] : null).toMatchObject({
+                type: 'tool-call',
+                name: 'file',
+                input: {
+                    kind: 'video',
+                    mimeType: 'video/mp4',
+                    encrypted: false,
+                },
+                description: 'Attached video: clip.mp4',
+            });
+        });
+
         it('rejects file events without required size', () => {
             const normalized = normalizeRawMessage('db-file-missing-size', null, 1, {
                 ...base,
