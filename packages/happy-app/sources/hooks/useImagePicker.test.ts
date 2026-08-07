@@ -3,7 +3,7 @@ import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as DocumentPicker from 'expo-document-picker';
 import { getInfoAsync } from 'expo-file-system/legacy';
-import { MAX_IMAGES_PER_MESSAGE, useImagePicker } from './useImagePicker';
+import { MAX_IMAGES_PER_MESSAGE, MAX_PDF_FILE_SIZE, useImagePicker } from './useImagePicker';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
@@ -45,6 +45,10 @@ describe('useImagePicker limits', () => {
     it('allows up to 50 images per message', () => {
         expect(MAX_IMAGES_PER_MESSAGE).toBe(50);
     });
+
+    it('caps PDFs at 10MB while the encrypted flow still buffers whole files', () => {
+        expect(MAX_PDF_FILE_SIZE).toBe(10 * 1024 * 1024);
+    });
 });
 
 describe('useImagePicker PDF documents', () => {
@@ -71,6 +75,7 @@ describe('useImagePicker PDF documents', () => {
                 size: 2048,
                 mimeType: 'application/pdf',
                 lastModified: 0,
+                file: { size: 2048 } as File,
             }],
         });
 
@@ -118,7 +123,7 @@ describe('useImagePicker PDF documents', () => {
             exists: true,
             isDirectory: false,
             uri: 'file:///tmp/oversized-plan.pdf',
-            size: 51 * 1024 * 1024,
+            size: 11 * 1024 * 1024,
             modificationTime: 0,
         });
 
@@ -163,6 +168,36 @@ describe('useImagePicker PDF documents', () => {
             await pickPdf();
         })).resolves.toBeUndefined();
 
+        expect(current?.selectedImages).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('rejects an underreported PDF using the browser File size', async () => {
+        vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+            canceled: false,
+            assets: [{
+                uri: 'blob:underreported-plan',
+                name: 'underreported-plan.pdf',
+                size: 1,
+                mimeType: 'application/pdf',
+                lastModified: 0,
+                file: { size: 11 * 1024 * 1024 } as File,
+            }],
+        });
+
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(React.createElement(Probe));
+        });
+        const pickPdf = (current as any)?.pickPdf;
+        expect(typeof pickPdf).toBe('function');
+        if (typeof pickPdf !== 'function') return;
+
+        await act(async () => {
+            await pickPdf();
+        });
+
+        expect(getInfoAsync).not.toHaveBeenCalled();
         expect(current?.selectedImages).toEqual([]);
         act(() => renderer.unmount());
     });

@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { downloadMediaPlaybackSource } from './createMediaPlaybackSource';
+import { createMediaPlaybackSource, downloadMediaPlaybackSource } from './createMediaPlaybackSource';
 
 const mocks = vi.hoisted(() => ({
     deleteAsync: vi.fn(),
     downloadAsync: vi.fn(),
     makeDirectoryAsync: vi.fn(),
     writeAsStringAsync: vi.fn(),
+    writeBytes: vi.fn(),
+}));
+
+vi.mock('expo-file-system', () => ({
+    File: class MockFile {
+        constructor(readonly uri: string) {}
+        write(bytes: Uint8Array) { mocks.writeBytes(this.uri, bytes); }
+    },
 }));
 
 vi.mock('expo-file-system/legacy', () => ({
@@ -87,5 +95,20 @@ describe('downloadMediaPlaybackSource', () => {
 
         await result.release?.();
         expect(mocks.deleteAsync).toHaveBeenCalledWith(directory, { idempotent: true });
+    });
+});
+
+describe('createMediaPlaybackSource', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('writes decrypted PDF bytes directly without creating a base64 copy', async () => {
+        const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
+        const result = await createMediaPlaybackSource(bytes, 'application/pdf', 'floor-plan.pdf');
+
+        expect(mocks.writeBytes).toHaveBeenCalledWith(result.uri, bytes);
+        expect(mocks.writeAsStringAsync).not.toHaveBeenCalled();
     });
 });

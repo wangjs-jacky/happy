@@ -2,7 +2,8 @@
  * Image picker hook for attaching images to messages.
  *
  * Wraps expo-image-picker with permission handling and thumbhash generation.
- * Enforces limits: max 50 images per message, 50MB per file.
+ * Enforces limits: max 50 attachments per message, 50MB for images/media,
+ * and 10MB for whole-buffer encrypted PDF documents.
  *
  * File sizes reported by platform pickers are treated as hints: images are
  * normalized and measured, while PDFs with a missing size are stat'ed before
@@ -19,15 +20,14 @@ import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
 import { AttachmentSourceSheet } from '@/components/AttachmentSourceSheet';
 import { t } from '@/text';
 import type { AttachmentPreview, AttachmentKind } from '@/sync/attachmentTypes';
+import { MAX_PDF_FILE_SIZE, MAX_PDF_FILE_SIZE_MB } from '@/sync/attachmentLimits';
 
 export const MAX_IMAGES_PER_MESSAGE = 50;
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
 // Media currently reuses the encrypted transport (server-capped at 50MB). The
 // 500MB plaintext-OSS lane is a future server+OSS upgrade.
 export const MAX_MEDIA_FILE_SIZE = 50 * 1024 * 1024; // 50MB — audio/video lane
-// secretbox adds a 24-byte nonce and a 16-byte authentication tag. Keep the
-// encrypted payload inside the server's 50MB attachment limit.
-export const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024 - 40;
+export { MAX_PDF_FILE_SIZE };
 
 export type { AttachmentPreview };
 
@@ -53,6 +53,21 @@ function mediaKindFromMime(mimeType: string | undefined, name: string): Attachme
     const ext = (name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
     if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(ext)) return 'audio';
     return 'video';
+}
+
+async function getActualDocumentSize(asset: DocumentPicker.DocumentPickerAsset): Promise<number | null> {
+    if (asset.file && Number.isFinite(asset.file.size) && asset.file.size >= 0) {
+        return asset.file.size;
+    }
+    try {
+        const info = await getInfoAsync(asset.uri);
+        if (info.exists && !info.isDirectory && typeof info.size === 'number' && Number.isFinite(info.size)) {
+            return info.size;
+        }
+    } catch {
+        // The URI may have expired or become unreadable after the picker closed.
+    }
+    return null;
 }
 
 export function useImagePicker(): UseImagePickerResult {
@@ -244,28 +259,22 @@ export function useImagePicker(): UseImagePickerResult {
             if (mimeType !== 'application/pdf' && !name.toLowerCase().endsWith('.pdf')) {
                 continue;
             }
-            let size = asset.size;
-            if (size === undefined) {
-                let info: Awaited<ReturnType<typeof getInfoAsync>> | null = null;
-                try {
-                    info = await getInfoAsync(asset.uri);
-                } catch {
-                    // A platform picker URI may expire before it can be stat'ed.
-                }
-                if (!info?.exists || info.isDirectory || typeof info.size !== 'number') {
-                    Modal.alert(
-                        t('imageUpload.uploadFailedTitle'),
-                        t('imageUpload.uploadFailedMessage', { count: 1 }),
-                        [{ text: t('common.ok') }],
-                    );
-                    continue;
-                }
-                size = info.size;
+            // Do not trust picker metadata: native providers can report stale or
+            // under-counted sizes. Browser File.size and a native stat are the
+            // independent preflight used before any whole-file read occurs.
+            const size = await getActualDocumentSize(asset);
+            if (size === null) {
+                Modal.alert(
+                    t('imageUpload.uploadFailedTitle'),
+                    t('imageUpload.uploadFailedMessage', { count: 1 }),
+                    [{ text: t('common.ok') }],
+                );
+                continue;
             }
             if (size > MAX_PDF_FILE_SIZE) {
                 Modal.alert(
                     t('imageUpload.fileTooLargeTitle'),
-                    t('imageUpload.fileTooLargeMessage', { name, maxMb: 50 }),
+                    t('imageUpload.fileTooLargeMessage', { name, maxMb: MAX_PDF_FILE_SIZE_MB }),
                     [{ text: t('common.ok') }],
                 );
                 continue;

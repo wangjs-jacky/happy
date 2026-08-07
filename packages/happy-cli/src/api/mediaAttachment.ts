@@ -7,10 +7,27 @@
  * local path as text. These helpers decide the kind, pick a safe filename, and
  * format the prompt notice.
  */
-import { writeFile } from 'node:fs/promises';
+import { chmod, unlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { configuration } from '@/configuration';
 import type { MediaAttachment } from '@/utils/MessageQueue2';
+
+const stagedMediaPaths = new Set<string>();
+
+function isMissingFileError(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+async function removeStagedMediaPath(localPath: string): Promise<void> {
+    try {
+        await unlink(localPath);
+        stagedMediaPaths.delete(localPath);
+    } catch (error) {
+        if (isMissingFileError(error)) stagedMediaPaths.delete(localPath);
+        // Keep other failures registered so session shutdown can retry them.
+    }
+}
 
 /** File-event fields this module needs — a structural subset of the wire schema. */
 export type MediaFileEvent = {
@@ -50,23 +67,52 @@ export function resolveMediaKind(ev: MediaFileEvent): 'audio' | 'video' | 'file'
 
 /**
  * Absolute staging path under the attachments dir, keeping the original
- * extension and sanitising the base name. `stamp`/`index` keep concurrent
- * downloads from colliding; tests pass a fixed stamp for determinism.
+ * extension and sanitising the base name. A ref-derived key prevents files
+ * received in the same millisecond from colliding; tests use a fixed stamp.
  */
 export function stagedMediaPath(ev: MediaFileEvent, stamp: string, index: number): string {
     const ext = ev.name.match(/\.([^.]+)$/)?.[1]?.replace(/[^\w]+/g, '') ?? '';
     const base = ev.name.replace(/\.[^.]+$/, '').replace(/[^\w.\-]+/g, '_') || 'media';
     const safeStamp = stamp.replace(/[:.]/g, '-');
-    const fileName = ext ? `${safeStamp}-${index}-${base}.${ext}` : `${safeStamp}-${index}-${base}`;
+    const refKey = createHash('sha256').update(ev.ref).digest('hex').slice(0, 12);
+    const fileName = ext
+        ? `${safeStamp}-${index}-${refKey}-${base}.${ext}`
+        : `${safeStamp}-${index}-${refKey}-${base}`;
     return join(configuration.attachmentsDir, fileName);
+}
+
+/** Restrict a streamed attachment to the current user and track it for cleanup. */
+export async function secureAndRegisterStagedMediaPath(localPath: string): Promise<void> {
+    stagedMediaPaths.add(localPath);
+    try {
+        await chmod(localPath, 0o600);
+    } catch (error) {
+        await removeStagedMediaPath(localPath);
+        throw error;
+    }
+}
+
+/** Remove plaintext files after the model turn that consumed them finishes. */
+export async function cleanupMediaAttachments(items: readonly MediaAttachment[]): Promise<void> {
+    await Promise.all(items.map(async (item) => {
+        await removeStagedMediaPath(item.localPath);
+    }));
+}
+
+/** Best-effort session/process cleanup for queued or interrupted attachments. */
+export async function cleanupAllStagedMediaAttachments(): Promise<void> {
+    const paths = [...stagedMediaPaths];
+    await Promise.all(paths.map(async (localPath) => {
+        await removeStagedMediaPath(localPath);
+    }));
 }
 
 /**
  * Persist already-decrypted media bytes to the attachments dir and build the
  * MediaAttachment. Used for the encrypted media lane (audio/video that travelled
  * the same E2E path as images): the CLI decrypts into memory, writes to disk,
- * and hands the model the local path. `stamp`/`index` keep concurrent downloads
- * from colliding.
+ * and hands the model the local path. The resulting file is mode 0600 and is
+ * registered for cleanup after the consuming model turn.
  */
 export async function buildMediaAttachmentFromBytes(
     ev: MediaFileEvent,
@@ -76,7 +122,8 @@ export async function buildMediaAttachmentFromBytes(
 ): Promise<MediaAttachment> {
     const kind = resolveMediaKind(ev);
     const destPath = stagedMediaPath(ev, stamp, index);
-    await writeFile(destPath, bytes);
+    await writeFile(destPath, bytes, { mode: 0o600 });
+    stagedMediaPaths.add(destPath);
     return {
         kind,
         localPath: destPath,

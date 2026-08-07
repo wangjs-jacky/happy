@@ -8,8 +8,7 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     release: vi.fn(),
-    isSharingAvailable: vi.fn(async () => true),
-    share: vi.fn(async () => undefined),
+    openDocument: vi.fn(async () => undefined),
     resolveSource: vi.fn(async () => ({
         uri: 'https://files.test/acceptance.mp4',
         headers: {},
@@ -29,10 +28,7 @@ vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => ({ uri:
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: () => null }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
 vi.mock('@/sync/resolveMediaAttachmentSource', () => ({ resolveMediaAttachmentSource: mocks.resolveSource }));
-vi.mock('expo-sharing', () => ({
-    isAvailableAsync: mocks.isSharingAvailable,
-    shareAsync: mocks.share,
-}));
+vi.mock('@/sync/openDocumentAttachment', () => ({ openDocumentAttachment: mocks.openDocument }));
 vi.mock('./MediaAttachmentPlayer', () => ({ MediaAttachmentPlayer: 'MediaAttachmentPlayer' }));
 vi.mock('@/text', () => ({
     t: (key: string, params?: { name?: string }) => `${key}:${params?.name ?? ''}`,
@@ -68,7 +64,7 @@ function videoTool(input: { encrypted?: boolean; source?: 'generated' } = {}) {
     } as any;
 }
 
-function pdfTool() {
+function pdfTool(input: { size?: number } = {}) {
     return {
         name: 'file',
         state: 'completed',
@@ -78,6 +74,7 @@ function pdfTool() {
             size: 4096,
             kind: 'file',
             mimeType: 'application/pdf',
+            ...input,
         },
     } as any;
 }
@@ -88,8 +85,7 @@ describe('FileView media playback', () => {
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         mocks.release.mockClear();
-        mocks.isSharingAvailable.mockClear();
-        mocks.share.mockClear();
+        mocks.openDocument.mockClear();
         mocks.resolveSource.mockClear();
         consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     });
@@ -161,11 +157,33 @@ describe('FileView media playback', () => {
             fileName: 'floor-plan.pdf',
             encrypted: undefined,
         });
-        expect(mocks.share).toHaveBeenCalledWith('file:///tmp/floor-plan.pdf', {
-            dialogTitle: 'floor-plan.pdf',
-            mimeType: 'application/pdf',
-        });
+        expect(mocks.openDocument).toHaveBeenCalledWith(
+            'file:///tmp/floor-plan.pdf',
+            'floor-plan.pdf',
+            'application/pdf',
+        );
         expect(mocks.release).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('does not decrypt a historical PDF above the safe whole-buffer limit', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={pdfTool({ size: 11 * 1024 * 1024 })} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        const card = renderer.root.findByProps({ testID: 'document-attachment-card-user' });
+        await act(async () => {
+            await card.props.onPress();
+        });
+
+        expect(mocks.resolveSource).not.toHaveBeenCalled();
+        expect(mocks.openDocument).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByType('Text').some((node: any) => (
+            node.props.children === 'imageUpload.documentOpenFailed:'
+        ))).toBe(true);
         act(() => renderer.unmount());
     });
 });

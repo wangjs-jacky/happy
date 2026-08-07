@@ -21,7 +21,8 @@ import { resolveMediaAttachmentSource } from '@/sync/resolveMediaAttachmentSourc
 import type { MediaPlaybackSource } from '@/sync/mediaPlaybackSourceTypes';
 import { MediaAttachmentPlayer } from './MediaAttachmentPlayer';
 import { t } from '@/text';
-import * as Sharing from 'expo-sharing';
+import { openDocumentAttachment } from '@/sync/openDocumentAttachment';
+import { MAX_PDF_FILE_SIZE } from '@/sync/attachmentLimits';
 
 const fileInputSchema = z.object({
     ref: z.string(),
@@ -117,6 +118,9 @@ function DocumentFileCard({ ref_, sessionId, name, size, mimeType, encrypted, so
         setError(false);
         let resolved: MediaPlaybackSource | null = null;
         try {
+            if (size !== undefined && size > MAX_PDF_FILE_SIZE) {
+                throw new Error('PDF attachment exceeds the safe open limit');
+            }
             resolved = await resolveMediaAttachmentSource({
                 sessionId,
                 ref: ref_,
@@ -124,13 +128,7 @@ function DocumentFileCard({ ref_, sessionId, name, size, mimeType, encrypted, so
                 fileName: name,
                 encrypted,
             });
-            if (!await Sharing.isAvailableAsync()) {
-                throw new Error('Document sharing is unavailable');
-            }
-            await Sharing.shareAsync(resolved.uri, {
-                dialogTitle: name,
-                mimeType: resolvedMimeType,
-            });
+            await openDocumentAttachment(resolved.uri, name, resolvedMimeType);
         } catch (cause) {
             console.warn(`[document-attachment] failed to open ${name}`, cause);
             setError(true);
@@ -138,7 +136,7 @@ function DocumentFileCard({ ref_, sessionId, name, size, mimeType, encrypted, so
             await resolved?.release?.();
             setLoading(false);
         }
-    }, [encrypted, loading, name, ref_, resolvedMimeType, sessionId]);
+    }, [encrypted, loading, name, ref_, resolvedMimeType, sessionId, size]);
 
     return (
         <View style={styles.inlineContainer}>

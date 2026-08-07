@@ -157,7 +157,7 @@ describe('uploadAttachmentForSession', () => {
     });
 
     it('rejects a PDF whose actual bytes exceed the encrypted file limit', async () => {
-        const readFileBytes = vi.fn(async () => new Uint8Array(50 * 1024 * 1024 + 1));
+        const readFileBytes = vi.fn(async () => new Uint8Array(10 * 1024 * 1024 + 1));
         const encryptBlob = vi.fn(() => new Uint8Array([1]));
         const requestUpload = vi.fn(async () => ({
             ref: 'sessions/s1/attachments/oversized.enc',
@@ -186,6 +186,7 @@ describe('uploadAttachmentForSession', () => {
 
         expect(encryptBlob).not.toHaveBeenCalled();
         expect(requestUpload).not.toHaveBeenCalled();
+        expect(readFileBytes).toHaveBeenCalledWith('file:///tmp/oversized.pdf', 10 * 1024 * 1024);
     });
 
     it('requires a blob key only for encrypted images', async () => {

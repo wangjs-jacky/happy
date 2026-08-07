@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import {
     isPlaintextMediaEvent,
     resolveMediaKind,
@@ -7,6 +7,7 @@ import {
     formatMediaAttachmentNotice,
     isMediaFileEvent,
     buildMediaAttachmentFromBytes,
+    cleanupMediaAttachments,
     type MediaFileEvent,
 } from './mediaAttachment';
 import { buildCodexInput } from '@/codex/codexImageInput';
@@ -46,13 +47,18 @@ describe('resolveMediaKind', () => {
 });
 
 describe('stagedMediaPath', () => {
-    it('keeps extension, sanitises name, is collision-resistant via stamp+index', () => {
+    it('keeps extension, sanitises name, and includes a stable ref-derived collision key', () => {
         const p = stagedMediaPath(ev({ name: 'my clip!.mp4' }), '2026-07-13T00:00:00.000Z', 2);
-        expect(p).toMatch(/2026-07-13T00-00-00-000Z-2-my_clip_\.mp4$/);
+        expect(p).toMatch(/2026-07-13T00-00-00-000Z-2-[a-f0-9]{12}-my_clip_\.mp4$/);
     });
     it('handles names without extension', () => {
         const p = stagedMediaPath(ev({ name: 'recording' }), '2026-01-01T00:00:00Z', 0);
-        expect(p).toMatch(/2026-01-01T00-00-00Z-0-recording$/);
+        expect(p).toMatch(/2026-01-01T00-00-00Z-0-[a-f0-9]{12}-recording$/);
+    });
+    it('does not collide for same-name files received in the same millisecond', () => {
+        const first = stagedMediaPath(ev({ ref: 'attachment-a', name: 'plan.pdf' }), '2026-08-08T00:00:00.000Z', 0);
+        const second = stagedMediaPath(ev({ ref: 'attachment-b', name: 'plan.pdf' }), '2026-08-08T00:00:00.000Z', 0);
+        expect(first).not.toBe(second);
     });
 });
 
@@ -125,7 +131,7 @@ describe('buildMediaAttachmentFromBytes', () => {
         expect(att.localPath).toMatch(/voice\.mp3$/);
         const written = await readFile(att.localPath);
         expect(Array.from(written)).toEqual([1, 2, 3, 4, 5]);
-        await rm(att.localPath, { force: true });
+        await cleanupMediaAttachments([att]);
     });
     it('stages a decrypted PDF with its original extension', async () => {
         const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
@@ -138,7 +144,9 @@ describe('buildMediaAttachmentFromBytes', () => {
         expect(att.kind).toBe('file');
         expect(att.localPath).toMatch(/floor-plan\.pdf$/);
         expect(new Uint8Array(await readFile(att.localPath))).toEqual(bytes);
-        await rm(att.localPath, { force: true });
+        expect((await stat(att.localPath)).mode & 0o777).toBe(0o600);
+        await cleanupMediaAttachments([att]);
+        await expect(readFile(att.localPath)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 });
 

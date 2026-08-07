@@ -2,11 +2,9 @@ import {
     cacheDirectory,
     deleteAsync,
     downloadAsync,
-    EncodingType,
     makeDirectoryAsync,
-    writeAsStringAsync,
 } from 'expo-file-system/legacy';
-import { encodeBase64 } from '@/encryption/base64';
+import { File } from 'expo-file-system';
 import type { MediaPlaybackSource } from './mediaPlaybackSourceTypes';
 
 const EXTENSION_BY_MIME: Readonly<Record<string, string>> = {
@@ -56,7 +54,7 @@ export async function createMediaPlaybackSource(
 ): Promise<MediaPlaybackSource> {
     const target = createMediaCacheTarget(mimeType, fileName);
     if (target.directory) await makeDirectoryAsync(target.directory, { intermediates: true });
-    await writeAsStringAsync(target.uri, encodeBase64(bytes), { encoding: EncodingType.Base64 });
+    new File(target.uri).write(bytes);
     return {
         uri: target.uri,
         headers: {},
