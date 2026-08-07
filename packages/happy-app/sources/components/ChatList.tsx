@@ -76,7 +76,8 @@ const ChatListInternal = React.memo((props: {
     isLoadingOlder: boolean,
 }) => {
     const { theme } = useUnistyles();
-    const isDesktopWeb = Platform.OS === 'web' && useIsTablet();
+    const isTablet = useIsTablet();
+    const isDesktopWeb = Platform.OS === 'web' && isTablet;
     const flatListRef = React.useRef<FlatList>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     // Tracks whether the scroll-button is currently shown, so we only call
