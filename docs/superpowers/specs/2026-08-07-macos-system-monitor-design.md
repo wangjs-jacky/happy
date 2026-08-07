@@ -59,8 +59,9 @@ flowchart LR
 
 | 单元 | 职责 | 输入 | 输出 |
 |---|---|---|---|
-| `MacSystemHealthCollector` | 调用 macOS 系统命令并解析一次快照，不判断告警 | 操作系统进程与资源状态、daemon 当前跟踪 PID | `MacSystemHealthSample` |
-| `SystemHealthMonitor` | 定时采集、维护窗口、聚合进程来源、应用阈值和迟滞规则 | 单次采样 | `SystemHealthSnapshot` |
+| `MacProcessSnapshotAnalyzer` | 在本机识别 worker 树与应用族，随后销毁原始 command | 原始进程行、daemon tracked 引用、上一轮成员指纹 | 脱敏 worker/source 事实、下一轮成员指纹 |
+| `MacSystemHealthCollector` | 调用 macOS 系统命令、解析资源指标并调用进程分析器，不判断告警 | 操作系统状态、daemon tracked 引用 | 已脱敏 `MacSystemHealthSample` |
+| `SystemHealthMonitor` | 定时采集、维护窗口、应用阈值和迟滞规则 | 已脱敏单次采样 | `SystemHealthSnapshot` |
 | `DaemonStatePublisher` | 串行化所有 daemonState 写入；监控更新按 latest-wins 合并 | daemon 基础状态、Codex 用量、监控快照、关机状态 | 加密后的 daemonState |
 | Paws 展示层 | 校验数据、计算展示模型、渲染 Paws 原生样式 | 解密后的 `systemHealth` | 机器详情监控区 |
 
@@ -78,10 +79,12 @@ Collector 只在 `process.platform === 'darwin'` 且 `HAPPY_SYSTEM_HEALTH_MONITO
 | `/usr/bin/top -l 2 -s 0 -n 0` | CPU user/sys/idle | 丢弃第一次采样，解析最后一个 `CPU usage` 行；`used = 100 - idle` |
 | `/usr/bin/vm_stat` | 内存页 | 从首行解析 page size；`available estimate = free + inactive + speculative`，压缩内存取 compressor pages；purgeable 不重复相加 |
 | `/usr/bin/memory_pressure -Q` | 系统内存压力 | 解析 `System-wide memory free percentage`；内存告警只使用该百分比，不把裸 free pages 当作“可用内存” |
-| `/bin/ps -A -ww -o pid= -o ppid= -o pcpu= -o rss= -o etime= -o command=` | 进程树和本机归因 | 每行只切分前五个无空格字段，剩余全文作为 command；归因后立即丢弃 command |
+| `/bin/ps -A -ww -o pid= -o ppid= -o pcpu= -o rss= -o etime=` | 进程树与资源 | 每行固定五个无空格字段 |
+| `/bin/ps -A -ww -o pid= -o comm=` | 可执行文件 | 只切分开头 PID，整段 remainder 为 comm，不按空格切分 |
+| `/bin/ps -A -ww -o pid= -o args=` | 仅本机识别所需参数 | 只切分开头 PID，整段 remainder 为 args，不尝试还原 argv 边界 |
 | `/bin/df -kP /` | 系统盘总量与可用空间 | 固定 POSIX 列布局，单位换算为字节 |
 
-`etime` 解析必须覆盖 `MM:SS`、`HH:MM:SS`、`DD-HH:MM:SS`；非法值只使该进程缺少 age，不丢弃其他字段。`vm_stat` 必须按输出首行的实际 page size 计算，不能写死 4096 或 16384。进程在命令返回后退出是正常竞态。
+三份 `ps` 输出按 PID 连接；某个 PID 只出现在部分表中时保留可用字段，不能错位连接。`etime` 解析必须覆盖 `MM:SS`、`HH:MM:SS`、`DD-HH:MM:SS`；非法值只使该进程缺少 age，不丢弃其他字段。`vm_stat` 必须按输出首行的实际 page size 计算，不能写死 4096 或 16384。进程在三次命令之间退出是正常竞态。
 
 Collector 返回 `MacSystemHealthSample`，包含每个成功字段与 `commandErrors[]`。一条样本只有能够构造 `SystemHealthCurrent` 的全部非可选字段时才是 `complete`；否则为 `partial`。`partial` 样本可更新本机诊断日志和非核心来源信息，但不能替换 `current`、不能进入趋势、不能推动资源告警状态机。磁盘与内存压力百分比缺失不影响 `complete`，对应 UI/规则跳过。多个命令失败时保留多个脱敏错误项，格式为 `{ command: 'vm_stat', code: 'timeout' | 'exit' | 'parse' }`，不上传 stderr。
 
@@ -91,8 +94,8 @@ Collector 接收 daemon 当前 `TrackedSession` 的 `{ pid, spawnedAt }` 引用�
 
 worker root 按以下可测试规则识别：
 
-1. 把 command 解析为 argv；可执行入口必须匹配 Paws/Happy CLI 形式之一：basename 为 `paws`/`happy`，或 `node` 后的脚本 basename 为 `happy.mjs`/`paws.mjs`/`index.mjs` 且同一 argv 含已知 agent 子命令。
-2. argv 必须包含精确 token 对 `--started-by daemon` 或单 token `--started-by=daemon`；仅字符串子串命中不算。
+1. 不从 `args` 还原通用 argv。入口只接受以下已知模式：comm remainder 的 basename 精确为 `paws`/`happy`；或 comm basename 为 `node` 且 args 以边界正则命中脚本后缀 `/(happy|paws).mjs` 或 Paws CLI `dist/index.mjs`，同时命中已知 agent 子命令。无法明确匹配的命令宁可不计。
+2. daemon 标记只通过边界正则 `(?:^|\s)--started-by(?:=daemon|\s+daemon)(?=\s|$)` 判断；不依赖引号或 argv 切分，也不接受普通字符串子串。
 3. 多个候选 root 存在祖先关系时只保留最上层候选，避免子树重复计数。
 4. 候选 root 与 tracked PID/fingerprint 完全相同，或候选是 tmux tracked pane PID 的后代时，归为正常 worker；tmux 关联只沿当前进程祖先链判断，不按名称猜测。
 5. 候选 root 没有关联到当前 tracked 引用时，归为孤儿 worker。daemon 重启后旧 worker 不在新跟踪表中，因此会被识别。
@@ -100,6 +103,19 @@ worker root 按以下可测试规则识别：
 7. Monitor 记住上一采样中每棵 worker 树的成员 fingerprint。若 root 退出、已知后代被 `launchd` 接管且 fingerprint 未变，剩余后代继续作为该 root 的 orphan remainder 统计；成员全部退出后删除。未知且无 daemon 标记的进程不会因名称相似被追溯为孤儿。
 
 判断逻辑独立为纯函数，输入标准化进程表、tracked 引用和上一采样成员映射，输出互不重叠的 worker 树，便于用 fixture 覆盖普通 spawn、tmux pane、daemon 重启、根进程先退出、嵌套候选和 PID 重用。
+
+进程数据在 Collector 内部的生命周期固定为：
+
+```text
+三份 ps 输出
+  → RawProcessRow { pid, ppid, cpu, rss, elapsed, comm, args }
+  → MacProcessSnapshotAnalyzer.analyze(...)
+  → ProcessFacts { workerStats, sanitizedSources, nextWorkerMembership }
+  → 立即释放 RawProcessRow / comm / args
+  → MacSystemHealthSample（只含数值、脱敏名称、稳定 ID）
+```
+
+Collector 实例持有 `previousWorkerMembership`，每次分析后替换为 `nextWorkerMembership`；Monitor 永远拿不到 `comm/args`。`MacSystemHealthSample` 明确包含当前资源数值、worker/orphan 汇总、全部脱敏应用族的本地 CPU 序列以及用于同步的 top 5 列表；Monitor 用“全部脱敏应用族”做持续规则，构造 `SystemHealthSnapshot` 时只保留 top 5。
 
 ### 4.3 主要资源来源
 
@@ -109,13 +125,24 @@ UI 不展示完整命令行。Monitor 在本机把进程标准化为应用族并
 - `Cursor*`、`Cursor Helper*` → `Cursor`
 - `mds`、`mds_stores` → `Spotlight`
 - 已识别的 Paws worker 树 → `Paws Workers`
-- 其他进程 → 本机从 argv[0] 计算的安全 basename；无法得到稳定 basename 时统一为 `Other`
+- 其他进程 → 从 comm remainder 最后一个 `/` 之后取得安全 basename；无法得到稳定名称时统一为 `Other`
 
-每次只同步 CPU 前 5 和内存前 5 的来源。每项包含稳定 ID、展示名、CPU、RSS、进程数和最长运行时长；不包含参数、环境变量、用户路径或窗口标题。
+每次只同步 CPU 前 5 和内存前 5 的来源。每项包含稳定 ID、展示名、CPU、RSS、进程数和最长运行时长；不包含参数、环境变量、用户路径或窗口标题。已知来源 ID 固定为 `chrome`、`cursor`、`spotlight`、`paws-workers`；未知来源 ID 为 `process:` 加本机对完整 comm 做 SHA-256 后的前 12 个十六进制字符，展示名仅使用安全 basename 并限制 40 字符。该 ID 同时用于列表去重和来源告警 subject。
 
 ## 五、数据契约
 
-CLI 的 `DaemonStateSchema` 增加可选 `systemHealth`。旧 daemon 和旧 App 均可忽略该字段，保持向后兼容。
+CLI 的 `DaemonStateSchema` 增加可选 `systemHealth`。`MachineMetadataSchema` 同时增加可选 capability：
+
+```ts
+systemHealthMonitor?: {
+    schemaVersion: 1;
+    supported: true;
+    enabled: boolean;
+    reportedAt: number;
+}
+```
+
+新 macOS CLI 在注册和 metadata 刷新时始终发布该 capability；feature flag 只决定 `enabled` 和是否启动采集。旧 CLI 没有 capability，App 因而能区分“需要升级 CLI”和“新 CLI 已支持但尚未启用”。旧 daemon 和旧 App 均可忽略新字段，保持向后兼容。
 
 ```ts
 type SystemHealthResourceStatus = 'healthy' | 'warning' | 'critical';
@@ -211,7 +238,7 @@ interface SystemHealthSnapshot {
 
 `MacSystemHealthSample` 是 Collector 内部类型：核心字段为可选值，并带 `kind` 与 `commandErrors[]`；它不会直接上传。只有 Monitor 判定为 `complete` 后才构造全部核心字段必填的 `SystemHealthCurrent`。因此当前值和趋势中不会用 0 填补采集失败。磁盘、内存压力与 source age 属于非核心可选字段，缺失时 UI/对应规则直接省略。
 
-App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和非负校验。展示文本不由 CLI 生成；CLI 只同步 issue code、数值及单位，App 根据语言包本地化。
+App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshold 和 count 字段要求“有限且非负”；`issues.observed` 只要求有限，允许 `swap-growing` 在恢复过程中携带负增长值。展示文本不由 CLI 生成；CLI 只同步 issue code、数值及单位，App 根据语言包本地化。
 
 ## 六、采样、历史与同步
 
@@ -232,6 +259,9 @@ App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和�
 4. 关机写入为最高优先级：等待当前在途请求结束，丢弃尚未开始的监控写入，写入 `shutting-down` 后禁止新监控发布。
 5. CAS version mismatch 时先采用服务器返回的新版本，再重新执行 patch handler；handler 必须是基于最新 state 的无副作用纯合并。
 6. 慢网络只会积压一个最新监控快照，不会每 15 秒增加一条重试任务。
+7. 单次 ACK 使用 Socket.IO `timeout(5000)`；普通写入最多尝试 2 次，且每次尝试前必须确认当前 connection generation 仍为 connected。断连事件递增 generation、清空普通 pending 队列；旧 generation 的迟到 ACK 不更新本地 state/version。
+8. Monitor 调度只负责 enqueue，不 await 网络写入，因此 ACK 超时和重试不会阻塞采集、心跳或会话管理。
+9. 进入关机时立即标记 Publisher closing、禁止新任务并丢弃 pending health。最多等待当前请求 1 秒；仍 connected 时再用 1 秒 ACK 超时 best-effort 写 `shutting-down`。无论结果如何，关机总等待不超过 2 秒，随后继续 socket/control server/lock 清理。
 
 ### 6.2 失败与重连
 
@@ -265,15 +295,16 @@ App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和�
 | 系统盘可用空间 | < 15 GB | < 5 GB |
 | 单一来源 CPU | ≥ 100% 持续 5 分钟 | ≥ 200% 持续 5 分钟 |
 
-每个 issue code 都有独立状态机，状态为 `clear | warning | critical`：
+每个 issue 使用 `(code, subject ?? 'global')` 作为独立状态机键，状态为 `clear | warning | critical`。因此 Chrome 与 Cursor 的 `single-source-cpu-high` 可以同时存在：
 
 1. 瞬时规则连续 2 个 complete 样本达到某级阈值后直接进入该级；可以由 clear 直接进入 critical。
 2. warning 达到 critical 条件连续 2 次后升级；critical 连续 3 个 complete 样本低于 critical 但仍达到 warning 时降为 warning；连续 3 个样本低于 warning 时清除。
-3. 带持续时长的 CPU 规则只有在窗口端点跨度达到要求、且有效样本覆盖率不低于预期采样数的 80% 时才命中；恢复统一要求连续 3 个 complete 样本低于 warning 阈值。
+3. 带持续时长的 CPU 规则只有在窗口端点跨度达到要求、有效样本数不低于预期采样数的 80%，且有效样本中至少 80% 达到对应阈值时才命中。总 CPU 分别使用 2 分钟/85% 与 3 分钟/95% 窗口；单一来源使用 5 分钟窗口和 100%/200% 阈值。恢复统一要求连续 3 个 complete 样本低于 warning 阈值。
 4. partial/failed 样本不增加也不清零命中/恢复计数；freshness 超时由 App 单独覆盖展示。恢复收到新的 complete 样本后继续状态机。
 5. 多个 issue 可共存；`resourceStatus` 取所有 issue 的最高严重度，无 issue 为 healthy。
 6. Swap 增长在窗口不足 9.5 分钟时不评估。窗口满足后，从当前时刻前 9.5～10.5 分钟区间选择时间最早的 complete 样本作为基准；区间无样本则本轮不评估。`observed` 为当前值减基准值，可为负；恢复仍需连续 3 次低于 warning 增长阈值。
-7. 某规则依赖的可选字段缺失时不创建、不升级也不恢复该 issue；该字段恢复后继续判断。
+7. Monitor 对全部脱敏应用族建立本地序列，而不是只看同步出去的 top 5。已存在来源状态机的 subject 在某个 complete 样本中消失时，该样本按 CPU=0 进入恢复；因此来源退出或掉出 top 5 不会让 issue 永久冻结。
+8. 只有磁盘、内存压力等真正依赖可选系统字段的规则在字段缺失时不创建、不升级也不恢复；字段恢复后继续判断。
 
 最终展示状态由 App 每 15 秒重算一次，优先级固定为：
 
@@ -313,7 +344,9 @@ App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和�
 | 场景 | 展示 |
 |---|---|
 | macOS + 数据正常 | 完整监控区，状态为正常/需关注/严重 |
-| macOS + 无 `systemHealth` | 一个 ItemGroup 空态：“系统监控尚未启用；请更新 CLI 并在远端启用”，不无限显示“等待中” |
+| macOS + capability 缺失 | 空态：“更新远端 Paws CLI 后可使用系统监控” |
+| macOS + capability supported 但 disabled | 空态：“系统监控尚未启用”，并展示远端需设置的 feature flag 名；不提供远程修改按钮 |
+| macOS + capability enabled 但无 `systemHealth` | 显示“等待 daemon 初始化系统监控”；`reportedAt` 超过 45 秒仍无状态则显示 unavailable |
 | macOS + 已启用但首次 complete 尚未产生 | 显示“正在采集系统状态”；若 collector 有错误，显示可本地化的错误类别 |
 | macOS + 数据过期 | 顶部显示“监控数据已过期”和最后更新时间，保留最后数据但降低透明度 |
 | 机器离线 | Header 和原有离线提示照常；监控区显示最后数据与“设备离线”状态 |
@@ -338,21 +371,21 @@ App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和�
 
 ### 10.1 CLI 行为测试
 
-- 脱敏 macOS 命令 fixture：至少覆盖目标 Mac mini 当前系统版本、`vm_stat` 不同 page size、Swap 解析、带空格 command、四种 `etime`、字段缺失、超时和非数字值。
+- 脱敏 macOS 命令 fixture：至少覆盖目标 Mac mini 当前系统版本、`vm_stat` 不同 page size、Swap 解析、三份 ps 表按 PID 连接、带空格 comm/args、四种 `etime`、字段缺失、超时和非数字值。
 - complete/partial/failed 判定：关键命令缺失不替换当前值或趋势；多个命令错误全部保留且无 stderr。
 - 进程树：普通 spawn、tmux pane、daemon 重启后的孤儿 worker、终端手动会话、根进程先退出、嵌套候选、PID 重用和多层子进程。
 - 应用族聚合：Chrome Helper、Cursor Helper、Spotlight、Paws worker 与未知进程。
 - 30 点环形历史：分钟去重、时间升序、超过 30 点淘汰最旧点。
-- 规则：每条 warning/critical 边界、clear→critical、warning↔critical、3 次恢复、缺失样本、多个 issue 共存、持续样本 80% 覆盖和 9.5～10.5 分钟 Swap 基准。
+- 规则：每条 warning/critical 边界、clear→critical、warning↔critical、3 次恢复、缺失样本、多个 `(code, subject)` issue、来源退出按 0 恢复、持续窗口“双 80%”条件和 9.5～10.5 分钟 Swap 基准。
 - 失败隔离：collector 抛错后 daemon 调度仍继续，最后成功快照被保留。
-- Publisher：并发监控/Codex/连接/关机写入保持字段；慢网络下最多一条在途和一条 pending health；关机丢弃 pending health；CAS 重试后仍 latest wins。
+- Publisher：并发监控/Codex/连接/关机写入保持字段；慢网络下最多一条在途和一条 pending health；ACK 超时释放队列；断连 generation 取消；关机 2 秒内返回；CAS 重试后仍 latest wins。
 - 预算：序列化 payload 小于 32 KB，命令 `maxBuffer` 与超时生效，连续慢采样不会重叠执行。
 
 ### 10.2 App 行为测试
 
 - 纯视图模型覆盖 healthy、warning、critical、delayed、unavailable、offline、无数据和部分可选字段缺失，并验证最终状态优先级。
 - 四条独立尺度图表覆盖 0、单点、常量序列、CPU 峰值、Swap 上升、总进程上升和孤儿数下降到 0；断言单位和可访问摘要正确。
-- 非 macOS 不渲染；旧 daemon 或 feature flag 未开时显示升级/启用说明；首次采集失败显示 collector 类别。
+- 非 macOS 不渲染；capability 缺失、supported+disabled、enabled+pending 三种空态可区分；首次采集失败显示 collector 类别。
 - 机器详情现有启动会话、刷新、重命名、停止 daemon 和删除机器行为不回归。
 - 所有语言键存在，测试验证可执行的翻译解析与渲染结果，不锁定自然语言句子。
 - `pnpm --filter happy-cli test`、`pnpm --filter happy-cli build`、`pnpm --filter happy-app test` 和 `pnpm --filter happy-app typecheck` 通过。
@@ -367,7 +400,7 @@ App 侧增加对应 Zod schema，未知字段剥离，数值进行有限值和�
 2. 在 worktree 的 `packages/happy-app` 运行 `pnpm web`，使用 Expo 实际输出的本地 URL，不预设端口。
 3. 在委派 `dev-tools:browser-control` 前询问用户是否复用当前 Chrome 登录态；用户不同意或登录态不明确时使用隔离浏览器并由用户完成登录，不绕过认证。
 4. 正式 E2E 只读，不停止 daemon、不制造真实高负载。healthy/warning/critical/offline/unavailable 的规则正确性由自动化视图模型测试覆盖；E2E 对当前真实状态给结论，无法观察的状态明确记为“证据不足”，不伪造通过。
-5. 证据保存到 gitignored 的 `artifacts/interaction-review/macos-system-monitor/<timestamp>/`，不提交截图、录屏、Cookie、请求头、IP 或账号信息。
+5. 实现阶段先把 `artifacts/interaction-review/` 加入仓库 `.gitignore`，并用 `git check-ignore` 验证；证据保存到 `artifacts/interaction-review/macos-system-monitor/<timestamp>/`，不提交截图、录屏、Cookie、请求头、IP 或账号信息。
 
 桌面验收至少覆盖：
 
