@@ -16,7 +16,10 @@ Visible UI cases: 1
 - Viewport: Chrome, light theme, `1496×768`, DPR `1`.
 
 The Playwright case asserts the renamed header remains visible, the follow-up
-message remains visible, and the original title prompt has no rendered node.
+message remains visible, and the original title prompt has no rendered node on
+desktop. It then switches to `390×844` and verifies the title prompt remains
+visible on narrow Web. A focused unit case also prevents filtering any loaded
+message until the initial page is loaded and no older pages remain.
 Recording mode also captures a 1280×720 browser video; the review copy is
 encoded as H.264/yuv420p MP4 and fully decoded as part of evidence validation.
 

@@ -24,12 +24,13 @@ describe('getDesktopTitlePromptMessageId', () => {
             userMessage('message-1', '  # Optimize batch image generation  '),
         ];
 
-        expect(getDesktopTitlePromptMessageId(items)).toBe('message-1');
+        expect(getDesktopTitlePromptMessageId(items, true)).toBe('message-1');
     });
 
     it('keeps hiding the title prompt after the session is renamed', () => {
         expect(getDesktopTitlePromptMessageId(
             [userMessage('message-1', 'Optimize batch image generation')],
+            true,
         )).toBe('message-1');
     });
 
@@ -39,6 +40,15 @@ describe('getDesktopTitlePromptMessageId', () => {
             userMessage('message-1', 'Optimize batch image generation'),
         ];
 
-        expect(getDesktopTitlePromptMessageId(items)).toBe('message-1');
+        expect(getDesktopTitlePromptMessageId(items, true)).toBe('message-1');
+    });
+
+    it('keeps every loaded user message while older pages are still available', () => {
+        const items = [
+            userMessage('message-102', 'Newest follow-up'),
+            userMessage('message-3', 'Oldest user message in the loaded page'),
+        ];
+
+        expect(getDesktopTitlePromptMessageId(items, false)).toBeNull();
     });
 });

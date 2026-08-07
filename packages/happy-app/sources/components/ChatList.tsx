@@ -3,7 +3,7 @@ import { useSession, useSessionMessages, useSetting } from "@/sync/storage";
 import { sync } from '@/sync/sync';
 import { ActivityIndicator, AppState, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, Text, View } from 'react-native';
 import { useCallback } from 'react';
-import { useHeaderHeight } from '@/utils/responsive';
+import { useHeaderHeight, useIsTablet } from '@/utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MessageView } from './MessageView';
 import { AgentWorkGroupView, ToolGroupView } from './ToolGroupView';
@@ -28,12 +28,13 @@ const SCROLL_THRESHOLD = 300;
 const ANCHOR_PILL_LINGER_MS = 1600;
 
 export const ChatList = React.memo((props: { session: Session }) => {
-    const { messages, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
+    const { messages, isLoaded, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
     return (
         <ChatListInternal
             metadata={props.session.metadata}
             sessionId={props.session.id}
             messages={messages}
+            isLoaded={isLoaded}
             hasMoreOlder={hasMoreOlder}
             isLoadingOlder={isLoadingOlder}
         />
@@ -70,10 +71,12 @@ const ChatListInternal = React.memo((props: {
     metadata: Metadata | null,
     sessionId: string,
     messages: Message[],
+    isLoaded: boolean,
     hasMoreOlder: boolean,
     isLoadingOlder: boolean,
 }) => {
     const { theme } = useUnistyles();
+    const isDesktopWeb = Platform.OS === 'web' && useIsTablet();
     const flatListRef = React.useRef<FlatList>(null);
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     // Tracks whether the scroll-button is currently shown, so we only call
@@ -105,10 +108,13 @@ const ChatListInternal = React.memo((props: {
     );
     const groupedDisplayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
     const desktopTitlePromptMessageId = React.useMemo(() => (
-        Platform.OS === 'web'
-            ? getDesktopTitlePromptMessageId(groupedDisplayItems)
+        isDesktopWeb
+            ? getDesktopTitlePromptMessageId(
+                groupedDisplayItems,
+                props.isLoaded && !props.hasMoreOlder,
+            )
             : null
-    ), [groupedDisplayItems]);
+    ), [groupedDisplayItems, isDesktopWeb, props.hasMoreOlder, props.isLoaded]);
     const displayItems = React.useMemo(() => (
         desktopTitlePromptMessageId
             ? groupedDisplayItems.filter(item => item.id !== desktopTitlePromptMessageId)

@@ -6,7 +6,12 @@ import type { DisplayItem } from '@/hooks/useGroupedMessages';
  */
 export function getDesktopTitlePromptMessageId(
     displayItems: DisplayItem[],
+    isOldestPageLoaded: boolean,
 ): string | null {
+    // Until the oldest page is loaded, the last visible item is only the
+    // oldest item in the current window and may be a normal user message.
+    if (!isOldestPageLoaded) return null;
+
     for (let index = displayItems.length - 1; index >= 0; index -= 1) {
         const item = displayItems[index];
         if (item.type !== 'message' || item.message.kind !== 'user-text') {

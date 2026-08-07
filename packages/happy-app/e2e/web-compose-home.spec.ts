@@ -2122,6 +2122,11 @@ test('[PC-TITLE-PROMPT] PC 会话改名后仍隐藏首条标题提示', async ({
         path: titlePromptScreenshotPath(testInfo),
         fullPage: true,
     });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(page.getByText(initialTitlePrompt, { exact: true })).toBeVisible();
+    await expect(page.getByText(followUpPrompt, { exact: true })).toBeVisible();
 });
 
 test('[R10-01] 每轮权限、模型与推理强度经 UI 发送并在离线重连后保持一致', async ({ page, request }, testInfo) => {
