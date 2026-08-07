@@ -4,16 +4,16 @@ import { logger } from "@/ui/logger";
  * A user-uploaded attachment claimed by a message. Two lanes:
  * - image: E2E-encrypted, decrypted to `data` bytes in memory (small, ≤50MB),
  *   fed to the model as base64 (Claude) / localImage (Codex).
- * - audio/video: plaintext, already streamed to `localPath` on disk (up to
- *   500MB, never held in memory). The model gets the path as text and runs
- *   ffmpeg/whisper itself.
+ * - file/audio/video: staged to `localPath` on disk. PDF files stay E2E
+ *   encrypted in transit, while audio/video may use the plaintext streaming
+ *   lane. The model receives the exact path as text.
  */
 export type ImageAttachment = { kind?: 'image'; data: Uint8Array; mimeType: string; name: string };
-export type MediaAttachment = { kind: 'audio' | 'video'; localPath: string; size: number; mimeType: string; name: string };
+export type MediaAttachment = { kind: 'audio' | 'video' | 'file'; localPath: string; size: number; mimeType: string; name: string };
 export type PendingAttachment = ImageAttachment | MediaAttachment;
 
 export function isMediaAttachment(a: PendingAttachment): a is MediaAttachment {
-    return a.kind === 'audio' || a.kind === 'video';
+    return a.kind === 'audio' || a.kind === 'video' || a.kind === 'file';
 }
 
 interface QueueItem<T> {

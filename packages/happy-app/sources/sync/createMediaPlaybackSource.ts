@@ -16,6 +16,7 @@ const EXTENSION_BY_MIME: Readonly<Record<string, string>> = {
     'audio/mp4': 'm4a',
     'audio/wav': 'wav',
     'audio/ogg': 'ogg',
+    'application/pdf': 'pdf',
 };
 
 function createMediaCacheUri(mimeType: string): string {

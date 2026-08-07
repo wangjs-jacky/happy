@@ -25,6 +25,7 @@ export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
 // Media currently reuses the encrypted transport (server-capped at 50MB). The
 // 500MB plaintext-OSS lane is a future server+OSS upgrade.
 export const MAX_MEDIA_FILE_SIZE = 50 * 1024 * 1024; // 50MB — audio/video lane
+export const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024; // 50MB — encrypted document lane
 
 export type { AttachmentPreview };
 
@@ -33,7 +34,9 @@ type UseImagePickerResult = {
     pickImages: () => Promise<void>;
     /** Pick audio/video files via the system document picker (plaintext lane). */
     pickMedia: () => Promise<void>;
-    /** Show a chooser (photo vs audio/video), then run the matching picker. */
+    /** Pick PDF documents via the system document picker (encrypted lane). */
+    pickPdf: () => Promise<void>;
+    /** Show a chooser (photo, audio/video, or PDF), then run the matching picker. */
     pickAttachment: () => void;
     removeImage: (id: string) => void;
     clearImages: () => void;
@@ -214,13 +217,65 @@ export function useImagePicker(): UseImagePickerResult {
         }
     }, []);
 
+    const pickPdf = useCallback(async () => {
+        const remaining = MAX_IMAGES_PER_MESSAGE - selectedCountRef.current;
+        if (remaining <= 0) {
+            Modal.alert(
+                t('imageUpload.limitTitle'),
+                t('imageUpload.limitMessage', { max: MAX_IMAGES_PER_MESSAGE }),
+                [{ text: t('common.ok') }],
+            );
+            return;
+        }
+
+        const result = await DocumentPicker.getDocumentAsync({
+            type: 'application/pdf',
+            multiple: true,
+            copyToCacheDirectory: true,
+        });
+        if (result.canceled || !result.assets?.length) return;
+
+        const previews: AttachmentPreview[] = [];
+        for (const asset of result.assets.slice(0, remaining)) {
+            const name = asset.name ?? `document_${Date.now()}.pdf`;
+            const mimeType = (asset.mimeType ?? '').toLowerCase();
+            if (mimeType !== 'application/pdf' && !name.toLowerCase().endsWith('.pdf')) {
+                continue;
+            }
+            const size = asset.size ?? 0;
+            if (size > MAX_PDF_FILE_SIZE) {
+                Modal.alert(
+                    t('imageUpload.fileTooLargeTitle'),
+                    t('imageUpload.fileTooLargeMessage', { name, maxMb: MAX_PDF_FILE_SIZE / 1024 / 1024 }),
+                    [{ text: t('common.ok') }],
+                );
+                continue;
+            }
+            previews.push({
+                id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                uri: asset.uri,
+                width: 0,
+                height: 0,
+                mimeType: 'application/pdf',
+                size,
+                name,
+                kind: 'file',
+            });
+        }
+
+        if (previews.length > 0) {
+            setSelectedImages(prev => [...prev, ...previews].slice(0, MAX_IMAGES_PER_MESSAGE));
+        }
+    }, []);
+
     const pickAttachment = useCallback(() => {
-        // Card-style source chooser (photo vs audio/video) — see AttachmentSourceSheet.
+        // Card-style source chooser — see AttachmentSourceSheet.
         const show = () => Modal.show({
             component: AttachmentSourceSheet,
             props: {
                 onPickPhoto: () => { void pickImages(); },
                 onPickMedia: () => { void pickMedia(); },
+                onPickPdf: () => { void pickPdf(); },
             },
         });
 
@@ -239,7 +294,7 @@ export function useImagePicker(): UseImagePickerResult {
         } else {
             show();
         }
-    }, [pickImages, pickMedia]);
+    }, [pickImages, pickMedia, pickPdf]);
 
     const removeImage = useCallback((id: string) => {
         setSelectedImages(prev => prev.filter(img => img.id !== id));
@@ -257,5 +312,5 @@ export function useImagePicker(): UseImagePickerResult {
         });
     }, []);
 
-    return { selectedImages, pickImages, pickMedia, pickAttachment, removeImage, clearImages, addImages };
+    return { selectedImages, pickImages, pickMedia, pickPdf, pickAttachment, removeImage, clearImages, addImages };
 }

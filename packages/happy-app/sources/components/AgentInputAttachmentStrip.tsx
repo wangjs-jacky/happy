@@ -187,6 +187,46 @@ function AttachmentThumbnail({
         );
     }
 
+    if (image.kind === 'file') {
+        return (
+            <View style={styles.mediaContainer}>
+                <View
+                    testID="document-attachment-card-pending"
+                    style={[
+                        styles.mediaCard,
+                        { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh },
+                    ]}
+                >
+                    <Ionicons name="document-text-outline" size={22} color={theme.colors.text} />
+                    <View style={styles.mediaMeta}>
+                        <Text numberOfLines={1} style={[styles.mediaName, { color: theme.colors.text }]}>
+                            {image.name}
+                        </Text>
+                        <Text numberOfLines={1} style={[styles.mediaType, { color: theme.colors.textSecondary }]}>
+                            {t('imageUpload.documentPdf')}
+                        </Text>
+                    </View>
+                </View>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common.delete')}
+                    onPress={() => onRemove(image.id)}
+                    hitSlop={6}
+                    style={(p) => [
+                        styles.removeButton,
+                        {
+                            backgroundColor: theme.colors.surfaceHigh,
+                            borderColor: theme.colors.divider,
+                            opacity: p.pressed ? 0.7 : 1,
+                        },
+                    ]}
+                >
+                    <Ionicons name="close" size={12} color={theme.colors.text} />
+                </Pressable>
+            </View>
+        );
+    }
+
     const maxFeaturedWidth = Math.max(THUMB_SIZE, Math.min(FEATURED_MAX_WIDTH, windowDimensions.width - 64));
     const displaySize = computeInputAttachmentImageSize({
         presentation,

@@ -8,6 +8,8 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     release: vi.fn(),
+    isSharingAvailable: vi.fn(async () => true),
+    share: vi.fn(async () => undefined),
     resolveSource: vi.fn(async () => ({
         uri: 'https://files.test/acceptance.mp4',
         headers: {},
@@ -27,6 +29,10 @@ vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => ({ uri:
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: () => null }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
 vi.mock('@/sync/resolveMediaAttachmentSource', () => ({ resolveMediaAttachmentSource: mocks.resolveSource }));
+vi.mock('expo-sharing', () => ({
+    isAvailableAsync: mocks.isSharingAvailable,
+    shareAsync: mocks.share,
+}));
 vi.mock('./MediaAttachmentPlayer', () => ({ MediaAttachmentPlayer: 'MediaAttachmentPlayer' }));
 vi.mock('@/text', () => ({
     t: (key: string, params?: { name?: string }) => `${key}:${params?.name ?? ''}`,
@@ -62,12 +68,28 @@ function videoTool(input: { encrypted?: boolean; source?: 'generated' } = {}) {
     } as any;
 }
 
+function pdfTool() {
+    return {
+        name: 'file',
+        state: 'completed',
+        input: {
+            ref: 'sessions/s1/attachments/floor-plan.enc',
+            name: 'floor-plan.pdf',
+            size: 4096,
+            kind: 'file',
+            mimeType: 'application/pdf',
+        },
+    } as any;
+}
+
 describe('FileView media playback', () => {
     let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         mocks.release.mockClear();
+        mocks.isSharingAvailable.mockClear();
+        mocks.share.mockClear();
         mocks.resolveSource.mockClear();
         consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     });
@@ -109,6 +131,40 @@ describe('FileView media playback', () => {
         }));
         expect(renderer.root.findAllByProps({ testID: 'media-attachment-card-user' })).toHaveLength(0);
         expect(renderer.root.findByType('MediaAttachmentPlayer').props.testID).toBe('media-attachment-player-user');
+        act(() => renderer.unmount());
+    });
+
+    it('renders an encrypted PDF as a document card and shares the decrypted file on press', async () => {
+        mocks.resolveSource.mockResolvedValueOnce({
+            uri: 'file:///tmp/floor-plan.pdf',
+            headers: {},
+            release: mocks.release,
+        });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={pdfTool()} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        const card = renderer.root.findByProps({ testID: 'document-attachment-card-user' });
+        expect(mocks.resolveSource).not.toHaveBeenCalled();
+
+        await act(async () => {
+            await card.props.onPress();
+        });
+
+        expect(mocks.resolveSource).toHaveBeenCalledWith({
+            sessionId: 's1',
+            ref: 'sessions/s1/attachments/floor-plan.enc',
+            mimeType: 'application/pdf',
+            encrypted: undefined,
+        });
+        expect(mocks.share).toHaveBeenCalledWith('file:///tmp/floor-plan.pdf', {
+            dialogTitle: 'floor-plan.pdf',
+            mimeType: 'application/pdf',
+        });
+        expect(mocks.release).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
 });

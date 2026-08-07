@@ -1,11 +1,11 @@
 /**
- * Audio/video attachment lane helpers.
+ * Local-file attachment lane helpers.
  *
  * Unlike images (E2E-encrypted, decrypted into memory, sniffed by magic byte),
- * audio/video travel plaintext and are streamed straight to disk. The model
- * cannot read the media directly, so we hand it the local file *path* as text
- * and let it run ffmpeg/whisper. These helpers decide the kind, pick a safe
- * on-disk filename, and format the prompt notice.
+ * Audio/video may travel plaintext and stream straight to disk; PDF files stay
+ * encrypted and are staged after decryption. The model receives each exact
+ * local path as text. These helpers decide the kind, pick a safe filename, and
+ * format the prompt notice.
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -18,7 +18,7 @@ export type MediaFileEvent = {
     name: string;
     size: number;
     mimeType?: string;
-    kind?: 'image' | 'audio' | 'video';
+    kind?: 'image' | 'audio' | 'video' | 'file';
     encrypted?: boolean;
 };
 
@@ -36,13 +36,15 @@ export function isPlaintextMediaEvent(ev: MediaFileEvent): boolean {
  * the mimeType prefix, then the filename extension. Defaults to 'video' when
  * nothing is conclusive (it still lands on disk and the path is handed off).
  */
-export function resolveMediaKind(ev: MediaFileEvent): 'audio' | 'video' {
-    if (ev.kind === 'audio' || ev.kind === 'video') return ev.kind;
+export function resolveMediaKind(ev: MediaFileEvent): 'audio' | 'video' | 'file' {
+    if (ev.kind === 'audio' || ev.kind === 'video' || ev.kind === 'file') return ev.kind;
     const mime = (ev.mimeType ?? '').toLowerCase();
     if (mime.startsWith('audio/')) return 'audio';
     if (mime.startsWith('video/')) return 'video';
+    if (mime === 'application/pdf') return 'file';
     const ext = (ev.name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
     if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(ext)) return 'audio';
+    if (ext === 'pdf') return 'file';
     return 'video';
 }
 
@@ -84,11 +86,12 @@ export async function buildMediaAttachmentFromBytes(
     };
 }
 
-/** Whether a file event is an audio/video attachment (by kind or mimeType). */
+/** Whether a file event should be staged to a local path instead of sent as an image. */
 export function isMediaFileEvent(ev: MediaFileEvent): boolean {
-    if (ev.kind === 'audio' || ev.kind === 'video') return true;
+    if (ev.kind === 'audio' || ev.kind === 'video' || ev.kind === 'file') return true;
     const mime = (ev.mimeType ?? '').toLowerCase();
-    return mime.startsWith('audio/') || mime.startsWith('video/');
+    if (mime.startsWith('audio/') || mime.startsWith('video/') || mime === 'application/pdf') return true;
+    return ev.name.toLowerCase().endsWith('.pdf');
 }
 
 function humanSize(bytes: number): string {
@@ -98,19 +101,23 @@ function humanSize(bytes: number): string {
 }
 
 /**
- * Prompt text injected for staged audio/video attachments. Returns null when
- * there are none. Tells the model it can't read the media directly but the file
- * is on disk at these paths, and to use command-line tools.
+ * Prompt text injected for staged local-file attachments. Returns null when
+ * there are none. PDFs are directly readable at their path; audio/video can be
+ * processed with command-line tools.
  */
 export function formatMediaAttachmentNotice(items: MediaAttachment[]): string | null {
     if (items.length === 0) return null;
-    const lines = items.map(
-        (it, i) => `- ${it.kind === 'audio' ? 'Audio' : 'Video'} ${i + 1}: ${it.localPath} (${it.mimeType}, ${humanSize(it.size)})`,
-    );
+    const lines = items.map((it, i) => {
+        const label = it.kind === 'audio' ? 'Audio' : it.kind === 'video' ? 'Video' : 'File';
+        return `- ${label} ${i + 1}: ${it.localPath} (${it.mimeType}, ${humanSize(it.size)})`;
+    });
+    const hasDocument = items.some((item) => item.kind === 'file');
+    const hasMedia = items.some((item) => item.kind === 'audio' || item.kind === 'video');
     return [
-        `[附件] 用户附带 ${items.length} 个音视频文件，已保存到本地磁盘：`,
+        `Happy attached ${items.length} user-uploaded local file${items.length === 1 ? '' : 's'} to this turn:`,
         ...lines,
-        '你无法直接读取音视频内容，但可以用命令行工具处理这些本地文件（例如 ffmpeg 抽帧/取信息、whisper 转录）。请按用户需求处理。',
-        '不要去扫描 ~/.happy/attachments 猜测文件，直接使用上面给出的确切路径。',
+        ...(hasDocument ? ['Use the exact local file path above to read or process the PDF according to the user request.'] : []),
+        ...(hasMedia ? ['Audio/video content is available at the exact paths above; use command-line tools such as ffmpeg or whisper when needed.'] : []),
+        'Do not scan ~/.happy/attachments or guess which file the user intended.',
     ].join('\n');
 }

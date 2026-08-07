@@ -8,7 +8,7 @@ export type AttachmentUploadDependencies = {
         sessionId: string,
         filename: string,
         size: number,
-        kind?: 'image' | 'audio' | 'video',
+        kind?: 'image' | 'audio' | 'video' | 'file',
     ) => Promise<RequestUploadResult>;
     uploadMediaFile: (
         upload: RequestUploadResult,
@@ -79,5 +79,6 @@ export async function uploadAttachmentForSession(
         width: attachment.width,
         height: attachment.height,
         thumbhash: attachment.thumbhash,
+        ...(kind === 'file' ? { kind, mimeType: attachment.mimeType } : {}),
     };
 }
