@@ -119,7 +119,7 @@ Collector 实例持有 `previousWorkerMembership`，每次分析后替换为 `ne
 
 ### 4.3 主要资源来源
 
-UI 不展示完整命令行。Monitor 在本机把进程标准化为应用族并聚合 CPU/RSS：
+UI 不展示完整命令行。`MacProcessSnapshotAnalyzer` 在本机把进程标准化为应用族并聚合 CPU/RSS；Monitor 只维护 Analyzer 输出的脱敏来源序列并执行持续规则：
 
 - `Google Chrome*`、`Google Chrome Helper*` → `Chrome`
 - `Cursor*`、`Cursor Helper*` → `Cursor`
@@ -261,7 +261,7 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 6. 慢网络只会积压一个最新监控快照，不会每 15 秒增加一条重试任务。
 7. 单次 ACK 使用 Socket.IO `timeout(5000)`；普通写入最多尝试 2 次，且每次尝试前必须确认当前 connection generation 仍为 connected。断连事件递增 generation、清空普通 pending 队列；旧 generation 的迟到 ACK 不更新本地 state/version。
 8. Monitor 调度只负责 enqueue，不 await 网络写入，因此 ACK 超时和重试不会阻塞采集、心跳或会话管理。
-9. 进入关机时立即标记 Publisher closing、禁止新任务并丢弃 pending health。最多等待当前请求 1 秒；仍 connected 时再用 1 秒 ACK 超时 best-effort 写 `shutting-down`。无论结果如何，关机总等待不超过 2 秒，随后继续 socket/control server/lock 清理。
+9. 进入关机时立即标记 Publisher closing、禁止新任务并丢弃 pending health。最多等待当前请求 1 秒：若它仍在途，则递增 generation 使其迟到结果失效，**跳过**远端 `shutting-down` 写入并直接继续清理，绝不并发发第二个请求；若队列已确认无在途请求且仍 connected，才用 1 秒 ACK 超时 best-effort 写 `shutting-down`。无论结果如何，关机总等待不超过 2 秒，随后继续 socket/control server/lock 清理。
 
 ### 6.2 失败与重连
 
