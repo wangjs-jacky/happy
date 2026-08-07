@@ -98,7 +98,7 @@ export const ProjectSectionHeader = React.memo(({
     return (
         <View
             style={[styles.sectionHeader, (hovered || !!menuAnchor) && styles.sectionHeaderHovered]}
-            testID={testID}
+            testID={`${testID}-container`}
             {...hoverProps}
         >
             <Pressable
@@ -112,7 +112,7 @@ export const ProjectSectionHeader = React.memo(({
                     showActions && styles.sectionHeaderMainWithActions,
                     pressed && styles.sectionHeaderPressed,
                 ]}
-                testID={`${testID}-disclosure`}
+                testID={testID}
                 {...contextMenuProps}
             >
                 <View style={styles.sectionFolder}>

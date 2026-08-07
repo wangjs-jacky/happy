@@ -99,7 +99,7 @@ describe('ProjectSectionHeader desktop hover actions', () => {
 
     it('shows the matching more and new-session icons only while hovered', () => {
         const { renderer } = renderHeader();
-        const header = findHostByTestId(renderer, 'project-console');
+        const header = findHostByTestId(renderer, 'project-console-container');
 
         expect(renderer.root.findAllByProps({ testID: 'project-console-actions' })).toHaveLength(0);
         expect(renderer.root.findAllByType('StatusDot')).toHaveLength(1);
@@ -122,7 +122,7 @@ describe('ProjectSectionHeader desktop hover actions', () => {
         const onToggle = vi.fn();
         const { renderer } = renderHeader({ onToggle });
 
-        act(() => renderer.root.findByProps({ testID: 'project-console-disclosure' }).props.onPress());
+        act(() => findHostByTestId(renderer, 'project-console').props.onPress());
 
         expect(onToggle).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
@@ -131,7 +131,7 @@ describe('ProjectSectionHeader desktop hover actions', () => {
     it('preselects the project before opening the existing new-session flow', () => {
         const onCreateSession = vi.fn();
         const { renderer } = renderHeader({ onCreateSession });
-        const header = findHostByTestId(renderer, 'project-console');
+        const header = findHostByTestId(renderer, 'project-console-container');
         act(() => header.props.onMouseEnter());
         const stopPropagation = vi.fn();
 
@@ -150,7 +150,7 @@ describe('ProjectSectionHeader desktop hover actions', () => {
 
     it('opens the unchanged session action popover from the more icon and right click', () => {
         const { renderer } = renderHeader();
-        const header = findHostByTestId(renderer, 'project-console');
+        const header = findHostByTestId(renderer, 'project-console-container');
         act(() => header.props.onMouseEnter());
         const anchorTarget = {
             getBoundingClientRect: () => ({ left: 20, top: 30, width: 28, height: 28 }),
@@ -170,7 +170,7 @@ describe('ProjectSectionHeader desktop hover actions', () => {
         });
 
         act(() => popover.props.onClose());
-        const disclosure = renderer.root.findByProps({ testID: 'project-console-disclosure' });
+        const disclosure = findHostByTestId(renderer, 'project-console');
         act(() => disclosure.props.onContextMenu({
             currentTarget: anchorTarget,
             preventDefault: vi.fn(),
