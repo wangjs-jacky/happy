@@ -45,8 +45,9 @@ Mac mini 最近一次失联并非单一应用导致，而是 Paws 旧 worker 未
 
 ```mermaid
 flowchart LR
-    A[macOS 系统命令] --> B[MacSystemHealthCollector\n只采集事实]
-    C[daemon 当前会话 PID 表] --> B
+    A[macOS 系统命令] --> X[MacProcessSnapshotAnalyzer\n本机归因 + 脱敏]
+    C[daemon 当前会话 PID 表] --> X
+    X --> B[MacSystemHealthCollector\n结构化采样]
     B --> D[SystemHealthMonitor\n滚动窗口 + 规则判断]
     D --> P[DaemonStatePublisher\n串行 + latest wins]
     P --> E[daemonState.systemHealth]
@@ -55,7 +56,7 @@ flowchart LR
     G --> H[机器详情页\n状态 + 当前值 + 30 分钟趋势]
 ```
 
-系统分为四个边界清晰的单元：
+系统分为五个边界清晰的单元：
 
 | 单元 | 职责 | 输入 | 输出 |
 |---|---|---|---|
@@ -100,7 +101,7 @@ worker root 按以下可测试规则识别：
 4. 候选 root 与 tracked PID/fingerprint 完全相同，或候选是 tmux tracked pane PID 的后代时，归为正常 worker；tmux 关联只沿当前进程祖先链判断，不按名称猜测。
 5. 候选 root 没有关联到当前 tracked 引用时，归为孤儿 worker。daemon 重启后旧 worker 不在新跟踪表中，因此会被识别。
 6. 从终端启动且没有 daemon 标记的会话不属于本指标；本轮宁可不计，也不把普通用户进程误报为孤儿。
-7. Monitor 记住上一采样中每棵 worker 树的成员 fingerprint。若 root 退出、已知后代被 `launchd` 接管且 fingerprint 未变，剩余后代继续作为该 root 的 orphan remainder 统计；成员全部退出后删除。未知且无 daemon 标记的进程不会因名称相似被追溯为孤儿。
+7. Collector 持有上一采样中每棵 worker 树的成员 fingerprint，并把它传给纯函数 Analyzer。若 root 退出、已知后代被 `launchd` 接管且 fingerprint 未变，Analyzer 让剩余后代继续作为该 root 的 orphan remainder 统计；成员全部退出后删除。未知且无 daemon 标记的进程不会因名称相似被追溯为孤儿。
 
 判断逻辑独立为纯函数，输入标准化进程表、tracked 引用和上一采样成员映射，输出互不重叠的 worker 树，便于用 fixture 覆盖普通 spawn、tmux pane、daemon 重启、根进程先退出、嵌套候选和 PID 重用。
 
