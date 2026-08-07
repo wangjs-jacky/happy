@@ -4,6 +4,7 @@ import { downloadMediaPlaybackSource } from './createMediaPlaybackSource';
 const mocks = vi.hoisted(() => ({
     deleteAsync: vi.fn(),
     downloadAsync: vi.fn(),
+    makeDirectoryAsync: vi.fn(),
     writeAsStringAsync: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock('expo-file-system/legacy', () => ({
     deleteAsync: mocks.deleteAsync,
     downloadAsync: mocks.downloadAsync,
     EncodingType: { Base64: 'base64' },
+    makeDirectoryAsync: mocks.makeDirectoryAsync,
     writeAsStringAsync: mocks.writeAsStringAsync,
 }));
 vi.mock('@/encryption/base64', () => ({ encodeBase64: vi.fn() }));
@@ -63,5 +65,27 @@ describe('downloadMediaPlaybackSource', () => {
 
         const target = mocks.downloadAsync.mock.calls[0][1];
         expect(mocks.deleteAsync).toHaveBeenCalledWith(target, { idempotent: true });
+    });
+
+    it('preserves the original PDF filename in a collision-safe cache directory', async () => {
+        mocks.downloadAsync.mockImplementation(async (_source: string, target: string) => ({
+            uri: target,
+            status: 200,
+            headers: {},
+            mimeType: 'application/pdf',
+        }));
+
+        const result = await downloadMediaPlaybackSource({
+            uri: 'https://files.test/object.enc',
+            headers: {},
+        }, 'application/pdf', 'floor-plan.pdf');
+
+        const target = mocks.downloadAsync.mock.calls[0][1];
+        expect(target).toMatch(/^file:\/\/\/cache\/paws-media-.+\/floor-plan\.pdf$/);
+        const directory = target.slice(0, -'floor-plan.pdf'.length);
+        expect(mocks.makeDirectoryAsync).toHaveBeenCalledWith(directory, { intermediates: true });
+
+        await result.release?.();
+        expect(mocks.deleteAsync).toHaveBeenCalledWith(directory, { idempotent: true });
     });
 });

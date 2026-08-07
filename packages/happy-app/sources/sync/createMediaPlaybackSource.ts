@@ -3,6 +3,7 @@ import {
     deleteAsync,
     downloadAsync,
     EncodingType,
+    makeDirectoryAsync,
     writeAsStringAsync,
 } from 'expo-file-system/legacy';
 import { encodeBase64 } from '@/encryption/base64';
@@ -19,23 +20,47 @@ const EXTENSION_BY_MIME: Readonly<Record<string, string>> = {
     'application/pdf': 'pdf',
 };
 
-function createMediaCacheUri(mimeType: string): string {
+type MediaCacheTarget = {
+    uri: string;
+    cleanupUri: string;
+    directory?: string;
+};
+
+function safeCacheFileName(fileName: string, fallbackExtension: string): string {
+    const baseName = fileName.split(/[\\/]/).pop()?.replace(/[\u0000-\u001f\u007f]/g, '_').trim();
+    if (!baseName || baseName === '.' || baseName === '..') return `attachment.${fallbackExtension}`;
+    return baseName;
+}
+
+function createMediaCacheTarget(mimeType: string, fileName?: string): MediaCacheTarget {
     if (!cacheDirectory) throw new Error('Media cache directory is unavailable');
     const extension = EXTENSION_BY_MIME[mimeType.toLowerCase()] ?? 'media';
-    return `${cacheDirectory}paws-media-${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    if (fileName) {
+        const directory = `${cacheDirectory}paws-media-${token}/`;
+        return {
+            uri: `${directory}${safeCacheFileName(fileName, extension)}`,
+            cleanupUri: directory,
+            directory,
+        };
+    }
+    const uri = `${cacheDirectory}paws-media-${token}.${extension}`;
+    return { uri, cleanupUri: uri };
 }
 
 /** Stage decrypted media in the native cache so WebView can play a file URI. */
 export async function createMediaPlaybackSource(
     bytes: Uint8Array,
     mimeType: string,
+    fileName?: string,
 ): Promise<MediaPlaybackSource> {
-    const uri = createMediaCacheUri(mimeType);
-    await writeAsStringAsync(uri, encodeBase64(bytes), { encoding: EncodingType.Base64 });
+    const target = createMediaCacheTarget(mimeType, fileName);
+    if (target.directory) await makeDirectoryAsync(target.directory, { intermediates: true });
+    await writeAsStringAsync(target.uri, encodeBase64(bytes), { encoding: EncodingType.Base64 });
     return {
-        uri,
+        uri: target.uri,
         headers: {},
-        release: () => deleteAsync(uri, { idempotent: true }),
+        release: () => deleteAsync(target.cleanupUri, { idempotent: true }),
     };
 }
 
@@ -43,20 +68,22 @@ export async function createMediaPlaybackSource(
 export async function downloadMediaPlaybackSource(
     source: { uri: string; headers: Record<string, string> },
     mimeType: string,
+    fileName?: string,
 ): Promise<MediaPlaybackSource> {
-    const uri = createMediaCacheUri(mimeType);
+    const target = createMediaCacheTarget(mimeType, fileName);
     try {
-        const result = await downloadAsync(source.uri, uri, { headers: source.headers });
+        if (target.directory) await makeDirectoryAsync(target.directory, { intermediates: true });
+        const result = await downloadAsync(source.uri, target.uri, { headers: source.headers });
         if (result.status < 200 || result.status >= 300) {
             throw new Error(`Media download failed: ${result.status}`);
         }
         return {
             uri: result.uri,
             headers: {},
-            release: () => deleteAsync(result.uri, { idempotent: true }),
+            release: () => deleteAsync(target.cleanupUri, { idempotent: true }),
         };
     } catch (error) {
-        await deleteAsync(uri, { idempotent: true });
+        await deleteAsync(target.cleanupUri, { idempotent: true });
         throw error;
     }
 }

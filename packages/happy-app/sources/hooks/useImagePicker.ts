@@ -4,14 +4,14 @@
  * Wraps expo-image-picker with permission handling and thumbhash generation.
  * Enforces limits: max 50 images per message, 50MB per file.
  *
- * Note: fileSize from expo-image-picker is optional — some platforms do not
- * provide it (returns undefined → size=0). Such files pass the client-side
- * size check; the server enforces the limit on upload. Phase 5 should handle
- * 413 responses gracefully.
+ * File sizes reported by platform pickers are treated as hints: images are
+ * normalized and measured, while PDFs with a missing size are stat'ed before
+ * they can enter the attachment queue.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { getInfoAsync } from 'expo-file-system/legacy';
 import { Platform, Keyboard } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
@@ -25,7 +25,9 @@ export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
 // Media currently reuses the encrypted transport (server-capped at 50MB). The
 // 500MB plaintext-OSS lane is a future server+OSS upgrade.
 export const MAX_MEDIA_FILE_SIZE = 50 * 1024 * 1024; // 50MB — audio/video lane
-export const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024; // 50MB — encrypted document lane
+// secretbox adds a 24-byte nonce and a 16-byte authentication tag. Keep the
+// encrypted payload inside the server's 50MB attachment limit.
+export const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024 - 40;
 
 export type { AttachmentPreview };
 
@@ -242,11 +244,28 @@ export function useImagePicker(): UseImagePickerResult {
             if (mimeType !== 'application/pdf' && !name.toLowerCase().endsWith('.pdf')) {
                 continue;
             }
-            const size = asset.size ?? 0;
+            let size = asset.size;
+            if (size === undefined) {
+                let info: Awaited<ReturnType<typeof getInfoAsync>> | null = null;
+                try {
+                    info = await getInfoAsync(asset.uri);
+                } catch {
+                    // A platform picker URI may expire before it can be stat'ed.
+                }
+                if (!info?.exists || info.isDirectory || typeof info.size !== 'number') {
+                    Modal.alert(
+                        t('imageUpload.uploadFailedTitle'),
+                        t('imageUpload.uploadFailedMessage', { count: 1 }),
+                        [{ text: t('common.ok') }],
+                    );
+                    continue;
+                }
+                size = info.size;
+            }
             if (size > MAX_PDF_FILE_SIZE) {
                 Modal.alert(
                     t('imageUpload.fileTooLargeTitle'),
-                    t('imageUpload.fileTooLargeMessage', { name, maxMb: MAX_PDF_FILE_SIZE / 1024 / 1024 }),
+                    t('imageUpload.fileTooLargeMessage', { name, maxMb: 50 }),
                     [{ text: t('common.ok') }],
                 );
                 continue;

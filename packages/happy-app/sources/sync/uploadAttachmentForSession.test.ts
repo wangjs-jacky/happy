@@ -156,6 +156,38 @@ describe('uploadAttachmentForSession', () => {
         expect(result.encrypted).toBeUndefined();
     });
 
+    it('rejects a PDF whose actual bytes exceed the encrypted file limit', async () => {
+        const readFileBytes = vi.fn(async () => new Uint8Array(50 * 1024 * 1024 + 1));
+        const encryptBlob = vi.fn(() => new Uint8Array([1]));
+        const requestUpload = vi.fn(async () => ({
+            ref: 'sessions/s1/attachments/oversized.enc',
+            uploadUrl: 'https://bucket.example',
+            method: 'POST' as const,
+        }));
+
+        await expect(uploadAttachmentForSession({
+            credentials,
+            sessionId: 's1',
+            attachment: attachment({
+                uri: 'file:///tmp/oversized.pdf',
+                mimeType: 'application/pdf',
+                size: 0,
+                name: 'oversized.pdf',
+                kind: 'file' as any,
+            }),
+            blobKey,
+        }, {
+            requestUpload,
+            uploadMediaFile: vi.fn(),
+            readFileBytes,
+            encryptBlob,
+            uploadEncryptedBlob: vi.fn(),
+        })).rejects.toThrow('PDF attachment is too large');
+
+        expect(encryptBlob).not.toHaveBeenCalled();
+        expect(requestUpload).not.toHaveBeenCalled();
+    });
+
     it('requires a blob key only for encrypted images', async () => {
         await expect(uploadAttachmentForSession({
             credentials,

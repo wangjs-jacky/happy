@@ -2,6 +2,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as DocumentPicker from 'expo-document-picker';
+import { getInfoAsync } from 'expo-file-system/legacy';
 import { MAX_IMAGES_PER_MESSAGE, useImagePicker } from './useImagePicker';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
@@ -12,6 +13,9 @@ vi.mock('expo-image-picker', () => ({}));
 // expo-document-picker drags in expo-modules-core (__DEV__ undefined in node).
 vi.mock('expo-document-picker', () => ({
     getDocumentAsync: vi.fn(),
+}));
+vi.mock('expo-file-system/legacy', () => ({
+    getInfoAsync: vi.fn(),
 }));
 vi.mock('react-native', () => ({
     Platform: { OS: 'web' },
@@ -55,6 +59,7 @@ describe('useImagePicker PDF documents', () => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         current = null;
         vi.mocked(DocumentPicker.getDocumentAsync).mockReset();
+        vi.mocked(getInfoAsync).mockReset();
     });
 
     it('opens a PDF-only document picker and adds a generic file attachment', async () => {
@@ -96,6 +101,69 @@ describe('useImagePicker PDF documents', () => {
                 kind: 'file',
             }),
         ]);
+        act(() => renderer.unmount());
+    });
+
+    it('checks the real file size when the document picker omits it', async () => {
+        vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+            canceled: false,
+            assets: [{
+                uri: 'file:///tmp/oversized-plan.pdf',
+                name: 'oversized-plan.pdf',
+                mimeType: 'application/pdf',
+                lastModified: 0,
+            }],
+        });
+        vi.mocked(getInfoAsync).mockResolvedValue({
+            exists: true,
+            isDirectory: false,
+            uri: 'file:///tmp/oversized-plan.pdf',
+            size: 51 * 1024 * 1024,
+            modificationTime: 0,
+        });
+
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(React.createElement(Probe));
+        });
+        const pickPdf = (current as any)?.pickPdf;
+        expect(typeof pickPdf).toBe('function');
+        if (typeof pickPdf !== 'function') return;
+
+        await act(async () => {
+            await pickPdf();
+        });
+
+        expect(getInfoAsync).toHaveBeenCalledWith('file:///tmp/oversized-plan.pdf');
+        expect(current?.selectedImages).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('fails closed when a PDF with no reported size cannot be inspected', async () => {
+        vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+            canceled: false,
+            assets: [{
+                uri: 'file:///tmp/unreadable-plan.pdf',
+                name: 'unreadable-plan.pdf',
+                mimeType: 'application/pdf',
+                lastModified: 0,
+            }],
+        });
+        vi.mocked(getInfoAsync).mockRejectedValue(new Error('stat failed'));
+
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(React.createElement(Probe));
+        });
+        const pickPdf = (current as any)?.pickPdf;
+        expect(typeof pickPdf).toBe('function');
+        if (typeof pickPdf !== 'function') return;
+
+        await expect(act(async () => {
+            await pickPdf();
+        })).resolves.toBeUndefined();
+
+        expect(current?.selectedImages).toEqual([]);
         act(() => renderer.unmount());
     });
 });

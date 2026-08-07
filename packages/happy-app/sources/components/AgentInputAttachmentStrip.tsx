@@ -44,11 +44,10 @@ export function AgentInputAttachmentStrip({ images, onRemove, presentation = 'co
             contentContainerStyle={styles.stripContent}
             keyboardShouldPersistTaps="always"
         >
-            {images.map((img, index) => (
+            {images.map((img) => (
                 <AttachmentThumbnail
                     key={img.id}
                     image={img}
-                    index={index}
                     images={images}
                     onRemove={onRemove}
                     presentation={presentation}
@@ -61,14 +60,12 @@ export function AgentInputAttachmentStrip({ images, onRemove, presentation = 'co
 
 function AttachmentThumbnail({
     image,
-    index,
     images,
     onRemove,
     presentation,
     theme,
 }: {
     image: AttachmentPreview;
-    index: number;
     images: AttachmentPreview[];
     onRemove: (id: string) => void;
     presentation: AttachmentGalleryPresentation;
@@ -236,14 +233,16 @@ function AttachmentThumbnail({
         maxHeight: FEATURED_MAX_HEIGHT,
     });
     const isFeatured = presentation === 'featured';
+    const viewerImages = images.filter((item) => (item.kind ?? 'image') === 'image');
+    const viewerIndex = viewerImages.findIndex((item) => item.id === image.id);
 
     return (
         <View style={[styles.thumbContainer, displaySize]}>
             {/* Tap the image to open the fullscreen swipeable viewer at this one. */}
             <Pressable
                 onPress={() => imageViewer.open(
-                    images.map((it) => ({ uri: it.uri, width: it.width, height: it.height, filename: it.name })),
-                    index,
+                    viewerImages.map((it) => ({ uri: it.uri, width: it.width, height: it.height, filename: it.name })),
+                    Math.max(0, viewerIndex),
                 )}
                 style={[styles.thumbPressable, displaySize, { borderColor: theme.colors.divider }]}
             >

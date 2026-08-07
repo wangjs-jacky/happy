@@ -158,6 +158,7 @@ describe('FileView media playback', () => {
             sessionId: 's1',
             ref: 'sessions/s1/attachments/floor-plan.enc',
             mimeType: 'application/pdf',
+            fileName: 'floor-plan.pdf',
             encrypted: undefined,
         });
         expect(mocks.share).toHaveBeenCalledWith('file:///tmp/floor-plan.pdf', {

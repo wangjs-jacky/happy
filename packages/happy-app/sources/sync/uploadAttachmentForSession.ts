@@ -2,6 +2,9 @@ import type { AuthCredentials } from '@/auth/tokenStorage';
 import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
 import type { RequestUploadResult } from './apiAttachments';
 
+const MAX_ENCRYPTED_ATTACHMENT_SIZE = 50 * 1024 * 1024;
+const SECRETBOX_OVERHEAD_BYTES = 24 + 16;
+
 export type AttachmentUploadDependencies = {
     requestUpload: (
         credentials: AuthCredentials,
@@ -64,6 +67,9 @@ export async function uploadAttachmentForSession(
         throw new Error(`Attachment encryption key is unavailable for ${attachment.name}`);
     }
     const bytes = await dependencies.readFileBytes(attachment.uri);
+    if (kind === 'file' && bytes.length + SECRETBOX_OVERHEAD_BYTES > MAX_ENCRYPTED_ATTACHMENT_SIZE) {
+        throw new Error('PDF attachment is too large');
+    }
     const encrypted = dependencies.encryptBlob(bytes, blobKey);
     const upload = await dependencies.requestUpload(
         credentials,

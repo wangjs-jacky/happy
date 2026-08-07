@@ -121,6 +121,7 @@ function DocumentFileCard({ ref_, sessionId, name, size, mimeType, encrypted, so
                 sessionId,
                 ref: ref_,
                 mimeType: resolvedMimeType,
+                fileName: name,
                 encrypted,
             });
             if (!await Sharing.isAvailableAsync()) {
