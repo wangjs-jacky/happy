@@ -21,7 +21,6 @@ import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMessageAnchors';
 import { AnchorListSheet } from './AnchorListSheet';
 import { t } from '@/text';
-import { getSessionName } from '@/utils/sessionUtils';
 import { getDesktopTitlePromptMessageId } from '@/utils/desktopTitlePrompt';
 
 const SCROLL_THRESHOLD = 300;
@@ -106,10 +105,10 @@ const ChatListInternal = React.memo((props: {
     );
     const groupedDisplayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
     const desktopTitlePromptMessageId = React.useMemo(() => (
-        Platform.OS === 'web' && session
-            ? getDesktopTitlePromptMessageId(groupedDisplayItems, getSessionName(session))
+        Platform.OS === 'web'
+            ? getDesktopTitlePromptMessageId(groupedDisplayItems)
             : null
-    ), [groupedDisplayItems, session]);
+    ), [groupedDisplayItems]);
     const displayItems = React.useMemo(() => (
         desktopTitlePromptMessageId
             ? groupedDisplayItems.filter(item => item.id !== desktopTitlePromptMessageId)

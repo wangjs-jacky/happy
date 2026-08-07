@@ -1,14 +1,11 @@
 import type { DisplayItem } from '@/hooks/useGroupedMessages';
-import { deriveSessionFallbackTitle } from './sessionFallbackTitleText';
 
 /**
- * The first prompt seeds a new session's fallback title. On desktop web the
- * title is already persistent in the header, so rendering the same prompt as
- * the first chat bubble repeats it directly underneath.
+ * The oldest user record is the desktop session's title prompt. Keep it out
+ * of the conversation even when the persistent header title is renamed later.
  */
 export function getDesktopTitlePromptMessageId(
     displayItems: DisplayItem[],
-    sessionTitle: string,
 ): string | null {
     for (let index = displayItems.length - 1; index >= 0; index -= 1) {
         const item = displayItems[index];
@@ -16,8 +13,7 @@ export function getDesktopTitlePromptMessageId(
             continue;
         }
 
-        const fallbackTitle = deriveSessionFallbackTitle(item.message.displayText || item.message.text);
-        return fallbackTitle === sessionTitle.trim() ? item.message.id : null;
+        return item.message.id;
     }
 
     return null;

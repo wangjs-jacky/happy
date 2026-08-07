@@ -13,12 +13,21 @@ const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
 const projectHoverEvidenceDirectory = process.env.HAPPY_PROJECT_HOVER_EVIDENCE_DIR;
 const projectHoverEvidencePhase = process.env.HAPPY_PROJECT_HOVER_EVIDENCE_PHASE ?? 'after';
+const titlePromptEvidenceDirectory = process.env.HAPPY_TITLE_PROMPT_EVIDENCE_DIR;
+const titlePromptEvidencePhase = process.env.HAPPY_TITLE_PROMPT_EVIDENCE_PHASE ?? 'after';
 
 function projectHoverScreenshotPath(testInfo: { outputPath: (filename: string) => string }): string {
     const filename = `case-1-${projectHoverEvidencePhase}.png`;
     if (!projectHoverEvidenceDirectory) return testInfo.outputPath(filename);
     fs.mkdirSync(projectHoverEvidenceDirectory, { recursive: true });
     return path.join(projectHoverEvidenceDirectory, filename);
+}
+
+function titlePromptScreenshotPath(testInfo: { outputPath: (filename: string) => string }): string {
+    const filename = `case-1-${titlePromptEvidencePhase}.png`;
+    if (!titlePromptEvidenceDirectory) return testInfo.outputPath(filename);
+    fs.mkdirSync(titlePromptEvidenceDirectory, { recursive: true });
+    return path.join(titlePromptEvidenceDirectory, filename);
 }
 
 function authenticatedRoute(pathname: string): string {
@@ -2077,6 +2086,42 @@ test('[PROJECT-HOVER-ACTIONS] PC 项目行悬浮仅显示新建会话操作', as
         await expect(page).toHaveURL((url) => url.pathname === '/new');
         await expect(page.locator('[data-testid="new-session-message-input"]:visible')).toBeVisible();
     }
+});
+
+test('[PC-TITLE-PROMPT] PC 会话改名后仍隐藏首条标题提示', async ({ page, request }, testInfo) => {
+    const initialTitlePrompt = '优化批量图片生成体验';
+    const followUpPrompt = '这条后续消息必须继续显示。';
+    const sessionId = await createE2ESession(request, {
+        summary: '已重新命名的会话',
+        name: 'Renamed title-prompt regression',
+    });
+    await createE2EUserMessage(request, sessionId, {
+        text: initialTitlePrompt,
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        permission: 'default',
+    });
+    await createE2EUserMessage(request, sessionId, {
+        text: followUpPrompt,
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        permission: 'default',
+    });
+
+    await page.setViewportSize({ width: 1496, height: 768 });
+    await page.goto(authenticatedRoute(`/session/${sessionId}`));
+    await expect(page.getByTestId('session-header-title')).toHaveText('已重新命名的会话');
+    await expect(page.getByText(followUpPrompt, { exact: true })).toBeVisible();
+    if (titlePromptEvidencePhase === 'before') {
+        await expect(page.getByText(initialTitlePrompt, { exact: true })).toBeVisible();
+    } else {
+        await expect(page.getByText(initialTitlePrompt, { exact: true })).toHaveCount(0);
+    }
+    await pauseForRecordedReview(page, 1_000);
+    await page.screenshot({
+        path: titlePromptScreenshotPath(testInfo),
+        fullPage: true,
+    });
 });
 
 test('[R10-01] 每轮权限、模型与推理强度经 UI 发送并在离线重连后保持一致', async ({ page, request }, testInfo) => {
