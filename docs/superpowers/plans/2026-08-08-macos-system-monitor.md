@@ -129,7 +129,7 @@ it('embeds health state in daemonState and capability in metadata', () => {
 
 - [ ] **Step 2: 确认测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/api/systemHealthTypes.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/api/systemHealthTypes.test.ts`
 
 Expected: FAIL，提示 `SystemHealthSnapshotSchema` 尚未导出。
 
@@ -209,11 +209,11 @@ systemHealthMonitor: z.object({
 
 - [ ] **Step 5: 运行契约测试和两端类型检查**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/api/systemHealthTypes.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/api/systemHealthTypes.test.ts`
 
 Expected: PASS。
 
-Run: `pnpm --filter happy-cli run build && pnpm --filter happy-app run typecheck`
+Run: `pnpm --filter @wangjs-jacky/paws run build && pnpm --filter happy-app run typecheck`
 
 Expected: 两条命令均退出 0。
 
@@ -284,7 +284,7 @@ it('never exposes raw command lines in its serialized result', () => {
 
 - [ ] **Step 2: 确认测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
 
 Expected: FAIL，模块不存在。
 
@@ -310,7 +310,7 @@ const unknownSourceId = (fullComm: string) =>
 
 - [ ] **Step 5: 运行测试**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
 
 Expected: PASS，覆盖 worker、tmux、孤儿、PID reuse 和隐私断言。
 
@@ -367,7 +367,7 @@ expect(exec.calls).toContainEqual({
 
 - [ ] **Step 2: 确认测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/macSystemHealthCollector.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/macSystemHealthCollector.test.ts`
 
 Expected: FAIL，collector 不存在。
 
@@ -393,7 +393,7 @@ CPU 使用 `top` 第二次采样的 `CPU usage` 推导；内存 available 使用
 
 - [ ] **Step 5: 运行 collector 与 analyzer 测试**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/macSystemHealthCollector.test.ts src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/macSystemHealthCollector.test.ts src/daemon/systemHealth/macProcessSnapshotAnalyzer.test.ts`
 
 Expected: PASS。
 
@@ -452,7 +452,7 @@ it('uses the oldest sample in the 9.5–10.5 minute swap baseline window', () =>
 
 - [ ] **Step 2: 确认测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/systemHealthMonitor.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/systemHealthMonitor.test.ts`
 
 Expected: FAIL，monitor 不存在。
 
@@ -493,7 +493,7 @@ const THRESHOLDS = {
 
 - [ ] **Step 6: 运行测试并提交**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/systemHealthMonitor.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/systemHealthMonitor.test.ts`
 
 Expected: PASS。
 
@@ -549,7 +549,7 @@ it('never runs two writes concurrently and keeps only the latest health mutation
 
 - [ ] **Step 2: 确认发布器测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/api/daemonStatePublisher.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/api/daemonStatePublisher.test.ts`
 
 Expected: FAIL，模块不存在。
 
@@ -573,7 +573,7 @@ export interface DaemonStateTransport {
 
 - [ ] **Step 5: 运行发布器和现有 API 测试**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/api/daemonStatePublisher.test.ts src/api/apiMachine.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/api/daemonStatePublisher.test.ts src/api/apiMachine.test.ts`
 
 Expected: PASS，且 mocked socket 观察到最大并发数为 1。
 
@@ -616,7 +616,7 @@ expect(publisher.latestSnapshots.map((item) => item.updatedAt)).toEqual([5_000, 
 
 - [ ] **Step 2: 确认测试先失败**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/systemHealthRuntime.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/systemHealthRuntime.test.ts`
 
 Expected: FAIL，runtime 不存在。
 
@@ -641,11 +641,11 @@ daemon API client 建立后启动 runtime；每个样本调用 `publishSystemHea
 
 - [ ] **Step 6: 运行 runtime、daemon/API 回归测试**
 
-Run: `pnpm --filter happy-cli exec vitest run --project unit src/daemon/systemHealth/systemHealthRuntime.test.ts src/api/daemonStatePublisher.test.ts src/api/apiMachine.test.ts`
+Run: `pnpm --filter @wangjs-jacky/paws exec vitest run --project unit src/daemon/systemHealth/systemHealthRuntime.test.ts src/api/daemonStatePublisher.test.ts src/api/apiMachine.test.ts`
 
 Expected: PASS。
 
-Run: `pnpm --filter happy-cli run build`
+Run: `pnpm --filter @wangjs-jacky/paws run build`
 
 Expected: PASS，无未处理 Promise 和类型错误。
 
@@ -891,7 +891,7 @@ Expected: 输出命中 `.gitignore` 的新规则。
 
 - [ ] **Step 3: 跑 CLI 全量测试和构建**
 
-Run: `pnpm --filter happy-cli test`
+Run: `pnpm --filter @wangjs-jacky/paws test`
 
 Expected: PASS，包含 build 与 unit project。
 
@@ -959,7 +959,7 @@ ssh jacky@100.109.106.78 'repo=$(find "$HOME" -path "*/happy-study/happy/.git" -
 
 在临时 worktree 复用远端主仓库 `node_modules` symlink（存在时），否则用远端 `/opt/homebrew` ARM 工具链执行 `corepack pnpm install --frozen-lockfile`。随后：
 
-Run remote: `HAPPY_SYSTEM_HEALTH_MONITOR=1 pnpm --filter happy-cli run build`
+Run remote: `HAPPY_SYSTEM_HEALTH_MONITOR=1 pnpm --filter @wangjs-jacky/paws run build`
 
 Expected: PASS；`node -p process.arch` 输出 `arm64`。
 
@@ -1021,7 +1021,7 @@ Run: `review_dir=$(find artifacts/interaction-review/macos-system-monitor -name 
 
 Expected: 功能文件全部已提交；无未提交代码差异；评审报告命中 ignore。
 
-Run: `pnpm --filter happy-cli test && pnpm --filter happy-app exec vitest run && pnpm --filter happy-app run typecheck`
+Run: `pnpm --filter @wangjs-jacky/paws test && pnpm --filter happy-app exec vitest run && pnpm --filter happy-app run typecheck`
 
 Expected: 全部 PASS。
 
