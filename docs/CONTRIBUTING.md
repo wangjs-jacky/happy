@@ -101,11 +101,11 @@ Do not start Expo/Metro, a simulator, an emulator, Tauri dev, or a real device u
 
 | Variant | Package / bundle ID | App name | OTA channel | Runtime |
 |---|---|---|---|---|
-| Development | `build.paws.dev` | `Paws (dev)` | `preview` | `21` |
-| Preview | `build.paws.preview` | `Paws (preview)` | `preview` | `21` |
-| Production | `build.paws` | `Paws` | `production` | `22` |
+| Development | `build.paws.dev` | `Paws (dev)` | `preview` | `22` |
+| Preview | `build.paws.preview` | `Paws (preview)` | `preview` | `22` |
+| Production | `build.paws` | `Paws` | `production` | `23` |
 
-Treat `packages/happy-app/app.config.js` as the source of truth. Changing package IDs, Expo plugins, permissions, update URLs, or runtime versions requires a new native build.
+Treat `packages/happy-app/ota-runtime-versions.json` as the runtime source of truth. Changing package IDs, Expo plugins, permissions, update URLs, or runtime versions requires a new native build.
 
 ## Documentation and Naming
 
