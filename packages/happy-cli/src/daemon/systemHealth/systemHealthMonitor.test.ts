@@ -140,6 +140,26 @@ describe('SystemHealthMonitor', () => {
     ])
   })
 
+  it('retains only complete raw samples from the latest 11 minutes', () => {
+    const monitor = new SystemHealthMonitor()
+    for (let index = 0; index <= 46; index += 1) {
+      monitor.record(complete(index * INTERVAL_MS))
+      if (index === 20) {
+        monitor.record({
+          kind: 'partial',
+          attemptedAt: index * INTERVAL_MS + 1,
+          durationMs: 1,
+          values: { sampledAt: index * INTERVAL_MS + 1 },
+          commandErrors: [{ command: 'top', code: 'timeout' }],
+        })
+      }
+    }
+    const rawSamples = (monitor as unknown as { rawSamples: Array<{ current: { sampledAt: number } }> }).rawSamples
+    expect(rawSamples).toHaveLength(45)
+    expect(rawSamples[0]?.current.sampledAt).toBe(2 * INTERVAL_MS)
+    expect(rawSamples.at(-1)?.current.sampledAt).toBe(46 * INTERVAL_MS)
+  })
+
   describe('instant rule boundaries', () => {
     it.each([
       ['orphan-workers', { orphanWorkerRoots: 1 }, { orphanWorkerRoots: 5 }, 1, 5, 'count'],
@@ -230,6 +250,26 @@ describe('SystemHealthMonitor', () => {
       expect(issue(snapshot, 'single-source-cpu-high', 'six')).toMatchObject({ severity: 'warning', threshold: 100 })
     })
 
+    it('applies both 80 percent gates to source CPU and uses exact warning and critical boundaries', () => {
+      const timestamps = Array.from({ length: 21 }, (_, index) => index * INTERVAL_MS)
+        .filter((_, index) => ![2, 6, 10, 14].includes(index))
+      const warning = new SystemHealthMonitor()
+      for (const [index, sampledAt] of timestamps.entries()) {
+        warning.record(complete(sampledAt, { sources: [source('boundary', index < 3 ? 0 : 100)] }))
+      }
+      expect(issue(warning.getSnapshot(), 'single-source-cpu-high', 'boundary')).toMatchObject({ severity: 'warning', threshold: 100 })
+
+      const critical = new SystemHealthMonitor()
+      for (const sampledAt of timestamps) critical.record(complete(sampledAt, { sources: [source('boundary', 200)] }))
+      expect(issue(critical.getSnapshot(), 'single-source-cpu-high', 'boundary')).toMatchObject({ severity: 'critical', threshold: 200 })
+
+      const insufficient = new SystemHealthMonitor()
+      for (const [index, sampledAt] of timestamps.entries()) {
+        if (index !== 1) insufficient.record(complete(sampledAt, { sources: [source('boundary', 200)] }))
+      }
+      expect(issue(insufficient.getSnapshot(), 'single-source-cpu-high', 'boundary')).toBeUndefined()
+    })
+
     it('records a disappeared source as zero and recovers its issue after three complete samples', () => {
       const monitor = new SystemHealthMonitor()
       const hot = source('hot', 210)
@@ -246,12 +286,12 @@ describe('SystemHealthMonitor', () => {
       `source-${index}`,
       index,
       (7 - index) * 1_000,
-      index % 2 === 0 ? index : 0,
+      index + 1,
     ))
     const current = new SystemHealthMonitor().record(complete(0, { sources })).current
     expect(current?.topCpuSources.map((item) => item.id)).toEqual(['source-7', 'source-6', 'source-5', 'source-4', 'source-3'])
     expect(current?.topMemorySources.map((item) => item.id)).toEqual(['source-0', 'source-1', 'source-2', 'source-3', 'source-4'])
-    expect(current?.topZombieSources.map((item) => item.id)).toEqual(['source-6', 'source-4', 'source-2'])
+    expect(current?.topZombieSources.map((item) => item.id)).toEqual(['source-7', 'source-6', 'source-5', 'source-4', 'source-3'])
   })
 
   it('uses code and subject as the issue key and caps synchronized issues at 16', () => {
