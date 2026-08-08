@@ -16,6 +16,7 @@ interface JoinedProcess extends MacProcessStatRow {
 const DAEMON_MARKER = /(?:^|\s)--started-by(?:=daemon|\s+daemon)(?=\s|$)/
 const AGENT_SUBCOMMAND = /(?:^|\s)(?:claude|codex|gemini|opencode|openclaw)(?=\s|$)/
 const CLI_SCRIPT = /(?:^|\s)(?:\S*\/(?:happy|paws)\.mjs|\S*\/dist\/index\.mjs)(?=\s|$)/
+const SOURCE_CATEGORY_LIMIT = 8
 
 function safeBasename(value: string): string {
   const normalized = value.trim().replaceAll('\\', '/')
@@ -76,6 +77,23 @@ function descendants(rootPid: number, processes: JoinedProcess[]): JoinedProcess
 
 function emptyAggregate() {
   return { rootCount: 0, processCount: 0, rssBytes: 0 }
+}
+
+function selectRelevantSources(sources: SystemHealthSource[]): SystemHealthSource[] {
+  const selected = new Map<string, SystemHealthSource>()
+  const add = (items: SystemHealthSource[]) => {
+    for (const source of items.slice(0, SOURCE_CATEGORY_LIMIT)) selected.set(source.id, source)
+  }
+
+  add([...sources].sort((a, b) => b.cpuPercent - a.cpuPercent))
+  add([...sources].sort((a, b) => b.rssBytes - a.rssBytes))
+  add(sources
+    .filter((source) => source.zombieProcessCount > 0)
+    .sort((a, b) => b.zombieProcessCount - a.zombieProcessCount))
+
+  const pawsWorkers = sources.find((source) => source.id === 'paws-workers')
+  if (pawsWorkers) selected.set(pawsWorkers.id, pawsWorkers)
+  return [...selected.values()]
 }
 
 export function analyzeMacProcessSnapshot(input: MacProcessAnalysisInput): MacProcessAnalysisResult {
@@ -165,7 +183,7 @@ export function analyzeMacProcessSnapshot(input: MacProcessAnalysisInput): MacPr
     worker: normalTrees.length > 0 ? aggregate(normalTrees) : emptyAggregate(),
     orphans: orphanTrees.length > 0 ? aggregate(orphanTrees) : emptyAggregate(),
     zombieProcessCount: processes.filter((process) => process.state.startsWith('Z')).length,
-    sources: [...sourceMap.values()],
+    sources: selectRelevantSources([...sourceMap.values()]),
     nextMembership,
   }
 }

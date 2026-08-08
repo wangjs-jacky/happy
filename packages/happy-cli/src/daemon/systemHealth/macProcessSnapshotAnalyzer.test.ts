@@ -104,4 +104,37 @@ describe('analyzeMacProcessSnapshot', () => {
     expect(first.sources.find((source) => source.name === 'custom-worker')?.id)
       .toBe(second.sources.find((source) => source.name === 'custom-worker')?.id)
   })
+
+  it('bounds source cardinality while retaining cpu, memory, zombie, and worker risks', () => {
+    const ordinary = Array.from({ length: 100 }, (_, index) => ({
+      pid: index + 100,
+      comm: `/usr/bin/process-${index}`,
+      stat: stat(index + 100, 1, index === 99 ? 90 : index / 10, index === 98 ? 900_000 : 10, 5),
+    }))
+    const workerPid = 500
+    const zombiePid = 501
+    const result = analyzeMacProcessSnapshot(fixture({
+      stats: [
+        ...ordinary.map((process) => process.stat),
+        stat(workerPid, 1, 1, 20, 5),
+        stat(zombiePid, 1, 0, 0, 5, 'Z'),
+      ],
+      commands: [
+        ...ordinary.map((process) => ({ pid: process.pid, value: process.comm })),
+        { pid: workerPid, value: 'paws' },
+        { pid: zombiePid, value: '/usr/bin/zombie-source' },
+      ],
+      arguments: [
+        ...ordinary.map((process) => ({ pid: process.pid, value: process.comm })),
+        { pid: workerPid, value: 'paws codex --started-by daemon' },
+        { pid: zombiePid, value: 'zombie-source' },
+      ],
+    }))
+
+    expect(result.sources.length).toBeLessThanOrEqual(25)
+    expect(result.sources.some((source) => source.name === 'process-99')).toBe(true)
+    expect(result.sources.some((source) => source.name === 'process-98')).toBe(true)
+    expect(result.sources.some((source) => source.name === 'zombie-source')).toBe(true)
+    expect(result.sources.some((source) => source.id === 'paws-workers')).toBe(true)
+  })
 })
