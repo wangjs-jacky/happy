@@ -288,6 +288,18 @@ describe('SystemHealthMonitor', () => {
       })
     })
 
+    it('requires the valid source observation window itself to span five minutes', () => {
+      const monitor = new SystemHealthMonitor()
+      monitor.record(complete(0, { sources: undefined }))
+      for (let index = 1; index <= 20; index += 1) {
+        monitor.record(complete(index * INTERVAL_MS, { sources: [source('boundary', 100)] }))
+      }
+      expect(issue(monitor.getSnapshot(), 'single-source-cpu-high', 'boundary')).toBeUndefined()
+
+      const snapshot = monitor.record(complete(21 * INTERVAL_MS, { sources: [source('boundary', 100)] }))
+      expect(issue(snapshot, 'single-source-cpu-high', 'boundary')).toMatchObject({ severity: 'warning', threshold: 100 })
+    })
+
     it('does not recover a source issue when source data is missing but recovers on an explicit empty list', () => {
       const monitor = new SystemHealthMonitor()
       const hot = source('hot', 210)

@@ -99,11 +99,13 @@ function lowObservation(
 
 function hasSustainedValue(samples: RawSample[], now: number, durationMs: number, selector: (sample: RawSample) => number | undefined, threshold: number): boolean {
   const window = samples.filter((sample) => sample.current.sampledAt >= now - durationMs)
-  if (window.length === 0 || now - window[0].current.sampledAt < durationMs) return false
-  const values = window.map(selector).filter((value): value is number => value !== undefined)
+  const observations = window
+    .map((sample) => ({ sampledAt: sample.current.sampledAt, value: selector(sample) }))
+    .filter((observation): observation is { sampledAt: number; value: number } => observation.value !== undefined)
+  if (observations.length === 0 || now - observations[0].sampledAt < durationMs) return false
   const expected = Math.floor(durationMs / 15_000) + 1
-  if (values.length < Math.ceil(expected * 0.8)) return false
-  return values.filter((value) => value >= threshold).length >= Math.ceil(values.length * 0.8)
+  if (observations.length < Math.ceil(expected * 0.8)) return false
+  return observations.filter(({ value }) => value >= threshold).length >= Math.ceil(observations.length * 0.8)
 }
 
 export class SystemHealthMonitor {
