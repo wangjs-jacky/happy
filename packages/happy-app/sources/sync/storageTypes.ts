@@ -192,6 +192,12 @@ export const MachineMetadataSchema = z.object({
         happyAgentAuthenticated: z.boolean(),
         detectedAt: z.number(),
     }).optional(),
+    systemHealthMonitor: z.object({
+        schemaVersion: z.literal(1),
+        supported: z.literal(true),
+        enabled: z.boolean(),
+        reportedAt: z.number().finite().nonnegative(),
+    }).optional(),
 });
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>;
