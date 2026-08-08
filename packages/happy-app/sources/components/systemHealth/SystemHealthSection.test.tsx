@@ -7,14 +7,62 @@ import { SystemHealthSparkline } from './SystemHealthSparkline';
 import { SystemHealthSourceRow } from './SystemHealthSources';
 import type { SystemHealthChartModel } from '@/utils/systemHealth';
 import type { Machine } from '@/sync/storageTypes';
+import { ca } from '@/text/translations/ca';
+import { en as english } from '@/text/translations/en';
+import { es } from '@/text/translations/es';
+import { it as italian } from '@/text/translations/it';
+import { ja } from '@/text/translations/ja';
+import { pl } from '@/text/translations/pl';
+import { pt } from '@/text/translations/pt';
+import { ru } from '@/text/translations/ru';
+import { zhHans } from '@/text/translations/zh-Hans';
+import { zhHant } from '@/text/translations/zh-Hant';
 
-vi.mock('react-native', () => ({ Text: 'Text', View: 'View' }));
+const pageTestState = vi.hoisted(() => ({ online: true }));
+
+vi.mock('react-native', () => ({
+    Text: 'Text',
+    View: 'View',
+    ScrollView: 'ScrollView',
+    ActivityIndicator: 'ActivityIndicator',
+    RefreshControl: 'RefreshControl',
+    Pressable: 'Pressable',
+    TextInput: 'TextInput',
+    Platform: { select: ({ default: defaultValue }: { default?: unknown }) => defaultValue },
+}));
 vi.mock('react-native-svg', () => ({ default: 'Svg', Circle: 'Circle', Line: 'Line', Path: 'Path' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock('@/components/Item', () => ({ Item: 'Item' }));
+vi.mock('@/components/ItemList', () => ({ ItemList: 'ItemList' }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 'page-machine' }), useRouter: () => ({ back: vi.fn() }), Stack: { Screen: 'StackScreen' } }));
+vi.mock('@/sync/storage', () => ({
+    useSessions: () => [],
+    useAllMachines: () => [],
+    useMachine: () => ({
+        id: 'page-machine',
+        metadata: { host: 'mac', platform: 'darwin', homeDir: '/tmp', happyHomeDir: '/tmp' },
+        daemonState: {},
+    }),
+}));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons' }));
+vi.mock('@/sync/ops', () => ({ machineStopDaemon: vi.fn(), machineUpdateMetadata: vi.fn(), machineDelete: vi.fn(), machineSpawnNewSession: vi.fn() }));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), prompt: vi.fn() } }));
+vi.mock('@/utils/sessionUtils', () => ({ formatPathRelativeToHome: (path: string) => path, getSessionName: () => 'session', getSessionSubtitle: () => 'subtitle' }));
+vi.mock('@/utils/machineUtils', () => ({ isMachineOnline: () => pageTestState.online }));
+vi.mock('@/sync/sync', () => ({ sync: { refreshMachines: vi.fn() } }));
+vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => vi.fn() }));
+vi.mock('@/utils/pathUtils', () => ({ resolveAbsolutePath: (path: string) => path }));
+vi.mock('@/components/MultiTextInput', () => ({ MultiTextInput: 'MultiTextInput' }));
 vi.mock('react-native-unistyles', () => {
-    const mockTheme = { colors: { divider: '#222', text: '#fff', textSecondary: '#aaa', warning: '#f90', warningCritical: '#f00', success: '#0f0' } };
+    const mockTheme = {
+        colors: {
+            divider: '#222', text: '#fff', textSecondary: '#aaa', warning: '#f90', warningCritical: '#f00', success: '#0f0',
+            input: { background: '#111' }, groupped: { background: '#111' }, surfaceHigh: '#111', surfaceSelected: '#222',
+            button: { primary: { background: '#0f0', tint: '#000' } }, permissionButton: { inactive: { background: '#333' } }, header: { tint: '#fff' },
+        },
+    };
     return {
         StyleSheet: { hairlineWidth: 1, create: (factory: unknown) => typeof factory === 'function' ? (factory as (value: typeof mockTheme) => object)(mockTheme) : factory },
         useUnistyles: () => ({ theme: mockTheme }),
@@ -88,7 +136,25 @@ describe('SystemHealthSection', () => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
-    afterEach(() => errorSpy.mockRestore());
+    afterEach(() => {
+        errorSpy.mockRestore();
+        vi.doUnmock('@/components/systemHealth/SystemHealthSection');
+        vi.useRealTimers();
+        pageTestState.online = true;
+    });
+
+    it('provides localized system-health copy for every supported locale', () => {
+        expect(ca.machine.systemHealth.title).toBe('Estat del sistema');
+        expect(english.machine.systemHealth.title).toBe('System Health');
+        expect(es.machine.systemHealth.title).toBe('Estado del sistema');
+        expect(italian.machine.systemHealth.title).toBe('Stato del sistema');
+        expect(ja.machine.systemHealth.title).toBe('システムの状態');
+        expect(pl.machine.systemHealth.title).toBe('Stan systemu');
+        expect(pt.machine.systemHealth.title).toBe('Estado do sistema');
+        expect(ru.machine.systemHealth.title).toBe('Состояние системы');
+        expect(zhHans.machine.systemHealth.title).toBe('系统稳定性');
+        expect(zhHant.machine.systemHealth.title).toBe('系統穩定性');
+    });
 
     it('renders five trend series, resource sources and an accessible status', () => {
         let renderer: any;
@@ -275,5 +341,35 @@ describe('SystemHealthSection', () => {
         expect(circles.map((node: any) => node.props.cx)).toEqual([0, 120]);
         expect(isolated.root.findAllByType('Path')).toHaveLength(0);
         act(() => isolated.unmount());
+    });
+
+    it('places the health section after the offline notice and refreshes its local clock every fifteen seconds', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(now);
+        pageTestState.online = false;
+        vi.doMock('@/components/systemHealth/SystemHealthSection', () => ({
+            SystemHealthSection: ({ now: sectionNow }: { now: number }) => React.createElement('SystemHealthProbe', { testID: 'system-health-section', healthNow: sectionNow }),
+        }));
+
+        const { default: MachineDetailScreen } = await import('../../app/(app)/machine/[id]');
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<MachineDetailScreen />); });
+
+        const section = renderer.root.findByProps({ testID: 'system-health-section' });
+        expect(section.props.healthNow).toBe(now);
+        const orderedNodes = renderer.root.findAll((node: any) => (
+            node.props.testID === 'system-health-section'
+            || node.props.testID === 'machine-launch-section'
+            || (node.type === 'Item' && node.props.title === 'machine.offlineUnableToSpawn')
+        ));
+        const order = orderedNodes.map((node: any) => node.props.testID ?? node.props.title);
+        expect(order.indexOf('machine.offlineUnableToSpawn')).toBeLessThan(order.indexOf('system-health-section'));
+        expect(order.indexOf('system-health-section')).toBeLessThan(order.indexOf('machine-launch-section'));
+
+        act(() => { vi.advanceTimersByTime(15_000); });
+        expect(renderer.root.findByProps({ testID: 'system-health-section' }).props.healthNow).toBe(now + 15_000);
+        act(() => renderer.unmount());
+        expect(vi.getTimerCount()).toBe(0);
+        vi.useRealTimers();
     });
 });

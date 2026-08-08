@@ -1211,7 +1211,32 @@ export const ru: TranslationStructure = {
     },
 
     machine: {
-        systemHealth: en.machine.systemHealth,
+        systemHealth: {
+            title: 'Состояние системы',
+            status: { healthy: 'В норме', warning: 'Требует внимания', critical: 'Критическое', unavailable: 'Недоступно', offline: 'Устройство не в сети' },
+            empty: { unsupported: 'Обновите удалённый CLI Paws, чтобы использовать мониторинг системы.', disabled: 'Мониторинг системы не включён на этом устройстве.', pending: 'Ожидание инициализации мониторинга системы демоном.', collecting: 'Собирается первый системный образец.', unavailable: 'Данные мониторинга системы недоступны.' },
+            metrics: { cpu: 'CPU', memory: 'Доступная память', swap: 'Swap', processes: 'Процессы', zombies: 'Зомби-процессы', orphans: 'Осиротевшие Workers' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `Зомби-процессы: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `Нагрузка 1/5/15 мин: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `Свободная память под давлением: ${percent}%`, compressed: ({ value }: { value: string }) => `Сжатая память: ${value}`,
+                disk: ({ value }: { value: string }) => `Свободный диск: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workers Paws: ${roots} корней · ${processes} процессов · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Осиротевшие Workers: ${roots} корней · ${processes} процессов · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': 'Обнаружены осиротевшие Workers', 'swap-high': 'Высокое использование swap', 'swap-growing': 'Swap быстро растёт',
+                'cpu-sustained': 'Использование CPU остаётся высоким', 'load-high': 'Высокая нагрузка системы', 'memory-pressure-high': 'Высокое давление памяти',
+                'worker-memory-high': 'Высокое потребление памяти Workers', 'process-count-high': 'Слишком много процессов',
+                'process-capacity-high': 'Лимит процессов почти исчерпан', 'zombie-processes': 'Зомби-процессы сохраняются',
+                'disk-low': 'Мало места на диске', 'single-source-cpu-high': 'Один источник постоянно использует CPU',
+            },
+            statusSummary: ({ status }: { status: string }) => `Состояние системы: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `Обновлено ${seconds} с назад`, collectorErrors: ({ count }: { count: number }) => `Ошибок сборщика: ${count}`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: минимум ${min}, максимум ${max}, последнее ${latest}`,
+            collectingTrend: 'Сбор данных тенденции', range: ({ min, max }: { min: string; max: string }) => `Мин. ${min} · Макс. ${max}`,
+            trends: 'Последние 30 минут', sources: 'Основные источники ресурсов', zombieSources: 'Источники зомби-процессов', zombieShort: ({ count }: { count: number }) => `${count} зомби`,
+        },
         offlineUnableToSpawn: 'Запуск отключен: машина offline',
         offlineHelp: '• Убедитесь, что компьютер online\n• Выполните `happy daemon status` для диагностики\n• Используете последнюю версию CLI? Обновите командой `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Запустить новую сессию в папке',

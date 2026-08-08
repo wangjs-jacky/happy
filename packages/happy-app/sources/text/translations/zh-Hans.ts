@@ -1778,7 +1778,6 @@ export const zhHans: TranslationStructure = {
 
     machine: {
         systemHealth: {
-            ...en.machine.systemHealth,
             title: '系统稳定性',
             status: { healthy: '正常', warning: '需要关注', critical: '严重', unavailable: '数据不可用', offline: '设备离线' },
             empty: {

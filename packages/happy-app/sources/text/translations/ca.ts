@@ -1207,7 +1207,32 @@ export const ca: TranslationStructure = {
     },
 
     machine: {
-        systemHealth: en.machine.systemHealth,
+        systemHealth: {
+            title: 'Estat del sistema',
+            status: { healthy: 'Correcte', warning: 'Cal atenció', critical: 'Crític', unavailable: 'No disponible', offline: 'Dispositiu fora de línia' },
+            empty: { unsupported: 'Actualitza el CLI remot de Paws per utilitzar el monitoratge del sistema.', disabled: 'El monitoratge del sistema no està habilitat en aquest dispositiu.', pending: 'S’està esperant que el dimoni inicialitzi el monitoratge del sistema.', collecting: 'S’està recollint la primera mostra del sistema.', unavailable: 'Les dades de monitoratge del sistema no estan disponibles.' },
+            metrics: { cpu: 'CPU', memory: 'Memòria disponible', swap: 'Swap', processes: 'Processos', zombies: 'Processos zombi', orphans: 'Workers orfes' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `Processos zombi: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `Càrrega 1/5/15 min: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `Memòria lliure per pressió: ${percent}%`, compressed: ({ value }: { value: string }) => `Memòria comprimida: ${value}`,
+                disk: ({ value }: { value: string }) => `Disc disponible: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workers de Paws: ${roots} arrels · ${processes} processos · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workers orfes: ${roots} arrels · ${processes} processos · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': 'S’han detectat workers orfes', 'swap-high': 'L’ús de swap és alt', 'swap-growing': 'El swap creix ràpidament',
+                'cpu-sustained': 'L’ús de CPU continua alt', 'load-high': 'La càrrega del sistema és alta', 'memory-pressure-high': 'La pressió de memòria és alta',
+                'worker-memory-high': 'La memòria dels workers és alta', 'process-count-high': 'El nombre de processos és alt',
+                'process-capacity-high': 'La capacitat de processos és gairebé esgotada', 'zombie-processes': 'Persistència de processos zombi',
+                'disk-low': 'Poc espai de disc', 'single-source-cpu-high': 'Una font usa CPU de manera sostinguda',
+            },
+            statusSummary: ({ status }: { status: string }) => `Estat del sistema: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `Actualitzat fa ${seconds} s`, collectorErrors: ({ count }: { count: number }) => `${count} errors del col·lector`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: mínim ${min}, màxim ${max}, últim ${latest}`,
+            collectingTrend: 'S’estan recollint dades de tendència', range: ({ min, max }: { min: string; max: string }) => `Mín. ${min} · Màx. ${max}`,
+            trends: 'Últims 30 minuts', sources: 'Principals fonts de recursos', zombieSources: 'Fonts de processos zombi', zombieShort: ({ count }: { count: number }) => `${count} zombi`,
+        },
         offlineUnableToSpawn: 'El llançador està desactivat mentre la màquina està fora de línia',
         offlineHelp: '• Assegura\'t que l\'ordinador estigui en línia\n• Executa `happy daemon status` per diagnosticar\n• Fas servir l\'última versió del CLI? Actualitza amb `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Inicia una nova sessió al directori',

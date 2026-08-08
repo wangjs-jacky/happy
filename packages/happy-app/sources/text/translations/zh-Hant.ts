@@ -1308,7 +1308,6 @@ export const zhHant: TranslationStructure = {
 
     machine: {
         systemHealth: {
-            ...en.machine.systemHealth,
             title: '系統穩定性',
             status: { healthy: '正常', warning: '需要關注', critical: '嚴重', unavailable: '資料不可用', offline: '裝置離線' },
             empty: {

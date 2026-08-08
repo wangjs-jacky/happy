@@ -1206,7 +1206,32 @@ export const pt: TranslationStructure = {
     },
 
     machine: {
-        systemHealth: en.machine.systemHealth,
+        systemHealth: {
+            title: 'Estado do sistema',
+            status: { healthy: 'Normal', warning: 'Requer atenção', critical: 'Crítico', unavailable: 'Indisponível', offline: 'Dispositivo offline' },
+            empty: { unsupported: 'Atualize o CLI remoto do Paws para usar a monitorização do sistema.', disabled: 'A monitorização do sistema não está ativada neste dispositivo.', pending: 'A aguardar que o daemon inicialize a monitorização do sistema.', collecting: 'A recolher a primeira amostra do sistema.', unavailable: 'Os dados de monitorização do sistema não estão disponíveis.' },
+            metrics: { cpu: 'CPU', memory: 'Memória disponível', swap: 'Swap', processes: 'Processos', zombies: 'Processos zombie', orphans: 'Workers órfãos' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `Processos zombie: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `Carga 1/5/15 min: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `Memória livre sob pressão: ${percent}%`, compressed: ({ value }: { value: string }) => `Memória comprimida: ${value}`,
+                disk: ({ value }: { value: string }) => `Disco disponível: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workers do Paws: ${roots} raízes · ${processes} processos · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workers órfãos: ${roots} raízes · ${processes} processos · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': 'Workers órfãos detetados', 'swap-high': 'A utilização de swap é elevada', 'swap-growing': 'O swap está a crescer rapidamente',
+                'cpu-sustained': 'A utilização de CPU mantém-se alta', 'load-high': 'A carga do sistema é elevada', 'memory-pressure-high': 'A pressão de memória é elevada',
+                'worker-memory-high': 'A memória dos Workers é elevada', 'process-count-high': 'A contagem de processos é elevada',
+                'process-capacity-high': 'A capacidade de processos está quase esgotada', 'zombie-processes': 'Os processos zombie persistem',
+                'disk-low': 'Pouco espaço em disco', 'single-source-cpu-high': 'Uma fonte usa CPU de forma contínua',
+            },
+            statusSummary: ({ status }: { status: string }) => `Estado do sistema: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `Atualizado há ${seconds} s`, collectorErrors: ({ count }: { count: number }) => `${count} erros do coletor`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: mínimo ${min}, máximo ${max}, mais recente ${latest}`,
+            collectingTrend: 'A recolher dados de tendência', range: ({ min, max }: { min: string; max: string }) => `Mín. ${min} · Máx. ${max}`,
+            trends: 'Últimos 30 minutos', sources: 'Principais fontes de recursos', zombieSources: 'Fontes de processos zombie', zombieShort: ({ count }: { count: number }) => `${count} zombie`,
+        },
         offlineUnableToSpawn: 'Inicializador desativado enquanto a máquina está offline',
         offlineHelp: '• Verifique se seu computador está online\n• Execute `happy daemon status` para diagnosticar\n• Você está usando a versão mais recente do CLI? Atualize com `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Iniciar nova sessão no diretório',
