@@ -484,4 +484,50 @@ describe('ApiMachineClient socket reconnection', () => {
 
         expect(mockSocket.connect).not.toHaveBeenCalled();
     });
+
+    it('shares one pending close lifecycle across concurrent callers', async () => {
+        vi.useFakeTimers();
+        const machine = makeMachine();
+        mockSocket.emitWithAck.mockImplementation(async (_event: string, data: { daemonState: string }) => ({
+            result: 'success',
+            version: 1,
+            daemonState: data.daemonState,
+        }));
+        const client = new ApiMachineClient('fake-token', machine);
+        const connected = new Promise<void>((resolve) => client.setConnectionListener((value) => {
+            if (value) resolve();
+        }));
+        client.connect();
+        mockSocket.connected = true;
+        emitSocketEvent('connect');
+        await connected;
+
+        let resolvePendingWrite!: (answer: unknown) => void;
+        mockSocket.emitWithAck.mockImplementationOnce(() => new Promise((resolve) => {
+            resolvePendingWrite = resolve;
+        }));
+        const pendingWrite = client.updateDaemonState((state) => ({ ...state!, shutdownRequestedAt: 123 }))
+            .catch(() => undefined);
+        await vi.waitFor(() => expect(mockSocket.emitWithAck).toHaveBeenCalledTimes(2));
+
+        let firstResolved = false;
+        let secondResolved = false;
+        const firstClose = client.close().then(() => { firstResolved = true; });
+        const secondClose = client.close().then(() => { secondResolved = true; });
+        await Promise.resolve();
+
+        expect(firstResolved).toBe(false);
+        expect(secondResolved).toBe(false);
+        expect(mockSocket.close).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await Promise.all([firstClose, secondClose]);
+
+        expect(firstResolved).toBe(true);
+        expect(secondResolved).toBe(true);
+        expect(mockSocket.close).toHaveBeenCalledTimes(1);
+
+        resolvePendingWrite({ result: 'error' });
+        await pendingWrite;
+    });
 });

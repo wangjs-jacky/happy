@@ -127,6 +127,7 @@ export class ApiMachineClient {
     private daemonStatePublisher: DaemonStatePublisher;
     private connectionListener: ((connected: boolean) => void) | null = null;
     private closing = false;
+    private closePromise: Promise<void> | null = null;
 
     constructor(
         private token: string,
@@ -645,17 +646,20 @@ export class ApiMachineClient {
         }
     }
 
-    async close(shutdownMutation?: DaemonStateMutation): Promise<void> {
-        if (this.closing) return;
+    close(shutdownMutation?: DaemonStateMutation): Promise<void> {
+        if (this.closePromise) return this.closePromise;
         this.closing = true;
-        this.stopKeepAlive();
-        if (this.reconnectInterval) {
-            clearInterval(this.reconnectInterval);
-            this.reconnectInterval = null;
-        }
-        await this.daemonStatePublisher.close(shutdownMutation);
-        this.connectionGeneration += 1;
-        this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
-        if (this.socket) this.socket.close();
+        this.closePromise = (async () => {
+            this.stopKeepAlive();
+            if (this.reconnectInterval) {
+                clearInterval(this.reconnectInterval);
+                this.reconnectInterval = null;
+            }
+            await this.daemonStatePublisher.close(shutdownMutation);
+            this.connectionGeneration += 1;
+            this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
+            if (this.socket) this.socket.close();
+        })();
+        return this.closePromise;
     }
 }
