@@ -295,6 +295,58 @@ describe('ApiMachineClient socket reconnection', () => {
         client.shutdown();
     });
 
+    it('adopts an older server version from a valid CAS mismatch before retrying', async () => {
+        const machine = makeMachine();
+        machine.daemonState = { status: 'running', pid: 1, httpPort: 2, startedAt: 3 };
+        const serverState: DaemonState = {
+            status: 'running',
+            pid: 401,
+            httpPort: 402,
+            startedAt: 403,
+            codexUsage: makeCodexUsage('/older-server-state'),
+        };
+        const requests: Array<{ daemonState: string; expectedVersion: number }> = [];
+        mockSocket.emitWithAck.mockImplementation(async (_event: string, data: { daemonState: string; expectedVersion: number }) => {
+            requests.push(data);
+            if (requests.length === 1) {
+                return { result: 'success', version: 1, daemonState: data.daemonState };
+            }
+            if (requests.length === 2) {
+                return { result: 'version-mismatch', version: 4, daemonState: encryptedState(machine, serverState) };
+            }
+            return { result: 'success', version: 5, daemonState: data.daemonState };
+        });
+
+        const client = new ApiMachineClient('fake-token', machine);
+        const connected = new Promise<void>((resolve) => client.setConnectionListener((value) => {
+            if (value) resolve();
+        }));
+        client.connect();
+        mockSocket.connected = true;
+        emitSocketEvent('connect');
+        await connected;
+        machine.daemonStateVersion = 7;
+        machine.daemonState = {
+            status: 'running',
+            pid: 701,
+            httpPort: 702,
+            startedAt: 703,
+            codexUsage: makeCodexUsage('/newer-local-state'),
+        };
+
+        await client.updateDaemonState((state) => ({ ...state!, status: 'shutting-down', shutdownSource: 'cli' }));
+        const retriedState = decryptedState(machine, requests[2].daemonState);
+        expect(requests.map((request) => request.expectedVersion)).toEqual([0, 7, 4]);
+        expect(retriedState).toEqual({
+            ...serverState,
+            status: 'shutting-down',
+            shutdownSource: 'cli',
+        });
+        expect(machine.daemonState).toEqual(retriedState);
+        expect(machine.daemonStateVersion).toBe(5);
+        client.shutdown();
+    });
+
     it('does not apply a shutdown ACK that arrives after close timed out', async () => {
         vi.useFakeTimers();
         const machine = makeMachine();

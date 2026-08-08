@@ -120,6 +120,24 @@ describe('DaemonStatePublisher', () => {
     expect(transport.writes).toHaveLength(1)
   })
 
+  it('settles active then queued ordinary publications in order on disconnect', async () => {
+    const transport = new DeferredTransport()
+    const publisher = new DaemonStatePublisher(transport)
+    publisher.onConnected(1)
+    const settled: number[] = []
+    const publications = [1, 2, 3].map((id) => publisher.publish(state(String(id))).catch(() => {
+      settled.push(id)
+    }))
+
+    publisher.onDisconnected(2)
+    await Promise.all(publications)
+
+    expect(settled).toEqual([1, 2, 3])
+    expect(transport.writes).toHaveLength(1)
+    expect(transport.maxConcurrent).toBe(1)
+    transport.writes[0].resolve()
+  })
+
   it('does not issue a concurrent shutdown write when an in-flight write stalls', async () => {
     vi.useFakeTimers()
     const transport = new DeferredTransport()
@@ -134,6 +152,27 @@ describe('DaemonStatePublisher', () => {
     await vi.advanceTimersByTimeAsync(1_000)
     await closing
     expect(await ordinaryOutcome).toContain('closed')
+    expect(transport.writes).toHaveLength(1)
+    expect(transport.maxConcurrent).toBe(1)
+  })
+
+  it('settles active then queued ordinary publications in order on close', async () => {
+    vi.useFakeTimers()
+    const transport = new DeferredTransport()
+    const publisher = new DaemonStatePublisher(transport)
+    publisher.onConnected(1)
+    const settled: number[] = []
+    const publications = [1, 2, 3].map((id) => publisher.publish(state(String(id))).catch(() => {
+      settled.push(id)
+    }))
+
+    const closing = publisher.close((current) => ({ ...current, status: 'shutting-down' }))
+    await Promise.all(publications)
+
+    expect(settled).toEqual([1, 2, 3])
+    expect(transport.writes).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await closing
     expect(transport.writes).toHaveLength(1)
     expect(transport.maxConcurrent).toBe(1)
   })

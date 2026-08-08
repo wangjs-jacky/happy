@@ -447,10 +447,8 @@ export class ApiMachineClient {
             return;
         }
         if (answer.result === 'version-mismatch') {
-            if (answer.version > this.machine.daemonStateVersion) {
-                this.machine.daemonStateVersion = answer.version;
-                this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
-            }
+            this.machine.daemonStateVersion = answer.version;
+            this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
             throw new Error('Daemon state version mismatch');
         }
         throw new Error('Daemon state update failed');

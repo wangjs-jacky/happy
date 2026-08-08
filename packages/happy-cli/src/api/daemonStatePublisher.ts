@@ -57,12 +57,12 @@ export class DaemonStatePublisher {
     this.generation = generation
     this.connected = false
     const error = new Error('Daemon state publisher disconnected')
-    for (const task of this.ordinaryQueue) this.settleFailure(task, error, false)
-    this.ordinaryQueue = []
-    this.latestQueue.clear()
     if (this.activeTask) {
       this.settleFailure(this.activeTask, new Error('Daemon state generation changed'), false)
     }
+    for (const task of this.ordinaryQueue) this.settleFailure(task, error, false)
+    this.ordinaryQueue = []
+    this.latestQueue.clear()
     this.resolveFlushIfIdle()
   }
 
@@ -93,9 +93,9 @@ export class DaemonStatePublisher {
     this.closing = true
     this.latestQueue.clear()
     const pendingError = new Error('Daemon state publisher closed')
+    if (this.activeTask) this.settleFailure(this.activeTask, pendingError, false)
     for (const task of this.ordinaryQueue) this.settleFailure(task, pendingError, false)
     this.ordinaryQueue = []
-    if (this.activeTask) this.settleFailure(this.activeTask, pendingError, false)
 
     if (this.inFlight) {
       await Promise.race([this.waitForInFlight(), new Promise((resolve) => setTimeout(resolve, 1_000))])
