@@ -106,7 +106,7 @@ describe('MacSystemHealthCollector', () => {
     expect(JSON.stringify(result.commandErrors)).not.toContain('stderr')
   })
 
-  it('keeps process metrics when a text table fails and joins remaining rows by PID', async () => {
+  it('joins process text rows by PID without shifting missing rows', async () => {
     const custom = new Map(outputs)
     custom.set('/bin/ps -A -ww -o pid= -o comm=', [
       ' 120 /usr/bin/mds',
@@ -129,13 +129,39 @@ describe('MacSystemHealthCollector', () => {
       expect.objectContaining({ id: 'paws-workers', processCount: 3 }),
     ]))
 
-    const failedComm = await new MacSystemHealthCollector(
-      fakeExec(new Map([['/bin/ps -A -ww -o pid= -o comm=', Object.assign(new Error('exit'), { code: 'EFAIL' })]])).exec,
+  })
+
+  it.each([
+    '/bin/ps -A -ww -o pid= -o comm=',
+    '/bin/ps -A -ww -o pid= -o args=',
+  ])('does not fabricate classification aggregates when %s fails', async (failedCommand) => {
+    const result = await new MacSystemHealthCollector(
+      fakeExec(new Map([[failedCommand, Object.assign(new Error('exit'), { code: 'EFAIL' })]])).exec,
       () => 100_000,
-    ).collect({ trackedRoots: [{ pid: 100, spawnedAt: 10_000, kind: 'daemon' }] })
-    expect(failedComm.kind).toBe('complete')
-    expect(failedComm.values.processCount).toBe(4)
-    expect(failedComm.commandErrors).toContainEqual({ command: 'ps', code: 'exit' })
+    ).collect({ trackedRoots: [] })
+
+    expect(result.kind).toBe('partial')
+    expect(result.values.processCount).toBe(4)
+    expect(result.values.zombieProcessCount).toBe(2)
+    expect(result.values.pawsWorkerRoots).toBeUndefined()
+    expect(result.values.orphanWorkerRoots).toBeUndefined()
+    expect(result.values.sources).toBeUndefined()
+    expect(result.commandErrors).toContainEqual({ command: 'ps', code: 'exit' })
+  })
+
+  it('keeps valid stats rows but marks the collection partial when another stats row is malformed', async () => {
+    const custom = new Map(outputs)
+    custom.set('/bin/ps -A -ww -o pid= -o ppid= -o pcpu= -o rss= -o state= -o etime=', [
+      ' 100 1 1.0 100000 S 01:30',
+      ' malformed process row',
+    ].join('\n'))
+    const result = await new MacSystemHealthCollector(fakeExec(new Map(), custom).exec, () => 100_000)
+      .collect({ trackedRoots: [{ pid: 100, spawnedAt: 10_000, kind: 'daemon' }] })
+
+    expect(result.kind).toBe('partial')
+    expect(result.values.processCount).toBe(1)
+    expect(result.values.zombieProcessCount).toBe(0)
+    expect(result.commandErrors).toContainEqual({ command: 'ps', code: 'parse' })
   })
 
   it('uses only the second top sample and records malformed successful output', async () => {

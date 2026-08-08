@@ -260,50 +260,59 @@ export class MacSystemHealthCollector {
       command: SystemHealthCommand,
       output: string | undefined,
       parser: (value: string) => Parsed<T>,
-    ): T | undefined => {
-      if (output === undefined) return undefined
+    ): Parsed<T | undefined> => {
+      if (output === undefined) return { value: undefined, valid: false }
       try {
         const parsed = parser(output)
         if (!parsed.valid) errors.push({ command, code: 'parse' })
-        return parsed.value
+        return parsed
       } catch {
         errors.push({ command, code: 'parse' })
-        return undefined
+        return { value: undefined, valid: false }
       }
     }
 
-    Object.assign(values, parse('sysctl', outputs[0], parseSysctl))
-    Object.assign(values, { processLimit: parse('launchctl', outputs[1], parseProcessLimit) })
-    Object.assign(values, { cpuUsedPercent: parse('top', outputs[2], parseCpu) })
-    Object.assign(values, parse('vm_stat', outputs[3], parseVmStat))
-    Object.assign(values, { memoryPressureFreePercent: parse('memory_pressure', outputs[4], parseMemoryPressure) })
-    Object.assign(values, parse('df', outputs[8], parseDisk))
+    Object.assign(values, parse('sysctl', outputs[0], parseSysctl).value)
+    Object.assign(values, { processLimit: parse('launchctl', outputs[1], parseProcessLimit).value })
+    Object.assign(values, { cpuUsedPercent: parse('top', outputs[2], parseCpu).value })
+    Object.assign(values, parse('vm_stat', outputs[3], parseVmStat).value)
+    Object.assign(values, {
+      memoryPressureFreePercent: parse('memory_pressure', outputs[4], parseMemoryPressure).value,
+    })
+    Object.assign(values, parse('df', outputs[8], parseDisk).value)
 
-    let stats = parse('ps', outputs[5], parseProcessStats)
-    let commands = parse('ps', outputs[6], parseProcessText)
-    let argumentsRows = parse('ps', outputs[7], parseProcessText)
+    let statsResult = parse('ps', outputs[5], parseProcessStats)
+    let commandsResult = parse('ps', outputs[6], parseProcessText)
+    let argumentsResult = parse('ps', outputs[7], parseProcessText)
+    const statsComplete = statsResult.valid
+    const classificationComplete = commandsResult.valid && argumentsResult.valid
+    let stats = statsResult.value
     try {
       if (stats && stats.length > 0) {
-        const analysis = analyzeMacProcessSnapshot({
-          capturedAt: attemptedAt,
-          stats,
-          commands: commands ?? [],
-          arguments: argumentsRows ?? [],
-          trackedRoots: input.trackedRoots,
-          previousMembership: this.previousMembership,
-        })
-        this.previousMembership = analysis.nextMembership
         Object.assign(values, {
           processCount: stats.length,
-          zombieProcessCount: analysis.zombieProcessCount,
-          pawsWorkerRoots: analysis.worker.rootCount,
-          pawsWorkerProcesses: analysis.worker.processCount,
-          pawsWorkerRssBytes: analysis.worker.rssBytes,
-          orphanWorkerRoots: analysis.orphans.rootCount,
-          orphanWorkerProcesses: analysis.orphans.processCount,
-          orphanWorkerRssBytes: analysis.orphans.rssBytes,
-          sources: analysis.sources,
+          zombieProcessCount: stats.filter((process) => process.state.startsWith('Z')).length,
         })
+        if (classificationComplete) {
+          const analysis = analyzeMacProcessSnapshot({
+            capturedAt: attemptedAt,
+            stats,
+            commands: commandsResult.value ?? [],
+            arguments: argumentsResult.value ?? [],
+            trackedRoots: input.trackedRoots,
+            previousMembership: this.previousMembership,
+          })
+          if (statsComplete) this.previousMembership = analysis.nextMembership
+          Object.assign(values, {
+            pawsWorkerRoots: analysis.worker.rootCount,
+            pawsWorkerProcesses: analysis.worker.processCount,
+            pawsWorkerRssBytes: analysis.worker.rssBytes,
+            orphanWorkerRoots: analysis.orphans.rootCount,
+            orphanWorkerProcesses: analysis.orphans.processCount,
+            orphanWorkerRssBytes: analysis.orphans.rssBytes,
+            sources: analysis.sources,
+          })
+        }
       }
     } catch {
       errors.push({ command: 'ps', code: 'parse' })
@@ -312,8 +321,9 @@ export class MacSystemHealthCollector {
       outputs[6] = undefined
       outputs[7] = undefined
       stats = undefined
-      commands = undefined
-      argumentsRows = undefined
+      statsResult = { value: undefined, valid: false }
+      commandsResult = { value: undefined, valid: false }
+      argumentsResult = { value: undefined, valid: false }
     }
 
     const coreKeys = [
@@ -323,7 +333,7 @@ export class MacSystemHealthCollector {
       'pawsWorkerRoots', 'pawsWorkerProcesses', 'pawsWorkerRssBytes',
       'orphanWorkerRoots', 'orphanWorkerProcesses', 'orphanWorkerRssBytes', 'sources',
     ] as const
-    const complete = coreKeys.every((key) => values[key] !== undefined)
+    const complete = statsComplete && classificationComplete && coreKeys.every((key) => values[key] !== undefined)
     const useful = Object.entries(values).some(([key, value]) => key !== 'sampledAt' && value !== undefined)
     const finishedAt = this.now()
     const elapsed = finishedAt - attemptedAt
