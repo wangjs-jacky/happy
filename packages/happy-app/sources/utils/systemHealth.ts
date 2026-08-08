@@ -53,9 +53,18 @@ const HistoryPointSchema = z.object({
 });
 const IssueSchema = z.object({
     code: z.enum([
-        'orphan-workers', 'swap-high', 'swap-growing', 'cpu-sustained', 'load-high',
-        'memory-pressure-high', 'worker-memory-high', 'process-count-high',
-        'process-capacity-high', 'zombie-processes', 'disk-low', 'single-source-cpu-high',
+        'orphan-workers',
+        'swap-high',
+        'swap-growing',
+        'cpu-sustained',
+        'load-high',
+        'memory-pressure-high',
+        'worker-memory-high',
+        'process-count-high',
+        'process-capacity-high',
+        'zombie-processes',
+        'disk-low',
+        'single-source-cpu-high',
     ]),
     severity: z.enum(['warning', 'critical']),
     subject: z.string().max(64).optional(),
@@ -78,27 +87,72 @@ export const AppSystemHealthSnapshotSchema = z.object({
         historyStepSeconds: z.literal(60),
         durationMs: NonNegativeFinite,
         lastSampleKind: z.enum(['complete', 'partial', 'failed', 'pending']),
-        errors: z.array(z.object({
-            command: z.enum(['sysctl', 'launchctl', 'top', 'vm_stat', 'memory_pressure', 'ps', 'df']),
-            code: z.enum(['timeout', 'exit', 'parse']),
-        })).max(16),
+        errors: z
+            .array(
+                z.object({
+                    command: z.enum([
+                        'sysctl',
+                        'launchctl',
+                        'top',
+                        'vm_stat',
+                        'memory_pressure',
+                        'ps',
+                        'df',
+                    ]),
+                    code: z.enum(['timeout', 'exit', 'parse']),
+                })
+            )
+            .max(16),
     }),
 });
 
-export type SystemHealthSnapshot = z.infer<typeof AppSystemHealthSnapshotSchema>;
+export type SystemHealthSnapshot = z.infer<
+    typeof AppSystemHealthSnapshotSchema
+>;
 export type SystemHealthCurrent = z.infer<typeof CurrentSchema>;
 export type SystemHealthSource = z.infer<typeof SourceSchema>;
-export type SystemHealthStatus = 'healthy' | 'warning' | 'critical' | 'unavailable' | 'offline';
-export type SystemHealthAvailability = 'hidden' | 'unsupported' | 'disabled' | 'pending' | 'collecting' | 'unavailable' | 'available';
+export type SystemHealthStatus =
+    | 'healthy'
+    | 'warning'
+    | 'critical'
+    | 'unavailable'
+    | 'offline';
+export type SystemHealthAvailability =
+    | 'hidden'
+    | 'unsupported'
+    | 'disabled'
+    | 'pending'
+    | 'collecting'
+    | 'unavailable'
+    | 'available';
+export type SystemHealthDiagnostic = { code: 'invalid-snapshot' };
+export type SystemHealthCollectorErrorCategory = Pick<
+    SystemHealthSnapshot['collector']['errors'][number],
+    'command' | 'code'
+>;
+
+export interface SystemHealthChartAccessibilitySummary {
+    labelKey: string;
+    summaryKey: string;
+    latest: number | null;
+    min: number | null;
+    max: number | null;
+}
 
 export interface SystemHealthChartModel {
-    key: 'cpuUsedPercent' | 'swapUsedBytes' | 'processCount' | 'zombieProcessCount' | 'orphanWorkerRoots';
+    key:
+        | 'cpuUsedPercent'
+        | 'swapUsedBytes'
+        | 'processCount'
+        | 'zombieProcessCount'
+        | 'orphanWorkerRoots';
     labelKey: string;
     unit: 'percent' | 'gigabytes' | 'count';
     points: Array<{ sampledAt: number; value: number }>;
     latest: number | null;
     min: number | null;
     max: number | null;
+    accessibilitySummary: SystemHealthChartAccessibilitySummary;
 }
 
 export interface SystemHealthViewModel {
@@ -110,30 +164,58 @@ export interface SystemHealthViewModel {
     ageMs: number | null;
     delayed: boolean;
     charts: SystemHealthChartModel[];
+    collectorErrorCategories: SystemHealthCollectorErrorCategory[];
+    diagnostics: SystemHealthDiagnostic[];
 }
 
-export function parseSystemHealth(daemonState: unknown): SystemHealthSnapshot | null {
-    if (!daemonState || typeof daemonState !== 'object') return null;
-    const parsed = AppSystemHealthSnapshotSchema.safeParse((daemonState as { systemHealth?: unknown }).systemHealth);
+function systemHealthPayload(daemonState: unknown): {
+    present: boolean;
+    value: unknown;
+} {
+    if (!daemonState || typeof daemonState !== 'object')
+        return { present: false, value: undefined };
+    const state = daemonState as Record<string, unknown>;
+    const value = state.systemHealth;
+    return { present: value !== undefined, value };
+}
+
+export function parseSystemHealth(
+    daemonState: unknown
+): SystemHealthSnapshot | null {
+    const { value } = systemHealthPayload(daemonState);
+    const parsed = AppSystemHealthSnapshotSchema.safeParse(value);
     return parsed.success ? parsed.data : null;
 }
 
-export function getSystemHealthAvailability(machine: Machine, now: number): SystemHealthAvailability {
+export function getSystemHealthAvailability(
+    machine: Machine,
+    now: number
+): SystemHealthAvailability {
     if (machine.metadata?.platform !== 'darwin') return 'hidden';
     const capability = machine.metadata?.systemHealthMonitor;
     if (!capability) return 'unsupported';
     if (!capability.enabled) return 'disabled';
+    const payload = systemHealthPayload(machine.daemonState);
     const snapshot = parseSystemHealth(machine.daemonState);
-    if (!snapshot) return now - capability.reportedAt <= 45_000 ? 'pending' : 'unavailable';
+    if (!snapshot) {
+        if (payload.present) return 'unavailable';
+        return now - capability.reportedAt <= 45_000
+            ? 'pending'
+            : 'unavailable';
+    }
     if (!snapshot.current || snapshot.updatedAt === null) {
-        return snapshot.collector.lastSampleKind === 'pending' ? 'collecting' : 'unavailable';
+        return now - capability.reportedAt <= 45_000
+            ? 'pending'
+            : 'unavailable';
     }
     return 'available';
 }
 
 function sanitizedHistory(snapshot: SystemHealthSnapshot, now: number) {
     const byMinute = new Map<number, SystemHealthSnapshot['history'][number]>();
-    for (const point of [...snapshot.history].sort((a, b) => a.sampledAt - b.sampledAt)) {
+    for (const point of [...snapshot.history].sort(
+        (a, b) => a.sampledAt - b.sampledAt
+    )) {
         if (point.sampledAt > now + 5 * 60_000) continue;
         byMinute.set(Math.floor(point.sampledAt / 60_000), point);
     }
@@ -144,34 +226,55 @@ function chart(
     key: SystemHealthChartModel['key'],
     labelKey: string,
     unit: SystemHealthChartModel['unit'],
-    history: ReturnType<typeof sanitizedHistory>,
+    history: ReturnType<typeof sanitizedHistory>
 ): SystemHealthChartModel {
     const points = history.map((point) => ({
         sampledAt: point.sampledAt,
         value: key === 'swapUsedBytes' ? point[key] / 1024 ** 3 : point[key],
     }));
     const values = points.map((point) => point.value);
+    const latest = values.at(-1) ?? null;
+    const min = values.length > 0 ? Math.min(...values) : null;
+    const max = values.length > 0 ? Math.max(...values) : null;
     return {
         key,
         labelKey,
         unit,
         points,
-        latest: values.at(-1) ?? null,
-        min: values.length > 0 ? Math.min(...values) : null,
-        max: values.length > 0 ? Math.max(...values) : null,
+        latest,
+        min,
+        max,
+        accessibilitySummary: {
+            labelKey,
+            summaryKey: 'machine.systemHealth.chartSummary',
+            latest,
+            min,
+            max,
+        },
     };
 }
 
-export function buildSystemHealthViewModel(machine: Machine, now: number): SystemHealthViewModel {
+export function buildSystemHealthViewModel(
+    machine: Machine,
+    now: number
+): SystemHealthViewModel {
     const availability = getSystemHealthAvailability(machine, now);
     const parsed = parseSystemHealth(machine.daemonState);
-    const snapshot = parsed ? { ...parsed, history: sanitizedHistory(parsed, now) } : null;
-    const ageMs = snapshot?.updatedAt === null || snapshot?.updatedAt === undefined ? null : Math.max(0, now - snapshot.updatedAt);
+    const payload = systemHealthPayload(machine.daemonState);
+    const snapshot = parsed
+        ? { ...parsed, history: sanitizedHistory(parsed, now) }
+        : null;
+    const ageMs =
+        snapshot?.updatedAt === null || snapshot?.updatedAt === undefined
+            ? null
+            : Math.max(0, now - snapshot.updatedAt);
     let status: SystemHealthStatus = 'unavailable';
     if (!isMachineOnline(machine)) status = 'offline';
-    else if (!snapshot?.current || ageMs === null || ageMs > 120_000) status = 'unavailable';
+    else if (!snapshot?.current || ageMs === null || ageMs > 120_000)
+        status = 'unavailable';
     else if (snapshot.resourceStatus === 'critical') status = 'critical';
-    else if (snapshot.resourceStatus === 'warning' || ageMs > 45_000) status = 'warning';
+    else if (snapshot.resourceStatus === 'warning' || ageMs > 45_000)
+        status = 'warning';
     else status = 'healthy';
     const history = snapshot?.history ?? [];
     return {
@@ -183,11 +286,48 @@ export function buildSystemHealthViewModel(machine: Machine, now: number): Syste
         ageMs,
         delayed: ageMs !== null && ageMs > 45_000,
         charts: [
-            chart('cpuUsedPercent', 'machine.systemHealth.metrics.cpu', 'percent', history),
-            chart('swapUsedBytes', 'machine.systemHealth.metrics.swap', 'gigabytes', history),
-            chart('processCount', 'machine.systemHealth.metrics.processes', 'count', history),
-            chart('zombieProcessCount', 'machine.systemHealth.metrics.zombies', 'count', history),
-            chart('orphanWorkerRoots', 'machine.systemHealth.metrics.orphans', 'count', history),
+            chart(
+                'cpuUsedPercent',
+                'machine.systemHealth.metrics.cpu',
+                'percent',
+                history
+            ),
+            chart(
+                'swapUsedBytes',
+                'machine.systemHealth.metrics.swap',
+                'gigabytes',
+                history
+            ),
+            chart(
+                'processCount',
+                'machine.systemHealth.metrics.processes',
+                'count',
+                history
+            ),
+            chart(
+                'zombieProcessCount',
+                'machine.systemHealth.metrics.zombies',
+                'count',
+                history
+            ),
+            chart(
+                'orphanWorkerRoots',
+                'machine.systemHealth.metrics.orphans',
+                'count',
+                history
+            ),
         ],
+        collectorErrorCategories: snapshot
+            ? [
+                  ...new Map(
+                      snapshot.collector.errors.map((error) => [
+                          `${error.command}:${error.code}`,
+                          error,
+                      ])
+                  ).values(),
+              ]
+            : [],
+        diagnostics:
+            !parsed && payload.present ? [{ code: 'invalid-snapshot' }] : [],
     };
 }
