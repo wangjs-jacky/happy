@@ -47,6 +47,7 @@ interface RuleObservation {
   warningThreshold: number
   criticalThreshold: number
   unit: SystemHealthIssue['unit']
+  sustained?: boolean
 }
 
 interface RuleState {
@@ -185,8 +186,13 @@ export class SystemHealthMonitor {
       pawsWorkerRssBytes: current.pawsWorkerRssBytes,
     }
     const minute = Math.floor(current.sampledAt / 60_000)
-    const history = this.snapshot.history.filter((item) => Math.floor(item.sampledAt / 60_000) !== minute)
-    history.push(point)
+    const history = [...this.snapshot.history]
+    const bucketIndex = history.findIndex((item) => Math.floor(item.sampledAt / 60_000) === minute)
+    if (bucketIndex === -1) {
+      history.push(point)
+    } else if (history[bucketIndex]!.sampledAt <= point.sampledAt) {
+      history[bucketIndex] = point
+    }
     history.sort((a, b) => a.sampledAt - b.sampledAt)
 
     const observations = this.buildObservations(current, sources)
@@ -238,12 +244,18 @@ export class SystemHealthMonitor {
   private buildObservations(current: SystemHealthCurrent, sources: SystemHealthSource[]): RuleObservation[] {
     const observations: RuleObservation[] = [
       highObservation('orphan-workers', current.orphanWorkerRoots, SYSTEM_HEALTH_THRESHOLDS.orphanRoots, 'count'),
-      highObservation('swap-high', current.swapUsedBytes / current.memoryTotalBytes, SYSTEM_HEALTH_THRESHOLDS.swapRatio, 'ratio'),
-      highObservation('load-high', current.load1 / current.cpuCores, SYSTEM_HEALTH_THRESHOLDS.loadPerCore, 'ratio'),
-      highObservation('worker-memory-high', current.pawsWorkerRssBytes / current.memoryTotalBytes, SYSTEM_HEALTH_THRESHOLDS.workerRssRatio, 'ratio'),
       highObservation('process-count-high', current.processCount, SYSTEM_HEALTH_THRESHOLDS.processCount, 'count'),
       highObservation('zombie-processes', current.zombieProcessCount, SYSTEM_HEALTH_THRESHOLDS.zombieProcessCount, 'count'),
     ]
+    if (current.memoryTotalBytes > 0) {
+      observations.push(
+        highObservation('swap-high', current.swapUsedBytes / current.memoryTotalBytes, SYSTEM_HEALTH_THRESHOLDS.swapRatio, 'ratio'),
+        highObservation('worker-memory-high', current.pawsWorkerRssBytes / current.memoryTotalBytes, SYSTEM_HEALTH_THRESHOLDS.workerRssRatio, 'ratio'),
+      )
+    }
+    if (current.cpuCores > 0) {
+      observations.push(highObservation('load-high', current.load1 / current.cpuCores, SYSTEM_HEALTH_THRESHOLDS.loadPerCore, 'ratio'))
+    }
     if (current.processLimit !== undefined && current.processLimit > 0) {
       observations.push(highObservation('process-capacity-high', current.processCount / current.processLimit, SYSTEM_HEALTH_THRESHOLDS.processCapacityRatio, 'ratio'))
     }
@@ -270,6 +282,7 @@ export class SystemHealthMonitor {
       warningThreshold: SYSTEM_HEALTH_THRESHOLDS.cpuSustained.warning.value,
       criticalThreshold: SYSTEM_HEALTH_THRESHOLDS.cpuSustained.critical.value,
       unit: 'percent',
+      sustained: true,
     })
 
     for (const source of sources) {
@@ -283,6 +296,7 @@ export class SystemHealthMonitor {
         warningThreshold: SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.warning.value,
         criticalThreshold: SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.critical.value,
         unit: 'percent',
+        sustained: true,
       })
     }
     return observations
@@ -312,7 +326,7 @@ export class SystemHealthMonitor {
       state.warningHits = 0
       state.recoveryHits = 0
       state.criticalHits += 1
-      if (state.criticalHits >= 2) {
+      if (observation.sustained || state.criticalHits >= 2) {
         if (state.severity !== 'critical') state.since = sampledAt
         state.severity = 'critical'
         state.threshold = observation.criticalThreshold
@@ -330,7 +344,7 @@ export class SystemHealthMonitor {
       } else {
         state.recoveryHits = 0
         state.warningHits += 1
-        if (state.warningHits >= 2) {
+        if (observation.sustained || state.warningHits >= 2) {
           if (state.severity !== 'warning') state.since = sampledAt
           state.severity = 'warning'
           state.threshold = observation.warningThreshold
