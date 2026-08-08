@@ -11,12 +11,16 @@ import type {
 interface JoinedProcess extends MacProcessStatRow {
   comm: string
   args: string
+  fingerprint?: string
+}
+
+interface FingerprintedProcess extends JoinedProcess {
   fingerprint: string
 }
 
 interface ProcessTree {
-  root: JoinedProcess
-  members: JoinedProcess[]
+  root: FingerprintedProcess
+  members: FingerprintedProcess[]
 }
 
 const DAEMON_MARKER = /(?:^|\s)--started-by(?:=daemon|\s+daemon)(?=\s|$)/
@@ -46,15 +50,18 @@ function sourceIdentity(comm: string): { id: string; name: string } {
   }
 }
 
-function birthFingerprint(row: MacProcessStatRow, capturedAt: number): string {
-  const startedAt = row.elapsedSeconds === undefined
-    ? capturedAt
-    : roundTo2Seconds(capturedAt - row.elapsedSeconds * 1_000)
-  return `${row.pid}:${startedAt}`
+function birthFingerprint(row: MacProcessStatRow, capturedAt: number): string | undefined {
+  if (row.elapsedSeconds === undefined || !Number.isFinite(row.elapsedSeconds) || row.elapsedSeconds < 0) return undefined
+  if (!Number.isFinite(capturedAt)) return undefined
+  return `${row.pid}:${roundTo2Seconds(capturedAt - row.elapsedSeconds * 1_000)}`
 }
 
 function trackedFingerprint(root: TrackedProcessRoot): string {
   return `${root.pid}:${roundTo2Seconds(root.spawnedAt)}`
+}
+
+function hasFingerprint(process: JoinedProcess): process is FingerprintedProcess {
+  return process.fingerprint !== undefined
 }
 
 function isWorkerCandidate(process: JoinedProcess): boolean {
@@ -97,7 +104,7 @@ function descendants(rootPid: number, processes: JoinedProcess[]): JoinedProcess
   return processes.filter((process) => included.has(process.pid))
 }
 
-function deduplicateRoots(roots: JoinedProcess[], byPid: Map<number, JoinedProcess>): JoinedProcess[] {
+function deduplicateRoots(roots: FingerprintedProcess[], byPid: Map<number, JoinedProcess>): FingerprintedProcess[] {
   const unique = [...new Map(roots.map((root) => [root.fingerprint, root])).values()]
   return unique.filter((root) => !unique.some((other) => (
     other.pid !== root.pid && hasAncestor(root.pid, other.pid, byPid)
@@ -105,13 +112,15 @@ function deduplicateRoots(roots: JoinedProcess[], byPid: Map<number, JoinedProce
 }
 
 function treesFromRoots(
-  roots: JoinedProcess[],
+  roots: FingerprintedProcess[],
   processes: JoinedProcess[],
   excludedPids: ReadonlySet<number> = new Set(),
 ): ProcessTree[] {
   return roots.map((root) => ({
     root,
-    members: descendants(root.pid, processes).filter((process) => !excludedPids.has(process.pid)),
+    members: descendants(root.pid, processes)
+      .filter(hasFingerprint)
+      .filter((process) => !excludedPids.has(process.pid)),
   })).filter((tree) => tree.members.some((process) => process.pid === tree.root.pid))
 }
 
@@ -140,17 +149,19 @@ export function analyzeMacProcessSnapshot(input: MacProcessAnalysisInput): MacPr
     fingerprint: birthFingerprint(row, input.capturedAt),
   }))
   const byPid = new Map(processes.map((process) => [process.pid, process]))
-  const byFingerprint = new Map(processes.map((process) => [process.fingerprint, process]))
+  const byFingerprint = new Map(
+    processes.filter(hasFingerprint).map((process) => [process.fingerprint, process]),
+  )
 
-  const trackedRoots: JoinedProcess[] = []
+  const trackedRoots: FingerprintedProcess[] = []
   for (const tracked of input.trackedRoots) {
     const pane = byPid.get(tracked.pid)
-    if (!pane || pane.fingerprint !== trackedFingerprint(tracked)) continue
+    if (!pane || !hasFingerprint(pane) || pane.fingerprint !== trackedFingerprint(tracked)) continue
     if (tracked.kind === 'daemon') {
       trackedRoots.push(pane)
       continue
     }
-    trackedRoots.push(...processes.filter((process) => (
+    trackedRoots.push(...processes.filter(hasFingerprint).filter((process) => (
       isWorkerCandidate(process) && isSelfOrDescendant(process.pid, pane.pid, byPid)
     )))
   }
@@ -159,15 +170,19 @@ export function analyzeMacProcessSnapshot(input: MacProcessAnalysisInput): MacPr
   const workerPids = new Set(normalTrees.flatMap((tree) => tree.members.map((process) => process.pid)))
 
   const daemonRoots = deduplicateRoots(
-    processes.filter((process) => isDaemonCandidate(process) && !workerPids.has(process.pid)),
+    processes.filter(hasFingerprint)
+      .filter((process) => isDaemonCandidate(process) && !workerPids.has(process.pid)),
     byPid,
   )
-  const previousRoots: JoinedProcess[] = []
+  const previousRoots: FingerprintedProcess[] = []
   for (const membership of input.previousMembership) {
-    if (byFingerprint.has(membership.rootFingerprint)) continue
-    const surviving = membership.memberFingerprints
+    const membershipFingerprints = new Set([
+      membership.rootFingerprint,
+      ...membership.memberFingerprints,
+    ])
+    const surviving = [...membershipFingerprints]
       .map((fingerprint) => byFingerprint.get(fingerprint))
-      .filter((process): process is JoinedProcess => process !== undefined && !workerPids.has(process.pid))
+      .filter((process): process is FingerprintedProcess => process !== undefined && !workerPids.has(process.pid))
     const survivingPids = new Set(surviving.map((process) => process.pid))
     previousRoots.push(...surviving.filter((process) => !survivingPids.has(process.ppid)))
   }

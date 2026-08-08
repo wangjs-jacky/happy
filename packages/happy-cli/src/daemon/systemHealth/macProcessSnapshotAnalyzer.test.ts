@@ -65,6 +65,38 @@ describe('analyzeMacProcessSnapshot', () => {
     expect(second.nextMembership[0]?.memberFingerprints).toHaveLength(2)
   })
 
+  it('keeps promoted orphan membership across snapshots until the last member exits', () => {
+    const first = analyzeMacProcessSnapshot(fixture({
+      stats: [stat(100, 1, 1, 100, 90), stat(110, 100, 2, 200, 80)],
+      commands: [{ pid: 100, value: 'node' }, { pid: 110, value: 'agent' }],
+      arguments: [{ pid: 100, value: 'node happy daemon' }, { pid: 110, value: 'agent' }],
+      trackedRoots: [{ pid: 100, spawnedAt: 10_000, kind: 'daemon' }],
+    }))
+    const second = analyzeMacProcessSnapshot(fixture({
+      capturedAt: capturedAt + 10_000,
+      stats: [stat(110, 1, 2, 200, 90)],
+      commands: [{ pid: 110, value: 'agent' }],
+      arguments: [{ pid: 110, value: 'agent' }],
+      previousMembership: first.nextMembership,
+    }))
+    const third = analyzeMacProcessSnapshot(fixture({
+      capturedAt: capturedAt + 20_000,
+      stats: [stat(110, 1, 2, 200, 100)],
+      commands: [{ pid: 110, value: 'agent' }],
+      arguments: [{ pid: 110, value: 'agent' }],
+      previousMembership: second.nextMembership,
+    }))
+    const final = analyzeMacProcessSnapshot(fixture({
+      capturedAt: capturedAt + 30_000,
+      previousMembership: third.nextMembership,
+    }))
+
+    expect(second.orphans).toEqual({ rootCount: 1, processCount: 1, rssBytes: 200 * 1_024 })
+    expect(third.orphans).toEqual({ rootCount: 1, processCount: 1, rssBytes: 200 * 1_024 })
+    expect(final.orphans).toEqual({ rootCount: 0, processCount: 0, rssBytes: 0 })
+    expect(final.nextMembership).toEqual([])
+  })
+
   it('does not inherit previous membership when a pid is reused with a different birth fingerprint', () => {
     const result = analyzeMacProcessSnapshot(fixture({
       stats: [stat(110, 1, 0, 10, 1)],
@@ -74,6 +106,26 @@ describe('analyzeMacProcessSnapshot', () => {
     }))
 
     expect(result.orphans.processCount).toBe(0)
+  })
+
+  it('fails closed for ownership and membership when elapsed time is missing', () => {
+    const rowWithoutElapsed: MacProcessStatRow = {
+      pid: 100,
+      ppid: 1,
+      cpuPercent: 1,
+      rssKb: 10,
+      state: 'S',
+    }
+    const result = analyzeMacProcessSnapshot(fixture({
+      stats: [rowWithoutElapsed],
+      commands: [{ pid: 100, value: 'paws' }],
+      arguments: [{ pid: 100, value: 'paws codex --started-by daemon' }],
+      trackedRoots: [{ pid: 100, spawnedAt: 10_000, kind: 'daemon' }],
+    }))
+
+    expect(result.worker.processCount).toBe(0)
+    expect(result.orphans.processCount).toBe(0)
+    expect(result.nextMembership).toEqual([])
   })
 
   it('requires the tracked daemon pid birth fingerprint to match', () => {
