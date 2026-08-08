@@ -30,6 +30,7 @@ import {
 } from '@/codex/codexThreadFork';
 import { DaemonStatePublisher, type DaemonStateMutation } from './daemonStatePublisher';
 import type { SystemHealthSnapshot } from './types';
+import { getSystemHealthCapability } from '@/daemon/systemHealth/systemHealthRuntime';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -124,6 +125,7 @@ export class ApiMachineClient {
     private reconnectInterval: NodeJS.Timeout | null = null;
     private connectionGeneration = 0;
     private daemonStatePublisher: DaemonStatePublisher;
+    private connectionListener: ((connected: boolean) => void) | null = null;
 
     constructor(
         private token: string,
@@ -420,6 +422,10 @@ export class ApiMachineClient {
         }));
     }
 
+    setConnectionListener(listener: (connected: boolean) => void): void {
+        this.connectionListener = listener;
+    }
+
     private async writeDaemonStateOnce(handler: DaemonStateMutation, generation: number, timeoutMs: number): Promise<void> {
         if (generation !== this.connectionGeneration || !this.socket.connected) {
             throw new Error('Daemon state connection generation is stale');
@@ -482,7 +488,8 @@ export class ApiMachineClient {
                 pid: process.pid,
                 httpPort: this.machine.daemonState?.httpPort,
                 startedAt: Date.now()
-            })).catch((error) => logger.debug('[API MACHINE] Failed to publish running state:', error));
+            })).then(() => this.connectionListener?.(true))
+                .catch((error) => logger.debug('[API MACHINE] Failed to publish running state:', error));
 
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.syncResumeSessionRpcRegistration();
@@ -493,6 +500,7 @@ export class ApiMachineClient {
             logger.debug(`[API MACHINE] Disconnected from server — reason: ${reason}`);
             this.connectionGeneration += 1;
             this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
+            this.connectionListener?.(false);
             this.rpcHandlerManager.onSocketDisconnect();
             this.stopKeepAlive();
             this.startSmartReconnect();
@@ -573,6 +581,7 @@ export class ApiMachineClient {
                     ...(metadata || {} as any),
                     cliAvailability: newAvailability,
                     resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
+                    systemHealthMonitor: getSystemHealthCapability(),
                 })).catch((err) => {
                     logger.debug('[API MACHINE] Failed to update machine capabilities:', err);
                 });
@@ -629,5 +638,15 @@ export class ApiMachineClient {
             this.socket.close();
             logger.debug('[API MACHINE] Socket closed');
         }
+    }
+
+    async close(shutdownMutation?: DaemonStateMutation): Promise<void> {
+        this.stopKeepAlive();
+        if (this.reconnectInterval) {
+            clearInterval(this.reconnectInterval);
+            this.reconnectInterval = null;
+        }
+        await this.daemonStatePublisher.close(shutdownMutation);
+        if (this.socket) this.socket.close();
     }
 }

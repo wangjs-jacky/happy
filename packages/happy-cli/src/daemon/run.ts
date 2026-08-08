@@ -29,6 +29,9 @@ import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
+import { MacSystemHealthCollector } from './systemHealth/macSystemHealthCollector';
+import { SystemHealthMonitor } from './systemHealth/systemHealthMonitor';
+import { getSystemHealthCapability, SystemHealthRuntime } from './systemHealth/systemHealthRuntime';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -66,6 +69,7 @@ export const initialMachineMetadata: MachineMetadata = {
   happyLibDir: projectPath(),
   cliAvailability: detectCLIAvailability(),
   resumeSupport: { ...detectResumeSupport(), rpcAvailable: true },
+  systemHealthMonitor: getSystemHealthCapability(),
 };
 
 export async function startDaemon(): Promise<void> {
@@ -91,7 +95,7 @@ export async function startDaemon(): Promise<void> {
         await new Promise(resolve => setTimeout(resolve, 100))
 
         process.exit(1);
-      }, 1_000);
+      }, 5_000);
 
       // Start graceful shutdown
       resolve({ source, errorMessage });
@@ -192,6 +196,7 @@ export async function startDaemon(): Promise<void> {
           agentStateVersion: s.agentStateVersion,
         },
         pid: 0,
+        spawnedAt: s.savedAt,
       });
     }
     if (Object.keys(persisted).length > 0) {
@@ -254,7 +259,8 @@ export async function startDaemon(): Promise<void> {
           happySessionId: sessionId,
           happySessionMetadataFromLocalWebhook: sessionMetadata,
           encryption,
-          pid
+          pid,
+          spawnedAt: Date.now(),
         };
         pidToTrackedSession.set(pid, trackedSession);
         logger.debug(`[DAEMON RUN] Registered externally-started session ${sessionId}`);
@@ -467,6 +473,7 @@ export async function startDaemon(): Promise<void> {
             const trackedSession: TrackedSession = {
               startedBy: 'daemon',
               pid: tmuxResult.pid, // Real PID from tmux -P flag
+              spawnedAt: Date.now(),
               tmuxSessionId: tmuxResult.sessionId,
               directoryCreated,
               message: directoryCreated
@@ -622,6 +629,7 @@ export async function startDaemon(): Promise<void> {
       const trackedSession: TrackedSession = {
         startedBy: 'daemon',
         pid: happyProcess.pid,
+        spawnedAt: Date.now(),
         childProcess: happyProcess,
         directoryCreated,
         message,
@@ -892,8 +900,27 @@ export async function startDaemon(): Promise<void> {
       requestShutdown: () => requestShutdown('happy-app')
     });
 
+    const systemHealthEnabled = process.platform === 'darwin' && process.env.HAPPY_SYSTEM_HEALTH_MONITOR === '1';
+    const systemHealthRuntime = systemHealthEnabled ? new SystemHealthRuntime({
+      collector: new MacSystemHealthCollector(),
+      monitor: new SystemHealthMonitor(),
+      publish: (snapshot) => apiMachine.publishSystemHealth(snapshot),
+      isConnected: () => apiMachine.isConnected(),
+      trackedRoots: () => [...pidToTrackedSession.values()]
+        .filter((session) => session.startedBy === 'daemon' && session.pid > 0)
+        .map((session) => ({
+          pid: session.pid,
+          spawnedAt: session.spawnedAt,
+          kind: session.tmuxSessionId ? 'tmux' as const : 'daemon' as const,
+        })),
+    }) : null;
+    apiMachine.setConnectionListener((connected) => {
+      if (connected) systemHealthRuntime?.publishLatestNow();
+    });
+
     // Connect to server
     apiMachine.connect();
+    systemHealthRuntime?.start();
 
     let lastCodexUsageScanAt = 0;
     let lastCodexUsageSignature: string | null = null;
@@ -987,7 +1014,8 @@ export async function startDaemon(): Promise<void> {
         // `happy daemon start` reads our still-present daemon.state.json, sees
         // isDaemonRunningCurrentlyInstalledHappyVersion() === true, and exits —
         // leaving nothing running once we also exit.
-        apiMachine.shutdown();
+        systemHealthRuntime?.stop();
+        await apiMachine.close();
         await stopControlServer();
         await cleanupDaemonState();
         await releaseDaemonLock(daemonLockHandle);
@@ -1046,19 +1074,14 @@ export async function startDaemon(): Promise<void> {
         logger.debug('[DAEMON RUN] Health check interval cleared');
       }
       clearTimeout(initialCodexUsageTimer);
+      systemHealthRuntime?.stop();
 
-      // Update daemon state before shutting down
-      await apiMachine.updateDaemonState((state: DaemonState | null) => ({
+      await apiMachine.close((state: DaemonState | null) => ({
         ...state,
         status: 'shutting-down',
         shutdownRequestedAt: Date.now(),
         shutdownSource: source
       }));
-
-      // Give time for metadata update to send
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      apiMachine.shutdown();
       await stopControlServer();
       await cleanupDaemonState();
       await stopCaffeinate();
