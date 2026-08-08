@@ -2,45 +2,46 @@ import { describe, expect, it } from 'vitest'
 import { SystemHealthSnapshotSchema, type SystemHealthSource } from '@/api/types'
 import { analyzeMacProcessSnapshot } from './macProcessSnapshotAnalyzer'
 
-const sampledAt = 1_800_000_000_000
+const maxFinite = Number.MAX_VALUE
+const sampledAt = maxFinite
 
 function source(index: number): SystemHealthSource {
   return {
-    id: `process:${index.toString(16).padStart(56, '0')}`,
-    name: `${index}`.padEnd(40, 'x'),
-    cpuPercent: 999.9,
-    rssBytes: 99_999_999_999,
-    processCount: 9_999,
-    zombieProcessCount: 999,
-    oldestProcessAgeSeconds: 9_999_999,
+    id: `${index}`.padEnd(64, 'i'),
+    name: `${index}`.padEnd(40, 'n'),
+    cpuPercent: maxFinite,
+    rssBytes: maxFinite,
+    processCount: maxFinite,
+    zombieProcessCount: maxFinite,
+    oldestProcessAgeSeconds: maxFinite,
   }
 }
 
 function current(sources: SystemHealthSource[]) {
   return {
     sampledAt,
-    cpuUsedPercent: 100,
-    cpuCores: 128,
-    load1: 999,
-    load5: 999,
-    load15: 999,
-    memoryTotalBytes: 999_999_999_999,
-    memoryAvailableBytes: 999_999_999_999,
-    memoryCompressedBytes: 999_999_999_999,
-    memoryPressureFreePercent: 100,
-    swapUsedBytes: 999_999_999_999,
-    swapTotalBytes: 999_999_999_999,
-    diskFreeBytes: 999_999_999_999,
-    diskTotalBytes: 999_999_999_999,
-    processCount: 9_999,
-    processLimit: 10_000,
-    zombieProcessCount: 9_999,
-    pawsWorkerRoots: 999,
-    pawsWorkerProcesses: 9_999,
-    pawsWorkerRssBytes: 999_999_999_999,
-    orphanWorkerRoots: 999,
-    orphanWorkerProcesses: 9_999,
-    orphanWorkerRssBytes: 999_999_999_999,
+    cpuUsedPercent: maxFinite,
+    cpuCores: maxFinite,
+    load1: maxFinite,
+    load5: maxFinite,
+    load15: maxFinite,
+    memoryTotalBytes: maxFinite,
+    memoryAvailableBytes: maxFinite,
+    memoryCompressedBytes: maxFinite,
+    memoryPressureFreePercent: maxFinite,
+    swapUsedBytes: maxFinite,
+    swapTotalBytes: maxFinite,
+    diskFreeBytes: maxFinite,
+    diskTotalBytes: maxFinite,
+    processCount: maxFinite,
+    processLimit: maxFinite,
+    zombieProcessCount: maxFinite,
+    pawsWorkerRoots: maxFinite,
+    pawsWorkerProcesses: maxFinite,
+    pawsWorkerRssBytes: maxFinite,
+    orphanWorkerRoots: maxFinite,
+    orphanWorkerProcesses: maxFinite,
+    orphanWorkerRssBytes: maxFinite,
     topCpuSources: sources,
     topMemorySources: sources,
     topZombieSources: sources,
@@ -48,11 +49,6 @@ function current(sources: SystemHealthSource[]) {
 }
 
 function snapshotWithSources(sources: SystemHealthSource[]) {
-  const issueCodes = [
-    'orphan-workers', 'swap-high', 'swap-growing', 'cpu-sustained', 'load-high',
-    'memory-pressure-high', 'worker-memory-high', 'process-count-high',
-    'process-capacity-high', 'zombie-processes', 'disk-low', 'single-source-cpu-high',
-  ] as const
   return SystemHealthSnapshotSchema.parse({
     schemaVersion: 1,
     platform: 'darwin',
@@ -60,38 +56,38 @@ function snapshotWithSources(sources: SystemHealthSource[]) {
     lastAttemptAt: sampledAt,
     resourceStatus: 'critical',
     current: current(sources),
-    history: Array.from({ length: 30 }, (_, index) => ({
-      sampledAt: sampledAt - (29 - index) * 60_000,
-      cpuUsedPercent: 100,
-      load1: 999,
-      memoryAvailableBytes: 999_999_999_999,
-      swapUsedBytes: 999_999_999_999,
-      processCount: 9_999,
-      zombieProcessCount: 9_999,
-      orphanWorkerRoots: 999,
-      pawsWorkerRssBytes: 999_999_999_999,
+    history: Array.from({ length: 30 }, () => ({
+      sampledAt: maxFinite,
+      cpuUsedPercent: maxFinite,
+      load1: maxFinite,
+      memoryAvailableBytes: maxFinite,
+      swapUsedBytes: maxFinite,
+      processCount: maxFinite,
+      zombieProcessCount: maxFinite,
+      orphanWorkerRoots: maxFinite,
+      pawsWorkerRssBytes: maxFinite,
     })),
     issues: Array.from({ length: 16 }, (_, index) => ({
-      code: issueCodes[index % issueCodes.length],
-      severity: index % 2 ? 'warning' : 'critical',
+      code: 'single-source-cpu-high',
+      severity: 'critical',
       subject: `${index}`.padEnd(64, 's'),
-      observed: 999_999_999,
-      threshold: 999_999_999,
-      unit: 'count',
-      since: sampledAt,
+      observed: -maxFinite,
+      threshold: maxFinite,
+      unit: 'percent',
+      since: maxFinite,
     })),
     collector: {
       intervalSeconds: 15,
       historyStepSeconds: 60,
-      durationMs: 5_000,
+      durationMs: maxFinite,
       lastSampleKind: 'complete',
-      errors: Array.from({ length: 16 }, () => ({ command: 'ps', code: 'parse' })),
+      errors: Array.from({ length: 16 }, () => ({ command: 'memory_pressure', code: 'timeout' })),
     },
   })
 }
 
 describe('system health payload budget', () => {
-  it('keeps the maximal snapshot below the 32 KiB wire budget', () => {
+  it('keeps the schema-boundary worst-case snapshot below the 32 KiB wire budget', () => {
     const snapshot = snapshotWithSources(Array.from({ length: 5 }, (_, index) => source(index)))
     const json = JSON.stringify(snapshot)
 
@@ -100,6 +96,21 @@ describe('system health payload budget', () => {
     expect(snapshot.current?.topMemorySources).toHaveLength(5)
     expect(snapshot.current?.topZombieSources).toHaveLength(5)
     expect(snapshot.issues).toHaveLength(16)
+    expect(snapshot.current?.cpuUsedPercent).toBe(Number.MAX_VALUE)
+    expect(snapshot.issues[0]).toEqual(expect.objectContaining({
+      code: 'single-source-cpu-high',
+      severity: 'critical',
+      observed: -Number.MAX_VALUE,
+      threshold: Number.MAX_VALUE,
+      unit: 'percent',
+    }))
+    expect(snapshot.collector).toEqual(expect.objectContaining({
+      durationMs: Number.MAX_VALUE,
+      lastSampleKind: 'complete',
+      errors: expect.arrayContaining([
+        { command: 'memory_pressure', code: 'timeout' },
+      ]),
+    }))
     expect(Buffer.byteLength(json, 'utf8')).toBeLessThan(32 * 1024)
   })
 
@@ -126,6 +137,11 @@ describe('system health payload budget', () => {
     const snapshot = snapshotWithSources(analysis.sources)
     const json = JSON.stringify(snapshot)
 
+    expect(analysis.sources).toEqual([expect.objectContaining({
+      name: 'secret-worker',
+      processCount: 1,
+      zombieProcessCount: 1,
+    })])
     expect(json).not.toContain(rawUser)
     expect(json).not.toContain(rawPath)
     expect(json).not.toContain(String(rawPid))
