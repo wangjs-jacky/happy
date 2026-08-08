@@ -36,7 +36,7 @@ type DesiredLevel = 'clear' | 'warning' | 'critical'
 
 interface RawSample {
   current: SystemHealthCurrent
-  sources: SystemHealthSource[]
+  sources?: SystemHealthSource[]
 }
 
 interface RuleObservation {
@@ -97,12 +97,13 @@ function lowObservation(
   }
 }
 
-function hasSustainedValue(samples: RawSample[], now: number, durationMs: number, selector: (sample: RawSample) => number, threshold: number): boolean {
+function hasSustainedValue(samples: RawSample[], now: number, durationMs: number, selector: (sample: RawSample) => number | undefined, threshold: number): boolean {
   const window = samples.filter((sample) => sample.current.sampledAt >= now - durationMs)
   if (window.length === 0 || now - window[0].current.sampledAt < durationMs) return false
+  const values = window.map(selector).filter((value): value is number => value !== undefined)
   const expected = Math.floor(durationMs / 15_000) + 1
-  if (window.length < Math.ceil(expected * 0.8)) return false
-  return window.filter((sample) => selector(sample) >= threshold).length >= Math.ceil(window.length * 0.8)
+  if (values.length < Math.ceil(expected * 0.8)) return false
+  return values.filter((value) => value >= threshold).length >= Math.ceil(values.length * 0.8)
 }
 
 export class SystemHealthMonitor {
@@ -141,7 +142,8 @@ export class SystemHealthMonitor {
     if (collection.kind !== 'complete') return SystemHealthSnapshotSchema.parse(this.snapshot)
 
     const values = collection.values
-    const sources = values.sources ?? []
+    const sources = values.sources
+    const publicSources = sources ?? []
     const current = SystemHealthCurrentSchema.parse({
       sampledAt: values.sampledAt,
       cpuUsedPercent: values.cpuUsedPercent,
@@ -166,9 +168,9 @@ export class SystemHealthMonitor {
       orphanWorkerRoots: values.orphanWorkerRoots,
       orphanWorkerProcesses: values.orphanWorkerProcesses,
       orphanWorkerRssBytes: values.orphanWorkerRssBytes,
-      topCpuSources: [...sources].sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 5),
-      topMemorySources: [...sources].sort((a, b) => b.rssBytes - a.rssBytes).slice(0, 5),
-      topZombieSources: [...sources].filter((source) => source.zombieProcessCount > 0)
+      topCpuSources: [...publicSources].sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 5),
+      topMemorySources: [...publicSources].sort((a, b) => b.rssBytes - a.rssBytes).slice(0, 5),
+      topZombieSources: [...publicSources].filter((source) => source.zombieProcessCount > 0)
         .sort((a, b) => b.zombieProcessCount - a.zombieProcessCount).slice(0, 5),
     })
     this.rawSamples.push({ current, sources })
@@ -198,7 +200,7 @@ export class SystemHealthMonitor {
     const observations = this.buildObservations(current, sources)
     const evaluatedKeys = new Set(observations.map((observation) => this.ruleKey(observation.code, observation.subject)))
     for (const [key, state] of this.ruleStates) {
-      if (state.code === 'single-source-cpu-high' && !evaluatedKeys.has(key)) {
+      if (sources !== undefined && state.code === 'single-source-cpu-high' && !evaluatedKeys.has(key)) {
         observations.push({
           code: state.code,
           subject: state.subject,
@@ -241,7 +243,7 @@ export class SystemHealthMonitor {
     return SystemHealthSnapshotSchema.parse(this.snapshot)
   }
 
-  private buildObservations(current: SystemHealthCurrent, sources: SystemHealthSource[]): RuleObservation[] {
+  private buildObservations(current: SystemHealthCurrent, sources?: SystemHealthSource[]): RuleObservation[] {
     const observations: RuleObservation[] = [
       highObservation('orphan-workers', current.orphanWorkerRoots, SYSTEM_HEALTH_THRESHOLDS.orphanRoots, 'count'),
       highObservation('process-count-high', current.processCount, SYSTEM_HEALTH_THRESHOLDS.processCount, 'count'),
@@ -285,9 +287,12 @@ export class SystemHealthMonitor {
       sustained: true,
     })
 
-    for (const source of sources) {
-      const critical = hasSustainedValue(this.rawSamples, current.sampledAt, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.critical.durationMs, (sample) => sample.sources.find((item) => item.id === source.id)?.cpuPercent ?? 0, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.critical.value)
-      const warning = hasSustainedValue(this.rawSamples, current.sampledAt, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.warning.durationMs, (sample) => sample.sources.find((item) => item.id === source.id)?.cpuPercent ?? 0, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.warning.value)
+    for (const source of sources ?? []) {
+      const sourceCpu = (sample: RawSample) => sample.sources === undefined
+        ? undefined
+        : sample.sources.find((item) => item.id === source.id)?.cpuPercent ?? 0
+      const critical = hasSustainedValue(this.rawSamples, current.sampledAt, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.critical.durationMs, sourceCpu, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.critical.value)
+      const warning = hasSustainedValue(this.rawSamples, current.sampledAt, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.warning.durationMs, sourceCpu, SYSTEM_HEALTH_THRESHOLDS.sourceCpuSustained.warning.value)
       observations.push({
         code: 'single-source-cpu-high',
         subject: source.id,

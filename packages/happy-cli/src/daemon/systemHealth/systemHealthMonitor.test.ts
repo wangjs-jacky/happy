@@ -270,6 +270,40 @@ describe('SystemHealthMonitor', () => {
       expect(issue(insufficient.getSnapshot(), 'single-source-cpu-high', 'boundary')).toBeUndefined()
     })
 
+    it('counts only complete samples with source data toward source CPU coverage and qualification', () => {
+      const monitor = new SystemHealthMonitor()
+      const missingIndexes = new Set([2, 6, 10, 14])
+      const emptyIndexes = new Set([3, 7, 11])
+      for (let index = 0; index <= 20; index += 1) {
+        const sources = missingIndexes.has(index)
+          ? undefined
+          : emptyIndexes.has(index)
+            ? []
+            : [source('boundary', 100)]
+        monitor.record(complete(index * INTERVAL_MS, { sources }))
+      }
+      expect(issue(monitor.getSnapshot(), 'single-source-cpu-high', 'boundary')).toMatchObject({
+        severity: 'warning',
+        threshold: 100,
+      })
+    })
+
+    it('does not recover a source issue when source data is missing but recovers on an explicit empty list', () => {
+      const monitor = new SystemHealthMonitor()
+      const hot = source('hot', 210)
+      for (let index = 0; index <= 20; index += 1) monitor.record(complete(index * INTERVAL_MS, { sources: [hot] }))
+
+      for (let index = 21; index <= 23; index += 1) {
+        const snapshot = monitor.record(complete(index * INTERVAL_MS, { sources: undefined }))
+        expect(issue(snapshot, 'single-source-cpu-high', 'hot')).toMatchObject({ severity: 'critical', observed: 210 })
+      }
+
+      for (let index = 24; index <= 25; index += 1) {
+        expect(issue(monitor.record(complete(index * INTERVAL_MS, { sources: [] })), 'single-source-cpu-high', 'hot')).toBeDefined()
+      }
+      expect(issue(monitor.record(complete(26 * INTERVAL_MS, { sources: [] })), 'single-source-cpu-high', 'hot')).toBeUndefined()
+    })
+
     it('records a disappeared source as zero and recovers its issue after three complete samples', () => {
       const monitor = new SystemHealthMonitor()
       const hot = source('hot', 210)
