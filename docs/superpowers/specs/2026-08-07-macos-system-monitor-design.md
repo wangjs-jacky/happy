@@ -7,7 +7,7 @@
 Mac mini 最近一次失联并非单一应用导致，而是 Paws 旧 worker 未回收形成的持续进程压力，再叠加 Chrome、Spotlight、Cursor 等高 CPU 占用。现有 Paws 机器详情页只能显示在线状态、daemon 基本信息和 Codex 用量，无法回答以下问题：
 
 1. 设备正在变慢还是已经离线？
-2. CPU、内存、Swap 和进程数在过去 30 分钟如何变化？
+2. CPU、内存、Swap、进程数和僵尸进程在过去 30 分钟如何变化？
 3. 主要负载来自 Paws worker、Chrome、Spotlight，还是其他应用？
 4. Paws worker 是否出现与当前 daemon 会话表不一致的孤儿进程？
 
@@ -26,8 +26,8 @@ Mac mini 最近一次失联并非单一应用导致，而是 Paws 旧 worker 未
 ### 2.1 目标
 
 - 用户进入 macOS 机器详情页后，第一屏即可判断设备为正常、需关注、严重或数据已过期。
-- 用户能查看 CPU、内存、Swap、总进程、Paws worker 和孤儿 worker 的当前值。
-- 用户能查看 CPU、Swap、总进程与孤儿 worker 最近 30 分钟的变化。
+- 用户能查看 CPU、内存、Swap、总进程、进程容量、僵尸进程、Paws worker 和孤儿 worker 的当前值。
+- 用户能查看 CPU、Swap、总进程、僵尸进程与孤儿 worker 最近 30 分钟的变化。
 - 用户能看到按 CPU 或内存聚合后的主要资源来源，而不是只能猜测是否为 Chrome。
 - 采集或同步失败不能影响 daemon 的会话创建、心跳和现有 Codex 用量同步。
 - 数据内容保持最小化，不上传完整命令行、环境变量、文件路径或进程参数。
@@ -77,10 +77,11 @@ Collector 只在 `process.platform === 'darwin'` 且 `HAPPY_SYSTEM_HEALTH_MONITO
 | 命令 | 数据 | 解析约定 |
 |---|---|---|
 | `/usr/sbin/sysctl -n hw.ncpu hw.memsize vm.loadavg vm.swapusage` | 核心数、物理内存、负载、Swap used/total | `vm.swapusage` 是当前 Swap 的唯一来源，不从 `top` 猜测 |
+| `/bin/launchctl limit maxproc` | 当前登录域软进程上限 | 只解析有限且大于 0 的 soft limit；`unlimited` 或格式异常时省略容量指标 |
 | `/usr/bin/top -l 2 -s 0 -n 0` | CPU user/sys/idle | 丢弃第一次采样，解析最后一个 `CPU usage` 行；`used = 100 - idle` |
 | `/usr/bin/vm_stat` | 内存页 | 从首行解析 page size；`available estimate = free + inactive + speculative`，压缩内存取 compressor pages；purgeable 不重复相加 |
 | `/usr/bin/memory_pressure -Q` | 系统内存压力 | 解析 `System-wide memory free percentage`；内存告警只使用该百分比，不把裸 free pages 当作“可用内存” |
-| `/bin/ps -A -ww -o pid= -o ppid= -o pcpu= -o rss= -o etime=` | 进程树与资源 | 每行固定五个无空格字段 |
+| `/bin/ps -A -ww -o pid= -o ppid= -o pcpu= -o rss= -o state= -o etime=` | 进程树、资源与进程状态 | 前五列无空格，最后一列为 elapsed time；`state` 首字符为 `Z` 时计为僵尸进程 |
 | `/bin/ps -A -ww -o pid= -o comm=` | 可执行文件 | 只切分开头 PID，整段 remainder 为 comm，不按空格切分 |
 | `/bin/ps -A -ww -o pid= -o args=` | 仅本机识别所需参数 | 只切分开头 PID，整段 remainder 为 args，不尝试还原 argv 边界 |
 | `/bin/df -kP /` | 系统盘总量与可用空间 | 固定 POSIX 列布局，单位换算为字节 |
@@ -128,7 +129,7 @@ UI 不展示完整命令行。`MacProcessSnapshotAnalyzer` 在本机把进程标
 - 已识别的 Paws worker 树 → `Paws Workers`
 - 其他进程 → 从 comm remainder 最后一个 `/` 之后取得安全 basename；无法得到稳定名称时统一为 `Other`
 
-每次只同步 CPU 前 5 和内存前 5 的来源。每项包含稳定 ID、展示名、CPU、RSS、进程数和最长运行时长；不包含参数、环境变量、用户路径或窗口标题。已知来源 ID 固定为 `chrome`、`cursor`、`spotlight`、`paws-workers`；未知来源 ID 为 `process:` 加本机对完整 comm 做 SHA-256 后的前 12 个十六进制字符，展示名仅使用安全 basename 并限制 40 字符。该 ID 同时用于列表去重和来源告警 subject。
+每次只同步 CPU 前 5、内存前 5 和僵尸进程数前 5 的来源。每项包含稳定 ID、展示名、CPU、RSS、进程数、僵尸进程数和最长运行时长；不包含参数、环境变量、用户路径或窗口标题。已知来源 ID 固定为 `chrome`、`cursor`、`spotlight`、`paws-workers`；未知来源 ID 为 `process:` 加本机对完整 comm 做 SHA-256 后的前 12 个十六进制字符，展示名仅使用安全 basename 并限制 40 字符。该 ID 同时用于列表去重和来源告警 subject。未识别来源仍通过运行时 basename 脱敏聚合，因此看板能定位僵尸进程所属应用族而不上传命令行。
 
 ## 五、数据契约
 
@@ -158,6 +159,8 @@ type SystemHealthIssueCode =
     | 'memory-pressure-high'
     | 'worker-memory-high'
     | 'process-count-high'
+    | 'process-capacity-high'
+    | 'zombie-processes'
     | 'disk-low'
     | 'single-source-cpu-high';
 
@@ -177,6 +180,8 @@ interface SystemHealthCurrent {
     diskFreeBytes?: number;
     diskTotalBytes?: number;
     processCount: number;
+    processLimit?: number;
+    zombieProcessCount: number;
     pawsWorkerRoots: number;
     pawsWorkerProcesses: number;
     pawsWorkerRssBytes: number;
@@ -185,6 +190,7 @@ interface SystemHealthCurrent {
     orphanWorkerRssBytes: number;
     topCpuSources: SystemHealthSource[];
     topMemorySources: SystemHealthSource[];
+    topZombieSources: SystemHealthSource[];
 }
 
 interface SystemHealthSource {
@@ -193,6 +199,7 @@ interface SystemHealthSource {
     cpuPercent: number;
     rssBytes: number;
     processCount: number;
+    zombieProcessCount: number;
     oldestProcessAgeSeconds?: number;
 }
 
@@ -203,6 +210,7 @@ interface SystemHealthHistoryPoint {
     memoryAvailableBytes: number;
     swapUsedBytes: number;
     processCount: number;
+    zombieProcessCount: number;
     orphanWorkerRoots: number;
     pawsWorkerRssBytes: number;
 }
@@ -230,7 +238,7 @@ interface SystemHealthSnapshot {
         durationMs: number;
         lastSampleKind: 'complete' | 'partial' | 'failed' | 'pending';
         errors: Array<{
-            command: 'sysctl' | 'top' | 'vm_stat' | 'memory_pressure' | 'ps' | 'df';
+            command: 'sysctl' | 'launchctl' | 'top' | 'vm_stat' | 'memory_pressure' | 'ps' | 'df';
             code: 'timeout' | 'exit' | 'parse';
         }>;
     };
@@ -276,7 +284,7 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 
 - 单次采集目标耗时低于 2 秒；超过 5 秒视为超时。
 - 序列化后的 `systemHealth` 目标小于 32 KB。
-- 最多同步 10 条资源来源记录和 30 个历史点。
+- 最多同步 15 条资源来源记录和 30 个历史点。
 - 日志只记录耗时、错误码和记录数量，不打印完整进程命令。
 
 ## 七、状态规则
@@ -293,6 +301,8 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 | `memory_pressure -Q` 可用百分比 | < 10% | < 5% |
 | Paws worker RSS / 物理内存 | ≥ 20% | ≥ 35% |
 | 总进程数 | ≥ 700 | ≥ 900 |
+| 总进程数 / 登录域软上限 | ≥ 80% | ≥ 90% |
+| 持续僵尸进程数 | ≥ 1 | ≥ 25 |
 | 系统盘可用空间 | < 15 GB | < 5 GB |
 | 单一来源 CPU | ≥ 100% 持续 5 分钟 | ≥ 200% 持续 5 分钟 |
 
@@ -327,8 +337,8 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 新增监控区位于页面顶部、启动新会话区域之前，使用户先判断设备健康，再决定是否新建会话：
 
 1. `SystemHealthSummary`：一个 Paws surface 内显示状态、首要问题、最后更新时间，以及 CPU、内存、Swap、进程四项紧凑指标。
-2. `SystemHealthTrendPanel`：最近 30 分钟由四条上下排列、共享时间轴的 mini sparkline 组成，依次为 CPU（%）、Swap（GB）、总进程（个）和孤儿 worker（个）。每条使用独立且标明单位的 y 域，并显示 latest/min/max，禁止把百分比、字节和计数画到同一坐标轴。使用 `react-native-svg`，颜色取当前 theme 的语义色，不引入新图表依赖。
-3. `SystemHealthSources`：沿用 `Item` 的密集列表，显示 CPU 前三来源；每行展示名称、CPU、RSS 和进程数。若内存前三与 CPU 来源不同，再补充最多两项，最终不超过五行。
+2. `SystemHealthTrendPanel`：最近 30 分钟由五条上下排列、共享时间轴的 mini sparkline 组成，依次为 CPU（%）、Swap（GB）、总进程（个）、僵尸进程（个）和孤儿 worker（个）。每条使用独立且标明单位的 y 域，并显示 latest/min/max，禁止把百分比、字节和计数画到同一坐标轴。使用 `react-native-svg`，颜色取当前 theme 的语义色，不引入新图表依赖。
+3. `SystemHealthSources`：沿用 `Item` 的密集列表，显示 CPU 前三来源；每行展示名称、CPU、RSS、进程数和僵尸进程数。若内存前三与 CPU 来源不同，再补充最多两项；存在僵尸进程时另列最多五个僵尸来源，确保零 CPU/RSS 的僵尸不会因 top 排序被隐藏。
 
 监控区不是新路由，不新增底部导航入口。现有“启动会话”“Daemon”“Codex 用量”“CLI 可用性”和删除机器区域保持顺序与行为，仅整体向下移动。
 
@@ -385,7 +395,7 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 ### 10.2 App 行为测试
 
 - 纯视图模型覆盖 healthy、warning、critical、delayed、unavailable、offline、无数据和部分可选字段缺失，并验证最终状态优先级。
-- 四条独立尺度图表覆盖 0、单点、常量序列、CPU 峰值、Swap 上升、总进程上升和孤儿数下降到 0；断言单位和可访问摘要正确。
+- 五条独立尺度图表覆盖 0、单点、常量序列、CPU 峰值、Swap 上升、总进程上升、僵尸进程上升和孤儿数下降到 0；断言单位和可访问摘要正确。
 - 非 macOS 不渲染；capability 缺失、supported+disabled、enabled+pending 三种空态可区分；首次采集失败显示 collector 类别。
 - 机器详情现有启动会话、刷新、重命名、停止 daemon 和删除机器行为不回归。
 - 所有语言键存在，测试验证可执行的翻译解析与渲染结果，不锁定自然语言句子。
@@ -408,7 +418,7 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 - 1440×900、1280×720、1024×768 三个视口。
 - 额外使用 390×844 响应式视口完成手机布局的只读滚动检查，作为移动适配证据，不冒充真机验收。
 - 机器详情入口可达，Header、监控区和原有区块顺序正确。
-- 四条 30 分钟趋势不裁切、不溢出，单位、latest/min/max 和最小文字可读。
+- 五条 30 分钟趋势不裁切、不溢出，单位、latest/min/max 和最小文字可读。
 - 页面滚动、刷新、返回和重命名入口无互相遮挡，键盘焦点可见。
 - 当前数据刷新时页面不跳动，状态变化有可观察反馈。
 - 每个确认问题记录视口、复现动作、实际结果、影响、预期、严重度和截图证据；最终结论只用“通过 / 不通过 / 证据不足”。
@@ -431,7 +441,7 @@ App 侧增加对应 Zod schema，未知字段剥离。资源、时间、threshol
 - 已开启 feature flag 的 macOS daemon 连续运行 30 分钟后，Paws 机器详情可看到完整 30 点趋势。
 - 当前指标在正常网络下距远端采样时间不超过 30 秒。
 - fixture 与目标 Mac mini 实测均能区分正常 Paws worker、tmux worker、daemon 重启残留和根进程退出后的已知孤儿后代。
-- 能从主要资源来源中识别 Chrome、Cursor、Spotlight 或 Paws Workers 的聚合占用。
+- 能从主要资源来源中识别常见应用族或 Paws Workers 的聚合占用，并在存在僵尸进程时展示对应脱敏来源。
 - collector 故障不会中断 daemon、会话创建或 Codex 用量同步。
 - 服务端无 schema 和数据库迁移，上传内容不含命令参数、环境变量和用户路径。
 - UI 与 Paws 现有机器详情视觉和交互一致，PC 视口与 390×844 响应式视口均无溢出或遮挡。

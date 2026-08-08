@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在不增加服务端表或明文遥测的前提下，让 macOS Happy daemon 每 15 秒采集一次只读系统健康数据，经现有端到端加密 `daemonState` 同步，并在 Paws 机器详情页展示当前状态、最近 30 分钟趋势、主要资源来源和可解释告警。
+**Goal:** 在不增加服务端表或明文遥测的前提下，让 macOS Happy daemon 每 15 秒采集一次只读系统健康数据，经现有端到端加密 `daemonState` 同步，并在 Paws 机器详情页展示当前状态、最近 30 分钟趋势、主要资源来源和可解释告警；其中僵尸进程数量、来源与进程容量必须能提前暴露本次失联模式。
 
 **Architecture:** CLI 侧分成纯进程归因、macOS 命令采集、历史/告警状态机、监控运行时四层；所有 `daemonState` 写入统一进入单航班发布器，监控更新使用 `system-health` 合并键实现 latest-wins。App 侧用严格 Zod 边界把解密后的可选字段转换为本地视图模型，再用现有 `ItemList` / `ItemGroup`、主题和 800px 内容宽度渲染；服务端保持透明密文中继，不改数据库和 wire schema。
 
@@ -69,6 +69,8 @@ const current = {
   diskFreeBytes: 120_000_000_000,
   diskTotalBytes: 500_000_000_000,
   processCount: 421,
+  processLimit: 4_000,
+  zombieProcessCount: 0,
   pawsWorkerRoots: 2,
   pawsWorkerProcesses: 9,
   pawsWorkerRssBytes: 900_000_000,
@@ -77,6 +79,7 @@ const current = {
   orphanWorkerRssBytes: 0,
   topCpuSources: [],
   topMemorySources: [],
+  topZombieSources: [],
 };
 
 describe('SystemHealthSnapshotSchema', () => {
@@ -95,6 +98,7 @@ describe('SystemHealthSnapshotSchema', () => {
         memoryAvailableBytes: current.memoryAvailableBytes,
         swapUsedBytes: current.swapUsedBytes,
         processCount: current.processCount,
+        zombieProcessCount: current.zombieProcessCount,
         orphanWorkerRoots: current.orphanWorkerRoots,
         pawsWorkerRssBytes: current.pawsWorkerRssBytes,
       }],
@@ -142,6 +146,7 @@ export const SystemHealthSourceSchema = z.object({
   cpuPercent: NonNegativeFinite,
   rssBytes: NonNegativeFinite,
   processCount: NonNegativeFinite,
+  zombieProcessCount: NonNegativeFinite,
   oldestProcessAgeSeconds: NonNegativeFinite.optional(),
 });
 
@@ -161,6 +166,8 @@ export const SystemHealthCurrentSchema = z.object({
   diskFreeBytes: NonNegativeFinite.optional(),
   diskTotalBytes: NonNegativeFinite.optional(),
   processCount: NonNegativeFinite,
+  processLimit: NonNegativeFinite.optional(),
+  zombieProcessCount: NonNegativeFinite,
   pawsWorkerRoots: NonNegativeFinite,
   pawsWorkerProcesses: NonNegativeFinite,
   pawsWorkerRssBytes: NonNegativeFinite,
@@ -169,10 +176,11 @@ export const SystemHealthCurrentSchema = z.object({
   orphanWorkerRssBytes: NonNegativeFinite,
   topCpuSources: z.array(SystemHealthSourceSchema).max(5),
   topMemorySources: z.array(SystemHealthSourceSchema).max(5),
+  topZombieSources: z.array(SystemHealthSourceSchema).max(5),
 });
 
 export const SystemHealthIssueSchema = z.object({
-  code: z.enum(['orphan-workers', 'swap-high', 'swap-growing', 'cpu-sustained', 'load-high', 'memory-pressure-high', 'worker-memory-high', 'process-count-high', 'disk-low', 'single-source-cpu-high']),
+  code: z.enum(['orphan-workers', 'swap-high', 'swap-growing', 'cpu-sustained', 'load-high', 'memory-pressure-high', 'worker-memory-high', 'process-count-high', 'process-capacity-high', 'zombie-processes', 'disk-low', 'single-source-cpu-high']),
   severity: z.enum(['warning', 'critical']),
   subject: z.string().max(64).optional(),
   observed: z.number().finite(),
@@ -298,7 +306,7 @@ const unknownSourceId = (fullComm: string) =>
 
 - [ ] **Step 4: 实现严格去敏输出**
 
-返回类型只包含：worker/orphan root、进程数量与 RSS、全部脱敏来源的 `{id,name,cpuPercent,rssBytes,processCount,oldestProcessAgeSeconds?}`、`nextMembership`。已知来源 ID 固定；未知来源用完整 comm 的 SHA-256 前 12 位作为 ID，展示名取安全 basename、限制 40 字符，无法稳定命名时归为 `Other`。`nextMembership` 仅在 daemon 内存中使用，可包含 fingerprint，但不得进入同步 schema；top 5 CPU / top 5 memory 的裁剪由 Monitor 构造公开快照时完成。
+返回类型只包含：worker/orphan root、进程数量与 RSS、僵尸进程总数、全部脱敏来源的 `{id,name,cpuPercent,rssBytes,processCount,zombieProcessCount,oldestProcessAgeSeconds?}`、`nextMembership`。已知来源 ID 固定；未知来源用完整 comm 的 SHA-256 前 12 位作为 ID，展示名取安全 basename、限制 40 字符，无法稳定命名时归为 `Other`。`nextMembership` 仅在 daemon 内存中使用，可包含 fingerprint，但不得进入同步 schema；top 5 CPU / top 5 memory / top 5 zombie 的裁剪由 Monitor 构造公开快照时完成。
 
 - [ ] **Step 5: 运行测试**
 
@@ -355,7 +363,7 @@ expect(exec.calls).toContainEqual({
 });
 ```
 
-为 `/usr/bin/top -l 2 -s 0 -n 0`、`vm_stat`、`memory_pressure -Q`、三条 `/bin/ps` 和 `/bin/df -kP /` 写同类断言。fixture 测试覆盖 Intel/Apple Silicon 常见空格差异、swap 单位、`vm_stat` 首行不同 page size、`etime` 的 `MM:SS` / `HH:MM:SS` / `DD-HH:MM:SS`、带空格 comm/args、三表 PID 缺行、逗号小数不可接受、非数字、缺行和命令超时。
+为 `/bin/launchctl limit maxproc`、`/usr/bin/top -l 2 -s 0 -n 0`、`vm_stat`、`memory_pressure -Q`、三条 `/bin/ps` 和 `/bin/df -kP /` 写同类断言。进程统计表包含 `state=` 并覆盖 `Z` / `Z+` 与正常状态；`launchctl` 的 soft limit 为 `unlimited` 或非法时省略 `processLimit`。fixture 测试覆盖 Intel/Apple Silicon 常见空格差异、swap 单位、`vm_stat` 首行不同 page size、`etime` 的 `MM:SS` / `HH:MM:SS` / `DD-HH:MM:SS`、带空格 comm/args、三表 PID 缺行、逗号小数不可接受、非数字、缺行和命令超时。
 
 - [ ] **Step 2: 确认测试先失败**
 
@@ -465,6 +473,8 @@ const THRESHOLDS = {
   memoryPressureFreePercent: { warningBelow: 10, criticalBelow: 5 },
   workerRssRatio: { warning: 0.2, critical: 0.35 },
   processCount: { warning: 700, critical: 900 },
+  processCapacityRatio: { warning: 0.8, critical: 0.9 },
+  zombieProcessCount: { warning: 1, critical: 25 },
   diskFreeBytes: { warningBelow: 15 * GiB, criticalBelow: 5 * GiB },
   sourceCpuSustained: {
     warning: { value: 100, durationMs: 5 * 60_000 },
@@ -698,7 +708,7 @@ App schema 与 Task 1 同形但不改变 `Machine.daemonState` 全局类型。�
 
 - [ ] **Step 5: 实现四组独立 chart model**
 
-输出固定顺序 `cpuUsedPercent`、`swapUsedBytes`、`processCount`、`orphanWorkerRoots`。每组包含 labelKey、unit、points、latest/min/max、无障碍摘要；swap 转为 GB 只发生在展示模型，不改同步值。
+输出固定顺序 `cpuUsedPercent`、`swapUsedBytes`、`processCount`、`zombieProcessCount`、`orphanWorkerRoots`。每组包含 labelKey、unit、points、latest/min/max、无障碍摘要；swap 转为 GB 只发生在展示模型，不改同步值。
 
 - [ ] **Step 6: 运行测试并提交**
 
@@ -736,7 +746,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 用 react-test-renderer mock `react-native-svg` 和 unistyles，测试 capability 状态、告警摘要、四张 sparkline、主要来源、null gap、无障碍 label。测试 `testID` 只用于稳定行为入口：
 
 ```ts
-expect(root.findAllByProps({ testID: 'system-health-sparkline' })).toHaveLength(4);
+expect(root.findAllByProps({ testID: 'system-health-sparkline' })).toHaveLength(5);
 expect(root.findByProps({ testID: 'system-health-status' }).props.accessibilityLabel)
   .toEqual(expect.any(String));
 ```
@@ -753,7 +763,7 @@ Expected: FAIL，组件不存在。
 
 - [ ] **Step 4: 实现符合 Paws 的区块布局**
 
-外层使用现有 `ItemGroup` 和 theme；状态行、当前指标、趋势、来源按垂直信息层级排布，不采用概念图中的独立产品壳。主指标固定为 CPU、available/total memory、used/total swap、总进程；同一区块再以紧凑事实行展示 load 1/5/15、内存压力、压缩内存、磁盘余量、Paws worker roots/processes/RSS 和 orphan roots/processes/RSS，确保当前归因数据不是只存在于同步层。颜色仅使用 `theme.colors` 加 warning/critical 语义色，字体沿用当前 App；内容自然受页面既有 800px 最大宽度约束。
+外层使用现有 `ItemGroup` 和 theme；状态行、当前指标、趋势、来源按垂直信息层级排布，不采用概念图中的独立产品壳。主指标固定为 CPU、available/total memory、used/total swap、总进程；同一区块再以紧凑事实行展示进程容量、僵尸进程、load 1/5/15、内存压力、压缩内存、磁盘余量、Paws worker roots/processes/RSS 和 orphan roots/processes/RSS，确保当前归因数据不是只存在于同步层。颜色仅使用 `theme.colors` 加 warning/critical 语义色，字体沿用当前 App；内容自然受页面既有 800px 最大宽度约束。
 
 - [ ] **Step 5: 实现全部空态和错误态**
 
@@ -855,7 +865,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写最大 payload 测试**
 
-构造 30 个历史点、CPU 与内存各 5 个来源、16 个 issues，断言 schema 可解析且 UTF-8 大小严格小于 32 KiB：
+构造 30 个历史点、CPU/内存/僵尸各 5 个来源、16 个 issues，断言 schema 可解析且 UTF-8 大小严格小于 32 KiB：
 
 ```ts
 const bytes = Buffer.byteLength(JSON.stringify(maximalSnapshot), 'utf8');
@@ -961,7 +971,7 @@ Expected: PASS；`node -p process.arch` 输出 `arm64`。
 
 每 5 分钟记录一次 Paws 页面状态和远端只读对照：
 
-Run remote: `/usr/bin/top -l 2 -s 0 -n 0 | tail -20; /usr/sbin/sysctl -n vm.swapusage; /bin/ps -A | /usr/bin/wc -l`
+Run remote: `/usr/bin/top -l 2 -s 0 -n 0 | tail -20; /usr/sbin/sysctl -n vm.swapusage; /bin/launchctl limit maxproc; /bin/ps -A -o state= | /usr/bin/awk '$1 ~ /^Z/ {n++} END {print n+0}'; /bin/ps -A | /usr/bin/wc -l`
 
 Expected: 正常网络下 Paws 最新 complete 样本延迟不超过 30 秒；30 分钟后趋势达到 30 个自然分钟桶；数值量级与远端对照一致；daemon 日志没有并发 state update、未处理 rejection 或持续采集超时。
 
@@ -995,7 +1005,7 @@ Expected: 读取终端实际输出的 Expo URL，不假设固定端口；保持�
 
 - [ ] **Step 3: 检查四个桌面/移动视口**
 
-依次验证 1440×900、1280×720、1024×768、390×844。每个视口记录截图，并检查：无横向溢出；四条趋势可辨认；latest/min/max 不互相挤压；来源长名称截断；warning/critical 不只依赖颜色；键盘 focus 与屏幕阅读器 label 可用。
+依次验证 1440×900、1280×720、1024×768、390×844。每个视口记录截图，并检查：无横向溢出；五条趋势可辨认；latest/min/max 不互相挤压；来源长名称截断；warning/critical 不只依赖颜色；键盘 focus 与屏幕阅读器 label 可用。
 
 - [ ] **Step 4: 验证真实状态下的实时刷新**
 
