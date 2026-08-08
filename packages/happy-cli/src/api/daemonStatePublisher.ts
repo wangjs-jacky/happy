@@ -10,6 +10,7 @@ interface PublishTask {
   mutation: DaemonStateMutation
   resolve?: () => void
   reject?: (error: Error) => void
+  settled: boolean
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -33,11 +34,17 @@ export class DaemonStatePublisher {
   private connected = false
   private closing = false
   private inFlight = false
+  private abandonedInFlight = false
+  private activeTask: PublishTask | null = null
   private ordinaryQueue: PublishTask[] = []
   private latestQueue = new Map<string, PublishTask>()
   private flushWaiters: Array<() => void> = []
+  private inFlightWaiters: Array<() => void> = []
 
-  constructor(private readonly transport: DaemonStateTransport) {}
+  constructor(
+    private readonly transport: DaemonStateTransport,
+    private readonly reportError: (error: Error) => void = () => undefined,
+  ) {}
 
   onConnected(generation: number): void {
     if (this.closing) return
@@ -50,9 +57,12 @@ export class DaemonStatePublisher {
     this.generation = generation
     this.connected = false
     const error = new Error('Daemon state publisher disconnected')
-    for (const task of this.ordinaryQueue) task.reject?.(error)
+    for (const task of this.ordinaryQueue) this.settleFailure(task, error, false)
     this.ordinaryQueue = []
     this.latestQueue.clear()
+    if (this.activeTask) {
+      this.settleFailure(this.activeTask, new Error('Daemon state generation changed'), false)
+    }
     this.resolveFlushIfIdle()
   }
 
@@ -60,19 +70,21 @@ export class DaemonStatePublisher {
     if (this.closing) return Promise.reject(new Error('Daemon state publisher is closing'))
     if (!this.connected) return Promise.reject(new Error('Daemon state publisher is disconnected'))
     return new Promise<void>((resolve, reject) => {
-      this.ordinaryQueue.push({ mutation, resolve, reject })
+      this.ordinaryQueue.push({ mutation, resolve, reject, settled: false })
       this.pump()
     })
   }
 
   publishLatest(coalesceKey: string, mutation: DaemonStateMutation): void {
     if (this.closing || !this.connected) return
-    this.latestQueue.set(coalesceKey, { mutation })
+    this.latestQueue.set(coalesceKey, { mutation, settled: false })
     this.pump()
   }
 
   flush(): Promise<void> {
-    if (!this.inFlight && this.ordinaryQueue.length === 0 && this.latestQueue.size === 0) return Promise.resolve()
+    if ((this.closing && this.abandonedInFlight) || (!this.inFlight && this.ordinaryQueue.length === 0 && this.latestQueue.size === 0)) {
+      return Promise.resolve()
+    }
     return new Promise((resolve) => this.flushWaiters.push(resolve))
   }
 
@@ -81,14 +93,17 @@ export class DaemonStatePublisher {
     this.closing = true
     this.latestQueue.clear()
     const pendingError = new Error('Daemon state publisher closed')
-    for (const task of this.ordinaryQueue) task.reject?.(pendingError)
+    for (const task of this.ordinaryQueue) this.settleFailure(task, pendingError, false)
     this.ordinaryQueue = []
+    if (this.activeTask) this.settleFailure(this.activeTask, pendingError, false)
 
     if (this.inFlight) {
-      await Promise.race([this.flush(), new Promise((resolve) => setTimeout(resolve, 1_000))])
+      await Promise.race([this.waitForInFlight(), new Promise((resolve) => setTimeout(resolve, 1_000))])
       if (this.inFlight) {
         this.generation += 1
         this.connected = false
+        this.abandonedInFlight = true
+        this.resolveFlushIfIdle()
         return
       }
     }
@@ -99,6 +114,7 @@ export class DaemonStatePublisher {
         // 关闭写入仅为 best effort，不能阻塞 daemon 清理。
       }
     }
+    this.generation += 1
     this.connected = false
   }
 
@@ -110,10 +126,13 @@ export class DaemonStatePublisher {
       return
     }
     this.inFlight = true
+    this.activeTask = task
     const generation = this.generation
     void this.runTask(task, generation).finally(() => {
       this.inFlight = false
-      this.pump()
+      this.activeTask = null
+      for (const resolve of this.inFlightWaiters.splice(0)) resolve()
+      if (!this.closing) this.pump()
       this.resolveFlushIfIdle()
     })
   }
@@ -129,21 +148,46 @@ export class DaemonStatePublisher {
   private async runTask(task: PublishTask, generation: number): Promise<void> {
     let lastError: unknown
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (!this.connected || this.generation !== generation || this.closing) break
+      if (!this.connected || this.generation !== generation || this.closing) {
+        this.settleFailure(task, new Error('Daemon state generation changed'), false)
+        return
+      }
       try {
-        await withTimeout(this.transport.write(task.mutation, generation, 5_000), 5_000)
-        if (this.connected && this.generation === generation) task.resolve?.()
-        else task.reject?.(new Error('Daemon state generation changed'))
+        await this.transport.write(task.mutation, generation, 5_000)
+        if (this.connected && this.generation === generation && !this.closing) this.settleSuccess(task)
+        else this.settleFailure(task, new Error('Daemon state generation changed'), false)
         return
       } catch (error) {
         lastError = error
+        if (!this.connected || this.generation !== generation || this.closing) {
+          this.settleFailure(task, new Error('Daemon state generation changed'), false)
+          return
+        }
       }
     }
-    task.reject?.(lastError instanceof Error ? lastError : new Error('Daemon state publication failed'))
+    this.settleFailure(task, lastError instanceof Error ? lastError : new Error('Daemon state publication failed'))
+  }
+
+  private settleSuccess(task: PublishTask): void {
+    if (task.settled) return
+    task.settled = true
+    task.resolve?.()
+  }
+
+  private settleFailure(task: PublishTask, error: Error, reportLatest = true): void {
+    if (task.settled) return
+    task.settled = true
+    if (task.reject) task.reject(error)
+    else if (reportLatest) this.reportError(error)
+  }
+
+  private waitForInFlight(): Promise<void> {
+    if (!this.inFlight) return Promise.resolve()
+    return new Promise((resolve) => this.inFlightWaiters.push(resolve))
   }
 
   private resolveFlushIfIdle(): void {
-    if (this.inFlight || this.ordinaryQueue.length > 0 || this.latestQueue.size > 0) return
+    if ((!this.abandonedInFlight && this.inFlight) || this.ordinaryQueue.length > 0 || this.latestQueue.size > 0) return
     for (const resolve of this.flushWaiters.splice(0)) resolve()
   }
 }

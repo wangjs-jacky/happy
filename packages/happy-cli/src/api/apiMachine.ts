@@ -142,7 +142,7 @@ export class ApiMachineClient {
         registerCommonHandlers(this.rpcHandlerManager, process.cwd());
         this.daemonStatePublisher = new DaemonStatePublisher({
             write: (mutation, generation, timeoutMs) => this.writeDaemonStateOnce(mutation, generation, timeoutMs),
-        });
+        }, (error) => logger.debug('[API MACHINE] Latest daemon state publication failed:', error));
     }
 
     setRPCHandlers({
@@ -647,6 +647,8 @@ export class ApiMachineClient {
             this.reconnectInterval = null;
         }
         await this.daemonStatePublisher.close(shutdownMutation);
+        this.connectionGeneration += 1;
+        this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
         if (this.socket) this.socket.close();
     }
 }
