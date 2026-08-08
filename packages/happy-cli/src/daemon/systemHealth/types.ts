@@ -17,10 +17,12 @@ export interface MacProcessStatRow {
   elapsedSeconds?: number
 }
 
-export interface MacProcessTextRow {
+export interface MacProcessCommandRow {
   pid: number
   value: string
 }
+
+export type MacProcessTextRow = MacProcessCommandRow
 
 export interface TrackedProcessRoot {
   pid: number
@@ -28,10 +30,12 @@ export interface TrackedProcessRoot {
   kind: 'daemon' | 'tmux'
 }
 
-export interface WorkerMembership {
+export interface PreviousRootMembership {
   rootFingerprint: string
   memberFingerprints: string[]
 }
+
+export type WorkerMembership = PreviousRootMembership
 
 export interface ProcessAggregate {
   rootCount: number
@@ -42,10 +46,10 @@ export interface ProcessAggregate {
 export interface MacProcessAnalysisInput {
   capturedAt: number
   stats: MacProcessStatRow[]
-  commands: MacProcessTextRow[]
-  arguments: MacProcessTextRow[]
+  commands: MacProcessCommandRow[]
+  arguments: MacProcessCommandRow[]
   trackedRoots: TrackedProcessRoot[]
-  previousMembership: WorkerMembership[]
+  previousMembership: PreviousRootMembership[]
 }
 
 export interface MacProcessAnalysisResult {
@@ -53,7 +57,7 @@ export interface MacProcessAnalysisResult {
   orphans: ProcessAggregate
   zombieProcessCount: number
   sources: SystemHealthSource[]
-  nextMembership: WorkerMembership[]
+  nextMembership: PreviousRootMembership[]
 }
 
 export interface MacSystemHealthValues {
