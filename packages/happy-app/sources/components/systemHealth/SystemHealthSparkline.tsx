@@ -55,7 +55,7 @@ export const SystemHealthSparkline = React.memo<Props>(({ chart, color }) => {
             </View>
             <View style={styles.chart} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
                 {width > 0 && chart.points.length > 0 ? (
-                    <Svg width={width} height={height} accessibilityElementsHidden>
+                    <Svg width={width} height={height} aria-hidden>
                         <Line x1="0" y1={height - 4} x2={width} y2={height - 4} stroke={color} strokeOpacity={0.16} />
                         {chart.points.length === 1 ? (
                             <Circle cx={width / 2} cy={height / 2} r="3" fill={color} />
