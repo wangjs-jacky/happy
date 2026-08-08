@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiMachineClient } from './apiMachine';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
-import type { DaemonState, Machine, SystemHealthSnapshot } from './types';
+import type { DaemonState, Machine, MachineMetadata, SystemHealthSnapshot } from './types';
+
+const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+const originalFeatureFlag = process.env.HAPPY_SYSTEM_HEALTH_MONITOR;
 
 const {
     mockIo,
@@ -170,6 +173,9 @@ describe('ApiMachineClient socket reconnection', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+        if (originalPlatform) Object.defineProperty(process, 'platform', originalPlatform);
+        if (originalFeatureFlag === undefined) delete process.env.HAPPY_SYSTEM_HEALTH_MONITOR;
+        else process.env.HAPPY_SYSTEM_HEALTH_MONITOR = originalFeatureFlag;
     });
 
     it('retries after initial socket connection error', async () => {
@@ -191,6 +197,71 @@ describe('ApiMachineClient socket reconnection', () => {
         await vi.advanceTimersByTimeAsync(3000);
         expect(mockSocket.connect).toHaveBeenCalledTimes(2);
 
+        client.shutdown();
+    });
+
+    it('reports a usable connection only after the running state write succeeds', async () => {
+        let resolveRunningState!: (answer: unknown) => void;
+        mockSocket.emitWithAck.mockImplementationOnce((_event: string, data: { daemonState: string }) => new Promise((resolve) => {
+            resolveRunningState = resolve;
+        }));
+        const listener = vi.fn();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setConnectionListener(listener);
+        client.connect();
+        mockSocket.connected = true;
+
+        emitSocketEvent('connect');
+        await Promise.resolve();
+        expect(listener).not.toHaveBeenCalled();
+
+        resolveRunningState({
+            result: 'success',
+            version: 1,
+            daemonState: encryptedState(makeMachine(), { status: 'running' }),
+        });
+        await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(true));
+
+        mockSocket.connected = false;
+        emitSocketEvent('disconnect', 'transport close');
+        expect(listener).toHaveBeenLastCalledWith(false);
+        client.shutdown();
+    });
+
+    it('recomputes the macOS health capability during metadata refresh', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(100);
+        Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' });
+        delete process.env.HAPPY_SYSTEM_HEALTH_MONITOR;
+        const machine = makeMachine();
+        const metadataWrites: MachineMetadata[] = [];
+        mockSocket.emitWithAck.mockImplementation(async (event: string, data: { daemonState?: string; metadata?: string }) => {
+            if (event === 'machine-update-state' && data.daemonState) {
+                return { result: 'success', version: 1, daemonState: data.daemonState };
+            }
+            if (event === 'machine-update-metadata' && data.metadata) {
+                metadataWrites.push(decrypt(machine.encryptionKey, machine.encryptionVariant, decodeBase64(data.metadata)));
+                return { result: 'success', version: 1, metadata: data.metadata };
+            }
+            throw new Error(`Unexpected event: ${event}`);
+        });
+        const client = new ApiMachineClient('fake-token', machine);
+        client.connect();
+        mockSocket.connected = true;
+        emitSocketEvent('connect');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        process.env.HAPPY_SYSTEM_HEALTH_MONITOR = '1';
+        await vi.advanceTimersByTimeAsync(20_000);
+
+        expect(metadataWrites).toHaveLength(1);
+        expect(metadataWrites[0].systemHealthMonitor).toEqual({
+            schemaVersion: 1,
+            supported: true,
+            enabled: true,
+            reportedAt: 20_100,
+        });
         client.shutdown();
     });
 
@@ -383,5 +454,34 @@ describe('ApiMachineClient socket reconnection', () => {
 
         expect(machine.daemonStateVersion).toBe(1);
         expect(machine.daemonState).toEqual(expect.objectContaining({ status: 'running' }));
+    });
+
+    it('does not schedule reconnect work after close', async () => {
+        vi.useFakeTimers();
+        const machine = makeMachine();
+        mockSocket.emitWithAck.mockImplementation(async (_event: string, data: { daemonState: string }) => ({
+            result: 'success',
+            version: 1,
+            daemonState: data.daemonState,
+        }));
+        const client = new ApiMachineClient('fake-token', machine);
+        const connected = new Promise<void>((resolve) => client.setConnectionListener((value) => {
+            if (value) resolve();
+        }));
+        client.connect();
+        mockSocket.connected = true;
+        emitSocketEvent('connect');
+        await connected;
+        mockSocket.connected = false;
+        emitSocketEvent('disconnect', 'transport close');
+        mockSocket.close.mockImplementation(() => {
+            mockSocket.connected = false;
+            emitSocketEvent('disconnect', 'io client disconnect');
+        });
+
+        await client.close();
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(mockSocket.connect).not.toHaveBeenCalled();
     });
 });

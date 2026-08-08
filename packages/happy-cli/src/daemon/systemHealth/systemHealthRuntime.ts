@@ -1,4 +1,4 @@
-import type { SystemHealthSnapshot } from '@/api/types'
+import type { MachineMetadata, SystemHealthSnapshot } from '@/api/types'
 import type { MacSystemHealthCollector } from './macSystemHealthCollector'
 import type { SystemHealthMonitor } from './systemHealthMonitor'
 import type { TrackedProcessRoot } from './types'
@@ -8,7 +8,7 @@ export interface SystemHealthRuntimeDependencies {
   monitor: Pick<SystemHealthMonitor, 'record' | 'getSnapshot'>
   publish: (snapshot: SystemHealthSnapshot) => void
   isConnected: () => boolean
-  trackedRoots: () => TrackedProcessRoot[]
+  trackedRoots: () => readonly Readonly<TrackedProcessRoot>[]
   setTimeout?: typeof setTimeout
   setInterval?: typeof setInterval
   clearTimeout?: typeof clearTimeout
@@ -53,7 +53,9 @@ export class SystemHealthRuntime {
     if (this.running || this.stopped) return
     this.running = true
     try {
-      const collection = await this.dependencies.collector.collect({ trackedRoots: this.dependencies.trackedRoots() })
+      const trackedRoots = this.dependencies.trackedRoots().map((root) => ({ ...root }))
+      const collection = await this.dependencies.collector.collect({ trackedRoots })
+      if (this.stopped) return
       this.latest = this.dependencies.monitor.record(collection)
       if (this.dependencies.isConnected()) this.dependencies.publish(this.latest)
     } catch {
@@ -64,12 +66,27 @@ export class SystemHealthRuntime {
   }
 }
 
-export function getSystemHealthCapability(now = Date.now()) {
-  if (process.platform !== 'darwin') return undefined
+export function getSystemHealthCapability(
+  now = Date.now(),
+): NonNullable<MachineMetadata['systemHealthMonitor']> | undefined {
+  const supported = process.platform === 'darwin'
+  const enabled = supported && process.env.HAPPY_SYSTEM_HEALTH_MONITOR === '1'
+  if (!supported) return undefined
   return {
-    schemaVersion: 1 as const,
-    supported: true as const,
-    enabled: process.env.HAPPY_SYSTEM_HEALTH_MONITOR === '1',
+    schemaVersion: 1,
+    supported: true,
+    enabled,
     reportedAt: now,
   }
+}
+
+export function getSystemHealthMetadata(
+  now = Date.now(),
+): Pick<MachineMetadata, 'systemHealthMonitor'> {
+  const capability = getSystemHealthCapability(now)
+  return capability ? { systemHealthMonitor: capability } : {}
+}
+
+export function isSystemHealthMonitorEnabled(): boolean {
+  return getSystemHealthCapability()?.enabled === true
 }

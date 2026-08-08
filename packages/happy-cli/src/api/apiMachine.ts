@@ -30,7 +30,7 @@ import {
 } from '@/codex/codexThreadFork';
 import { DaemonStatePublisher, type DaemonStateMutation } from './daemonStatePublisher';
 import type { SystemHealthSnapshot } from './types';
-import { getSystemHealthCapability } from '@/daemon/systemHealth/systemHealthRuntime';
+import { getSystemHealthMetadata } from '@/daemon/systemHealth/systemHealthRuntime';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -126,6 +126,7 @@ export class ApiMachineClient {
     private connectionGeneration = 0;
     private daemonStatePublisher: DaemonStatePublisher;
     private connectionListener: ((connected: boolean) => void) | null = null;
+    private closing = false;
 
     constructor(
         private token: string,
@@ -501,7 +502,7 @@ export class ApiMachineClient {
             this.connectionListener?.(false);
             this.rpcHandlerManager.onSocketDisconnect();
             this.stopKeepAlive();
-            this.startSmartReconnect();
+            if (!this.closing) this.startSmartReconnect();
         });
 
         // Single consolidated RPC handler
@@ -575,12 +576,15 @@ export class ApiMachineClient {
             if (cliAvailabilityChanged || resumeSupportChanged) {
                 this.lastKnownCLIAvailability = newAvailability;
                 this.lastKnownResumeSupport = newResumeSupport;
-                this.updateMachineMetadata((metadata) => ({
-                    ...(metadata || {} as any),
-                    cliAvailability: newAvailability,
-                    resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
-                    systemHealthMonitor: getSystemHealthCapability(),
-                })).catch((err) => {
+                this.updateMachineMetadata((metadata) => {
+                    const { systemHealthMonitor: _previousCapability, ...currentMetadata } = metadata || {} as MachineMetadata;
+                    return {
+                        ...currentMetadata,
+                        cliAvailability: newAvailability,
+                        resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
+                        ...getSystemHealthMetadata(),
+                    };
+                }).catch((err) => {
                     logger.debug('[API MACHINE] Failed to update machine capabilities:', err);
                 });
             }
@@ -593,7 +597,7 @@ export class ApiMachineClient {
     }
 
     private startSmartReconnect() {
-        if (this.reconnectInterval) return;
+        if (this.closing || this.reconnectInterval) return;
 
         this.reconnectInterval = setInterval(() => {
             if (this.socket.connected) {
@@ -611,7 +615,9 @@ export class ApiMachineClient {
 
         if (shouldReconnect()) {
             logger.debug('[API MACHINE] Network up + lid open — reconnecting in 1s');
-            setTimeout(() => { if (!this.socket.connected) this.socket.connect() }, 1000);
+            setTimeout(() => {
+                if (!this.closing && !this.socket.connected) this.socket.connect();
+            }, 1000);
         }
     }
 
@@ -625,6 +631,7 @@ export class ApiMachineClient {
 
     shutdown() {
         logger.debug('[API MACHINE] Shutting down');
+        this.closing = true;
         this.stopKeepAlive();
         if (this.reconnectInterval) {
             clearInterval(this.reconnectInterval);
@@ -639,6 +646,8 @@ export class ApiMachineClient {
     }
 
     async close(shutdownMutation?: DaemonStateMutation): Promise<void> {
+        if (this.closing) return;
+        this.closing = true;
         this.stopKeepAlive();
         if (this.reconnectInterval) {
             clearInterval(this.reconnectInterval);

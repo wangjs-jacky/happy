@@ -31,7 +31,7 @@ import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
 import { MacSystemHealthCollector } from './systemHealth/macSystemHealthCollector';
 import { SystemHealthMonitor } from './systemHealth/systemHealthMonitor';
-import { getSystemHealthCapability, SystemHealthRuntime } from './systemHealth/systemHealthRuntime';
+import { getSystemHealthMetadata, isSystemHealthMonitorEnabled, SystemHealthRuntime } from './systemHealth/systemHealthRuntime';
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -69,7 +69,7 @@ export const initialMachineMetadata: MachineMetadata = {
   happyLibDir: projectPath(),
   cliAvailability: detectCLIAvailability(),
   resumeSupport: { ...detectResumeSupport(), rpcAvailable: true },
-  systemHealthMonitor: getSystemHealthCapability(),
+  ...getSystemHealthMetadata(),
 };
 
 export async function startDaemon(): Promise<void> {
@@ -900,12 +900,12 @@ export async function startDaemon(): Promise<void> {
       requestShutdown: () => requestShutdown('happy-app')
     });
 
-    const systemHealthEnabled = process.platform === 'darwin' && process.env.HAPPY_SYSTEM_HEALTH_MONITOR === '1';
-    const systemHealthRuntime = systemHealthEnabled ? new SystemHealthRuntime({
+    let systemHealthPublishingReady = false;
+    const systemHealthRuntime = isSystemHealthMonitorEnabled() ? new SystemHealthRuntime({
       collector: new MacSystemHealthCollector(),
       monitor: new SystemHealthMonitor(),
       publish: (snapshot) => apiMachine.publishSystemHealth(snapshot),
-      isConnected: () => apiMachine.isConnected(),
+      isConnected: () => systemHealthPublishingReady,
       trackedRoots: () => [...pidToTrackedSession.values()]
         .filter((session) => session.startedBy === 'daemon' && session.pid > 0)
         .map((session) => ({
@@ -915,12 +915,14 @@ export async function startDaemon(): Promise<void> {
         })),
     }) : null;
     apiMachine.setConnectionListener((connected) => {
-      if (connected) systemHealthRuntime?.publishLatestNow();
+      systemHealthPublishingReady = connected;
+      if (!connected) return;
+      systemHealthRuntime?.start();
+      systemHealthRuntime?.publishLatestNow();
     });
 
     // Connect to server
     apiMachine.connect();
-    systemHealthRuntime?.start();
 
     let lastCodexUsageScanAt = 0;
     let lastCodexUsageSignature: string | null = null;
