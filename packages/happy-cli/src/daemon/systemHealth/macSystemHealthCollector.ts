@@ -34,121 +34,184 @@ const EXEC_OPTIONS = {
   killSignal: 'SIGKILL' as const,
   maxBuffer: 4 * 1024 * 1024,
 }
+const DECIMAL_PATTERN = '(?:\\d+\\.?\\d*|\\.\\d+)'
+
+interface Parsed<T> {
+  value: T
+  valid: boolean
+}
 
 function finiteNonNegative(value: string): number | undefined {
-  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(value.trim())) return undefined
+  if (!new RegExp(`^${DECIMAL_PATTERN}$`).test(value.trim())) return undefined
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function finiteNonNegativeInteger(value: string): number | undefined {
+  const parsed = finiteNonNegative(value)
+  return parsed !== undefined && Number.isSafeInteger(parsed) ? parsed : undefined
+}
+
+function finiteProduct(...values: number[]): number | undefined {
+  const result = values.reduce((product, value) => product * value, 1)
+  return Number.isFinite(result) && result >= 0 ? result : undefined
+}
+
+function finiteSum(...values: number[]): number | undefined {
+  const result = values.reduce((sum, value) => sum + value, 0)
+  return Number.isFinite(result) && result >= 0 ? result : undefined
 }
 
 function bytes(value: string, unit: string): number | undefined {
   const amount = finiteNonNegative(value)
   const multiplier = ({ B: 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 } as const)[unit.toUpperCase() as 'B']
   if (amount === undefined || multiplier === undefined) return undefined
-  const result = amount * multiplier
-  return Number.isFinite(result) ? result : undefined
+  return finiteProduct(amount, multiplier)
 }
 
 export function parseElapsedSeconds(value: string): number | undefined {
-  const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(value.trim())
+  const match = /^(?:(\d+)-(\d+):(\d+):(\d+)|(\d+):(\d+):(\d+)|(\d+):(\d+))$/.exec(value.trim())
   if (!match) return undefined
-  const days = Number(match[1] ?? 0)
-  const hours = Number(match[2] ?? 0)
-  const minutes = Number(match[3])
-  const seconds = Number(match[4])
-  if (![days, hours, minutes, seconds].every(Number.isFinite) || minutes > 59 || seconds > 59) return undefined
-  return days * 86_400 + hours * 3_600 + minutes * 60 + seconds
+  const days = finiteNonNegativeInteger(match[1] ?? '0')
+  const hours = finiteNonNegativeInteger(match[2] ?? match[5] ?? '0')
+  const minutes = finiteNonNegativeInteger(match[3] ?? match[6] ?? match[8])
+  const seconds = finiteNonNegativeInteger(match[4] ?? match[7] ?? match[9])
+  if (days === undefined || hours === undefined || minutes === undefined || seconds === undefined) return undefined
+  if (minutes > 59 || seconds > 59) return undefined
+  return finiteSum(
+    finiteProduct(days, 86_400) ?? Number.POSITIVE_INFINITY,
+    finiteProduct(hours, 3_600) ?? Number.POSITIVE_INFINITY,
+    finiteProduct(minutes, 60) ?? Number.POSITIVE_INFINITY,
+    seconds,
+  )
 }
 
-function parseSysctl(output: string) {
+function parseSysctl(output: string): Parsed<Omit<MacSystemHealthValues, 'sampledAt'>> {
   const lines = output.trim().split(/\r?\n/)
-  const cpuCores = finiteNonNegative(lines[0] ?? '')
-  const memoryTotalBytes = finiteNonNegative(lines[1] ?? '')
-  const loads = [...(lines[2] ?? '').matchAll(/\d+(?:\.\d+)?/g)].map((match) => Number(match[0]))
+  if (lines.length !== 4) return { value: {}, valid: false }
+  const cpuCores = finiteNonNegativeInteger(lines[0] ?? '')
+  const memoryTotalBytes = finiteNonNegativeInteger(lines[1] ?? '')
+  const load = new RegExp(`^\\s*\\{\\s*(${DECIMAL_PATTERN})\\s+(${DECIMAL_PATTERN})\\s+(${DECIMAL_PATTERN})\\s*\\}\\s*$`)
+    .exec(lines[2] ?? '')
+  const load1 = load ? finiteNonNegative(load[1]) : undefined
+  const load5 = load ? finiteNonNegative(load[2]) : undefined
+  const load15 = load ? finiteNonNegative(load[3]) : undefined
   const swap = /total\s*=\s*([\d.]+)([KMGTP]?)(?:B)?\s+used\s*=\s*([\d.]+)([KMGTP]?)(?:B)?/i.exec(lines.slice(3).join(' '))
-  return {
+  const swapTotalBytes = swap ? bytes(swap[1], swap[2] || 'B') : undefined
+  const swapUsedBytes = swap ? bytes(swap[3], swap[4] || 'B') : undefined
+  const value = {
     cpuCores,
     memoryTotalBytes,
-    load1: loads[0],
-    load5: loads[1],
-    load15: loads[2],
-    swapTotalBytes: swap ? bytes(swap[1], swap[2] || 'B') : undefined,
-    swapUsedBytes: swap ? bytes(swap[3], swap[4] || 'B') : undefined,
+    load1,
+    load5,
+    load15,
+    swapTotalBytes,
+    swapUsedBytes,
   }
+  return { value, valid: Object.values(value).every((item) => item !== undefined) }
 }
 
-function parseProcessLimit(output: string): number | undefined {
+function parseProcessLimit(output: string): Parsed<number | undefined> {
   const match = /^\s*maxproc\s+(\S+)/m.exec(output)
-  return match ? finiteNonNegative(match[1]) : undefined
+  if (!match) return { value: undefined, valid: false }
+  if (match[1].toLowerCase() === 'unlimited') return { value: undefined, valid: true }
+  const value = finiteNonNegativeInteger(match[1])
+  return { value, valid: value !== undefined }
 }
 
-function parseCpu(output: string): number | undefined {
+function parseCpu(output: string): Parsed<number | undefined> {
   const lines = output.match(/^CPU usage:.*$/gm)
-  const last = lines?.at(-1)
-  const idle = last ? /(?:^|\s)([\d.]+)%\s*idle/i.exec(last) : null
+  const second = lines?.[1]
+  const idle = second ? /(?:^|\s)([\d.]+)%\s*idle/i.exec(second) : null
   const idlePercent = idle ? finiteNonNegative(idle[1]) : undefined
-  return idlePercent === undefined || idlePercent > 100 ? undefined : 100 - idlePercent
+  const value = idlePercent === undefined || idlePercent > 100 ? undefined : 100 - idlePercent
+  return { value, valid: value !== undefined }
 }
 
-function parseVmStat(output: string) {
+function parseVmStat(output: string): Parsed<Pick<MacSystemHealthValues, 'memoryAvailableBytes' | 'memoryCompressedBytes'>> {
   const pageSizeMatch = /page size of\s+(\d+)\s+bytes/i.exec(output)
-  const pageSize = pageSizeMatch ? finiteNonNegative(pageSizeMatch[1]) : undefined
+  const reportedPageSize = pageSizeMatch ? finiteNonNegativeInteger(pageSizeMatch[1]) : undefined
+  const pageSize = reportedPageSize !== undefined && reportedPageSize > 0 ? reportedPageSize : undefined
   const page = (name: string) => {
     const match = new RegExp(`^${name}:\\s*(\\d+)\\.`, 'mi').exec(output)
-    return match ? finiteNonNegative(match[1]) : undefined
+    return match ? finiteNonNegativeInteger(match[1]) : undefined
   }
   const free = page('Pages free')
   const inactive = page('Pages inactive')
   const speculative = page('Pages speculative')
   const compressed = page('Pages occupied by compressor')
-  return {
+  const availablePages = free !== undefined && inactive !== undefined && speculative !== undefined
+    ? finiteSum(free, inactive, speculative)
+    : undefined
+  const value = {
     memoryAvailableBytes: pageSize !== undefined && free !== undefined && inactive !== undefined && speculative !== undefined
-      ? (free + inactive + speculative) * pageSize
+      ? finiteProduct(availablePages ?? Number.POSITIVE_INFINITY, pageSize)
       : undefined,
-    memoryCompressedBytes: pageSize !== undefined && compressed !== undefined ? compressed * pageSize : undefined,
+    memoryCompressedBytes: pageSize !== undefined && compressed !== undefined
+      ? finiteProduct(compressed, pageSize)
+      : undefined,
   }
+  return { value, valid: Object.values(value).every((item) => item !== undefined) }
 }
 
-function parseMemoryPressure(output: string): number | undefined {
+function parseMemoryPressure(output: string): Parsed<number | undefined> {
   const match = /System-wide memory free percentage:\s*([\d.]+)%/i.exec(output)
   const value = match ? finiteNonNegative(match[1]) : undefined
-  return value !== undefined && value <= 100 ? value : undefined
+  const percentage = value !== undefined && value <= 100 ? value : undefined
+  return { value: percentage, valid: percentage !== undefined }
 }
 
-function parseProcessStats(output: string): MacProcessStatRow[] {
+function parseProcessStats(output: string): Parsed<MacProcessStatRow[]> {
   const rows: MacProcessStatRow[] = []
-  for (const line of output.split(/\r?\n/)) {
+  const lines = output.split(/\r?\n/).filter((line) => line.trim() !== '')
+  let valid = lines.length > 0
+  for (const line of lines) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s*$/.exec(line)
-    if (!match) continue
-    const pid = finiteNonNegative(match[1])
-    const ppid = finiteNonNegative(match[2])
+    if (!match) {
+      valid = false
+      continue
+    }
+    const pid = finiteNonNegativeInteger(match[1])
+    const ppid = finiteNonNegativeInteger(match[2])
     const cpuPercent = finiteNonNegative(match[3])
-    const rssKb = finiteNonNegative(match[4])
-    if (pid === undefined || ppid === undefined || cpuPercent === undefined || rssKb === undefined) continue
-    rows.push({ pid, ppid, cpuPercent, rssKb, state: match[5], elapsedSeconds: parseElapsedSeconds(match[6]) })
+    const rssKb = finiteNonNegativeInteger(match[4])
+    const elapsedSeconds = parseElapsedSeconds(match[6])
+    if (pid === undefined || ppid === undefined || cpuPercent === undefined || rssKb === undefined) {
+      valid = false
+      continue
+    }
+    if (elapsedSeconds === undefined) valid = false
+    rows.push({ pid, ppid, cpuPercent, rssKb, state: match[5], elapsedSeconds })
   }
-  return rows
+  return { value: rows, valid }
 }
 
-function parseProcessText(output: string): MacProcessTextRow[] {
+function parseProcessText(output: string): Parsed<MacProcessTextRow[]> {
   const rows: MacProcessTextRow[] = []
-  for (const line of output.split(/\r?\n/)) {
+  const lines = output.split(/\r?\n/).filter((line) => line.trim() !== '')
+  let valid = lines.length > 0
+  for (const line of lines) {
     const match = /^\s*(\d+)\s+(.*)$/.exec(line)
-    const pid = match ? finiteNonNegative(match[1]) : undefined
-    if (match && pid !== undefined) rows.push({ pid, value: match[2] })
+    const pid = match ? finiteNonNegativeInteger(match[1]) : undefined
+    if (match && pid !== undefined) {
+      rows.push({ pid, value: match[2] })
+    } else {
+      valid = false
+    }
   }
-  return rows
+  return { value: rows, valid }
 }
 
-function parseDisk(output: string) {
+function parseDisk(output: string): Parsed<Pick<MacSystemHealthValues, 'diskTotalBytes' | 'diskFreeBytes'>> {
   const line = output.trim().split(/\r?\n/).at(-1)
   const columns = line?.trim().split(/\s+/) ?? []
-  const totalKb = finiteNonNegative(columns[1] ?? '')
-  const freeKb = finiteNonNegative(columns[3] ?? '')
-  return {
-    diskTotalBytes: totalKb === undefined ? undefined : totalKb * 1024,
-    diskFreeBytes: freeKb === undefined ? undefined : freeKb * 1024,
+  const totalKb = finiteNonNegativeInteger(columns[1] ?? '')
+  const freeKb = finiteNonNegativeInteger(columns[3] ?? '')
+  const value = {
+    diskTotalBytes: totalKb === undefined ? undefined : finiteProduct(totalKb, 1_024),
+    diskFreeBytes: freeKb === undefined ? undefined : finiteProduct(freeKb, 1_024),
   }
+  return { value, valid: columns.length >= 6 && Object.values(value).every((item) => item !== undefined) }
 }
 
 function errorCode(error: unknown): 'timeout' | 'exit' {
@@ -180,7 +243,7 @@ export class MacSystemHealthCollector {
       }
     }
 
-    const [sysctl, launchctl, top, vmStat, memoryPressure, psStats, psComm, psArgs, df] = await Promise.all([
+    const outputs = await Promise.all([
       run('sysctl', '/usr/sbin/sysctl', ['-n', 'hw.ncpu', 'hw.memsize', 'vm.loadavg', 'vm.swapusage']),
       run('launchctl', '/bin/launchctl', ['limit', 'maxproc']),
       run('top', '/usr/bin/top', ['-l', '2', '-s', '0', '-n', '0']),
@@ -193,47 +256,64 @@ export class MacSystemHealthCollector {
     ])
 
     const values: MacSystemHealthValues = { sampledAt: attemptedAt }
-    const parse = <T>(command: SystemHealthCommand, output: string | undefined, parser: (value: string) => T): T | undefined => {
+    const parse = <T>(
+      command: SystemHealthCommand,
+      output: string | undefined,
+      parser: (value: string) => Parsed<T>,
+    ): T | undefined => {
       if (output === undefined) return undefined
       try {
-        return parser(output)
+        const parsed = parser(output)
+        if (!parsed.valid) errors.push({ command, code: 'parse' })
+        return parsed.value
       } catch {
         errors.push({ command, code: 'parse' })
         return undefined
       }
     }
 
-    Object.assign(values, parse('sysctl', sysctl, parseSysctl))
-    Object.assign(values, { processLimit: parse('launchctl', launchctl, parseProcessLimit) })
-    Object.assign(values, { cpuUsedPercent: parse('top', top, parseCpu) })
-    Object.assign(values, parse('vm_stat', vmStat, parseVmStat))
-    Object.assign(values, { memoryPressureFreePercent: parse('memory_pressure', memoryPressure, parseMemoryPressure) })
-    Object.assign(values, parse('df', df, parseDisk))
+    Object.assign(values, parse('sysctl', outputs[0], parseSysctl))
+    Object.assign(values, { processLimit: parse('launchctl', outputs[1], parseProcessLimit) })
+    Object.assign(values, { cpuUsedPercent: parse('top', outputs[2], parseCpu) })
+    Object.assign(values, parse('vm_stat', outputs[3], parseVmStat))
+    Object.assign(values, { memoryPressureFreePercent: parse('memory_pressure', outputs[4], parseMemoryPressure) })
+    Object.assign(values, parse('df', outputs[8], parseDisk))
 
-    const stats = parse('ps', psStats, parseProcessStats)
-    const commands = parse('ps', psComm, parseProcessText)
-    const argumentsRows = parse('ps', psArgs, parseProcessText)
-    if (stats && commands && argumentsRows) {
-      const analysis = analyzeMacProcessSnapshot({
-        capturedAt: attemptedAt,
-        stats,
-        commands,
-        arguments: argumentsRows,
-        trackedRoots: input.trackedRoots,
-        previousMembership: this.previousMembership,
-      })
-      this.previousMembership = analysis.nextMembership
-      Object.assign(values, {
-        processCount: stats.length,
-        zombieProcessCount: analysis.zombieProcessCount,
-        pawsWorkerRoots: analysis.worker.rootCount,
-        pawsWorkerProcesses: analysis.worker.processCount,
-        pawsWorkerRssBytes: analysis.worker.rssBytes,
-        orphanWorkerRoots: analysis.orphans.rootCount,
-        orphanWorkerProcesses: analysis.orphans.processCount,
-        orphanWorkerRssBytes: analysis.orphans.rssBytes,
-        sources: analysis.sources,
-      })
+    let stats = parse('ps', outputs[5], parseProcessStats)
+    let commands = parse('ps', outputs[6], parseProcessText)
+    let argumentsRows = parse('ps', outputs[7], parseProcessText)
+    try {
+      if (stats && stats.length > 0) {
+        const analysis = analyzeMacProcessSnapshot({
+          capturedAt: attemptedAt,
+          stats,
+          commands: commands ?? [],
+          arguments: argumentsRows ?? [],
+          trackedRoots: input.trackedRoots,
+          previousMembership: this.previousMembership,
+        })
+        this.previousMembership = analysis.nextMembership
+        Object.assign(values, {
+          processCount: stats.length,
+          zombieProcessCount: analysis.zombieProcessCount,
+          pawsWorkerRoots: analysis.worker.rootCount,
+          pawsWorkerProcesses: analysis.worker.processCount,
+          pawsWorkerRssBytes: analysis.worker.rssBytes,
+          orphanWorkerRoots: analysis.orphans.rootCount,
+          orphanWorkerProcesses: analysis.orphans.processCount,
+          orphanWorkerRssBytes: analysis.orphans.rssBytes,
+          sources: analysis.sources,
+        })
+      }
+    } catch {
+      errors.push({ command: 'ps', code: 'parse' })
+    } finally {
+      outputs[5] = undefined
+      outputs[6] = undefined
+      outputs[7] = undefined
+      stats = undefined
+      commands = undefined
+      argumentsRows = undefined
     }
 
     const coreKeys = [
@@ -245,10 +325,12 @@ export class MacSystemHealthCollector {
     ] as const
     const complete = coreKeys.every((key) => values[key] !== undefined)
     const useful = Object.entries(values).some(([key, value]) => key !== 'sampledAt' && value !== undefined)
+    const finishedAt = this.now()
+    const elapsed = finishedAt - attemptedAt
     return {
       kind: complete ? 'complete' : useful ? 'partial' : 'failed',
       attemptedAt,
-      durationMs: Math.max(0, this.now() - attemptedAt),
+      durationMs: Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0,
       values,
       commandErrors: errors,
     }
