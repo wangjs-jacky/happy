@@ -11,10 +11,10 @@ vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('react-native-unistyles', () => {
-    const theme = { colors: { divider: '#222', text: '#fff', textSecondary: '#aaa', warningCritical: '#f00', success: '#0f0' } };
+    const mockTheme = { colors: { divider: '#222', text: '#fff', textSecondary: '#aaa', warningCritical: '#f00', success: '#0f0' } };
     return {
-        StyleSheet: { hairlineWidth: 1, create: (factory: unknown) => typeof factory === 'function' ? (factory as (theme: typeof theme) => object)(theme) : factory },
-        useUnistyles: () => ({ theme }),
+        StyleSheet: { hairlineWidth: 1, create: (factory: unknown) => typeof factory === 'function' ? (factory as (value: typeof mockTheme) => object)(mockTheme) : factory },
+        useUnistyles: () => ({ theme: mockTheme }),
     };
 });
 

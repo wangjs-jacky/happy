@@ -1208,6 +1208,7 @@ export const ja: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: en.machine.systemHealth,
         launchNewSessionInDirectory: 'ディレクトリで新しいセッションを起動',
         offlineUnableToSpawn: 'マシンがオフラインのためランチャーは無効です',
         offlineHelp: '• コンピューターがオンラインであることを確認してください\n• `happy daemon status`を実行して診断してください\n• 最新のCLIバージョンを使用していますか？`npm install -g happy@latest`でアップグレードしてください',

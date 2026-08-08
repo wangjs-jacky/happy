@@ -1307,6 +1307,36 @@ export const zhHant: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: {
+            ...en.machine.systemHealth,
+            title: '系統穩定性',
+            status: { healthy: '正常', warning: '需要關注', critical: '嚴重', unavailable: '資料不可用', offline: '裝置離線' },
+            empty: {
+                unsupported: '更新遠端 Paws CLI 後可使用系統監控。', disabled: '這台裝置尚未啟用系統監控。',
+                pending: '正在等待守護程序初始化系統監控。', collecting: '正在採集第一份系統狀態。', unavailable: '暫時無法取得系統監控資料。',
+            },
+            metrics: { cpu: 'CPU', memory: '可用記憶體', swap: 'Swap', processes: '程序', zombies: '殭屍程序', orphans: '孤兒 Worker' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `殭屍程序：${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `負載 1/5/15 分鐘：${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `記憶體壓力可用：${percent}%`, compressed: ({ value }: { value: string }) => `壓縮記憶體：${value}`,
+                disk: ({ value }: { value: string }) => `磁碟可用：${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Paws Worker：${roots} 個根 · ${processes} 個程序 · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `孤兒 Worker：${roots} 個根 · ${processes} 個程序 · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': '偵測到孤兒 Worker', 'swap-high': 'Swap 使用量過高', 'swap-growing': 'Swap 增長過快',
+                'cpu-sustained': 'CPU 持續高佔用', 'load-high': '系統負載過高', 'memory-pressure-high': '記憶體壓力過高',
+                'worker-memory-high': 'Worker 記憶體佔用過高', 'process-count-high': '程序數量過多',
+                'process-capacity-high': '程序容量即將耗盡', 'zombie-processes': '殭屍程序持續存在',
+                'disk-low': '磁碟空間不足', 'single-source-cpu-high': '單一來源持續佔用大量 CPU',
+            },
+            statusSummary: ({ status }: { status: string }) => `系統穩定性：${status}`, updatedAgo: ({ seconds }: { seconds: number }) => `${seconds} 秒前更新`,
+            collectorErrors: ({ count }: { count: number }) => `${count} 個採集錯誤`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}：最低 ${min}，最高 ${max}，目前 ${latest}`,
+            collectingTrend: '正在收集趨勢資料', range: ({ min, max }: { min: string; max: string }) => `最低 ${min} · 最高 ${max}`,
+            trends: '最近 30 分鐘', sources: '主要資源來源', zombieSources: '殭屍程序來源', zombieShort: ({ count }: { count: number }) => `${count} 個殭屍`,
+        },
         launchNewSessionInDirectory: '在目錄中啟動新工作階段',
         offlineUnableToSpawn: '裝置離線時無法啟動',
         offlineHelp: '• 確保您的電腦在線上\n• 執行 `happy daemon status` 進行診斷\n• 您是否在執行最新的 CLI 版本？請使用 `npm install -g happy@latest` 升級',

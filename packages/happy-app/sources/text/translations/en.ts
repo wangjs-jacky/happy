@@ -1221,6 +1221,7 @@ export const en: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: baseEn.machine.systemHealth,
         launchNewSessionInDirectory: 'Launch New Session in Directory',
         offlineUnableToSpawn: 'Launcher disabled while machine is offline',
         offlineHelp: '• Make sure your computer is online\n• Run `happy daemon status` to diagnose\n• Are you running the latest CLI version? Upgrade with `npm install -g happy@latest`',

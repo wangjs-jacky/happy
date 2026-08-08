@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, RefreshControl, Platform, Pressable, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Item } from '@/components/Item';
@@ -19,6 +19,7 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { machineSpawnNewSession } from '@/sync/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
+import { SystemHealthSection } from '@/components/systemHealth/SystemHealthSection';
 
 const styles = StyleSheet.create((theme) => ({
     pathInputContainer: {
@@ -154,6 +155,11 @@ export default function MachineDetailScreen() {
     const [isSpawning, setIsSpawning] = useState(false);
     const inputRef = useRef<MultiTextInputHandle>(null);
     const [showAllPaths, setShowAllPaths] = useState(false);
+    const [healthNow, setHealthNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setHealthNow(Date.now()), 15_000);
+        return () => clearInterval(timer);
+    }, []);
     // Variant D only
 
     const machineSessions = useMemo(() => {
@@ -457,6 +463,8 @@ export default function MachineDetailScreen() {
                                 />
                             </ItemGroup>
                         )}
+                        <SystemHealthSection machine={machine} now={healthNow} />
+                        <View testID="machine-launch-section">
                         <ItemGroup title={t('machine.launchNewSessionInDirectory')}>
                         <View style={{ opacity: isMachineOnline(machine) ? 1 : 0.5 }}>
                             <View style={styles.pathInputContainer}>
@@ -525,6 +533,7 @@ export default function MachineDetailScreen() {
                             )}
                         </View>
                         </ItemGroup>
+                        </View>
                     </>
                 )}
 

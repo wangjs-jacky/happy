@@ -1223,6 +1223,7 @@ export const pl: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: en.machine.systemHealth,
         offlineUnableToSpawn: 'Launcher wyłączony, gdy maszyna jest offline',
         offlineHelp: '• Upewnij się, że komputer jest online\n• Uruchom `happy daemon status`, aby zdiagnozować\n• Czy używasz najnowszej wersji CLI? Zaktualizuj poleceniem `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Uruchom nową sesję w katalogu',

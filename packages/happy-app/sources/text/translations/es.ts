@@ -1207,6 +1207,7 @@ export const es: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: en.machine.systemHealth,
         offlineUnableToSpawn: 'El lanzador está deshabilitado mientras la máquina está desconectada',
         offlineHelp: '• Asegúrate de que tu computadora esté en línea\n• Ejecuta `happy daemon status` para diagnosticar\n• ¿Estás usando la última versión del CLI? Actualiza con `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Iniciar nueva sesión en directorio',

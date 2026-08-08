@@ -1211,6 +1211,7 @@ export const ru: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: en.machine.systemHealth,
         offlineUnableToSpawn: 'Запуск отключен: машина offline',
         offlineHelp: '• Убедитесь, что компьютер online\n• Выполните `happy daemon status` для диагностики\n• Используете последнюю версию CLI? Обновите командой `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Запустить новую сессию в папке',

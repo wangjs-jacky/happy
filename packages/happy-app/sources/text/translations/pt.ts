@@ -1206,6 +1206,7 @@ export const pt: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: en.machine.systemHealth,
         offlineUnableToSpawn: 'Inicializador desativado enquanto a máquina está offline',
         offlineHelp: '• Verifique se seu computador está online\n• Execute `happy daemon status` para diagnosticar\n• Você está usando a versão mais recente do CLI? Atualize com `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Iniciar nova sessão no diretório',
