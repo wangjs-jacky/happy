@@ -25,7 +25,7 @@ export const SystemHealthSparkline = React.memo<Props>(({ chart, color, timeDoma
     const geometry = useMemo(() => {
         const points = chart.points.filter((point) => Number.isFinite(point.sampledAt));
         const values = points.filter((point) => Number.isFinite(point.value)).map((point) => point.value);
-        if (width <= 0 || values.length === 0) return { path: '', hasLine: false, latest: null };
+        if (width <= 0 || values.length === 0) return { path: '', isolated: [], latest: null };
         const min = Number.isFinite(chart.min) ? chart.min! : Math.min(...values);
         const max = Number.isFinite(chart.max) ? chart.max! : Math.max(...values);
         const span = max - min || 1;
@@ -40,22 +40,22 @@ export const SystemHealthSparkline = React.memo<Props>(({ chart, color, timeDoma
             const y = height - 4 - ((point.value - min) / span) * (height - 8);
             return { x, y };
         });
-        let hasLine = false;
-        let connected = false;
-        let path = '';
+        const segments: Array<Array<{ x: number; y: number }>> = [];
+        let segment: Array<{ x: number; y: number }> = [];
         for (const point of coordinates) {
             if (!point) {
-                connected = false;
+                if (segment.length > 0) segments.push(segment);
+                segment = [];
                 continue;
             }
-            path += `${path ? ' ' : ''}${connected ? 'L' : 'M'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-            hasLine ||= connected;
-            connected = true;
+            segment.push(point);
         }
+        if (segment.length > 0) segments.push(segment);
+        const lineSegments = segments.filter((item) => item.length > 1);
         return {
-            path,
-            hasLine,
-            latest: coordinates.filter((point): point is { x: number; y: number } => point !== null).at(-1) ?? null,
+            path: lineSegments.map((item) => item.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')).join(' '),
+            isolated: segments.filter((item) => item.length === 1).map((item) => item[0]!),
+            latest: segments.at(-1)?.at(-1) ?? null,
         };
     }, [chart.max, chart.min, chart.points, timeDomain, width]);
     const accessibilityLabel = t('machine.systemHealth.chartSummary', {
@@ -80,11 +80,12 @@ export const SystemHealthSparkline = React.memo<Props>(({ chart, color, timeDoma
                 {width > 0 && geometry.latest ? (
                     <Svg width={width} height={height} aria-hidden>
                         <Line x1="0" y1={height - 4} x2={width} y2={height - 4} stroke={color} strokeOpacity={0.16} />
-                        {geometry.hasLine ? (
+                        {geometry.path ? (
                             <Path d={geometry.path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                        ) : (
-                            <Circle cx={geometry.latest.x} cy={geometry.latest.y} r="3" fill={color} />
-                        )}
+                        ) : null}
+                        {geometry.isolated.map((point, index) => (
+                            <Circle key={`${point.x}:${point.y}:${index}`} cx={point.x} cy={point.y} r="3" fill={color} />
+                        ))}
                     </Svg>
                 ) : (
                     <Text style={styles.collecting}>{t('machine.systemHealth.collectingTrend')}</Text>

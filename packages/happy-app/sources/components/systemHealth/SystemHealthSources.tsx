@@ -7,7 +7,7 @@ import { t } from '@/text';
 
 const rss = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(1)} GB` : `${Math.round(value / 1024 ** 2)} MB`;
 
-function SourceRow({ source }: { source: SystemHealthSource }) {
+export const SystemHealthSourceRow = React.memo<{ source: SystemHealthSource }>(({ source }) => {
     return (
         <View testID="system-health-source" style={styles.row}>
             <Text style={styles.name} numberOfLines={1}>{source.name}</Text>
@@ -17,17 +17,19 @@ function SourceRow({ source }: { source: SystemHealthSource }) {
             </Text>
         </View>
     );
-}
+});
 
 export const SystemHealthSources = React.memo<{ current: SystemHealthCurrent }>(({ current }) => {
     const sources = useMemo(() => {
         const selected = current.topCpuSources.slice(0, 3);
         const ids = new Set(selected.map((source) => source.id));
+        let memoryAdded = 0;
         for (const source of current.topMemorySources) {
-            if (selected.length >= 5) break;
+            if (memoryAdded >= 2) break;
             if (!ids.has(source.id)) {
                 selected.push(source);
                 ids.add(source.id);
+                memoryAdded += 1;
             }
         }
         return selected;
@@ -35,7 +37,7 @@ export const SystemHealthSources = React.memo<{ current: SystemHealthCurrent }>(
     return (
         <View style={styles.container}>
             {sources.length > 0 && <Text style={styles.heading}>{t('machine.systemHealth.sources')}</Text>}
-            {sources.map((source) => <SourceRow key={source.id} source={source} />)}
+            {sources.map((source) => <SystemHealthSourceRow key={source.id} source={source} />)}
         </View>
     );
 });

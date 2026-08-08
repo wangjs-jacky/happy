@@ -26,6 +26,11 @@ function bytes(value: number) {
 export const SystemHealthSection = React.memo<Props>(({ machine, now }) => {
     const { theme } = useUnistyles();
     const view = useMemo(() => buildSystemHealthViewModel(machine, now), [machine, now]);
+    const timeDomain = useMemo(() => {
+        const timestamps = view.charts.flatMap((chart) => chart.points.map((point) => point.sampledAt));
+        if (timestamps.length === 0) return undefined;
+        return [Math.min(...timestamps), Math.max(...timestamps)] as const;
+    }, [view.charts]);
     if (!view.visible) return null;
 
     const color = view.status === 'critical'
@@ -35,11 +40,6 @@ export const SystemHealthSection = React.memo<Props>(({ machine, now }) => {
             : view.status === 'healthy'
                 ? theme.colors.success
                 : theme.colors.textSecondary;
-    const timeDomain = useMemo(() => {
-        const timestamps = view.charts.flatMap((chart) => chart.points.map((point) => point.sampledAt));
-        if (timestamps.length === 0) return undefined;
-        return [Math.min(...timestamps), Math.max(...timestamps)] as const;
-    }, [view.charts]);
     const emptyAvailability = view.availability === 'pending' && !view.current
         ? view.snapshot?.collector.lastSampleKind === 'failed'
             ? 'unavailable'

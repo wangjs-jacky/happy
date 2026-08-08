@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 import { SystemHealthSection } from './SystemHealthSection';
 import { SystemHealthSparkline } from './SystemHealthSparkline';
+import { SystemHealthSourceRow } from './SystemHealthSources';
 import type { SystemHealthChartModel } from '@/utils/systemHealth';
 import type { Machine } from '@/sync/storageTypes';
 
@@ -110,6 +111,14 @@ describe('SystemHealthSection', () => {
         act(() => disabled.unmount());
     });
 
+    it('keeps Hook order stable when the same renderer becomes a visible macOS section', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SystemHealthSection machine={machine({ metadata: { ...machine().metadata!, platform: 'linux' } })} now={now} />); });
+        expect(() => act(() => renderer.update(<SystemHealthSection machine={machine()} now={now} />))).not.toThrow();
+        expect(renderer.root.findByProps({ testID: 'system-health-section' })).toBeDefined();
+        act(() => renderer.unmount());
+    });
+
     it('distinguishes an initial collection attempt and its failure from a passive pending state', () => {
         const firstAttempt = machine({
             daemonState: {
@@ -201,6 +210,34 @@ describe('SystemHealthSection', () => {
         act(() => renderer.unmount());
     });
 
+    it('adds no more than two unique memory sources when CPU has fewer than three rows', () => {
+        const memory = [
+            { id: 'memory-1', name: 'Memory 1', cpuPercent: 1, rssBytes: 1024 ** 2, processCount: 1, zombieProcessCount: 0 },
+            { id: 'memory-2', name: 'Memory 2', cpuPercent: 1, rssBytes: 1024 ** 2, processCount: 2, zombieProcessCount: 0 },
+            { id: 'memory-3', name: 'Memory 3', cpuPercent: 1, rssBytes: 1024 ** 2, processCount: 3, zombieProcessCount: 0 },
+        ];
+        const value = machine({
+            daemonState: {
+                systemHealth: {
+                    ...machine().daemonState.systemHealth,
+                    current: { ...current, topCpuSources: [{ id: 'cpu-1', name: 'CPU 1', cpuPercent: 30, rssBytes: 1024 ** 2, processCount: 1, zombieProcessCount: 0 }], topMemorySources: memory },
+                },
+            },
+        });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SystemHealthSection machine={value} now={now} />); });
+        const rows = renderer.root.findAllByProps({ testID: 'system-health-source' });
+        const rowText = rows.flatMap((row: any) => row.findAllByType('Text').flatMap((node: any) => React.Children.toArray(node.props.children)));
+        expect(rows).toHaveLength(3);
+        expect(rowText).toContain('Memory 2');
+        expect(rowText).not.toContain('Memory 3');
+        act(() => renderer.unmount());
+    });
+
+    it('memoizes individual source rows', () => {
+        expect(SystemHealthSourceRow.$$typeof).toBe(Symbol.for('react.memo'));
+    });
+
     it('keeps gaps out of trend paths and safely degrades empty, single-point, and constant series', () => {
         let empty: any;
         act(() => { empty = TestRenderer.create(<SystemHealthSparkline chart={chart([])} color="#0f0" />); });
@@ -224,9 +261,19 @@ describe('SystemHealthSection', () => {
             ] as any)} color="#0f0" timeDomain={[1, 4]} />);
         });
         act(() => gapped.root.findAll((node: any) => typeof node.props.onLayout === 'function')[0].props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
+        expect(gapped.root.findAllByType('Circle')).toHaveLength(1);
+        expect(gapped.root.findByType('Circle').props.cx).toBe(0);
         const path = gapped.root.findByType('Path').props.d;
-        expect(path).toMatch(/^M .* M .* L /);
+        expect(path).toMatch(/^M .* L /);
         expect(path).not.toContain('NaN');
         act(() => gapped.unmount());
+
+        let isolated: any;
+        act(() => { isolated = TestRenderer.create(<SystemHealthSparkline chart={chart([{ sampledAt: 1, value: 4 }, { sampledAt: 2, value: null as any }, { sampledAt: 3, value: 4 }] as any)} color="#0f0" timeDomain={[1, 3]} />); });
+        act(() => isolated.root.findAll((node: any) => typeof node.props.onLayout === 'function')[0].props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
+        const circles = isolated.root.findAllByType('Circle');
+        expect(circles.map((node: any) => node.props.cx)).toEqual([0, 120]);
+        expect(isolated.root.findAllByType('Path')).toHaveLength(0);
+        act(() => isolated.unmount());
     });
 });
