@@ -9,32 +9,55 @@ import { t } from '@/text';
 interface Props {
     chart: SystemHealthChartModel;
     color: string;
+    timeDomain?: readonly [number, number];
 }
 
 function formatValue(value: number | null, unit: SystemHealthChartModel['unit']): string {
-    if (value === null) return '—';
+    if (value === null || !Number.isFinite(value)) return '—';
     if (unit === 'percent') return `${value.toFixed(1)}%`;
     if (unit === 'gigabytes') return `${value.toFixed(2)} GB`;
     return Math.round(value).toLocaleString();
 }
 
-export const SystemHealthSparkline = React.memo<Props>(({ chart, color }) => {
+export const SystemHealthSparkline = React.memo<Props>(({ chart, color, timeDomain }) => {
     const [width, setWidth] = useState(0);
     const height = 52;
-    const path = useMemo(() => {
-        if (width <= 0 || chart.points.length === 0) return '';
-        const min = chart.min ?? 0;
-        const max = chart.max ?? min;
+    const geometry = useMemo(() => {
+        const points = chart.points.filter((point) => Number.isFinite(point.sampledAt));
+        const values = points.filter((point) => Number.isFinite(point.value)).map((point) => point.value);
+        if (width <= 0 || values.length === 0) return { path: '', hasLine: false, latest: null };
+        const min = Number.isFinite(chart.min) ? chart.min! : Math.min(...values);
+        const max = Number.isFinite(chart.max) ? chart.max! : Math.max(...values);
         const span = max - min || 1;
-        const timeMin = chart.points[0]?.sampledAt ?? 0;
-        const timeMax = chart.points.at(-1)?.sampledAt ?? timeMin;
+        const ownTimeMin = points[0]?.sampledAt ?? 0;
+        const ownTimeMax = points.at(-1)?.sampledAt ?? ownTimeMin;
+        const timeMin = timeDomain?.[0] ?? ownTimeMin;
+        const timeMax = timeDomain?.[1] ?? ownTimeMax;
         const timeSpan = timeMax - timeMin || 1;
-        return chart.points.map((point, index) => {
-            const x = ((point.sampledAt - timeMin) / timeSpan) * width;
+        const coordinates = points.map((point) => {
+            if (!Number.isFinite(point.value)) return null;
+            const x = timeMax === timeMin ? width / 2 : Math.max(0, Math.min(width, ((point.sampledAt - timeMin) / timeSpan) * width));
             const y = height - 4 - ((point.value - min) / span) * (height - 8);
-            return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-        }).join(' ');
-    }, [chart.max, chart.min, chart.points, width]);
+            return { x, y };
+        });
+        let hasLine = false;
+        let connected = false;
+        let path = '';
+        for (const point of coordinates) {
+            if (!point) {
+                connected = false;
+                continue;
+            }
+            path += `${path ? ' ' : ''}${connected ? 'L' : 'M'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+            hasLine ||= connected;
+            connected = true;
+        }
+        return {
+            path,
+            hasLine,
+            latest: coordinates.filter((point): point is { x: number; y: number } => point !== null).at(-1) ?? null,
+        };
+    }, [chart.max, chart.min, chart.points, timeDomain, width]);
     const accessibilityLabel = t('machine.systemHealth.chartSummary', {
         label: t(chart.labelKey as never),
         min: formatValue(chart.min, chart.unit),
@@ -54,13 +77,13 @@ export const SystemHealthSparkline = React.memo<Props>(({ chart, color }) => {
                 <Text style={styles.latest}>{formatValue(chart.latest, chart.unit)}</Text>
             </View>
             <View style={styles.chart} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-                {width > 0 && chart.points.length > 0 ? (
+                {width > 0 && geometry.latest ? (
                     <Svg width={width} height={height} aria-hidden>
                         <Line x1="0" y1={height - 4} x2={width} y2={height - 4} stroke={color} strokeOpacity={0.16} />
-                        {chart.points.length === 1 ? (
-                            <Circle cx={width / 2} cy={height / 2} r="3" fill={color} />
+                        {geometry.hasLine ? (
+                            <Path d={geometry.path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
                         ) : (
-                            <Path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                            <Circle cx={geometry.latest.x} cy={geometry.latest.y} r="3" fill={color} />
                         )}
                     </Svg>
                 ) : (

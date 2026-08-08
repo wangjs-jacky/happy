@@ -31,17 +31,29 @@ export const SystemHealthSection = React.memo<Props>(({ machine, now }) => {
     const color = view.status === 'critical'
         ? theme.colors.warningCritical
         : view.status === 'warning'
-            ? '#FF9500'
+            ? theme.colors.warning
             : view.status === 'healthy'
                 ? theme.colors.success
                 : theme.colors.textSecondary;
+    const timeDomain = useMemo(() => {
+        const timestamps = view.charts.flatMap((chart) => chart.points.map((point) => point.sampledAt));
+        if (timestamps.length === 0) return undefined;
+        return [Math.min(...timestamps), Math.max(...timestamps)] as const;
+    }, [view.charts]);
+    const emptyAvailability = view.availability === 'pending' && !view.current
+        ? view.snapshot?.collector.lastSampleKind === 'failed'
+            ? 'unavailable'
+            : view.snapshot?.collector.lastSampleKind === 'partial'
+                ? 'collecting'
+                : 'pending'
+        : view.availability;
     const emptyKey = ({
         unsupported: 'machine.systemHealth.empty.unsupported',
         disabled: 'machine.systemHealth.empty.disabled',
         pending: 'machine.systemHealth.empty.pending',
         collecting: 'machine.systemHealth.empty.collecting',
         unavailable: 'machine.systemHealth.empty.unavailable',
-    } as const)[view.availability as 'unsupported' | 'disabled' | 'pending' | 'collecting' | 'unavailable'];
+    } as const)[emptyAvailability as 'unsupported' | 'disabled' | 'pending' | 'collecting' | 'unavailable'];
 
     return (
         <View testID="system-health-section">
@@ -89,9 +101,14 @@ export const SystemHealthSection = React.memo<Props>(({ machine, now }) => {
                                     ))}
                                 </View>
                             )}
+                            {view.collectorErrorCategories.length > 0 && (
+                                <Text testID="system-health-collector-diagnostic" style={styles.collectorDiagnostic}>
+                                    {t('machine.systemHealth.collectorErrors', { count: view.collectorErrorCategories.length })}
+                                </Text>
+                            )}
                             <View style={styles.trends}>
                                 <Text style={styles.sectionTitle}>{t('machine.systemHealth.trends')}</Text>
-                                {view.charts.map((chart) => <SystemHealthSparkline key={chart.key} chart={chart} color={color} />)}
+                                {view.charts.map((chart) => <SystemHealthSparkline key={chart.key} chart={chart} color={color} timeDomain={timeDomain} />)}
                             </View>
                             <SystemHealthSources current={view.current} />
                         </>
@@ -162,6 +179,12 @@ const styles = StyleSheet.create((theme) => ({
     issue: {
         ...Typography.default('semiBold'),
         fontSize: 12,
+    },
+    collectorDiagnostic: {
+        ...Typography.default(),
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        marginTop: 8,
     },
     trends: {
         marginTop: 12,

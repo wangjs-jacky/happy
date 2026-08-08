@@ -33,7 +33,10 @@ const styles = StyleSheet.create((theme) => ({
         marginHorizontal: -4,
     },
     metric: {
-        width: '50%',
+        width: {
+            xs: '50%',
+            lg: '25%',
+        },
         padding: 8,
     },
     value: {

@@ -9,7 +9,7 @@ const rss = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFix
 
 function SourceRow({ source }: { source: SystemHealthSource }) {
     return (
-        <View style={styles.row}>
+        <View testID="system-health-source" style={styles.row}>
             <Text style={styles.name} numberOfLines={1}>{source.name}</Text>
             <Text style={styles.detail}>
                 {source.cpuPercent.toFixed(1)}% · {rss(source.rssBytes)} · {source.processCount}
@@ -36,12 +36,6 @@ export const SystemHealthSources = React.memo<{ current: SystemHealthCurrent }>(
         <View style={styles.container}>
             {sources.length > 0 && <Text style={styles.heading}>{t('machine.systemHealth.sources')}</Text>}
             {sources.map((source) => <SourceRow key={source.id} source={source} />)}
-            {current.topZombieSources.length > 0 && (
-                <>
-                    <Text style={styles.heading}>{t('machine.systemHealth.zombieSources')}</Text>
-                    {current.topZombieSources.map((source) => <SourceRow key={`zombie:${source.id}`} source={source} />)}
-                </>
-            )}
         </View>
     );
 });

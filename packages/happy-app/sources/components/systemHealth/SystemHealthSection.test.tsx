@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error 测试只使用 renderer 的最小接口。
 import TestRenderer from 'react-test-renderer';
 import { SystemHealthSection } from './SystemHealthSection';
+import { SystemHealthSparkline } from './SystemHealthSparkline';
+import type { SystemHealthChartModel } from '@/utils/systemHealth';
 import type { Machine } from '@/sync/storageTypes';
 
 vi.mock('react-native', () => ({ Text: 'Text', View: 'View' }));
@@ -11,13 +13,12 @@ vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('react-native-unistyles', () => {
-    const mockTheme = { colors: { divider: '#222', text: '#fff', textSecondary: '#aaa', warningCritical: '#f00', success: '#0f0' } };
+    const mockTheme = { colors: { divider: '#222', text: '#fff', textSecondary: '#aaa', warning: '#f90', warningCritical: '#f00', success: '#0f0' } };
     return {
         StyleSheet: { hairlineWidth: 1, create: (factory: unknown) => typeof factory === 'function' ? (factory as (value: typeof mockTheme) => object)(mockTheme) : factory },
         useUnistyles: () => ({ theme: mockTheme }),
     };
 });
-
 const now = 1_000_000;
 const current = {
     sampledAt: now,
@@ -66,6 +67,20 @@ function machine(overrides: Partial<Machine> = {}): Machine {
     };
 }
 
+function chart(points: Array<{ sampledAt: number; value: number }>): SystemHealthChartModel {
+    const values = points.map((item) => item.value).filter(Number.isFinite);
+    return {
+        key: 'cpuUsedPercent',
+        labelKey: 'machine.systemHealth.metrics.cpu',
+        unit: 'percent',
+        points,
+        latest: values.at(-1) ?? null,
+        min: values.length ? Math.min(...values) : null,
+        max: values.length ? Math.max(...values) : null,
+        accessibilitySummary: { labelKey: 'machine.systemHealth.metrics.cpu', summaryKey: 'machine.systemHealth.chartSummary', latest: values.at(-1) ?? null, min: values.length ? Math.min(...values) : null, max: values.length ? Math.max(...values) : null },
+    };
+}
+
 describe('SystemHealthSection', () => {
     let errorSpy: ReturnType<typeof vi.spyOn>;
     beforeEach(() => {
@@ -74,7 +89,7 @@ describe('SystemHealthSection', () => {
     });
     afterEach(() => errorSpy.mockRestore());
 
-    it('renders five trend series, zombie sources and an accessible status', () => {
+    it('renders five trend series, resource sources and an accessible status', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SystemHealthSection machine={machine()} now={now} />); });
         expect(renderer.root.findAllByProps({ testID: 'system-health-sparkline' })).toHaveLength(5);
@@ -93,5 +108,125 @@ describe('SystemHealthSection', () => {
         act(() => { disabled = TestRenderer.create(<SystemHealthSection machine={machine({ metadata: { ...machine().metadata!, systemHealthMonitor: { schemaVersion: 1, supported: true, enabled: false, reportedAt: now } } })} now={now} />); });
         expect(JSON.stringify(disabled.toJSON())).toContain('HAPPY_SYSTEM_HEALTH_MONITOR=1');
         act(() => disabled.unmount());
+    });
+
+    it('distinguishes an initial collection attempt and its failure from a passive pending state', () => {
+        const firstAttempt = machine({
+            daemonState: {
+                systemHealth: {
+                    ...machine().daemonState.systemHealth,
+                    current: null,
+                    updatedAt: null,
+                    collector: { ...machine().daemonState.systemHealth.collector, lastSampleKind: 'partial' },
+                },
+            },
+        });
+        let collecting: any;
+        act(() => { collecting = TestRenderer.create(<SystemHealthSection machine={firstAttempt} now={now} />); });
+        expect(JSON.stringify(collecting.toJSON())).toContain('machine.systemHealth.empty.collecting');
+        act(() => collecting.unmount());
+
+        const failedAttempt = machine({
+            daemonState: {
+                systemHealth: {
+                    ...firstAttempt.daemonState.systemHealth,
+                    collector: { ...firstAttempt.daemonState.systemHealth.collector, lastSampleKind: 'failed', errors: [{ command: 'top', code: 'timeout' }] },
+                },
+            },
+        });
+        let failed: any;
+        act(() => { failed = TestRenderer.create(<SystemHealthSection machine={failedAttempt} now={now} />); });
+        expect(JSON.stringify(failed.toJSON())).toContain('machine.systemHealth.empty.unavailable');
+        expect(JSON.stringify(failed.toJSON())).toContain('machine.systemHealth.collectorErrors');
+        act(() => failed.unmount());
+    });
+
+    it('uses the theme warning token and keeps collector diagnostics beside the last complete sample', () => {
+        const partial = machine({
+            daemonState: {
+                systemHealth: {
+                    ...machine().daemonState.systemHealth,
+                    collector: { ...machine().daemonState.systemHealth.collector, lastSampleKind: 'partial', errors: [{ command: 'top', code: 'timeout' }] },
+                },
+            },
+        });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SystemHealthSection machine={partial} now={now} />); });
+
+        const status = renderer.root.findByProps({ testID: 'system-health-status' });
+        const statusText = status.findAllByType('Text').find((node: any) => node.props.style?.at(-1)?.color);
+        expect(statusText.props.style.at(-1).color).toBe('#f90');
+        expect(renderer.root.findByProps({ testID: 'system-health-collector-diagnostic' }).children).toContain('machine.systemHealth.collectorErrors');
+        expect(JSON.stringify(renderer.toJSON())).toContain('25.0%');
+        act(() => renderer.unmount());
+    });
+
+    it('limits resource sources to CPU top three plus unique memory sources', () => {
+        const sources = {
+            cpu: [
+                { id: 'cpu-1', name: 'CPU 1', cpuPercent: 30, rssBytes: 1024 ** 2, processCount: 1, zombieProcessCount: 0 },
+                { id: 'cpu-2', name: 'CPU 2', cpuPercent: 20, rssBytes: 1024 ** 2, processCount: 2, zombieProcessCount: 0 },
+                { id: 'cpu-3', name: 'CPU 3', cpuPercent: 10, rssBytes: 1024 ** 2, processCount: 3, zombieProcessCount: 0 },
+            ],
+            memory: [
+                { id: 'cpu-2', name: 'Duplicate', cpuPercent: 2, rssBytes: 1024 ** 2, processCount: 2, zombieProcessCount: 0 },
+                { id: 'memory-1', name: 'Memory 1', cpuPercent: 1, rssBytes: 2 * 1024 ** 2, processCount: 4, zombieProcessCount: 0 },
+                { id: 'memory-2', name: 'Memory 2', cpuPercent: 1, rssBytes: 3 * 1024 ** 2, processCount: 5, zombieProcessCount: 0 },
+                { id: 'memory-3', name: 'Memory 3', cpuPercent: 1, rssBytes: 4 * 1024 ** 2, processCount: 6, zombieProcessCount: 0 },
+            ],
+        };
+        const value = machine({
+            daemonState: {
+                systemHealth: {
+                    ...machine().daemonState.systemHealth,
+                    current: {
+                        ...current,
+                        topCpuSources: sources.cpu,
+                        topMemorySources: sources.memory,
+                        topZombieSources: [{ id: 'zombie', name: 'Must not be an extra resource row', cpuPercent: 0, rssBytes: 0, processCount: 1, zombieProcessCount: 1 }],
+                    },
+                },
+            },
+        });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SystemHealthSection machine={value} now={now} />); });
+
+        const rows = renderer.root.findAllByProps({ testID: 'system-health-source' });
+        const rowText = rows.flatMap((row: any) => row.findAllByType('Text').flatMap((node: any) => React.Children.toArray(node.props.children)));
+        expect(rows).toHaveLength(5);
+        expect(rowText).toContain('CPU 1');
+        expect(rowText).toContain('Memory 2');
+        expect(rowText).not.toContain('Memory 3');
+        expect(rowText).not.toContain('Must not be an extra resource row');
+        act(() => renderer.unmount());
+    });
+
+    it('keeps gaps out of trend paths and safely degrades empty, single-point, and constant series', () => {
+        let empty: any;
+        act(() => { empty = TestRenderer.create(<SystemHealthSparkline chart={chart([])} color="#0f0" />); });
+        expect(empty.root.findAllByType('Svg')).toHaveLength(0);
+        act(() => empty.unmount());
+
+        let single: any;
+        act(() => { single = TestRenderer.create(<SystemHealthSparkline chart={chart([{ sampledAt: 1, value: 2 }])} color="#0f0" timeDomain={[1, 3]} />); });
+        act(() => single.root.findAll((node: any) => typeof node.props.onLayout === 'function')[0].props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
+        expect(single.root.findAllByType('Circle')).toHaveLength(1);
+        expect(single.root.findAllByType('Path')).toHaveLength(0);
+        act(() => single.unmount());
+
+        let gapped: any;
+        act(() => {
+            gapped = TestRenderer.create(<SystemHealthSparkline chart={chart([
+                { sampledAt: 1, value: 4 },
+                { sampledAt: 2, value: null as any },
+                { sampledAt: 3, value: 4 },
+                { sampledAt: 4, value: 4 },
+            ] as any)} color="#0f0" timeDomain={[1, 4]} />);
+        });
+        act(() => gapped.root.findAll((node: any) => typeof node.props.onLayout === 'function')[0].props.onLayout({ nativeEvent: { layout: { width: 120 } } }));
+        const path = gapped.root.findByType('Path').props.d;
+        expect(path).toMatch(/^M .* M .* L /);
+        expect(path).not.toContain('NaN');
+        act(() => gapped.unmount());
     });
 });
