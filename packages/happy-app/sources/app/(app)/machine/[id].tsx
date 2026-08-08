@@ -465,74 +465,74 @@ export default function MachineDetailScreen() {
                         )}
                         <SystemHealthSection machine={machine} now={healthNow} />
                         <View testID="machine-launch-section">
-                        <ItemGroup title={t('machine.launchNewSessionInDirectory')}>
-                        <View style={{ opacity: isMachineOnline(machine) ? 1 : 0.5 }}>
-                            <View style={styles.pathInputContainer}>
-                                <View style={[styles.pathInput, { paddingVertical: 8 }]}>
-                                    <MultiTextInput
-                                        ref={inputRef}
-                                        value={customPath}
-                                        onChangeText={setCustomPath}
-                                        placeholder={'Enter custom path'}
-                                        maxHeight={76}
-                                        paddingTop={8}
-                                        paddingBottom={8}
-                                        paddingRight={48}
-                                    />
-                                    <Pressable
-                                        onPress={() => handleStartSession()}
-                                        disabled={spawnButtonDisabled}
-                                        style={[
-                                            styles.inlineSendButton,
-                                            spawnButtonDisabled ? styles.inlineSendInactive : styles.inlineSendActive
-                                        ]}
-                                    >
-                                        <Ionicons
-                                            name="play"
-                                            size={16}
-                                            color={spawnButtonDisabled ? theme.colors.textSecondary : theme.colors.button.primary.tint}
-                                            style={{ marginLeft: 1 }}
+                            <ItemGroup title={t('machine.launchNewSessionInDirectory')}>
+                                <View style={{ opacity: isMachineOnline(machine) ? 1 : 0.5 }}>
+                                    <View style={styles.pathInputContainer}>
+                                        <View style={[styles.pathInput, { paddingVertical: 8 }]}>
+                                            <MultiTextInput
+                                                ref={inputRef}
+                                                value={customPath}
+                                                onChangeText={setCustomPath}
+                                                placeholder={'Enter custom path'}
+                                                maxHeight={76}
+                                                paddingTop={8}
+                                                paddingBottom={8}
+                                                paddingRight={48}
+                                            />
+                                            <Pressable
+                                                onPress={() => handleStartSession()}
+                                                disabled={spawnButtonDisabled}
+                                                style={[
+                                                    styles.inlineSendButton,
+                                                    spawnButtonDisabled ? styles.inlineSendInactive : styles.inlineSendActive
+                                                ]}
+                                            >
+                                                <Ionicons
+                                                    name="play"
+                                                    size={16}
+                                                    color={spawnButtonDisabled ? theme.colors.textSecondary : theme.colors.button.primary.tint}
+                                                    style={{ marginLeft: 1 }}
+                                                />
+                                            </Pressable>
+                                        </View>
+                                    </View>
+                                    <View style={{ paddingTop: 4 }} />
+                                    {pathsToShow.map((path, index) => {
+                                        const display = formatPathRelativeToHome(path, machine.metadata?.homeDir);
+                                        const isSelected = customPath.trim() === display;
+                                        const isLast = index === pathsToShow.length - 1;
+                                        const hideDivider = isLast && pathsToShow.length <= 5;
+                                        return (
+                                            <Item
+                                                key={path}
+                                                title={display}
+                                                leftElement={<Ionicons name="folder-outline" size={18} color={theme.colors.textSecondary} />}
+                                                onPress={isMachineOnline(machine) ? () => {
+                                                    setCustomPath(display);
+                                                    setTimeout(() => inputRef.current?.focus(), 50);
+                                                } : undefined}
+                                                disabled={!isMachineOnline(machine)}
+                                                selected={isSelected}
+                                                showChevron={false}
+                                                pressableStyle={isSelected ? { backgroundColor: theme.colors.surfaceSelected } : undefined}
+                                                showDivider={!hideDivider}
+                                            />
+                                        );
+                                    })}
+                                    {recentPaths.length > 5 && (
+                                        <Item
+                                            title={showAllPaths ? t('machineLauncher.showLess') : t('machineLauncher.showAll', { count: recentPaths.length })}
+                                            onPress={() => setShowAllPaths(!showAllPaths)}
+                                            showChevron={false}
+                                            showDivider={false}
+                                            titleStyle={{
+                                                textAlign: 'center',
+                                                color: (theme as any).dark ? theme.colors.button.primary.tint : theme.colors.button.primary.background
+                                            }}
                                         />
-                                    </Pressable>
+                                    )}
                                 </View>
-                            </View>
-                            <View style={{ paddingTop: 4 }} />
-                            {pathsToShow.map((path, index) => {
-                                const display = formatPathRelativeToHome(path, machine.metadata?.homeDir);
-                                const isSelected = customPath.trim() === display;
-                                const isLast = index === pathsToShow.length - 1;
-                                const hideDivider = isLast && pathsToShow.length <= 5;
-                                return (
-                                    <Item
-                                        key={path}
-                                        title={display}
-                                        leftElement={<Ionicons name="folder-outline" size={18} color={theme.colors.textSecondary} />}
-                                        onPress={isMachineOnline(machine) ? () => {
-                                            setCustomPath(display);
-                                            setTimeout(() => inputRef.current?.focus(), 50);
-                                        } : undefined}
-                                        disabled={!isMachineOnline(machine)}
-                                        selected={isSelected}
-                                        showChevron={false}
-                                        pressableStyle={isSelected ? { backgroundColor: theme.colors.surfaceSelected } : undefined}
-                                        showDivider={!hideDivider}
-                                    />
-                                );
-                            })}
-                            {recentPaths.length > 5 && (
-                                <Item
-                                    title={showAllPaths ? t('machineLauncher.showLess') : t('machineLauncher.showAll', { count: recentPaths.length })}
-                                    onPress={() => setShowAllPaths(!showAllPaths)}
-                                    showChevron={false}
-                                    showDivider={false}
-                                    titleStyle={{
-                                        textAlign: 'center',
-                                        color: (theme as any).dark ? theme.colors.button.primary.tint : theme.colors.button.primary.background
-                                    }}
-                                />
-                            )}
-                        </View>
-                        </ItemGroup>
+                            </ItemGroup>
                         </View>
                     </>
                 )}

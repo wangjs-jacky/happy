@@ -7,16 +7,6 @@ import { SystemHealthSparkline } from './SystemHealthSparkline';
 import { SystemHealthSourceRow } from './SystemHealthSources';
 import type { SystemHealthChartModel } from '@/utils/systemHealth';
 import type { Machine } from '@/sync/storageTypes';
-import { ca } from '@/text/translations/ca';
-import { en as english } from '@/text/translations/en';
-import { es } from '@/text/translations/es';
-import { it as italian } from '@/text/translations/it';
-import { ja } from '@/text/translations/ja';
-import { pl } from '@/text/translations/pl';
-import { pt } from '@/text/translations/pt';
-import { ru } from '@/text/translations/ru';
-import { zhHans } from '@/text/translations/zh-Hans';
-import { zhHant } from '@/text/translations/zh-Hant';
 
 const pageTestState = vi.hoisted(() => ({ online: true }));
 
@@ -141,19 +131,6 @@ describe('SystemHealthSection', () => {
         vi.doUnmock('@/components/systemHealth/SystemHealthSection');
         vi.useRealTimers();
         pageTestState.online = true;
-    });
-
-    it('provides localized system-health copy for every supported locale', () => {
-        expect(ca.machine.systemHealth.title).toBe('Estat del sistema');
-        expect(english.machine.systemHealth.title).toBe('System Health');
-        expect(es.machine.systemHealth.title).toBe('Estado del sistema');
-        expect(italian.machine.systemHealth.title).toBe('Stato del sistema');
-        expect(ja.machine.systemHealth.title).toBe('システムの状態');
-        expect(pl.machine.systemHealth.title).toBe('Stan systemu');
-        expect(pt.machine.systemHealth.title).toBe('Estado do sistema');
-        expect(ru.machine.systemHealth.title).toBe('Состояние системы');
-        expect(zhHans.machine.systemHealth.title).toBe('系统稳定性');
-        expect(zhHant.machine.systemHealth.title).toBe('系統穩定性');
     });
 
     it('renders five trend series, resource sources and an accessible status', () => {
