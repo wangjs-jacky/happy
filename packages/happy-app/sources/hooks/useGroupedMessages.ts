@@ -5,6 +5,7 @@ import { t } from '@/text';
 import { isGeneratedImageBatchPromptText } from '@/utils/autoFoldPrompt';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 import { getSkillNamesFromTool } from '@/utils/conversationActivity';
+import { isGeneratedImageFileInput } from '@/hooks/generatedImagesModel';
 
 // Display item types for the grouped message list
 export type TextItem = {
@@ -330,10 +331,7 @@ function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: S
 
 function isGeneratedImageAttachment(message: Message): boolean {
     if (!isImageAttachment(message) || message.kind !== 'tool-call') return false;
-    const input = message.tool.input;
-    return input?.source === 'generated'
-        || (typeof input?.batchId === 'string' && input.batchId.trim().length > 0)
-        || (typeof input?.prompt === 'string' && input.prompt.trim().length > 0);
+    return isGeneratedImageFileInput(message.tool.input);
 }
 
 function getPendingStateForImageGroup(

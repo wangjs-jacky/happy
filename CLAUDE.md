@@ -294,7 +294,7 @@ cd android && APP_ENV=production ./gradlew assembleRelease -PreactNativeArchitec
 ### 发布到 GitHub Release
 
 ```bash
-# 版本号取自 app.config.js（APP_ENV=production 下当前为 1.7.0），不要用 package.json 的 1.0.0
+# 版本号取自 app.config.js（APP_ENV=production 下当前为 1.7.1），不要用 package.json 的 1.0.0
 VERSION=$(cd packages/happy-app && APP_ENV=production node -e "const c=require('./app.config.js');const cfg=typeof c==='function'?c({config:{}}):(c.default||c);console.log(cfg.expo?.version||cfg.version)")
 TAG="android-v$VERSION"            # tag 加 android- 前缀，与桌面/其他端 release 区分
 APK="packages/happy-app/android/app/build/outputs/apk/release/app-release.apk"
