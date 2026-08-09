@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
+    copyToClipboard: vi.fn().mockResolvedValue(undefined),
     updateEffort: vi.fn(),
     updateModel: vi.fn(),
     updatePermission: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('@/sync/storage', () => ({
     useSetting: () => null,
 }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: mocks.copyToClipboard }));
 vi.mock('@/utils/newSessionExperience', () => ({
     getRunningSessionInfoExperience: () => ({
         showModelDetails: true,
@@ -97,6 +98,8 @@ vi.mock('@/text', () => ({
         'sessionInfo.agentPanelRuntimeLocation': 'Runtime location',
         'sessionInfo.agentPanelSessionManagement': 'Session management',
         'sessionInfo.agentPanelWorkingDirectory': 'Working directory',
+        'sessionInfo.codexJsonlPath': 'Codex JSONL file',
+        'sessionInfo.codexJsonlPathCopied': 'Codex JSONL file path copied',
         'sessionInfo.happySessionId': 'Paws Session ID',
         'sessionInfo.happySessionIdCopied': 'Paws Session ID copied',
         'sessionInfo.viewDetails': 'Session details',
@@ -140,6 +143,7 @@ const session = {
         homeDir: '/Users/jacky',
         host: 'atlas-mac-mini.local',
         path: '/Users/jacky/work/atlas-dashboard',
+        codexSessionJsonlPath: '/Users/jacky/.codex/sessions/2026/08/09/rollout-2026-08-09T08-15-18-session-1.jsonl',
     },
 } as any;
 
@@ -181,12 +185,17 @@ describe('SessionInfoDropdown', () => {
         expect(resolveSessionInfoAgentLabel(undefined, translate)).toBe('Claude');
     });
 
-    it('groups runtime, execution, and management while exposing honest row affordances', () => {
+    it('groups runtime, execution, and management while exposing honest row affordances', async () => {
         const renderer = renderPanel(true);
 
         expect(renderer.root.findAllByProps({ testID: 'session-agent-panel-runtime-location' })).toHaveLength(1);
         expect(renderer.root.findAllByProps({ testID: 'session-agent-panel-current-execution' })).toHaveLength(1);
         expect(renderer.root.findAllByProps({ testID: 'session-agent-panel-session-management' })).toHaveLength(1);
+        const transcriptPath = renderer.root.findByProps({ testID: 'session-agent-panel-copy-codex-jsonl-path' });
+        expect(transcriptPath.props.accessibilityRole).toBe('button');
+        expect(transcriptPath.props.accessibilityLabel).toContain('/Users/jacky/.codex/sessions');
+        await act(async () => transcriptPath.props.onPress());
+        expect(mocks.copyToClipboard).toHaveBeenCalledWith(session.metadata.codexSessionJsonlPath);
 
         const address = renderer.root.findByProps({ testID: 'session-agent-panel-address' });
         expect(address.props.accessibilityRole).toBeUndefined();

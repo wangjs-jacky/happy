@@ -611,6 +611,8 @@ export const zhHans: TranslationStructure = {
         claudeCodeSessionId: 'Claude Code 会话 ID',
         claudeCodeSessionIdCopied: 'Claude Code 会话 ID 已复制到剪贴板',
         codexThreadId: 'Codex 线程 ID',
+        codexJsonlPath: 'Codex JSONL 文件',
+        codexJsonlPathCopied: 'Codex JSONL 文件路径已复制到剪贴板',
         codexThreadIdCopied: 'Codex 线程 ID 已复制到剪贴板',
         aiProvider: 'AI 提供商',
         failedToCopyClaudeCodeSessionId: '复制 Claude Code 会话 ID 失败',

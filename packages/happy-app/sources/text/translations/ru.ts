@@ -550,6 +550,8 @@ export const ru: TranslationStructure = {
         claudeCodeSessionId: 'ID сессии Claude Code',
         claudeCodeSessionIdCopied: 'ID сессии Claude Code скопирован в буфер обмена',
         codexThreadId: 'ID треда Codex',
+        codexJsonlPath: 'Файл JSONL Codex',
+        codexJsonlPathCopied: 'Путь к файлу JSONL Codex скопирован в буфер обмена',
         codexThreadIdCopied: 'ID треда Codex скопирован в буфер обмена',
         aiProvider: 'Поставщик ИИ',
         failedToCopyClaudeCodeSessionId: 'Не удалось скопировать ID сессии Claude Code',

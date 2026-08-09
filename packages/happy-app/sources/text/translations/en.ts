@@ -624,6 +624,8 @@ export const en: TranslationStructure = {
         claudeCodeSessionId: 'Claude Code Session ID',
         claudeCodeSessionIdCopied: 'Claude Code Session ID copied to clipboard',
         codexThreadId: 'Codex Thread ID',
+        codexJsonlPath: 'Codex JSONL file',
+        codexJsonlPathCopied: 'Codex JSONL file path copied to clipboard',
         codexThreadIdCopied: 'Codex Thread ID copied to clipboard',
         aiProvider: 'AI Provider',
         failedToCopyClaudeCodeSessionId: 'Failed to copy Claude Code Session ID',

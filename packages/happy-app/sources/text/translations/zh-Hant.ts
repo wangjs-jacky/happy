@@ -610,6 +610,8 @@ export const zhHant: TranslationStructure = {
         claudeCodeSessionId: 'Claude Code 工作階段 ID',
         claudeCodeSessionIdCopied: 'Claude Code 工作階段 ID 已複製到剪貼簿',
         codexThreadId: 'Codex 執行緒 ID',
+        codexJsonlPath: 'Codex JSONL 檔案',
+        codexJsonlPathCopied: 'Codex JSONL 檔案路徑已複製到剪貼簿',
         codexThreadIdCopied: 'Codex 執行緒 ID 已複製到剪貼簿',
         aiProvider: 'AI 提供者',
         failedToCopyClaudeCodeSessionId: '複製 Claude Code 工作階段 ID 失敗',

@@ -610,6 +610,8 @@ export const ca: TranslationStructure = {
         claudeCodeSessionId: 'ID de la sessió de Claude Code',
         claudeCodeSessionIdCopied: 'ID de la sessió de Claude Code copiat al porta-retalls',
         codexThreadId: 'ID del fil de Codex',
+        codexJsonlPath: 'Fitxer JSONL de Codex',
+        codexJsonlPathCopied: 'Camí del fitxer JSONL de Codex copiat al porta-retalls',
         codexThreadIdCopied: 'ID del fil de Codex copiat al porta-retalls',
         aiProvider: 'Proveïdor d\'IA',
         failedToCopyClaudeCodeSessionId: 'Ha fallat copiar l\'ID de la sessió de Claude Code',

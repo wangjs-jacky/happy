@@ -315,6 +315,14 @@ function SessionInfoContent({ session }: { session: Session }) {
                             }}
                         />
                     )}
+                    {session.metadata?.codexSessionJsonlPath && (
+                        <CopyableItem
+                            title={t('sessionInfo.codexJsonlPath')}
+                            subtitle={session.metadata.codexSessionJsonlPath}
+                            icon={<Ionicons name="document-text-outline" size={29} color={theme.colors.accent} />}
+                            copyText={session.metadata.codexSessionJsonlPath}
+                        />
+                    )}
                     {/* Resume command — shown for disconnected sessions with a backend session ID */}
                     {/* TODO: migrate to `happy resume <happy-session-id>` once it works without happy-agent auth */}
                     {!sessionStatus.isConnected && getResumeCommand(session) && (

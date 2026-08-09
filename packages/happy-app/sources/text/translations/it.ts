@@ -608,6 +608,8 @@ export const it: TranslationStructure = {
         claudeCodeSessionId: 'ID sessione Claude Code',
         claudeCodeSessionIdCopied: 'ID sessione Claude Code copiato negli appunti',
         codexThreadId: 'ID thread Codex',
+        codexJsonlPath: 'File JSONL Codex',
+        codexJsonlPathCopied: 'Percorso del file JSONL Codex copiato negli appunti',
         codexThreadIdCopied: 'ID thread Codex copiato negli appunti',
         aiProvider: 'Provider IA',
         failedToCopyClaudeCodeSessionId: 'Impossibile copiare l\'ID sessione Claude Code',

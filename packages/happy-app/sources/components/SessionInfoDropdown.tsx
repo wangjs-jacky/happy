@@ -174,6 +174,12 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
         onClose();
         Modal.alert(t('common.copied'), t('sessionInfo.happySessionIdCopied'));
     }, [session.id, onClose]);
+    const copyCodexJsonlPath = React.useCallback(async () => {
+        const jsonlPath = session.metadata?.codexSessionJsonlPath;
+        if (!jsonlPath) return;
+        await Clipboard.setStringAsync(jsonlPath);
+        Modal.alert(t('common.copied'), t('sessionInfo.codexJsonlPathCopied'));
+    }, [session.metadata?.codexSessionJsonlPath]);
 
     const renderRowText = (label: string, value: string) => (
         <View style={styles.rowText}>
@@ -405,6 +411,19 @@ export const SessionInfoDropdown = React.memo(({ session, machineName, online, t
                                 >
                                     <Ionicons name="copy-outline" size={16} color={theme.colors.text} />
                                     <Text style={styles.actionLabel} numberOfLines={1}>{t('sessionInfo.happySessionId')}</Text>
+                                </Pressable>
+                            ) : null}
+                            {session.metadata?.codexSessionJsonlPath ? (
+                                <Pressable
+                                    accessibilityLabel={`${t('sessionInfo.codexJsonlPath')}: ${session.metadata.codexSessionJsonlPath}`}
+                                    accessibilityRole="button"
+                                    style={(p) => [styles.configRow, p.pressed && styles.rowPressed]}
+                                    onPress={copyCodexJsonlPath}
+                                    testID="session-agent-panel-copy-codex-jsonl-path"
+                                >
+                                    <Ionicons name="document-text-outline" size={16} color={theme.colors.textSecondary} />
+                                    {renderRowText(t('sessionInfo.codexJsonlPath'), session.metadata.codexSessionJsonlPath)}
+                                    <Ionicons name="copy-outline" size={16} color={theme.colors.textSecondary} />
                                 </Pressable>
                             ) : null}
                             <Pressable

@@ -57,6 +57,7 @@ import { parseSpecialCommand } from '@/parsers/specialCommands';
 import type { GoalCommand, UsageCommand } from '@/parsers/specialCommands';
 import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
+import { findCodexSessionJsonlPath } from './codexSessionJsonlPath';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -1049,6 +1050,45 @@ export async function runCodex(opts: {
             logger.debug('[Codex] Failed to load model catalog from app-server; using fallback metadata', error);
         }
 
+        const syncCodexThreadMetadata = (threadId: string) => {
+            session.updateMetadata((currentMetadata) => {
+                const nextMetadata = {
+                    ...currentMetadata,
+                    codexThreadId: threadId,
+                };
+                delete nextMetadata.codexSessionJsonlPath;
+                return nextMetadata;
+            });
+
+            const updateJsonlPath = () => {
+                const codexSessionJsonlPath = findCodexSessionJsonlPath(threadId);
+                if (!codexSessionJsonlPath) {
+                    return false;
+                }
+                session.updateMetadata((currentMetadata) => (
+                    currentMetadata.codexThreadId === threadId
+                        ? { ...currentMetadata, codexSessionJsonlPath }
+                        : currentMetadata
+                ));
+                return true;
+            };
+
+            if (updateJsonlPath()) {
+                return;
+            }
+
+            // Codex normally creates the transcript before returning thread/start,
+            // but retry briefly so a slow filesystem never leaves the UI without it.
+            let attempts = 0;
+            const retryJsonlPath = () => {
+                attempts += 1;
+                if (!updateJsonlPath() && attempts < 5) {
+                    setTimeout(retryJsonlPath, 200);
+                }
+            };
+            setTimeout(retryJsonlPath, 200);
+        };
+
         if (opts.resumeThreadId) {
             const resumedThread = await resumeExistingThread({
                 client,
@@ -1058,6 +1098,7 @@ export async function runCodex(opts: {
                 cwd: process.cwd(),
                 mcpServers,
             });
+            syncCodexThreadMetadata(resumedThread.threadId);
             if (!opts.model) {
                 baselineModel = resumedThread.model;
                 currentModel = resumedThread.model;
@@ -1085,10 +1126,7 @@ export async function runCodex(opts: {
                 for (const envelope of envelopes) {
                     session.sendSessionProtocolMessage(envelope);
                 }
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexThreadId: forkCodexThreadId,
-                }));
+                syncCodexThreadMetadata(forkCodexThreadId);
                 logger.debug(`[CODEX FORK BACKFILL] Replayed ${envelopes.length} historical envelopes from thread ${forkCodexThreadId}`);
             } catch (error) {
                 logger.debug(`[CODEX FORK BACKFILL] Failed to read thread ${forkCodexThreadId}:`, error);
@@ -1121,10 +1159,7 @@ export async function runCodex(opts: {
                     baselineEffort = startedThread.reasoningEffort ?? baselineEffort;
                     currentEffort = startedThread.reasoningEffort ?? currentEffort;
                 }
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexThreadId: startedThread.threadId,
-                }));
+                syncCodexThreadMetadata(startedThread.threadId);
                 syncCodexSessionConfigMetadata(
                     mode.model ?? startedThread.model,
                     mode.effort ?? startedThread.reasoningEffort ?? undefined,
@@ -1155,10 +1190,7 @@ export async function runCodex(opts: {
                     sandbox: executionPolicy.sandbox,
                     mcpServers,
                 });
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexThreadId: resumedThread.threadId,
-                }));
+                syncCodexThreadMetadata(resumedThread.threadId);
                 syncCodexSessionConfigMetadata(
                     mode.model ?? resumedThread.model,
                     mode.effort ?? resumedThread.reasoningEffort ?? undefined,
@@ -1262,6 +1294,7 @@ export async function runCodex(opts: {
             session.updateMetadata((currentMetadata) => {
                 const nextMetadata = { ...currentMetadata };
                 delete nextMetadata.codexThreadId;
+                delete nextMetadata.codexSessionJsonlPath;
                 return nextMetadata;
             });
         };
@@ -1281,10 +1314,7 @@ export async function runCodex(opts: {
                 sandbox: existing.executionPolicy.sandbox,
                 mcpServers,
             });
-            session.updateMetadata((currentMetadata) => ({
-                ...currentMetadata,
-                codexThreadId: forkedThread.threadId,
-            }));
+            syncCodexThreadMetadata(forkedThread.threadId);
             if (!mode.model) {
                 baselineModel = forkedThread.model;
                 currentModel = forkedThread.model;

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type TestInfo } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
 import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
@@ -15,6 +15,16 @@ function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
     url.pathname = pathname;
     return url.toString();
+}
+
+function sessionInfoTrigger(page: Page) {
+    return page.locator('[data-testid="session-header-chip"]:visible, [data-testid="session-header-more-button"]:visible');
+}
+
+async function pauseForRecordedReview(page: Page, duration = 1_000): Promise<void> {
+    if (process.env.HAPPY_E2E_RECORD === '1') {
+        await page.waitForTimeout(duration);
+    }
 }
 
 async function createSession(request: APIRequestContext, suffix: string): Promise<string> {
@@ -43,6 +53,7 @@ async function createSession(request: APIRequestContext, suffix: string): Promis
             { code: 'xhigh', value: 'xhigh', description: 'Maximum reasoning' },
         ],
         currentThoughtLevelCode: 'xhigh',
+        codexSessionJsonlPath: '/Users/paws/.codex/sessions/2026/08/09/rollout-2026-08-09T08-15-18-agent-panel.jsonl',
         lifecycleState: 'running',
         startedBy: 'terminal',
     }, encryptionKey));
@@ -79,11 +90,14 @@ async function deactivateSession(request: APIRequestContext, sessionId: string):
 }
 
 test('AGP-01 online panel evidence', async ({ page, request }, testInfo) => {
+    if (process.env.HAPPY_E2E_RECORD === '1') {
+        test.setTimeout(120_000);
+    }
     const sessionId = await createSession(request, 'online');
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(authenticatedRoute(`/session/${sessionId}`));
     expect(await page.evaluate(() => window.devicePixelRatio)).toBe(1);
-    await page.getByTestId('session-header-chip').click();
+    await sessionInfoTrigger(page).click();
     if (evidencePhase === 'before') {
         await expect(page.getByText('Session details', { exact: true })).toBeVisible();
         await page.screenshot({
@@ -102,6 +116,17 @@ test('AGP-01 online panel evidence', async ({ page, request }, testInfo) => {
     await expect(panel.getByTestId('session-agent-panel-working-directory')).toContainText('/workspace/atlas-dashboard');
     await expect(panel.getByTestId('session-agent-panel-agent')).toContainText('Codex');
     await expect(panel.getByTestId('session-agent-panel-address')).not.toHaveAttribute('role', 'button');
+    const jsonlPath = panel.getByTestId('session-agent-panel-copy-codex-jsonl-path');
+    await expect(jsonlPath).toHaveAccessibleName(/Codex JSONL file:/);
+    await expect(jsonlPath).toContainText('/Users/paws/.codex/sessions/2026/08/09/rollout-2026-08-09T08-15-18-agent-panel.jsonl');
+    await pauseForRecordedReview(page);
+    if (process.env.HAPPY_E2E_RECORD === '1') {
+        await page.screenshot({
+            path: screenshotPath(testInfo, 1),
+            fullPage: true,
+        });
+        return;
+    }
 
     const panelModel = panel.getByTestId('session-agent-panel-model');
     const panelEffort = panel.getByTestId('session-agent-panel-effort');
@@ -117,7 +142,7 @@ test('AGP-01 online panel evidence', async ({ page, request }, testInfo) => {
     await panelModel.click();
     await panel.getByTestId('session-agent-panel-model-option-gpt-5.5').click();
     await expect(panelModel).toContainText('gpt-5.5');
-    await page.getByTestId('session-header-chip').click();
+    await sessionInfoTrigger(page).click();
     const composerModel = page.locator('[data-testid="session-composer-mode-selector"]:visible')
         .getByTestId('session-composer-model-trigger');
     await expect(composerModel).toContainText('gpt-5.5');
@@ -128,7 +153,7 @@ test('AGP-01 online panel evidence', async ({ page, request }, testInfo) => {
         .getByRole('radio', { name: /^gpt-5\.6-sol,/ })
         .click();
     await expect(composerModel).toContainText('gpt-5.6-sol');
-    await page.getByTestId('session-header-chip').click();
+    await sessionInfoTrigger(page).click();
     await expect(panel.getByTestId('session-agent-panel-model')).toContainText('gpt-5.6-sol');
     await page.screenshot({
         path: screenshotPath(testInfo, 1),
