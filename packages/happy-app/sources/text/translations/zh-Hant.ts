@@ -52,6 +52,7 @@ export const zhHant: TranslationStructure = {
     },
     generatedImageBatchDownload: {
         preparing: ({ ready, total }: { ready: number; total: number }) => `準備中 ${ready}/${total}`,
+        generating: ({ completed, total }: { completed: number; total: number }) => `生成中 ${completed}/${total}`,
         downloadAll: ({ count }: { count: number }) => `全部下載（${count}）`,
         downloading: ({ completed, total }: { completed: number; total: number }) => `下載中 ${completed}/${total}`,
         saved: ({ count }: { count: number }) => `已儲存 ${count} 張圖片`,

@@ -50,6 +50,7 @@ export const en = {
     },
     generatedImageBatchDownload: {
         preparing: ({ ready, total }: { ready: number; total: number }) => `Preparing ${ready}/${total}`,
+        generating: ({ completed, total }: { completed: number; total: number }) => `Generating ${completed}/${total}`,
         downloadAll: ({ count }: { count: number }) => `Download all (${count})`,
         downloading: ({ completed, total }: { completed: number; total: number }) => `Downloading ${completed}/${total}`,
         saved: ({ count }: { count: number }) => `Saved ${count} image${count === 1 ? '' : 's'}`,

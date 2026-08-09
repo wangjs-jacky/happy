@@ -59,8 +59,8 @@ vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('@/text', () => ({
     t: (key: string, params?: Record<string, number>) => {
         switch (key) {
-            case 'common.loading':
-                return 'Loading...';
+            case 'generatedImageBatchDownload.generating':
+                return `Generating ${params?.completed}/${params?.total}`;
             case 'generatedImageBatchDownload.preparing':
                 return `Preparing ${params?.ready}/${params?.total}`;
             case 'generatedImageBatchDownload.downloadAll':
@@ -143,7 +143,7 @@ describe('AttachmentGalleryView generated batches', () => {
             .findAllByType('Text')
             .map((node: any) => node.children.join(''))
             .find((text: string) => text.includes('1/56'));
-        expect(progressText).toBe('Loading... 1/56');
+        expect(progressText).toBe('Generating 1/56');
 
         act(() => renderer.unmount());
     });

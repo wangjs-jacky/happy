@@ -61,6 +61,7 @@ export const pl: TranslationStructure = {
     },
     generatedImageBatchDownload: {
         preparing: ({ ready, total }: { ready: number; total: number }) => `Przygotowywanie ${ready}/${total}`,
+        generating: ({ completed, total }: { completed: number; total: number }) => `Generowanie ${completed}/${total}`,
         downloadAll: ({ count }: { count: number }) => `Pobierz wszystkie (${count})`,
         downloading: ({ completed, total }: { completed: number; total: number }) => `Pobieranie ${completed}/${total}`,
         saved: ({ count }: { count: number }) => `Zapisano obrazów: ${count}`,

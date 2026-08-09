@@ -285,8 +285,41 @@ describe('GeneratedImageBatchDownload', () => {
             await retryDownloadPromise;
         });
         expect(renderer.root.findByProps({ testID: 'attachment-gallery-download-summary' })
-            .findByType('Text').children.join('')).toBe('Saved 1 to Photos');
+            .findByType('Text').children.join('')).toBe('Saved 56 to Photos');
         expect(renderer.root.findAllByProps({ testID: 'attachment-gallery-download-retry' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('retains failed items when a retry destination is cancelled', async () => {
+        const items = readyItems(2, 'cancel-retry');
+        mocks.downloadImageBatch
+            .mockResolvedValueOnce(result({
+                succeeded: ['cancel-retry-1'],
+                failed: [{ id: 'cancel-retry-2', error: new Error('write failed') }],
+            }))
+            .mockResolvedValueOnce(result({ cancelled: true, destination: 'photos' }));
+
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <GeneratedImageBatchDownload items={items} displayedCount={2} settledCount={2} pendingCount={0} />,
+            );
+        });
+        act(() => renderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress());
+        await act(async () => {
+            for (let index = 0; index < 4; index += 1) await Promise.resolve();
+        });
+
+        act(() => renderer.root.findByProps({ testID: 'attachment-gallery-download-retry' }).props.onPress());
+        await act(async () => {
+            for (let index = 0; index < 4; index += 1) await Promise.resolve();
+        });
+
+        expect(mocks.downloadImageBatch).toHaveBeenCalledTimes(2);
+        expect(renderer.root.findByProps({ testID: 'attachment-gallery-download-summary' })
+            .findAllByType('Text').map((node: any) => node.children.join('')))
+            .toContain('Photos access is required to save generated images');
+        expect(renderer.root.findAllByProps({ testID: 'attachment-gallery-download-retry' })).toHaveLength(1);
         act(() => renderer.unmount());
     });
 

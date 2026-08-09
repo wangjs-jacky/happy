@@ -133,7 +133,7 @@ function distinctRows(rects: Array<{ y: number }>): number[] {
     return [...new Set(rects.map((rect) => Math.round(rect.y)))];
 }
 
-test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手机和宽屏内换行', async ({ page }, testInfo) => {
+test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续显示生成进度并在手机和宽屏内换行', async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.setViewportSize({ width: 1280, height: 720 });
@@ -156,7 +156,7 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
 
     await expect(gallery).toHaveCount(1);
     await expect(grid).toBeVisible();
-    await expect(progress).toContainText('1/56');
+    await expect(progress).toHaveText('Generating 1/56');
     await expect(images).toHaveCount(1);
     await expect(placeholders).toHaveCount(2);
     await expect(downloadAll).toBeDisabled();
@@ -173,7 +173,7 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
         await addImage.click();
         await expect(images).toHaveCount(expectedCount);
         await expect(gallery.getByTestId('attachment-gallery-error')).toHaveCount(0);
-        await expect(progress).toContainText(`${expectedCount}/56`);
+        await expect(progress).toHaveText(`Generating ${expectedCount}/56`);
         await expect(page.getByTestId('dev-generated-batch-count')).toContainText(`${expectedCount}/56`);
         await pauseForRecordedReview(page, expectedCount === 2 ? 850 : 180);
     }
@@ -204,7 +204,7 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
     expect(desktopRects.every((rect) => rect.x >= desktopGridBox.x - 0.5 && rect.right <= desktopGridBox.x + desktopGridBox.width + 0.5)).toBe(true);
     expect(await grid.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-    await expect(progress).toContainText('7/56');
+    await expect(progress).toHaveText('Generating 7/56');
     await pauseForRecordedReview(page, 1_100);
     await page.screenshot({
         path: evidencePath(testInfo, 'generated-batch-03-desktop-7-of-56.png'),

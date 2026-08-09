@@ -50,6 +50,7 @@ export const it: TranslationStructure = {
     },
     generatedImageBatchDownload: {
         preparing: ({ ready, total }: { ready: number; total: number }) => `Preparazione ${ready}/${total}`,
+        generating: ({ completed, total }: { completed: number; total: number }) => `Generazione ${completed}/${total}`,
         downloadAll: ({ count }: { count: number }) => `Scarica tutte (${count})`,
         downloading: ({ completed, total }: { completed: number; total: number }) => `Download ${completed}/${total}`,
         saved: ({ count }: { count: number }) => `${count} immagini salvate`,

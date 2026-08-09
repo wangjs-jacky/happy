@@ -53,6 +53,7 @@ export const ja: TranslationStructure = {
     },
     generatedImageBatchDownload: {
         preparing: ({ ready, total }: { ready: number; total: number }) => `準備中 ${ready}/${total}`,
+        generating: ({ completed, total }: { completed: number; total: number }) => `生成中 ${completed}/${total}`,
         downloadAll: ({ count }: { count: number }) => `すべてダウンロード（${count}）`,
         downloading: ({ completed, total }: { completed: number; total: number }) => `ダウンロード中 ${completed}/${total}`,
         saved: ({ count }: { count: number }) => `${count}枚を保存しました`,

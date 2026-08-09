@@ -274,7 +274,10 @@ function GeneratedAttachmentGrid({
                             testID="attachment-gallery-progress"
                             style={[styles.generatedProgressText, { color: theme.colors.textSecondary }]}
                         >
-                            {t('common.loading')} {images.length}/{totalCount}
+                            {t('generatedImageBatchDownload.generating', {
+                                completed: images.length,
+                                total: totalCount,
+                            })}
                         </Text>
                         {pendingElapsedLabel ? (
                             <Text style={[styles.generatedElapsed, { color: theme.colors.textSecondary }]}>

@@ -70,13 +70,18 @@ async function runBatchDownload(ownerKey: string, batchItems: ImageBatchDownload
         const currentSnapshot = batchDownloadSnapshots.get(ownerKey) ?? emptyBatchDownloadSnapshot;
         if (currentSnapshot.busy || currentSnapshot.operationId !== requestedOperationId) return;
 
+        const previousFailedIds = currentSnapshot.failedIds;
+        const previousFailedIdSet = new Set(previousFailedIds);
+        const isRetry = previousFailedIds.length > 0
+            && batchItems.every((item) => previousFailedIdSet.has(item.id));
+        const previousSummary = isRetry ? currentSnapshot.summary : null;
         const operationId = ++nextOperationId;
         publishBatchDownloadSnapshot(ownerKey, {
             operationId,
             busy: true,
             progress: { completed: 0, total: batchItems.length },
-            failedIds: [],
-            summary: null,
+            failedIds: isRetry ? previousFailedIds : [],
+            summary: previousSummary,
         });
 
         try {
@@ -99,23 +104,36 @@ async function runBatchDownload(ownerKey: string, batchItems: ImageBatchDownload
             if (result.cancelled) {
                 publishBatchDownloadSnapshot(ownerKey, {
                     ...operationSnapshot,
-                    failedIds: [],
-                    summary: {
-                        succeeded: 0,
-                        failed: 0,
-                        cancelled: true,
-                        destination: result.destination,
-                    },
+                    failedIds: isRetry ? previousFailedIds : [],
+                    summary: previousSummary
+                        ? {
+                            ...previousSummary,
+                            cancelled: true,
+                            destination: result.destination,
+                        }
+                        : {
+                            succeeded: 0,
+                            failed: 0,
+                            cancelled: true,
+                            destination: result.destination,
+                        },
                 });
                 return;
             }
 
+            const attemptedIds = new Set(batchItems.map(({ id }) => id));
+            const failedIds = isRetry
+                ? previousFailedIds.filter((id) => !attemptedIds.has(id))
+                : [];
+            for (const { id } of result.failed) {
+                if (!failedIds.includes(id)) failedIds.push(id);
+            }
             publishBatchDownloadSnapshot(ownerKey, {
                 ...operationSnapshot,
-                failedIds: result.failed.map(({ id }) => id),
+                failedIds,
                 summary: {
-                    succeeded: result.succeeded.length,
-                    failed: result.failed.length,
+                    succeeded: (previousSummary?.succeeded ?? 0) + result.succeeded.length,
+                    failed: failedIds.length,
                     cancelled: false,
                     destination: result.destination,
                 },
