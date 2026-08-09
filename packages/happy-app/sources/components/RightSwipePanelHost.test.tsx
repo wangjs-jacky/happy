@@ -471,6 +471,7 @@ describe('RightSwipePanelHost close completion', () => {
                         {...PANEL_ACCESSIBILITY_LABELS}
                         enabled
                         fullWidth
+                        gestureEnabled={false}
                         mode="drawer-toggle"
                         open
                         panelContent={<View />}
