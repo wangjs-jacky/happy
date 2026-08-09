@@ -330,8 +330,8 @@ gh release create "$TAG" --repo wangjs-jacky/happy \
 
 ### 频道模型与常见误区（传承 · 反复踩过）
 
-- **preview 频道的 `latest.json` 被所有 PR 共享、谁最后发谁覆盖**：每个对 `main` 提的 PR 触发的自动 `ota-preview` 都发到同一个 preview `latest.json`。所以「preview latest」≠ 你某个 PR 的包；想在真机看某个具体 PR，必须用「定向锁版本」（版本浏览站扫码 / App 内 Developer→OTA→OTA Versions 选该 stamp），不能只跟 latest。
-- **生产 OTA 不在 PR 的 checks 里**：`ota-production.yml` 触发条件是 **push 到 `main`（即合并 PR）**，不是 `pull_request`。所以它**不会出现在 PR 页面的检查列表**——合并后它作为一个**独立的 push 触发 run**（工作流名「Self-hosted OTA production (on merge to main)」）才跑。盯着 PR checks 找生产 OTA 会误以为「没发」，去 **Actions 页**看那个 run 才对。preview OTA 才是挂在 PR 上的。
+- **preview 频道的 `latest.json` 被所有 JS-compatible PR 共享、谁最后发谁覆盖**：对 `main` 提的 PR 会触发自动 `ota-preview`，但 workflow 检测到原生依赖、lockfile、Expo config、runtime mapping 或 native/plugin 目录变化时会跳过发布，直到匹配的新二进制就绪后手动 dispatch。所以「preview latest」≠ 你某个 PR 的包；想在真机看某个具体 PR，必须用「定向锁版本」（版本浏览站扫码 / App 内 Developer→OTA→OTA Versions 选该 stamp），不能只跟 latest。
+- **生产 OTA 不在 PR 的 checks 里**：`ota-production.yml` 触发条件是 **push 到 `main`（即合并 PR）**，不是 `pull_request`。所以它**不会出现在 PR 页面的检查列表**——合并后它作为一个**独立的 push 触发 run**（工作流名「Self-hosted OTA production (on merge to main)」）才跑。native-sensitive merge 会由兼容性 job 标记并跳过实际发布；JS-compatible merge 才会继续上传。盯着 PR checks 找生产 OTA 会误以为「没发」，去 **Actions 页**看那个 run 才对。preview OTA 才是挂在 PR 上的。
 - **手机拉不到 OTA 的排查顺序**：设置→连点版本号→Developer→**Expo Constants**，核对 **Channel**（preview/production，决定拉哪条频道）+ **Runtime Version**（必须与该 runtime 的 OTA 通道一致，对不上永远跳过）+ **Update ID**（对上 `manifests/android/<rt>/<ch>/latest.json` 的 `id`）。再确认没在 OTA Versions 里锁死旧 stamp。FC 服务按请求头 `expo-runtime-version` 动态取路径，**改 runtime 不用重部署 FC**。
 
 ### 发布
@@ -345,7 +345,7 @@ pnpm ota:selfhost:preview    # 发到 preview 频道（= ... --channel preview�
 
 - **PR 预览自动化**：协作者把分支推到本仓库并对 `main` 提 PR 后，`.github/workflows/ota-preview.yml`
   会自动 `expo export` + 发到 `preview` 频道，并在 PR 上评论 Update ID 与验证步骤。开发用 preview 包真机预览，
-  确认无误再合并。需在仓库 Secrets 配 `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET`（建议用只授权该桶的 RAM 子账号）。fork 来的 PR 因拿不到 secret 会自动跳过。
+  确认无误再合并。命中 native-sensitive 路径时自动发布会跳过，必须先构建并安装匹配 runtime 的新包，再手动 dispatch。需在仓库 Secrets 配 `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET`（建议用只授权该桶的 RAM 子账号）。fork 来的 PR 因拿不到 secret 会自动跳过。
 - 建议**先在功能分支提交一次再发**，让发出去的包对得上一个明确 commit。
 - **默认验收闭环**：凡是 `packages/happy-app` 的用户可见 JS/UI/交互改动，完成本地测试/类型检查后，默认还要执行一次 `pnpm ota:selfhost:preview`，把 preview OTA 当成给用户验收的标准交付物；只有原生改动、runtimeVersion 不兼容或其他明确不能走 OTA 的场景，才允许例外，并且要把阻塞写明。
 - **OTA 回复格式**：只要这次交付里实际发布了 Paws OTA，给用户的回复里除人类可读说明外，还要额外附上一段结构化的

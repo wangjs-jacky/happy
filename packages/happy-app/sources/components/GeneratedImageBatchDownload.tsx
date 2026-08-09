@@ -4,13 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
 import { t } from '@/text';
-import { useHappyAction } from '@/hooks/useHappyAction';
-import {
-    downloadImageBatch,
-    type ImageBatchDownloadDestination,
-    type ImageBatchDownloadItem,
-    type ImageBatchDownloadProgress,
-} from '@/utils/imageBatchDownload';
+import { useGeneratedImageBatchDownload } from '@/hooks/useGeneratedImageBatchDownload';
+import type { ImageBatchDownloadItem } from '@/utils/imageBatchDownload';
 
 export type GeneratedImageBatchDownloadProps = {
     items: ImageBatchDownloadItem[];
@@ -19,114 +14,6 @@ export type GeneratedImageBatchDownloadProps = {
     pendingCount: number;
 };
 
-type DownloadSummary = {
-    succeeded: number;
-    failed: number;
-    cancelled: boolean;
-    destination: ImageBatchDownloadDestination;
-};
-
-type BatchDownloadSnapshot = {
-    operationId: number;
-    busy: boolean;
-    progress: Pick<ImageBatchDownloadProgress, 'completed' | 'total'> | null;
-    failedIds: string[];
-    summary: DownloadSummary | null;
-};
-
-let nextOperationId = 0;
-const emptyBatchDownloadSnapshot: BatchDownloadSnapshot = {
-    operationId: 0,
-    busy: false,
-    progress: null,
-    failedIds: [],
-    summary: null,
-};
-let batchDownloadSnapshots: ReadonlyMap<string, BatchDownloadSnapshot> = new Map();
-const batchDownloadListeners = new Set<() => void>();
-
-function publishBatchDownloadSnapshot(ownerKey: string, snapshot: BatchDownloadSnapshot) {
-    const nextSnapshots = new Map(batchDownloadSnapshots);
-    nextSnapshots.set(ownerKey, snapshot);
-    batchDownloadSnapshots = nextSnapshots;
-    for (const listener of batchDownloadListeners) listener();
-}
-
-function subscribeBatchDownload(listener: () => void) {
-    batchDownloadListeners.add(listener);
-    return () => batchDownloadListeners.delete(listener);
-}
-
-function getBatchDownloadSnapshot() {
-    return batchDownloadSnapshots;
-}
-
-async function runBatchDownload(ownerKey: string, batchItems: ImageBatchDownloadItem[]) {
-    const currentSnapshot = batchDownloadSnapshots.get(ownerKey);
-    if (currentSnapshot?.busy || batchItems.length === 0) return;
-
-    const operationId = ++nextOperationId;
-    publishBatchDownloadSnapshot(ownerKey, {
-        operationId,
-        busy: true,
-        progress: { completed: 0, total: batchItems.length },
-        failedIds: [],
-        summary: null,
-    });
-
-    try {
-        const result = await downloadImageBatch(batchItems, {
-            onProgress: ({ completed, total }) => {
-                const operationSnapshot = batchDownloadSnapshots.get(ownerKey);
-                if (
-                    operationSnapshot?.operationId !== operationId
-                    || !operationSnapshot.busy
-                ) return;
-                publishBatchDownloadSnapshot(ownerKey, {
-                    ...operationSnapshot,
-                    progress: { completed, total },
-                });
-            },
-        });
-        const operationSnapshot = batchDownloadSnapshots.get(ownerKey);
-        if (operationSnapshot?.operationId !== operationId) return;
-
-        if (result.cancelled) {
-            publishBatchDownloadSnapshot(ownerKey, {
-                ...operationSnapshot,
-                failedIds: [],
-                summary: {
-                    succeeded: 0,
-                    failed: 0,
-                    cancelled: true,
-                    destination: result.destination,
-                },
-            });
-            return;
-        }
-
-        publishBatchDownloadSnapshot(ownerKey, {
-            ...operationSnapshot,
-            failedIds: result.failed.map(({ id }) => id),
-            summary: {
-                succeeded: result.succeeded.length,
-                failed: result.failed.length,
-                cancelled: false,
-                destination: result.destination,
-            },
-        });
-    } finally {
-        const operationSnapshot = batchDownloadSnapshots.get(ownerKey);
-        if (operationSnapshot?.operationId === operationId) {
-            publishBatchDownloadSnapshot(ownerKey, {
-                ...operationSnapshot,
-                busy: false,
-                progress: null,
-            });
-        }
-    }
-}
-
 export function GeneratedImageBatchDownload({
     items,
     displayedCount,
@@ -134,39 +21,19 @@ export function GeneratedImageBatchDownload({
     pendingCount,
 }: GeneratedImageBatchDownloadProps) {
     const { theme } = useUnistyles();
-    const busyRef = React.useRef(false);
-    const operations = React.useSyncExternalStore(
-        subscribeBatchDownload,
-        getBatchDownloadSnapshot,
-        getBatchDownloadSnapshot,
-    );
-    const ownerKey = React.useMemo(() => JSON.stringify(items.map(({ id }) => id)), [items]);
-    const numberedItems = React.useMemo(
-        () => items.map((item, index) => ({ ...item, ordinal: item.ordinal ?? index + 1 })),
-        [items],
-    );
-    const operation = operations.get(ownerKey) ?? emptyBatchDownloadSnapshot;
+    const [hovered, setHovered] = React.useState(false);
+    const {
+        actionLoading,
+        failedItems,
+        numberedItems,
+        operation,
+        startDownload,
+    } = useGeneratedImageBatchDownload(items);
     const progress = operation.progress;
-    const failedIds = operation.failedIds;
     const summary = operation.summary;
     const totalCount = displayedCount + pendingCount;
     const isPreparing = pendingCount > 0 || settledCount < displayedCount;
 
-    const performDownload = React.useCallback(async (batchItems: ImageBatchDownloadItem[]) => {
-        if (busyRef.current || batchItems.length === 0) return;
-        busyRef.current = true;
-        try {
-            await runBatchDownload(ownerKey, batchItems);
-        } finally {
-            busyRef.current = false;
-        }
-    }, [ownerKey]);
-    const [actionLoading, startDownload] = useHappyAction(performDownload);
-
-    const failedItems = React.useMemo(() => {
-        const failedIdSet = new Set(failedIds);
-        return numberedItems.filter((item) => failedIdSet.has(item.id));
-    }, [failedIds, numberedItems]);
     const disabled = isPreparing || operation.busy || actionLoading || items.length === 0;
     const label = isPreparing
         ? t('generatedImageBatchDownload.preparing', { ready: settledCount, total: totalCount })
@@ -204,10 +71,12 @@ export function GeneratedImageBatchDownload({
                 accessibilityState={{ disabled }}
                 disabled={disabled}
                 onPress={() => startDownload(numberedItems)}
+                onHoverIn={() => setHovered(true)}
+                onHoverOut={() => setHovered(false)}
                 style={({ pressed }) => [
                     styles.action,
                     {
-                        backgroundColor: pressed
+                        backgroundColor: pressed || hovered
                             ? theme.colors.surfacePressed
                             : theme.colors.surface,
                         borderColor: theme.colors.divider,

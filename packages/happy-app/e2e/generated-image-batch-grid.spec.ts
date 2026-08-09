@@ -244,6 +244,16 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
     });
 
     await expect(downloadAll).toBeEnabled();
+    const restingDownloadBackground = await downloadAll.evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ));
+    await downloadAll.hover();
+    await expect.poll(() => downloadAll.evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ))).not.toBe(restingDownloadBackground);
+    const hoveredDownloadBackground = await downloadAll.evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ));
     const downloadStartedAt = Date.now();
     console.log(JSON.stringify({ phase: 'before-download', browserDownloadEvents, downloadEvents: downloads.length }));
     await downloadAll.click();
@@ -289,6 +299,10 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
         uniqueFilenames: new Set(suggestedFilenames).size,
         elapsedMs: Date.now() - downloadStartedAt,
     }));
+    await downloadAll.hover();
+    await expect.poll(() => downloadAll.evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ))).toBe(hoveredDownloadBackground);
     await pauseForRecordedReview(page, 1_100);
     await page.screenshot({
         path: evidencePath(testInfo, 'generated-batch-04-desktop-56-of-56.png'),

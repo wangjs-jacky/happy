@@ -162,7 +162,50 @@ describe('GeneratedImageBatchDownload', () => {
         expect(button.props.style({ pressed: false })[1].backgroundColor).toBe('#181818');
         expect(button.props.style({ pressed: true })[1].backgroundColor).toBe('#2a2a2a');
 
+        act(() => button.props.onHoverIn());
+        expect(renderer.root.findByProps({ testID: 'attachment-gallery-download-all' })
+            .props.style({ pressed: false })[1].backgroundColor).toBe('#2a2a2a');
+        act(() => renderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onHoverOut());
+        expect(renderer.root.findByProps({ testID: 'attachment-gallery-download-all' })
+            .props.style({ pressed: false })[1].backgroundColor).toBe('#181818');
+
         act(() => renderer.unmount());
+    });
+
+    it('uses the per-batch AsyncLock to deduplicate simultaneous owners', async () => {
+        const items = readyItems(2, 'shared');
+        const pendingDownload = deferred<ImageBatchDownloadResult>();
+        mocks.downloadImageBatch.mockReturnValue(pendingDownload.promise);
+
+        let firstRenderer: any;
+        let secondRenderer: any;
+        act(() => {
+            firstRenderer = TestRenderer.create(
+                <GeneratedImageBatchDownload items={items} displayedCount={2} settledCount={2} pendingCount={0} />,
+            );
+            secondRenderer = TestRenderer.create(
+                <GeneratedImageBatchDownload items={items} displayedCount={2} settledCount={2} pendingCount={0} />,
+            );
+        });
+
+        act(() => {
+            firstRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress();
+            secondRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress();
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(mocks.downloadImageBatch).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            pendingDownload.resolve(result({ succeeded: items.map((item) => item.id) }));
+            await pendingDownload.promise;
+            await Promise.resolve();
+        });
+        act(() => {
+            firstRenderer.unmount();
+            secondRenderer.unmount();
+        });
     });
 
     it('guards duplicate presses and retries only failed images', async () => {
@@ -192,6 +235,9 @@ describe('GeneratedImageBatchDownload', () => {
         act(() => {
             firstDownloadPromise = button.props.onPress();
             void button.props.onPress();
+        });
+        await act(async () => {
+            await Promise.resolve();
         });
         expect(mocks.downloadImageBatch).toHaveBeenCalledTimes(1);
         expect(mocks.downloadImageBatch.mock.calls[0][0]).toEqual(
@@ -227,6 +273,9 @@ describe('GeneratedImageBatchDownload', () => {
         let retryDownloadPromise!: Promise<void>;
         act(() => {
             retryDownloadPromise = retryButton.props.onPress();
+        });
+        await act(async () => {
+            await Promise.resolve();
         });
         expect(mocks.downloadImageBatch).toHaveBeenCalledTimes(2);
         expect(mocks.downloadImageBatch.mock.calls[1][0]).toEqual([{ ...items[55], ordinal: 56 }]);
@@ -338,6 +387,9 @@ describe('GeneratedImageBatchDownload', () => {
             void firstRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress();
             firstRenderer.unmount();
         });
+        await act(async () => {
+            await Promise.resolve();
+        });
         expect(mocks.downloadImageBatch).toHaveBeenCalledTimes(1);
         act(() => {
             mocks.downloadImageBatch.mock.calls[0][1].onProgress({
@@ -423,6 +475,9 @@ describe('GeneratedImageBatchDownload', () => {
         act(() => {
             void firstRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress();
         });
+        await act(async () => {
+            await Promise.resolve();
+        });
         const secondDisabledWhileFirstRuns = secondRenderer.root
             .findByProps({ testID: 'attachment-gallery-download-all' }).props.disabled;
         act(() => {
@@ -434,6 +489,9 @@ describe('GeneratedImageBatchDownload', () => {
                 currentId: 'first-1',
             });
             void secondRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' }).props.onPress();
+        });
+        await act(async () => {
+            await Promise.resolve();
         });
         const callCountWhileBothRun = mocks.downloadImageBatch.mock.calls.length;
         const firstLabel = firstRenderer.root.findByProps({ testID: 'attachment-gallery-download-all' })
@@ -491,9 +549,7 @@ describe('GeneratedImageBatchDownload', () => {
             }
         });
         await act(async () => {
-            await Promise.resolve();
-            await Promise.resolve();
-            await Promise.resolve();
+            for (let index = 0; index < 6; index += 1) await Promise.resolve();
         });
 
         expect(pressResult).toBeUndefined();

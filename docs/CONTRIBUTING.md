@@ -95,7 +95,7 @@ pnpm --filter happy-server-self-host typecheck
 pnpm --filter happy-server-self-host test
 ```
 
-Do not start Expo/Metro, a simulator, an emulator, Tauri dev, or a real device unless that validation was explicitly requested. For App changes that can ship through Expo Updates, the repository workflow publishes a per-PR preview OTA; native or runtime changes require a new APK instead.
+Do not start Expo/Metro, a simulator, an emulator, Tauri dev, or a real device unless that validation was explicitly requested. For App changes that can ship through Expo Updates, the repository workflow publishes a per-PR preview OTA. The automatic preview and production workflows skip native-sensitive diffs; native or runtime changes require a new matching binary before a manual OTA dispatch.
 
 ## App Variants
 
