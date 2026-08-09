@@ -1,19 +1,27 @@
 import { chromium, expect, test as base, type BrowserContext, type Download, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const evidenceDirectory = process.env.HAPPY_GENERATED_BATCH_EVIDENCE_DIR;
 const automaticDownloadOrigin = new URL(authenticatedWebUrl).origin;
+const recordArtifacts = process.env.HAPPY_E2E_RECORD === '1';
 
 const test = base.extend<{ context: BrowserContext }>({
-    context: async ({}, use) => {
+    context: async ({}, use, testInfo) => {
         const userDataDirectory = mkdtempSync(path.join(tmpdir(), 'paws-generated-batch-download-'));
         const defaultProfileDirectory = path.join(userDataDirectory, 'Default');
+        const recordingDirectory = evidenceDirectory
+            ? path.join(evidenceDirectory, 'recordings')
+            : testInfo.outputPath('recordings');
         const chromeTimestamp = (BigInt(Date.now()) * 1000n + 11644473600000000n).toString();
         mkdirSync(defaultProfileDirectory, { recursive: true });
+        if (recordArtifacts) {
+            rmSync(recordingDirectory, { recursive: true, force: true });
+            mkdirSync(recordingDirectory, { recursive: true });
+        }
         // Chromium's batch limiter reads this content setting from the profile.
         // This isolated harness profile allows the one-click 56-file contract;
         // it does not alter the user's Chrome profile or product behavior.
@@ -34,12 +42,18 @@ const test = base.extend<{ context: BrowserContext }>({
         }));
 
         let context: BrowserContext;
+        const recordedPages: Page[] = [];
         try {
             context = await chromium.launchPersistentContext(userDataDirectory, {
                 acceptDownloads: true,
                 channel: process.env.HAPPY_E2E_BROWSER_CHANNEL ?? 'chrome',
                 headless: process.env.HAPPY_E2E_HEADED !== '1',
+                recordVideo: recordArtifacts
+                    ? { dir: recordingDirectory, size: { width: 1280, height: 720 } }
+                    : undefined,
             });
+            recordedPages.push(...context.pages());
+            context.on('page', (page) => recordedPages.push(page));
         } catch (error) {
             rmSync(userDataDirectory, { recursive: true, force: true });
             throw error;
@@ -64,13 +78,31 @@ const test = base.extend<{ context: BrowserContext }>({
                 if (closeTimer) clearTimeout(closeTimer);
                 // Do not remove a live profile when a failed Chrome process does
                 // not acknowledge close; the worker owns terminating it.
-                if (closed) rmSync(userDataDirectory, { recursive: true, force: true });
+                if (closed) {
+                    rmSync(userDataDirectory, { recursive: true, force: true });
+                    if (recordArtifacts) {
+                        const appPage = [...recordedPages].reverse().find((page) => (
+                            page.url().includes('/dev/messages-demo')
+                        ));
+                        const appVideo = appPage?.video();
+                        if (!appVideo) throw new Error('Generated-batch app page did not produce a recording');
+                        const appVideoPath = await appVideo.path();
+                        const stableVideoPath = path.join(recordingDirectory, 'generated-image-batch-e2e.webm');
+                        renameSync(appVideoPath, stableVideoPath);
+                        for (const filename of readdirSync(recordingDirectory)) {
+                            const recordingPath = path.join(recordingDirectory, filename);
+                            if (filename.endsWith('.webm') && recordingPath !== stableVideoPath) {
+                                rmSync(recordingPath, { force: true });
+                            }
+                        }
+                    }
+                }
             }
         }
     },
 });
 
-test.use({ trace: 'off', video: 'off' });
+test.use({ trace: 'off', video: recordArtifacts ? 'on' : 'off' });
 
 function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
@@ -197,6 +229,7 @@ test('[GENERATED-BATCH-GRID] 56 张批次逐张出现、持续 loading 并在手
     const cdp = await page.context().newCDPSession(page);
     let browserDownloadEvents = 0;
     const browserDownloadDirectory = evidencePath(testInfo, 'browser-downloads');
+    rmSync(browserDownloadDirectory, { recursive: true, force: true });
     mkdirSync(browserDownloadDirectory, { recursive: true });
     await cdp.send('Browser.setDownloadBehavior', {
         behavior: 'allowAndName',
