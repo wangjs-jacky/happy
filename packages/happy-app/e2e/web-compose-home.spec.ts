@@ -4724,6 +4724,10 @@ test.describe('中文 Web 消息与工具演示', () => {
         const drawer = page.locator('[data-testid="right-swipe-panel-drawer"]:visible');
         await expect(drawer).toHaveAttribute('role', 'dialog');
         await expect(drawer.getByTestId('subagent-inspector-panel')).toBeVisible();
+        const drawerBox = await drawer.boundingBox();
+        expect(drawerBox).not.toBeNull();
+        expect(drawerBox!.x).toBe(0);
+        expect(drawerBox!.width).toBe(390);
         await expect(drawer.getByTestId('subagent-inspector-title')).toHaveText('Review agent');
         await expect(drawer.getByTestId('subagent-inspector-task')).toContainText(
             'Review the authorization changes in packages/happy-app/sources/api/review.ts.',
