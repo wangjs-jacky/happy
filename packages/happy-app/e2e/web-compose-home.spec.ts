@@ -1732,13 +1732,11 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮可复制并从所属回合�
         });
         await page.setViewportSize({ width: 1280, height: 720 });
 
-        if (messageHoverEvidencePhase !== 'before') {
-            await page.goto(authenticatedRoute('/settings/features'));
-            const resumeSwitch = page.getByRole('switch', { name: 'Resume Session' });
-            await expect(resumeSwitch).toBeVisible();
-            if (!await resumeSwitch.isChecked()) await resumeSwitch.click();
-            await expect(resumeSwitch).toBeChecked();
-        }
+        await page.goto(authenticatedRoute('/settings/features'));
+        const resumeSwitch = page.getByRole('switch', { name: 'Resume Session' });
+        await expect(resumeSwitch).toBeVisible({ timeout: 120_000 });
+        if (!await resumeSwitch.isChecked()) await resumeSwitch.click();
+        await expect(resumeSwitch).toBeChecked();
 
         await page.goto(authenticatedRoute(`/session/${fixture.sessionId}`));
         fixture.client.pulse();
