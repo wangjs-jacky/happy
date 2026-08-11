@@ -93,8 +93,6 @@ describe('生成图片卡片可访问语义', () => {
                         height: 1024,
                     } as any}
                     cardWidth={180}
-                    cardHeight={320}
-                    isLastColumn={false}
                 />,
             );
         });
@@ -104,6 +102,35 @@ describe('生成图片卡片可访问语义', () => {
             .toEqual(['button', 'button']);
         expect(buttons.map((button: any) => button.props.accessibilityLabel))
             .toEqual(['打开图片', '打开会话']);
+
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the preview height proportional to the generated image dimensions', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <GeneratedImageCard
+                    item={{
+                        id: 'portrait-image',
+                        sessionId: 'session-1',
+                        ref: { type: 'image', id: 'ref-portrait' },
+                        name: 'portrait.png',
+                        createdAt: 1,
+                        sessionTitle: 'session',
+                        width: 900,
+                        height: 1600,
+                    } as any}
+                    cardWidth={180}
+                />,
+            );
+        });
+
+        const preview = renderer.root.findByType('Image');
+        expect(preview.props.contentFit).toBe('contain');
+        expect(preview.props.style).toEqual(expect.arrayContaining([
+            expect.objectContaining({ height: 320 }),
+        ]));
 
         act(() => renderer.unmount());
     });

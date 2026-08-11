@@ -13,12 +13,10 @@ import { thumbhashToDataUri } from '@/utils/thumbhash';
 export const GeneratedImageCard = React.memo(function GeneratedImageCard(props: {
     item: GeneratedImageEntry;
     cardWidth: number;
-    cardHeight: number;
-    isLastColumn: boolean;
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
-    const { item, cardHeight, cardWidth } = props;
+    const { item, cardWidth } = props;
     const { uri } = useAttachmentImage(item.sessionId, item.ref);
     const placeholder = React.useMemo(() => {
         if (!item.thumbhash) return undefined;
@@ -26,7 +24,10 @@ export const GeneratedImageCard = React.memo(function GeneratedImageCard(props: 
         return uri ? { uri } : undefined;
     }, [item.thumbhash]);
     const prompt = item.prompt?.trim();
-    const imageHeight = Math.round(cardWidth * 1.15);
+    const sourceAspectRatio = item.width && item.height && item.width > 0 && item.height > 0
+        ? item.width / item.height
+        : 4 / 3;
+    const imageHeight = Math.round(cardWidth / sourceAspectRatio);
 
     const openImage = React.useCallback(() => {
         if (!uri) return;
@@ -44,8 +45,7 @@ export const GeneratedImageCard = React.memo(function GeneratedImageCard(props: 
                 styles.card,
                 {
                     width: cardWidth,
-                    height: cardHeight,
-                    marginRight: props.isLastColumn ? 0 : 10,
+                    marginBottom: 12,
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.divider,
                 },
@@ -63,7 +63,7 @@ export const GeneratedImageCard = React.memo(function GeneratedImageCard(props: 
                     source={uri ? { uri } : undefined}
                     placeholder={placeholder}
                     style={[styles.preview, { height: imageHeight }]}
-                    contentFit="cover"
+                    contentFit="contain"
                     transition={150}
                 />
                 {!uri && (
@@ -108,7 +108,6 @@ const styles = StyleSheet.create(() => ({
     card: {
         borderRadius: 8,
         borderWidth: 1,
-        marginBottom: 10,
         overflow: 'hidden',
     },
     imageButton: {
