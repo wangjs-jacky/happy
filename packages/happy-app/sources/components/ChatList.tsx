@@ -238,8 +238,10 @@ const ChatListInternal = React.memo((props: {
 
     const keyExtractor = useCallback((item: DisplayItem) => item.id, []);
     const agentMessageForkTargets = React.useMemo(
-        () => getAgentMessageForkTargets(props.messages),
-        [props.messages],
+        () => getAgentMessageForkTargets(props.messages, {
+            allowMissingRewindPoint: props.metadata?.flavor === 'codex',
+        }),
+        [props.messages, props.metadata?.flavor],
     );
 
     // Long-press → fork-from-this-message. Uses the same canFork gate as

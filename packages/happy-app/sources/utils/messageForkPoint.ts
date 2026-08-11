@@ -6,11 +6,19 @@ export type MessageForkTarget = {
     rewindPointId: string | undefined;
 };
 
+type RewindPointCandidate = {
+    id: string;
+    text: string;
+};
+
 /**
  * Messages are newest-first. Walking from oldest to newest keeps the latest
  * user prompt in hand, so each visible agent response can fork its full turn.
  */
-export function getAgentMessageForkTargets(messages: Message[]): Map<string, MessageForkTarget> {
+export function getAgentMessageForkTargets(
+    messages: Message[],
+    options: { allowMissingRewindPoint?: boolean } = {},
+): Map<string, MessageForkTarget> {
     const targets = new Map<string, MessageForkTarget>();
     let currentUserMessage: UserTextMessage | null = null;
 
@@ -24,12 +32,40 @@ export function getAgentMessageForkTargets(messages: Message[]): Map<string, Mes
             continue;
         }
 
+        const rewindPointId = currentUserMessage.claudeUuid ?? currentUserMessage.codexItemId;
+        if (!rewindPointId && !options.allowMissingRewindPoint) {
+            continue;
+        }
+
         targets.set(message.id, {
             messageId: message.id,
             messageText: currentUserMessage.text,
-            rewindPointId: currentUserMessage.claudeUuid ?? currentUserMessage.codexItemId,
+            rewindPointId,
         });
     }
 
     return targets;
+}
+
+export function resolveInitialForkRewindPointId(
+    points: RewindPointCandidate[],
+    initialRewindPointId: string | undefined,
+    initialMessageText: string | undefined,
+    allowMessageTextFallback: boolean,
+): string | null {
+    if (initialRewindPointId) {
+        return points.some((point) => point.id === initialRewindPointId)
+            ? initialRewindPointId
+            : null;
+    }
+    if (!allowMessageTextFallback || !initialMessageText) {
+        return null;
+    }
+
+    const target = normalizeMessageText(initialMessageText);
+    return points.find((point) => normalizeMessageText(point.text) === target)?.id ?? null;
+}
+
+function normalizeMessageText(text: string): string {
+    return text.trim().replace(/\s+/g, ' ');
 }

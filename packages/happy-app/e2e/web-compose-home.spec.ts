@@ -1766,6 +1766,7 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮可复制并从所属回合�
 
         await expect(actions).toHaveCSS('opacity', '0');
         await expect(actions).toHaveCSS('pointer-events', 'none');
+        await expect(actions).toHaveCSS('position', 'absolute');
 
         await responseContainer.hover();
         await expect(actions).toHaveCSS('opacity', '1');

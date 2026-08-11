@@ -45,7 +45,12 @@ export const MessageView = React.memo((props: {
       style={styles.messageContainer}
       renderToHardwareTextureAndroid={Platform.OS !== 'web'}
     >
-      <View style={styles.messageContent}>
+      <View
+        style={[
+          styles.messageContent,
+          Platform.OS === 'web' && props.message.kind === 'agent-text' && styles.agentMessageContent,
+        ]}
+      >
         <RenderBlock
           message={props.message}
           metadata={props.metadata}
@@ -659,6 +664,10 @@ const styles = StyleSheet.create((theme) => ({
     maxWidth: layout.maxWidth,
     overflow: 'hidden',
   },
+  agentMessageContent: {
+    overflow: 'visible',
+    zIndex: 1,
+  },
   userMessageContainer: {
     maxWidth: '100%',
     flexDirection: 'column',
@@ -790,12 +799,17 @@ const styles = StyleSheet.create((theme) => ({
     marginBottom: 12,
   },
   agentMessageContainer: {
+    position: 'relative',
     marginHorizontal: 16,
     marginBottom: 12,
     borderRadius: 16,
     maxWidth: '100%',
   },
   agentMessageActions: {
+    position: 'absolute',
+    left: 0,
+    bottom: -30,
+    zIndex: 30,
     height: 28,
     flexDirection: 'row',
     alignItems: 'center',

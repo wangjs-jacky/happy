@@ -14,6 +14,7 @@ import {
     type ForkSource,
 } from '@/sync/ops';
 import { getSessionForkSource } from '@/utils/sessionFork';
+import { resolveInitialForkRewindPointId } from '@/utils/messageForkPoint';
 import { hapticsSuccess } from './haptics';
 
 export interface DuplicateSheetProps {
@@ -118,21 +119,16 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
     }, [source]);
 
     React.useEffect(() => {
-        if (points && selectedId && !points.some((p) => p.id === selectedId)) {
-            setSelectedId(null);
-        }
-    }, [points, selectedId]);
-
-    React.useEffect(() => {
-        if (!points || selectedId || !initialMessageText) {
+        if (!points || (selectedId && points.some((point) => point.id === selectedId))) {
             return;
         }
-        const target = normalizeMessageText(initialMessageText);
-        const match = points.find((point) => normalizeMessageText(point.text) === target);
-        if (match) {
-            setSelectedId(match.id);
-        }
-    }, [initialMessageText, points, selectedId]);
+        setSelectedId(resolveInitialForkRewindPointId(
+            points,
+            initialSelectedId ?? undefined,
+            initialMessageText,
+            source?.kind === 'codex' && !initialSelectedId,
+        ));
+    }, [initialMessageText, initialSelectedId, points, selectedId, source?.kind]);
 
     const selected = (points && selectedId)
         ? points.find((p) => p.id === selectedId) ?? null
