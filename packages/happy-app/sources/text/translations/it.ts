@@ -564,6 +564,7 @@ export const it: TranslationStructure = {
         forkedFromSubtitle: 'Apri la sessione da cui è stata creata la biforcazione',
         forkErrorOffline: 'La macchina è offline. La biforcazione è disponibile solo mentre la macchina della sessione è online.',
         forkErrorMissingUuid: 'Il punto di ritorno scelto non esiste più nella sessione di origine — prova a biforcare senza troncare.',
+        forkErrorAmbiguousPoint: 'Questo messaggio compare più di una volta, quindi il punto esatto di diramazione non è ancora disponibile. Riprova al termine della sincronizzazione.',
         forkErrorMissingMetadata: 'Mancano i metadati della sessione necessari per biforcare.',
         forkErrorGeneric: 'Impossibile biforcare la sessione.',
         forkClaudeOnly: 'La biforcazione è attualmente supportata solo per le sessioni Claude.',

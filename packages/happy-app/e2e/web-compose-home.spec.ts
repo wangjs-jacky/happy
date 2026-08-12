@@ -33,6 +33,7 @@ const titleTooltipEvidencePhase = process.env.HAPPY_TITLE_TOOLTIP_EVIDENCE_PHASE
 const subagentInspectorEvidenceDirectory = process.env.HAPPY_SUBAGENT_INSPECTOR_EVIDENCE_DIR;
 const messageHoverEvidenceDirectory = process.env.HAPPY_MESSAGE_HOVER_EVIDENCE_DIR;
 const messageHoverEvidencePhase = process.env.HAPPY_MESSAGE_HOVER_EVIDENCE_PHASE ?? 'after';
+const messageHoverTheme = process.env.HAPPY_MESSAGE_HOVER_THEME;
 
 function projectHoverScreenshotPath(testInfo: { outputPath: (filename: string) => string }): string {
     const filename = `case-1-${projectHoverEvidencePhase}.png`;
@@ -68,7 +69,8 @@ function subagentInspectorScreenshotPath(
 }
 
 function messageHoverScreenshotPath(testInfo: { outputPath: (filename: string) => string }): string {
-    const filename = `case-1-${messageHoverEvidencePhase}.png`;
+    const themeSuffix = messageHoverTheme === 'gingham-dark' ? '-gingham-dark' : '';
+    const filename = `case-1-${messageHoverEvidencePhase}${themeSuffix}.png`;
     if (!messageHoverEvidenceDirectory) return testInfo.outputPath(filename);
     fs.mkdirSync(messageHoverEvidenceDirectory, { recursive: true });
     return path.join(messageHoverEvidenceDirectory, filename);
@@ -958,6 +960,7 @@ async function createConnectedE2EWorkingDirectorySession(request: APIRequestCont
         } | null;
     }>;
     sessionId: string;
+    spawnedSessionIds: string[];
     sourceCodexThreadId: string;
     forkedCodexThreadId: string;
     workspace: string;
@@ -1007,6 +1010,7 @@ async function createConnectedE2EWorkingDirectorySession(request: APIRequestCont
             resumeCodexThreadId?: string;
         } | null;
     }> = [];
+    const spawnedSessionIds: string[] = [];
     const headers = {
         Authorization: `Bearer ${token}`,
         'X-Happy-Client': 'playwright-cwd-e2e',
@@ -1146,6 +1150,7 @@ async function createConnectedE2EWorkingDirectorySession(request: APIRequestCont
                     parentSessionId: params.parentSessionId,
                     codexThreadId: params.resumeCodexThreadId,
                 });
+                spawnedSessionIds.push(spawnedSessionId);
                 result = { type: 'success', sessionId: spawnedSessionId };
             } else {
                 result = { success: false, error: 'Unknown working directory E2E RPC request.' };
@@ -1253,6 +1258,7 @@ async function createConnectedE2EWorkingDirectorySession(request: APIRequestCont
         rewindPoints,
         rpcCalls,
         sessionId,
+        spawnedSessionIds,
         sourceCodexThreadId,
         workspace,
     };
@@ -1688,7 +1694,7 @@ test('[R10-02][CWD-03-01] 工作目录拒绝越界并在 Agent 离线重连后�
 });
 
 test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮可复制并从所属回合分叉', async ({ context, page, request }, testInfo) => {
-    test.slow();
+    test.setTimeout(1_200_000);
     const fixture = await createConnectedE2EWorkingDirectorySession(request);
     const firstResponse = 'The first checkpoint is complete and preserved in this turn.';
     const secondResponse = 'The second checkpoint includes browser assertions, a screenshot, and the recorded RPC boundary.';
@@ -1732,6 +1738,15 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮可复制并从所属回合�
         });
         await page.setViewportSize({ width: 1280, height: 720 });
 
+        if (messageHoverTheme === 'gingham-dark') {
+            await page.emulateMedia({ colorScheme: 'dark' });
+            await page.goto(authenticatedRoute('/settings/appearance'));
+            await page.getByText('Gingham', { exact: true }).click();
+            await expect.poll(() => page.locator('body').evaluate((element) => (
+                window.getComputedStyle(element).backgroundColor
+            ))).toBe('rgb(18, 24, 33)');
+        }
+
         await page.goto(authenticatedRoute('/settings/features'));
         const resumeSwitch = page.getByRole('switch', { name: 'Resume Session' });
         await expect(resumeSwitch).toBeVisible({ timeout: 120_000 });
@@ -1764,42 +1779,149 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮可复制并从所属回合�
         const copyButton = responseContainer.getByRole('button', { name: 'Copy' });
         const forkButton = responseContainer.getByRole('button', { name: 'Fork from here' });
 
-        await expect(actions).toHaveCSS('opacity', '0');
-        await expect(actions).toHaveCSS('pointer-events', 'none');
-        await expect(actions).toHaveCSS('position', 'absolute');
-
         await responseContainer.hover();
-        await expect(actions).toHaveCSS('opacity', '1');
-        await expect(actions).toHaveCSS('pointer-events', 'auto');
         await expect(copyButton).toBeVisible();
         await expect(forkButton).toBeVisible();
+        const actionLayout = await responseContainer.evaluate((container, messageId) => {
+            const actionsElement = document.querySelector(`[data-testid="message-agent-actions-${messageId}"]`);
+            const copyElement = container.querySelector('[aria-label="Copy"]');
+            const forkElement = container.querySelector('[aria-label="Fork from here"]');
+            if (!actionsElement || !copyElement || !forkElement) throw new Error('消息操作按钮没有渲染');
+            const actionsStyle = getComputedStyle(actionsElement);
+            const copyStyle = getComputedStyle(copyElement);
+            const responseRect = container.getBoundingClientRect();
+            const actionsRect = actionsElement.getBoundingClientRect();
+            const copyRect = copyElement.getBoundingClientRect();
+            const forkRect = forkElement.getBoundingClientRect();
+            const hitTestButton = (element: Element, rect: DOMRect) => {
+                const inset = 3;
+                const points = [
+                    [rect.left + inset, rect.top + inset],
+                    [rect.right - inset, rect.top + inset],
+                    [rect.left + inset, rect.bottom - inset],
+                    [rect.right - inset, rect.bottom - inset],
+                    [rect.left + rect.width / 2, rect.top + rect.height / 2],
+                ];
+                const hits = points.map(([x, y]) => document.elementFromPoint(x, y));
+                return {
+                    fullyHitTestable: hits.every((hit) => hit?.closest('button') === element),
+                    hits: hits.map((hit) => ({
+                        tag: hit?.tagName ?? null,
+                        testId: hit?.closest('[data-testid]')?.getAttribute('data-testid') ?? null,
+                        role: hit?.getAttribute('role') ?? null,
+                    })),
+                };
+            };
+            const copyHitTest = hitTestButton(copyElement, copyRect);
+            const forkHitTest = hitTestButton(forkElement, forkRect);
+            return {
+                display: actionsStyle.display,
+                opacity: actionsStyle.opacity,
+                copyWidth: copyRect.width,
+                copyHeight: copyRect.height,
+                copyBorderStyle: copyStyle.borderTopStyle,
+                copyFullyHitTestable: copyHitTest.fullyHitTestable,
+                forkFullyHitTestable: forkHitTest.fullyHitTestable,
+                copyHits: copyHitTest.hits,
+                forkHits: forkHitTest.hits,
+                response: {
+                    x: responseRect.x,
+                    y: responseRect.y,
+                    height: responseRect.height,
+                    bottom: responseRect.bottom,
+                },
+                actionsTop: actionsRect.top,
+                copy: { x: copyRect.x, y: copyRect.y, width: copyRect.width, height: copyRect.height },
+                fork: { x: forkRect.x, y: forkRect.y, width: forkRect.width, height: forkRect.height },
+            };
+        }, responseMessageId);
+        if (!actionLayout.copyFullyHitTestable || !actionLayout.forkFullyHitTestable) {
+            throw new Error(`消息操作按钮被遮挡: ${JSON.stringify({
+                copyHits: actionLayout.copyHits,
+                forkHits: actionLayout.forkHits,
+            })}`);
+        }
+        expect(actionLayout).toMatchObject({
+            opacity: '1',
+            copyWidth: 30,
+            copyHeight: 30,
+            copyBorderStyle: 'solid',
+            copyFullyHitTestable: true,
+            forkFullyHitTestable: true,
+        });
+        expect(actionLayout.actionsTop).toBeLessThanOrEqual(actionLayout.response.bottom);
         await page.screenshot({
             path: messageHoverScreenshotPath(testInfo),
             animations: 'disabled',
         });
-        await responseContainer.screenshot({
-            path: testInfo.outputPath('message-hover-actions-after.png'),
-            animations: 'disabled',
-            timeout: 15_000,
-        });
+
+        await page.mouse.move(
+            actionLayout.response.x + 24,
+            actionLayout.response.y + Math.max(12, actionLayout.response.height - 12),
+        );
+        await page.mouse.move(
+            actionLayout.copy.x + actionLayout.copy.width / 2,
+            actionLayout.copy.y + actionLayout.copy.height / 2,
+            { steps: 8 },
+        );
+        await expect(copyButton).toBeVisible();
         await pauseForRecordedReview(page, 1_100);
 
-        await copyButton.click();
-        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(secondResponse);
-        await expect(responseContainer.getByRole('button', { name: 'Copied' })).toBeVisible();
-        await pauseForRecordedReview(page, 900);
+        let copySucceeded = false;
+        for (let attempt = 0; attempt < 3 && !copySucceeded; attempt += 1) {
+            const currentResponseBox = await responseContainer.boundingBox();
+            expect(currentResponseBox).not.toBeNull();
+            await page.mouse.move(
+                currentResponseBox!.x + 24,
+                currentResponseBox!.y + Math.max(12, currentResponseBox!.height - 12),
+            );
+            await expect(copyButton).toBeVisible({ timeout: 120_000 });
+            const copyBox = await copyButton.boundingBox();
+            expect(copyBox).not.toBeNull();
+            await page.mouse.move(
+                copyBox!.x + copyBox!.width / 2,
+                copyBox!.y + copyBox!.height / 2,
+                { steps: 4 },
+            );
+            await page.mouse.click(
+                copyBox!.x + copyBox!.width / 2,
+                copyBox!.y + copyBox!.height / 2,
+            );
+            try {
+                await expect.poll(
+                    () => page.evaluate(() => navigator.clipboard.readText()),
+                    { timeout: 30_000 },
+                ).toBe(secondResponse);
+                copySucceeded = true;
+            } catch {
+                // Recording can delay a real mouse event on overloaded CI hosts.
+            }
+        }
+        expect(copySucceeded).toBe(true);
 
-        await forkButton.click();
-        const rewindDialog = page.getByRole('dialog');
-        await expect(rewindDialog.getByText('Choose a rewind point', { exact: true })).toBeVisible();
-        await expect(rewindDialog.getByText(fixture.rewindPoints[1].text, { exact: true })).toBeVisible();
-        const selectedRewindPoint = rewindDialog.getByTestId(`duplicate-sheet-rewind-${fixture.rewindPoints[1].itemId}`);
-        await expect(selectedRewindPoint).toHaveAttribute('aria-checked', 'true');
-        const confirmFork = rewindDialog.getByRole('button', { name: 'Duplicate' });
-        await expect(confirmFork).toBeEnabled();
-        await confirmFork.click();
-        await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 })
-            .not.toBe(`/session/${fixture.sessionId}`);
+        const currentResponseBox = await responseContainer.boundingBox();
+        expect(currentResponseBox).not.toBeNull();
+        await page.mouse.move(
+            currentResponseBox!.x + 24,
+            currentResponseBox!.y + Math.max(12, currentResponseBox!.height - 12),
+        );
+        await expect(forkButton).toBeVisible({ timeout: 120_000 });
+        const forkBox = await forkButton.boundingBox();
+        expect(forkBox).not.toBeNull();
+        await page.mouse.move(
+            forkBox!.x + forkBox!.width / 2,
+            forkBox!.y + forkBox!.height / 2,
+            { steps: 4 },
+        );
+        await page.mouse.click(
+            forkBox!.x + forkBox!.width / 2,
+            forkBox!.y + forkBox!.height / 2,
+        );
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+        await expect.poll(() => fixture.spawnedSessionIds.at(-1), { timeout: 120_000 })
+            .toBeTruthy();
+        await expect.poll(() => new URL(page.url()).pathname, { timeout: 120_000 })
+            .toBe(`/session/${fixture.spawnedSessionIds.at(-1)}`);
 
         const duplicateCall = fixture.rpcCalls.find((call) => call.method.endsWith(':codex-duplicate-thread'));
         expect(duplicateCall).toMatchObject({

@@ -565,6 +565,7 @@ export const pt: TranslationStructure = {
         forkedFromSubtitle: 'Abrir a sessão da qual foi bifurcada',
         forkErrorOffline: 'Esta máquina está offline. A bifurcação só está disponível enquanto a máquina da sessão estiver online.',
         forkErrorMissingUuid: 'O ponto de retrocesso escolhido não existe mais na sessão de origem — tente bifurcar sem truncar.',
+        forkErrorAmbiguousPoint: 'Esta mensagem aparece mais de uma vez, por isso ainda não é possível determinar o ponto exato de ramificação. Tente novamente após a sincronização.',
         forkErrorMissingMetadata: 'Faltam metadados da sessão necessários para bifurcar.',
         forkErrorGeneric: 'Não foi possível bifurcar a sessão.',
         forkClaudeOnly: 'A bifurcação atualmente só é suportada para sessões Claude.',
