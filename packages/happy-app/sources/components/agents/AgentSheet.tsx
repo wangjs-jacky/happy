@@ -116,6 +116,9 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                             return (
                                 <Pressable
                                     key={agent.id}
+                                    testID={isCloudAdvisor
+                                        ? 'agent-sheet-relationship-advisor'
+                                        : `agent-sheet-agent-${agent.id}`}
                                     disabled={!online || entering}
                                     onPress={() => onPickAgent(agent)}
                                     style={({ pressed }) => [

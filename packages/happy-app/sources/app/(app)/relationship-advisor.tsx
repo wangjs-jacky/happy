@@ -22,6 +22,7 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { useRelationshipAdvisorChat } from '@/hooks/useRelationshipAdvisorChat';
 import { Modal } from '@/modal';
 import { shouldShowRelationshipAdvisorEmptyState } from '@/components/relationship-advisor/relationshipAdvisorChatModel';
+import { StreamingMarkdownView } from '@/components/relationship-advisor/StreamingMarkdownView';
 import { MAX_RELATIONSHIP_ADVISOR_IMAGE_SIZE } from '@/sync/relationshipAdvisorImages';
 import { t } from '@/text';
 
@@ -74,6 +75,7 @@ function RelationshipAdvisorScreen() {
 
     return (
         <KeyboardAvoidingView
+            testID="relationship-advisor-screen"
             style={styles.root}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
@@ -83,6 +85,7 @@ function RelationshipAdvisorScreen() {
                     headerTitle: t('relationshipAdvisor.title'),
                     headerRight: () => (
                         <Pressable
+                            testID="relationship-advisor-clear-button"
                             accessibilityRole="button"
                             accessibilityLabel={t('relationshipAdvisor.clearAccessibility')}
                             disabled={Boolean(activeRequestId) || messages.length === 0}
@@ -101,6 +104,7 @@ function RelationshipAdvisorScreen() {
             />
 
             <ScrollView
+                testID="relationship-advisor-messages"
                 ref={scrollRef}
                 style={styles.messages}
                 contentContainerStyle={styles.messagesContent}
@@ -113,7 +117,7 @@ function RelationshipAdvisorScreen() {
                     streamingText,
                     error,
                 }) ? (
-                    <View style={styles.empty}>
+                    <View style={styles.empty} testID="relationship-advisor-empty-state">
                         <View style={styles.avatar}>
                             <Text style={styles.avatarText}>聊</Text>
                         </View>
@@ -124,6 +128,7 @@ function RelationshipAdvisorScreen() {
                         {messages.map((message) => (
                             <View
                                 key={message.id}
+                                testID={`relationship-advisor-message-${message.role}`}
                                 style={[styles.messageRow, message.role === 'user' ? styles.userRow : styles.assistantRow]}
                             >
                                 <View style={[styles.bubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
@@ -149,13 +154,7 @@ function RelationshipAdvisorScreen() {
                                 <View style={[styles.bubble, styles.assistantBubble, styles.streamingBubble]}>
                                     {streamingText
                                         ? (
-                                            <Text
-                                                selectable
-                                                accessibilityLiveRegion="polite"
-                                                style={styles.assistantStreamingText}
-                                            >
-                                                {streamingText}
-                                            </Text>
+                                            <StreamingMarkdownView markdown={streamingText} />
                                         )
                                         : (
                                             <ActivityIndicator
@@ -169,11 +168,12 @@ function RelationshipAdvisorScreen() {
                         )}
 
                         {error && !hasStreamingAssistant && (
-                            <View style={styles.errorRow}>
+                            <View style={styles.errorRow} testID="relationship-advisor-error">
                                 <Ionicons name="cloud-offline-outline" size={15} color={theme.colors.textSecondary} />
                                 <Text style={styles.errorText}>{t('relationshipAdvisor.unavailable')}</Text>
                                 {canRetry && (
                                     <Pressable
+                                        testID="relationship-advisor-retry-button"
                                         accessibilityRole="button"
                                         onPress={() => { void retry(); }}
                                         style={({ pressed }) => [styles.retryButton, pressed && styles.headerButtonPressed]}
@@ -204,6 +204,7 @@ function RelationshipAdvisorScreen() {
                         onAddImages={addImages}
                         leadingControls={activeRequestId ? (
                             <Pressable
+                                testID="relationship-advisor-stop-button"
                                 accessibilityRole="button"
                                 accessibilityLabel={t('relationshipAdvisor.stopAccessibility')}
                                 onPress={cancel}
@@ -275,12 +276,6 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.text,
         fontSize: 16,
         lineHeight: 23,
-        ...Typography.default(),
-    },
-    assistantStreamingText: {
-        color: theme.colors.text,
-        fontSize: 16,
-        lineHeight: 24,
         ...Typography.default(),
     },
     imageLabel: {
