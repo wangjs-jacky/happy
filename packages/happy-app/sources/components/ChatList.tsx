@@ -22,6 +22,11 @@ import { useUserMessageAnchors, type UserMessageAnchor } from '@/hooks/useUserMe
 import { AnchorListSheet } from './AnchorListSheet';
 import { t } from '@/text';
 import { getAgentMessageForkTargets } from '@/utils/messageForkPoint';
+import { getSessionForkSource } from '@/utils/sessionFork';
+import { hapticsSuccess } from './haptics';
+import { directMessageFork } from '@/utils/directMessageFork';
+import { codexListRewindPoints, forkAndSpawn } from '@/sync/ops';
+import { useRouter } from 'expo-router';
 
 const SCROLL_THRESHOLD = 300;
 // How long the anchor pill lingers after the user stops scrolling.
@@ -93,6 +98,7 @@ const ChatListInternal = React.memo((props: {
     const anchorPillTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const session = useSession(props.sessionId);
+    const router = useRouter();
 
     // Collapse agent work between a user prompt and the final answer.
     // Nested tool groups remain expandable inside the work block.
@@ -256,7 +262,49 @@ const ChatListInternal = React.memo((props: {
         rewindPointId: string | undefined,
         messageText: string,
         retainSelectedTurn?: boolean,
-    ) => {
+    ): Promise<void> | void => {
+        if (retainSelectedTurn) {
+            return (async () => {
+                try {
+                    const result = await directMessageFork({
+                        source: session ? getSessionForkSource(session) : null,
+                        messageId,
+                        rewindPointId,
+                        messageText,
+                    }, {
+                        listCodexRewindPoints: codexListRewindPoints,
+                        spawnFork: forkAndSpawn,
+                    });
+                    if (result.type === 'missing-source') {
+                        Modal.alert(t('common.error'), t('session.forkErrorMissingMetadata'));
+                        return;
+                    }
+                    if (result.type === 'ambiguous-rewind-point') {
+                        Modal.alert(t('common.error'), t('session.forkErrorAmbiguousPoint'));
+                        return;
+                    }
+                    if (result.type === 'missing-rewind-point') {
+                        Modal.alert(t('common.error'), t('session.forkErrorMissingUuid'));
+                        return;
+                    }
+                    if (result.type !== 'success') {
+                        Modal.alert(
+                            t('common.error'),
+                            result.type === 'error' ? result.errorMessage : t('session.forkErrorGeneric'),
+                        );
+                        return;
+                    }
+                    hapticsSuccess();
+                    router.replace(`/session/${result.sessionId}`);
+                } catch (error) {
+                    Modal.alert(
+                        t('common.error'),
+                        error instanceof Error ? error.message : t('session.forkErrorGeneric'),
+                    );
+                }
+            })();
+        }
+
         Modal.show({
             component: DuplicateSheet,
             props: {
@@ -267,7 +315,7 @@ const ChatListInternal = React.memo((props: {
                 initialRetainSelectedTurn: retainSelectedTurn,
             },
         } as any);
-    }, [props.sessionId]);
+    }, [props.sessionId, router, session]);
 
     const handleEditUserMessage = useCallback(async (messageId: string, messageText: string) => {
         await sync.sendMessage(props.sessionId, messageText, {

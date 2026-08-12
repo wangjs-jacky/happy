@@ -566,6 +566,7 @@ export const zhHant: TranslationStructure = {
         forkedFromSubtitle: '開啟分叉來源的會話',
         forkErrorOffline: '機器離線。僅當會話所在的機器在線時才能分叉。',
         forkErrorMissingUuid: '選定的回退點已不存在於來源會話中 — 請嘗試不截斷地分叉。',
+        forkErrorAmbiguousPoint: '這條提示在會話中出現了多次，暫時無法確定準確分叉位置。請等待訊息同步完成後重試。',
         forkErrorMissingMetadata: '缺少分叉所需的會話元資料。',
         forkErrorGeneric: '分叉會話失敗。',
         forkClaudeOnly: '目前僅支援 Claude 會話的分叉。',

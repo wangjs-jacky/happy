@@ -567,6 +567,7 @@ export const ja: TranslationStructure = {
         forkedFromSubtitle: 'フォーク元のセッションを開く',
         forkErrorOffline: 'マシンがオフラインです。セッションのマシンがオンラインの間のみフォークできます。',
         forkErrorMissingUuid: '選んだ巻き戻しポイントがソースセッションに存在しません — 切り詰めなしのフォークをお試しください。',
+        forkErrorAmbiguousPoint: '同じメッセージが複数回あるため、正確な分岐位置をまだ特定できません。メッセージの同期が完了してからもう一度お試しください。',
         forkErrorMissingMetadata: 'フォークに必要なセッションのメタデータがありません。',
         forkErrorGeneric: 'セッションのフォークに失敗しました。',
         forkClaudeOnly: 'フォークは現在 Claude セッションのみ対応しています。',

@@ -566,6 +566,7 @@ export const ca: TranslationStructure = {
         forkedFromSubtitle: 'Obre la sessió de la qual prové la bifurcació',
         forkErrorOffline: 'La màquina està fora de línia. La bifurcació només està disponible mentre la màquina de la sessió estigui en línia.',
         forkErrorMissingUuid: 'El punt de retrocés escollit ja no existeix a la sessió origen — prova a bifurcar sense truncar.',
+        forkErrorAmbiguousPoint: "Aquest missatge apareix més d'una vegada, així que encara no se'n pot determinar el punt exacte de bifurcació. Torna-ho a provar quan s'hagi acabat de sincronitzar.",
         forkErrorMissingMetadata: 'Falten metadades de la sessió necessàries per bifurcar.',
         forkErrorGeneric: 'No s\'ha pogut bifurcar la sessió.',
         forkClaudeOnly: 'La bifurcació només està disponible per a sessions de Claude.',

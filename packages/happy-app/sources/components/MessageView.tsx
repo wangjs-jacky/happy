@@ -1,5 +1,5 @@
 import * as React from "react";
-import { View, Text, Pressable, Platform, TextInput } from "react-native";
+import { ActivityIndicator, View, Text, Pressable, Platform, TextInput } from "react-native";
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -33,7 +33,7 @@ export const MessageView = React.memo((props: {
     rewindPointId: string | undefined,
     messageText: string,
     retainSelectedTurn?: boolean,
-  ) => void;
+  ) => Promise<void> | void;
   agentForkTarget?: MessageForkTarget;
   showAgentMessageActions?: boolean;
   showUserMessageActions?: boolean;
@@ -79,7 +79,7 @@ function RenderBlock(props: {
     rewindPointId: string | undefined,
     messageText: string,
     retainSelectedTurn?: boolean,
-  ) => void;
+  ) => Promise<void> | void;
   agentForkTarget?: MessageForkTarget;
   showAgentMessageActions?: boolean;
   showUserMessageActions?: boolean;
@@ -381,7 +381,7 @@ function AgentTextBlock(props: {
     rewindPointId: string | undefined,
     messageText: string,
     retainSelectedTurn?: boolean,
-  ) => void;
+  ) => Promise<void> | void;
   showActions?: boolean;
 }) {
   const { theme } = useUnistyles();
@@ -389,7 +389,9 @@ function AgentTextBlock(props: {
   const [isActionFocused, setIsActionFocused] = React.useState(false);
   const [hoveredAction, setHoveredAction] = React.useState<'copy' | 'fork' | null>(null);
   const [isCopied, setIsCopied] = React.useState(false);
+  const [isForking, setIsForking] = React.useState(false);
   const copyFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverExitTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleOptionPress = React.useCallback((option: Option) => {
     sync.sendMessage(props.sessionId, option.title, { source: 'option' });
   }, [props.sessionId]);
@@ -406,8 +408,24 @@ function AgentTextBlock(props: {
       setIsCopied(false);
     }
   }, [props.message.text]);
+  const keepActionsVisible = React.useCallback(() => {
+    if (hoverExitTimerRef.current) {
+      clearTimeout(hoverExitTimerRef.current);
+      hoverExitTimerRef.current = null;
+    }
+    setIsHovered(true);
+  }, []);
+  const scheduleActionsHide = React.useCallback(() => {
+    if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
+    hoverExitTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+      setHoveredAction(null);
+      hoverExitTimerRef.current = null;
+    }, 140);
+  }, []);
   React.useEffect(() => () => {
     if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    if (hoverExitTimerRef.current) clearTimeout(hoverExitTimerRef.current);
   }, []);
 
   // Hide thinking messages
@@ -417,16 +435,21 @@ function AgentTextBlock(props: {
 
   const showActions = Platform.OS === 'web' && props.showActions;
   const canFork = Boolean(props.forkTarget && props.onForkFromMessage);
-  const actionsVisible = Boolean(showActions && (isHovered || isActionFocused || isCopied));
-  const handleFork = () => {
-    if (!props.forkTarget || !props.onForkFromMessage) return;
-    props.onForkFromMessage(
-      props.forkTarget.messageId,
-      props.forkTarget.rewindPointId,
-      props.forkTarget.messageText,
-      true,
-    );
-  };
+  const actionsVisible = Boolean(showActions && (isHovered || isActionFocused || isCopied || isForking));
+  const handleFork = React.useCallback(async () => {
+    if (!props.forkTarget || !props.onForkFromMessage || isForking) return;
+    setIsForking(true);
+    try {
+      await props.onForkFromMessage(
+        props.forkTarget.messageId,
+        props.forkTarget.rewindPointId,
+        props.forkTarget.messageText,
+        true,
+      );
+    } finally {
+      setIsForking(false);
+    }
+  }, [isForking, props.forkTarget, props.onForkFromMessage]);
 
   const autoFoldPrompt = getAutoFoldPromptInfo(props.message.text);
   if (autoFoldPrompt) {
@@ -445,18 +468,21 @@ function AgentTextBlock(props: {
   return (
     <View
       testID={`message-agent-${props.message.id}`}
-      style={styles.agentMessageContainer}
+      style={[styles.agentMessageContainer, showActions && styles.agentMessageContainerWithActions]}
       {...(Platform.OS === 'web' ? ({
-        onMouseEnter: () => setIsHovered(true),
-        onMouseLeave: () => setIsHovered(false),
+        onMouseEnter: keepActionsVisible,
+        onMouseLeave: scheduleActionsHide,
       } as any) : {})}
     >
       <MarkdownView markdown={props.message.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
       {showActions && (
         <View
           testID={`message-agent-actions-${props.message.id}`}
-          pointerEvents={actionsVisible ? 'auto' : 'none'}
           style={[styles.agentMessageActions, actionsVisible && styles.agentMessageActionsVisible]}
+          {...(Platform.OS === 'web' ? ({
+            onMouseEnter: keepActionsVisible,
+            onMouseLeave: scheduleActionsHide,
+          } as any) : {})}
         >
           <View style={styles.agentMessageActionSlot}>
             <Pressable
@@ -496,19 +522,25 @@ function AgentTextBlock(props: {
                 testID={`message-agent-fork-${props.message.id}`}
                 accessibilityLabel={t('session.forkFromHere')}
                 accessibilityRole="button"
+                disabled={isForking}
                 hitSlop={6}
                 onBlur={() => { setIsActionFocused(false); setHoveredAction(null); }}
                 onFocus={() => { setIsActionFocused(true); setHoveredAction('fork'); }}
                 onHoverIn={() => setHoveredAction('fork')}
                 onHoverOut={() => setHoveredAction(null)}
-                onPress={handleFork}
+                onPress={() => { void handleFork(); }}
                 style={({ pressed }) => [
                   styles.agentMessageAction,
                   hoveredAction === 'fork' && styles.agentMessageActionHovered,
                   pressed && styles.agentMessageActionPressed,
+                  isForking && styles.agentMessageActionDisabled,
                 ]}
               >
-                <Ionicons name="git-branch-outline" size={16} color={theme.colors.textSecondary} />
+                {isForking ? (
+                  <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                ) : (
+                  <Ionicons name="git-branch-outline" size={16} color={theme.colors.textSecondary} />
+                )}
               </Pressable>
               <DesktopShortcutTooltip
                 compact
@@ -805,39 +837,50 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 16,
     maxWidth: '100%',
   },
+  agentMessageContainerWithActions: {
+    marginBottom: 46,
+  },
   agentMessageActions: {
     position: 'absolute',
     left: 0,
-    bottom: -30,
+    bottom: -34,
     zIndex: 30,
-    height: 28,
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 6,
     marginTop: 2,
     opacity: 0,
+    pointerEvents: 'none',
   },
   agentMessageActionsVisible: {
     opacity: 1,
+    pointerEvents: 'auto',
   },
   agentMessageActionSlot: {
     position: 'relative',
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     zIndex: 20,
   },
   agentMessageAction: {
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.divider,
   },
   agentMessageActionHovered: {
     backgroundColor: theme.colors.surfacePressed,
   },
   agentMessageActionPressed: {
     backgroundColor: theme.colors.surfaceSelected,
+  },
+  agentMessageActionDisabled: {
+    opacity: 0.55,
   },
   agentEventContainer: {
     marginHorizontal: 8,

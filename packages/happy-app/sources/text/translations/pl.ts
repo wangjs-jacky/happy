@@ -583,6 +583,7 @@ export const pl: TranslationStructure = {
         forkedFromSubtitle: 'Otwórz sesję, z której powstało rozwidlenie',
         forkErrorOffline: 'Maszyna jest offline. Rozwidlenie jest dostępne tylko gdy maszyna sesji jest online.',
         forkErrorMissingUuid: 'Wybrany punkt cofnięcia nie istnieje już w sesji źródłowej — spróbuj rozwidlić bez przycinania.',
+        forkErrorAmbiguousPoint: 'Ta wiadomość występuje więcej niż raz, więc nie można jeszcze ustalić dokładnego miejsca rozgałęzienia. Spróbuj ponownie po zakończeniu synchronizacji.',
         forkErrorMissingMetadata: 'Brak metadanych sesji wymaganych do rozwidlenia.',
         forkErrorGeneric: 'Nie udało się rozwidlić sesji.',
         forkClaudeOnly: 'Rozwidlenie jest obecnie obsługiwane tylko dla sesji Claude.',

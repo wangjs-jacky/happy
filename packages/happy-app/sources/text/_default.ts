@@ -607,6 +607,7 @@ export const en = {
         forkedFromSubtitle: 'Open the session this fork was branched from',
         forkErrorOffline: 'This machine is offline. Fork is only available while the machine that owns the session is online.',
         forkErrorMissingUuid: 'The chosen rewind point is no longer present in the source session — try forking without truncation.',
+        forkErrorAmbiguousPoint: 'This prompt appears more than once, so its exact fork point is not available yet. Try again after the message finishes syncing.',
         forkErrorMissingMetadata: 'Missing session metadata required to fork.',
         forkErrorGeneric: 'Failed to fork the session.',
         forkClaudeOnly: 'Fork is currently only supported for Claude sessions.',
