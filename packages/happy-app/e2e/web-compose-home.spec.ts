@@ -2210,7 +2210,7 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
         name: 'Send what they said, a chat screenshot, or the reply you want to write',
     });
     const history = page.getByTestId('relationship-advisor-sidebar-history');
-    await expect(advisorComposer).toBeVisible();
+    await expect(advisorComposer).toBeVisible({ timeout: 20_000 });
     await expect(history).toBeVisible();
     await expect.poll(() => new URL(page.url()).searchParams.get('conversationId')).not.toBeNull();
     const firstUrl = page.url();

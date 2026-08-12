@@ -226,6 +226,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         width: '100%',
         maxWidth: 520,
         maxHeight: '70%',
+        backgroundColor: theme.colors.surface,
         borderRadius: 12,
         borderWidth: StyleSheet.hairlineWidth,
         paddingTop: 14,

@@ -179,7 +179,11 @@ describe('AgentSheet', () => {
 
         expect(renderer.root.findByType('Modal').props.animationType).toBe('fade');
         const dialog = renderer.root.findByProps({ testID: 'agent-sheet-desktop-dialog' });
-        expect(dialog.props.style).toContainEqual(expect.objectContaining({ maxWidth: 520, borderRadius: 12 }));
+        expect(dialog.props.style).toContainEqual(expect.objectContaining({
+            maxWidth: 520,
+            borderRadius: 12,
+            backgroundColor: '#fff',
+        }));
         expect(renderer.root.findAllByProps({ testID: 'agent-sheet-mobile-drawer' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
