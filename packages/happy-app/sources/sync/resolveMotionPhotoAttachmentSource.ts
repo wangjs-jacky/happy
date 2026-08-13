@@ -1,4 +1,4 @@
-import { detectHonorMotionPhoto } from '@slopus/happy-wire';
+import { detectMotionPhoto } from '@slopus/happy-wire';
 import { decryptBlob } from '@/encryption/blob';
 import { downloadEncryptedAttachment } from './apiAttachments';
 import { createMediaPlaybackSource } from './createMediaPlaybackSource';
@@ -19,7 +19,7 @@ export async function resolveMotionPhotoAttachmentSource(input: {
     const encrypted = await downloadEncryptedAttachment(credentials, input.sessionId, input.ref);
     const decrypted = decryptBlob(encrypted, blobKey);
     if (!decrypted) throw new Error('Attachment decryption failed');
-    const motionPhoto = detectHonorMotionPhoto(decrypted);
+    const motionPhoto = detectMotionPhoto(decrypted);
     if (!motionPhoto) throw new Error('Motion photo data is unavailable');
 
     const video = decrypted.slice(

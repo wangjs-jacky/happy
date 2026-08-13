@@ -52,6 +52,7 @@ describe('registerHappyBridgeTools', () => {
             .toHaveProperty('prompt');
         expect(registrations.find((registration) => registration.name === 'send_file')?.config).toMatchObject({
             title: 'Send File To Chat',
+            description: expect.stringContaining('Motion Photo'),
         });
         expect(registrations.find((registration) => registration.name === 'send_file')?.config.inputSchema)
             .toHaveProperty('path');

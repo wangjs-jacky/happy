@@ -9,7 +9,7 @@ import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
 import { decodeBase64, decryptBlob, encryptBlob, decrypt, encodeBase64, encrypt } from './encryption';
 import { requestAttachmentUpload, uploadEncryptedBlob, uploadMediaFile } from './attachmentUpload';
-import { detectHonorMotionPhoto, type MotionPhotoVideo } from '@slopus/happy-wire';
+import { detectMotionPhoto, type MotionPhotoVideo } from '@slopus/happy-wire';
 import { backoff, delay } from '@/utils/time';
 import { configuration } from '@/configuration';
 import { RawJSONLines } from '@/claude/types';
@@ -454,13 +454,17 @@ export class ApiSessionClient extends EventEmitter {
      * server ref. Reuses getBlobKey() so the app can decrypt with the same session
      * blob key. Throws on read/encrypt/upload failure.
      */
-    async uploadImageAttachment(filePath: string): Promise<{ ref: string; name: string; size: number; dims: { width: number; height: number } | null; motionPhoto: MotionPhotoVideo | null }> {
+    async uploadImageAttachment(filePath: string, options?: { requireMotionPhoto?: boolean }): Promise<{ ref: string; name: string; size: number; dims: { width: number; height: number } | null; motionPhoto: MotionPhotoVideo | null }> {
         const raw = new Uint8Array(await readFile(filePath));
         const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
         if (raw.length > MAX_ATTACHMENT_BYTES) {
             throw new Error(`Image too large: ${raw.length} bytes (max ${MAX_ATTACHMENT_BYTES})`);
         }
         const dims = readImageSize(raw);
+        const motionPhoto = detectMotionPhoto(raw);
+        if (options?.requireMotionPhoto && !motionPhoto) {
+            throw new Error('send_file accepts JPEG files only when they contain a supported motion photo');
+        }
         const name = basename(filePath);
         const key = await this.getBlobKey();
         const encrypted = encryptBlob(raw, key);
@@ -472,7 +476,7 @@ export class ApiSessionClient extends EventEmitter {
             encrypted.length,
         );
         await uploadEncryptedBlob(descriptor, encrypted, this.token);
-        return { ref: descriptor.ref, name, size: raw.length, dims, motionPhoto: detectHonorMotionPhoto(raw) };
+        return { ref: descriptor.ref, name, size: raw.length, dims, motionPhoto };
     }
 
     /** Stream a locally generated media artifact through the plaintext lane. */

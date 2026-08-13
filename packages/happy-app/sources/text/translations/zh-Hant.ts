@@ -1603,6 +1603,7 @@ export const zhHant: TranslationStructure = {
 
     imageViewer: {
         download: '下載圖片',
+        downloadOriginalVideo: '下載原始影片',
         downloadOriginalMotionPhoto: '下載原始動態照片',
         playMotionPhoto: '播放動態照片',
         stopMotionPhoto: '停止動態照片',
@@ -1610,6 +1611,7 @@ export const zhHant: TranslationStructure = {
         downloadFailedTitle: '下載失敗',
         downloadFailedMessage: '無法準備這張圖片以下載。',
         motionPhotoDownloadFailedMessage: '無法下載原始動態照片。',
+        videoDownloadFailedMessage: '無法下載原始影片。',
         motionPhotoLoadFailedMessage: '無法播放這張動態照片。',
     },
 

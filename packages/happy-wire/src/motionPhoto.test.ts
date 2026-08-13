@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectHonorMotionPhoto } from './motionPhoto';
+import { detectHonorMotionPhoto, detectMotionPhoto } from './motionPhoto';
 
 function box(type: string, payload: number[]): Uint8Array {
   const output = new Uint8Array(8 + payload.length);
@@ -39,6 +39,39 @@ describe('detectHonorMotionPhoto', () => {
       new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
       new TextEncoder().encode('HiHonor_OfflineData\0'),
       box('mdat', [1]),
+    ))).toBeNull();
+  });
+});
+
+describe('detectMotionPhoto', () => {
+  it('returns the trailing MP4 declared by standard Google Motion Photo XMP', () => {
+    const cover = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const video = join(box('ftyp', [1, 2, 3, 4]), box('mdat', [5, 6]), box('moov', [7]));
+    const xmp = new TextEncoder().encode(
+      '<rdf:Description Camera:MotionPhoto="1">'
+      + '<Container:Item Item:Mime="image/jpeg" Item:Semantic="Primary" Item:Length="0"/>'
+      + `<Container:Item Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="${video.length}"/>`
+      + '</rdf:Description>',
+    );
+    const bytes = join(cover, xmp, video);
+
+    expect(detectMotionPhoto(bytes)).toEqual({
+      videoOffset: cover.length + xmp.length,
+      videoLength: video.length,
+      mimeType: 'video/mp4',
+    });
+  });
+
+  it('rejects spoofed XMP when the declared tail is not an MP4', () => {
+    const xmp = new TextEncoder().encode(
+      '<rdf:Description Camera:MotionPhoto="1">'
+      + '<Container:Item Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="4"/>'
+      + '</rdf:Description>',
+    );
+    expect(detectMotionPhoto(join(
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+      xmp,
+      new Uint8Array([1, 2, 3, 4]),
     ))).toBeNull();
   });
 });

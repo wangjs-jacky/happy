@@ -80,11 +80,11 @@ export function registerHappyBridgeTools(
   server.registerTool(
     'send_file',
     {
-      description: 'Send a locally generated audio or video file into the current chat as a playable media card. Provide an absolute local path.',
+      description: 'Send a locally generated audio, video, or Motion Photo file into the current chat. Playable media renders inline and original files remain available for download.',
       title: 'Send File To Chat',
       inputSchema: {
-        path: z.string().describe('Absolute path to the local audio/video file'),
-        mimeType: z.string().optional().describe('Optional audio/* or video/* MIME type override'),
+        path: z.string().describe('Absolute path to the local audio, video, or Motion Photo JPEG'),
+        mimeType: z.string().optional().describe('Optional audio/*, video/*, or image/jpeg MIME type override'),
       },
     },
     async (args) => forwardHappyToolCall(

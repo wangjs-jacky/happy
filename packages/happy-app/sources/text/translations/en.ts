@@ -1518,6 +1518,7 @@ export const en: TranslationStructure = {
 
     imageViewer: {
         download: 'Download image',
+        downloadOriginalVideo: 'Download original video',
         downloadOriginalMotionPhoto: 'Download original motion photo',
         playMotionPhoto: 'Play motion photo',
         stopMotionPhoto: 'Stop motion photo',
@@ -1525,6 +1526,7 @@ export const en: TranslationStructure = {
         downloadFailedTitle: 'Download Failed',
         downloadFailedMessage: 'Could not prepare this image for download.',
         motionPhotoDownloadFailedMessage: 'Could not download the original motion photo.',
+        videoDownloadFailedMessage: 'Could not download the original video.',
         motionPhotoLoadFailedMessage: 'Could not play this motion photo.',
     },
 

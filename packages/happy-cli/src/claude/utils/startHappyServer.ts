@@ -21,6 +21,7 @@ import { configuration } from "@/configuration";
 import { captureScreenshot, type ScreenshotTarget } from "@/utils/screenshot";
 import { type ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
 import { fetchFinanceChart } from "@/finance/financeChart";
+import { resolveSendFileArtifact } from "@/api/mediaArtifact";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -162,11 +163,11 @@ function createMcpServer(handlers: HappyMcpHandlers, screenshotTools: ReturnType
     });
 
     mcp.registerTool('send_file', {
-        description: 'Send a locally generated audio or video file into the current chat. Phone and desktop clients render a playable media card. Provide an absolute path to MP4/MOV/WebM/MP3/M4A/WAV or another supported media file.',
+        description: 'Send a locally generated audio, video, or Motion Photo file into the current chat. Phone and desktop clients render playable media and preserve the original file for download. Provide an absolute path to supported media or a Motion Photo JPEG.',
         title: 'Send File To Chat',
         inputSchema: {
-            path: z.string().describe('Absolute path to the local audio/video file'),
-            mimeType: z.string().optional().describe('Optional audio/* or video/* MIME type override'),
+            path: z.string().describe('Absolute path to the local audio, video, or Motion Photo JPEG'),
+            mimeType: z.string().optional().describe('Optional audio/*, video/*, or image/jpeg MIME type override'),
         },
     }, async (args) => {
         const response = await handlers.sendFile({
@@ -348,6 +349,16 @@ export async function startHappyServer(
         sendFile: async (input: SendFileInput) => {
             logger.debug('[happyMCP] Sending file:', input.path);
             try {
+                const artifact = resolveSendFileArtifact(input.path, input.mimeType);
+                if (artifact.kind === 'motion-photo') {
+                    const uploaded = await client.uploadImageAttachment(input.path, { requireMotionPhoto: true });
+                    client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
+                        source: 'generated',
+                        localPath: input.path,
+                        ...(uploaded.motionPhoto ? { motionPhoto: uploaded.motionPhoto } : {}),
+                    });
+                    return { success: true };
+                }
                 const uploaded = await client.uploadMediaAttachment(input.path, input.mimeType);
                 client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, null, {
                     source: 'generated',

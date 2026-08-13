@@ -5,6 +5,11 @@ export type MediaArtifactDescriptor = {
     mimeType: string;
 };
 
+export type SendFileArtifactDescriptor = MediaArtifactDescriptor | {
+    kind: 'motion-photo';
+    mimeType: 'image/jpeg';
+};
+
 const MEDIA_TYPES: Readonly<Record<string, MediaArtifactDescriptor>> = {
     '.mp4': { kind: 'video', mimeType: 'video/mp4' },
     '.m4v': { kind: 'video', mimeType: 'video/x-m4v' },
@@ -41,4 +46,18 @@ export function resolveMediaArtifact(filePath: string, requestedMimeType?: strin
 
     if (!byExtension) throw new Error(`Unsupported media file: ${extension || '(no extension)'}`);
     return byExtension;
+}
+
+/** Route send_file inputs while reserving ordinary images for send_image. */
+export function resolveSendFileArtifact(filePath: string, requestedMimeType?: string): SendFileArtifactDescriptor {
+    if (!isAbsolute(filePath)) throw new Error('send_file requires an absolute local file path');
+    const extension = extname(filePath).toLowerCase();
+    const explicit = requestedMimeType?.trim().toLowerCase();
+    if (extension === '.jpg' || extension === '.jpeg') {
+        if (explicit && explicit !== 'image/jpeg') {
+            throw new Error(`Media type ${requestedMimeType} does not match ${extension}`);
+        }
+        return { kind: 'motion-photo', mimeType: 'image/jpeg' };
+    }
+    return resolveMediaArtifact(filePath, requestedMimeType);
 }

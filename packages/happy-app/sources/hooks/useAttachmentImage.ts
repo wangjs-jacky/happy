@@ -10,7 +10,7 @@ import { downloadEncryptedAttachment } from '@/sync/apiAttachments';
 import { decryptBlob } from '@/encryption/blob';
 import { encodeBase64 } from '@/encryption/base64';
 import type { AttachmentImageOptions, AttachmentImageState } from './attachmentImageTypes';
-import { detectHonorMotionPhoto } from '@slopus/happy-wire';
+import { detectMotionPhoto } from '@slopus/happy-wire';
 
 export type { AttachmentImageState } from './attachmentImageTypes';
 
@@ -82,7 +82,7 @@ async function loadAttachmentDataUri(sessionId: string, ref: string): Promise<Ca
         return null;
     }
     const mime = detectImageMime(decrypted);
-    const motionPhoto = detectHonorMotionPhoto(decrypted);
+    const motionPhoto = detectMotionPhoto(decrypted);
     return {
         uri: `data:${mime};base64,${encodeBase64(decrypted)}`,
         ...(motionPhoto ? { motionPhoto } : {}),

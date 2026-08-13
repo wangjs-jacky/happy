@@ -25,6 +25,7 @@ import { openDocumentAttachment } from '@/sync/openDocumentAttachment';
 import { MAX_PDF_FILE_SIZE } from '@/sync/attachmentLimits';
 import type { MotionPhotoMetadata } from '@/sync/attachmentTypes';
 import { downloadOriginalAttachment } from '@/sync/downloadOriginalAttachment';
+import { downloadVideoAttachment } from '@/sync/downloadVideoAttachment';
 import { DesktopShortcutTooltip } from '@/components/DesktopShortcutTooltip';
 
 const fileInputSchema = z.object({
@@ -198,6 +199,8 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
     const { theme } = useUnistyles();
     const [source, setSource] = React.useState<MediaPlaybackSource | null>(null);
     const [error, setError] = React.useState(false);
+    const [downloadLoading, setDownloadLoading] = React.useState(false);
+    const [downloadError, setDownloadError] = React.useState(false);
     const sourceType = attachmentSource === 'generated' ? 'generated' : 'user';
     const resolvedMimeType = mimeType ?? 'video/mp4';
 
@@ -230,6 +233,32 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
         void source?.release?.();
     }, [source]);
 
+    const handleDownload = React.useCallback(async () => {
+        if (!sessionId || downloadLoading) return;
+        setDownloadLoading(true);
+        setDownloadError(false);
+        let resolved: MediaPlaybackSource | null = null;
+        try {
+            resolved = await resolveMediaAttachmentSource({
+                sessionId,
+                ref: ref_,
+                mimeType: resolvedMimeType,
+                fileName: name,
+                encrypted,
+            });
+            await downloadVideoAttachment(resolved.uri, name, resolvedMimeType);
+        } catch (cause) {
+            console.warn(`[media-attachment] failed to download ${name}`, cause);
+            setDownloadError(true);
+        } finally {
+            try {
+                await resolved?.release?.();
+            } finally {
+                setDownloadLoading(false);
+            }
+        }
+    }, [downloadLoading, encrypted, name, ref_, resolvedMimeType, sessionId]);
+
     return (
         <View testID={`media-attachment-inline-${sourceType}`} style={styles.inlineVideoContainer}>
             {source ? (
@@ -246,9 +275,33 @@ function InlineVideoFile({ ref_, sessionId, name, mimeType, encrypted, source: a
                     <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                 </View>
             )}
+            <View style={styles.videoActionRow}>
+                <Text style={[styles.filename, styles.videoFilename, { color: theme.colors.textSecondary }]} numberOfLines={1}>{name}</Text>
+                <Pressable
+                    testID={`media-attachment-download-${sourceType}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('imageViewer.downloadOriginalVideo')}
+                    accessibilityState={{ disabled: !sessionId || downloadLoading, busy: downloadLoading }}
+                    disabled={!sessionId || downloadLoading}
+                    onPress={handleDownload}
+                    style={(press) => [
+                        styles.motionDownloadButton,
+                        { backgroundColor: press.pressed ? theme.colors.surfacePressed : theme.colors.surface },
+                    ]}
+                >
+                    {downloadLoading
+                        ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                        : <Ionicons name="download-outline" size={18} color={theme.colors.textSecondary} />}
+                </Pressable>
+            </View>
             {error ? (
                 <Text style={[styles.mediaError, { color: theme.colors.textDestructive }]}>
                     {t('imageUpload.mediaLoadFailed')}
+                </Text>
+            ) : null}
+            {downloadError ? (
+                <Text style={[styles.mediaError, { color: theme.colors.textDestructive }]}>
+                    {t('imageViewer.videoDownloadFailedMessage')}
                 </Text>
             ) : null}
         </View>
@@ -394,8 +447,11 @@ function ImageFileView({ name, image, ref_, sessionId, motionPhoto }: {
             console.warn(`[motion-photo] failed to download ${name}`, cause);
             setDownloadError(true);
         } finally {
-            await resolved?.release?.();
-            setDownloadLoading(false);
+            try {
+                await resolved?.release?.();
+            } finally {
+                setDownloadLoading(false);
+            }
         }
     }, [downloadLoading, effectiveMotionPhoto, name, ref, sessionId]);
 
@@ -545,6 +601,15 @@ const styles = StyleSheet.create(() => ({
         width: '100%',
         maxWidth: 960,
         alignSelf: 'stretch',
+    },
+    videoActionRow: {
+        minHeight: 48,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    videoFilename: {
+        flex: 1,
     },
     videoLoadingFrame: {
         width: '100%',

@@ -2073,6 +2073,7 @@ export const zhHans: TranslationStructure = {
 
     imageViewer: {
         download: '下载图片',
+        downloadOriginalVideo: '下载原始视频',
         downloadOriginalMotionPhoto: '下载原始动态照片',
         playMotionPhoto: '播放动态照片',
         stopMotionPhoto: '停止动态照片',
@@ -2080,6 +2081,7 @@ export const zhHans: TranslationStructure = {
         downloadFailedTitle: '下载失败',
         downloadFailedMessage: '无法准备这张图片用于下载。',
         motionPhotoDownloadFailedMessage: '无法下载原始动态照片。',
+        videoDownloadFailedMessage: '无法下载原始视频。',
         motionPhotoLoadFailedMessage: '无法播放这张动态照片。',
     },
 
