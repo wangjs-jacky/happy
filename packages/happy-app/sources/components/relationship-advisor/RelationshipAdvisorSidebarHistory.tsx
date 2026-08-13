@@ -104,7 +104,9 @@ export const RelationshipAdvisorSidebarHistory = React.memo(function Relationshi
                                     style={({ pressed }) => [styles.rowMain, pressed && styles.pressed]}
                                 >
                                     <View style={styles.rowCopy}>
-                                        <Text style={styles.rowTitle} numberOfLines={1}>{conversation.title}</Text>
+                                        <Text style={styles.rowTitle} numberOfLines={1}>
+                                            {conversation.title || t('relationshipAdvisor.newConversation')}
+                                        </Text>
                                         <Text style={styles.rowPreview} numberOfLines={1}>{preview}</Text>
                                     </View>
                                 </Pressable>

@@ -136,6 +136,26 @@ describe('RelationshipAdvisorSidebarHistory', () => {
         act(() => renderer.unmount());
     });
 
+    it('uses the localized new-conversation label when a migrated title is empty', () => {
+        mocks.conversations = [{
+            id: 'conversation-1',
+            title: '',
+            createdAt: 1,
+            updatedAt: 2,
+            messages: [],
+        }];
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<RelationshipAdvisorSidebarHistory onNavigate={vi.fn()} />);
+        });
+
+        const row = renderer.root.findByProps({ testID: 'relationship-advisor-history-conversation-1' });
+        expect(row.findAllByType('Text').some((node: any) => (
+            node.props.children === 'relationshipAdvisor.newConversation'
+        ))).toBe(true);
+        act(() => renderer.unmount());
+    });
+
     it('deletes from the latest history after confirmation without rolling back another conversation', async () => {
         let resolveConfirm: (confirmed: boolean) => void = () => undefined;
         mocks.conversations = [

@@ -26,7 +26,7 @@ const RelationshipAdvisorMessageSchema = z.object({
 
 const RelationshipAdvisorConversationSchema = z.object({
     id: z.string().min(1).max(100),
-    title: z.string().min(1).max(120),
+    title: z.string().max(120),
     createdAt: z.number().finite(),
     updatedAt: z.number().finite(),
     messages: z.array(RelationshipAdvisorMessageSchema).max(MAX_RELATIONSHIP_ADVISOR_MESSAGES),
@@ -181,7 +181,7 @@ function migrateLegacyRelationshipAdvisorMessages(settings: unknown): unknown {
         ...settings,
         relationshipAdvisorConversations: [{
             id: 'legacy-relationship-advisor',
-            title: buildRelationshipAdvisorConversationTitle(parsedMessages.data, 'Relationship Advisor'),
+            title: buildRelationshipAdvisorConversationTitle(parsedMessages.data),
             createdAt,
             updatedAt,
             messages: parsedMessages.data,

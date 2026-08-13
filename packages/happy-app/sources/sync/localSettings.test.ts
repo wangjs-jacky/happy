@@ -150,4 +150,22 @@ describe('localSettings relationship advisor history', () => {
             }],
         }).relationshipAdvisorConversations).toEqual(conversations);
     });
+
+    it('keeps an untranslated empty title for legacy transcripts without a user message', () => {
+        const messages = [{
+            id: 'message-1',
+            role: 'assistant' as const,
+            text: '先说说情况',
+            createdAt: 1_786_400_000_000,
+            imageCount: 0,
+        }];
+
+        expect(localSettingsParse({ relationshipAdvisorMessages: messages }).relationshipAdvisorConversations).toEqual([{
+            id: 'legacy-relationship-advisor',
+            title: '',
+            createdAt: 1_786_400_000_000,
+            updatedAt: 1_786_400_000_000,
+            messages,
+        }]);
+    });
 });
