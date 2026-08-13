@@ -2,6 +2,78 @@
 import type { ImageStylePreviewEntry } from './imageStylePreviewManifest';
 
 export const EXTRA_IMAGE_STYLE_PREVIEW_MANIFEST: Record<string, ImageStylePreviewEntry> = {
+    "photo-to-styled-motion/japanese-cinema-film/1": {
+        "fileName": "photo-to-styled-motion--japanese-cinema-film.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/01-japanese-cinema-film",
+        "sourceIndex": 1,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/handdrawn-anime-film/1": {
+        "fileName": "photo-to-styled-motion--handdrawn-anime-film.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/02-handdrawn-anime-film",
+        "sourceIndex": 2,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/90s-cel-animation/1": {
+        "fileName": "photo-to-styled-motion--90s-cel-animation.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/03-90s-cel-animation",
+        "sourceIndex": 3,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/seinen-manga-bw/1": {
+        "fileName": "photo-to-styled-motion--seinen-manga-bw.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/04-seinen-manga-bw",
+        "sourceIndex": 4,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/cyberpunk-graphic-novel/1": {
+        "fileName": "photo-to-styled-motion--cyberpunk-graphic-novel.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/05-cyberpunk-graphic-novel",
+        "sourceIndex": 5,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/abstract-screenprint-collage/1": {
+        "fileName": "photo-to-styled-motion--abstract-screenprint-collage.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/06-abstract-screenprint-collage",
+        "sourceIndex": 6,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/ink-wash-portrait/1": {
+        "fileName": "photo-to-styled-motion--ink-wash-portrait.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/07-ink-wash-portrait",
+        "sourceIndex": 7,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/vintage-editorial-film/1": {
+        "fileName": "photo-to-styled-motion--vintage-editorial-film.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/08-vintage-editorial-film",
+        "sourceIndex": 8,
+        "width": 720,
+        "height": 1080
+    },
+    "photo-to-styled-motion/cinematic-realism/1": {
+        "fileName": "photo-to-styled-motion--cinematic-realism.jpg",
+        "sourceSet": "photo-to-styled-motion",
+        "sourceCaseId": "photo-to-styled-motion/yui-aragaki-gallery-20260813/09-cinematic-realism",
+        "sourceIndex": 9,
+        "width": 720,
+        "height": 1080
+    },
     "github-skills/photo-illustration-diptych/3": {
         "fileName": "photo-illustration-editorial-echo.jpg",
         "sourceSet": "github-skill",

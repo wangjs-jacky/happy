@@ -4,6 +4,7 @@ export interface ImageAgentStyleCategory {
     labelKey?: ImageAgentStyleLabelKey;
     accent: string;
     count: number;
+    useThemeAccent?: boolean;
 }
 
 export interface ImageAgentStylePreset {
@@ -41,6 +42,7 @@ export interface ImageAgentStylePreset {
     customAnalyzedAt?: number;
     customAnalysisSessionId?: string;
     custom?: boolean;
+    quickGenerate?: boolean;
 }
 
 export interface ImageAgentStyleReferenceImage {
@@ -76,6 +78,25 @@ export type UserImageStyleAnalysisStatus = 'reference-ready' | 'analyzing' | 'pr
 export type UserImageStylePromptSource = 'reference-image' | 'extracted-prompt' | 'manual';
 
 export type ImageAgentStyleLabelKey =
+    | 'agents.imageStylePhotoToStyledMotion'
+    | 'agents.imageStyleJapaneseCinemaFilm'
+    | 'agents.imageStyleJapaneseCinemaFilmHint'
+    | 'agents.imageStyleHanddrawnAnimeFilm'
+    | 'agents.imageStyleHanddrawnAnimeFilmHint'
+    | 'agents.imageStyle90sCelAnimation'
+    | 'agents.imageStyle90sCelAnimationHint'
+    | 'agents.imageStyleSeinenMangaBw'
+    | 'agents.imageStyleSeinenMangaBwHint'
+    | 'agents.imageStyleCyberpunkGraphicNovel'
+    | 'agents.imageStyleCyberpunkGraphicNovelHint'
+    | 'agents.imageStyleAbstractScreenprintCollage'
+    | 'agents.imageStyleAbstractScreenprintCollageHint'
+    | 'agents.imageStyleInkWashPortrait'
+    | 'agents.imageStyleInkWashPortraitHint'
+    | 'agents.imageStyleVintageEditorialFilm'
+    | 'agents.imageStyleVintageEditorialFilmHint'
+    | 'agents.imageStyleCinematicRealism'
+    | 'agents.imageStyleCinematicRealismHint'
     | 'agents.imageStyleGithubSkills'
     | 'agents.imageStyleMinimalZinePoster'
     | 'agents.imageStyleMinimalZinePosterHint'

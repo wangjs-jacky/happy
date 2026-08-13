@@ -8,8 +8,17 @@ import { PHOTO_ILLUSTRATION_DIPTYCH_LAKESIDE_PROMPT } from './photoIllustrationD
 import { SCENE_DISTILLATION_ZINE_LICENSE, SCENE_DISTILLATION_ZINE_PROMPT } from './sceneDistillationZinePrompt';
 import { SCENES_GATHERED_ZINE_LICENSE, SCENES_GATHERED_ZINE_PROMPT } from './scenesGatheredZinePrompt';
 import { TORN_PAPER_EDITORIAL_PROMPT } from './tornPaperEditorialPrompt';
+import { PHOTO_TO_STYLED_MOTION_PROMPTS } from './photoToStyledMotionPrompts';
 
 export const EXTRA_IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
+    {
+        id: 'photo-to-styled-motion',
+        label: '照片风格化',
+        labelKey: 'agents.imageStylePhotoToStyledMotion',
+        accent: '#B34B61',
+        count: 9,
+        useThemeAccent: true,
+    },
     {
         "id": "github-skills",
         "label": "GitHub Skills",
@@ -50,6 +59,85 @@ export const EXTRA_IMAGE_AGENT_STYLE_CATEGORIES: ImageAgentStyleCategory[] = [
 ];
 
 export const EXTRA_IMAGE_AGENT_STYLE_PRESETS: ImageAgentStylePreset[] = [
+    ...([
+        {
+            slug: 'japanese-cinema-film',
+            title: '日系真人电影',
+            labelKey: 'agents.imageStyleJapaneseCinemaFilm',
+            hintKey: 'agents.imageStyleJapaneseCinemaFilmHint',
+        },
+        {
+            slug: 'handdrawn-anime-film',
+            title: '手绘动画电影',
+            labelKey: 'agents.imageStyleHanddrawnAnimeFilm',
+            hintKey: 'agents.imageStyleHanddrawnAnimeFilmHint',
+        },
+        {
+            slug: '90s-cel-animation',
+            title: '90年代赛璐璐',
+            labelKey: 'agents.imageStyle90sCelAnimation',
+            hintKey: 'agents.imageStyle90sCelAnimationHint',
+        },
+        {
+            slug: 'seinen-manga-bw',
+            title: '黑白青年漫画',
+            labelKey: 'agents.imageStyleSeinenMangaBw',
+            hintKey: 'agents.imageStyleSeinenMangaBwHint',
+        },
+        {
+            slug: 'cyberpunk-graphic-novel',
+            title: '赛博朋克绘本',
+            labelKey: 'agents.imageStyleCyberpunkGraphicNovel',
+            hintKey: 'agents.imageStyleCyberpunkGraphicNovelHint',
+        },
+        {
+            slug: 'abstract-screenprint-collage',
+            title: '抽象丝网拼贴',
+            labelKey: 'agents.imageStyleAbstractScreenprintCollage',
+            hintKey: 'agents.imageStyleAbstractScreenprintCollageHint',
+        },
+        {
+            slug: 'ink-wash-portrait',
+            title: '水墨肖像',
+            labelKey: 'agents.imageStyleInkWashPortrait',
+            hintKey: 'agents.imageStyleInkWashPortraitHint',
+        },
+        {
+            slug: 'vintage-editorial-film',
+            title: '复古杂志胶片',
+            labelKey: 'agents.imageStyleVintageEditorialFilm',
+            hintKey: 'agents.imageStyleVintageEditorialFilmHint',
+        },
+        {
+            slug: 'cinematic-realism',
+            title: '电影写实',
+            labelKey: 'agents.imageStyleCinematicRealism',
+            hintKey: 'agents.imageStyleCinematicRealismHint',
+        },
+    ] as const).map(({ slug, title, labelKey, hintKey }, index): ImageAgentStylePreset => ({
+        id: `photo-to-styled-motion/${slug}/1`,
+        title,
+        labelKey,
+        categoryId: 'photo-to-styled-motion',
+        categoryLabel: '照片风格化',
+        categoryLabelKey: 'agents.imageStylePhotoToStyledMotion',
+        categoryAccent: '#B34B61',
+        templateRef: 'skills/photo-to-styled-motion/SKILL.md',
+        templateLabel: title,
+        templateLabelKey: labelKey,
+        promptHint: PHOTO_TO_STYLED_MOTION_PROMPTS[slug],
+        promptHintKey: hintKey,
+        promptContent: PHOTO_TO_STYLED_MOTION_PROMPTS[slug],
+        promptPath: 'skills/photo-to-styled-motion/references/style-presets.md',
+        sourceCaseId: `photo-to-styled-motion/yui-aragaki-gallery-20260813/${String(index + 1).padStart(2, '0')}-${slug}`,
+        sourceRepository: 'wangjs-jacky/jacky-skills',
+        executionKind: 'gpt-image-2',
+        inputMode: 'image-required',
+        multiInputMode: 'single',
+        continuationSourceMode: 'original-upload',
+        quickGenerate: true,
+        responseInstructions: 'After sending the image, briefly name the applied portrait style and the identity or composition details preserved from the supplied photo. Do not mention the preview subject, reveal the full prompt, private source path, or detailed parameters unless explicitly requested.',
+    })),
     {
         "id": "github-skills/photo-illustration-diptych/3",
         "title": "Editorial Echo",
