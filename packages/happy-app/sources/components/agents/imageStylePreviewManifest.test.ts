@@ -8,11 +8,12 @@ import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const previewAssetDir = resolve(currentDir, '../../assets/images/gpt-image-2/skill-examples');
 const referencePreviewAssetDir = resolve(currentDir, '../../assets/images/gpt-image-2/reference-examples');
-const IMAGE_STYLE_COUNT = 215;
-const IMAGE_STYLE_CATEGORY_COUNT = 23;
+const IMAGE_STYLE_COUNT = 224;
+const IMAGE_STYLE_CATEGORY_COUNT = 24;
 const GARDEN_CASE_COUNT = 162;
 const REFERENCE_CASE_COUNT = 45;
 const GITHUB_SKILL_CASE_COUNT = 8;
+const PHOTO_TO_STYLED_MOTION_CASE_COUNT = 9;
 
 function decodeImageDimensions(bytes: Buffer): { width: number; height: number } {
     if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
@@ -50,6 +51,7 @@ describe('imageStylePreviewManifest', () => {
         expect(sourceSets['gpt-image-2-101']).toBe(GARDEN_CASE_COUNT);
         expect(sourceSets['curated-reference-examples']).toBe(REFERENCE_CASE_COUNT);
         expect(sourceSets['github-skill']).toBe(GITHUB_SKILL_CASE_COUNT);
+        expect(sourceSets['photo-to-styled-motion']).toBe(PHOTO_TO_STYLED_MOTION_CASE_COUNT);
 
         const sourceCaseIds = Object.values(IMAGE_STYLE_PREVIEW_MANIFEST).map((preview) => preview.sourceCaseId);
         expect(new Set(sourceCaseIds).size).toBe(sourceCaseIds.length);
@@ -60,9 +62,7 @@ describe('imageStylePreviewManifest', () => {
 
         for (const style of IMAGE_AGENT_STYLE_PRESETS) {
             const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
-            const sourceDir = preview.sourceSet === 'gpt-image-2-101'
-                ? previewAssetDir
-                : referencePreviewAssetDir;
+            const sourceDir = preview.sourceSet === 'gpt-image-2-101' ? previewAssetDir : referencePreviewAssetDir;
 
             expect(style.promptContent.length).toBeGreaterThan(200);
             expect(style.title.length).toBeGreaterThan(0);

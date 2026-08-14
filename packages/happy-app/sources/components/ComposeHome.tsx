@@ -59,6 +59,7 @@ import {
 } from './agents/imageAgentPrompt';
 import { IMAGE_STYLE_COMPOSE_ROUTE, resolveComposeImageAgent, setImageAgentStyles, setImageAgentVariantCount, toggleImageAgentStyle } from './agents/imageAgentMode';
 import { ImageStyleGallerySheet } from './agents/ImageStyleGallerySheet';
+import { getImageStyleSelectionAction } from './agents/imageStyleQuickGenerate';
 import { createAppBuilderAgent } from './agents/builtinAgents';
 import { buildCustomImageStyleAnalysisPrompt, parseStylePromptExtractionFromMessage } from './agents/customImageStyleAnalysis';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
@@ -203,22 +204,6 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             : []),
         [effectiveImageAgent, selectedImageStyleIds.length, customImageStyles],
     );
-    const selectedCustomReferenceImages = React.useMemo<AttachmentPreview[]>(() => {
-        const selectedIds = new Set(activeImageStyles.map((style) => style.id));
-        const references = customImageStyles
-            .filter((style) => selectedIds.has(style.id) && shouldUseUserImageStyleReferenceImages(style))
-            .flatMap((style) => style.referenceImages);
-        return references.map((image) => ({
-            id: `style_${image.id}`,
-            uri: image.uri,
-            width: image.width,
-            height: image.height,
-            mimeType: image.mimeType,
-            size: image.size,
-            name: image.name,
-            thumbhash: image.thumbhash,
-        }));
-    }, [activeImageStyles, customImageStyles]);
     const activeImageVariants = effectiveImageAgent ? getImageAgentVariantCount(effectiveImageAgent) : 1;
     const imageEffectTitle = React.useMemo(() => {
         if (activeImageStyles.length === 1) {
@@ -654,21 +639,44 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }));
     }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
 
-    const handleSend = React.useCallback(() => {
+    const handleSend = React.useCallback((imageStyleIdsOverride?: string[]) => {
         const trimmed = text.trim();
         const userImages = hasImages ? selectedImages : [];
+        const sendImageAgent = activeImageAgent && imageAgent
+            ? setImageAgentVariantCount(
+                setImageAgentStyles(imageAgent, imageStyleIdsOverride ?? selectedImageStyleIds),
+                selectedImageVariantCount,
+            )
+            : null;
+        const sendImageStyles = sendImageAgent
+            ? getImageAgentStylesForAgent(sendImageAgent, customImageStyles)
+            : [];
+        const sendStyleIds = new Set(sendImageStyles.map((style) => style.id));
+        const sendCustomReferenceImages: AttachmentPreview[] = customImageStyles
+            .filter((style) => sendStyleIds.has(style.id) && shouldUseUserImageStyleReferenceImages(style))
+            .flatMap((style) => style.referenceImages)
+            .map((image) => ({
+                id: `style_${image.id}`,
+                uri: image.uri,
+                width: image.width,
+                height: image.height,
+                mimeType: image.mimeType,
+                size: image.size,
+                name: image.name,
+                thumbhash: image.thumbhash,
+            }));
         const images = activeImageAgent
-            ? [...selectedCustomReferenceImages, ...userImages]
+            ? [...sendCustomReferenceImages, ...userImages]
             : userImages.length > 0 ? userImages : undefined;
         if ((!trimmed && !images) || sending) return;
-        if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
-        const prompt = activeImageAgent && effectiveImageAgent
+        if (activeImageAgent && (!sendImageAgent || sendImageStyles.length === 0)) return;
+        const prompt = activeImageAgent && sendImageAgent
             ? buildImageAgentPrompt({
-                agent: effectiveImageAgent,
+                agent: sendImageAgent,
                 customStyles: customImageStyles,
                 userPrompt: trimmed,
                 imageCount: images?.length ?? 0,
-                styleReferenceImageCount: selectedCustomReferenceImages.length,
+                styleReferenceImageCount: sendCustomReferenceImages.length,
                 userImageCount: userImages.length,
             })
             : trimmed;
@@ -718,13 +726,31 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                 clearImages();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, setPendingCustomImageStyleReferences, clearImages, askApi, customImageStyles, selectedCustomReferenceImages]);
+    }, [activeImageAgent, agentDefaultOverrides, text, sending, imageAgent, selectedImageStyleIds, selectedImageVariantCount, customImageStyles, hasImages, selectedImages, machines, spawn, setPendingCustomImageStyleReferences, clearImages, askApi]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
     // isSendDisabled) instead of letting a doomed spawn through.
     const canSpawn = online && worktreeKey !== '__new__';
     const canSubmit = canSpawn && (!activeImageAgent || activeImageStyles.length > 0);
+    const selectImageStyleFromGallery = React.useCallback((style: ImageAgentStylePreset) => {
+        if (!style.quickGenerate) {
+            toggleImageStyleFromGallery(style);
+            return;
+        }
+
+        hapticsLight();
+        const action = getImageStyleSelectionAction({
+            style,
+            hasText: text.trim().length > 0,
+            userImageCount: hasImages ? selectedImages.length : 0,
+            canSpawn,
+            sending,
+        });
+        setSelectedImageStyleIds(action.selectedStyleIds);
+        if (action.closeGallery) setImageGalleryOpen(false);
+        if (action.shouldSubmit) handleSend(action.selectedStyleIds);
+    }, [canSpawn, handleSend, hasImages, selectedImages.length, sending, text, toggleImageStyleFromGallery]);
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
         collapsed: desktopRightPanelCollapsed,
@@ -1094,7 +1120,10 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                     onDeleteCustomStyle={deleteCustomImageStyle}
                     onRetryCustomStyleAnalysis={retryCustomImageStyleAnalysis}
                     onPickImages={pickImages}
-                    onToggle={toggleImageStyleFromGallery}
+                    quickGenerateHasInput={hasImages}
+                    quickGenerateCanSpawn={canSpawn}
+                    quickGenerateSending={sending}
+                    onToggle={selectImageStyleFromGallery}
                     onClose={closeImageStyleGallery}
                 />
             )}

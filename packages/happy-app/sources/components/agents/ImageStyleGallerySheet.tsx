@@ -22,6 +22,7 @@ import {
     getImageStylePreviewHeight,
 } from './imageStyleGalleryLayout';
 import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
+import { getImageStyleQuickGenerateCardState } from './imageStyleQuickGenerate';
 
 type Props = {
     visible: boolean;
@@ -32,9 +33,24 @@ type Props = {
     onDeleteCustomStyle?: (style: ImageAgentStylePreset) => void;
     onRetryCustomStyleAnalysis?: (style: ImageAgentStylePreset) => void;
     onPickImages?: () => void;
+    quickGenerateHasInput: boolean;
+    quickGenerateCanSpawn: boolean;
+    quickGenerateSending: boolean;
     onToggle: (style: ImageAgentStylePreset) => void;
     onClose: () => void;
 };
+
+function getQuickGenerateActionLabel(props: Pick<Props, 'quickGenerateHasInput' | 'quickGenerateCanSpawn' | 'quickGenerateSending'>): string {
+    const state = getImageStyleQuickGenerateCardState({
+        hasInput: props.quickGenerateHasInput,
+        canSpawn: props.quickGenerateCanSpawn,
+        sending: props.quickGenerateSending,
+    });
+    if (state === 'generating') return t('agents.imageEffectGenerating');
+    if (state === 'needs-photo') return t('agents.imageEffectNeedsPhoto');
+    if (state === 'machine-offline') return t('agents.imageEffectMachineOffline');
+    return t('agents.imageEffectGenerateNow');
+}
 
 const ALL_CATEGORY_ID = 'all';
 const SHEET_HORIZONTAL_PADDING = 28;
@@ -211,15 +227,23 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
 
     const renderStyle = React.useCallback((style: ImageAgentStylePreset) => {
         const selected = selectedStyleIds.has(style.id);
+        const quickGenerateActionLabel = style.quickGenerate ? getQuickGenerateActionLabel(props) : undefined;
+        const quickGenerateDisabled = style.quickGenerate
+            && (props.quickGenerateSending || (props.quickGenerateHasInput && !props.quickGenerateCanSpawn));
         const customStatusLine = style.custom ? getCustomStyleStatusLine(style, now) : undefined;
         const promptPreviewAvailable = style.custom && style.analysisStatus === 'prompt-ready' && !!style.customPromptContent?.trim();
         return (
             <View key={style.id} style={styles.cell}>
                 <Pressable
                     onPress={() => props.onToggle(style)}
-                    accessibilityRole="checkbox"
-                    accessibilityLabel={getLocalizedStyleLabel(style)}
-                    accessibilityState={{ checked: selected }}
+                    disabled={quickGenerateDisabled}
+                    accessibilityRole={style.quickGenerate ? 'button' : 'checkbox'}
+                    accessibilityLabel={style.quickGenerate
+                        ? `${getLocalizedStyleLabel(style)}, ${quickGenerateActionLabel}`
+                        : getLocalizedStyleLabel(style)}
+                    accessibilityState={style.quickGenerate
+                        ? { disabled: quickGenerateDisabled }
+                        : { checked: selected }}
                     style={({ pressed }) => [
                         styles.card,
                         selected && styles.cardSelected,
@@ -275,12 +299,14 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                     </View>
                     <View style={styles.cardFooter}>
                         <Text style={styles.cardAction} numberOfLines={1}>
-                            {selected ? t('agents.imageEffectSelected') : t('agents.imageEffectApply')}
+                            {style.quickGenerate
+                                ? quickGenerateActionLabel
+                                : selected ? t('agents.imageEffectSelected') : t('agents.imageEffectApply')}
                         </Text>
                         <Ionicons
-                            name={selected ? 'checkmark-circle' : 'arrow-forward-circle-outline'}
+                            name={selected && !style.quickGenerate ? 'checkmark-circle' : 'arrow-forward-circle-outline'}
                             size={16}
-                            color={selected ? styles.selectedIcon.color : styles.cardAction.color}
+                            color={selected && !style.quickGenerate ? styles.selectedIcon.color : styles.cardAction.color}
                         />
                     </View>
                     {style.custom && props.onDeleteCustomStyle && (
@@ -364,7 +390,10 @@ export const ImageStyleGallerySheet = React.memo(function ImageStyleGallerySheet
                             pressed && styles.pressed,
                         ]}
                     >
-                        <View style={[styles.categoryDot, { backgroundColor: category.accent }]} />
+                        <View style={[
+                            styles.categoryDot,
+                            category.useThemeAccent ? styles.categoryDotThemeAccent : { backgroundColor: category.accent },
+                        ]} />
                         <Text
                             style={[
                                 styles.categoryLabel,
@@ -726,6 +755,9 @@ const galleryStyles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surface,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.divider,
+    },
+    categoryDotThemeAccent: {
+        backgroundColor: theme.colors.accent,
     },
     categoryChipSelected: {
         borderColor: theme.colors.accent,

@@ -2,6 +2,15 @@
 import type { ImageSourcePropType } from 'react-native';
 
 export const EXTRA_IMAGE_STYLE_PREVIEW_ASSETS: Record<string, ImageSourcePropType> = {
+    "photo-to-styled-motion/japanese-cinema-film/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--japanese-cinema-film.jpg'),
+    "photo-to-styled-motion/handdrawn-anime-film/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--handdrawn-anime-film.jpg'),
+    "photo-to-styled-motion/90s-cel-animation/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--90s-cel-animation.jpg'),
+    "photo-to-styled-motion/seinen-manga-bw/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--seinen-manga-bw.jpg'),
+    "photo-to-styled-motion/cyberpunk-graphic-novel/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--cyberpunk-graphic-novel.jpg'),
+    "photo-to-styled-motion/abstract-screenprint-collage/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--abstract-screenprint-collage.jpg'),
+    "photo-to-styled-motion/ink-wash-portrait/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--ink-wash-portrait.jpg'),
+    "photo-to-styled-motion/vintage-editorial-film/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--vintage-editorial-film.jpg'),
+    "photo-to-styled-motion/cinematic-realism/1": require('@/assets/images/gpt-image-2/reference-examples/photo-to-styled-motion--cinematic-realism.jpg'),
     "github-skills/photo-illustration-diptych/3": require('@/assets/images/gpt-image-2/reference-examples/photo-illustration-editorial-echo.jpg'),
     "reference-torn-paper-editorial/torn-paper-photo-collage/1": require('@/assets/images/gpt-image-2/reference-examples/torn-paper-editorial-close-portrait.jpg'),
     "github-skills/photo-illustration-diptych/2": require('@/assets/images/gpt-image-2/reference-examples/photo-illustration-diptych-lakeside.jpg'),
