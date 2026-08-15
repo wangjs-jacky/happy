@@ -5,7 +5,7 @@ const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
 const recordEvidence = process.env.HAPPY_E2E_RECORD === '1';
 
-if (recordEvidence) test.use({ video: 'off', trace: 'off' });
+test.use({ video: 'off', trace: 'off' });
 test.setTimeout(360_000);
 
 function authenticatedRoute(pathname: string): string {
@@ -178,13 +178,20 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await page.screenshot({ path: testInfo.outputPath('02-tag-cross-list-filter.png'), fullPage: true });
         await captureEvidenceFrame(page, testInfo, '08-tag-cross-list-filter');
 
+        await page.getByTestId(`organized-session-${alphaId}`).click();
+        await expect(page).toHaveURL((url) => url.pathname === `/session/${alphaId}`);
+        await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation');
+
         await page.reload({ timeout: 180_000 });
         await expect(page.getByTestId('desktop-sidebar-tab-lists')).toHaveAttribute('aria-selected', 'true', { timeout: 120_000 });
         await expect(page.getByText('Remote Happy', { exact: true })).toBeVisible();
         await expect(page.getByText('Advisor', { exact: true })).toBeVisible();
         await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible();
+        await page.getByRole('button', { name: /^product 2$/ }).click();
+        await expect(page.getByTestId(`organized-session-${alphaId}`)).toBeVisible();
         await expect(page.getByTestId(`organized-session-${betaId}`)).toBeVisible();
-        await expect(page).toHaveURL(betaUrl);
+        await expect(page).toHaveURL((url) => url.pathname === `/session/${alphaId}`);
+        await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation');
         await pauseForReview(page);
         await page.screenshot({ path: testInfo.outputPath('03-reload-persisted.png'), fullPage: true });
         await captureEvidenceFrame(page, testInfo, '09-reload-persisted');
