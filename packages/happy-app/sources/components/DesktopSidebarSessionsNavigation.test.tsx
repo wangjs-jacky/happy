@@ -150,13 +150,16 @@ describe('DesktopSidebarSessionsNavigation', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress({ stopPropagation: vi.fn() }));
+        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress());
 
         expect(renderer.root.findByProps({ testID: 'sidebar-list-name-input' }).props.value).toBe('Happy');
         expect(renderer.root.findAllByType('PickerContent').length).toBeGreaterThan(0);
         expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-picker' }).findByType('PathPickerContent').props).toMatchObject({
             machineId: 'mac',
             manualInput: false,
+        });
+        expect(renderer.root.findByProps({ testID: 'sidebar-delete-list-happy' }).props).toMatchObject({
+            accessibilityRole: 'button',
         });
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-directory-none' }).props.onPress());
         expect(renderer.root.findByProps({ testID: 'sidebar-list-directory-picker' }).findByType('PathPickerContent').props.value).toBe('');
@@ -190,7 +193,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress({ stopPropagation: vi.fn() }));
+        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-name-input' }).props.onChangeText('Happy renamed'));
         act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-submit' }).props.onPress());
 
@@ -205,10 +208,9 @@ describe('DesktopSidebarSessionsNavigation', () => {
         } as any;
         expect(rename(current).lists[0].name).toBe('Happy renamed');
 
-        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-happy' }).props.onPress({ stopPropagation: vi.fn() }));
         mocks.confirm.mockResolvedValueOnce(true);
         await act(async () => {
-            renderer.root.findByProps({ testID: 'sidebar-delete-list' }).props.onPress();
+            renderer.root.findByProps({ testID: 'sidebar-delete-list-happy' }).props.onPress();
             await Promise.resolve();
             await Promise.resolve();
         });
@@ -225,7 +227,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-list-advisor' }).props.onPress());
-        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-advisor' }).props.onPress({ stopPropagation: vi.fn() }));
+        act(() => renderer.root.findByProps({ testID: 'sidebar-edit-list-advisor' }).props.onPress());
         expect(renderer.root.findAllByProps({ accessibilityLabel: 'newSession.askMode' })[0].props.accessibilityState).toEqual({ checked: true, disabled: true });
         act(() => renderer.root.findByProps({ testID: 'sidebar-create-list-cancel' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-new-session-advisor' }).props.onPress());

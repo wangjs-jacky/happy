@@ -141,6 +141,14 @@ const stylesheet = StyleSheet.create((theme) => ({
         minHeight: 46,
         paddingHorizontal: 10,
     },
+    listRowMain: {
+        alignItems: 'center',
+        alignSelf: 'stretch',
+        flex: 1,
+        flexDirection: 'row',
+        gap: 8,
+        minWidth: 0,
+    },
     listRowPressed: { backgroundColor: theme.colors.surfacePressed },
     listGlyph: { alignItems: 'center', borderRadius: 7, height: 30, justifyContent: 'center', width: 30 },
     listCopy: { flex: 1, minWidth: 0 },
@@ -454,6 +462,15 @@ function SidebarListsView() {
     const closeEditor = React.useCallback(() => setEditorVisible(false), []);
     const openSession = React.useCallback((session: SessionRowData) => navigateToSession(session.id), [navigateToSession]);
     const openOrganizer = React.useCallback((session: SessionRowData) => setOrganizingSession(session), []);
+    const deleteList = React.useCallback(async (list: SidebarList) => {
+        const confirmed = await Modal.confirm(
+            t('sidebarLists.deleteList'),
+            t('sidebarLists.deleteListConfirm', { name: list.name }),
+            { cancelText: t('common.cancel'), confirmText: t('common.delete'), destructive: true },
+        );
+        if (!confirmed) return;
+        updateOrganization((current) => removeSidebarList(current, list.id));
+    }, [updateOrganization]);
 
     const rows = React.useMemo<SidebarVirtualRow[]>(() => {
         const next: SidebarVirtualRow[] = [];
@@ -526,20 +543,25 @@ function SidebarListsView() {
                 : [list.machineId, list.path].filter(Boolean).join(' · ') || t('sidebarLists.workspaceList');
             return (
                 <View style={styles.listBlock}>
-                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => toggleExpanded(list.id)} style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]} testID={`sidebar-list-${list.id}`}>
-                        <Feather color={theme.colors.textSecondary} name={isExpanded ? 'chevron-down' : 'chevron-right'} size={15} />
-                        <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}>
-                            <Feather color={listColors[list.color]} name={list.kind === 'agent' ? 'cpu' : 'folder'} size={16} />
-                        </View>
-                        <View style={styles.listCopy}>
-                            <Text numberOfLines={1} style={styles.listName}>{list.name}</Text>
-                            <Text numberOfLines={1} style={styles.listMeta}>{meta}</Text>
-                        </View>
+                    <View style={styles.listRow}>
+                        <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => toggleExpanded(list.id)} style={({ pressed }) => [styles.listRowMain, pressed && styles.listRowPressed]} testID={`sidebar-list-${list.id}`}>
+                            <Feather color={theme.colors.textSecondary} name={isExpanded ? 'chevron-down' : 'chevron-right'} size={15} />
+                            <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}>
+                                <Feather color={listColors[list.color]} name={list.kind === 'agent' ? 'cpu' : 'folder'} size={16} />
+                            </View>
+                            <View style={styles.listCopy}>
+                                <Text numberOfLines={1} style={styles.listName}>{list.name}</Text>
+                                <Text numberOfLines={1} style={styles.listMeta}>{meta}</Text>
+                            </View>
+                        </Pressable>
                         <Text style={styles.count}>{sessionIndex.byListId.get(list.id)?.length ?? 0}</Text>
-                        <Pressable accessibilityLabel={`${t('sidebarLists.editList')} ${list.name}`} onPress={(event) => { event.stopPropagation(); openEdit(list); }} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`sidebar-edit-list-${list.id}`}>
+                        <Pressable accessibilityLabel={`${t('sidebarLists.editList')} ${list.name}`} accessibilityRole="button" onPress={() => openEdit(list)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`sidebar-edit-list-${list.id}`}>
                             <Feather color={theme.colors.textSecondary} name="edit-2" size={14} />
                         </Pressable>
-                    </Pressable>
+                        <Pressable accessibilityLabel={`${t('sidebarLists.deleteList')} ${list.name}`} accessibilityRole="button" onPress={() => void deleteList(list)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`sidebar-delete-list-${list.id}`}>
+                            <Feather color={theme.colors.deleteAction} name="trash-2" size={14} />
+                        </Pressable>
+                    </View>
                 </View>
             );
         }
@@ -583,7 +605,7 @@ function SidebarListsView() {
                 {organization.tags.length === 0 ? <Text style={styles.empty}>{t('sidebarLists.noTags')}</Text> : null}
             </View>
         );
-    }, [addTag, createSession, expanded, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.tags, selectedSessionId, selectedTagId, sessionIndex, styles, theme.colors]);
+    }, [addTag, createSession, deleteList, expanded, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.tags, selectedSessionId, selectedTagId, sessionIndex, styles, theme.colors]);
 
     return (
         <View style={styles.container} testID="sidebar-lists-view">

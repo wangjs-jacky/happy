@@ -399,8 +399,30 @@ test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs'
         await expectMobileTouchTarget(page.getByTestId('sidebar-list-kind-workspace'));
         await expectMobileTouchTarget(page.getByTestId('sidebar-list-color-blue'));
         await expectMobileTouchTarget(page.getByTestId('sidebar-create-list-submit'));
-        await page.getByTestId('sidebar-create-list-cancel').click();
+        await page.getByTestId('sidebar-list-name-input').fill('Mobile removable');
+        await page.getByTestId('sidebar-list-kind-agent').click();
+        await page.getByTestId('sidebar-create-list-submit').click();
         await expect(page.getByText('New list', { exact: true })).toHaveCount(0);
+        const removableList = page.getByText('Mobile removable', { exact: true });
+        await expect(removableList).toBeVisible();
+        const deleteButton = page.getByRole('button', { name: 'Delete list Mobile removable', exact: true });
+        await expectMobileTouchTarget(deleteButton);
+        await expect(page.getByText(/cannot contain a nested/i)).toHaveCount(0);
+        await pauseForReview(page);
+        await captureEvidenceFrame(page, testInfo, 'mobile-02-delete-action');
+        await deleteButton.click();
+        await expect(page.getByText('Delete list', { exact: true })).toBeVisible();
+        await pauseForReview(page);
+        await captureEvidenceFrame(page, testInfo, 'mobile-03-delete-confirm');
+        await page.getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(removableList).toHaveCount(0);
+
+        await page.reload({ timeout: 180_000 });
+        await expect(page.getByRole('textbox')).toBeVisible({ timeout: 120_000 });
+        await page.getByTestId('compose-home-drawer-button').click();
+        await expect.poll(async () => (await accountFooter.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+        await expect(listsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByText('Mobile removable', { exact: true })).toHaveCount(0);
 
         await expect.poll(async () => {
             const box = await accountFooter.boundingBox();
@@ -412,7 +434,7 @@ test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs'
         }).toBe(true);
         await pauseForReview(page);
         await page.screenshot({ path: testInfo.outputPath('mobile-after-lists-tab.png'), fullPage: true });
-        await captureEvidenceFrame(page, testInfo, 'mobile-02-lists');
+        await captureEvidenceFrame(page, testInfo, 'mobile-04-lists');
     } finally {
         await page.close();
         await deleteSession(request, sessionId);
