@@ -24,6 +24,7 @@ vi.mock('expo-router', () => ({
     useRouter: () => ({ navigate: mocks.navigate }),
 }));
 vi.mock('react-native-unistyles', () => ({
+    mq: { only: { width: (min: number, max?: number) => `width-${min}-${max ?? 'up'}` } },
     StyleSheet: {
         hairlineWidth: 1,
         create: (factory: any) => factory({

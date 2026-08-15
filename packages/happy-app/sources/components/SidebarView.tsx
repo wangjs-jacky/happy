@@ -6,7 +6,6 @@ import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useFriendRequests, useProfile, useLocalSetting } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
-import { MainView } from './MainView';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
 import { Ionicons } from '@expo/vector-icons';
@@ -419,9 +418,9 @@ export const SidebarView = React.memo(({
                 <VoiceAssistantStatusBar variant="sidebar" />
             )}
 
-            {/* Desktop progressively adds Lists/Tags around the existing session list.
-                Mobile keeps the original drawer behavior unchanged. */}
-            {desktopDensity ? <DesktopSidebarSessionsNavigation /> : <MainView variant="sidebar" />}
+            {/* Projects preserves the existing session list; Lists adds the same
+                organization layer in both desktop and mobile sidebars. */}
+            <DesktopSidebarSessionsNavigation />
 
             {/* Low-frequency account and system actions stay anchored below the work list. */}
             <View

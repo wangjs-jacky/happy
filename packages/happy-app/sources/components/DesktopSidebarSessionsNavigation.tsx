@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { mq, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -81,7 +81,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderRadius: 6,
         flex: 1,
         justifyContent: 'center',
-        minHeight: 30,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 30,
+        },
     },
     tabSelected: { backgroundColor: theme.colors.surface },
     tabPressed: { backgroundColor: theme.colors.surfacePressed },
@@ -92,7 +95,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     sectionHeader: {
         alignItems: 'center',
         flexDirection: 'row',
-        minHeight: 32,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 32,
+        },
         paddingLeft: 16,
         paddingRight: 10,
     },
@@ -100,9 +106,15 @@ const stylesheet = StyleSheet.create((theme) => ({
     iconButton: {
         alignItems: 'center',
         borderRadius: 7,
-        height: 28,
+        height: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 28,
+        },
         justifyContent: 'center',
-        width: 28,
+        width: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 28,
+        },
     },
     iconButtonPressed: { backgroundColor: theme.colors.surfacePressed },
     listBlock: { marginBottom: 2 },
@@ -143,7 +155,10 @@ const stylesheet = StyleSheet.create((theme) => ({
         borderWidth: StyleSheet.hairlineWidth,
         flexDirection: 'row',
         gap: 5,
-        minHeight: 28,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 28,
+        },
         paddingHorizontal: 9,
     },
     tagSelected: { backgroundColor: theme.colors.surfaceSelected },
@@ -173,27 +188,92 @@ const stylesheet = StyleSheet.create((theme) => ({
     dialogBody: { padding: 16 },
     field: { gap: 7, marginBottom: 16 },
     fieldLabel: { color: theme.colors.textSecondary, fontSize: 12, ...Typography.default('semiBold') },
-    input: { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider, borderRadius: 7, borderWidth: StyleSheet.hairlineWidth, color: theme.colors.text, fontSize: 14, minHeight: 40, paddingHorizontal: 11, paddingVertical: 8 },
+    input: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderColor: theme.colors.divider,
+        borderRadius: 7,
+        borderWidth: StyleSheet.hairlineWidth,
+        color: theme.colors.text,
+        fontSize: 14,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 40,
+        },
+        paddingHorizontal: 11,
+        paddingVertical: 8,
+    },
     multilineInput: { minHeight: 88, textAlignVertical: 'top' },
     segmented: { backgroundColor: theme.colors.surfaceHigh, borderRadius: 7, flexDirection: 'row', padding: 2 },
-    segment: { alignItems: 'center', borderRadius: 5, flex: 1, justifyContent: 'center', minHeight: 34, paddingHorizontal: 8 },
+    segment: {
+        alignItems: 'center',
+        borderRadius: 5,
+        flex: 1,
+        justifyContent: 'center',
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 34,
+        },
+        paddingHorizontal: 8,
+    },
     segmentSelected: { backgroundColor: theme.colors.surface },
     segmentText: { color: theme.colors.textSecondary, fontSize: 12, ...Typography.default('semiBold') },
     segmentTextSelected: { color: theme.colors.text },
     choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-    choice: { alignItems: 'center', borderColor: theme.colors.divider, borderRadius: 7, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 6, minHeight: 34, paddingHorizontal: 10 },
+    choice: {
+        alignItems: 'center',
+        borderColor: theme.colors.divider,
+        borderRadius: 7,
+        borderWidth: StyleSheet.hairlineWidth,
+        flexDirection: 'row',
+        gap: 6,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 34,
+        },
+        paddingHorizontal: 10,
+    },
     choiceSelected: { backgroundColor: theme.colors.surfaceSelected },
     choiceText: { color: theme.colors.text, fontSize: 12, ...Typography.default() },
     dialogFooter: { borderTopColor: theme.colors.divider, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 8, justifyContent: 'flex-end', padding: 12 },
-    button: { alignItems: 'center', borderRadius: 7, justifyContent: 'center', minHeight: 36, minWidth: 76, paddingHorizontal: 14 },
+    button: {
+        alignItems: 'center',
+        borderRadius: 7,
+        justifyContent: 'center',
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 36,
+        },
+        minWidth: 76,
+        paddingHorizontal: 14,
+    },
     secondaryButton: { backgroundColor: theme.colors.surfaceHigh },
     primaryButton: { backgroundColor: theme.colors.button.primary.background },
     buttonDisabled: { opacity: 0.45 },
     secondaryButtonText: { color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') },
     primaryButtonText: { color: theme.colors.button.primary.tint, fontSize: 13, ...Typography.default('semiBold') },
-    colorChoice: { borderRadius: 10, height: 20, width: 20 },
+    colorChoice: {
+        alignItems: 'center',
+        height: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 28,
+        },
+        justifyContent: 'center',
+        width: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 28,
+        },
+    },
+    colorSwatch: { borderRadius: 10, height: 20, width: 20 },
     colorChoiceSelected: { borderColor: theme.colors.text, borderWidth: 2 },
-    assignmentRow: { alignItems: 'center', flexDirection: 'row', gap: 9, minHeight: 40 },
+    assignmentRow: {
+        alignItems: 'center',
+        flexDirection: 'row',
+        gap: 9,
+        minHeight: {
+            [mq.only.width(0, 768)]: 44,
+            [mq.only.width(768)]: 40,
+        },
+    },
     check: { alignItems: 'center', borderColor: theme.colors.divider, borderRadius: 5, borderWidth: 1, height: 20, justifyContent: 'center', width: 20 },
     checkSelected: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
     assignmentLabel: { color: theme.colors.text, flex: 1, fontSize: 13, ...Typography.default() },
@@ -508,7 +588,7 @@ function CreateListDialog({ onClose, onCreate, organization, visible }: { onClos
                 </View>
                 <View style={styles.field}>
                     <Text style={styles.fieldLabel}>{t('sidebarLists.color')}</Text>
-                    <View accessibilityLabel={t('sidebarLists.color')} accessibilityRole="radiogroup" style={styles.choices}>{SIDEBAR_LIST_COLORS.map((value) => <Pressable aria-checked={color === value} accessibilityLabel={t(COLOR_LABEL_KEYS[value])} accessibilityRole="radio" accessibilityState={{ checked: color === value }} key={value} onPress={() => setColor(value)} style={[styles.colorChoice, { backgroundColor: listColors[value] }, color === value && styles.colorChoiceSelected]} />)}</View>
+                    <View accessibilityLabel={t('sidebarLists.color')} accessibilityRole="radiogroup" style={styles.choices}>{SIDEBAR_LIST_COLORS.map((value) => <Pressable aria-checked={color === value} accessibilityLabel={t(COLOR_LABEL_KEYS[value])} accessibilityRole="radio" accessibilityState={{ checked: color === value }} key={value} onPress={() => setColor(value)} style={styles.colorChoice} testID={`sidebar-list-color-${value}`}><View style={[styles.colorSwatch, { backgroundColor: listColors[value] }, color === value && styles.colorChoiceSelected]} /></Pressable>)}</View>
                 </View>
                 {kind === 'workspace' ? (
                     <>
@@ -526,7 +606,7 @@ function CreateListDialog({ onClose, onCreate, organization, visible }: { onClos
                     <View style={styles.field}><Text style={styles.fieldLabel}>{t('sidebarLists.agentPrompt')}</Text><TextInput maxLength={SIDEBAR_AGENT_PROMPT_MAX_LENGTH} multiline onChangeText={setPrompt} placeholder={t('sidebarLists.agentPromptPlaceholder')} placeholderTextColor={stylesheet.fieldLabel.color} style={[styles.input, styles.multilineInput]} testID="sidebar-list-agent-prompt-input" value={prompt} /></View>
                 )}
             </ScrollView>
-            <View style={styles.dialogFooter}><Pressable onPress={onClose} style={[styles.button, styles.secondaryButton]}><Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text></Pressable><Pressable disabled={!canCreate} onPress={save} style={[styles.button, styles.primaryButton, !canCreate && styles.buttonDisabled]} testID="sidebar-create-list-submit"><Text style={styles.primaryButtonText}>{t('common.create')}</Text></Pressable></View>
+            <View style={styles.dialogFooter}><Pressable onPress={onClose} style={[styles.button, styles.secondaryButton]} testID="sidebar-create-list-cancel"><Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text></Pressable><Pressable disabled={!canCreate} onPress={save} style={[styles.button, styles.primaryButton, !canCreate && styles.buttonDisabled]} testID="sidebar-create-list-submit"><Text style={styles.primaryButtonText}>{t('common.create')}</Text></Pressable></View>
         </DialogFrame>
     );
 }

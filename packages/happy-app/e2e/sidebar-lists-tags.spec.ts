@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
@@ -73,6 +73,13 @@ async function pauseForReview(page: Page, duration = 850): Promise<void> {
 async function captureEvidenceFrame(page: Page, testInfo: TestInfo, name: string): Promise<void> {
     if (!recordEvidence) return;
     await page.screenshot({ path: testInfo.outputPath(`evidence-${name}.png`), fullPage: true });
+}
+
+async function expectMobileTouchTarget(locator: Locator): Promise<void> {
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
 }
 
 async function createList(
@@ -197,5 +204,79 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await captureEvidenceFrame(page, testInfo, '09-reload-persisted');
     } finally {
         await Promise.allSettled([deleteSession(request, alphaId), deleteSession(request, betaId)]);
+    }
+});
+
+test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs', async ({ page, request }, testInfo: TestInfo) => {
+    const sessionId = await createSession(request, {
+        name: 'Mobile sidebar tabs',
+        summary: 'Mobile sidebar tabs',
+        path: '/workspace/mobile-sidebar-tabs',
+    });
+    const evidencePhase = process.env.HAPPY_SIDEBAR_LISTS_TAGS_MOBILE_EVIDENCE_PHASE ?? 'after';
+
+    try {
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(authenticatedRoute('/'));
+        page.setDefaultTimeout(15_000);
+        const composer = page.getByRole('textbox');
+        try {
+            await expect(composer).toBeVisible({ timeout: 120_000 });
+        } catch {
+            await page.reload({ timeout: 180_000 });
+            await expect(composer).toBeVisible({ timeout: 120_000 });
+        }
+
+        await page.getByTestId('compose-home-drawer-button').click();
+        const accountFooter = page.getByTestId('sidebar-account-footer');
+        await expect.poll(async () => (await accountFooter.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+        await expect(page.getByTestId(`session-row-${sessionId}`)).toBeVisible();
+
+        const projectsTab = page.getByTestId('desktop-sidebar-tab-projects');
+        const listsTab = page.getByTestId('desktop-sidebar-tab-lists');
+        if (evidencePhase === 'before') {
+            await expect(projectsTab).toHaveCount(0);
+            await expect(listsTab).toHaveCount(0);
+            await page.screenshot({ path: testInfo.outputPath('mobile-before-no-tabs.png'), fullPage: true });
+            return;
+        }
+
+        await expect(projectsTab).toBeVisible();
+        await expect(listsTab).toBeVisible();
+        await expect(projectsTab).toHaveAttribute('aria-selected', 'true');
+        await expectMobileTouchTarget(projectsTab);
+        await expectMobileTouchTarget(listsTab);
+        await captureEvidenceFrame(page, testInfo, 'mobile-01-projects');
+        const homeUrl = page.url();
+        await listsTab.click();
+        await expect(listsTab).toHaveAttribute('aria-selected', 'true');
+        await expect(page.getByTestId('sidebar-lists-view')).toBeVisible();
+        await expect(page).toHaveURL(homeUrl);
+        await expectMobileTouchTarget(page.getByTestId('sidebar-create-list-button'));
+        await expectMobileTouchTarget(page.getByTestId('sidebar-create-tag-button'));
+        await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+        await page.getByTestId('sidebar-create-list-button').click();
+        await expect(page.getByText('New list', { exact: true })).toBeVisible();
+        await expectMobileTouchTarget(page.getByTestId('sidebar-list-kind-workspace'));
+        await expectMobileTouchTarget(page.getByTestId('sidebar-list-color-blue'));
+        await expectMobileTouchTarget(page.getByTestId('sidebar-create-list-submit'));
+        await page.getByTestId('sidebar-create-list-cancel').click();
+        await expect(page.getByText('New list', { exact: true })).toHaveCount(0);
+
+        await expect.poll(async () => {
+            const box = await accountFooter.boundingBox();
+            return box !== null
+                && box.x >= 0
+                && box.y >= 0
+                && box.x + box.width <= 390
+                && box.y + box.height <= 844;
+        }).toBe(true);
+        await pauseForReview(page);
+        await page.screenshot({ path: testInfo.outputPath('mobile-after-lists-tab.png'), fullPage: true });
+        await captureEvidenceFrame(page, testInfo, 'mobile-02-lists');
+    } finally {
+        await page.close();
+        await deleteSession(request, sessionId);
     }
 });
