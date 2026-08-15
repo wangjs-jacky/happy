@@ -13,7 +13,6 @@ import {
 } from '@/components/relationship-advisor/relationshipAdvisorHistoryModel';
 import {
     emptySidebarOrganization,
-    SIDEBAR_AGENT_PROMPT_MAX_LENGTH,
     SIDEBAR_LIST_COLORS,
     SIDEBAR_LIST_MAX_COUNT,
     SIDEBAR_LIST_NAME_MAX_LENGTH,
@@ -58,7 +57,6 @@ const SidebarAgentListSchema = z.object({
     name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
     kind: z.literal('agent'),
     color: SidebarListColorSchema,
-    prompt: z.string().max(SIDEBAR_AGENT_PROMPT_MAX_LENGTH),
     createdAt: z.number().finite(),
 });
 const SidebarOrganizationSchema = z.object({

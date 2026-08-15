@@ -1,6 +1,8 @@
 import * as React from 'react';
 import {
+    FlatList,
     Modal as RNModal,
+    Platform,
     Pressable,
     ScrollView,
     TextInput,
@@ -24,14 +26,15 @@ import {
 import type { NewSessionAgentType } from '@/sync/persistence';
 import { t } from '@/text';
 import { MainView } from './MainView';
+import { PathPickerContent, PickerContent, type PickerItem } from './SessionConfigPanel';
 import {
+    buildSidebarSessionIndex,
     createSidebarOrganizationId,
     organizeSession,
-    SIDEBAR_AGENT_PROMPT_MAX_LENGTH,
+    removeSidebarList,
     SIDEBAR_LIST_COLORS,
     SIDEBAR_LIST_MAX_COUNT,
     SIDEBAR_LIST_NAME_MAX_LENGTH,
-    SIDEBAR_LIST_PATH_MAX_LENGTH,
     SIDEBAR_SESSION_TAG_MAX_COUNT,
     SIDEBAR_TAG_MAX_COUNT,
     type SidebarList,
@@ -39,6 +42,8 @@ import {
     type SidebarOrganization,
     type SidebarSessionOrganization,
 } from '@/sync/sidebarOrganization';
+import { isMachineOnline } from '@/utils/machineUtils';
+import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 
 const AGENT_TYPES = ['codex', 'claude', 'opencode', 'gemini', 'openclaw'] as const satisfies readonly NewSessionAgentType[];
 const AGENT_LABEL_KEYS = {
@@ -69,28 +74,39 @@ function getListColors(colors: any): Record<SidebarListColor, string> {
 const stylesheet = StyleSheet.create((theme) => ({
     container: { flex: 1, minHeight: 0 },
     tabs: {
-        backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 8,
         flexDirection: 'row',
+        minHeight: 44,
         marginHorizontal: 10,
-        marginTop: 6,
-        padding: 2,
+        marginTop: 1,
+        position: 'relative',
+    },
+    tabTrack: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 7,
+        bottom: 7,
+        left: 0,
+        position: 'absolute',
+        right: 0,
+        top: 7,
     },
     tab: {
         alignItems: 'center',
-        borderRadius: 6,
         flex: 1,
         justifyContent: 'center',
-        minHeight: {
-            [mq.only.width(0, 768)]: 44,
-            [mq.only.width(768)]: 30,
-        },
+        minHeight: 44,
+    },
+    tabVisual: {
+        alignItems: 'center',
+        borderRadius: 6,
+        height: 30,
+        justifyContent: 'center',
+        width: '100%',
     },
     tabSelected: { backgroundColor: theme.colors.surface },
     tabPressed: { backgroundColor: theme.colors.surfacePressed },
     tabText: { color: theme.colors.textSecondary, fontSize: 13, ...Typography.default('semiBold') },
     tabTextSelected: { color: theme.colors.text },
-    listsScroll: { flex: 1 },
+    listsScroll: { flex: 1, minHeight: 0 },
     listsContent: { paddingBottom: 24, paddingTop: 10 },
     sectionHeader: {
         alignItems: 'center',
@@ -131,7 +147,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     listName: { color: theme.colors.text, fontSize: 14, ...Typography.default('semiBold') },
     listMeta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 1, ...Typography.default() },
     count: { color: theme.colors.textSecondary, fontSize: 12, ...Typography.default() },
-    sessions: { borderLeftColor: theme.colors.divider, borderLeftWidth: StyleSheet.hairlineWidth, marginLeft: 30 },
     sessionRow: {
         alignItems: 'center',
         borderRadius: 8,
@@ -140,11 +155,28 @@ const stylesheet = StyleSheet.create((theme) => ({
         minHeight: 48,
         paddingLeft: 10,
     },
+    sessionRowNested: {
+        borderLeftColor: theme.colors.divider,
+        borderLeftWidth: StyleSheet.hairlineWidth,
+        marginLeft: 30,
+    },
     sessionRowSelected: { backgroundColor: theme.colors.surfaceSelected },
     sessionRowPressed: { backgroundColor: theme.colors.surfacePressed },
     sessionMain: { flex: 1, minWidth: 0, paddingVertical: 6 },
     sessionTitle: { color: theme.colors.text, fontSize: 13, ...Typography.default() },
     sessionMeta: { color: theme.colors.textSecondary, fontSize: 11, marginTop: 2, ...Typography.default() },
+    newSessionRow: {
+        alignItems: 'center',
+        borderLeftColor: theme.colors.divider,
+        borderLeftWidth: StyleSheet.hairlineWidth,
+        flexDirection: 'row',
+        gap: 8,
+        marginLeft: 30,
+        marginRight: 8,
+        minHeight: 44,
+        paddingHorizontal: 10,
+    },
+    newSessionText: { color: theme.colors.textSecondary, flex: 1, fontSize: 12, ...Typography.default('semiBold') },
     tagSection: { marginTop: 10 },
     tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 10 },
     tag: {
@@ -247,6 +279,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 14,
     },
     secondaryButton: { backgroundColor: theme.colors.surfaceHigh },
+    destructiveButton: { marginRight: 'auto' },
+    destructiveButtonText: { color: theme.colors.deleteAction, fontSize: 13, ...Typography.default('semiBold') },
     primaryButton: { backgroundColor: theme.colors.button.primary.background },
     buttonDisabled: { opacity: 0.45 },
     secondaryButtonText: { color: theme.colors.text, fontSize: 13, ...Typography.default('semiBold') },
@@ -286,6 +320,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(() => {
     return (
         <View style={styles.container} testID="desktop-sidebar-session-navigation">
             <View accessibilityRole="tablist" style={styles.tabs}>
+                <View pointerEvents="none" style={styles.tabTrack} />
                 {(['projects', 'lists'] as const).map((value) => {
                     const selected = mode === value;
                     return (
@@ -295,12 +330,16 @@ export const DesktopSidebarSessionsNavigation = React.memo(() => {
                             accessibilityState={{ selected }}
                             key={value}
                             onPress={() => setMode(value)}
-                            style={({ pressed }) => [styles.tab, selected && styles.tabSelected, pressed && styles.tabPressed]}
+                            style={styles.tab}
                             testID={`desktop-sidebar-tab-${value}`}
                         >
-                            <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
-                                {value === 'projects' ? t('sidebar.projectsTab') : t('sidebar.listsTab')}
-                            </Text>
+                            {({ pressed }) => (
+                                <View style={[styles.tabVisual, selected && styles.tabSelected, pressed && styles.tabPressed]} testID={`desktop-sidebar-tab-${value}-visual`}>
+                                    <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
+                                        {value === 'projects' ? t('sidebar.projectsTab') : t('sidebar.listsTab')}
+                                    </Text>
+                                </View>
+                            )}
                         </Pressable>
                     );
                 })}
@@ -310,10 +349,21 @@ export const DesktopSidebarSessionsNavigation = React.memo(() => {
     );
 });
 
+type SidebarVirtualRow =
+    | { key: string; type: 'section'; section: 'lists' | 'tags' }
+    | { key: string; type: 'list'; list: SidebarList }
+    | { key: string; type: 'unassigned' }
+    | { key: string; type: 'new-session'; list: SidebarList }
+    | { key: string; type: 'session'; session: SessionRowData; nested: boolean }
+    | { key: string; type: 'empty'; label: string; nested: boolean }
+    | { key: string; type: 'filtered-header'; tagName: string }
+    | { key: string; type: 'tags' };
+
 function SidebarListsView() {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const router = useRouter();
+    const navigateToSession = useNavigateToSession();
     const listColors = getListColors(theme.colors);
     const pathname = usePathname();
     const data = useVisibleSessionListViewData();
@@ -321,7 +371,8 @@ function SidebarListsView() {
     const updateOrganization = useLocalSettingUpdater('sidebarOrganization');
     const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
     const [selectedTagId, setSelectedTagId] = React.useState<string | null>(null);
-    const [createVisible, setCreateVisible] = React.useState(false);
+    const [editorVisible, setEditorVisible] = React.useState(false);
+    const [editingList, setEditingList] = React.useState<SidebarList | null>(null);
     const [organizingSession, setOrganizingSession] = React.useState<SessionRowData | null>(null);
     const selectedSessionId = pathname.startsWith('/session/') ? pathname.split('/')[2] : null;
     const sessions = React.useMemo(() => {
@@ -333,6 +384,10 @@ function SidebarListsView() {
         });
         return Array.from(byId.values());
     }, [data]);
+    const sessionIndex = React.useMemo(
+        () => buildSidebarSessionIndex(sessions, organization.sessions),
+        [organization.sessions, sessions],
+    );
 
     React.useEffect(() => {
         if (!selectedSessionId) return;
@@ -381,110 +436,183 @@ function SidebarListsView() {
             if (list.machineId) draft.setMachineId(list.machineId);
             if (list.path) draft.setPath(list.path);
             if (list.defaultAgent) draft.setAgentType(list.defaultAgent);
-        } else if (list.prompt) {
-            draft.setInput(list.prompt);
+        } else {
+            draft.setAgentType('ask');
+            draft.setInput('');
         }
         router.navigate({ pathname: '/new', params: { sidebarListId: list.id } });
     }, [router]);
 
-    const visibleLists = selectedTagId ? [] : organization.lists;
-    const unassigned = sessions.filter((session) => !organization.sessions[session.id]?.listId);
-    const filtered = selectedTagId
-        ? sessions.filter((session) => organization.sessions[session.id]?.tagIds.includes(selectedTagId))
-        : [];
+    const openCreate = React.useCallback(() => {
+        setEditingList(null);
+        setEditorVisible(true);
+    }, []);
+    const openEdit = React.useCallback((list: SidebarList) => {
+        setEditingList(list);
+        setEditorVisible(true);
+    }, []);
+    const closeEditor = React.useCallback(() => setEditorVisible(false), []);
+    const openSession = React.useCallback((session: SessionRowData) => navigateToSession(session.id), [navigateToSession]);
+    const openOrganizer = React.useCallback((session: SessionRowData) => setOrganizingSession(session), []);
+
+    const rows = React.useMemo<SidebarVirtualRow[]>(() => {
+        const next: SidebarVirtualRow[] = [];
+        if (selectedTagId) {
+            const tag = organization.tags.find((item) => item.id === selectedTagId);
+            next.push({ key: 'filtered-header', type: 'filtered-header', tagName: tag?.name ?? '' });
+            const filteredSessions = sessionIndex.byTagId.get(selectedTagId) ?? [];
+            if (filteredSessions.length > 0) {
+                filteredSessions.forEach((session) => next.push({ key: `filtered-${session.id}`, type: 'session', session, nested: false }));
+            } else {
+                next.push({ key: 'filtered-empty', type: 'empty', label: t('sidebarLists.noTaggedSessions'), nested: false });
+            }
+        } else {
+            next.push({ key: 'lists-section', type: 'section', section: 'lists' });
+            for (const list of organization.lists) {
+                next.push({ key: `list-${list.id}`, type: 'list', list });
+                if (!expanded.has(list.id)) continue;
+                next.push({ key: `new-session-${list.id}`, type: 'new-session', list });
+                const listSessions = sessionIndex.byListId.get(list.id) ?? [];
+                if (listSessions.length > 0) {
+                    listSessions.forEach((session) => next.push({ key: `list-${list.id}-${session.id}`, type: 'session', session, nested: true }));
+                } else {
+                    next.push({ key: `empty-${list.id}`, type: 'empty', label: t('sidebarLists.emptyList'), nested: true });
+                }
+            }
+            next.push({ key: 'unassigned', type: 'unassigned' });
+            if (expanded.has('unassigned')) {
+                sessionIndex.unassigned.forEach((session) => next.push({ key: `unassigned-${session.id}`, type: 'session', session, nested: true }));
+            }
+        }
+        next.push({ key: 'tags-section', type: 'section', section: 'tags' });
+        next.push({ key: 'tags', type: 'tags' });
+        return next;
+    }, [expanded, organization.lists, organization.tags, selectedTagId, sessionIndex]);
+
+    const renderRow = React.useCallback(({ item }: { item: SidebarVirtualRow }) => {
+        if (item.type === 'section') {
+            const isLists = item.section === 'lists';
+            return (
+                <View style={[styles.sectionHeader, !isLists && styles.tagSection]}>
+                    <Text style={styles.sectionTitle}>{isLists ? t('sidebarLists.lists') : t('sidebarLists.tags')}</Text>
+                    <Pressable
+                        accessibilityLabel={isLists ? t('sidebarLists.newList') : t('sidebarLists.newTag')}
+                        accessibilityState={{ disabled: isLists ? organization.lists.length >= SIDEBAR_LIST_MAX_COUNT : organization.tags.length >= SIDEBAR_TAG_MAX_COUNT }}
+                        disabled={isLists ? organization.lists.length >= SIDEBAR_LIST_MAX_COUNT : organization.tags.length >= SIDEBAR_TAG_MAX_COUNT}
+                        onPress={isLists ? openCreate : addTag}
+                        style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+                        testID={isLists ? 'sidebar-create-list-button' : 'sidebar-create-tag-button'}
+                    >
+                        <Feather color={theme.colors.textSecondary} name="plus" size={17} />
+                    </Pressable>
+                </View>
+            );
+        }
+        if (item.type === 'filtered-header') {
+            return (
+                <View style={styles.filteredHeader}>
+                    <Text style={styles.filteredTitle} numberOfLines={1}>#{item.tagName}</Text>
+                    <Pressable accessibilityLabel={t('sidebarLists.close')} accessibilityRole="button" onPress={() => setSelectedTagId(null)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID="sidebar-close-tag-filter">
+                        <Feather color={theme.colors.textSecondary} name="x" size={16} />
+                    </Pressable>
+                </View>
+            );
+        }
+        if (item.type === 'list') {
+            const { list } = item;
+            const isExpanded = expanded.has(list.id);
+            const meta = list.kind === 'agent'
+                ? `${t('sidebarLists.agentList')} · ${t('newSession.askMode')}`
+                : [list.machineId, list.path].filter(Boolean).join(' · ') || t('sidebarLists.workspaceList');
+            return (
+                <View style={styles.listBlock}>
+                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => toggleExpanded(list.id)} style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]} testID={`sidebar-list-${list.id}`}>
+                        <Feather color={theme.colors.textSecondary} name={isExpanded ? 'chevron-down' : 'chevron-right'} size={15} />
+                        <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}>
+                            <Feather color={listColors[list.color]} name={list.kind === 'agent' ? 'cpu' : 'folder'} size={16} />
+                        </View>
+                        <View style={styles.listCopy}>
+                            <Text numberOfLines={1} style={styles.listName}>{list.name}</Text>
+                            <Text numberOfLines={1} style={styles.listMeta}>{meta}</Text>
+                        </View>
+                        <Text style={styles.count}>{sessionIndex.byListId.get(list.id)?.length ?? 0}</Text>
+                        <Pressable accessibilityLabel={`${t('sidebarLists.editList')} ${list.name}`} onPress={(event) => { event.stopPropagation(); openEdit(list); }} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`sidebar-edit-list-${list.id}`}>
+                            <Feather color={theme.colors.textSecondary} name="edit-2" size={14} />
+                        </Pressable>
+                    </Pressable>
+                </View>
+            );
+        }
+        if (item.type === 'unassigned') {
+            const isExpanded = expanded.has('unassigned');
+            return (
+                <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => toggleExpanded('unassigned')} style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]} testID="sidebar-list-unassigned">
+                    <Feather color={theme.colors.textSecondary} name={isExpanded ? 'chevron-down' : 'chevron-right'} size={15} />
+                    <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}><Feather color={theme.colors.textSecondary} name="inbox" size={16} /></View>
+                    <View style={styles.listCopy}><Text style={styles.listName}>{t('sidebarLists.unassigned')}</Text><Text style={styles.listMeta}>{t('sidebarLists.unassignedDescription')}</Text></View>
+                    <Text style={styles.count}>{sessionIndex.unassigned.length}</Text>
+                </Pressable>
+            );
+        }
+        if (item.type === 'new-session') {
+            return (
+                <Pressable accessibilityLabel={t('sidebarLists.newSessionInList')} onPress={() => createSession(item.list)} style={({ pressed }) => [styles.newSessionRow, pressed && styles.listRowPressed]} testID={`sidebar-new-session-${item.list.id}`}>
+                    <Feather color={theme.colors.textSecondary} name="plus" size={15} />
+                    <Text style={styles.newSessionText}>{t('sidebarLists.newSessionInList')}</Text>
+                </Pressable>
+            );
+        }
+        if (item.type === 'session') {
+            return <OrganizedSessionRow nested={item.nested} onOpen={openSession} onOrganize={openOrganizer} selected={selectedSessionId === item.session.id} session={item.session} />;
+        }
+        if (item.type === 'empty') {
+            return <Text style={[styles.empty, item.nested && styles.sessionRowNested]}>{item.label}</Text>;
+        }
+        return (
+            <View style={styles.tags}>
+                {organization.tags.map((tag) => {
+                    const selected = tag.id === selectedTagId;
+                    const count = sessionIndex.byTagId.get(tag.id)?.length ?? 0;
+                    return (
+                        <Pressable aria-selected={selected} accessibilityRole="button" accessibilityState={{ selected }} key={tag.id} onPress={() => setSelectedTagId(selected ? null : tag.id)} style={({ pressed }) => [styles.tag, selected && styles.tagSelected, pressed && styles.tagSelected]} testID={`sidebar-tag-${tag.id}`}>
+                            <View style={[styles.tagDot, { backgroundColor: listColors[tag.color] }]} />
+                            <Text style={styles.tagText}>{tag.name} {count}</Text>
+                        </Pressable>
+                    );
+                })}
+                {organization.tags.length === 0 ? <Text style={styles.empty}>{t('sidebarLists.noTags')}</Text> : null}
+            </View>
+        );
+    }, [addTag, createSession, expanded, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.tags, selectedSessionId, selectedTagId, sessionIndex, styles, theme.colors]);
 
     return (
         <View style={styles.container} testID="sidebar-lists-view">
-            <ScrollView contentContainerStyle={styles.listsContent} style={styles.listsScroll}>
-                {selectedTagId ? (
-                    <View>
-                        <View style={styles.filteredHeader}>
-                            <Text style={styles.filteredTitle} numberOfLines={1}>
-                                #{organization.tags.find((tag) => tag.id === selectedTagId)?.name}
-                            </Text>
-                            <Pressable accessibilityLabel={t('sidebarLists.close')} onPress={() => setSelectedTagId(null)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}>
-                                <Feather color={theme.colors.textSecondary} name="x" size={16} />
-                            </Pressable>
-                        </View>
-                        {filtered.length > 0 ? filtered.map((session) => (
-                            <OrganizedSessionRow key={session.id} onOrganize={() => setOrganizingSession(session)} selected={selectedSessionId === session.id} session={session} />
-                        )) : <Text style={styles.empty}>{t('sidebarLists.noTaggedSessions')}</Text>}
-                    </View>
-                ) : (
-                    <>
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>{t('sidebarLists.lists')}</Text>
-                            <Pressable accessibilityLabel={t('sidebarLists.newList')} accessibilityState={{ disabled: organization.lists.length >= SIDEBAR_LIST_MAX_COUNT }} disabled={organization.lists.length >= SIDEBAR_LIST_MAX_COUNT} onPress={() => setCreateVisible(true)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID="sidebar-create-list-button">
-                                <Feather color={theme.colors.textSecondary} name="plus" size={17} />
-                            </Pressable>
-                        </View>
-                        {visibleLists.map((list) => {
-                            const listSessions = sessions.filter((session) => organization.sessions[session.id]?.listId === list.id);
-                            const isExpanded = expanded.has(list.id);
-                            const meta = list.kind === 'agent'
-                                ? t('sidebarLists.agentList')
-                                : [list.machineId, list.path].filter(Boolean).join(' · ') || t('sidebarLists.workspaceList');
-                            return (
-                                <View key={list.id} style={styles.listBlock}>
-                                    <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => toggleExpanded(list.id)} style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]} testID={`sidebar-list-${list.id}`}>
-                                        <Feather color={theme.colors.textSecondary} name={isExpanded ? 'chevron-down' : 'chevron-right'} size={15} />
-                                        <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}>
-                                            <Feather color={listColors[list.color]} name={list.kind === 'agent' ? 'cpu' : 'folder'} size={16} />
-                                        </View>
-                                        <View style={styles.listCopy}>
-                                            <Text numberOfLines={1} style={styles.listName}>{list.name}</Text>
-                                            <Text numberOfLines={1} style={styles.listMeta}>{meta}</Text>
-                                        </View>
-                                        <Text style={styles.count}>{listSessions.length}</Text>
-                                        <Pressable accessibilityLabel={t('sidebarLists.newSessionInList')} onPress={(event) => { event.stopPropagation(); createSession(list); }} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}>
-                                            <Feather color={theme.colors.textSecondary} name="edit-3" size={14} />
-                                        </Pressable>
-                                    </Pressable>
-                                    {isExpanded ? (
-                                        <View style={styles.sessions}>
-                                            {listSessions.length > 0 ? listSessions.map((session) => (
-                                                <OrganizedSessionRow key={session.id} onOrganize={() => setOrganizingSession(session)} selected={selectedSessionId === session.id} session={session} />
-                                            )) : <Text style={styles.empty}>{t('sidebarLists.emptyList')}</Text>}
-                                        </View>
-                                    ) : null}
-                                </View>
-                            );
-                        })}
-                        <View style={styles.listBlock}>
-                            <Pressable accessibilityRole="button" accessibilityState={{ expanded: expanded.has('unassigned') }} onPress={() => toggleExpanded('unassigned')} style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]} testID="sidebar-list-unassigned">
-                                <Feather color={theme.colors.textSecondary} name={expanded.has('unassigned') ? 'chevron-down' : 'chevron-right'} size={15} />
-                                <View style={[styles.listGlyph, { backgroundColor: theme.colors.surfaceHigh }]}><Feather color={theme.colors.textSecondary} name="inbox" size={16} /></View>
-                                <View style={styles.listCopy}><Text style={styles.listName}>{t('sidebarLists.unassigned')}</Text><Text style={styles.listMeta}>{t('sidebarLists.unassignedDescription')}</Text></View>
-                                <Text style={styles.count}>{unassigned.length}</Text>
-                            </Pressable>
-                            {expanded.has('unassigned') ? <View style={styles.sessions}>{unassigned.map((session) => <OrganizedSessionRow key={session.id} onOrganize={() => setOrganizingSession(session)} selected={selectedSessionId === session.id} session={session} />)}</View> : null}
-                        </View>
-                    </>
-                )}
-
-                <View style={styles.tagSection}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>{t('sidebarLists.tags')}</Text>
-                        <Pressable accessibilityLabel={t('sidebarLists.newTag')} accessibilityState={{ disabled: organization.tags.length >= SIDEBAR_TAG_MAX_COUNT }} disabled={organization.tags.length >= SIDEBAR_TAG_MAX_COUNT} onPress={addTag} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID="sidebar-create-tag-button">
-                            <Feather color={theme.colors.textSecondary} name="plus" size={17} />
-                        </Pressable>
-                    </View>
-                    <View style={styles.tags}>
-                        {organization.tags.map((tag) => {
-                            const selected = tag.id === selectedTagId;
-                            const count = sessions.filter((session) => organization.sessions[session.id]?.tagIds.includes(tag.id)).length;
-                            return (
-                                <Pressable aria-selected={selected} accessibilityRole="button" accessibilityState={{ selected }} key={tag.id} onPress={() => setSelectedTagId(selected ? null : tag.id)} style={({ pressed }) => [styles.tag, selected && styles.tagSelected, pressed && styles.tagSelected]} testID={`sidebar-tag-${tag.id}`}>
-                                    <View style={[styles.tagDot, { backgroundColor: listColors[tag.color] }]} />
-                                    <Text style={styles.tagText}>{tag.name} {count}</Text>
-                                </Pressable>
-                            );
-                        })}
-                        {organization.tags.length === 0 ? <Text style={styles.empty}>{t('sidebarLists.noTags')}</Text> : null}
-                    </View>
-                </View>
-            </ScrollView>
-            <CreateListDialog onClose={() => setCreateVisible(false)} onCreate={(list) => updateOrganization((current) => ({ ...current, lists: [...current.lists, list] }))} organization={organization} visible={createVisible} />
+            <FlatList
+                contentContainerStyle={styles.listsContent}
+                data={rows}
+                initialNumToRender={18}
+                keyExtractor={(item) => item.key}
+                keyboardShouldPersistTaps="handled"
+                maxToRenderPerBatch={12}
+                removeClippedSubviews={Platform.OS !== 'web'}
+                renderItem={renderRow}
+                style={styles.listsScroll}
+                windowSize={7}
+            />
+            <ListEditorDialog
+                list={editingList}
+                onClose={closeEditor}
+                onDelete={(listId) => updateOrganization((current) => removeSidebarList(current, listId))}
+                onSave={(list) => updateOrganization((current) => ({
+                    ...current,
+                    lists: editingList
+                        ? current.lists.map((item) => item.id === list.id ? list : item)
+                        : [...current.lists, list],
+                }))}
+                organization={organization}
+                sessions={sessions}
+                visible={editorVisible}
+            />
             {organizingSession ? (
                 <OrganizeSessionDialog
                     assignment={organization.sessions[organizingSession.id] ?? { listId: null, tagIds: [] }}
@@ -499,22 +627,21 @@ function SidebarListsView() {
     );
 }
 
-function OrganizedSessionRow({ onOrganize, selected, session }: { onOrganize: () => void; selected: boolean; session: SessionRowData }) {
+const OrganizedSessionRow = React.memo(function OrganizedSessionRow({ nested, onOpen, onOrganize, selected, session }: { nested: boolean; onOpen: (session: SessionRowData) => void; onOrganize: (session: SessionRowData) => void; selected: boolean; session: SessionRowData }) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
-    const navigateToSession = useNavigateToSession();
     return (
-        <View style={[styles.sessionRow, selected && styles.sessionRowSelected]}>
-            <Pressable aria-selected={selected} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => navigateToSession(session.id)} style={({ pressed }) => [styles.sessionMain, pressed && styles.sessionRowPressed]} testID={`organized-session-${session.id}`}>
+        <View style={[styles.sessionRow, nested && styles.sessionRowNested, selected && styles.sessionRowSelected]}>
+            <Pressable aria-selected={selected} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => onOpen(session)} style={({ pressed }) => [styles.sessionMain, pressed && styles.sessionRowPressed]} testID={`organized-session-${session.id}`}>
                 <Text numberOfLines={1} style={styles.sessionTitle}>{session.name}</Text>
                 <Text numberOfLines={1} style={styles.sessionMeta}>{session.subtitle}</Text>
             </Pressable>
-            <Pressable accessibilityLabel={t('sidebarLists.organizeSession')} onPress={onOrganize} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`organize-session-${session.id}`}>
+            <Pressable accessibilityLabel={t('sidebarLists.organizeSession')} onPress={() => onOrganize(session)} style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]} testID={`organize-session-${session.id}`}>
                 <Feather color={theme.colors.textSecondary} name="tag" size={14} />
             </Pressable>
         </View>
     );
-}
+});
 
 function DialogFrame({ children, onClose, title, visible }: { children: React.ReactNode; onClose: () => void; title: string; visible: boolean }) {
     const styles = stylesheet;
@@ -537,7 +664,15 @@ function DialogFrame({ children, onClose, title, visible }: { children: React.Re
     );
 }
 
-function CreateListDialog({ onClose, onCreate, organization, visible }: { onClose: () => void; onCreate: (list: SidebarList) => void; organization: SidebarOrganization; visible: boolean }) {
+function ListEditorDialog({ list, onClose, onDelete, onSave, organization, sessions, visible }: {
+    list: SidebarList | null;
+    onClose: () => void;
+    onDelete: (listId: string) => void;
+    onSave: (list: SidebarList) => void;
+    organization: SidebarOrganization;
+    sessions: readonly SessionRowData[];
+    visible: boolean;
+}) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const listColors = getListColors(theme.colors);
@@ -548,32 +683,66 @@ function CreateListDialog({ onClose, onCreate, organization, visible }: { onClos
     const [machineId, setMachineId] = React.useState<string | null>(null);
     const [path, setPath] = React.useState('');
     const [defaultAgent, setDefaultAgent] = React.useState<NewSessionAgentType | null>(null);
-    const [prompt, setPrompt] = React.useState('');
-    const duplicate = organization.lists.some((list) => list.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase());
-    const canCreate = name.trim().length > 0 && !duplicate && organization.lists.length < SIDEBAR_LIST_MAX_COUNT;
+    const selectedMachine = React.useMemo(
+        () => machines.find((machine) => machine.id === machineId) ?? null,
+        [machineId, machines],
+    );
+    const machineItems = React.useMemo<PickerItem[]>(() => machines.map((machine) => ({
+        key: machine.id,
+        label: machine.metadata?.displayName || machine.metadata?.host || machine.id,
+        subtitle: isMachineOnline(machine) ? t('status.online') : t('agents.machineOffline'),
+    })), [machines]);
+    const pathItems = React.useMemo<PickerItem[]>(() => {
+        if (!machineId) return [];
+        const paths = new Set<string>();
+        sessions.forEach((session) => {
+            if (session.machineId === machineId && session.path) paths.add(session.path);
+        });
+        return Array.from(paths).sort().map((value) => ({
+            key: value,
+            label: formatPathRelativeToHome(value, selectedMachine?.metadata?.homeDir),
+        }));
+    }, [machineId, selectedMachine, sessions]);
+    const duplicate = organization.lists.some((item) => item.id !== list?.id && item.name.toLocaleLowerCase() === name.trim().toLocaleLowerCase());
+    const canSave = name.trim().length > 0 && !duplicate && (list !== null || organization.lists.length < SIDEBAR_LIST_MAX_COUNT);
 
     React.useEffect(() => {
         if (!visible) return;
-        setName('');
-        setKind('workspace');
-        setColor('blue');
-        setMachineId(null);
-        setPath('');
-        setDefaultAgent(null);
-        setPrompt('');
-    }, [visible]);
+        setName(list?.name ?? '');
+        setKind(list?.kind ?? 'workspace');
+        setColor(list?.color ?? 'blue');
+        setMachineId(list?.kind === 'workspace' ? list.machineId : null);
+        setPath(list?.kind === 'workspace' ? list.path ?? '' : '');
+        setDefaultAgent(list?.kind === 'workspace' ? list.defaultAgent : null);
+    }, [list, visible]);
 
     const save = () => {
-        if (!canCreate) return;
-        const common = { id: createSidebarOrganizationId('list'), name: name.trim(), color, createdAt: Date.now() };
-        onCreate(kind === 'agent'
-            ? { ...common, kind: 'agent', prompt: prompt.trim() }
+        if (!canSave) return;
+        const common = {
+            id: list?.id ?? createSidebarOrganizationId('list'),
+            name: name.trim(),
+            color,
+            createdAt: list?.createdAt ?? Date.now(),
+        };
+        onSave(kind === 'agent'
+            ? { ...common, kind: 'agent' }
             : { ...common, kind: 'workspace', machineId, path: path.trim() || null, defaultAgent });
+        onClose();
+    };
+    const deleteList = async () => {
+        if (!list) return;
+        const confirmed = await Modal.confirm(
+            t('sidebarLists.deleteList'),
+            t('sidebarLists.deleteListConfirm', { name: list.name }),
+            { cancelText: t('common.cancel'), confirmText: t('common.delete'), destructive: true },
+        );
+        if (!confirmed) return;
+        onDelete(list.id);
         onClose();
     };
 
     return (
-        <DialogFrame onClose={onClose} title={t('sidebarLists.newList')} visible={visible}>
+        <DialogFrame onClose={onClose} title={list ? t('sidebarLists.editList') : t('sidebarLists.newList')} visible={visible}>
             <ScrollView contentContainerStyle={styles.dialogBody}>
                 <View style={styles.field}>
                     <Text style={styles.fieldLabel}>{t('sidebarLists.listName')}</Text>
@@ -592,29 +761,71 @@ function CreateListDialog({ onClose, onCreate, organization, visible }: { onClos
                 </View>
                 {kind === 'workspace' ? (
                     <>
-                        <View style={styles.field}>
+                        <View style={styles.field} testID="sidebar-list-machine-picker">
                             <Text style={styles.fieldLabel}>{t('sidebarLists.defaultMachine')}</Text>
-                            <View accessibilityLabel={t('sidebarLists.defaultMachine')} accessibilityRole="radiogroup" style={styles.choices}>
-                                <Choice label={t('sidebarLists.noPreset')} onPress={() => setMachineId(null)} selected={machineId === null} />
-                                {machines.map((machine) => <Choice key={machine.id} label={machine.metadata?.displayName || machine.metadata?.host || machine.id} onPress={() => setMachineId(machine.id)} selected={machineId === machine.id} />)}
-                            </View>
+                            <PickerContent
+                                embedded
+                                fixedItems={[{ key: '__none__', label: t('sidebarLists.noPreset') }]}
+                                items={machineItems}
+                                onSelect={(key) => {
+                                    const nextMachineId = key === '__none__' ? null : key;
+                                    if (nextMachineId !== machineId) setPath('');
+                                    setMachineId(nextMachineId);
+                                }}
+                                searchPlaceholder={t('sidebarLists.defaultMachine')}
+                                selectedKey={machineId ?? '__none__'}
+                                title={t('sidebarLists.defaultMachine')}
+                            />
                         </View>
-                        <View style={styles.field}><Text style={styles.fieldLabel}>{t('sidebarLists.defaultDirectory')}</Text><TextInput maxLength={SIDEBAR_LIST_PATH_MAX_LENGTH} onChangeText={setPath} placeholder={t('sidebarLists.directoryPlaceholder')} placeholderTextColor={stylesheet.fieldLabel.color} style={styles.input} value={path} /></View>
+                        <View style={styles.field} testID="sidebar-list-directory-picker">
+                            <Text style={styles.fieldLabel}>{t('sidebarLists.defaultDirectory')}</Text>
+                            <View style={styles.choices}>
+                                <Choice
+                                    label={t('sidebarLists.noPreset')}
+                                    onPress={() => setPath('')}
+                                    selected={path.trim().length === 0}
+                                    testID="sidebar-list-directory-none"
+                                />
+                            </View>
+                            <PathPickerContent
+                                embedded
+                                emptyRecentLabel={t('agents.folderNoRecent')}
+                                homeDir={selectedMachine?.metadata?.homeDir}
+                                inputPlaceholder={t('sidebarLists.directoryPlaceholder')}
+                                items={pathItems}
+                                machineId={machineId}
+                                machineOnline={selectedMachine ? isMachineOnline(selectedMachine) : false}
+                                manualInput={false}
+                                onChangeValue={setPath}
+                                recentLabel={t('agents.folderRecent')}
+                                title={t('sidebarLists.defaultDirectory')}
+                                value={path}
+                            />
+                        </View>
                         <View style={styles.field}><Text style={styles.fieldLabel}>{t('sidebarLists.defaultAgent')}</Text><View accessibilityLabel={t('sidebarLists.defaultAgent')} accessibilityRole="radiogroup" style={styles.choices}><Choice label={t('sidebarLists.noPreset')} onPress={() => setDefaultAgent(null)} selected={defaultAgent === null} />{AGENT_TYPES.map((agent) => <Choice key={agent} label={t(AGENT_LABEL_KEYS[agent])} onPress={() => setDefaultAgent(agent)} selected={defaultAgent === agent} />)}</View></View>
                     </>
                 ) : (
-                    <View style={styles.field}><Text style={styles.fieldLabel}>{t('sidebarLists.agentPrompt')}</Text><TextInput maxLength={SIDEBAR_AGENT_PROMPT_MAX_LENGTH} multiline onChangeText={setPrompt} placeholder={t('sidebarLists.agentPromptPlaceholder')} placeholderTextColor={stylesheet.fieldLabel.color} style={[styles.input, styles.multilineInput]} testID="sidebar-list-agent-prompt-input" value={prompt} /></View>
+                    <View style={styles.field}>
+                        <Text style={styles.fieldLabel}>{t('sidebarLists.defaultAgent')}</Text>
+                        <View accessibilityRole="radiogroup" style={styles.choices}>
+                            <Choice disabled label={t('newSession.askMode')} onPress={() => undefined} selected />
+                        </View>
+                    </View>
                 )}
             </ScrollView>
-            <View style={styles.dialogFooter}><Pressable onPress={onClose} style={[styles.button, styles.secondaryButton]} testID="sidebar-create-list-cancel"><Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text></Pressable><Pressable disabled={!canCreate} onPress={save} style={[styles.button, styles.primaryButton, !canCreate && styles.buttonDisabled]} testID="sidebar-create-list-submit"><Text style={styles.primaryButtonText}>{t('common.create')}</Text></Pressable></View>
+            <View style={styles.dialogFooter}>
+                {list ? <Pressable onPress={() => void deleteList()} style={[styles.button, styles.destructiveButton]} testID="sidebar-delete-list"><Text style={styles.destructiveButtonText}>{t('common.delete')}</Text></Pressable> : null}
+                <Pressable onPress={onClose} style={[styles.button, styles.secondaryButton]} testID="sidebar-create-list-cancel"><Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text></Pressable>
+                <Pressable disabled={!canSave} onPress={save} style={[styles.button, styles.primaryButton, !canSave && styles.buttonDisabled]} testID={list ? 'sidebar-edit-list-submit' : 'sidebar-create-list-submit'}><Text style={styles.primaryButtonText}>{list ? t('common.save') : t('common.create')}</Text></Pressable>
+            </View>
         </DialogFrame>
     );
 }
 
-function Choice({ label, onPress, selected }: { label: string; onPress: () => void; selected: boolean }) {
+function Choice({ disabled = false, label, onPress, selected, testID }: { disabled?: boolean; label: string; onPress: () => void; selected: boolean; testID?: string }) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
-    return <Pressable aria-checked={selected} accessibilityLabel={label} accessibilityRole="radio" accessibilityState={{ checked: selected }} onPress={onPress} style={[styles.choice, selected && styles.choiceSelected]}><Feather color={selected ? theme.colors.accent : theme.colors.textSecondary} name={selected ? 'check-circle' : 'circle'} size={14} /><Text style={styles.choiceText}>{label}</Text></Pressable>;
+    return <Pressable aria-checked={selected} accessibilityLabel={label} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled }} disabled={disabled} onPress={onPress} style={[styles.choice, selected && styles.choiceSelected]} testID={testID}><Feather color={selected ? theme.colors.accent : theme.colors.textSecondary} name={selected ? 'check-circle' : 'circle'} size={14} /><Text style={styles.choiceText}>{label}</Text></Pressable>;
 }
 
 function OrganizeSessionDialog({ assignment, onClose, onSave, organization, sessionName, visible }: { assignment: SidebarSessionOrganization; onClose: () => void; onSave: (assignment: SidebarSessionOrganization) => void; organization: SidebarOrganization; sessionName: string; visible: boolean }) {

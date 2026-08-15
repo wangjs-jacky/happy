@@ -90,11 +90,11 @@ describe('localSettings desktop Lists and Tags', () => {
         expect(localSettingsParse({ sidebarOrganization }).sidebarOrganization).toEqual(sidebarOrganization);
     });
 
-    it('strips machine and directory fields from Agent Lists', () => {
+    it('strips workspace presets and legacy prompts from Agent Lists', () => {
         const parsed = localSettingsParse({
             sidebarOrganization: {
                 lists: [{
-                    id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', prompt: 'Help', createdAt: 1,
+                    id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', prompt: 'legacy prompt', createdAt: 1,
                     machineId: 'must-not-survive', path: '/must-not-survive',
                 }],
                 tags: [],
@@ -103,7 +103,7 @@ describe('localSettings desktop Lists and Tags', () => {
         });
 
         expect(parsed.sidebarOrganization.lists[0]).toEqual({
-            id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', prompt: 'Help', createdAt: 1,
+            id: 'advisor', name: 'Advisor', kind: 'agent', color: 'pink', createdAt: 1,
         });
     });
 
@@ -111,7 +111,7 @@ describe('localSettings desktop Lists and Tags', () => {
         const parsed = localSettingsParse({
             themePreference: 'dark',
             sidebarOrganization: {
-                lists: [{ id: 'bad', name: 'x'.repeat(81), kind: 'agent', color: 'pink', prompt: '', createdAt: 1 }],
+                lists: [{ id: 'bad', name: 'x'.repeat(81), kind: 'agent', color: 'pink', createdAt: 1 }],
                 tags: [],
                 sessions: {},
             },

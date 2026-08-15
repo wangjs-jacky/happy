@@ -84,7 +84,7 @@ async function expectMobileTouchTarget(locator: Locator): Promise<void> {
 
 async function createList(
     page: Page,
-    options: { name: string; kind: 'workspace' | 'agent'; prompt?: string },
+    options: { name: string; kind: 'workspace' | 'agent' },
 ): Promise<void> {
     await page.getByTestId('sidebar-create-list-button').click();
     await expect(page.getByText('New list', { exact: true })).toBeVisible();
@@ -94,10 +94,16 @@ async function createList(
     if (options.kind === 'agent') {
         await expect(page.getByText('Default machine', { exact: true })).toHaveCount(0);
         await expect(page.getByText('Default directory', { exact: true })).toHaveCount(0);
-        await page.getByTestId('sidebar-list-agent-prompt-input').fill(options.prompt ?? '');
+        await expect(page.getByTestId('sidebar-list-agent-prompt-input')).toHaveCount(0);
+        const askMode = page.getByRole('radio', { name: 'Ask', exact: true });
+        await expect(askMode).toHaveAttribute('aria-checked', 'true');
+        await expect(askMode).toBeDisabled();
     } else {
-        await expect(page.getByText('Default machine', { exact: true })).toBeVisible();
-        await expect(page.getByText('Default directory', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('sidebar-list-machine-picker')).toBeVisible();
+        const directoryPicker = page.getByTestId('sidebar-list-directory-picker');
+        await expect(directoryPicker).toBeVisible();
+        await expect(page.getByTestId('sidebar-list-directory-none')).toHaveAttribute('aria-checked', 'true');
+        await expect(directoryPicker.locator('input')).not.toBeEditable();
     }
     await page.getByTestId('sidebar-create-list-submit').click();
     await expect(page.getByText(options.name, { exact: true })).toBeVisible();
@@ -150,7 +156,18 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
 
         await createList(page, { name: 'Remote Happy', kind: 'workspace' });
         await captureEvidenceFrame(page, testInfo, '03-workspace-list');
-        await createList(page, { name: 'Advisor', kind: 'agent', prompt: 'Help me think clearly.' });
+        const remoteListRow = page.getByText('Remote Happy', { exact: true });
+        await expect(remoteListRow).toBeVisible();
+        const remoteListId = await remoteListRow.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
+        expect(remoteListId).toMatch(/^sidebar-list-/);
+        const remoteId = remoteListId!.replace('sidebar-list-', '');
+        await page.getByTestId(`sidebar-edit-list-${remoteId}`).click();
+        await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
+        await page.getByTestId('sidebar-list-name-input').fill('Remote Happy renamed');
+        await page.getByTestId('sidebar-edit-list-submit').click();
+        await expect(page.getByText('Remote Happy renamed', { exact: true })).toBeVisible();
+
+        await createList(page, { name: 'Advisor', kind: 'agent' });
         await captureEvidenceFrame(page, testInfo, '04-agent-list');
 
         await page.getByTestId('sidebar-create-tag-button').click();
@@ -160,7 +177,7 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page).toHaveURL(alphaUrl);
         await captureEvidenceFrame(page, testInfo, '05-tag-created');
 
-        await organizeSession(page, { sessionId: alphaId, listName: 'Remote Happy', tagName: 'product' });
+        await organizeSession(page, { sessionId: alphaId, listName: 'Remote Happy renamed', tagName: 'product' });
         await expect(page.getByTestId(`organized-session-${alphaId}`)).toBeVisible();
         await expect(page).toHaveURL(alphaUrl);
         await expect(visibleTitle).toHaveText('E2E Alpha conversation');
@@ -189,11 +206,24 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page).toHaveURL((url) => url.pathname === `/session/${alphaId}`);
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation');
 
+        await page.getByTestId('sidebar-close-tag-filter').click();
+        const advisorListRow = page.getByText('Advisor', { exact: true });
+        const advisorListTestId = await advisorListRow.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
+        expect(advisorListTestId).toMatch(/^sidebar-list-/);
+        const advisorId = advisorListTestId!.replace('sidebar-list-', '');
+        await page.getByTestId(`sidebar-edit-list-${advisorId}`).click();
+        await page.getByTestId('sidebar-delete-list').click();
+        await expect(page.getByText('Delete list', { exact: true })).toBeVisible();
+        await page.getByRole('button', { name: 'Delete', exact: true }).click();
+        await expect(page.getByText('Advisor', { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible();
+        await expect(page.getByTestId(`organized-session-${betaId}`)).toBeVisible();
+
         await page.reload({ timeout: 180_000 });
         await expect(page.getByTestId('desktop-sidebar-tab-lists')).toHaveAttribute('aria-selected', 'true', { timeout: 120_000 });
-        await expect(page.getByText('Remote Happy', { exact: true })).toBeVisible();
-        await expect(page.getByText('Advisor', { exact: true })).toBeVisible();
-        await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible();
+        await expect(page.getByText('Remote Happy renamed', { exact: true })).toBeVisible();
+        await expect(page.getByText('Advisor', { exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible({ timeout: 120_000 });
         await page.getByRole('button', { name: /^product 2$/ }).click();
         await expect(page.getByTestId(`organized-session-${alphaId}`)).toBeVisible();
         await expect(page.getByTestId(`organized-session-${betaId}`)).toBeVisible();
@@ -203,6 +233,7 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await page.screenshot({ path: testInfo.outputPath('03-reload-persisted.png'), fullPage: true });
         await captureEvidenceFrame(page, testInfo, '09-reload-persisted');
     } finally {
+        await page.close();
         await Promise.allSettled([deleteSession(request, alphaId), deleteSession(request, betaId)]);
     }
 });
@@ -246,6 +277,10 @@ test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs'
         await expect(projectsTab).toHaveAttribute('aria-selected', 'true');
         await expectMobileTouchTarget(projectsTab);
         await expectMobileTouchTarget(listsTab);
+        const projectsVisual = await page.getByTestId('desktop-sidebar-tab-projects-visual').boundingBox();
+        const listsVisual = await page.getByTestId('desktop-sidebar-tab-lists-visual').boundingBox();
+        expect(projectsVisual?.height).toBeLessThanOrEqual(32);
+        expect(listsVisual?.height).toBeLessThanOrEqual(32);
         await captureEvidenceFrame(page, testInfo, 'mobile-01-projects');
         const homeUrl = page.url();
         await listsTab.click();
@@ -278,5 +313,60 @@ test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs'
     } finally {
         await page.close();
         await deleteSession(request, sessionId);
+    }
+});
+
+test('[SIDEBAR-LISTS-TAGS-PERF] 100 unassigned sessions remain responsive when expanded', async ({ page, request }, testInfo: TestInfo) => {
+    const sessionIds = await Promise.all(Array.from({ length: 100 }, (_, index) => createSession(request, {
+        name: `Sidebar performance ${index + 1}`,
+        summary: `Performance conversation ${index + 1}`,
+        path: `/workspace/sidebar-performance-${index + 1}`,
+    })));
+
+    try {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto(authenticatedRoute(`/session/${sessionIds[0]}`));
+        page.setDefaultTimeout(15_000);
+        await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('Performance conversation 1', { timeout: 120_000 });
+        const listsTab = page.getByTestId('desktop-sidebar-tab-lists');
+        await expect(listsTab).toBeVisible();
+        const listsTabBox = await listsTab.boundingBox();
+        expect(listsTabBox).not.toBeNull();
+        await page.mouse.click(
+            listsTabBox!.x + listsTabBox!.width / 2,
+            listsTabBox!.y + listsTabBox!.height / 2,
+        );
+        await expect(listsTab).toHaveAttribute('aria-selected', 'true', { timeout: 120_000 });
+        const unassigned = page.getByTestId('sidebar-list-unassigned');
+        await expect(unassigned).toContainText('100', { timeout: 120_000 });
+
+        const mountedSessions = page.locator('[data-testid^="organized-session-"]');
+        await expect(mountedSessions.first()).toBeVisible({ timeout: 120_000 });
+        expect(await mountedSessions.count()).toBeLessThan(100);
+
+        const unassignedBox = await unassigned.boundingBox();
+        expect(unassignedBox).not.toBeNull();
+        const clickUnassigned = () => page.mouse.click(
+            unassignedBox!.x + unassignedBox!.width / 2,
+            unassignedBox!.y + unassignedBox!.height / 2,
+        );
+
+        await clickUnassigned();
+        await expect(mountedSessions).toHaveCount(0);
+
+        const startedAt = Date.now();
+        await clickUnassigned();
+        await expect(mountedSessions.first()).toBeVisible();
+        expect(Date.now() - startedAt).toBeLessThan(5_000);
+        expect(await mountedSessions.count()).toBeLessThan(100);
+        await captureEvidenceFrame(page, testInfo, 'desktop-100-sessions-responsive');
+
+        await clickUnassigned();
+        await expect(mountedSessions).toHaveCount(0);
+        await page.getByTestId('sidebar-create-tag-button').click();
+        await expect(page.getByPlaceholder('Tag name')).toBeVisible();
+    } finally {
+        await page.close();
+        await Promise.allSettled(sessionIds.map((sessionId) => deleteSession(request, sessionId)));
     }
 });

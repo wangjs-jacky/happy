@@ -946,6 +946,9 @@ export const en = {
         belongsToList: 'List',
         tagsMultiSelect: 'Tags (select multiple)',
         close: 'Close',
+        editList: 'Edit list',
+        deleteList: 'Delete list',
+        deleteListConfirm: ({ name }: { name: string }) => `Deleting the list "${name}" will move its sessions back to Unassigned. Tags will not be affected.`,
         colors: { blue: 'Blue', green: 'Green', purple: 'Purple', orange: 'Orange', pink: 'Pink' },
     },
     sessionSearch: {

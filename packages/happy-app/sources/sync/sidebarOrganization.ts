@@ -3,7 +3,6 @@ import type { NewSessionAgentType } from '@/sync/persistence';
 export const SIDEBAR_LIST_COLORS = ['blue', 'green', 'purple', 'orange', 'pink'] as const;
 export const SIDEBAR_LIST_NAME_MAX_LENGTH = 80;
 export const SIDEBAR_LIST_PATH_MAX_LENGTH = 2_000;
-export const SIDEBAR_AGENT_PROMPT_MAX_LENGTH = 12_000;
 export const SIDEBAR_LIST_MAX_COUNT = 200;
 export const SIDEBAR_TAG_MAX_COUNT = 500;
 export const SIDEBAR_SESSION_TAG_MAX_COUNT = 100;
@@ -26,7 +25,6 @@ export type SidebarAgentList = {
     name: string;
     kind: 'agent';
     color: SidebarListColor;
-    prompt: string;
     createdAt: number;
 };
 
@@ -55,6 +53,40 @@ export const emptySidebarOrganization: SidebarOrganization = {
     tags: [],
     sessions: {},
 };
+
+export type SidebarSessionIndex<T extends { id: string }> = {
+    byListId: Map<string, T[]>;
+    byTagId: Map<string, T[]>;
+    unassigned: T[];
+};
+
+export function buildSidebarSessionIndex<T extends { id: string }>(
+    sessions: readonly T[],
+    assignments: SidebarOrganization['sessions'],
+): SidebarSessionIndex<T> {
+    const byListId = new Map<string, T[]>();
+    const byTagId = new Map<string, T[]>();
+    const unassigned: T[] = [];
+
+    for (const session of sessions) {
+        const assignment = assignments[session.id];
+        if (assignment?.listId) {
+            const listSessions = byListId.get(assignment.listId);
+            if (listSessions) listSessions.push(session);
+            else byListId.set(assignment.listId, [session]);
+        } else {
+            unassigned.push(session);
+        }
+
+        for (const tagId of assignment?.tagIds ?? []) {
+            const tagSessions = byTagId.get(tagId);
+            if (tagSessions) tagSessions.push(session);
+            else byTagId.set(tagId, [session]);
+        }
+    }
+
+    return { byListId, byTagId, unassigned };
+}
 
 export function createSidebarOrganizationId(prefix: 'list' | 'tag'): string {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
