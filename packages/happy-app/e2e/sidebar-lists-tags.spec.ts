@@ -66,12 +66,72 @@ async function deleteSession(request: APIRequestContext, sessionId: string): Pro
     expect(response.ok()).toBe(true);
 }
 
+async function createMachine(request: APIRequestContext): Promise<string> {
+    const { headers, encryptionKey } = authContext();
+    const machineId = 'sidebar-e2e-machine';
+    const metadata = encodeBase64(encryptLegacy({
+        host: 'sidebar-e2e-mac',
+        displayName: 'Sidebar E2E Mac',
+        platform: 'darwin',
+        happyCliVersion: '0.0.0-e2e',
+        happyHomeDir: '/workspace/.happy',
+        homeDir: '/workspace',
+        cliAvailability: {
+            ask: true,
+            claude: true,
+            codex: true,
+            gemini: true,
+            opencode: true,
+            openclaw: true,
+            detectedAt: Date.now(),
+        },
+    }, encryptionKey));
+    const response = await request.post(new URL('/v1/machines', e2eServerUrl).toString(), {
+        data: { id: machineId, metadata, dataEncryptionKey: null },
+        headers,
+    });
+    expect(response.ok()).toBe(true);
+    return machineId;
+}
+
+async function deleteMachine(request: APIRequestContext, machineId: string): Promise<void> {
+    const { headers } = authContext();
+    const response = await request.delete(
+        new URL(`/v1/machines/${encodeURIComponent(machineId)}`, e2eServerUrl).toString(),
+        { headers },
+    );
+    expect(response.ok() || response.status() === 404).toBe(true);
+}
+
 async function pauseForReview(page: Page, duration = 850): Promise<void> {
-    if (recordEvidence) await page.waitForTimeout(duration);
+    if (!recordEvidence) return;
+    await page.waitForTimeout(duration);
+    await waitForDevelopmentOverlayToClear(page);
+}
+
+async function waitForDevelopmentOverlayToClear(page: Page): Promise<void> {
+    if (!recordEvidence) return;
+    await expect(page.locator('.__expo_fast_refresh_show')).toHaveCount(0, { timeout: 120_000 });
+}
+
+async function configureAskApi(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        const storageKey = 'mmkv.default\\local-settings';
+        const existing = JSON.parse(window.localStorage.getItem(storageKey) ?? '{}') as Record<string, unknown>;
+        window.localStorage.setItem(storageKey, JSON.stringify({
+            ...existing,
+            askApi: {
+                apiKey: 'sidebar-e2e-ask-key',
+                baseUrl: '',
+                tavilyApiKey: '',
+            },
+        }));
+    });
 }
 
 async function captureEvidenceFrame(page: Page, testInfo: TestInfo, name: string): Promise<void> {
     if (!recordEvidence) return;
+    await waitForDevelopmentOverlayToClear(page);
     await page.screenshot({ path: testInfo.outputPath(`evidence-${name}.png`), fullPage: true });
 }
 
@@ -84,7 +144,7 @@ async function expectMobileTouchTarget(locator: Locator): Promise<void> {
 
 async function createList(
     page: Page,
-    options: { name: string; kind: 'workspace' | 'agent' },
+    options: { name: string; kind: 'workspace' | 'agent'; machineName?: string; directoryName?: string },
 ): Promise<void> {
     await page.getByTestId('sidebar-create-list-button').click();
     await expect(page.getByText('New list', { exact: true })).toBeVisible();
@@ -104,8 +164,18 @@ async function createList(
         await expect(directoryPicker).toBeVisible();
         await expect(page.getByTestId('sidebar-list-directory-none')).toHaveAttribute('aria-checked', 'true');
         await expect(directoryPicker.locator('input')).not.toBeEditable();
+        if (options.machineName) {
+            const machine = page.getByRole('radio', { name: new RegExp(options.machineName) });
+            await machine.click();
+            await expect(machine).toHaveAttribute('aria-checked', 'true');
+        }
+        if (options.directoryName) {
+            await directoryPicker.getByText(options.directoryName, { exact: true }).click();
+            await expect(directoryPicker.locator('input')).toHaveValue('/workspace/remote-happy');
+        }
     }
     await page.getByTestId('sidebar-create-list-submit').click();
+    await expect(page.getByText('New list', { exact: true })).toHaveCount(0);
     await expect(page.getByText(options.name, { exact: true })).toBeVisible();
 }
 
@@ -126,18 +196,25 @@ async function organizeSession(
 }
 
 test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without replacing the conversation', async ({ page, request }, testInfo: TestInfo) => {
-    const alphaId = await createSession(request, {
-        name: 'Sidebar Alpha runtime',
-        summary: 'E2E Alpha conversation',
-        path: '/workspace/remote-happy',
-    });
-    const betaId = await createSession(request, {
-        name: 'Sidebar Beta runtime',
-        summary: 'E2E Beta conversation',
-        path: '/workspace/local-happy',
-    });
+    let machineId: string | null = null;
+    const createdSessionIds: string[] = [];
 
     try {
+        await configureAskApi(page);
+        machineId = await createMachine(request);
+        const alphaId = await createSession(request, {
+            name: 'Sidebar Alpha runtime',
+            summary: 'E2E Alpha conversation',
+            path: '/workspace/remote-happy',
+        });
+        createdSessionIds.push(alphaId);
+        const betaId = await createSession(request, {
+            name: 'Sidebar Beta runtime',
+            summary: 'E2E Beta conversation',
+            path: '/workspace/local-happy',
+        });
+        createdSessionIds.push(betaId);
+
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.goto(authenticatedRoute(`/session/${alphaId}`));
         page.setDefaultTimeout(15_000);
@@ -154,7 +231,12 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(visibleTitle).toHaveText('E2E Alpha conversation');
         await captureEvidenceFrame(page, testInfo, '02-lists-empty');
 
-        await createList(page, { name: 'Remote Happy', kind: 'workspace' });
+        await createList(page, {
+            name: 'Remote Happy',
+            kind: 'workspace',
+            machineName: 'Sidebar E2E Mac',
+            directoryName: '~/remote-happy',
+        });
         await captureEvidenceFrame(page, testInfo, '03-workspace-list');
         const remoteListRow = page.getByText('Remote Happy', { exact: true });
         await expect(remoteListRow).toBeVisible();
@@ -163,19 +245,37 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         const remoteId = remoteListId!.replace('sidebar-list-', '');
         await page.getByTestId(`sidebar-edit-list-${remoteId}`).click();
         await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
+        await expect(page.getByRole('radio', { name: /Sidebar E2E Mac/ })).toHaveAttribute('aria-checked', 'true');
+        await expect(page.getByTestId('sidebar-list-directory-picker').locator('input')).toHaveValue('/workspace/remote-happy');
+        await captureEvidenceFrame(page, testInfo, '04-workspace-picker-saved');
         await page.getByTestId('sidebar-list-name-input').fill('Remote Happy renamed');
         await page.getByTestId('sidebar-edit-list-submit').click();
         await expect(page.getByText('Remote Happy renamed', { exact: true })).toBeVisible();
 
         await createList(page, { name: 'Advisor', kind: 'agent' });
-        await captureEvidenceFrame(page, testInfo, '04-agent-list');
+        const advisorListRow = page.getByText('Advisor', { exact: true });
+        const advisorListTestId = await advisorListRow.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
+        expect(advisorListTestId).toMatch(/^sidebar-list-/);
+        const advisorId = advisorListTestId!.replace('sidebar-list-', '');
+        await page.getByTestId(`sidebar-list-${advisorId}`).click();
+        await page.getByTestId(`sidebar-new-session-${advisorId}`).click();
+        await expect(page).toHaveURL((url) => url.pathname === '/new' && url.searchParams.get('sidebarListId') === advisorId);
+        const askInput = page.locator('[data-testid="new-session-message-input"]:visible');
+        await expect(askInput).toBeVisible();
+        await expect(askInput).toHaveAttribute('placeholder', 'Ask anything');
+        await expect(askInput).toHaveValue('');
+        await captureEvidenceFrame(page, testInfo, '05-agent-ask-new-session');
+
+        await page.goto(alphaUrl);
+        await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation', { timeout: 120_000 });
+        await expect(page.getByTestId('desktop-sidebar-tab-lists')).toHaveAttribute('aria-selected', 'true');
 
         await page.getByTestId('sidebar-create-tag-button').click();
         await page.getByPlaceholder('Tag name').fill('product');
         await page.getByRole('button', { name: 'Create', exact: true }).click();
         await expect(page.getByRole('button', { name: /^product 0$/ })).toBeVisible();
         await expect(page).toHaveURL(alphaUrl);
-        await captureEvidenceFrame(page, testInfo, '05-tag-created');
+        await captureEvidenceFrame(page, testInfo, '06-tag-created');
 
         await organizeSession(page, { sessionId: alphaId, listName: 'Remote Happy renamed', tagName: 'product' });
         await expect(page.getByTestId(`organized-session-${alphaId}`)).toBeVisible();
@@ -183,13 +283,13 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(visibleTitle).toHaveText('E2E Alpha conversation');
         await pauseForReview(page);
         await page.screenshot({ path: testInfo.outputPath('01-lists-organized.png'), fullPage: true });
-        await captureEvidenceFrame(page, testInfo, '06-alpha-organized');
+        await captureEvidenceFrame(page, testInfo, '07-alpha-organized');
 
         await page.getByTestId(`organized-session-${betaId}`).click();
         await expect(page).toHaveURL((url) => url.pathname === `/session/${betaId}`);
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Beta conversation');
         const betaUrl = page.url();
-        await captureEvidenceFrame(page, testInfo, '07-beta-selected');
+        await captureEvidenceFrame(page, testInfo, '08-beta-selected');
 
         await organizeSession(page, { sessionId: betaId, listName: 'Advisor', tagName: 'product' });
         await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible();
@@ -200,17 +300,13 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Beta conversation');
         await pauseForReview(page, 1_100);
         await page.screenshot({ path: testInfo.outputPath('02-tag-cross-list-filter.png'), fullPage: true });
-        await captureEvidenceFrame(page, testInfo, '08-tag-cross-list-filter');
+        await captureEvidenceFrame(page, testInfo, '09-tag-cross-list-filter');
 
         await page.getByTestId(`organized-session-${alphaId}`).click();
         await expect(page).toHaveURL((url) => url.pathname === `/session/${alphaId}`);
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation');
 
         await page.getByTestId('sidebar-close-tag-filter').click();
-        const advisorListRow = page.getByText('Advisor', { exact: true });
-        const advisorListTestId = await advisorListRow.locator('xpath=ancestor::*[@data-testid][1]').getAttribute('data-testid');
-        expect(advisorListTestId).toMatch(/^sidebar-list-/);
-        const advisorId = advisorListTestId!.replace('sidebar-list-', '');
         await page.getByTestId(`sidebar-edit-list-${advisorId}`).click();
         await page.getByTestId('sidebar-delete-list').click();
         await expect(page.getByText('Delete list', { exact: true })).toBeVisible();
@@ -224,6 +320,12 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page.getByText('Remote Happy renamed', { exact: true })).toBeVisible();
         await expect(page.getByText('Advisor', { exact: true })).toHaveCount(0);
         await expect(page.getByRole('button', { name: /^product 2$/ })).toBeVisible({ timeout: 120_000 });
+        await page.getByTestId(`sidebar-edit-list-${remoteId}`).click();
+        await expect(page.getByText('Edit list', { exact: true })).toBeVisible();
+        await expect(page.getByRole('radio', { name: /Sidebar E2E Mac/ })).toHaveAttribute('aria-checked', 'true');
+        await expect(page.getByTestId('sidebar-list-directory-picker').locator('input')).toHaveValue('/workspace/remote-happy');
+        await captureEvidenceFrame(page, testInfo, '10-workspace-picker-reloaded');
+        await page.getByTestId('sidebar-create-list-cancel').click();
         await page.getByRole('button', { name: /^product 2$/ }).click();
         await expect(page.getByTestId(`organized-session-${alphaId}`)).toBeVisible();
         await expect(page.getByTestId(`organized-session-${betaId}`)).toBeVisible();
@@ -231,10 +333,11 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation');
         await pauseForReview(page);
         await page.screenshot({ path: testInfo.outputPath('03-reload-persisted.png'), fullPage: true });
-        await captureEvidenceFrame(page, testInfo, '09-reload-persisted');
+        await captureEvidenceFrame(page, testInfo, '11-reload-persisted');
     } finally {
         await page.close();
-        await Promise.allSettled([deleteSession(request, alphaId), deleteSession(request, betaId)]);
+        await Promise.allSettled(createdSessionIds.map((sessionId) => deleteSession(request, sessionId)));
+        if (machineId) await deleteMachine(request, machineId);
     }
 });
 
