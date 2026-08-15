@@ -163,6 +163,7 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                             accessibilityRole="switch"
                             accessibilityLabel="Fast"
                             accessibilityState={{ checked: props.fastMode === true, disabled: !canChangeFast }}
+                            aria-checked={props.fastMode === true}
                             disabled={!canChangeFast}
                             onPress={() => props.onFastModeChange?.(!props.fastMode)}
                             style={({ pressed }) => [styles.trigger, !canChangeFast && styles.triggerDisabled, pressed && styles.triggerPressed]}
