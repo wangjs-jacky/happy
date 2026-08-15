@@ -15,6 +15,7 @@ export type RunningSessionTurnModes = {
     modelMode: ModeOption | null;
     availableEffortLevels: EffortLevel[];
     effortLevel: ModeOption | null;
+    supportsFast: boolean;
 };
 
 function resolvePreferredOption<T extends ModeOption>(
@@ -73,5 +74,6 @@ export function resolveRunningSessionTurnModes(args: {
         modelMode,
         availableEffortLevels,
         effortLevel,
+        supportsFast: flavor === 'codex' && Boolean(metadata?.models?.find((model) => model.code === modelMode?.key)?.serviceTiers?.some((tier) => tier.id === 'priority')),
     };
 }

@@ -9,10 +9,11 @@ export type MessageModeMeta = {
     permissionModeExplicit?: true;
     model?: string | null;
     effort?: string | null;
+    fast?: boolean;
 };
 
 export function resolveMessageModeMeta(
-    session: Pick<Session, 'permissionMode' | 'modelMode' | 'metadata' | 'effortLevel'>,
+    session: Pick<Session, 'permissionMode' | 'modelMode' | 'metadata' | 'effortLevel' | 'fastMode'>,
     settings?: Pick<Settings, 'agentDefaultOverrides'>,
 ): MessageModeMeta {
     const flavor = session.metadata?.flavor;
@@ -52,6 +53,10 @@ export function resolveMessageModeMeta(
         || flavor === 'codex';
     if (supportsEffort && effort !== undefined) {
         meta.effort = effort === 'default' ? null : effort;
+    }
+
+    if (flavor === 'codex' && session.fastMode !== undefined && session.fastMode !== null) {
+        meta.fast = session.fastMode;
     }
 
     return meta;

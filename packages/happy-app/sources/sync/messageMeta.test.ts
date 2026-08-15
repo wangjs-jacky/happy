@@ -48,6 +48,24 @@ describe('resolveMessageModeMeta', () => {
         });
     });
 
+    it('sends the Codex Fast override only after the user selects a speed tier', () => {
+        expect(resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            fastMode: true,
+            metadata: { flavor: 'codex' },
+        } as any)).toMatchObject({ fast: true });
+
+        expect(resolveMessageModeMeta({
+            permissionMode: null,
+            modelMode: null,
+            effortLevel: null,
+            fastMode: false,
+            metadata: { flavor: 'codex' },
+        } as any)).toMatchObject({ fast: false });
+    });
+
     it('sends settings-level overrides when session has no override', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,

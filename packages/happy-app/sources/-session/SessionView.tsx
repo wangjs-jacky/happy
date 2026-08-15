@@ -1146,6 +1146,9 @@ function SessionViewLoaded({
     const handleEffortChange = React.useCallback((key: string) => {
         storage.getState().updateSessionEffortLevel(sessionId, key);
     }, [sessionId]);
+    const handleFastModeChange = React.useCallback((enabled: boolean) => {
+        storage.getState().updateSessionFastMode(sessionId, enabled);
+    }, [sessionId]);
     const modeSelector = React.useMemo(() => ({
         online: !isDisconnected,
         model: nextTurnModes.modelMode,
@@ -1154,7 +1157,10 @@ function SessionViewLoaded({
         effortOptions: nextTurnModes.availableEffortLevels,
         onModelChange: handleModelChange,
         onEffortChange: handleEffortChange,
-    }), [handleEffortChange, handleModelChange, isDisconnected, nextTurnModes]);
+        fastMode: session.fastMode === true,
+        supportsFast: nextTurnModes.supportsFast,
+        onFastModeChange: handleFastModeChange,
+    }), [handleEffortChange, handleFastModeChange, handleModelChange, isDisconnected, nextTurnModes, session.fastMode]);
 
     // Attachment state（图片/音视频，会话内默认可用）。pickAttachment 弹出
     // 图片/音视频选择器；音视频不支持的 flavor 由 sendMessage 兜底提示。
