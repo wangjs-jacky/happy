@@ -20,6 +20,7 @@ import { SidebarHelpMenu } from './SidebarHelpMenu';
 import { useCommandPaletteLauncher } from './CommandPalette/CommandPaletteProvider';
 import { RelationshipAdvisorSidebarHistory } from './relationship-advisor/RelationshipAdvisorSidebarHistory';
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
+import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -418,8 +419,9 @@ export const SidebarView = React.memo(({
                 <VoiceAssistantStatusBar variant="sidebar" />
             )}
 
-            {/* Sessions list */}
-            <MainView variant="sidebar" />
+            {/* Desktop progressively adds Lists/Tags around the existing session list.
+                Mobile keeps the original drawer behavior unchanged. */}
+            {desktopDensity ? <DesktopSidebarSessionsNavigation /> : <MainView variant="sidebar" />}
 
             {/* Low-frequency account and system actions stay anchored below the work list. */}
             <View
