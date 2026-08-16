@@ -166,10 +166,9 @@ export const SessionComposerModeSelector = React.memo(function SessionComposerMo
                             aria-checked={props.fastMode === true}
                             disabled={!canChangeFast}
                             onPress={() => props.onFastModeChange?.(!props.fastMode)}
-                            style={({ pressed }) => [styles.trigger, !canChangeFast && styles.triggerDisabled, pressed && styles.triggerPressed]}
+                            style={({ pressed }) => [styles.iconTrigger, !canChangeFast && styles.triggerDisabled, pressed && styles.triggerPressed]}
                         >
-                            <Ionicons name="flash-outline" size={12} color={theme.colors.textSecondary} />
-                            <Text style={styles.triggerText}>Fast</Text>
+                            <Ionicons name="flash-outline" size={14} color={props.fastMode ? theme.colors.accent : theme.colors.textSecondary} />
                         </Pressable>
                     </>
                 ) : null}
@@ -249,6 +248,13 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 4,
         height: 24,
         maxWidth: '100%',
+    },
+    iconTrigger: {
+        width: 24,
+        height: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 8,
     },
     triggerDisabled: {
         opacity: 0.58,

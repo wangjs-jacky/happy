@@ -1406,10 +1406,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                                         accessibilityState={{ checked: fastMode }}
                                                         testID="session-config-fast-toggle"
                                                         onPress={() => setFastMode((enabled) => !enabled)}
-                                                        style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                                        style={(p) => [styles.configFastToggle, p.pressed && styles.configRowPressed]}
                                                     >
-                                                        <Ionicons name="flash-outline" size={12} color={theme.colors.textSecondary} />
-                                                        <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]}>Fast</Text>
+                                                        <Ionicons name="flash-outline" size={14} color={fastMode ? theme.colors.accent : theme.colors.textSecondary} />
                                                     </Pressable>
                                                 </>
                                             )}
@@ -1804,6 +1803,13 @@ const styles = StyleSheet.create((theme) => ({
         gap: 4,
         minWidth: 0,
         flexShrink: 1,
+    },
+    configFastToggle: {
+        width: 24,
+        height: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 8,
     },
     configInlineText: {
         minWidth: 0,

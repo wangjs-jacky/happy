@@ -2905,6 +2905,8 @@ test('[R10-01] 每轮权限、模型与推理强度经 UI 发送并在离线重�
         const fastToggle = selector.getByTestId('session-composer-fast-toggle');
         await expect(fastToggle).toBeVisible();
         await expect(fastToggle).toHaveAttribute('role', 'switch');
+        await expect(fastToggle).toHaveAttribute('aria-label', 'Fast');
+        await expect(fastToggle).not.toContainText('Fast');
         await expect(fastToggle).toHaveAttribute('aria-checked', 'false');
         await fastToggle.click();
         await expect(fastToggle).toHaveAttribute('aria-checked', 'true');
