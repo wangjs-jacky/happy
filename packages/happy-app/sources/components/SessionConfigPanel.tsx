@@ -42,6 +42,7 @@ import {
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
 import { resolveNewSessionModeSelection } from '@/utils/newSessionModeSelection';
 import { getLatestSessionModelMetadata } from '@/utils/newSessionModelMetadata';
+import { supportsCodexFast } from '@/utils/codexFast';
 import {
     getCodingAgentPickerItems,
     getSessionConfigExperience,
@@ -955,11 +956,14 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
         const supportsWorktree = configExperience.showWorktree && getSupportsWorktree(selectedAgent);
         const showModel = configExperience.showModeDetails && modelModes.length > 1;
         const showEffort = configExperience.showModeDetails && effortLevels.length > 0;
-        const supportsFast = selectedAgent === 'codex' && Boolean(
-            modelMetadata?.models?.find((model) => model.code === (currentModelKey === 'default' ? modelMetadata.currentModelCode : currentModelKey))
-                ?.serviceTiers?.some((tier) => tier.id === 'priority'),
-        );
+        const supportsFast = selectedAgent === 'codex' && supportsCodexFast(modelMetadata, currentModelKey);
         const showPermission = configExperience.showPermission && permissionModes.length > 1;
+
+        React.useEffect(() => {
+            if (!supportsFast && fastMode) {
+                setFastMode(false);
+            }
+        }, [fastMode, supportsFast]);
 
         React.useEffect(() => {
             if (!configExperience.isAskMode) {

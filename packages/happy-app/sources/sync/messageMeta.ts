@@ -3,6 +3,7 @@ import type { Settings } from './settings';
 import { getAgentDefaultOverride, getCodeAgentDefaults } from './agentDefaults';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 import { resolveTaskPermissionAgent } from '@/utils/taskPermissionModes';
+import { supportsCodexFast } from '@/utils/codexFast';
 
 export type MessageModeMeta = {
     permissionMode?: PermissionModeKey;
@@ -55,7 +56,7 @@ export function resolveMessageModeMeta(
         meta.effort = effort === 'default' ? null : effort;
     }
 
-    if (flavor === 'codex' && session.fastMode !== undefined && session.fastMode !== null) {
+    if (supportsCodexFast(session.metadata, modelMode) && session.fastMode !== undefined && session.fastMode !== null) {
         meta.fast = session.fastMode;
     }
 

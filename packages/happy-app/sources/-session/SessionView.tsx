@@ -74,6 +74,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useDesktopWorkspaceLayout } from '@/hooks/useDesktopWorkspaceLayout';
 import { resolveRunningSessionTurnModes } from '@/utils/runningSessionTurnModes';
+import { supportsCodexFast } from '@/utils/codexFast';
 import {
     SubagentInspectorProvider,
     useSubagentInspector,
@@ -1142,7 +1143,10 @@ function SessionViewLoaded({
     }), [agentDefaultOverrides, session]);
     const handleModelChange = React.useCallback((key: string) => {
         storage.getState().updateSessionModelMode(sessionId, key);
-    }, [sessionId]);
+        if (!supportsCodexFast(session.metadata, key)) {
+            storage.getState().updateSessionFastMode(sessionId, false);
+        }
+    }, [session.metadata, sessionId]);
     const handleEffortChange = React.useCallback((key: string) => {
         storage.getState().updateSessionEffortLevel(sessionId, key);
     }, [sessionId]);

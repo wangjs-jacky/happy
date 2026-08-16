@@ -7,6 +7,7 @@ import {
 } from '@/components/modelModeOptions';
 import { resolveAgentDefaultConfig, type AgentDefaultOverrides } from '@/sync/agentDefaults';
 import type { Session } from '@/sync/storageTypes';
+import { supportsCodexFast } from '@/utils/codexFast';
 
 type Translate = (key: any) => string;
 
@@ -74,6 +75,6 @@ export function resolveRunningSessionTurnModes(args: {
         modelMode,
         availableEffortLevels,
         effortLevel,
-        supportsFast: flavor === 'codex' && Boolean(metadata?.models?.find((model) => model.code === modelMode?.key)?.serviceTiers?.some((tier) => tier.id === 'priority')),
+        supportsFast: supportsCodexFast(metadata, modelMode?.key),
     };
 }
