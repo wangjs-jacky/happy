@@ -56,7 +56,9 @@ const SidebarNavigatorContent = React.memo(() => {
     } = useDesktopWorkspaceLayout();
     const selectionMode = useSessionSelection((s) => s.active);
     const clearSelection = useSessionSelection((s) => s.clearSelection);
+    const pathname = usePathname();
     const isDesktopLayout = auth.isAuthenticated && isTablet;
+    const isDesktopSettingsModal = Platform.OS === 'web' && pathname.startsWith('/settings');
     const { width: windowWidth } = useWindowDimensions();
 
     // Calculate target drawer width
@@ -192,10 +194,10 @@ const SidebarNavigatorContent = React.memo(() => {
                 drawerContent={(isDesktopLayout || auth.isAuthenticated) ? drawerContent : undefined}
             />
             {/* Persistent header overlay — always visible on desktop, same position regardless of zen mode */}
-            {isDesktopLayout && (
+            {isDesktopLayout && !isDesktopSettingsModal && (
                 <PersistentHeader />
             )}
-            {isDesktopLayout && showSidebar && (
+            {isDesktopLayout && showSidebar && !isDesktopSettingsModal && (
                 <DesktopPanelResizeHandle
                     accessibilityLabel={t('desktopWorkspace.resizePanel', {
                         panel: t('desktopWorkspace.sessions'),
@@ -214,7 +216,6 @@ const PersistentHeader = React.memo(() => {
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const router = useRouter();
-    const pathname = usePathname();
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const {
         leftVisible: sidebarVisible,
@@ -273,13 +274,6 @@ const PersistentHeader = React.memo(() => {
     const sidebarToggleLabel = sidebarVisible
         ? t('desktopWorkspace.hideSessions')
         : t('desktopWorkspace.showSessions');
-
-    // The desktop settings route is rendered as a transparent modal. This header
-    // lives outside the navigator and intentionally has a high z-index, so it
-    // must not remain above the modal backdrop or steal pointer events.
-    if (Platform.OS === 'web' && pathname.startsWith('/settings')) {
-        return null;
-    }
 
     return (
         <View

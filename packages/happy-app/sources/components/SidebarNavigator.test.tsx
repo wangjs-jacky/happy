@@ -295,6 +295,7 @@ describe('SidebarNavigator drawer behavior', () => {
         });
 
         expect(renderer.root.findAllByProps({ testID: 'desktop-navigation-controls' })).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'desktop-left-panel-resize-handle' })).toHaveLength(0);
 
         act(() => renderer.unmount());
     });
