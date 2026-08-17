@@ -87,21 +87,41 @@ describe('storage session ordering', () => {
         expect(sessionIds).toEqual(['continued-today', 'created-today']);
     });
 
-    it('retains a live session activity timestamp for time grouping', () => {
+    it('normalizes live activity to its calendar day for stable time grouping', () => {
+        const updatedAt = new Date(2026, 7, 5, 20).getTime();
+        const activeAt = new Date(2026, 7, 6, 10).getTime();
+        const laterActiveAt = new Date(2026, 7, 6, 11).getTime();
+        const activityDay = new Date(2026, 7, 6).getTime();
         storage.getState().applySessions([
             {
-                ...session('live-today', 100, 150, 200),
+                ...session('live-today', updatedAt - 100, updatedAt, activeAt),
                 active: true,
                 presence: 'online',
             },
         ], { replace: true });
 
-        const activeSessions = storage.getState().sessionListViewData
+        const firstActiveSessions = storage.getState().sessionListViewData
             ?.find((item) => item.type === 'active-sessions');
 
-        expect(activeSessions).toMatchObject({
+        expect(firstActiveSessions).toMatchObject({
             type: 'active-sessions',
-            sessions: [{ id: 'live-today', activeAt: 200 }],
+            sessions: [{ id: 'live-today', activityAt: activityDay }],
+        });
+
+        storage.getState().applySessions([
+            {
+                ...session('live-today', updatedAt - 100, updatedAt, laterActiveAt),
+                active: true,
+                presence: 'online',
+            },
+        ], { replace: true });
+
+        const laterActiveSessions = storage.getState().sessionListViewData
+            ?.find((item) => item.type === 'active-sessions');
+
+        expect(laterActiveSessions).toMatchObject({
+            type: 'active-sessions',
+            sessions: [{ id: 'live-today', activityAt: activityDay }],
         });
     });
 });
