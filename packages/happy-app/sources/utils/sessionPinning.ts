@@ -1,4 +1,4 @@
-export function sortSessionsForList<T extends { id: string; createdAt?: number }>(
+export function sortSessionsForList<T extends { id: string; createdAt?: number; updatedAt?: number }>(
     sessions: T[],
     pinnedOrder: string[],
 ): T[] {
@@ -18,6 +18,6 @@ export function sortSessionsForList<T extends { id: string; createdAt?: number }
             return 1;
         }
 
-        return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+        return (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0);
     });
 }

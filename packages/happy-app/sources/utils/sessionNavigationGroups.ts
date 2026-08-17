@@ -30,7 +30,7 @@ export function getLocalDayIndex(timestamp: number): number {
 }
 
 function getSessionRecency(session: SessionRowData): number {
-    return session.activeAt ?? session.createdAt ?? 0;
+    return session.updatedAt ?? session.activeAt ?? session.createdAt ?? 0;
 }
 
 export function buildSessionNavigationTimeGroups(

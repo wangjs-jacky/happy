@@ -90,6 +90,7 @@ export interface SessionRowData {
     // and activeAt updates on every heartbeat, causing needless deep-equal diffs
     activeAt?: number;
     createdAt?: number;
+    updatedAt?: number;
     hasDraft: boolean;
     active: boolean;
     archived: boolean;
@@ -113,6 +114,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         state: resolved.state,
         isConnected: resolved.isConnected,
         createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
         ...(!resolved.isConnected && { activeAt: session.activeAt }),
         hasDraft: !!session.draft,
         active: session.active,
@@ -247,9 +249,10 @@ function buildSessionListViewData(
         }
     });
 
-    // Sort by creation date (newest first) — matches applySessions behavior
-    regularSessions.sort((a, b) => b.createdAt - a.createdAt);
-    archivedSessions.sort((a, b) => b.createdAt - a.createdAt);
+    // Sort by most recent activity (newest first). A session can remain active
+    // long after it was created, so creation time must not control its position.
+    regularSessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    archivedSessions.sort((a, b) => b.updatedAt - a.updatedAt);
 
     // Build unified list view data
     const listData: SessionListViewItem[] = [];
@@ -268,7 +271,7 @@ function buildSessionListViewData(
     let currentDateString: string | null = null;
 
     for (const session of archivedSessions) {
-        const sessionDate = new Date(session.createdAt);
+        const sessionDate = new Date(session.updatedAt);
         const dateString = sessionDate.toDateString();
 
         if (currentDateString !== dateString) {
