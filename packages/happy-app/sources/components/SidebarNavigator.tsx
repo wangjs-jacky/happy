@@ -25,6 +25,7 @@ import { KeyboardShortcutsProvider } from './KeyboardShortcuts';
 import {
     getDesktopPanelShortcutPresentation,
     getPersistentHeaderPointerEvents,
+    isSettingsModalRoute,
     PERSISTENT_NAVIGATION_BUTTON_SIZE,
     PERSISTENT_NAVIGATION_DESKTOP_CONTROLS_WIDTH,
     PERSISTENT_NAVIGATION_SIDEBAR_CONTROL_WIDTH,
@@ -58,7 +59,7 @@ const SidebarNavigatorContent = React.memo(() => {
     const clearSelection = useSessionSelection((s) => s.clearSelection);
     const pathname = usePathname();
     const isDesktopLayout = auth.isAuthenticated && isTablet;
-    const isDesktopSettingsModal = Platform.OS === 'web' && pathname.startsWith('/settings');
+    const isDesktopSettingsModal = Platform.OS === 'web' && isSettingsModalRoute(pathname);
     const { width: windowWidth } = useWindowDimensions();
 
     // Calculate target drawer width

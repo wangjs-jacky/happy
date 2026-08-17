@@ -19,6 +19,7 @@ test('[PC SETTINGS MODAL] hides persistent desktop controls behind the modal', a
     await expect(page.getByTestId('settings-modal-close')).toBeVisible();
     await expect(page.getByTestId('desktop-navigation-controls')).toHaveCount(0);
     await expect(page.getByTestId('desktop-left-panel-resize-handle')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-right-panel-resize-handle')).toHaveCount(0);
 
     if (evidenceDirectory) {
         fs.mkdirSync(evidenceDirectory, { recursive: true });
