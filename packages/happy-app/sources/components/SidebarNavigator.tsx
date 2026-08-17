@@ -6,7 +6,7 @@ import { SidebarView } from './SidebarView';
 import { useWindowDimensions, View, Pressable, Platform, BackHandler, Text } from 'react-native';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -214,6 +214,7 @@ const PersistentHeader = React.memo(() => {
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const router = useRouter();
+    const pathname = usePathname();
     const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
     const {
         leftVisible: sidebarVisible,
@@ -272,6 +273,13 @@ const PersistentHeader = React.memo(() => {
     const sidebarToggleLabel = sidebarVisible
         ? t('desktopWorkspace.hideSessions')
         : t('desktopWorkspace.showSessions');
+
+    // The desktop settings route is rendered as a transparent modal. This header
+    // lives outside the navigator and intentionally has a high z-index, so it
+    // must not remain above the modal backdrop or steal pointer events.
+    if (Platform.OS === 'web' && pathname.startsWith('/settings')) {
+        return null;
+    }
 
     return (
         <View
