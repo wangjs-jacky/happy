@@ -56,6 +56,10 @@ function isSessionActive(session: { active: boolean; activeAt: number }): boolea
     return session.active;
 }
 
+function getSessionActivityTime(session: Pick<Session, 'activeAt' | 'createdAt' | 'updatedAt'>): number {
+    return Math.max(session.activeAt, session.updatedAt) || session.createdAt;
+}
+
 // Known entitlement IDs
 export type KnownEntitlements = 'pro';
 
@@ -86,8 +90,8 @@ export interface SessionRowData {
     flavor: string | null;
     state: SessionState;
     isConnected: boolean;
-    // Only present on inactive sessions — active sessions never show "last seen"
-    // and activeAt updates on every heartbeat, causing needless deep-equal diffs
+    // Used for ordering and calendar grouping. It is also the latest signal for
+    // a live session whose persisted updatedAt has not changed during a turn.
     activeAt?: number;
     createdAt?: number;
     updatedAt?: number;
@@ -115,7 +119,7 @@ function buildSessionRowData(session: Session, unreadSessionIds?: Set<string>): 
         isConnected: resolved.isConnected,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        ...(!resolved.isConnected && { activeAt: session.activeAt }),
+        activeAt: session.activeAt,
         hasDraft: !!session.draft,
         active: session.active,
         archived: isSessionArchived(session),
@@ -250,9 +254,10 @@ function buildSessionListViewData(
     });
 
     // Sort by most recent activity (newest first). A session can remain active
-    // long after it was created, so creation time must not control its position.
-    regularSessions.sort((a, b) => b.updatedAt - a.updatedAt);
-    archivedSessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    // long after its persisted state was last updated, so include live activity
+    // as well as the persisted update timestamp.
+    regularSessions.sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
+    archivedSessions.sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
 
     // Build unified list view data
     const listData: SessionListViewItem[] = [];
@@ -271,7 +276,7 @@ function buildSessionListViewData(
     let currentDateString: string | null = null;
 
     for (const session of archivedSessions) {
-        const sessionDate = new Date(session.updatedAt);
+        const sessionDate = new Date(getSessionActivityTime(session));
         const dateString = sessionDate.toDateString();
 
         if (currentDateString !== dateString) {
@@ -476,9 +481,9 @@ export const storage = create<StorageState>()((set, get) => {
                 }
             });
 
-            // Sort both arrays by creation date for stable ordering
-            activeSessions.sort((a, b) => b.createdAt - a.createdAt);
-            inactiveSessions.sort((a, b) => b.createdAt - a.createdAt);
+            // Keep legacy consumers aligned with the primary list's activity ordering.
+            activeSessions.sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
+            inactiveSessions.sort((a, b) => getSessionActivityTime(b) - getSessionActivityTime(a));
 
             // Build flat list data for FlashList
             const listData: SessionListItem[] = [];
