@@ -6,6 +6,35 @@ export type MessageForkTarget = {
     rewindPointId: string | undefined;
 };
 
+export type DirectMessageForkOptions = {
+    cutAfterUuid?: string;
+    cutAfterItemId?: string;
+    forkedFromMessageId: string;
+    retainSelectedTurn?: boolean;
+};
+
+export function buildDirectMessageForkOptions(
+    flavor: 'claude' | 'codex',
+    target: Pick<MessageForkTarget, 'messageId' | 'rewindPointId'> & { retainSelectedTurn?: boolean },
+): DirectMessageForkOptions | null {
+    if (!target.rewindPointId) {
+        return null;
+    }
+
+    if (flavor === 'codex') {
+        return {
+            cutAfterItemId: target.rewindPointId,
+            forkedFromMessageId: target.messageId,
+            retainSelectedTurn: target.retainSelectedTurn,
+        };
+    }
+
+    return {
+        cutAfterUuid: target.rewindPointId,
+        forkedFromMessageId: target.messageId,
+    };
+}
+
 type RewindPointCandidate = {
     id: string;
     text: string;

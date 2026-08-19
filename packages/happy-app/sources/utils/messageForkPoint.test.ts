@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@/sync/typesMessage';
-import { getAgentMessageForkTargets, resolveInitialForkRewindPointId } from './messageForkPoint';
+import {
+    buildDirectMessageForkOptions,
+    getAgentMessageForkTargets,
+    resolveInitialForkRewindPointId,
+} from './messageForkPoint';
 
 describe('getAgentMessageForkTargets', () => {
     it('maps each visible agent response to the user prompt that owns its turn', () => {
@@ -172,5 +176,38 @@ describe('resolveInitialForkRewindPointId', () => {
     it('only uses text fallback when the caller explicitly allows it without an id', () => {
         expect(resolveInitialForkRewindPointId(repeatedPoints, undefined, 'continue', false)).toBeNull();
         expect(resolveInitialForkRewindPointId(repeatedPoints, undefined, ' continue ', true)).toBe('new-point');
+    });
+});
+
+describe('buildDirectMessageForkOptions', () => {
+    it('forks a Codex agent response from its owning turn without another selection step', () => {
+        expect(buildDirectMessageForkOptions('codex', {
+            messageId: 'agent-turn-2',
+            rewindPointId: 'codex-user-turn-2',
+            retainSelectedTurn: true,
+        })).toEqual({
+            cutAfterItemId: 'codex-user-turn-2',
+            forkedFromMessageId: 'agent-turn-2',
+            retainSelectedTurn: true,
+        });
+    });
+
+    it('does not guess a turn when the provider rewind id is unavailable', () => {
+        expect(buildDirectMessageForkOptions('codex', {
+            messageId: 'agent-turn-2',
+            rewindPointId: undefined,
+            retainSelectedTurn: true,
+        })).toBeNull();
+    });
+
+    it('uses the owning Claude turn id directly', () => {
+        expect(buildDirectMessageForkOptions('claude', {
+            messageId: 'agent-turn-2',
+            rewindPointId: 'claude-user-turn-2',
+            retainSelectedTurn: true,
+        })).toEqual({
+            cutAfterUuid: 'claude-user-turn-2',
+            forkedFromMessageId: 'agent-turn-2',
+        });
     });
 });
