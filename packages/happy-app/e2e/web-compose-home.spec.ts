@@ -1771,7 +1771,12 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
                 'mmkv.default\\pending-settings',
                 JSON.stringify({ expResumeSession: true }),
             );
+            window.localStorage.setItem(
+                'mmkv.default\\local-settings',
+                JSON.stringify({ themePreference: 'dark', themePack: 'gingham' }),
+            );
         });
+        await page.emulateMedia({ colorScheme: 'dark' });
 
         await page.goto(authenticatedRoute('/settings/features'), {
             waitUntil: 'commit',
@@ -1815,6 +1820,15 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         // This case uses a fixed 1280x720 viewport. Native mouse input avoids the
         // expensive Playwright actionability loop while RN Web is settling.
         await page.mouse.move(640, 520);
+        await pauseForRecordedReview(page, 400);
+        const forkButtonCenter = await page.evaluate(() => {
+            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
+            if (!forkButton) return null;
+            const bounds = forkButton.getBoundingClientRect();
+            return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+        });
+        expect(forkButtonCenter).not.toBeNull();
+        await page.mouse.move(forkButtonCenter!.x, forkButtonCenter!.y);
         await pauseForRecordedReview(page, 1_100);
 
         const forkClicked = await page.evaluate(() => {

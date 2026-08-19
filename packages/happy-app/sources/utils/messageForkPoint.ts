@@ -6,6 +6,15 @@ export type MessageForkTarget = {
     rewindPointId: string | undefined;
 };
 
+export type MessageForkFlavor = 'claude' | 'codex';
+
+export function getUserMessageForkRewindPointId(
+    message: Pick<UserTextMessage, 'claudeUuid' | 'codexItemId'>,
+    flavor: MessageForkFlavor,
+): string | undefined {
+    return flavor === 'codex' ? message.codexItemId : message.claudeUuid;
+}
+
 export type DirectMessageForkOptions = {
     cutAfterUuid?: string;
     cutAfterItemId?: string;
@@ -46,10 +55,11 @@ type RewindPointCandidate = {
  */
 export function getAgentMessageForkTargets(
     messages: Message[],
-    options: { allowMissingRewindPoint?: boolean } = {},
+    options: { flavor?: MessageForkFlavor; allowMissingRewindPoint?: boolean } = {},
 ): Map<string, MessageForkTarget> {
     const targets = new Map<string, MessageForkTarget>();
     let currentUserMessage: UserTextMessage | null = null;
+    const flavor = options.flavor ?? 'claude';
 
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
@@ -61,7 +71,7 @@ export function getAgentMessageForkTargets(
             continue;
         }
 
-        const rewindPointId = currentUserMessage.claudeUuid ?? currentUserMessage.codexItemId;
+        const rewindPointId = getUserMessageForkRewindPointId(currentUserMessage, flavor);
         if (!rewindPointId && !options.allowMissingRewindPoint) {
             continue;
         }

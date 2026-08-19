@@ -16,7 +16,7 @@ import { getAutoFoldPromptBodyRenderState, getAutoFoldPromptInfo } from '@/utils
 import { ConversationActivityStrip } from './ConversationActivityStrip';
 import { getMessageExecutionModeLabel } from '@/utils/messageExecutionMode';
 import { DesktopShortcutTooltip } from './DesktopShortcutTooltip';
-import type { MessageForkTarget } from '@/utils/messageForkPoint';
+import { getUserMessageForkRewindPointId, type MessageForkTarget } from '@/utils/messageForkPoint';
 import { getUserMessageDisplayText } from './messageDisplayText';
 
 
@@ -150,7 +150,10 @@ function UserTextBlock(props: {
     sync.sendMessage(props.sessionId, option.title, { source: 'option' });
   }, [props.sessionId]);
 
-  const rewindPointId = props.message.claudeUuid ?? props.message.codexItemId;
+  const rewindPointId = getUserMessageForkRewindPointId(
+    props.message,
+    props.metadata?.flavor === 'codex' ? 'codex' : 'claude',
+  );
   const canFork = Boolean(props.onForkFromUserMessage) && Boolean(rewindPointId);
   const modeLabel = getMessageExecutionModeLabel(props.message.meta, props.metadata?.flavor, t);
   const visibleText = getUserMessageDisplayText(props.message.displayText || props.message.text);
@@ -837,7 +840,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 8,
   },
   agentMessageActionHovered: {
-    backgroundColor: theme.colors.surfaceHigh,
+    backgroundColor: theme.colors.surfacePressed,
   },
   agentMessageActionPressed: {
     backgroundColor: theme.colors.surfacePressed,

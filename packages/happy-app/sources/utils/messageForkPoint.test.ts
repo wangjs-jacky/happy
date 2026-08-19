@@ -3,6 +3,7 @@ import type { Message } from '@/sync/typesMessage';
 import {
     buildDirectMessageForkOptions,
     getAgentMessageForkTargets,
+    getUserMessageForkRewindPointId,
     resolveInitialForkRewindPointId,
 } from './messageForkPoint';
 
@@ -61,11 +62,11 @@ describe('getAgentMessageForkTargets', () => {
                 localId: null,
                 createdAt: 1,
                 text: 'Old prompt',
-                claudeUuid: 'claude-user-old',
+                codexItemId: 'codex-user-old',
             },
         ];
 
-        const targets = getAgentMessageForkTargets(messages);
+        const targets = getAgentMessageForkTargets(messages, { flavor: 'codex' });
 
         expect(targets.get('agent-new')).toEqual({
             messageId: 'agent-new',
@@ -75,7 +76,7 @@ describe('getAgentMessageForkTargets', () => {
         expect(targets.get('agent-old')).toEqual({
             messageId: 'agent-old',
             messageText: 'Old prompt',
-            rewindPointId: 'claude-user-old',
+            rewindPointId: 'codex-user-old',
         });
         expect(targets.has('thinking-old')).toBe(false);
     });
@@ -125,7 +126,7 @@ describe('getAgentMessageForkTargets', () => {
             },
         ];
 
-        const targets = getAgentMessageForkTargets(messages);
+        const targets = getAgentMessageForkTargets(messages, { flavor: 'claude' });
 
         expect(targets.has('agent-old')).toBe(false);
         expect(targets.get('agent-new')?.rewindPointId).toBe('claude-user-new');
@@ -149,12 +150,27 @@ describe('getAgentMessageForkTargets', () => {
             },
         ];
 
-        expect(getAgentMessageForkTargets(messages, { allowMissingRewindPoint: true }).get('agent-live'))
+        expect(getAgentMessageForkTargets(messages, {
+            flavor: 'codex',
+            allowMissingRewindPoint: true,
+        }).get('agent-live'))
             .toEqual({
                 messageId: 'agent-live',
                 messageText: 'Live prompt',
                 rewindPointId: undefined,
             });
+    });
+
+    it('uses only the provider id for the active session flavor', () => {
+        const message = {
+            claudeUuid: 'claude-turn',
+            codexItemId: 'codex-turn',
+        };
+
+        expect(getUserMessageForkRewindPointId(message, 'codex')).toBe('codex-turn');
+        expect(getUserMessageForkRewindPointId(message, 'claude')).toBe('claude-turn');
+        expect(getUserMessageForkRewindPointId({ claudeUuid: 'claude-only' }, 'codex')).toBeUndefined();
+        expect(getUserMessageForkRewindPointId({ codexItemId: 'codex-only' }, 'claude')).toBeUndefined();
     });
 });
 
