@@ -98,9 +98,10 @@ export function getAgentMessageForkTargets(
 
 /**
  * Live Codex user envelopes can arrive before their provider item id. Resolve
- * the clicked turn without a picker: prefer exact text, then disambiguate by
- * the provider turn timestamp. A stale or tied match is rejected so a click
- * can never silently fork a neighbouring turn.
+ * the clicked turn without a picker: accept only exact text or an explicitly
+ * wrapped prompt suffix, then disambiguate by the provider turn timestamp.
+ * Every inferred match must be fresh and unambiguous so a stale thread
+ * snapshot can never silently fork a neighbouring turn.
  */
 export function resolveCodexMessageForkRewindPointId(
     points: CodexRewindPointCandidate[],
@@ -111,15 +112,21 @@ export function resolveCodexMessageForkRewindPointId(
     }
 
     const normalizedTargetText = normalizeMessageText(target.messageText);
+    if (!normalizedTargetText || !Number.isFinite(target.messageCreatedAt)) {
+        return null;
+    }
+
     const exactTextMatches = points.filter(
         (point) => normalizeMessageText(point.text) === normalizedTargetText,
     );
-    if (exactTextMatches.length === 1) {
-        return exactTextMatches[0].itemId;
-    }
-
-    const candidates = exactTextMatches.length > 1 ? exactTextMatches : points;
-    if (!Number.isFinite(target.messageCreatedAt) || candidates.length === 0) {
+    const wrappedTextMatches = exactTextMatches.length === 0
+        ? points.filter((point) => {
+            const normalizedPointText = normalizeMessageText(point.text);
+            return normalizedPointText.endsWith(` ${normalizedTargetText}`);
+        })
+        : [];
+    const candidates = exactTextMatches.length > 0 ? exactTextMatches : wrappedTextMatches;
+    if (candidates.length === 0) {
         return null;
     }
 

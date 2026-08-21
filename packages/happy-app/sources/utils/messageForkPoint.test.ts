@@ -211,6 +211,26 @@ describe('resolveCodexMessageForkRewindPointId', () => {
         })).toBe('turn-2');
     });
 
+    it('requires even a unique exact-text match to be within the freshness window', () => {
+        expect(resolveCodexMessageForkRewindPointId([
+            { itemId: 'stale-turn', text: 'unique prompt', timestamp: 10_000 },
+        ], {
+            messageText: 'unique prompt',
+            messageCreatedAt: 900_000,
+            rewindPointId: undefined,
+        })).toBeNull();
+    });
+
+    it('does not guess a nearby historical turn when the current live turn is missing', () => {
+        expect(resolveCodexMessageForkRewindPointId([
+            { itemId: 'historical-turn', text: 'previous prompt', timestamp: 19_900 },
+        ], {
+            messageText: 'current prompt',
+            messageCreatedAt: 20_000,
+            rewindPointId: undefined,
+        })).toBeNull();
+    });
+
     it('refuses an ambiguous or stale timestamp instead of forking the wrong turn', () => {
         expect(resolveCodexMessageForkRewindPointId(points, {
             messageText: 'continue',
@@ -220,6 +240,14 @@ describe('resolveCodexMessageForkRewindPointId', () => {
         expect(resolveCodexMessageForkRewindPointId(points, {
             messageText: 'different prompt',
             messageCreatedAt: 900_000,
+            rewindPointId: undefined,
+        })).toBeNull();
+    });
+
+    it('does not treat an empty visible prompt as a wrapped match', () => {
+        expect(resolveCodexMessageForkRewindPointId(points, {
+            messageText: '   ',
+            messageCreatedAt: 20_000,
             rewindPointId: undefined,
         })).toBeNull();
     });
