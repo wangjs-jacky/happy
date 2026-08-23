@@ -7,6 +7,7 @@ import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const previewAssetDir = resolve(currentDir, '../../../assets/images/image-effects');
+const previewAssetModulePath = resolve(currentDir, 'imageStylePreviewAssets.ts');
 const IMAGE_STYLE_COUNT = 94;
 const IMAGE_STYLE_CATEGORY_COUNT = 20;
 
@@ -30,6 +31,18 @@ function decodeImageDimensions(bytes: Buffer): { width: number; height: number }
 }
 
 describe('imageStylePreviewManifest', () => {
+    it('uses Metro-resolvable relative paths for every bundled preview', () => {
+        const source = readFileSync(previewAssetModulePath, 'utf8');
+        const assetSpecifiers = [...source.matchAll(/require\('([^']+)'\)/g)]
+            .map((match) => match[1]);
+
+        expect(assetSpecifiers).toHaveLength(IMAGE_STYLE_COUNT);
+        for (const specifier of assetSpecifiers) {
+            expect(specifier.startsWith('../../../assets/images/image-effects/')).toBe(true);
+            expect(existsSync(resolve(currentDir, specifier))).toBe(true);
+        }
+    });
+
     it('defines one bundled preview asset for every canonical image effect', () => {
         expect(IMAGE_AGENT_STYLE_PRESETS).toHaveLength(IMAGE_STYLE_COUNT);
 
