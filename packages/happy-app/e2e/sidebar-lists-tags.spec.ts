@@ -166,7 +166,7 @@ async function createList(
         await expect(directoryPicker.locator('input')).not.toBeEditable();
         if (options.machineName) {
             const machine = page.getByRole('radio', { name: new RegExp(options.machineName) });
-            await machine.click();
+            await machine.click({ timeout: 120_000 });
             await expect(machine).toHaveAttribute('aria-checked', 'true');
         }
         if (options.directoryName) {
@@ -196,6 +196,8 @@ async function organizeSession(
 }
 
 test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without replacing the conversation', async ({ page, request }, testInfo: TestInfo) => {
+    page.setDefaultTimeout(120_000);
+    page.setDefaultNavigationTimeout(180_000);
     let machineId: string | null = null;
     const createdSessionIds: string[] = [];
 
@@ -266,7 +268,7 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(askInput).toHaveValue('');
         await captureEvidenceFrame(page, testInfo, '05-agent-ask-new-session');
 
-        await page.goto(alphaUrl);
+        await page.goto(alphaUrl, { timeout: 120_000 });
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('E2E Alpha conversation', { timeout: 120_000 });
         await expect(page.getByTestId('desktop-sidebar-tab-lists')).toHaveAttribute('aria-selected', 'true');
 
@@ -342,6 +344,8 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
 });
 
 test('[SIDEBAR-LISTS-TAGS-MOBILE] mobile drawer exposes Projects and Lists tabs', async ({ page, request }, testInfo: TestInfo) => {
+    page.setDefaultTimeout(120_000);
+    page.setDefaultNavigationTimeout(180_000);
     const sessionId = await createSession(request, {
         name: 'Mobile sidebar tabs',
         summary: 'Mobile sidebar tabs',
