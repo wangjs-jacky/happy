@@ -3,7 +3,7 @@ import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { io } from 'socket.io-client';
-import { decodeBase64, decryptBlob, decryptLegacy, encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
+import { decodeBase64, decryptBlob, decryptLegacy, encodeBase64, encryptBlob, encryptLegacy } from '../../happy-cli/src/api/encryption';
 import { deriveKey } from '../../happy-cli/src/utils/deriveKey';
 import {
     expectProductionRedactionReady,
@@ -12,6 +12,7 @@ import {
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
+const repoRoot = path.resolve(__dirname, '../../..');
 const standaloneToolEvidenceDirectory = process.env.HAPPY_STANDALONE_TOOL_EVIDENCE_DIR;
 const standaloneToolEvidencePhase = process.env.HAPPY_STANDALONE_TOOL_EVIDENCE_PHASE ?? 'after';
 
@@ -22,6 +23,16 @@ function standaloneToolScreenshotPath(testInfo: TestInfo): string {
     }
     fs.mkdirSync(standaloneToolEvidenceDirectory, { recursive: true });
     return path.join(standaloneToolEvidenceDirectory, filename);
+}
+
+const generatedImageGalleryEvidenceDirectory = process.env.HAPPY_GENERATED_IMAGE_GALLERY_EVIDENCE_DIR;
+const generatedImageGalleryEvidencePhase = process.env.HAPPY_GENERATED_IMAGE_GALLERY_EVIDENCE_PHASE ?? 'after';
+
+function generatedImageGalleryScreenshotPath(testInfo: TestInfo): string {
+    const filename = `case-1-${generatedImageGalleryEvidencePhase}-1440x900.png`;
+    if (!generatedImageGalleryEvidenceDirectory) return testInfo.outputPath(filename);
+    fs.mkdirSync(generatedImageGalleryEvidenceDirectory, { recursive: true });
+    return path.join(generatedImageGalleryEvidenceDirectory, filename);
 }
 
 const projectHoverEvidenceDirectory = process.env.HAPPY_PROJECT_HOVER_EVIDENCE_DIR;
@@ -593,6 +604,52 @@ async function createE2ECompletedToolCall(
         },
     );
     expect(response.ok()).toBe(true);
+}
+
+async function uploadGeneratedImageFixture(
+    request: APIRequestContext,
+    sessionId: string,
+    filename: string,
+): Promise<string> {
+    const authUrl = new URL(authenticatedWebUrl);
+    const token = authUrl.searchParams.get('dev_token');
+    const secret = authUrl.searchParams.get('dev_secret');
+    if (!token || !secret || !e2eServerUrl) {
+        throw new Error('缺少生成图片画廊 E2E 所需的本地认证配置。');
+    }
+
+    const imagePath = join(repoRoot, 'packages/happy-app/sources/assets/images/mascots/explorer.png');
+    const image = fs.readFileSync(imagePath);
+    const masterSecret = new Uint8Array(Buffer.from(secret, 'base64url'));
+    const blobKey = await deriveKey(masterSecret, 'Happy Blobs', ['master']);
+    const encrypted = encryptBlob(new Uint8Array(image), blobKey);
+    const descriptorResponse = await request.post(
+        new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/attachments/request-upload`, e2eServerUrl).toString(),
+        {
+            data: { filename, size: encrypted.length },
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        },
+    );
+    expect(descriptorResponse.ok()).toBe(true);
+    const descriptor = await descriptorResponse.json() as {
+        ref: string;
+        uploadUrl: string;
+        method: 'PUT' | 'POST';
+    };
+    expect(descriptor.method).toBe('PUT');
+
+    const uploadResponse = await request.put(descriptor.uploadUrl, {
+        data: Buffer.from(encrypted),
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/octet-stream',
+        },
+    });
+    expect(uploadResponse.ok()).toBe(true);
+    return descriptor.ref;
 }
 
 async function createConnectedE2EFileSession(request: APIRequestContext): Promise<{
@@ -4652,6 +4709,75 @@ test.describe('中文 Web 工件与生成图片语义', () => {
 
         await expect(page.getByText('还没有生成图片', { exact: true })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+    });
+});
+
+test.describe('generated image gallery layout', () => {
+    test('[GENERATED-IMAGE-MASONRY] preserves generated-image proportions in a responsive masonry gallery', async ({ page, request }, testInfo) => {
+        const sessionId = await createE2ESession(request, {
+            name: 'Photo Illustration Diptych gallery fixture',
+        });
+        const fixtures = [
+            { filename: 'diptych-wide.png', width: 1600, height: 900 },
+            { filename: 'diptych-portrait.png', width: 900, height: 1600 },
+            { filename: 'diptych-square.png', width: 1200, height: 1200 },
+            { filename: 'diptych-editorial.png', width: 1200, height: 1500 },
+            { filename: 'diptych-landscape.png', width: 1500, height: 1000 },
+        ];
+
+        for (const [index, fixture] of fixtures.entries()) {
+            const ref = await uploadGeneratedImageFixture(request, sessionId, fixture.filename);
+            await createE2ECompletedToolCall(request, sessionId, {
+                callId: `generated-image-gallery-${index}`,
+                name: 'file',
+                input: {
+                    ref,
+                    name: fixture.filename,
+                    size: 128_000,
+                    kind: 'image',
+                    encrypted: true,
+                    source: 'generated',
+                    prompt: 'Photo-Illustration Diptych gallery fixture',
+                    image: {
+                        width: fixture.width,
+                        height: fixture.height,
+                    },
+                },
+            });
+        }
+
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto(authenticatedRoute('/generated-images'));
+
+        const previews = page.getByRole('button', { name: 'Open image', exact: true });
+        await expect(previews).toHaveCount(fixtures.length, { timeout: 20_000 });
+        await expect.poll(async () => previews.evaluateAll((elements) => (
+            elements.every((element) => element.querySelector('img')?.getAttribute('src'))
+        ))).toBe(true);
+
+        await page.screenshot({
+            path: generatedImageGalleryScreenshotPath(testInfo),
+            fullPage: true,
+        });
+
+        const previewBoxes = await previews.evaluateAll((elements) => elements.map((element) => {
+            const box = element.getBoundingClientRect();
+            return {
+                cardText: element.parentElement?.textContent ?? '',
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
+            };
+        }));
+        expect(new Set(previewBoxes.map((box) => Math.round(box.x))).size).toBe(4);
+        for (const box of previewBoxes) {
+            const fixture = fixtures.find((candidate) => box.cardText.includes(candidate.filename));
+            expect(fixture).toBeDefined();
+            if (!fixture) continue;
+            expect(Math.abs(box.height - (box.width * fixture.height / fixture.width))).toBeLessThanOrEqual(4);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     });
 });
 

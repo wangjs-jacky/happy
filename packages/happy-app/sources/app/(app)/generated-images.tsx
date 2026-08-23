@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { FlatList, Text, View, useWindowDimensions } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useGeneratedImages, type GeneratedImageEntry } from '@/hooks/useGeneratedImages';
@@ -7,26 +8,27 @@ import { t } from '@/text';
 import { layout } from '@/components/layout';
 import { GeneratedImageCard } from '@/components/GeneratedImageCard';
 
-const CARD_GAP = 10;
-const MIN_CARD_WIDTH = 154;
+const CARD_GAP = 12;
+const MIN_CARD_WIDTH = 168;
+const MAX_COLUMNS = 4;
 
 export default React.memo(function GeneratedImagesScreen() {
     const { theme } = useUnistyles();
     const dimensions = useWindowDimensions();
     const images = useGeneratedImages();
     const contentWidth = Math.min(layout.maxWidth, dimensions.width);
-    const columns = Math.max(2, Math.floor((contentWidth - 32 + CARD_GAP) / (MIN_CARD_WIDTH + CARD_GAP)));
+    const columns = Math.max(1, Math.min(
+        MAX_COLUMNS,
+        Math.floor((contentWidth - 32 + CARD_GAP) / (MIN_CARD_WIDTH + CARD_GAP)),
+    ));
     const cardWidth = Math.floor((contentWidth - 32 - CARD_GAP * (columns - 1)) / columns);
-    const cardHeight = Math.round(cardWidth * 1.92);
 
-    const renderItem = React.useCallback(({ item, index }: { item: GeneratedImageEntry; index: number }) => (
+    const renderItem = React.useCallback(({ item }: { item: GeneratedImageEntry }) => (
         <GeneratedImageCard
             item={item}
             cardWidth={cardWidth}
-            cardHeight={cardHeight}
-            isLastColumn={(index + 1) % columns === 0}
         />
-    ), [cardHeight, cardWidth, columns]);
+    ), [cardWidth]);
 
     if (images.length === 0) {
         return (
@@ -43,12 +45,13 @@ export default React.memo(function GeneratedImagesScreen() {
     }
 
     return (
-        <FlatList
+        <FlashList
             data={images}
-            extraData={`${columns}:${cardWidth}`}
             key={columns}
             keyExtractor={(item) => item.id}
+            masonry
             numColumns={columns}
+            optimizeItemArrangement
             renderItem={renderItem}
             style={[styles.container, { backgroundColor: theme.colors.groupped.background }]}
             contentContainerStyle={[styles.content, { maxWidth: layout.maxWidth }]}
