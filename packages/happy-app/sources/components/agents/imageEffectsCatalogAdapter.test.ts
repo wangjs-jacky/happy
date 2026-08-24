@@ -9,12 +9,14 @@ import {
 } from './imageEffectsCatalogAdapter';
 
 describe('image-effects catalog snapshot adapter', () => {
-    it('exposes exactly 94 canonical executable effects', () => {
+    it('exposes the complete canonical executable snapshot', () => {
+        const effectCount = IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects.length;
+
         expect(IMAGE_EFFECTS_CATALOG_SNAPSHOT.schemaVersion).toBe(1);
-        expect(IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects).toHaveLength(94);
-        expect(IMAGE_EFFECTS_STYLE_PRESETS).toHaveLength(94);
-        expect(new Set(IMAGE_EFFECTS_STYLE_PRESETS.map((style) => style.id)).size).toBe(94);
-        expect(IMAGE_EFFECTS_STYLE_CATEGORIES.reduce((sum, category) => sum + category.count, 0)).toBe(94);
+        expect(effectCount).toBeGreaterThanOrEqual(94);
+        expect(IMAGE_EFFECTS_STYLE_PRESETS).toHaveLength(effectCount);
+        expect(new Set(IMAGE_EFFECTS_STYLE_PRESETS.map((style) => style.id)).size).toBe(effectCount);
+        expect(IMAGE_EFFECTS_STYLE_CATEGORIES.reduce((sum, category) => sum + category.count, 0)).toBe(effectCount);
         expect(IMAGE_EFFECTS_STYLE_PRESETS.every((style) => style.promptContent.length > 200)).toBe(true);
     });
 

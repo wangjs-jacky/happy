@@ -2,14 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IMAGE_EFFECTS_CATALOG_SNAPSHOT } from './imageEffectsCatalogAdapter';
 import { IMAGE_AGENT_STYLE_PRESETS } from './imageAgentPrompt';
 import { IMAGE_STYLE_PREVIEW_MANIFEST } from './imageStylePreviewManifest';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const previewAssetDir = resolve(currentDir, '../../../assets/images/image-effects');
 const previewAssetModulePath = resolve(currentDir, 'imageStylePreviewAssets.ts');
-const IMAGE_STYLE_COUNT = 94;
-const IMAGE_STYLE_CATEGORY_COUNT = 20;
+const IMAGE_STYLE_COUNT = IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects.length;
+const IMAGE_STYLE_CATEGORY_COUNT = new Set(
+    IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects.map((effect) => effect.category),
+).size;
 
 function decodeImageDimensions(bytes: Buffer): { width: number; height: number } {
     if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
@@ -67,7 +70,7 @@ describe('imageStylePreviewManifest', () => {
             const preview = IMAGE_STYLE_PREVIEW_MANIFEST[style.id];
             expect(style.promptContent.length).toBeGreaterThan(200);
             expect(style.title.length).toBeGreaterThan(0);
-            expect(style.templateRef).toMatch(/^image-effects\/.+@1\.0\.0$/);
+            expect(style.templateRef).toMatch(/^image-effects\/.+@\d+\.\d+\.\d+$/);
             expect(preview.width).toBeGreaterThan(0);
             expect(preview.height).toBeGreaterThan(0);
             const previewPath = resolve(previewAssetDir, preview.fileName);

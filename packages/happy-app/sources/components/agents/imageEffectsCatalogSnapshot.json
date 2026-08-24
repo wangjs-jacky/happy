@@ -1,8 +1,11 @@
 {
   "schemaVersion": 1,
   "catalogVersion": "2026-08-24.94",
-  "catalogDigest": "e9181cadd9699ca9a339e1a160cf92f00d37d01829ac86b8ac153a89775de6bc",
+  "catalogDigest": "9af8796d4cf85cd61d0e389b0e6cf609e0cfe24b78c453c86c1eb178e9f0a595",
   "sourceRepository": "wangjs-jacky/image-effects",
+  "sourceCommit": "1c5a5a87152d07340826ad2bc9a3a2de1edfd3ea",
+  "canonicalRepository": "wangjs-jacky/jacky-skills",
+  "canonicalCommit": "b62e263e45f3b405ce9ff57c818b177acbd45d4e",
   "effects": [
     {
       "ref": "anime-key-visual@1.0.0",
@@ -28,9 +31,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "anime-key-visual.png",
+      "previewFileName": "anime-key-visual.jpg",
       "previewWidth": 768,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "76fcf6028948466581db58bf5831e1f181e7cc83bf6d3f040cd05de416764f99",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -70,9 +74,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "anime-pitch-board.png",
+      "previewFileName": "anime-pitch-board.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "a2969c8ea1b311b9b9f5d3e4ab91ceae58be340e5e469609c083e24ea4a361fa",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -112,9 +117,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "background-replacement.png",
+      "previewFileName": "background-replacement.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "b800bbd27e127cede6b23f4741f76f57abdd4371b83cea4622662a28f0b8e58b",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -154,9 +160,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "banner-grid-2x2.png",
+      "previewFileName": "banner-grid-2x2.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "295f842dd087c5cbe4faa2ee86793cfc2d771866454376667080b1f6e6f838a6",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -196,9 +203,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "banner-hero.png",
+      "previewFileName": "banner-hero.jpg",
       "previewWidth": 1024,
       "previewHeight": 576,
+      "sourcePreviewSha256": "d10ab7a2c8544ac071d668d706ba931152e4e69f164fc3c2cca28a0cfb21e463",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -238,9 +246,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "bento-grid-infographic.png",
+      "previewFileName": "bento-grid-infographic.jpg",
       "previewWidth": 655,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "d2fb0b983020c435c648ef25ac915fac42794b4ba7f85d79aa77ab0e14d4e289",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -280,9 +289,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "bento-memory-card.png",
+      "previewFileName": "bento-memory-card.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "aaf7da2e44e13ef096baefb10936294aa19519fa9378e897cc667484e4b8c423",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -322,9 +332,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "beverage-label-design.png",
+      "previewFileName": "beverage-label-design.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "38829dbcfe7e97e741d3ece750a9d0594a194e964f69d932d09df53ad719e0df",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -364,9 +375,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "bilingual-layout-visual.png",
+      "previewFileName": "bilingual-layout-visual.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "5ad59137330084108ff7666a92a76a4fe2807a50b3c5aeac07f87dbf6d0a4b14",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -406,9 +418,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "brand-identity-board.png",
+      "previewFileName": "brand-identity-board.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "8fe89fb47efa17a10e6509647528f2b90fc2c99abf84474744c67a7129d47226",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -448,9 +461,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "brand-poster.png",
+      "previewFileName": "brand-poster.jpg",
       "previewWidth": 819,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "6e84041549b9a00ee411ebbbe30c515b19008873d785a9bea255b7d300ffb73c",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -490,9 +504,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "campaign-kv.png",
+      "previewFileName": "campaign-kv.jpg",
       "previewWidth": 819,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "0be7d96ac2ba6828bd9ebae33da72b048997bcefc82270d082ac76df202a8004",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -532,9 +547,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "character-grid-portrait.png",
+      "previewFileName": "character-grid-portrait.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "b19b3474496f59c839b0386a8df5388e9fd75a00c4261b9ad40cbb1d08b6891f",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -574,9 +590,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "character-merch-board.png",
+      "previewFileName": "character-merch-board.jpg",
       "previewWidth": 1024,
       "previewHeight": 683,
+      "sourcePreviewSha256": "6cf409e71427181440c06393e267df0d780cc02811000742caaddd17f514558b",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -616,9 +633,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "character-relationship-diagram.png",
+      "previewFileName": "character-relationship-diagram.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "3eb7f61c62983aa49a6ad3c6f938fe2bf070a37c2359d67651e992b2b99c0f7f",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -658,9 +676,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "character-sheet.png",
+      "previewFileName": "character-sheet.jpg",
       "previewWidth": 1024,
       "previewHeight": 683,
+      "sourcePreviewSha256": "ca4518d27168320efdcd8cca973c945d53c248781ca6c63c0aaab08602b4f3a5",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -700,9 +719,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "chat-interface-scene.png",
+      "previewFileName": "chat-interface-scene.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "7e19654988850df36f89d020802eb071649703c827fca134a7ecdee0f9037713",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -742,9 +762,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "cinematic-storyboard.png",
+      "previewFileName": "cinematic-storyboard.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "dad5f745f598b6e52d9a6dc0754505d66c34c8433bcfcf4f65a83c052bce39fb",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -784,9 +805,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "comparison-infographic.png",
+      "previewFileName": "comparison-infographic.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "a0ca633243375d84a9ac027a196c89fa6e7732e1204823fbebf5f20d867c1089",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -826,9 +848,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "concept-scene.png",
+      "previewFileName": "concept-scene.jpg",
       "previewWidth": 1024,
       "previewHeight": 512,
+      "sourcePreviewSha256": "284cc6ea7724d2e0db492522efa531aa353223d6b681b451eb8d89bd1628ff5a",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -868,9 +891,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "cosmetic-packaging.png",
+      "previewFileName": "cosmetic-packaging.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "845c55564ef44ae9079d750702e2b2020566705122e7d46228f582db327fd9b9",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -910,9 +934,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "cultural-portrait-series.png",
+      "previewFileName": "cultural-portrait-series.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "d8938c5977f755b9d10a628c8cff146798100bfb7951c59638cb17fc547d5ba5",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -952,9 +977,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "dense-explainer-slides.png",
+      "previewFileName": "dense-explainer-slides.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "93ebc0a0b5033f63e56d310f2cb818a45091d2bf3de1cab4f322e524b00b663c",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -994,9 +1020,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "editorial-cover.png",
+      "previewFileName": "editorial-cover.jpg",
       "previewWidth": 768,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "0b98090c9d9d2524e539d06c59361184106716b09b8a962ddb803a82764c1028",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1036,9 +1063,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "educational-diagram-slide.png",
+      "previewFileName": "educational-diagram-slide.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "bef37fde247403a915e2e96d1efaec7ccef7b29064f76d4f88f61c01a99d09c5",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1078,9 +1106,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "er-diagram.png",
+      "previewFileName": "er-diagram.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "d8a5a9e9a6b1e844565ad84857c8bb05535ce72ceed1990aec4d63e20a19a8bf",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1120,9 +1149,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "exploded-view-poster.png",
+      "previewFileName": "exploded-view-poster.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "ab0e80404023ab68f8ef963f28a597a3000e26f6be358ca35b4feceacc110290",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1162,9 +1192,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "flowchart-decision.png",
+      "previewFileName": "flowchart-decision.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "79fe8a5e2d7391e1802c49f753ff89daa4e89d80e84fa3f0437a99a434e2459f",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1204,9 +1235,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "food-map.png",
+      "previewFileName": "food-map.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "a729bbfccc9c3a0de8683f333ca7b677b7bbb6c971e290b211be4312c633a897",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1246,9 +1278,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "founder-portrait.png",
+      "previewFileName": "founder-portrait.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "cfc406d561824a513dadbe5637c4062b1ca99cbed4e9d235fe1b0d2e83a0ba2e",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1288,9 +1321,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "four-panel-comic.png",
+      "previewFileName": "four-panel-comic.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "c8ab2ae01e83f09ca58df658891fad1506873aa0c1a5d8d887cd41565533bfed",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1330,9 +1364,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "game-screenshot-mockup.png",
+      "previewFileName": "game-screenshot-mockup.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "c79440f1395c4e9136b20b1c39c56395ab1895a26ed6d619ecd44d6b5027c319",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1372,9 +1407,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "graphical-abstract.png",
+      "previewFileName": "graphical-abstract.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "d5ba34610bc01e20f1ad12b993dc86d3fc2ed5636c23123708fcdb5cc0a81195",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1414,9 +1450,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "hand-drawn-infographic.png",
+      "previewFileName": "hand-drawn-infographic.jpg",
       "previewWidth": 655,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "4573c73d369a5175b1c8db225ec05795b935aa8fa7eff176e2c1d749e6b29c90",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1459,6 +1496,7 @@
       "previewFileName": "healing-anime-scribble-v3.jpg",
       "previewWidth": 1448,
       "previewHeight": 1086,
+      "sourcePreviewSha256": "70a3c534832532faed62cb80816df56002382cb661b51d2077d7eab429760daf",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1498,9 +1536,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "healing-scene.png",
+      "previewFileName": "healing-scene.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "c62e7694485402a412e9a1d4e81eab3c33ff867b296a1e4b3ed0e35613eac0d6",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1540,9 +1579,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "illustrated-city-map.png",
+      "previewFileName": "illustrated-city-map.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "eaba06f64a4488fd33983435672a1e15a88140e5a860b2ad9de85c329093ff52",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1582,9 +1622,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "kpi-dashboard-infographic.png",
+      "previewFileName": "kpi-dashboard-infographic.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "efa26063cf246cbc4d0da9069714fe011f55e074ac3c3c18cfce148231655482",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1624,9 +1665,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "legend-heavy-infographic.png",
+      "previewFileName": "legend-heavy-infographic.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "62d1e2672d23d799eaa7f7fc4ade99f93c0b09f3b544eef63f99eed3a39a697e",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1666,9 +1708,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "lifestyle-product-scene.png",
+      "previewFileName": "lifestyle-product-scene.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "6b7d598116a77c7b31488fc245ce0d2da4dd7f00e3a1d4b3f69259e525b3752f",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1708,9 +1751,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "live-commerce-ui.png",
+      "previewFileName": "live-commerce-ui.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "32004e9e21d739098ba84c05d9aa891040bf3eed9de5a3b33be699bed796cf73",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1750,9 +1794,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "local-object-replacement.png",
+      "previewFileName": "local-object-replacement.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "b3aa16cd11526e1cc36436f160b03f59b21d40ce6599c38f9c02c68002dea078",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1792,9 +1837,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "lookbook-grid.png",
+      "previewFileName": "lookbook-grid.jpg",
       "previewWidth": 768,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "64434921ba8d70a32e761d7b6e92959cef988c0d85e02d48176bd7e1ec27ca7f",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1834,9 +1880,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "manga-spread-page.png",
+      "previewFileName": "manga-spread-page.jpg",
       "previewWidth": 1024,
       "previewHeight": 703,
+      "sourcePreviewSha256": "518aa09010356eb6f7110a7ad947c4151ff64a764a03dc78241559f0dca6d7e4",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1876,9 +1923,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "mascot-brand-kit.png",
+      "previewFileName": "mascot-brand-kit.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "216be08bd6dec974ab1a434ba6e910566f9d192fea85c1367c116504ee1a619c",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -1918,9 +1966,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "mechanism-diagram.png",
+      "previewFileName": "mechanism-diagram.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "d8e2f982a87735792580cca2e5a007a90048d54017d2ed08f5770a23a4e3ccd3",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -1960,9 +2009,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "method-pipeline-overview.png",
+      "previewFileName": "method-pipeline-overview.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "7dfc98427cef657eb11860dfa8c2299c72fc5e0ef8cd8c214f714ebe36e56d56",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2002,9 +2052,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "mind-map-tech.png",
+      "previewFileName": "mind-map-tech.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "1eccff85126aa62cb8515c9134d1129bf3af7c3f24b779b178623bcccfd254f2",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2044,9 +2095,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "minimal-zine-poster.png",
+      "previewFileName": "minimal-zine-poster.jpg",
       "previewWidth": 1024,
       "previewHeight": 1536,
+      "sourcePreviewSha256": "d7796377f564a40d0aaae89028afcfb12cad1aeaf5b2736ece69c4277e9b9781",
       "provenance": {
         "repository": "LiamGvchi/gc-minimal-zine-poster",
         "revision": "4cb0396ad4e834019f753b37e1c4f415f5e02026",
@@ -2086,9 +2138,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "minimalist-mood-scene.png",
+      "previewFileName": "minimalist-mood-scene.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "ac204dddbb8a8acf8b6147865624292685ff8f92f43c94cda99f42c189f40102",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2128,9 +2181,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "mixed-style-multi-panel.png",
+      "previewFileName": "mixed-style-multi-panel.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "4cc2fdc20617ffa70c92fd5e0349fd14b95a6a08789a5150325cba9f322014a4",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2170,9 +2224,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "multi-condition-comparison.png",
+      "previewFileName": "multi-condition-comparison.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "c6074007a4b1414eebcc2be58733256d36ba58a1619f72654486d8578ea23698",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2212,9 +2267,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "network-topology.png",
+      "previewFileName": "network-topology.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "f85acc40d7fc1dc64ec509648f07f166de4abb42b11f9e1947fa03a6e6080328",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2254,9 +2310,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "neural-network-architecture.png",
+      "previewFileName": "neural-network-architecture.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "461b3024ac407781c1859814585252c196b5512597482cc011a8dd7b841ecdd0",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2296,9 +2353,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "object-removal.png",
+      "previewFileName": "object-removal.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "5fd77429702bed195f2c8bada9bdd441f683d2bce278cb49a8832a57e13b6db8",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2338,9 +2396,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "packaging-showcase.png",
+      "previewFileName": "packaging-showcase.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "da0a558a3cf901198b3c28518813d2de34d9fece24e9f6ddca63f66523a1cd3b",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2380,9 +2439,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "photo-illustration-diptych.png",
+      "previewFileName": "photo-illustration-diptych.jpg",
       "previewWidth": 1024,
       "previewHeight": 1536,
+      "sourcePreviewSha256": "38fd7df64d4e8a4bc0483cc0be36a0c1324defe123802fe1e1b3c82f2d4ce46f",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "532e49bb711283cbe2738439039298f9cea1ef7b",
@@ -2422,9 +2482,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "photo-illustration-diptych-lakeside.png",
+      "previewFileName": "photo-illustration-diptych-lakeside.jpg",
       "previewWidth": 1024,
       "previewHeight": 1536,
+      "sourcePreviewSha256": "e6b830bd342c43ca435022385cfd5b1ea3720de7216d3599e27c3dd205d9b67a",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "fa6c30497d01b077d7d4d58e1a4c00bca4c38fcd",
@@ -2464,9 +2525,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "photo-illustration-editorial-echo.png",
+      "previewFileName": "photo-illustration-editorial-echo.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "ed002f7dd4641a691ccec1f0ce3575fca6be85c26991cb5e75c745ea23aa9313",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "e8716a0a0c949f8e2b45e1e3d7c8d36ad7bba17c",
@@ -2506,9 +2568,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "picture-book-scene.png",
+      "previewFileName": "picture-book-scene.jpg",
       "previewWidth": 1024,
       "previewHeight": 683,
+      "sourcePreviewSha256": "f3a2d3764f278974499eb3348b4cb0841dc9962594434525e35289d06705c497",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2548,9 +2611,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "policy-style-slide.png",
+      "previewFileName": "policy-style-slide.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "4b7edd8f34fd49b25ba6aa77e6cc8e39d2fbc2760130e3264b2286abcd89c34b",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2590,9 +2654,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "portrait-local-edit.png",
+      "previewFileName": "portrait-local-edit.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "8bd69fd20c6937c3ccf37cd25579045e894c02611bd06dda75ff0c680651b068",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2632,9 +2697,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "premium-studio-product.png",
+      "previewFileName": "premium-studio-product.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "a3e55123fa76d1254c94111e5c5d181624648a93da047c90912ef7497139b871",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2674,9 +2740,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "product-card-overlay.png",
+      "previewFileName": "product-card-overlay.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "5e2d144b2825ca2a217ecc28b50fca02203a53c338b7c0b38d99be8fba427988",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2716,9 +2783,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "product-retouching.png",
+      "previewFileName": "product-retouching.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "ddb52cf6f0507a3bad392b9ec181fc051e5ed28f7c3fb9c8e54bb49190d9b838",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2758,9 +2826,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "product-tvc-storyboard.png",
+      "previewFileName": "product-tvc-storyboard.jpg",
       "previewWidth": 1024,
       "previewHeight": 683,
+      "sourcePreviewSha256": "7e9c456edab916e0b09ffcda4cb5605c2e5394d329d572ef806d52082a2037c3",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2800,9 +2869,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "professional-portrait.png",
+      "previewFileName": "professional-portrait.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "2a0aca30292b9df5f8213c8e63842dce56c5e110c4b0f6fa15e89a360f9579e6",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2842,9 +2912,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "publication-chart.png",
+      "previewFileName": "publication-chart.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "52dd073ad6d8c58079e3842bfd032e1c6b9b84295a91d2ecb8a90b8d2435925c",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2884,9 +2955,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "qualitative-comparison-grid.png",
+      "previewFileName": "qualitative-comparison-grid.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "d8f7ede8a4ee00b2498a96c0d4fdd7aa4e87a52e169e2087423923ff80c62756",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -2926,9 +2998,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "recipe-process-flowchart.png",
+      "previewFileName": "recipe-process-flowchart.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "306b3700e582ac958090b468aed5c3a7f076ece4a9563372cd5bc3563d16a7ae",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -2968,9 +3041,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "research-overview-poster.png",
+      "previewFileName": "research-overview-poster.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "a2d258a6ee9894c4bb58407137d2ba31267a1a16925de5b8865ff734a8f65966",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3010,9 +3084,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "retro-skeuomorphic-icons.png",
+      "previewFileName": "retro-skeuomorphic-icons.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "55fa95d124b6fa763debb81894f3847d111ed1d514118bad2a55acc12ba311aa",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3052,9 +3127,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "scene-distillation-zine.png",
+      "previewFileName": "scene-distillation-zine.jpg",
       "previewWidth": 1024,
       "previewHeight": 1536,
+      "sourcePreviewSha256": "912552322668018ef62ed2a4a2e3b452f696daf3c9fa136cfc6cc94b83224ac2",
       "provenance": {
         "repository": "Zeejay0/gathered-scenes-zine-skill",
         "revision": "e764b7fd243d7cc501723b9d325279bf6dd852c2",
@@ -3094,9 +3170,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "scenes-gathered-zine.png",
+      "previewFileName": "scenes-gathered-zine.jpg",
       "previewWidth": 1024,
       "previewHeight": 1536,
+      "sourcePreviewSha256": "90bb7eff0da5834cae23ce87d16c8a85a6e9ec581bb00135b8b83b885ea948c1",
       "provenance": {
         "repository": "Zeejay0/gathered-scenes-zine-skill",
         "revision": "e764b7fd243d7cc501723b9d325279bf6dd852c2",
@@ -3136,9 +3213,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "scenes-gathered-zine-sea.png",
+      "previewFileName": "scenes-gathered-zine-sea.jpg",
       "previewWidth": 1536,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "1764d51792f18c11b3f3cf4064127fbde334df159cd10579d0706cd5f864c508",
       "provenance": {
         "repository": "Zeejay0/gathered-scenes-zine-skill",
         "revision": "e764b7fd243d7cc501723b9d325279bf6dd852c2",
@@ -3178,9 +3256,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "scientific-schematic.png",
+      "previewFileName": "scientific-schematic.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "a4c2a059d3a18d836cf6819fb95188fbbc1d179620100dfea0768a5dfc2fc21c",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3220,9 +3299,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "sequence-diagram.png",
+      "previewFileName": "sequence-diagram.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "bf58c1bb4038139da4f08a4ca6f15fe7099119e09ba8211ea59917c427edcc2a",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3262,9 +3342,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "short-video-cover-ui.png",
+      "previewFileName": "short-video-cover-ui.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "64fdbdf527ae211279dd389aa7b8fa3cceea65b1f03ce03162546042af789b5e",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3304,9 +3385,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "social-interface-mockup.png",
+      "previewFileName": "social-interface-mockup.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "0c32a4c821ed05c2af6f88367c85d0918d6553835aa05df37506fc6c96d5f136",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3346,9 +3428,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "state-machine.png",
+      "previewFileName": "state-machine.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "86a83244f2ef4f92d3aa7af9ebdde2bcfec2e0cc3c73a7fa7a7843f421f85a9a",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3388,9 +3471,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "step-by-step-infographic.png",
+      "previewFileName": "step-by-step-infographic.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "709701cc576d7ff7d4918dd7e0a295e6f37fc6f64898214dacf945b1638dd9c1",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3430,9 +3514,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "sticker-set.png",
+      "previewFileName": "sticker-set.jpg",
       "previewWidth": 1024,
       "previewHeight": 683,
+      "sourcePreviewSha256": "3f2282bf7c3dece35d75c2dea475ee1e85c79c6bd8aaa96ef8b4feeef3e3307c",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3472,9 +3557,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "store-distribution-map.png",
+      "previewFileName": "store-distribution-map.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "a8c342bda1d2b28c11c14e71490b9508fc3bc012a1152c7f173f6a0465b6c79b",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3514,9 +3600,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "style-transfer-selfie.png",
+      "previewFileName": "style-transfer-selfie.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "66aae4101bf3c38dc30c59d6ac125965bec3776789e52bffeb7d11ac918ae55d",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3556,9 +3643,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "system-architecture.png",
+      "previewFileName": "system-architecture.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "e90d01868f0141cce799add7dfe60834c4ab6947b05c622e5fe60d23c670080b",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3598,9 +3686,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "themed-3d-icon.png",
+      "previewFileName": "themed-3d-icon.jpg",
       "previewWidth": 1024,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "d6a672dfd332240234e2a3095d5fd5d6a53903b768d2d50a7461b57b28461e5e",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3640,9 +3729,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "title-safe-poster.png",
+      "previewFileName": "title-safe-poster.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "609356d01afc0d2ec4f951c875e83d36ae25f34180964ae3ca129e76e9ed9829",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3685,6 +3775,7 @@
       "previewFileName": "torn-paper-editorial-photo-collage.jpg",
       "previewWidth": 615,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "00ca63d6545a9f0a96bcf512c3869f7cf7cbd4e5d0eb40b2dbf79cc8373cb207",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "d1259c69fdc5494553f31b6736b640d597a89bfb",
@@ -3724,9 +3815,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "travel-route-map.png",
+      "previewFileName": "travel-route-map.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "593cf0d50c1617b6852d4e9e764df79dd0cf07e710e06043ea296abf2fa2763e",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3766,9 +3858,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "vintage-editorial-infographic.png",
+      "previewFileName": "vintage-editorial-infographic.jpg",
       "previewWidth": 683,
       "previewHeight": 1024,
+      "sourcePreviewSha256": "0265dd1bea1694a53530232684635dae776b07a3f10b448a8f5a3618b128c997",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3808,9 +3901,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "vintage-film-editorial.png",
+      "previewFileName": "vintage-film-editorial.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "96715e7d0b238f31f6859fd71a2eb5c8fee5c6d1108556d27a0408ee8d8b2ac1",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",
@@ -3850,9 +3944,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "virtual-host.png",
+      "previewFileName": "virtual-host.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "b47501b6b103de45aa966ddaa1f9783f0d1d35294e0278ee624997c200fdc4c0",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3892,9 +3987,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "visual-report-page.png",
+      "previewFileName": "visual-report-page.jpg",
       "previewWidth": 1440,
       "previewHeight": 900,
+      "sourcePreviewSha256": "48ef89f1202b664c4793322bbedd19f02663e1f1cc483aeb24c142cab01f2a6a",
       "provenance": {
         "repository": "ConardLi/garden-skills",
         "revision": "aaf9a82f5efd73e87cc0998edc398e75bfc35901",
@@ -3934,9 +4030,10 @@
         ]
       },
       "outputCount": 1,
-      "previewFileName": "white-background-product.png",
+      "previewFileName": "white-background-product.jpg",
       "previewWidth": 1024,
       "previewHeight": 768,
+      "sourcePreviewSha256": "65b9e7d4794d46da92875e46b5e6c0fb89e99bd531d0952597bd31509cf81922",
       "provenance": {
         "repository": "wangjs-jacky/happy",
         "revision": "9fe4b5d0fc893b9dfe2713dd43e3cd324fb6744f",

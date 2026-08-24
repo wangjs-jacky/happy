@@ -5,6 +5,7 @@ import type { ImageAgentStyleCategory, ImageAgentStylePreset } from './imageStyl
 export type ImageEffectsCatalogSnapshot = typeof snapshot;
 export const IMAGE_EFFECTS_CATALOG_SNAPSHOT: ImageEffectsCatalogSnapshot = snapshot;
 
+// <image-effects-category-meta>
 const CATEGORY_META: Record<string, { label: string; accent: string }> = Object.freeze({
     "academic-figures": {
         "label": "学术配图",
@@ -87,6 +88,7 @@ const CATEGORY_META: Record<string, { label: string; accent: string }> = Object.
         "accent": "#7A6250"
     }
 });
+// </image-effects-category-meta>
 
 export const IMAGE_EFFECTS_LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
     "academic-figures/graphical-abstract/1": "image-effects/graphical-abstract@1.0.0",

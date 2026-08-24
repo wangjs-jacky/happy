@@ -10,6 +10,7 @@ import {
     shouldUseUserImageStyleReferenceImages,
 } from './imageAgentPrompt';
 import { createImageStyleSelectionPrompt } from './imageAgentMode';
+import { IMAGE_EFFECTS_CATALOG_SNAPSHOT } from './imageEffectsCatalogAdapter';
 import type { AgentLauncher } from './launchAgent';
 
 const agent: AgentLauncher = {
@@ -27,9 +28,12 @@ const agent: AgentLauncher = {
 };
 
 describe('imageAgentPrompt', () => {
-    it('publishes the 94-effect snapshot and resolves saved legacy ids', () => {
-        expect(IMAGE_AGENT_STYLE_PRESETS).toHaveLength(94);
-        expect(IMAGE_AGENT_STYLE_CATEGORIES.slice(1).reduce((sum, category) => sum + category.count, 0)).toBe(94);
+    it('publishes the complete effect snapshot and resolves saved legacy ids', () => {
+        const effectCount = IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects.length;
+
+        expect(effectCount).toBeGreaterThanOrEqual(94);
+        expect(IMAGE_AGENT_STYLE_PRESETS).toHaveLength(effectCount);
+        expect(IMAGE_AGENT_STYLE_CATEGORIES.slice(1).reduce((sum, category) => sum + category.count, 0)).toBe(effectCount);
 
         const styles = getImageAgentStylesForAgent(agent);
         expect(styles.map((style) => style.id)).toEqual([
@@ -161,7 +165,8 @@ describe('imageAgentPrompt', () => {
         });
     });
 
-    it('falls back to all 94 built-ins only when no selected id resolves', () => {
-        expect(getImageAgentStylesForAgent({ ...agent, imageStyleIds: ['unknown'] })).toHaveLength(94);
+    it('falls back to the complete built-in snapshot only when no selected id resolves', () => {
+        expect(getImageAgentStylesForAgent({ ...agent, imageStyleIds: ['unknown'] }))
+            .toHaveLength(IMAGE_EFFECTS_CATALOG_SNAPSHOT.effects.length);
     });
 });
