@@ -3,9 +3,9 @@
   "catalogVersion": "2026-08-24.94",
   "catalogDigest": "9af8796d4cf85cd61d0e389b0e6cf609e0cfe24b78c453c86c1eb178e9f0a595",
   "sourceRepository": "wangjs-jacky/image-effects",
-  "sourceCommit": "209d6975e02d33d156da2e27c878203e71f00051",
+  "sourceCommit": "f13f5fcb936ec1a22f9f93696b7421e2ae73fc1a",
   "canonicalRepository": "wangjs-jacky/jacky-skills",
-  "canonicalCommit": "461fd3d697c07c07494b355e54801c9e406e73c6",
+  "canonicalCommit": "18dfeddda9edf09471182553cc0dedc4ad775e28",
   "effects": [
     {
       "ref": "anime-key-visual@1.0.0",
