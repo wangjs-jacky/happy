@@ -3,6 +3,10 @@ import { z } from 'zod';
 
 import { streamRelationshipAdvisor } from '@/modules/relationship-advisor/relationshipAdvisorClient';
 import {
+    createRelationshipAdvisorPluginRuntime,
+    relationshipAdvisorPlugin,
+} from '@/modules/relationship-advisor/relationshipAdvisorPlugin';
+import {
     deleteRelationshipAdvisorImages,
     resolveRelationshipAdvisorImageUrls,
 } from '@/modules/relationship-advisor/relationshipAdvisorImages';
@@ -31,21 +35,18 @@ export interface RelationshipAdvisorHandlerDependencies {
 
 type AdvisorSocket = Pick<Socket, 'on' | 'emit'>;
 
+const relationshipAdvisorPluginRuntime = createRelationshipAdvisorPluginRuntime(
+    relationshipAdvisorPlugin,
+    (input, configuration) => streamRelationshipAdvisor({
+        messages: input.messages,
+        imageUrls: input.imageUrls,
+        signal: input.signal,
+    }, configuration),
+);
+
 function defaultRelationshipAdvisorDependencies(): RelationshipAdvisorHandlerDependencies {
     return {
-        streamChat: (input) => {
-            const apiKey = process.env.HAPPY_RELATIONSHIP_ADVISOR_API_KEY?.trim();
-            const baseUrl = process.env.HAPPY_RELATIONSHIP_ADVISOR_BASE_URL?.trim();
-            const model = process.env.HAPPY_RELATIONSHIP_ADVISOR_MODEL?.trim();
-            if (!apiKey || !baseUrl || !model) {
-                throw new Error('Relationship advisor provider is not configured');
-            }
-            return streamRelationshipAdvisor({
-                messages: input.messages,
-                imageUrls: input.imageUrls,
-                signal: input.signal,
-            }, { apiKey, baseUrl, model });
-        },
+        streamChat: (input) => relationshipAdvisorPluginRuntime.stream(input),
         resolveImageUrls: resolveRelationshipAdvisorImageUrls,
         deleteImageRefs: deleteRelationshipAdvisorImages,
     };

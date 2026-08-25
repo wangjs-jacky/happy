@@ -13,6 +13,7 @@ import { launchAgent, type AgentLauncher } from './launchAgent';
 import { createAppBuilderAgent, createRelationshipAdvisorAgent, getAgentSubtitle } from './builtinAgents';
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { useAgentSpace } from '@/hooks/useAgentSpace';
+import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
 
 /**
  * 列出用户配置的「我的 Agent」：手机使用底部抽屉，PC Web/Tauri 使用紧凑居中弹层。
@@ -30,6 +31,10 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const draft = useNewSessionDraft();
     const { entering, enter } = useEnterAgentSpace();
     const { enter: enterSpace } = useAgentSpace();
+    const {
+        loading: relationshipAdvisorPluginLoading,
+        status: relationshipAdvisorPluginStatus,
+    } = useRelationshipAdvisorPlugin(visible);
     const relationshipAdvisorTitle = t('relationshipAdvisor.title');
     const relationshipAdvisorSubtitle = t('relationshipAdvisor.cloudSubtitle');
     const builtinRelationshipAdvisor = React.useMemo(() => createRelationshipAdvisorAgent({
@@ -57,6 +62,11 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
 
     const onPickAgent = React.useCallback(async (agent: AgentLauncher) => {
         if (entering) return;
+        if (agent.runtime === 'relationship-advisor' && relationshipAdvisorPluginStatus?.installed !== true) {
+            onClose();
+            router.navigate('/settings/relationship-advisor' as any);
+            return;
+        }
         // 持久化的「我的 Agent」→ 进入其专属空间（侧栏收敛为工作台）。内置 App Builder Agent
         // 的 id 是每次动态生成的、不适合作为持久空间锚点，保持原「直接发起新会话」行为。
         if (agents.some((a) => a.id === agent.id)) {
@@ -70,7 +80,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
             onClose();
             launchAgent(agent, draft, (p) => router.navigate(p as any));
         }
-    }, [agents, draft, enter, entering, enterSpace, onClose, router]);
+    }, [agents, draft, enter, entering, enterSpace, onClose, relationshipAdvisorPluginStatus, router]);
 
     const closeIfIdle = React.useCallback(() => {
         if (!entering) onClose();
@@ -128,10 +138,14 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                         {visibleAgents.map((agent) => {
                             const machine = machines.find((m) => m.id === agent.machineId);
                             const isCloudAdvisor = agent.runtime === 'relationship-advisor';
-                            const online = isCloudAdvisor || (!!machine && isMachineOnline(machine));
+                            const online = isCloudAdvisor
+                                ? !relationshipAdvisorPluginLoading
+                                : !!machine && isMachineOnline(machine);
                             const missing = !isCloudAdvisor && !machine;
                             const subtitle = isCloudAdvisor
-                                ? agent.path
+                                ? relationshipAdvisorPluginStatus?.installed === true
+                                    ? agent.path
+                                    : t('relationshipAdvisor.installSubtitle')
                                 : getAgentSubtitle(agent, machine, missing ? t('agents.machineMissing') : agent.machineId);
 
                             return (

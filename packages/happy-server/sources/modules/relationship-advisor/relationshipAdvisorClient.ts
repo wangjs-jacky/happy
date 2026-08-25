@@ -1,4 +1,5 @@
 import { RELATIONSHIP_ADVISOR_SYSTEM_PROMPT } from './_prompts';
+import { validateRelationshipAdvisorProviderUrl } from './providerUrlSafety';
 
 interface AdvisorMessage {
     role: 'user' | 'assistant';
@@ -16,6 +17,7 @@ interface StreamRelationshipAdvisorOptions {
     baseUrl: string;
     model: string;
     fetchImpl?: typeof fetch;
+    validateBaseUrl?: (baseUrl: string) => Promise<string>;
 }
 
 interface ProviderStreamDelta {
@@ -73,8 +75,10 @@ export async function* streamRelationshipAdvisor(
     input: StreamRelationshipAdvisorInput,
     options: StreamRelationshipAdvisorOptions,
 ): AsyncGenerator<{ text: string }> {
-    const response = await (options.fetchImpl ?? fetch)(resolveChatCompletionsUrl(options.baseUrl), {
+    const safeBaseUrl = await (options.validateBaseUrl ?? validateRelationshipAdvisorProviderUrl)(options.baseUrl);
+    const response = await (options.fetchImpl ?? fetch)(resolveChatCompletionsUrl(safeBaseUrl), {
         method: 'POST',
+        redirect: 'error',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${options.apiKey}`,

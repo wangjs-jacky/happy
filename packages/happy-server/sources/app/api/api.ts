@@ -25,6 +25,7 @@ import { v3SessionRoutes } from "./routes/v3SessionRoutes";
 import { attachmentRoutes } from "./routes/attachmentRoutes";
 import { fileRoutes } from "./routes/fileRoutes";
 import { relationshipAdvisorRoutes } from "./routes/relationshipAdvisorRoutes";
+import { relationshipAdvisorPluginRoutes } from "./routes/relationshipAdvisorPluginRoutes";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -97,6 +98,7 @@ export async function startApi(opts: StartApiOptions = {}) {
     v3SessionRoutes(typed);
     attachmentRoutes(typed);
     relationshipAdvisorRoutes(typed);
+    relationshipAdvisorPluginRoutes(typed);
 
     // Static webapp (self-host mode)
     if (opts.staticDir) {
