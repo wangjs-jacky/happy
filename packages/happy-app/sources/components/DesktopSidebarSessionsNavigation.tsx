@@ -381,16 +381,18 @@ type SidebarWebDragEvent = {
     currentTarget?: EventTarget | null;
     dataTransfer?: DataTransfer | null;
     preventDefault?: () => void;
+    relatedTarget?: EventTarget | null;
 };
 
 const SIDEBAR_SESSION_DRAG_TYPE = 'application/x-paws-sidebar-session';
 const SIDEBAR_LIST_DRAG_TYPE = 'application/x-paws-sidebar-list';
 
-function WebDropTarget({ active, children, draggableId, onDragEnd, onDragOver, onDragStart, onDrop, style, targetId, testID }: {
+function WebDropTarget({ active, children, draggableId, onDragEnd, onDragLeave, onDragOver, onDragStart, onDrop, style, targetId, testID }: {
     active: boolean;
     children: React.ReactNode;
     draggableId?: string;
     onDragEnd?: () => void;
+    onDragLeave?: (targetId: string, event: SidebarWebDragEvent) => void;
     onDragOver: (targetId: string, event: SidebarWebDragEvent) => void;
     onDragStart?: (sourceId: string, event: SidebarWebDragEvent) => void;
     onDrop: (targetId: string, event: SidebarWebDragEvent) => void;
@@ -407,6 +409,12 @@ function WebDropTarget({ active, children, draggableId, onDragEnd, onDragOver, o
         const handleDragStart = (event: DragEvent) => {
             if (draggableId) onDragStart?.(draggableId, event);
         };
+        const handleDragLeave = (event: DragEvent) => {
+            const nextTarget = event.relatedTarget;
+            const ownerWindow = element.ownerDocument.defaultView;
+            if (nextTarget && ownerWindow && nextTarget instanceof ownerWindow.Node && element.contains(nextTarget)) return;
+            onDragLeave?.(targetId, event);
+        };
         const handleDragOver = (event: DragEvent) => onDragOver(targetId, event);
         const handleDrop = (event: DragEvent) => onDrop(targetId, event);
         if (draggableId) {
@@ -414,16 +422,18 @@ function WebDropTarget({ active, children, draggableId, onDragEnd, onDragOver, o
             element.addEventListener('dragstart', handleDragStart);
             if (onDragEnd) element.addEventListener('dragend', onDragEnd);
         }
+        element.addEventListener('dragleave', handleDragLeave);
         element.addEventListener('dragover', handleDragOver);
         element.addEventListener('drop', handleDrop);
         return () => {
             element.draggable = false;
             element.removeEventListener('dragstart', handleDragStart);
             if (onDragEnd) element.removeEventListener('dragend', onDragEnd);
+            element.removeEventListener('dragleave', handleDragLeave);
             element.removeEventListener('dragover', handleDragOver);
             element.removeEventListener('drop', handleDrop);
         };
-    }, [draggableId, onDragEnd, onDragOver, onDragStart, onDrop, targetId]);
+    }, [draggableId, onDragEnd, onDragLeave, onDragOver, onDragStart, onDrop, targetId]);
 
     return <View ref={ref} style={[style, active && stylesheet.listDropTarget]} testID={testID}>{children}</View>;
 }
@@ -551,6 +561,9 @@ function SidebarListsView() {
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
         setDragOverListId(listId);
     }, [draggedListId, draggedSessionId]);
+    const leaveList = React.useCallback((listId: string) => {
+        setDragOverListId((current) => current === listId ? null : current);
+    }, []);
     const dropOntoList = React.useCallback((listId: string, event: SidebarWebDragEvent) => {
         if (Platform.OS !== 'web') return;
         event.preventDefault?.();
@@ -658,6 +671,7 @@ function SidebarListsView() {
                     active={dragOverListId === list.id}
                     draggableId={list.id}
                     onDragEnd={finishSidebarDrag}
+                    onDragLeave={leaveList}
                     onDragOver={dragOverList}
                     onDragStart={startListDrag}
                     onDrop={dropOntoList}
@@ -692,6 +706,7 @@ function SidebarListsView() {
             return (
                 <WebDropTarget
                     active={dragOverListId === 'unassigned'}
+                    onDragLeave={leaveList}
                     onDragOver={dragOverList}
                     onDrop={dropOntoList}
                     targetId="unassigned"
@@ -744,7 +759,7 @@ function SidebarListsView() {
                 {organization.tags.length === 0 ? <Text style={styles.empty}>{t('sidebarLists.noTags')}</Text> : null}
             </View>
         );
-    }, [addTag, createSession, deleteList, dragOverList, dragOverListId, draggedListId, draggedSessionId, dropOntoList, expanded, finishSidebarDrag, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.sessions, organization.tags, selectedSessionId, selectedTagId, sessionIndex, startListDrag, startSessionDrag, styles, theme.colors]);
+    }, [addTag, createSession, deleteList, dragOverList, dragOverListId, draggedListId, draggedSessionId, dropOntoList, expanded, finishSidebarDrag, leaveList, listColors, openCreate, openEdit, openOrganizer, openSession, organization.lists.length, organization.sessions, organization.tags, selectedSessionId, selectedTagId, sessionIndex, startListDrag, startSessionDrag, styles, theme.colors]);
 
     return (
         <View style={styles.container} testID="sidebar-lists-view">

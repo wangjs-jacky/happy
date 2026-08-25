@@ -172,6 +172,7 @@ async function dragSessionToList(
     expect(sourceBox).not.toBeNull();
     expect(targetBox).not.toBeNull();
     const restingBackground = await target.evaluate((element) => window.getComputedStyle(element).backgroundColor);
+    const targetY = targetBox!.y + targetBox!.height / 2;
 
     await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
     await page.mouse.down();
@@ -180,6 +181,11 @@ async function dragSessionToList(
     await page.mouse.move(targetBox!.x + targetBox!.width / 2 + 1, targetBox!.y + targetBox!.height / 2, { steps: 2 });
     await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
     if (onTargetHover) await onTargetHover();
+    await page.mouse.move(targetBox!.x + targetBox!.width + 80, targetY, { steps: 6 });
+    await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).toBe(restingBackground);
+    await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetY, { steps: 6 });
+    await page.mouse.move(targetBox!.x + targetBox!.width / 2 + 1, targetY, { steps: 2 });
+    await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
     await pauseForReview(page, 900);
     await page.mouse.up();
 }
@@ -208,6 +214,11 @@ async function dragListToList(
     await page.mouse.move(targetBox!.x + targetBox!.width / 2 + 1, targetY, { steps: 2 });
     await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
     if (onTargetHover) await onTargetHover();
+    await page.mouse.move(targetBox!.x + targetBox!.width + 80, targetY, { steps: 6 });
+    await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).toBe(restingBackground);
+    await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetY, { steps: 6 });
+    await page.mouse.move(targetBox!.x + targetBox!.width / 2 + 1, targetY, { steps: 2 });
+    await expect.poll(() => target.evaluate((element) => window.getComputedStyle(element).backgroundColor)).not.toBe(restingBackground);
     await pauseForReview(page, 900);
     await page.mouse.up();
 }
@@ -217,6 +228,16 @@ async function expectListBefore(first: Locator, second: Locator): Promise<void> 
         const [firstBox, secondBox] = await Promise.all([first.boundingBox(), second.boundingBox()]);
         return !!firstBox && !!secondBox && firstBox.y < secondBox.y;
     }).toBe(true);
+}
+
+async function expectPersistedListBefore(page: Page, firstId: string, secondId: string): Promise<void> {
+    await expect.poll(() => page.evaluate(({ firstId: expectedFirstId, secondId: expectedSecondId }) => {
+        const stored = window.localStorage.getItem('mmkv.default\\local-settings');
+        if (!stored) return false;
+        const parsed = JSON.parse(stored) as { sidebarOrganization?: { lists?: Array<{ id: string }> } };
+        const ids = parsed.sidebarOrganization?.lists?.map((list) => list.id) ?? [];
+        return ids.indexOf(expectedFirstId) >= 0 && ids.indexOf(expectedFirstId) < ids.indexOf(expectedSecondId);
+    }, { firstId, secondId })).toBe(true);
 }
 
 async function createList(
@@ -294,7 +315,13 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         });
         createdSessionIds.push(betaId);
 
+        await page.emulateMedia({ colorScheme: 'dark' });
         await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto(authenticatedRoute('/settings/appearance'));
+        await page.getByText('Gingham', { exact: true }).click();
+        await expect.poll(() => page.locator('body').evaluate((element) => (
+            window.getComputedStyle(element).backgroundColor
+        ))).toBe('rgb(18, 24, 33)');
         await page.goto(authenticatedRoute(`/session/${alphaId}`));
         page.setDefaultTimeout(15_000);
         expect(await page.evaluate(() => window.devicePixelRatio)).toBe(1);
@@ -375,6 +402,7 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
             await page.screenshot({ path: testInfo.outputPath('04-list-drag-target-highlight.png'), fullPage: true });
         });
         await expectListBefore(advisorDropTarget, remoteDropTarget);
+        await expectPersistedListBefore(page, advisorId, remoteId);
         await captureEvidenceFrame(page, testInfo, '08-lists-reordered');
 
         await page.reload({ timeout: 180_000 });
@@ -383,6 +411,11 @@ test('[SIDEBAR-LISTS-TAGS] desktop Lists and Tags organize sessions without repl
         await expect(page).toHaveURL(alphaUrl);
         await expect(page.getByTestId(`organized-session-tags-${alphaId}`)).toContainText('#product');
         await captureEvidenceFrame(page, testInfo, '09-list-order-reloaded');
+
+        await dragListToList(page, remoteDropTarget, advisorDropTarget, 'before');
+        await expectListBefore(remoteDropTarget, advisorDropTarget);
+        await dragListToList(page, remoteDropTarget, advisorDropTarget, 'after');
+        await expectListBefore(advisorDropTarget, remoteDropTarget);
 
         await dragSessionToList(
             page,
