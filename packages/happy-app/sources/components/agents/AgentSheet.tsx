@@ -14,13 +14,20 @@ import { createAppBuilderAgent, createRelationshipAdvisorAgent, getAgentSubtitle
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { useAgentSpace } from '@/hooks/useAgentSpace';
 import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
+import type { PluginId } from '@/components/plugins/pluginCatalog';
+
+type Props = {
+    visible: boolean;
+    onClose: () => void;
+    onOpenPlugin?: (pluginId: PluginId) => void;
+};
 
 /**
  * 列出用户配置的「我的 Agent」：手机使用底部抽屉，PC Web/Tauri 使用紧凑居中弹层。
  * 点击在线 Agent → 预填新建会话 draft 并导航；离线 / 机器缺失的 Agent 置灰不可点。
  * 复用 RN 原生 Modal + 半透明 scrim，沿用侧栏卡片视觉语言。
  */
-export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
+export const AgentSheet = React.memo(({ visible, onClose, onOpenPlugin }: Props) => {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const windowDimensions = useWindowDimensions();
@@ -63,6 +70,10 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const onPickAgent = React.useCallback(async (agent: AgentLauncher) => {
         if (entering) return;
         if (agent.runtime === 'relationship-advisor' && relationshipAdvisorPluginStatus?.installed !== true) {
+            if (onOpenPlugin) {
+                onOpenPlugin('relationship-advisor');
+                return;
+            }
             onClose();
             router.navigate('/settings/relationship-advisor' as any);
             return;
@@ -80,7 +91,7 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
             onClose();
             launchAgent(agent, draft, (p) => router.navigate(p as any));
         }
-    }, [agents, draft, enter, entering, enterSpace, onClose, relationshipAdvisorPluginStatus, router]);
+    }, [agents, draft, enter, entering, enterSpace, onClose, onOpenPlugin, relationshipAdvisorPluginStatus, router]);
 
     const closeIfIdle = React.useCallback(() => {
         if (!entering) onClose();

@@ -133,6 +133,7 @@ vi.mock('./SidebarHelpMenu', async () => {
     };
 });
 vi.mock('./agents/AgentSheet', () => ({ AgentSheet: 'AgentSheet' }));
+vi.mock('./plugins/PluginMarketplaceModal', () => ({ PluginMarketplaceModal: 'PluginMarketplaceModal' }));
 vi.mock('@/hooks/useAgentSpace', () => ({
     useAgentSpace: () => ({
         agent: mocks.spaceAgent,
@@ -280,6 +281,11 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findByType('AgentSheet').props.visible).toBe(true);
         expect(mocks.navigate).not.toHaveBeenCalledWith('/settings/my-agents');
 
+        const pluginsButton = renderer.root.findByProps({ testID: 'sidebar-plugins-button' });
+        act(() => pluginsButton.props.onPress());
+        expect(renderer.root.findByType('PluginMarketplaceModal').props.visible).toBe(true);
+        expect(renderer.root.findByType('PluginMarketplaceModal').props.initialPluginId).toBeNull();
+
         act(() => renderer.unmount());
     });
 
@@ -393,7 +399,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('keeps primary work destinations contiguous and Agents secondary', () => {
+    it('keeps primary work and plugin destinations contiguous and Agents secondary', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -408,6 +414,7 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-new-session-button',
             'sidebar-inbox-button',
             'sidebar-command-palette-button',
+            'sidebar-plugins-button',
         ]);
         expect(primary.findAllByProps({ testID: 'sidebar-my-agents-button' })).toHaveLength(0);
 
