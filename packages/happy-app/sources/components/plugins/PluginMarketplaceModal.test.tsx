@@ -7,6 +7,7 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     navigate: vi.fn(),
+    galleryStatus: { installed: false } as { installed: boolean },
     status: { installed: false } as
         | { installed: false }
         | { installed: true; baseUrl: string; model: string; keyHint: string },
@@ -51,8 +52,14 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/hooks/useRelationshipAdvisorPlugin', () => ({
     useRelationshipAdvisorPlugin: () => ({ loading: false, status: mocks.status, refresh: vi.fn() }),
 }));
+vi.mock('@/hooks/useGeneratedImagesPlugin', () => ({
+    useGeneratedImagesPlugin: () => ({ loading: false, status: mocks.galleryStatus, refresh: vi.fn() }),
+}));
 vi.mock('./RelationshipAdvisorPluginConfiguration', () => ({
     RelationshipAdvisorPluginConfiguration: 'RelationshipAdvisorPluginConfiguration',
+}));
+vi.mock('./GeneratedImagesPluginConfiguration', () => ({
+    GeneratedImagesPluginConfiguration: 'GeneratedImagesPluginConfiguration',
 }));
 
 import { PluginMarketplaceModal } from './PluginMarketplaceModal';
@@ -63,6 +70,7 @@ describe('PluginMarketplaceModal', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.galleryStatus = { installed: false };
         mocks.status = { installed: false };
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -121,6 +129,27 @@ describe('PluginMarketplaceModal', () => {
 
         expect(renderer.root.findByProps({ testID: 'plugin-marketplace-empty' })).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'plugin-marketplace-plugin-relationship-advisor' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('opens the generated image gallery plugin and includes it in installed plugins', () => {
+        mocks.galleryStatus = { installed: true };
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<PluginMarketplaceModal visible onClose={vi.fn()} />);
+        });
+
+        expect(renderer.root.findByProps({
+            testID: 'plugin-marketplace-plugin-generated-images-gallery',
+        })).toBeTruthy();
+        expect(renderer.root.findByProps({
+            testID: 'plugin-marketplace-installed-generated-images-gallery',
+        })).toBeTruthy();
+
+        act(() => renderer.root.findByProps({
+            testID: 'plugin-marketplace-plugin-generated-images-gallery',
+        }).props.onPress());
+        expect(renderer.root.findAllByType('GeneratedImagesPluginConfiguration')).toHaveLength(1);
         act(() => renderer.unmount());
     });
 });

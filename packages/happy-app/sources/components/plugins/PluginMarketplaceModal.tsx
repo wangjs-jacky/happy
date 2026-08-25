@@ -15,8 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
 import { Typography } from '@/constants/Typography';
+import { useGeneratedImagesPlugin } from '@/hooks/useGeneratedImagesPlugin';
 import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
 import { t } from '@/text';
+import { GeneratedImagesPluginConfiguration } from './GeneratedImagesPluginConfiguration';
 import { RelationshipAdvisorPluginConfiguration } from './RelationshipAdvisorPluginConfiguration';
 import { PLUGIN_CATALOG, type PluginCatalogEntry, type PluginId } from './pluginCatalog';
 
@@ -56,7 +58,9 @@ function PluginRow({
             <View style={[styles.actionPill, installed && styles.actionPillInstalled]}>
                 <Text style={[styles.actionText, installed && styles.actionTextInstalled]}>
                     {installed
-                        ? t('relationshipAdvisorPlugin.configure')
+                        ? t(plugin.installedAction === 'open'
+                            ? 'relationshipAdvisorPlugin.openPlugin'
+                            : 'relationshipAdvisorPlugin.configure')
                         : t('relationshipAdvisorPlugin.install')}
                 </Text>
             </View>
@@ -76,7 +80,16 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
     const isDesktop = Platform.OS === 'web' && windowDimensions.width >= 900;
     const [activePluginId, setActivePluginId] = React.useState<PluginId | null>(initialPluginId);
     const [query, setQuery] = React.useState('');
-    const { loading, status, refresh } = useRelationshipAdvisorPlugin(visible);
+    const {
+        loading: relationshipAdvisorLoading,
+        status: relationshipAdvisorStatus,
+        refresh: refreshRelationshipAdvisor,
+    } = useRelationshipAdvisorPlugin(visible);
+    const {
+        loading: generatedImagesLoading,
+        status: generatedImagesStatus,
+        refresh: refreshGeneratedImages,
+    } = useGeneratedImagesPlugin(visible);
 
     React.useEffect(() => {
         if (!visible) return;
@@ -90,9 +103,14 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
         onClose();
     }, [onClose]);
 
-    const openInstalledPlugin = React.useCallback(() => {
+    const openRelationshipAdvisor = React.useCallback(() => {
         close();
         router.navigate('/relationship-advisor' as any);
+    }, [close, router]);
+
+    const openGeneratedImages = React.useCallback(() => {
+        close();
+        router.navigate('/generated-images' as any);
     }, [close, router]);
 
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -100,7 +118,20 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
         if (!normalizedQuery) return true;
         return `${t(plugin.titleKey)} ${t(plugin.descriptionKey)}`.toLocaleLowerCase().includes(normalizedQuery);
     }), [normalizedQuery]);
-    const relationshipAdvisorInstalled = status?.installed === true;
+    const relationshipAdvisorInstalled = relationshipAdvisorStatus?.installed === true;
+    const generatedImagesInstalled = generatedImagesStatus?.installed === true;
+    const activePlugin = PLUGIN_CATALOG.find((plugin) => plugin.id === activePluginId);
+    const pluginStatusById: Record<PluginId, { installed: boolean; loading: boolean }> = {
+        'relationship-advisor': {
+            installed: relationshipAdvisorInstalled,
+            loading: relationshipAdvisorLoading,
+        },
+        'generated-images-gallery': {
+            installed: generatedImagesInstalled,
+            loading: generatedImagesLoading,
+        },
+    };
+    const installedPlugins = PLUGIN_CATALOG.filter((plugin) => pluginStatusById[plugin.id].installed);
 
     return (
         <Modal
@@ -127,8 +158,8 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                     testID="plugin-marketplace-backdrop"
                 />
                 <View
-                    accessibilityLabel={activePluginId
-                        ? t('relationshipAdvisor.title')
+                    accessibilityLabel={activePlugin
+                        ? t(activePlugin.titleKey)
                         : t('relationshipAdvisorPlugin.marketTitle')}
                     accessibilityViewIsModal
                     style={[styles.panel, isDesktop ? styles.panelDesktop : styles.panelMobile]}
@@ -149,8 +180,8 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                             </Pressable>
                         ) : <View style={styles.headerPlaceholder} />}
                         <Text numberOfLines={1} style={styles.headerTitle}>
-                            {activePluginId
-                                ? t('relationshipAdvisor.title')
+                            {activePlugin
+                                ? t(activePlugin.titleKey)
                                 : t('relationshipAdvisorPlugin.marketTitle')}
                         </Text>
                         <Pressable
@@ -168,9 +199,19 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                     {activePluginId === 'relationship-advisor' ? (
                         <View style={styles.configurationContent}>
                             <RelationshipAdvisorPluginConfiguration
-                                onInstalled={openInstalledPlugin}
+                                onInstalled={openRelationshipAdvisor}
                                 onStatusChanged={async () => {
-                                    await refresh();
+                                    await refreshRelationshipAdvisor();
+                                }}
+                            />
+                        </View>
+                    ) : activePluginId === 'generated-images-gallery' ? (
+                        <View style={styles.configurationContent}>
+                            <GeneratedImagesPluginConfiguration
+                                onInstalled={openGeneratedImages}
+                                onOpen={openGeneratedImages}
+                                onStatusChanged={async () => {
+                                    await refreshGeneratedImages();
                                 }}
                             />
                         </View>
@@ -199,20 +240,24 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                                 keyboardShouldPersistTaps="handled"
                                 style={styles.scroll}
                             >
-                                {relationshipAdvisorInstalled && normalizedQuery.length === 0 ? (
+                                {installedPlugins.length > 0 && normalizedQuery.length === 0 ? (
                                     <View testID="plugin-marketplace-installed-section">
                                         <Text style={styles.sectionTitle}>{t('relationshipAdvisorPlugin.installedSection')}</Text>
                                         <View style={styles.installedStrip}>
-                                            <Pressable
-                                                accessibilityRole="button"
-                                                onPress={() => setActivePluginId('relationship-advisor')}
-                                                style={({ pressed }) => [styles.installedPlugin, pressed && styles.pressed]}
-                                            >
-                                                <View style={styles.installedIcon}>
-                                                    <Ionicons color={theme.colors.accent} name="chatbubbles-outline" size={20} />
-                                                </View>
-                                                <Text numberOfLines={1} style={styles.installedLabel}>{t('relationshipAdvisor.title')}</Text>
-                                            </Pressable>
+                                            {installedPlugins.map((plugin) => (
+                                                <Pressable
+                                                    accessibilityRole="button"
+                                                    key={plugin.id}
+                                                    onPress={() => setActivePluginId(plugin.id)}
+                                                    style={({ pressed }) => [styles.installedPlugin, pressed && styles.pressed]}
+                                                    testID={`plugin-marketplace-installed-${plugin.id}`}
+                                                >
+                                                    <View style={styles.installedIcon}>
+                                                        <Ionicons color={theme.colors.accent} name={plugin.icon} size={20} />
+                                                    </View>
+                                                    <Text numberOfLines={1} style={styles.installedLabel}>{t(plugin.titleKey)}</Text>
+                                                </Pressable>
+                                            ))}
                                         </View>
                                     </View>
                                 ) : null}
@@ -223,9 +268,9 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                                         <View style={styles.pluginList}>
                                             {filteredPlugins.map((plugin) => (
                                                 <PluginRow
-                                                    installed={plugin.id === 'relationship-advisor' && relationshipAdvisorInstalled}
+                                                    installed={pluginStatusById[plugin.id].installed}
                                                     key={plugin.id}
-                                                    loading={loading}
+                                                    loading={pluginStatusById[plugin.id].loading}
                                                     onPress={() => setActivePluginId(plugin.id)}
                                                     plugin={plugin}
                                                 />

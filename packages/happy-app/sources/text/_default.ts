@@ -353,6 +353,11 @@ export const en = {
     generatedImages: {
         title: 'GPT Image 2 Gallery',
         entrySubtitle: 'Browse generated images and their prompts.',
+        pluginInstalledSubtitle: 'The generated image gallery is available on this account.',
+        pluginNotInstalledSubtitle: 'Install the plugin to browse generated images.',
+        pluginInstallSubtitle: 'Enable the generated image gallery for this account.',
+        pluginUninstallSubtitle: 'Disable gallery access without deleting generated images.',
+        pluginPrivacyNotice: 'No API key is required. Paws stores only an encrypted installation marker on the server.',
         subtitle: ({ count }: { count: number }) => count === 1 ? '1 generated image' : count + ' generated images',
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',

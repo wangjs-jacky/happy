@@ -356,6 +356,11 @@ export const zhHans: TranslationStructure = {
     generatedImages: {
         title: 'GPT Image 2 图库',
         entrySubtitle: '集中浏览生成图片和对应 Prompt。',
+        pluginInstalledSubtitle: '生成图片图库已对当前账号开放。',
+        pluginNotInstalledSubtitle: '安装插件后即可浏览生成图片。',
+        pluginInstallSubtitle: '为当前账号启用生成图片图库。',
+        pluginUninstallSubtitle: '关闭图库访问权限，但不会删除生成图片。',
+        pluginPrivacyNotice: '无需 API 密钥。Paws 服务器只会保存加密的安装标记。',
         subtitle: ({ count }: { count: number }) => '共 ' + count + ' 张生成图片',
         emptyTitle: '还没有生成图片',
         emptyDescription: '通过 send_image 发送的生成图片同步到 App 后，会出现在这里。',

@@ -354,6 +354,11 @@ export const pt: TranslationStructure = {
     generatedImages: {
         title: 'GPT Image 2 Gallery',
         entrySubtitle: 'Browse generated images and their prompts.',
+        pluginInstalledSubtitle: 'A galeria de imagens geradas está disponível nesta conta.',
+        pluginNotInstalledSubtitle: 'Instale o plug-in para explorar as imagens geradas.',
+        pluginInstallSubtitle: 'Ative a galeria de imagens geradas para esta conta.',
+        pluginUninstallSubtitle: 'Desative o acesso à galeria sem excluir as imagens geradas.',
+        pluginPrivacyNotice: 'Nenhuma chave de API é necessária. A Paws salva no servidor apenas um marcador de instalação criptografado.',
         subtitle: ({ count }: { count: number }) => count === 1 ? '1 generated image' : count + ' generated images',
         emptyTitle: 'No generated images yet',
         emptyDescription: 'Images sent with send_image will appear here after they are synced into this app.',
