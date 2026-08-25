@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { PluginCatalogItem } from '@slopus/happy-wire';
 import {
     Modal,
     Platform,
@@ -15,16 +16,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 
 import { Typography } from '@/constants/Typography';
-import { useGeneratedImagesPlugin } from '@/hooks/useGeneratedImagesPlugin';
-import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
+import { usePlugins } from '@/hooks/usePlugins';
 import { t } from '@/text';
-import { GeneratedImagesPluginConfiguration } from './GeneratedImagesPluginConfiguration';
-import { RelationshipAdvisorPluginConfiguration } from './RelationshipAdvisorPluginConfiguration';
-import { PLUGIN_CATALOG, type PluginCatalogEntry, type PluginId } from './pluginCatalog';
+import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
+import { resolvePluginRoute } from './pluginClientAdapters';
+import { resolvePluginText } from './pluginText';
 
 type Props = {
     visible: boolean;
-    initialPluginId?: PluginId | null;
+    initialPluginId?: string | null;
     onClose: () => void;
 };
 
@@ -37,30 +37,34 @@ function PluginRow({
     installed: boolean;
     loading: boolean;
     onPress: () => void;
-    plugin: PluginCatalogEntry;
+    plugin: PluginCatalogItem;
 }) {
     const { theme } = useUnistyles();
+    const currentVersionInstalled = plugin.status.installed
+        && plugin.status.version === plugin.manifest.version;
     return (
         <Pressable
             accessibilityRole="button"
             disabled={loading}
             onPress={onPress}
             style={({ pressed }) => [styles.pluginRow, pressed && styles.pressed]}
-            testID={`plugin-marketplace-plugin-${plugin.id}`}
+            testID={`plugin-marketplace-plugin-${plugin.manifest.id}`}
         >
             <View style={styles.pluginIcon}>
-                <Ionicons color={theme.colors.accent} name={plugin.icon} size={21} />
+                <Ionicons color={theme.colors.accent} name={plugin.manifest.icon as any} size={21} />
             </View>
             <View style={styles.pluginCopy}>
-                <Text numberOfLines={1} style={styles.pluginTitle}>{t(plugin.titleKey)}</Text>
-                <Text numberOfLines={2} style={styles.pluginDescription}>{t(plugin.descriptionKey)}</Text>
+                <Text numberOfLines={1} style={styles.pluginTitle}>{resolvePluginText(plugin.manifest.title)}</Text>
+                <Text numberOfLines={2} style={styles.pluginDescription}>{resolvePluginText(plugin.manifest.description)}</Text>
             </View>
             <View style={[styles.actionPill, installed && styles.actionPillInstalled]}>
                 <Text style={[styles.actionText, installed && styles.actionTextInstalled]}>
                     {installed
-                        ? t(plugin.installedAction === 'open'
-                            ? 'relationshipAdvisorPlugin.openPlugin'
-                            : 'relationshipAdvisorPlugin.configure')
+                        ? t(!currentVersionInstalled
+                            ? 'relationshipAdvisorPlugin.update'
+                            : plugin.manifest.installedAction === 'open'
+                                ? 'relationshipAdvisorPlugin.openPlugin'
+                                : 'relationshipAdvisorPlugin.configure')
                         : t('relationshipAdvisorPlugin.install')}
                 </Text>
             </View>
@@ -78,18 +82,9 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
     const windowDimensions = useWindowDimensions();
     const router = useRouter();
     const isDesktop = Platform.OS === 'web' && windowDimensions.width >= 900;
-    const [activePluginId, setActivePluginId] = React.useState<PluginId | null>(initialPluginId);
+    const [activePluginId, setActivePluginId] = React.useState<string | null>(initialPluginId);
     const [query, setQuery] = React.useState('');
-    const {
-        loading: relationshipAdvisorLoading,
-        status: relationshipAdvisorStatus,
-        refresh: refreshRelationshipAdvisor,
-    } = useRelationshipAdvisorPlugin(visible);
-    const {
-        loading: generatedImagesLoading,
-        status: generatedImagesStatus,
-        refresh: refreshGeneratedImages,
-    } = useGeneratedImagesPlugin(visible);
+    const { loading, plugins, refresh } = usePlugins(visible);
 
     React.useEffect(() => {
         if (!visible) return;
@@ -103,35 +98,22 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
         onClose();
     }, [onClose]);
 
-    const openRelationshipAdvisor = React.useCallback(() => {
-        close();
-        router.navigate('/relationship-advisor' as any);
-    }, [close, router]);
-
-    const openGeneratedImages = React.useCallback(() => {
-        close();
-        router.navigate('/generated-images' as any);
-    }, [close, router]);
-
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const filteredPlugins = React.useMemo(() => PLUGIN_CATALOG.filter((plugin) => {
+    const filteredPlugins = React.useMemo(() => plugins.filter((plugin) => {
         if (!normalizedQuery) return true;
-        return `${t(plugin.titleKey)} ${t(plugin.descriptionKey)}`.toLocaleLowerCase().includes(normalizedQuery);
-    }), [normalizedQuery]);
-    const relationshipAdvisorInstalled = relationshipAdvisorStatus?.installed === true;
-    const generatedImagesInstalled = generatedImagesStatus?.installed === true;
-    const activePlugin = PLUGIN_CATALOG.find((plugin) => plugin.id === activePluginId);
-    const pluginStatusById: Record<PluginId, { installed: boolean; loading: boolean }> = {
-        'relationship-advisor': {
-            installed: relationshipAdvisorInstalled,
-            loading: relationshipAdvisorLoading,
-        },
-        'generated-images-gallery': {
-            installed: generatedImagesInstalled,
-            loading: generatedImagesLoading,
-        },
-    };
-    const installedPlugins = PLUGIN_CATALOG.filter((plugin) => pluginStatusById[plugin.id].installed);
+        return `${resolvePluginText(plugin.manifest.title)} ${resolvePluginText(plugin.manifest.description)}`
+            .toLocaleLowerCase()
+            .includes(normalizedQuery);
+    }), [normalizedQuery, plugins]);
+    const activePlugin = plugins.find((plugin) => plugin.manifest.id === activePluginId);
+    const installedPlugins = plugins.filter((plugin) => plugin.status.installed);
+
+    const openPlugin = React.useCallback((plugin: PluginCatalogItem) => {
+        const route = resolvePluginRoute(plugin.manifest.id, plugin.manifest.entrypoint.routeId);
+        if (!route) return;
+        close();
+        router.navigate(route as any);
+    }, [close, router]);
 
     return (
         <Modal
@@ -159,7 +141,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                 />
                 <View
                     accessibilityLabel={activePlugin
-                        ? t(activePlugin.titleKey)
+                        ? resolvePluginText(activePlugin.manifest.title)
                         : t('relationshipAdvisorPlugin.marketTitle')}
                     accessibilityViewIsModal
                     style={[styles.panel, isDesktop ? styles.panelDesktop : styles.panelMobile]}
@@ -181,7 +163,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                         ) : <View style={styles.headerPlaceholder} />}
                         <Text numberOfLines={1} style={styles.headerTitle}>
                             {activePlugin
-                                ? t(activePlugin.titleKey)
+                                ? resolvePluginText(activePlugin.manifest.title)
                                 : t('relationshipAdvisorPlugin.marketTitle')}
                         </Text>
                         <Pressable
@@ -196,23 +178,15 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                         </Pressable>
                     </View>
 
-                    {activePluginId === 'relationship-advisor' ? (
+                    {activePlugin ? (
                         <View style={styles.configurationContent}>
-                            <RelationshipAdvisorPluginConfiguration
-                                onInstalled={openRelationshipAdvisor}
-                                onStatusChanged={async () => {
-                                    await refreshRelationshipAdvisor();
-                                }}
-                            />
-                        </View>
-                    ) : activePluginId === 'generated-images-gallery' ? (
-                        <View style={styles.configurationContent}>
-                            <GeneratedImagesPluginConfiguration
-                                onInstalled={openGeneratedImages}
-                                onOpen={openGeneratedImages}
-                                onStatusChanged={async () => {
-                                    await refreshGeneratedImages();
-                                }}
+                            <DynamicPluginConfiguration
+                                onInstalled={activePlugin.manifest.installedAction === 'open'
+                                    ? () => openPlugin(activePlugin)
+                                    : undefined}
+                                onOpen={() => openPlugin(activePlugin)}
+                                onStatusChanged={async () => { await refresh(); }}
+                                plugin={activePlugin}
                             />
                         </View>
                     ) : (
@@ -247,15 +221,17 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                                             {installedPlugins.map((plugin) => (
                                                 <Pressable
                                                     accessibilityRole="button"
-                                                    key={plugin.id}
-                                                    onPress={() => setActivePluginId(plugin.id)}
+                                                    key={plugin.manifest.id}
+                                                    onPress={() => setActivePluginId(plugin.manifest.id)}
                                                     style={({ pressed }) => [styles.installedPlugin, pressed && styles.pressed]}
-                                                    testID={`plugin-marketplace-installed-${plugin.id}`}
+                                                    testID={`plugin-marketplace-installed-${plugin.manifest.id}`}
                                                 >
                                                     <View style={styles.installedIcon}>
-                                                        <Ionicons color={theme.colors.accent} name={plugin.icon} size={20} />
+                                                        <Ionicons color={theme.colors.accent} name={plugin.manifest.icon as any} size={20} />
                                                     </View>
-                                                    <Text numberOfLines={1} style={styles.installedLabel}>{t(plugin.titleKey)}</Text>
+                                                    <Text numberOfLines={1} style={styles.installedLabel}>
+                                                        {resolvePluginText(plugin.manifest.title)}
+                                                    </Text>
                                                 </Pressable>
                                             ))}
                                         </View>
@@ -268,10 +244,10 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                                         <View style={styles.pluginList}>
                                             {filteredPlugins.map((plugin) => (
                                                 <PluginRow
-                                                    installed={pluginStatusById[plugin.id].installed}
-                                                    key={plugin.id}
-                                                    loading={pluginStatusById[plugin.id].loading}
-                                                    onPress={() => setActivePluginId(plugin.id)}
+                                                    installed={plugin.status.installed}
+                                                    key={plugin.manifest.id}
+                                                    loading={loading}
+                                                    onPress={() => setActivePluginId(plugin.manifest.id)}
                                                     plugin={plugin}
                                                 />
                                             ))}

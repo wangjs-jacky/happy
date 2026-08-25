@@ -1,12 +1,6 @@
 import { z } from 'zod';
 
-import { pluginSecretVault } from '@/modules/plugin-secrets/pluginSecretVault';
-
-interface PluginSecretVault {
-    set: (accountId: string, pluginId: string, value: string) => Promise<void>;
-    get: (accountId: string, pluginId: string) => Promise<string | null>;
-    delete: (accountId: string, pluginId: string) => Promise<void>;
-}
+import { pluginRegistry } from '@/modules/plugins/pluginRegistry';
 
 const RELATIONSHIP_ADVISOR_PLUGIN_ID = 'relationship-advisor';
 
@@ -29,48 +23,6 @@ export interface RelationshipAdvisorPluginStreamInput {
     signal?: AbortSignal;
 }
 
-function normalizeConfiguration(configuration: RelationshipAdvisorConfiguration): RelationshipAdvisorConfiguration {
-    return relationshipAdvisorConfigurationSchema.parse({
-        apiKey: configuration.apiKey.trim(),
-        baseUrl: configuration.baseUrl.trim().replace(/\/+$/, ''),
-        model: configuration.model.trim(),
-    });
-}
-
-function parseStoredConfiguration(stored: string): RelationshipAdvisorConfiguration {
-    return relationshipAdvisorConfigurationSchema.parse(JSON.parse(stored));
-}
-
-export function createRelationshipAdvisorPlugin(vault: PluginSecretVault) {
-    return {
-        async install(accountId: string, configuration: RelationshipAdvisorConfiguration): Promise<void> {
-            const normalized = normalizeConfiguration(configuration);
-            await vault.set(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID, JSON.stringify(normalized));
-        },
-        async getStatus(accountId: string) {
-            const stored = await vault.get(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID);
-            if (!stored) return { installed: false as const };
-            const configuration = parseStoredConfiguration(stored);
-            return {
-                installed: true as const,
-                baseUrl: configuration.baseUrl,
-                model: configuration.model,
-                keyHint: configuration.apiKey.length > 4
-                    ? configuration.apiKey.slice(-4)
-                    : '••••',
-            };
-        },
-        async requireConfiguration(accountId: string): Promise<RelationshipAdvisorConfiguration> {
-            const stored = await vault.get(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID);
-            if (!stored) throw new Error('Relationship advisor plugin is not installed');
-            return parseStoredConfiguration(stored);
-        },
-        async uninstall(accountId: string): Promise<void> {
-            await vault.delete(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID);
-        },
-    };
-}
-
 export function createRelationshipAdvisorPluginRuntime(
     plugin: { requireConfiguration: (accountId: string) => Promise<RelationshipAdvisorConfiguration> },
     providerStream: (
@@ -86,4 +38,10 @@ export function createRelationshipAdvisorPluginRuntime(
     };
 }
 
-export const relationshipAdvisorPlugin = createRelationshipAdvisorPlugin(pluginSecretVault);
+export const relationshipAdvisorPlugin = {
+    async requireConfiguration(accountId: string): Promise<RelationshipAdvisorConfiguration> {
+        return relationshipAdvisorConfigurationSchema.parse(
+            await pluginRegistry.requireConfiguration(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID),
+        );
+    },
+};

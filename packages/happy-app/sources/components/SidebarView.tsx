@@ -21,7 +21,6 @@ import { RelationshipAdvisorSidebarHistory } from './relationship-advisor/Relati
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
 import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 import { PluginMarketplaceModal } from './plugins/PluginMarketplaceModal';
-import type { PluginId } from './plugins/pluginCatalog';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -265,7 +264,7 @@ export const SidebarView = React.memo(({
     const agents = useLocalSetting('agents');
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
-    const [initialPluginId, setInitialPluginId] = React.useState<PluginId | null>(null);
+    const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
     const [footerMenu, setFooterMenu] = React.useState<FooterMenu>(null);
     const { agent: spaceAgent, exit: exitSpace } = useAgentSpace();
     const commandPaletteLauncher = useCommandPaletteLauncher();
@@ -321,7 +320,7 @@ export const SidebarView = React.memo(({
         setPluginMarketplaceOpen(true);
     }, []);
 
-    const openPlugin = React.useCallback((pluginId: PluginId) => {
+    const openPlugin = React.useCallback((pluginId: string) => {
         setSheetOpen(false);
         setInitialPluginId(pluginId);
         setPluginMarketplaceOpen(true);

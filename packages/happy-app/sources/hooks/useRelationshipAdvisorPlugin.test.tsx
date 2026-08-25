@@ -5,10 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer has no bundled declarations.
 import TestRenderer from 'react-test-renderer';
 
-const getStatus = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+    enabled: false,
+    item: null as any,
+    refresh: vi.fn(),
+}));
 
-vi.mock('@/sync/relationshipAdvisorPlugin', () => ({
-    getRelationshipAdvisorPluginStatus: getStatus,
+vi.mock('./usePlugins', () => ({
+    usePlugins: (enabled: boolean) => {
+        mocks.enabled = enabled;
+        return {
+            getPlugin: () => mocks.item,
+            loading: false,
+            refresh: mocks.refresh,
+        };
+    },
 }));
 
 import { useRelationshipAdvisorPlugin } from './useRelationshipAdvisorPlugin';
@@ -24,6 +35,7 @@ describe('useRelationshipAdvisorPlugin', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.item = null;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -34,18 +46,18 @@ describe('useRelationshipAdvisorPlugin', () => {
     afterEach(() => consoleErrorSpy.mockRestore());
 
     it('loads server installation status only while the consuming surface is active', async () => {
-        getStatus.mockResolvedValue({ installed: false });
         let renderer: any;
         await act(async () => {
             renderer = TestRenderer.create(<Probe enabled={false} />);
         });
-        expect(getStatus).not.toHaveBeenCalled();
+        expect(mocks.enabled).toBe(false);
 
+        mocks.item = { manifest: { id: 'relationship-advisor' }, status: { installed: false } };
         await act(async () => {
             renderer.update(<Probe enabled />);
         });
 
-        expect(getStatus).toHaveBeenCalledTimes(1);
+        expect(mocks.enabled).toBe(true);
         expect(renderer.root.findByType('probe').props.value).toEqual({
             loading: false,
             status: { installed: false },

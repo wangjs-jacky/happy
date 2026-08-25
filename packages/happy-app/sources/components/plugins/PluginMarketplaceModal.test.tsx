@@ -7,11 +7,39 @@ import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
     navigate: vi.fn(),
-    galleryStatus: { installed: false } as { installed: boolean },
-    status: { installed: false } as
-        | { installed: false }
-        | { installed: true; baseUrl: string; model: string; keyHint: string },
+    refresh: vi.fn(),
+    plugins: [] as any[],
 }));
+
+const manifest = (id: string, installedAction: 'configure' | 'open') => ({
+    schemaVersion: 1,
+    id,
+    version: '1.0.0',
+    title: { default: id },
+    description: { default: `${id} description` },
+    icon: 'apps-outline',
+    featured: true,
+    installedAction,
+    entrypoint: { type: 'app-route', routeId: id },
+    configuration: { fields: [] },
+});
+
+function setPlugins(advisorInstalled = false, galleryInstalled = false) {
+    mocks.plugins = [
+        {
+            manifest: manifest('relationship-advisor', 'configure'),
+            status: advisorInstalled
+                ? { installed: true, version: '1.0.0', configuration: {}, secretHints: {} }
+                : { installed: false },
+        },
+        {
+            manifest: manifest('generated-images-gallery', 'open'),
+            status: galleryInstalled
+                ? { installed: true, version: '1.0.0', configuration: {}, secretHints: {} }
+                : { installed: false },
+        },
+    ];
+}
 
 vi.mock('react-native', () => ({
     Modal: 'Modal',
@@ -48,18 +76,12 @@ vi.mock('react-native-unistyles', () => {
     };
 });
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@/hooks/useRelationshipAdvisorPlugin', () => ({
-    useRelationshipAdvisorPlugin: () => ({ loading: false, status: mocks.status, refresh: vi.fn() }),
+vi.mock('@/text', () => ({ getCurrentLanguage: () => 'en', t: (key: string) => key }));
+vi.mock('@/hooks/usePlugins', () => ({
+    usePlugins: () => ({ loading: false, plugins: mocks.plugins, refresh: mocks.refresh }),
 }));
-vi.mock('@/hooks/useGeneratedImagesPlugin', () => ({
-    useGeneratedImagesPlugin: () => ({ loading: false, status: mocks.galleryStatus, refresh: vi.fn() }),
-}));
-vi.mock('./RelationshipAdvisorPluginConfiguration', () => ({
-    RelationshipAdvisorPluginConfiguration: 'RelationshipAdvisorPluginConfiguration',
-}));
-vi.mock('./GeneratedImagesPluginConfiguration', () => ({
-    GeneratedImagesPluginConfiguration: 'GeneratedImagesPluginConfiguration',
+vi.mock('./DynamicPluginConfiguration', () => ({
+    DynamicPluginConfiguration: 'DynamicPluginConfiguration',
 }));
 
 import { PluginMarketplaceModal } from './PluginMarketplaceModal';
@@ -70,8 +92,7 @@ describe('PluginMarketplaceModal', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.galleryStatus = { installed: false };
-        mocks.status = { installed: false };
+        setPlugins();
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -90,18 +111,15 @@ describe('PluginMarketplaceModal', () => {
         expect(renderer.root.findByProps({ testID: 'plugin-marketplace-featured-section' })).toBeTruthy();
         act(() => renderer.root.findByProps({ testID: 'plugin-marketplace-plugin-relationship-advisor' }).props.onPress());
 
-        expect(renderer.root.findAllByType('RelationshipAdvisorPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findAllByType('DynamicPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findByType('DynamicPluginConfiguration').props.plugin.manifest.id)
+            .toBe('relationship-advisor');
         expect(renderer.root.findByProps({ testID: 'plugin-marketplace-back' })).toBeTruthy();
         act(() => renderer.unmount());
     });
 
     it('shows installed plugins separately and opens configuration directly', () => {
-        mocks.status = {
-            installed: true,
-            baseUrl: 'https://api.example.com/v1',
-            model: 'example-chat',
-            keyHint: '1234',
-        };
+        setPlugins(true, false);
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(
@@ -113,7 +131,7 @@ describe('PluginMarketplaceModal', () => {
             );
         });
 
-        expect(renderer.root.findAllByType('RelationshipAdvisorPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findAllByType('DynamicPluginConfiguration')).toHaveLength(1);
         act(() => renderer.root.findByProps({ testID: 'plugin-marketplace-back' }).props.onPress());
         expect(renderer.root.findByProps({ testID: 'plugin-marketplace-installed-section' })).toBeTruthy();
         act(() => renderer.unmount());
@@ -132,8 +150,24 @@ describe('PluginMarketplaceModal', () => {
         act(() => renderer.unmount());
     });
 
+    it('renders a newly returned server plugin without a bundled catalog change', () => {
+        mocks.plugins.push({
+            manifest: manifest('server-added-plugin', 'configure'),
+            status: { installed: false },
+        });
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<PluginMarketplaceModal visible onClose={vi.fn()} />);
+        });
+
+        expect(renderer.root.findByProps({
+            testID: 'plugin-marketplace-plugin-server-added-plugin',
+        })).toBeTruthy();
+        act(() => renderer.unmount());
+    });
+
     it('opens the generated image gallery plugin and includes it in installed plugins', () => {
-        mocks.galleryStatus = { installed: true };
+        setPlugins(false, true);
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(<PluginMarketplaceModal visible onClose={vi.fn()} />);
@@ -149,7 +183,9 @@ describe('PluginMarketplaceModal', () => {
         act(() => renderer.root.findByProps({
             testID: 'plugin-marketplace-plugin-generated-images-gallery',
         }).props.onPress());
-        expect(renderer.root.findAllByType('GeneratedImagesPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findAllByType('DynamicPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findByType('DynamicPluginConfiguration').props.plugin.manifest.id)
+            .toBe('generated-images-gallery');
         act(() => renderer.unmount());
     });
 });

@@ -14,12 +14,11 @@ import { createAppBuilderAgent, createRelationshipAdvisorAgent, getAgentSubtitle
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { useAgentSpace } from '@/hooks/useAgentSpace';
 import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
-import type { PluginId } from '@/components/plugins/pluginCatalog';
 
 type Props = {
     visible: boolean;
     onClose: () => void;
-    onOpenPlugin?: (pluginId: PluginId) => void;
+    onOpenPlugin?: (pluginId: string) => void;
 };
 
 /**

@@ -1,39 +1,16 @@
-import * as React from 'react';
+import { usePlugins } from './usePlugins';
 
-import {
-    getGeneratedImagesPluginStatus,
-    type GeneratedImagesPluginStatus,
-} from '@/sync/generatedImagesPlugin';
+type GeneratedImagesPluginStatus = { installed: boolean };
 
 /** Loads the server-owned gallery installation state only while its UI surface is active. */
 export function useGeneratedImagesPlugin(enabled = true) {
-    const [status, setStatus] = React.useState<GeneratedImagesPluginStatus | null>(null);
-    const [loading, setLoading] = React.useState(enabled);
-    const mountedRef = React.useRef(true);
-
-    React.useEffect(() => {
-        mountedRef.current = true;
-        return () => {
-            mountedRef.current = false;
-        };
-    }, []);
-
-    const refresh = React.useCallback(async () => {
-        if (!enabled) return null;
-        setLoading(true);
-        try {
-            const next = await getGeneratedImagesPluginStatus();
-            if (mountedRef.current) setStatus(next);
-            return next;
-        } finally {
-            if (mountedRef.current) setLoading(false);
+    const { getPlugin, loading, refresh } = usePlugins(enabled);
+    const item = getPlugin('generated-images-gallery');
+    const status: GeneratedImagesPluginStatus | null = item
+        ? {
+            installed: item.status.installed
+                && item.status.version === item.manifest.version,
         }
-    }, [enabled]);
-
-    React.useEffect(() => {
-        if (!enabled) return;
-        void refresh().catch(() => undefined);
-    }, [enabled, refresh]);
-
+        : null;
     return { loading, status, refresh };
 }
