@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { AgentDefaultOverridesSchema } from './agentDefaults';
 import {
     emptySidebarOrganization,
+    isValidSidebarOrganizationPayload,
     isSidebarOrganizationEmpty,
     SidebarOrganizationSchema,
     type SidebarOrganization,
@@ -268,7 +269,10 @@ export function resolveSidebarOrganizationMigration(
     currentOrganization: SidebarOrganization,
     legacyLocalOrganization: SidebarOrganization,
 ): { organization: SidebarOrganization; shouldUpload: boolean } {
-    if (hasOwnField(rawServerSettings, 'sidebarOrganization')) {
+    const rawOrganization = hasOwnField(rawServerSettings, 'sidebarOrganization')
+        ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
+        : undefined;
+    if (isValidSidebarOrganizationPayload(rawOrganization)) {
         return { organization: currentOrganization, shouldUpload: false };
     }
 
@@ -302,8 +306,11 @@ export function mergeServerSettings(
     if (!hasOwnField(pendingSettings, 'customImageStyles') && !hasOwnField(rawServerSettings, 'customImageStyles') && currentSettings.customImageStyles.length > 0) {
         baseSettings = { ...baseSettings, customImageStyles: currentSettings.customImageStyles };
     }
+    const rawSidebarOrganization = hasOwnField(rawServerSettings, 'sidebarOrganization')
+        ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
+        : undefined;
     if (!hasOwnField(pendingSettings, 'sidebarOrganization')
-        && !hasOwnField(rawServerSettings, 'sidebarOrganization')
+        && !isValidSidebarOrganizationPayload(rawSidebarOrganization)
         && !isSidebarOrganizationEmpty(currentSettings.sidebarOrganization)) {
         baseSettings = { ...baseSettings, sidebarOrganization: currentSettings.sidebarOrganization };
     }

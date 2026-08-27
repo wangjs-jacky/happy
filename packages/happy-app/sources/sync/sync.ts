@@ -18,8 +18,8 @@ import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, mergeServerSettings, resolveSidebarOrganizationMigration, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
-import { loadPendingSettings, savePendingSettings } from './persistence';
-import { emptySidebarOrganization, isSidebarOrganizationEmpty } from './sidebarOrganization';
+import { loadPendingSettings, loadPendingSidebarOrganizationBase, savePendingSettings, savePendingSidebarOrganizationBase } from './persistence';
+import { emptySidebarOrganization, isSidebarOrganizationEmpty, isValidSidebarOrganizationPayload, mergeSidebarOrganizations } from './sidebarOrganization';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -156,6 +156,7 @@ class Sync {
     private feedSync: InvalidateSync;
     private activityAccumulator: ActivityUpdateAccumulator;
     private pendingSettings: Partial<Settings> = loadPendingSettings();
+    private pendingSidebarOrganizationBase = loadPendingSidebarOrganizationBase();
     private appState: AppStateStatus = AppState.currentState;
     private backgroundSendTimeout: ReturnType<typeof setTimeout> | null = null;
     private backgroundSendNotificationId: string | null = null;
@@ -785,11 +786,29 @@ class Sync {
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
     private applyServerSettings = (serverSettings: Settings, version: number, rawServerSettings: unknown) => {
-        const hasServerSidebarOrganization = !!rawServerSettings
+        const rawServerSidebarOrganization = !!rawServerSettings
             && typeof rawServerSettings === 'object'
             && !Array.isArray(rawServerSettings)
-            && Object.prototype.hasOwnProperty.call(rawServerSettings, 'sidebarOrganization');
+            && Object.prototype.hasOwnProperty.call(rawServerSettings, 'sidebarOrganization')
+            ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
+            : undefined;
+        const hasValidServerSidebarOrganization = isValidSidebarOrganizationPayload(rawServerSidebarOrganization);
         const legacyLocalOrganization = storage.getState().localSettings.sidebarOrganization;
+        if (this.pendingSettings.sidebarOrganization
+            && this.pendingSidebarOrganizationBase
+            && hasValidServerSidebarOrganization) {
+            this.pendingSettings = {
+                ...this.pendingSettings,
+                sidebarOrganization: mergeSidebarOrganizations(
+                    this.pendingSidebarOrganizationBase,
+                    this.pendingSettings.sidebarOrganization,
+                    serverSettings.sidebarOrganization,
+                ),
+            };
+            this.pendingSidebarOrganizationBase = serverSettings.sidebarOrganization;
+            savePendingSettings(this.pendingSettings);
+            savePendingSidebarOrganizationBase(this.pendingSidebarOrganizationBase);
+        }
         if (!Object.prototype.hasOwnProperty.call(this.pendingSettings, 'sidebarOrganization')) {
             const migration = resolveSidebarOrganizationMigration(
                 rawServerSettings,
@@ -797,15 +816,22 @@ class Sync {
                 legacyLocalOrganization,
             );
             if (migration.shouldUpload) {
+                this.pendingSidebarOrganizationBase = serverSettings.sidebarOrganization;
+                const migratedOrganization = mergeSidebarOrganizations(
+                    emptySidebarOrganization,
+                    migration.organization,
+                    serverSettings.sidebarOrganization,
+                );
                 this.pendingSettings = {
                     ...this.pendingSettings,
-                    sidebarOrganization: migration.organization,
+                    sidebarOrganization: migratedOrganization,
                 };
                 savePendingSettings(this.pendingSettings);
+                savePendingSidebarOrganizationBase(this.pendingSidebarOrganizationBase);
                 this.settingsSync.invalidate();
             }
         }
-        if (hasServerSidebarOrganization && !isSidebarOrganizationEmpty(legacyLocalOrganization)) {
+        if (hasValidServerSidebarOrganization && !isSidebarOrganizationEmpty(legacyLocalOrganization)) {
             storage.getState().applyLocalSettings({ sidebarOrganization: emptySidebarOrganization });
         }
         const merged = mergeServerSettings(
@@ -818,6 +844,11 @@ class Sync {
     }
 
     applySettings = (delta: Partial<Settings>) => {
+        if (Object.prototype.hasOwnProperty.call(delta, 'sidebarOrganization')
+            && !Object.prototype.hasOwnProperty.call(this.pendingSettings, 'sidebarOrganization')) {
+            this.pendingSidebarOrganizationBase = storage.getState().settings.sidebarOrganization;
+            savePendingSidebarOrganizationBase(this.pendingSidebarOrganizationBase);
+        }
         storage.getState().applySettingsLocal(delta);
 
         // Save pending settings
@@ -1690,6 +1721,12 @@ class Sync {
                     }
                     this.pendingSettings = newPending;
                     savePendingSettings(this.pendingSettings);
+                    if (newPending.sidebarOrganization) {
+                        this.pendingSidebarOrganizationBase = sentPending.sidebarOrganization ?? settings.sidebarOrganization;
+                    } else {
+                        this.pendingSidebarOrganizationBase = null;
+                    }
+                    savePendingSidebarOrganizationBase(this.pendingSidebarOrganizationBase);
                     break;
                 }
                 if (data.error === 'version-mismatch') {

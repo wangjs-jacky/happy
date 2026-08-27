@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildSidebarSessionIndex,
+    mergeSidebarOrganizations,
     moveSidebarSessionToList,
     normalizeSidebarTagName,
     normalizeSidebarOrganization,
@@ -138,5 +139,42 @@ describe('sidebar organization model', () => {
         expect(index.unassigned).toHaveLength(30);
         expect(index.byTagId.get('product')).toHaveLength(50);
         expect(index.byTagId.get('research')).toHaveLength(50);
+    });
+
+    it('three-way merges concurrent additions from different clients without losing data', () => {
+        const base = organizeSession(organization, 'session-1', { listId: null, tagIds: [] });
+        const local = organizeSession({
+            ...base,
+            tags: [...base.tags, { id: 'local', name: 'local', color: 'blue', createdAt: 3 }],
+        }, 'session-1', { listId: null, tagIds: ['local'] });
+        const remote = organizeSession({
+            ...base,
+            tags: [...base.tags, { id: 'remote', name: 'remote', color: 'orange', createdAt: 4 }],
+        }, 'session-1', { listId: 'workspace', tagIds: ['remote'] });
+
+        const merged = mergeSidebarOrganizations(base, local, remote);
+
+        expect(merged.tags.map((tag) => tag.id)).toEqual(['product', 'research', 'local', 'remote']);
+        expect(merged.sessions['session-1']).toEqual({
+            listId: 'workspace',
+            tagIds: ['remote', 'local'],
+        });
+    });
+
+    it('preserves intentional deletions while merging unrelated remote additions', () => {
+        const base = organizeSession(organization, 'session-1', {
+            listId: 'workspace',
+            tagIds: ['product'],
+        });
+        const local = removeSidebarTag(base, 'product');
+        const remote = {
+            ...base,
+            tags: [...base.tags, { id: 'remote', name: 'remote', color: 'orange' as const, createdAt: 4 }],
+        };
+
+        const merged = mergeSidebarOrganizations(base, local, remote);
+
+        expect(merged.tags.map((tag) => tag.id)).toEqual(['research', 'remote']);
+        expect(merged.sessions['session-1']?.tagIds).toEqual([]);
     });
 });

@@ -4,6 +4,7 @@ import { LocalSettings, localSettingsDefaults, localSettingsParse } from './loca
 import { Purchases, purchasesDefaults, purchasesParse } from './purchases';
 import { Profile, profileDefaults, profileParse } from './profile';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
+import { SidebarOrganizationSchema, type SidebarOrganization } from './sidebarOrganization';
 
 const mmkv = new MMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
@@ -12,6 +13,7 @@ const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';
 const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-count';
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
 const SESSION_MANAGEMENT_KEY = 'session-management-v1';
+const PENDING_SIDEBAR_ORGANIZATION_BASE_KEY = 'pending-sidebar-organization-base-v1';
 
 export type NewSessionAgentType = 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -68,6 +70,25 @@ export function loadPendingSettings(): Partial<Settings> {
 
 export function savePendingSettings(settings: Partial<Settings>) {
     mmkv.set('pending-settings', JSON.stringify(settings));
+}
+
+export function loadPendingSidebarOrganizationBase(): SidebarOrganization | null {
+    const value = mmkv.getString(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY);
+    if (!value) return null;
+    try {
+        const parsed = SidebarOrganizationSchema.safeParse(JSON.parse(value));
+        return parsed.success ? parsed.data : null;
+    } catch {
+        return null;
+    }
+}
+
+export function savePendingSidebarOrganizationBase(value: SidebarOrganization | null): void {
+    if (value) {
+        mmkv.set(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY, JSON.stringify(value));
+    } else {
+        mmkv.delete(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY);
+    }
 }
 
 export function loadLocalSettings(): LocalSettings {

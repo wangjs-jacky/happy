@@ -113,6 +113,13 @@ describe('settings', () => {
                 tags: [],
                 sessions: {},
             });
+            expect(settingsParse({
+                sidebarOrganization: {
+                    lists: [...organization.lists, { id: 'broken', kind: 'future-kind' }],
+                    tags: organization.tags,
+                    sessions: organization.sessions,
+                },
+            }).sidebarOrganization).toEqual(organization);
         });
 
         describe('agents field', () => {
@@ -523,6 +530,14 @@ describe('settings', () => {
                 settingsDefaults.sidebarOrganization,
                 legacyOrganization,
             )).toEqual({ organization: settingsDefaults.sidebarOrganization, shouldUpload: false });
+        });
+
+        it('keeps legacy data when the database payload is present but malformed', () => {
+            expect(resolveSidebarOrganizationMigration(
+                { sidebarOrganization: { lists: 'broken', tags: [], sessions: {} } },
+                settingsDefaults.sidebarOrganization,
+                legacyOrganization,
+            )).toEqual({ organization: legacyOrganization, shouldUpload: true });
         });
     });
 
