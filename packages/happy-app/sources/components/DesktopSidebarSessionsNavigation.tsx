@@ -653,7 +653,10 @@ function SidebarListsView() {
             const isLists = item.section === 'lists';
             const isPinned = item.section === 'pinned';
             return (
-                <View style={[styles.sectionHeader, !isLists && !isPinned && styles.tagSection]}>
+                <View
+                    style={[styles.sectionHeader, !isLists && !isPinned && styles.tagSection]}
+                    testID={isPinned ? 'sidebar-pinned-section' : undefined}
+                >
                     <Text style={styles.sectionTitle}>
                         {isPinned ? t('sessionSearch.sections.pinned') : isLists ? t('sidebarLists.lists') : t('sidebarLists.tags')}
                     </Text>

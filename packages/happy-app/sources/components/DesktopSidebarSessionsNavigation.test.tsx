@@ -160,6 +160,7 @@ describe('DesktopSidebarSessionsNavigation', () => {
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation />); });
         act(() => renderer.root.findByProps({ testID: 'desktop-sidebar-tab-lists' }).props.onPress());
 
+        expect(renderer.root.findByProps({ testID: 'sidebar-pinned-section' })).toBeDefined();
         expect(renderer.root.findAllByType('CompactSessionRow')).toHaveLength(1);
         expect(renderer.root.findByType('CompactSessionRow').props.session.id).toBe('session-1');
         expect(renderer.root.findAllByProps({ testID: 'organized-session-session-1' })).toHaveLength(0);
