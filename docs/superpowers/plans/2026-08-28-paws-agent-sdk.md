@@ -4,9 +4,9 @@
 
 **Goal:** Deliver a browser-safe `PawsAgentClient` SDK and a thin `paws-agent` CLI from the single package `@wangjs-jacky/paws-agent`, with packed-artifact, browser, isolated integration, CI, and deferred npm release verification.
 
-**Architecture:** Move the old control client to `packages/paws-agent`, separate browser-safe SDK modules from Node-only CLI adapters, and expose the SDK at the package root. Preserve the existing HTTP, Socket.IO, encryption, and daemon RPC contracts while replacing Node-only crypto and event dependencies in the root graph with Web Platform APIs and typed subscriptions.
+**Architecture:** Move the old control client to `packages/paws-agent`, separate browser-safe SDK modules from Node-only CLI adapters, and expose the SDK at the package root. Preserve the existing HTTP, Socket.IO, encryption, and daemon RPC contracts while replacing Node-only crypto and event dependencies in the root graph with browser-safe audited primitives and typed subscriptions.
 
-**Tech Stack:** TypeScript 5.9, Socket.IO client 4.8, Axios 1.13, TweetNaCl, Web Crypto, Zod/shared wire schemas, Commander 13, Vitest 3, Playwright/Chromium, pkgroll, pnpm 10, GitHub Actions.
+**Tech Stack:** TypeScript 5.9, Socket.IO client 4.8, Axios 1.13, TweetNaCl, Noble Ciphers/Hashes, StableLib Base64, Web Crypto random values, Zod/shared wire schemas, Commander 13, Vitest 3, Playwright/Chromium, pkgroll, pnpm 10, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-paws-agent-sdk-design.md`
 
@@ -37,8 +37,7 @@
 - `packages/paws-agent/src/client/types.ts` — public domain and option types.
 - `packages/paws-agent/src/transport/http.ts` — authenticated HTTP and error normalization.
 - `packages/paws-agent/src/transport/realtime.ts` — Socket.IO lifecycle, updates, and RPC.
-- `packages/paws-agent/src/crypto/encoding.ts` — browser-safe base64 utilities.
-- `packages/paws-agent/src/crypto/encryption.ts` — async Web Crypto and TweetNaCl compatibility implementation.
+- `packages/paws-agent/src/crypto/encryption.ts` — synchronous browser-safe encoding, Noble AES/HMAC/SHA, and TweetNaCl compatibility implementation.
 - `packages/paws-agent/src/crypto/records.ts` — record-key resolution and encrypted field mapping.
 - `packages/paws-agent/src/resources/machines.ts` — machine queries.
 - `packages/paws-agent/src/resources/sessions.ts` — session list/get/spawn/resume/stop.
@@ -162,10 +161,9 @@ git commit -m "refactor(agent): establish paws agent package entries"
 
 ---
 
-### Task 2: Replace Node-only encryption with a browser-safe async implementation
+### Task 2: Replace Node-only encryption with a browser-safe implementation
 
 **Files:**
-- Create: `packages/paws-agent/src/crypto/encoding.ts`
 - Create: `packages/paws-agent/src/crypto/encryption.ts`
 - Create: `packages/paws-agent/src/crypto/records.ts`
 - Test: `packages/paws-agent/src/crypto/encryption.test.ts`
@@ -174,16 +172,16 @@ git commit -m "refactor(agent): establish paws agent package entries"
 - Modify: `packages/paws-agent/tsconfig.json`
 
 **Interfaces:**
-- Produces: `encrypt`, `decrypt`, `deriveContentKeyPair`, `authChallenge`, `resolveRecordEncryption` as Promise-based browser-safe functions.
-- Consumes: Web Crypto from `globalThis.crypto`, TweetNaCl for legacy secretbox/box compatibility.
+- Produces: synchronous `encrypt`, `decrypt`, `deriveContentKeyPair`, and `authChallenge` browser-safe functions plus record-key resolution.
+- Consumes: `globalThis.crypto.getRandomValues`, Noble Ciphers/Hashes, StableLib Base64, and TweetNaCl for legacy secretbox/box compatibility.
 
 - [ ] **Step 1: Move existing deterministic vectors into the new crypto test**
 
 The test must compare the new implementation against fixed legacy and AES-GCM payloads already covered by `encryption.test.ts`:
 
 ```ts
-it('decrypts an existing data-key vector', async () => {
-    const result = await decryptWithDataKey(DATA_KEY_BUNDLE, DATA_KEY);
+it('decrypts an existing data-key vector', () => {
+    const result = decryptWithDataKey(DATA_KEY_BUNDLE, DATA_KEY);
     expect(result).toEqual({ role: 'user', content: { type: 'text', text: 'hello' } });
 });
 ```
@@ -194,27 +192,23 @@ Run: `pnpm --filter @wangjs-jacky/paws-agent exec vitest run src/crypto/encrypti
 
 Expected: failure because the new crypto modules do not exist.
 
-- [ ] **Step 3: Implement base64 and Web Crypto primitives**
+- [ ] **Step 3: Implement synchronous browser-safe primitives**
 
-Use `globalThis.crypto.getRandomValues`, `crypto.subtle.importKey`, `crypto.subtle.sign` for HMAC-SHA512, `crypto.subtle.digest` for SHA-512, and AES-GCM encrypt/decrypt. Preserve the byte bundle exactly:
+Use `globalThis.crypto.getRandomValues`, Noble HMAC/SHA-512, Noble AES-GCM, and StableLib Base64. Preserve the byte bundle exactly. This keeps the established synchronous protocol API and avoids an unnecessary async ripple through realtime handlers:
 
 ```ts
-const encrypted = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: nonce, tagLength: 128 },
-    cryptoKey,
-    plaintext,
-);
-const bundle = new Uint8Array(1 + nonce.length + encrypted.byteLength);
+const encrypted = gcm(dataKey, nonce).encrypt(plaintext);
+const bundle = new Uint8Array(1 + nonce.length + encrypted.length);
 bundle[0] = 0;
 bundle.set(nonce, 1);
-bundle.set(new Uint8Array(encrypted), 13);
+bundle.set(encrypted, 13);
 ```
 
 Use browser-safe base64 conversion without `Buffer` in the root import graph. Continue using TweetNaCl for legacy secretbox, key pairs, signing, and box operations.
 
-- [ ] **Step 4: Convert API decryption and realtime handlers to await async crypto**
+- [ ] **Step 4: Replace Node EventEmitter and preserve synchronous realtime decoding**
 
-Use `Promise.all` for record lists and make Socket.IO update handlers call an internal async decoder whose rejection is converted to a sanitized SDK error.
+Use a small browser-safe emitter with the existing `on`/`once`/`off` surface. Keep Socket.IO update decoding synchronous and convert failures to sanitized SDK errors.
 
 - [ ] **Step 5: Run crypto, API, and session regressions**
 
@@ -736,4 +730,3 @@ Record that the next automatic step after account recovery is package bootstrap 
 - [ ] **Step 9: Run Durable efficiency audit**
 
 Audit actual retries, CI failures, package issues, and reviewer findings. Retain only evidence-backed workflow or skill improvements and verify any retained change.
-

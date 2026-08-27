@@ -1238,9 +1238,18 @@ importers:
 
   packages/paws-agent:
     dependencies:
+      '@noble/ciphers':
+        specifier: ^2.0.1
+        version: 2.0.1
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@slopus/happy-wire':
         specifier: workspace:*
         version: link:../happy-wire
+      '@stablelib/base64':
+        specifier: ^2.0.1
+        version: 2.0.1
       axios:
         specifier: ^1.13.2
         version: 1.13.4
@@ -3783,6 +3792,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@noble/ciphers@2.0.1':
+    resolution: {integrity: sha512-xHK3XHPUW8DTA3uhPhFLZ89bDvCUgjDV2nI3QyEBQZigWkwou8HsH8kGItOfk7Cd2rTFWNVK+X1ZV5fEazmeCJ2g==}
+    engines: {node: '>= 20.19.0'}
 
   '@noble/curves@1.5.0':
     resolution: {integrity: sha512-J5EKamIHnKPyClwVrzmaf5wSdQXgdHcPZIZLu3bwnbeCx8/7NPK5q2ZBWF+5FvYGByjiQQsJYX6jfgB2wDPn3A==}
@@ -15690,6 +15703,8 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@noble/ciphers@2.0.1': {}
 
   '@noble/curves@1.5.0':
     dependencies:

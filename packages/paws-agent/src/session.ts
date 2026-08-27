@@ -1,7 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { io, Socket } from 'socket.io-client';
 import { decodeBase64, encodeBase64, encrypt, decrypt } from './encryption';
 import type { EncryptionVariant } from './api';
+import { PawsEventEmitter } from './events';
 
 // --- Types ---
 
@@ -86,7 +86,7 @@ function isReadyEvent(content: unknown): boolean {
 
 // --- SessionClient ---
 
-export class SessionClient extends EventEmitter {
+export class SessionClient extends PawsEventEmitter {
     readonly sessionId: string;
     private readonly encryptionKey: Uint8Array;
     private readonly encryptionVariant: EncryptionVariant;
