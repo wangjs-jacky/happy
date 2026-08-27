@@ -1,5 +1,11 @@
 import * as z from 'zod';
 import { AgentDefaultOverridesSchema } from './agentDefaults';
+import {
+    emptySidebarOrganization,
+    isSidebarOrganizationEmpty,
+    SidebarOrganizationSchema,
+    type SidebarOrganization,
+} from './sidebarOrganization';
 
 //
 // Settings Schema
@@ -113,6 +119,7 @@ export const SettingsSchema = z.object({
     lastUsedPermissionMode: z.string().nullable().describe('Last selected permission mode for new sessions'),
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
     agentDefaultOverrides: AgentDefaultOverridesSchema.describe('User-selected agent defaults. Missing values use code defaults and are not sent as agent metadata.'),
+    sidebarOrganization: SidebarOrganizationSchema.describe('Account-synced session Lists, Tags, and assignments'),
     // Dismissed CLI warning banners (supports both per-machine and global dismissal)
     dismissedCLIWarnings: z.object({
         perMachine: z.record(z.string(), z.object({
@@ -190,6 +197,7 @@ export const settingsDefaults: Settings = {
     lastUsedPermissionMode: null,
     lastUsedModelMode: null,
     agentDefaultOverrides: {},
+    sidebarOrganization: emptySidebarOrganization,
     dismissedCLIWarnings: { perMachine: {}, global: {} },
     agents: [],
 };
@@ -255,6 +263,24 @@ function hasOwnField(value: unknown, field: string): boolean {
         && Object.prototype.hasOwnProperty.call(value, field);
 }
 
+export function resolveSidebarOrganizationMigration(
+    rawServerSettings: unknown,
+    currentOrganization: SidebarOrganization,
+    legacyLocalOrganization: SidebarOrganization,
+): { organization: SidebarOrganization; shouldUpload: boolean } {
+    if (hasOwnField(rawServerSettings, 'sidebarOrganization')) {
+        return { organization: currentOrganization, shouldUpload: false };
+    }
+
+    const organization = isSidebarOrganizationEmpty(currentOrganization)
+        ? legacyLocalOrganization
+        : currentOrganization;
+    return {
+        organization,
+        shouldUpload: !isSidebarOrganizationEmpty(organization),
+    };
+}
+
 export function mergeServerSettings(
     currentSettings: Settings,
     serverSettings: Settings,
@@ -275,6 +301,11 @@ export function mergeServerSettings(
     }
     if (!hasOwnField(pendingSettings, 'customImageStyles') && !hasOwnField(rawServerSettings, 'customImageStyles') && currentSettings.customImageStyles.length > 0) {
         baseSettings = { ...baseSettings, customImageStyles: currentSettings.customImageStyles };
+    }
+    if (!hasOwnField(pendingSettings, 'sidebarOrganization')
+        && !hasOwnField(rawServerSettings, 'sidebarOrganization')
+        && !isSidebarOrganizationEmpty(currentSettings.sidebarOrganization)) {
+        baseSettings = { ...baseSettings, sidebarOrganization: currentSettings.sidebarOrganization };
     }
 
     return Object.keys(pendingSettings).length > 0

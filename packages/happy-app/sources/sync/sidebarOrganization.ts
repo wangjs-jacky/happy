@@ -1,4 +1,5 @@
 import type { NewSessionAgentType } from '@/sync/persistence';
+import * as z from 'zod';
 
 export const SIDEBAR_LIST_COLORS = ['blue', 'green', 'purple', 'orange', 'pink'] as const;
 export const SIDEBAR_LIST_NAME_MAX_LENGTH = 80;
@@ -53,6 +54,45 @@ export const emptySidebarOrganization: SidebarOrganization = {
     tags: [],
     sessions: {},
 };
+
+const SidebarListColorSchema = z.enum(SIDEBAR_LIST_COLORS);
+const SidebarWorkspaceListSchema = z.object({
+    id: z.string().min(1).max(100),
+    name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
+    kind: z.literal('workspace'),
+    color: SidebarListColorSchema,
+    machineId: z.string().max(200).nullable(),
+    path: z.string().max(SIDEBAR_LIST_PATH_MAX_LENGTH).nullable(),
+    defaultAgent: z.enum(['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw']).nullable(),
+    createdAt: z.number().finite(),
+});
+const SidebarAgentListSchema = z.object({
+    id: z.string().min(1).max(100),
+    name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
+    kind: z.literal('agent'),
+    color: SidebarListColorSchema,
+    createdAt: z.number().finite(),
+});
+
+export const SidebarOrganizationSchema = z.object({
+    lists: z.array(z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema])).max(SIDEBAR_LIST_MAX_COUNT),
+    tags: z.array(z.object({
+        id: z.string().min(1).max(100),
+        name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
+        color: SidebarListColorSchema,
+        createdAt: z.number().finite(),
+    })).max(SIDEBAR_TAG_MAX_COUNT),
+    sessions: z.record(z.string(), z.object({
+        listId: z.string().nullable(),
+        tagIds: z.array(z.string()).max(SIDEBAR_SESSION_TAG_MAX_COUNT),
+    })),
+}).catch(emptySidebarOrganization);
+
+export function isSidebarOrganizationEmpty(value: SidebarOrganization): boolean {
+    return value.lists.length === 0
+        && value.tags.length === 0
+        && Object.keys(value.sessions).length === 0;
+}
 
 export type SidebarSessionIndex<T extends { id: string }> = {
     byListId: Map<string, T[]>;

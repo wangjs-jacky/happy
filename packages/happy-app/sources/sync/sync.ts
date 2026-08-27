@@ -16,9 +16,10 @@ import { syncCurrentPushToken } from './pushRegistration';
 import { Platform, AppState, type AppStateStatus } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
-import { applySettings, mergeServerSettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
+import { applySettings, mergeServerSettings, resolveSidebarOrganizationMigration, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, savePendingSettings } from './persistence';
+import { emptySidebarOrganization, isSidebarOrganizationEmpty } from './sidebarOrganization';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -784,6 +785,29 @@ class Sync {
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
     private applyServerSettings = (serverSettings: Settings, version: number, rawServerSettings: unknown) => {
+        const hasServerSidebarOrganization = !!rawServerSettings
+            && typeof rawServerSettings === 'object'
+            && !Array.isArray(rawServerSettings)
+            && Object.prototype.hasOwnProperty.call(rawServerSettings, 'sidebarOrganization');
+        const legacyLocalOrganization = storage.getState().localSettings.sidebarOrganization;
+        if (!Object.prototype.hasOwnProperty.call(this.pendingSettings, 'sidebarOrganization')) {
+            const migration = resolveSidebarOrganizationMigration(
+                rawServerSettings,
+                storage.getState().settings.sidebarOrganization,
+                legacyLocalOrganization,
+            );
+            if (migration.shouldUpload) {
+                this.pendingSettings = {
+                    ...this.pendingSettings,
+                    sidebarOrganization: migration.organization,
+                };
+                savePendingSettings(this.pendingSettings);
+                this.settingsSync.invalidate();
+            }
+        }
+        if (hasServerSidebarOrganization && !isSidebarOrganizationEmpty(legacyLocalOrganization)) {
+            storage.getState().applyLocalSettings({ sidebarOrganization: emptySidebarOrganization });
+        }
         const merged = mergeServerSettings(
             storage.getState().settings,
             serverSettings,

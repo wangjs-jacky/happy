@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeServerSettings, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import { mergeServerSettings, resolveSidebarOrganizationMigration, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -86,6 +86,32 @@ describe('settings', () => {
                     width: 100,
                     height: 200
                 }
+            });
+        });
+
+        it('validates sidebar organization as an account-synced database setting', () => {
+            const organization = {
+                lists: [{
+                    id: 'list-1',
+                    name: 'Happy',
+                    kind: 'workspace' as const,
+                    color: 'blue' as const,
+                    machineId: 'machine-1',
+                    path: '/Users/jacky/jacky-github',
+                    defaultAgent: 'codex' as const,
+                    createdAt: 1,
+                }],
+                tags: [{ id: 'tag-1', name: '同步', color: 'green' as const, createdAt: 2 }],
+                sessions: {
+                    'session-1': { listId: 'list-1', tagIds: ['tag-1'] },
+                },
+            };
+
+            expect(settingsParse({ sidebarOrganization: organization }).sidebarOrganization).toEqual(organization);
+            expect(settingsParse({ sidebarOrganization: 'device-only' }).sidebarOrganization).toEqual({
+                lists: [],
+                tags: [],
+                sessions: {},
             });
         });
 
@@ -301,6 +327,7 @@ describe('settings', () => {
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
+                sidebarOrganization: { lists: [], tags: [], sessions: {} },
                 dismissedCLIWarnings: { perMachine: {}, global: {} },
                 agents: [],
             });
@@ -454,6 +481,48 @@ describe('settings', () => {
             );
 
             expect(merged.customImageStyles).toEqual([]);
+        });
+
+        it('preserves sidebar organization when an older server payload omits the field', () => {
+            const organization = {
+                lists: [],
+                tags: [{ id: 'tag-1', name: '同步', color: 'green' as const, createdAt: 1 }],
+                sessions: { 'session-1': { listId: null, tagIds: ['tag-1'] } },
+            };
+            const serverRaw = { viewInline: true };
+
+            const merged = mergeServerSettings(
+                { ...settingsDefaults, sidebarOrganization: organization },
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.sidebarOrganization).toEqual(organization);
+        });
+    });
+
+    describe('sidebar organization migration', () => {
+        const legacyOrganization = {
+            lists: [],
+            tags: [{ id: 'tag-1', name: '本地标签', color: 'blue' as const, createdAt: 1 }],
+            sessions: { 'session-1': { listId: null, tagIds: ['tag-1'] } },
+        };
+
+        it('uploads legacy device-local data when the database field is absent', () => {
+            expect(resolveSidebarOrganizationMigration(
+                { viewInline: true },
+                settingsDefaults.sidebarOrganization,
+                legacyOrganization,
+            )).toEqual({ organization: legacyOrganization, shouldUpload: true });
+        });
+
+        it('does not resurrect legacy data when the database explicitly contains an empty organization', () => {
+            expect(resolveSidebarOrganizationMigration(
+                { sidebarOrganization: { lists: [], tags: [], sessions: {} } },
+                settingsDefaults.sidebarOrganization,
+                legacyOrganization,
+            )).toEqual({ organization: settingsDefaults.sidebarOrganization, shouldUpload: false });
         });
     });
 
