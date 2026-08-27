@@ -14,6 +14,9 @@ type RawMessage = {
     updatedAt: number;
 };
 
+// Session message sequence numbers are stored as PostgreSQL INT values.
+const MAX_MESSAGE_SEQUENCE = 2_147_483_647;
+
 export class MessagesResourceImpl implements MessagesResource {
     constructor(
         private readonly transport: PawsHttpTransport,
@@ -28,7 +31,7 @@ export class MessagesResourceImpl implements MessagesResource {
             throw new PawsAgentError('INVALID_ARGUMENT', 'limit must be between 1 and 500');
         }
         const response = await this.transport.get<{ messages: RawMessage[] }>(
-            `/v3/sessions/${encodeURIComponent(sessionId)}/messages?before_seq=${Number.MAX_SAFE_INTEGER}&limit=${limit}`,
+            `/v3/sessions/${encodeURIComponent(sessionId)}/messages?before_seq=${MAX_MESSAGE_SEQUENCE}&limit=${limit}`,
         );
         return response.messages.map(raw => {
             if (raw.content.t !== 'encrypted' || typeof raw.content.c !== 'string') {
@@ -48,6 +51,13 @@ export class MessagesResourceImpl implements MessagesResource {
     async send(input: SendMessageInput): Promise<SendMessageReceipt> {
         if (!input.sessionId.trim()) {
             throw new PawsAgentError('INVALID_ARGUMENT', 'sessionId is required');
+        }
+        const session = await this.sessions.get(input.sessionId);
+        const metadata = session.metadata as { lifecycleState?: unknown } | null;
+        if (!session.active || metadata?.lifecycleState === 'archived') {
+            throw new PawsAgentError('SESSION_ARCHIVED', 'Session is archived', {
+                details: { sessionId: input.sessionId },
+            });
         }
         const recordEncryption = await this.getEncryption(input.sessionId);
         const localId = input.localId ?? globalThis.crypto.randomUUID();

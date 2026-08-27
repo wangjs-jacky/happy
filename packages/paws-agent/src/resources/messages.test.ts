@@ -9,7 +9,7 @@ describe('MessagesResource', () => {
         const encryption = new RecordEncryptionStore();
         encryption.setSession('session-1', { key, variant: 'legacy' });
         const transport = { post: vi.fn().mockResolvedValue({ messages: [] }) };
-        const sessions = { get: vi.fn() };
+        const sessions = { get: vi.fn().mockResolvedValue({ active: true, metadata: {} }) };
         const messages = new MessagesResourceImpl(transport as never, sessions as never, encryption);
 
         const receipt = await messages.send({ sessionId: 'session-1', text: 'hello', localId: 'local-1' });
@@ -22,5 +22,21 @@ describe('MessagesResource', () => {
             content: { type: 'text', text: 'hello' },
             meta: { sentFrom: 'paws-agent' },
         });
+    });
+
+    it('rejects sends to archived sessions with a stable error code', async () => {
+        const encryption = new RecordEncryptionStore();
+        const transport = { post: vi.fn() };
+        const sessions = {
+            get: vi.fn().mockResolvedValue({
+                active: false,
+                metadata: { lifecycleState: 'archived' },
+            }),
+        };
+        const messages = new MessagesResourceImpl(transport as never, sessions as never, encryption);
+
+        await expect(messages.send({ sessionId: 'archived-1', text: 'hello' }))
+            .rejects.toMatchObject({ code: 'SESSION_ARCHIVED' });
+        expect(transport.post).not.toHaveBeenCalled();
     });
 });

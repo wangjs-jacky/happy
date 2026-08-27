@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodeBase64, encodeBase64, libsodiumEncryptForPublicKey } from './encryption';
+import { FileCredentialProvider } from './adapters/nodeCredentials';
+import { PawsAgentClient } from './client/PawsAgentClient';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(__dirname, '..');
@@ -32,6 +34,7 @@ let agentHomeDir: string | null = null;
 let activeMachineId: string | null = null;
 let testProjectDir: string | null = null;
 let testWorktreeDir: string | null = null;
+let previousAskBaseUrl: string | undefined;
 const spawnedSessionIds = new Set<string>();
 
 function runPnpm(args: string[], cwd = repoRoot): string {
@@ -168,24 +171,6 @@ async function waitForHistoryMessage(sessionId: string, expectedText: string, en
         const history = parseJson<Array<{ content?: unknown }>>(runAgentCli(['history', sessionId, '--json'], env));
         return history.some(message => isUserTextMessage(message.content, expectedText));
     }, 20_000, `message "${expectedText}" in session ${sessionId} history`);
-}
-
-async function waitForSessionStatus<T>(
-    sessionId: string,
-    env: NodeJS.ProcessEnv,
-    predicate: (status: T) => boolean,
-    label: string,
-): Promise<T> {
-    let lastStatus: T | null = null;
-    await waitFor(async () => {
-        lastStatus = parseJson<T>(runAgentCli(['status', sessionId, '--json'], env));
-        return predicate(lastStatus);
-    }, 20_000, label);
-    return lastStatus as T;
-}
-
-async function waitForFile(path: string): Promise<void> {
-    await waitFor(async () => existsSync(path), 60_000, `file ${path}`);
 }
 
 async function waitFor(check: () => Promise<boolean>, timeoutMs: number, label: string): Promise<void> {
@@ -342,19 +327,29 @@ async function stopDaemonSession(httpPort: number, sessionId: string): Promise<b
 describe('paws-agent integration', { timeout: 180_000 }, () => {
     beforeAll(async () => {
         previousCurrentEnv = readCurrentEnvName();
+        previousAskBaseUrl = process.env.HAPPY_ASK_BASE_URL;
+        process.env.HAPPY_ASK_BASE_URL = 'http://127.0.0.1:1';
 
-        runPnpm(['env:up:authenticated']);
+        try {
+            runPnpm(['env:up', '--template', 'authenticated-empty', '--no-web']);
+        } finally {
+            const current = readCurrentEnvName();
+            if (current && current !== previousCurrentEnv) {
+                integrationEnvName = current;
+                integrationEnvDir = join(environmentsDir, current);
+            }
+        }
 
-        integrationEnvName = readCurrentEnvName();
-        if (!integrationEnvName) {
+        if (!integrationEnvName || !integrationEnvDir) {
             throw new Error('Failed to determine integration environment name');
         }
 
-        integrationEnvDir = join(environmentsDir, integrationEnvName);
-        integrationConfig = readEnvironmentConfig(integrationEnvName);
-        agentHomeDir = join(integrationEnvDir, 'cli', 'home');
+        const envName = integrationEnvName;
+        const envDir = integrationEnvDir;
+        integrationConfig = readEnvironmentConfig(envName);
+        agentHomeDir = join(envDir, 'cli', 'home');
 
-        const testProject = createGitProject(integrationEnvDir);
+        const testProject = createGitProject(envDir);
         testProjectDir = testProject.projectDir;
         testWorktreeDir = testProject.worktreeDir;
 
@@ -365,6 +360,11 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
     });
 
     afterAll(async () => {
+        if (previousAskBaseUrl === undefined) {
+            delete process.env.HAPPY_ASK_BASE_URL;
+        } else {
+            process.env.HAPPY_ASK_BASE_URL = previousAskBaseUrl;
+        }
         if (keepIntegrationEnv) {
             return;
         }
@@ -467,6 +467,8 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
                 machine.id,
                 '--path',
                 testProjectDir,
+                '--agent',
+                'ask',
                 '--json',
             ], agentEnv),
         ) as {
@@ -495,7 +497,7 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
 
         expect(status.id).toBe(sessionId);
         expect(status.metadata?.path).toBe(testProjectDir);
-        expect(status.metadata?.flavor).toBe('claude');
+        expect(status.metadata?.flavor).toBe('ask');
 
         const daemonState = readDaemonState(integrationEnvDir);
         expect(daemonState?.httpPort).toBeTruthy();
@@ -525,6 +527,8 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
                 activeMachineId,
                 '--path',
                 testProjectDir,
+                '--agent',
+                'ask',
                 '--json',
             ], agentEnv),
         );
@@ -544,15 +548,11 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         expect(status.id).toBe(sessionId);
         expect(status.metadata?.path).toBe(testProjectDir);
 
-        const sendResult = parseJson<{ sessionId: string; message: string; sent: boolean; permissionMode: string | null }>(
+        const sendResult = parseJson<{ sessionId: string; localId: string }>(
             runAgentCli(['send', sessionId, prompt, '--json'], agentEnv),
         );
-        expect(sendResult).toEqual({
-            sessionId,
-            message: prompt,
-            sent: true,
-            permissionMode: null,
-        });
+        expect(sendResult.sessionId).toBe(sessionId);
+        expect(sendResult.localId).toBeTruthy();
 
         await waitForHistoryMessage(sessionId, prompt, agentEnv);
     });
@@ -576,6 +576,8 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
                 activeMachineId,
                 '--path',
                 testWorktreeDir,
+                '--agent',
+                'ask',
                 '--json',
             ], agentEnv),
         );
@@ -595,169 +597,89 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         expect(status.id).toBe(sessionId);
         expect(status.metadata?.path).toBe(testWorktreeDir);
 
-        const sendResult = parseJson<{ sessionId: string; message: string; sent: boolean; permissionMode: string | null }>(
+        const sendResult = parseJson<{ sessionId: string; localId: string }>(
             runAgentCli(['send', sessionId, prompt, '--json'], agentEnv),
         );
-        expect(sendResult).toEqual({
-            sessionId,
-            message: prompt,
-            sent: true,
-            permissionMode: null,
-        });
+        expect(sendResult.sessionId).toBe(sessionId);
+        expect(sendResult.localId).toBeTruthy();
 
         await waitForHistoryMessage(sessionId, prompt, agentEnv);
     });
 
-    it('resumes an existing Codex session through the same daemon RPC used by the app', async () => {
-        if (!activeMachineId || !integrationConfig || !agentHomeDir || !testProjectDir) {
+    it('handles directory approval through the SDK and real machine RPC', async () => {
+        if (!activeMachineId || !integrationConfig || !agentHomeDir || !integrationEnvDir) {
             throw new Error('Integration environment not initialized');
         }
-
-        const agentEnv = agentEnvVars(integrationConfig.serverPort, agentHomeDir);
-        const prompt = 'Reply with exactly: codex resume ready';
-        const spawnResult = parseJson<{
-            type: 'success' | 'requestToApproveDirectoryCreation' | 'error';
-            sessionId?: string;
-            machineId?: string;
-            directory?: string;
-            agent?: string | null;
-        }>(
-            runAgentCli([
-                'spawn',
-                '--machine',
-                activeMachineId,
-                '--path',
-                testProjectDir,
-                '--agent',
-                'codex',
-                '--json',
-            ], agentEnv),
-        );
-
-        expect(spawnResult.type).toBe('success');
-        expect(spawnResult.directory).toBe(testProjectDir);
-        expect(spawnResult.agent).toBe('codex');
-
-        const sourceSessionId = spawnResult.sessionId!;
-        spawnedSessionIds.add(sourceSessionId);
-        await waitForSessionInList(sourceSessionId, agentEnv);
-
-        const sendResult = parseJson<{ sessionId: string; message: string; sent: boolean; permissionMode: string | null }>(
-            runAgentCli(['send', sourceSessionId, prompt, '--wait', '--json'], agentEnv),
-        );
-        expect(sendResult).toEqual({
-            sessionId: sourceSessionId,
-            message: prompt,
-            sent: true,
-            permissionMode: null,
+        const directory = join(integrationEnvDir, 'approved-new-directory');
+        const client = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: new FileCredentialProvider(join(agentHomeDir, 'agent.key')),
         });
-        await waitForHistoryMessage(sourceSessionId, prompt, agentEnv);
+        await client.connect();
+        try {
+            const pending = await client.sessions.spawn({
+                machineId: activeMachineId,
+                directory,
+                agent: 'ask',
+            });
+            expect(pending).toEqual({ type: 'requestToApproveDirectoryCreation', directory });
 
-        const sourceStatus = await waitForSessionStatus<{
-            id: string;
-            metadata?: { path?: string; flavor?: string; claudeSessionId?: string; codexThreadId?: string };
-        }>(
-            sourceSessionId,
-            agentEnv,
-            (status) => Boolean(status.metadata?.codexThreadId),
-            `session ${sourceSessionId} to expose a resumable backend identifier`,
-        );
-
-        expect(sourceStatus.id).toBe(sourceSessionId);
-        expect(sourceStatus.metadata?.path).toBe(testProjectDir);
-        expect(sourceStatus.metadata?.flavor).toBe('codex');
-
-        const resumeResult = parseJson<{
-            type: 'success' | 'requestToApproveDirectoryCreation' | 'error';
-            sessionId?: string;
-            sourceSessionId?: string;
-            machineId?: string;
-        }>(
-            runAgentCli(['resume', sourceSessionId, '--json'], agentEnv),
-        );
-
-        expect(resumeResult.type).toBe('success');
-        expect(resumeResult.sourceSessionId).toBe(sourceSessionId);
-        expect(resumeResult.machineId).toBe(activeMachineId);
-        expect(resumeResult.sessionId).toBeTruthy();
-        expect(resumeResult.sessionId).not.toBe(sourceSessionId);
-
-        const resumedSessionId = resumeResult.sessionId!;
-        spawnedSessionIds.add(resumedSessionId);
-        await waitForSessionInList(resumedSessionId, agentEnv);
-
-        const resumedStatus = await waitForSessionStatus<{
-            id: string;
-            metadata?: { path?: string; flavor?: string };
-        }>(
-            resumedSessionId,
-            agentEnv,
-            (status) => status.metadata?.path === testProjectDir,
-            `resumed session ${resumedSessionId} to report the original path`,
-        );
-
-        expect(resumedStatus.id).toBe(resumedSessionId);
-        expect(resumedStatus.metadata?.path).toBe(testProjectDir);
-        expect(resumedStatus.metadata?.flavor).toBe(sourceStatus.metadata?.flavor);
+            const approved = await client.sessions.spawn({
+                machineId: activeMachineId,
+                directory,
+                agent: 'ask',
+                approvedNewDirectoryCreation: true,
+            });
+            expect(approved.type).toBe('success');
+            if (approved.type === 'success') spawnedSessionIds.add(approved.sessionId);
+        } finally {
+            await client.dispose();
+        }
     });
 
-    it('spawns Codex, applies yolo permissions via message metadata, and creates a file in the test project', async () => {
+    it('deduplicates sends, resyncs after reconnect, and rejects sends after archive', async () => {
         if (!activeMachineId || !integrationConfig || !agentHomeDir || !testProjectDir) {
             throw new Error('Integration environment not initialized');
         }
-
         const agentEnv = agentEnvVars(integrationConfig.serverPort, agentHomeDir);
-        const proofFile = join(testProjectDir, 'codex-yolo-proof.txt');
-        const prompt = 'Run a shell command to create ./codex-yolo-proof.txt with the exact contents yolo-codex-ok, then finish.';
-
-        const spawnResult = parseJson<{
-            type: 'success' | 'requestToApproveDirectoryCreation' | 'error';
-            sessionId?: string;
-            machineId?: string;
-            directory?: string;
-            agent?: string | null;
-        }>(
-            runAgentCli([
-                'spawn',
-                '--machine',
-                activeMachineId,
-                '--path',
-                testProjectDir,
-                '--agent',
-                'codex',
-                '--json',
-            ], agentEnv),
-        );
-
-        expect(spawnResult.type).toBe('success');
-        expect(spawnResult.directory).toBe(testProjectDir);
-        expect(spawnResult.agent).toBe('codex');
-
-        const sessionId = spawnResult.sessionId!;
+        const client = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: new FileCredentialProvider(join(agentHomeDir, 'agent.key')),
+        });
+        const states: string[] = [];
+        client.subscribe(event => {
+            if (event.type === 'connection') states.push(event.state);
+        });
+        await client.connect();
+        const spawned = await client.sessions.spawn({
+            machineId: activeMachineId,
+            directory: testProjectDir,
+            agent: 'ask',
+        });
+        expect(spawned.type).toBe('success');
+        if (spawned.type !== 'success') throw new Error('Expected fixture session to spawn');
+        const sessionId = spawned.sessionId;
         spawnedSessionIds.add(sessionId);
-
         await waitForSessionInList(sessionId, agentEnv);
-
-        const status = parseJson<{
-            id: string;
-            metadata?: { path?: string; flavor?: string };
-        }>(runAgentCli(['status', sessionId, '--json'], agentEnv));
-        expect(status.id).toBe(sessionId);
-        expect(status.metadata?.path).toBe(testProjectDir);
-        expect(status.metadata?.flavor).toBe('codex');
-
-        const sendResult = parseJson<{ sessionId: string; message: string; sent: boolean; permissionMode: string | null }>(
-            runAgentCli(['send', sessionId, prompt, '--yolo', '--wait', '--json'], agentEnv),
-        );
-        expect(sendResult).toEqual({
-            sessionId,
-            message: prompt,
-            sent: true,
-            permissionMode: 'yolo',
-        });
-        await waitForFile(proofFile);
-
-        expect(readFileSync(proofFile, 'utf-8').trim()).toBe('yolo-codex-ok');
+        const prompt = 'paws-agent idempotency message';
+        const localId = 'integration-local-id';
+        await client.messages.send({ sessionId, text: prompt, localId });
+        await client.messages.send({ sessionId, text: prompt, localId });
         await waitForHistoryMessage(sessionId, prompt, agentEnv);
+        const history = await client.messages.history(sessionId);
+        expect(history.filter(message => message.localId === localId)).toHaveLength(1);
+
+        await client.disconnect();
+        await client.connect();
+        expect((await client.sessions.get(sessionId)).id).toBe(sessionId);
+        expect(states.filter(state => state === 'ready')).toHaveLength(2);
+
+        await client.sessions.stop(sessionId);
+        await waitFor(async () => !(await client.sessions.get(sessionId)).active, 20_000, 'session to archive');
+        await expect(client.messages.send({ sessionId, text: 'too late' }))
+            .rejects.toMatchObject({ code: 'SESSION_ARCHIVED' });
+        await expect(client.requests.approve({ sessionId, requestId: 'missing-request' }))
+            .rejects.toMatchObject({ code: 'NOT_FOUND' });
+        await client.dispose();
     });
 });

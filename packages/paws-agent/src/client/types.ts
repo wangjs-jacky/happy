@@ -75,7 +75,7 @@ export type AgentRequest = {
     payload: unknown;
 };
 
-export type SupportedAgent = 'claude' | 'codex' | 'gemini' | 'openclaw';
+export type SupportedAgent = 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
 
 export type SpawnSessionInput = {
     machineId: string;
