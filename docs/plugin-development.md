@@ -1,14 +1,14 @@
 # Paws 动态插件开发规范
 
-本文是 Paws 当前动态插件系统的开发约定，适用于插件清单、安装状态、服务端配置、客户端入口和运行时能力。协议的机器可读定义仍以 [`packages/happy-wire/src/plugins.ts`](../packages/happy-wire/src/plugins.ts) 为准；本文解释这些接口应如何使用和演进。
+本文是 Paws 当前动态插件系统的开发约定，适用于插件清单、安装状态、服务端配置、客户端入口和运行时能力。协议的机器可读定义仍以 [`packages/happy-wire/src/plugins.ts`](../packages/happy-wire/src/plugins.ts) 为准；第一方插件包的源码位于公开的 [`wangjs-jacky/paws-plugins`](https://github.com/wangjs-jacky/paws-plugins) Monorepo。
 
 ## 1. 系统定位与安全边界
 
-当前插件系统是一个 **清单驱动、可信代码内置** 的插件系统：
+当前插件系统是一个 **清单驱动、构建时集成可信代码** 的插件系统：
 
 - 服务端动态返回插件清单和当前账号的安装状态；
 - App 根据清单动态生成市场列表、配置表单、安装、更新和卸载界面；
-- 插件真正执行的客户端页面、服务端运行时和外部服务 Adapter 必须随受信任的 Paws 代码发布；
+- 插件的可复用 Implementation 来自固定 commit 的 `@paws/plugins` Git 依赖；客户端页面以及数据库、Socket 和文件存储 Adapter 必须随受信任的 Paws 代码发布；
 - “安装”只启用一个已随 Paws 发布的能力并保存其配置，不下载 npm 包，也不执行清单中的脚本。
 
 插件清单不得包含 JavaScript、远程模块 URL、任意路由路径或可执行表达式。第三方签名包、沙箱执行、远程代码更新和权限授权模型不属于 `schemaVersion: 1` 的能力范围。
@@ -32,7 +32,8 @@ flowchart LR
 | Module | 位置 | 职责 | 不应负责 |
 |---|---|---|---|
 | Wire contract | `packages/happy-wire/src/plugins.ts` | 清单、请求、响应的 Zod schema 和共享类型 | 业务校验、存储、页面跳转 |
-| Plugin definitions | `packages/happy-server/sources/modules/plugins/pluginDefinitions.ts` | 服务端可信清单、配置白名单、归一化和脱敏 | HTTP、数据库细节、客户端路径 |
+| Plugin packages | `paws-plugins/src/plugins/` | 第一方清单、配置白名单、归一化、脱敏和可复用业务逻辑 | Paws 数据库、Socket、Expo 页面 |
+| Plugin definitions Adapter | `packages/happy-server/sources/modules/plugins/pluginDefinitions.ts` | 校验外部清单并接入 Paws registry Interface | 重复定义插件清单或配置策略 |
 | Plugin registry | `packages/happy-server/sources/modules/plugins/pluginRegistry.ts` | 列表、安装、更新、卸载、版本门禁和运行时配置读取 | 某个插件的业务执行 |
 | Installation store | `packages/happy-server/sources/modules/plugins/pluginInstallationStore.ts` | 加密记录的读写、删除和兼容迁移 | 清单展示、业务调用 |
 | Generic API | `packages/happy-server/sources/app/api/routes/pluginRoutes.ts` | 认证、协议校验、错误到 HTTP 状态的映射 | 每个插件各自的安装接口 |
@@ -77,13 +78,13 @@ flowchart LR
 | 纯配置开关 | 无外部页面的内置能力 | definition、消费该开关的可信运行时；使用 `installedAction: configure` |
 | 新的清单/字段能力 | 新字段类型或入口类型 | wire schema、服务端实现、App 渲染、兼容策略和跨包测试 |
 
-仅增加一个已有类型的插件时，不应修改通用 API。只有平台契约确实无法表达需求时，才扩展 `happy-wire`。
+仅增加一个已有类型的插件时，不应修改通用 Interface。先在 `paws-plugins` 发布并通过 CI，再把 Paws 中 `@paws/plugins` 的完整 commit SHA 更新到该 revision。只有平台契约确实无法表达需求时，才扩展 `happy-wire`。
 
 ## 5. 新增插件流程
 
 ### 5.1 定义清单和配置边界
 
-在 `pluginDefinitions.ts` 中加入一个 `PluginDefinition`。清单负责展示，`normalizeConfiguration` 是写入和运行时读取前的权威校验，`redactConfiguration` 负责生成可返回客户端的状态。
+在 `paws-plugins/src/plugins/<plugin-id>/definition.ts` 中加入一个 `PluginPackageDefinition`，再从外部仓库的 `src/catalog.ts` 导出。清单负责展示，`normalizeConfiguration` 是写入和运行时读取前的权威校验，`redactConfiguration` 负责生成可返回客户端的状态。Paws 的 `pluginDefinitions.ts` 只做协议校验和 Adapter 转换，不得复制插件内容。
 
 ```ts
 const exampleConfigurationSchema = z.object({
@@ -91,7 +92,7 @@ const exampleConfigurationSchema = z.object({
     baseUrl: providerBaseUrlSchema,
 }).strict();
 
-const exampleManifest: PluginManifest = {
+const exampleManifest: PluginManifestV1 = {
     schemaVersion: 1,
     id: 'example-provider',
     version: '1.0.0',
