@@ -1,7 +1,7 @@
 import type { PluginCatalogItem } from '@slopus/happy-wire';
 import * as React from 'react';
 
-import { getPluginCatalog } from '@/sync/plugins';
+import { getPluginCatalog, subscribePluginCatalogChanges } from '@/sync/plugins';
 
 /** Loads the account-specific server catalog only while a plugin surface is active. */
 export function usePlugins(enabled = true) {
@@ -31,6 +31,13 @@ export function usePlugins(enabled = true) {
     React.useEffect(() => {
         if (!enabled) return;
         void refresh().catch(() => undefined);
+    }, [enabled, refresh]);
+
+    React.useEffect(() => {
+        if (!enabled) return;
+        return subscribePluginCatalogChanges(() => {
+            void refresh().catch(() => undefined);
+        });
     }, [enabled, refresh]);
 
     const getPlugin = React.useCallback(

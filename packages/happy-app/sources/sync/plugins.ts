@@ -11,6 +11,17 @@ import type {
 
 import { apiSocket } from './apiSocket';
 
+const pluginCatalogChangeListeners = new Set<() => void>();
+
+export function subscribePluginCatalogChanges(listener: () => void): () => void {
+    pluginCatalogChangeListeners.add(listener);
+    return () => pluginCatalogChangeListeners.delete(listener);
+}
+
+function notifyPluginCatalogChanged() {
+    for (const listener of pluginCatalogChangeListeners) listener();
+}
+
 async function readResponse<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
     if (!response.ok) throw new Error(`Plugin request failed: ${response.status}`);
     return parse(await response.json());
@@ -35,7 +46,7 @@ export async function installPlugin(
     version: string,
     configuration: Record<string, string>,
 ): Promise<PluginInstallationStatus> {
-    return readResponse(
+    const status = await readResponse(
         await apiSocket.request(`/v1/plugins/${encodeURIComponent(pluginId)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -43,11 +54,15 @@ export async function installPlugin(
         }),
         (value) => PluginInstallationStatusSchema.parse(value),
     );
+    notifyPluginCatalogChanged();
+    return status;
 }
 
 export async function uninstallPlugin(pluginId: string): Promise<PluginInstallationStatus> {
-    return readResponse(
+    const status = await readResponse(
         await apiSocket.request(`/v1/plugins/${encodeURIComponent(pluginId)}`, { method: 'DELETE' }),
         (value) => PluginInstallationStatusSchema.parse(value),
     );
+    notifyPluginCatalogChanged();
+    return status;
 }
