@@ -18,7 +18,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { usePlugins } from '@/hooks/usePlugins';
 import { t } from '@/text';
-import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
+import { PluginModalSlot } from './PluginModalSlot';
 import { resolveInstalledPluginEntrypoint } from './pluginClientAdapters';
 import { resolvePluginText } from './pluginText';
 
@@ -180,7 +180,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
 
                     {activePlugin ? (
                         <View style={styles.configurationContent}>
-                            <DynamicPluginConfiguration
+                            <PluginModalSlot
                                 onInstalled={activePlugin.manifest.installedAction === 'open'
                                     ? () => openPlugin(activePlugin)
                                     : undefined}

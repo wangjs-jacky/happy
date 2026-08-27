@@ -39,17 +39,20 @@ export function createRelationshipAdvisorPluginRuntime(
 }
 
 export const relationshipAdvisorPlugin = {
+    async requireImageReadPermission(accountId: string): Promise<void> {
+        await pluginRegistry.requirePermission(
+            accountId,
+            RELATIONSHIP_ADVISOR_PLUGIN_ID,
+            'paws.conversations.images.read',
+        );
+    },
     async requireConfiguration(accountId: string): Promise<RelationshipAdvisorConfiguration> {
         await pluginRegistry.requirePermission(
             accountId,
             RELATIONSHIP_ADVISOR_PLUGIN_ID,
             'paws.ai.provider.invoke',
         );
-        await pluginRegistry.requirePermission(
-            accountId,
-            RELATIONSHIP_ADVISOR_PLUGIN_ID,
-            'paws.secrets.use',
-        );
+        await pluginRegistry.requirePermission(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID, 'paws.secrets.use');
         return relationshipAdvisorConfigurationSchema.parse(
             await pluginRegistry.requireConfiguration(accountId, RELATIONSHIP_ADVISOR_PLUGIN_ID),
         );

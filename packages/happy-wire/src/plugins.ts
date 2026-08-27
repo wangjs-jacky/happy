@@ -22,6 +22,7 @@ export const PluginPermissionSchema = z.enum([
   'paws.ai.provider.invoke',
   'paws.secrets.use',
   'paws.conversations.images.read',
+  'paws.storage.images.write',
 ]);
 
 export const PluginViewSurfaceSchema = z.enum(['page', 'left-sidebar', 'right-panel', 'modal']);
@@ -44,10 +45,16 @@ export const PluginManifestSchema = z.object({
   featured: z.boolean(),
   installedAction: z.enum(['configure', 'open']),
   permissions: z.array(PluginPermissionSchema).max(20),
-  entrypoint: z.object({
-    type: z.literal('view'),
-    viewId: PluginContributionIdSchema,
-  }).strict(),
+  entrypoint: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('view'),
+      viewId: PluginContributionIdSchema,
+    }).strict(),
+    z.object({
+      type: z.literal('configuration'),
+      viewId: PluginContributionIdSchema,
+    }).strict(),
+  ]),
   contributes: z.object({
     views: z.array(PluginViewContributionSchema).max(50),
   }).strict(),
@@ -75,10 +82,11 @@ export const PluginManifestSchema = z.object({
     viewIds.add(view.id);
   }
   const entrypoint = manifest.contributes.views.find((view) => view.id === manifest.entrypoint.viewId);
-  if (!entrypoint || entrypoint.surface !== 'page') {
+  const expectedEntrypointSurface = manifest.entrypoint.type === 'view' ? 'page' : 'modal';
+  if (!entrypoint || entrypoint.surface !== expectedEntrypointSurface) {
     context.addIssue({
       code: 'custom',
-      message: 'Plugin entrypoint must reference a contributed page view',
+      message: `Plugin entrypoint must reference a contributed ${expectedEntrypointSurface} view`,
       path: ['entrypoint', 'viewId'],
     });
   }

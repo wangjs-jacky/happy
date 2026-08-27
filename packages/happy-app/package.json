@@ -78,7 +78,7 @@
     "@lottiefiles/dotlottie-react": "^0.14.3",
     "@more-tech/react-native-libsodium": "^1.5.5",
     "@paralleldrive/cuid2": "^2.3.1",
-    "@paws/plugins": "github:wangjs-jacky/paws-plugins#eee6d79c1872d50b85ba930d824707552dd5cdb7",
+    "@paws/plugins": "github:wangjs-jacky/paws-plugins#ff116414988890bd8f95b5aa31d3f53474796d2b",
     "@peoplesgrocers/seti-ui-file-icons": "1.11.3",
     "@pierre/diffs": "^1.1.16",
     "@react-native-async-storage/async-storage": "2.2.0",

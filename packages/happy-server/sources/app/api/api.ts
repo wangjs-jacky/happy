@@ -25,7 +25,7 @@ import { v3SessionRoutes } from "./routes/v3SessionRoutes";
 import { attachmentRoutes } from "./routes/attachmentRoutes";
 import { fileRoutes } from "./routes/fileRoutes";
 import { relationshipAdvisorRoutes } from "./routes/relationshipAdvisorRoutes";
-import { pluginRoutes } from "./routes/pluginRoutes";
+import { pluginRoutes } from "@/app/api/routes/pluginRoutes";
 import * as path from "path";
 import * as fs from "fs";
 

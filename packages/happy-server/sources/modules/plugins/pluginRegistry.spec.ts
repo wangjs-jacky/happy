@@ -38,7 +38,7 @@ describe('createPluginRegistry', () => {
         const registry = createPluginRegistry(pluginDefinitions, store);
 
         const status = await registry.install('user-1', 'relationship-advisor', {
-            version: '1.1.0',
+            version: '1.1.1',
             configuration: {
                 apiKey: '  sk-secret-1234  ',
                 baseUrl: 'https://api.example.com/v1/',
@@ -48,7 +48,7 @@ describe('createPluginRegistry', () => {
 
         expect(status).toEqual({
             installed: true,
-            version: '1.1.0',
+            version: '1.1.1',
             configuration: {
                 baseUrl: 'https://api.example.com/v1',
                 model: 'example-chat',
@@ -63,7 +63,7 @@ describe('createPluginRegistry', () => {
         });
 
         const updated = await registry.install('user-1', 'relationship-advisor', {
-            version: '1.1.0',
+            version: '1.1.1',
             configuration: {
                 apiKey: '',
                 baseUrl: 'https://api.example.com/v2',
@@ -86,14 +86,14 @@ describe('createPluginRegistry', () => {
             version: '0.9.0', configuration: {},
         })).rejects.toMatchObject({ code: 'version_mismatch' } satisfies Partial<PluginRegistryError>);
         await expect(registry.install('user-1', 'generated-images-gallery', {
-            version: '1.1.0', configuration: { source: 'javascript:alert(1)' },
+            version: '1.1.1', configuration: { source: 'javascript:alert(1)' },
         })).rejects.toMatchObject({ code: 'invalid_configuration' } satisfies Partial<PluginRegistryError>);
     });
 
     it('uninstalls idempotently and blocks runtime configuration after removal', async () => {
         const { store } = createMemoryStore();
         const registry = createPluginRegistry(pluginDefinitions, store);
-        await registry.install('user-2', 'generated-images-gallery', { version: '1.1.0', configuration: {} });
+        await registry.install('user-2', 'generated-images-gallery', { version: '1.1.1', configuration: {} });
 
         await expect(registry.uninstall('user-2', 'generated-images-gallery')).resolves.toEqual({ installed: false });
         await expect(registry.uninstall('user-2', 'generated-images-gallery')).resolves.toEqual({ installed: false });
@@ -121,7 +121,7 @@ describe('createPluginRegistry', () => {
         const { store } = createMemoryStore();
         const registry = createPluginRegistry(pluginDefinitions, store);
         await registry.install('user-1', 'relationship-advisor', {
-            version: '1.1.0',
+            version: '1.1.1',
             configuration: {
                 apiKey: 'sk-secret',
                 baseUrl: 'https://api.example.com/v1',
@@ -129,7 +129,7 @@ describe('createPluginRegistry', () => {
             },
         });
         await registry.install('user-1', 'generated-images-gallery', {
-            version: '1.1.0',
+            version: '1.1.1',
             configuration: {},
         });
 

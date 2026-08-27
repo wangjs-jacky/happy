@@ -12,7 +12,7 @@ import type {
 import { z } from 'zod';
 
 import { pluginRegistry } from '@/modules/plugins/pluginRegistry';
-import type { Fastify } from '../types';
+import type { Fastify } from '@/app/api/types';
 
 interface PluginRoutesDependency {
     list: (accountId: string) => Promise<PluginCatalogResponse>;

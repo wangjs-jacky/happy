@@ -19,6 +19,8 @@ const manifest = {
   permissions: [
     'paws.ai.provider.invoke' as const,
     'paws.secrets.use' as const,
+    'paws.conversations.images.read' as const,
+    'paws.storage.images.write' as const,
   ],
   entrypoint: { type: 'view' as const, viewId: 'relationship-advisor.chat' },
   contributes: {
@@ -61,6 +63,27 @@ describe('plugin wire contract', () => {
       version: 'latest',
       entrypoint: { type: 'javascript', source: 'alert(1)' },
     })).toThrow();
+  });
+
+  it('accepts a configuration-only plugin with a modal entrypoint and no page', () => {
+    const configurationOnly = {
+      ...manifest,
+      id: 'configuration-only',
+      installedAction: 'configure' as const,
+      entrypoint: {
+        type: 'configuration' as const,
+        viewId: 'configuration-only.settings',
+      },
+      contributes: {
+        views: [{
+          id: 'configuration-only.settings',
+          surface: 'modal' as const,
+          title: { default: 'Settings' },
+        }],
+      },
+    };
+
+    expect(PluginManifestSchema.parse(configurationOnly)).toEqual(configurationOnly);
   });
 
   it('rejects undeclared capabilities, unknown surfaces, and entrypoints that are not contributed pages', () => {

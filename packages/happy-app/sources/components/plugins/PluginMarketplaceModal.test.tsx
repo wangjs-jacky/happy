@@ -28,15 +28,26 @@ const manifest = (id: string, installedAction: 'configure' | 'open') => ({
             ? 'generated-images-gallery.browser'
             : `${id}.page` },
     contributes: {
-        views: [{
-            id: id === 'relationship-advisor'
-                ? 'relationship-advisor.chat'
-                : id === 'generated-images-gallery'
-                    ? 'generated-images-gallery.browser'
-                    : `${id}.page`,
-            surface: 'page',
-            title: { default: id },
-        }],
+        views: [
+            {
+                id: id === 'relationship-advisor'
+                    ? 'relationship-advisor.chat'
+                    : id === 'generated-images-gallery'
+                        ? 'generated-images-gallery.browser'
+                        : `${id}.page`,
+                surface: 'page',
+                title: { default: id },
+            },
+            {
+                id: id === 'relationship-advisor'
+                    ? 'relationship-advisor.configuration'
+                    : id === 'generated-images-gallery'
+                        ? 'generated-images-gallery.configuration'
+                        : `${id}.configuration`,
+                surface: 'modal',
+                title: { default: `${id} configuration` },
+            },
+        ],
     },
     configuration: { fields: [] },
 });

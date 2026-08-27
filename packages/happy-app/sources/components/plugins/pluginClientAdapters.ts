@@ -65,6 +65,10 @@ const bundledPluginAdapters: readonly PluginClientAdapterRegistration[] = [{
             surface: 'right-panel',
             componentId: 'generated-images-session-images',
         },
+        'generated-images-gallery.configuration': {
+            surface: 'modal',
+            componentId: 'plugin-configuration',
+        },
     },
 }];
 
@@ -98,6 +102,14 @@ export function createPluginClientHost(initialAdapters: readonly PluginClientAda
         surface: PluginViewSurface,
     ): ResolvedPluginClientView | null {
         if (!isCurrentInstallation(plugin)) return null;
+        return resolveDeclaredView(plugin, viewId, surface);
+    }
+
+    function resolveDeclaredView(
+        plugin: PluginCatalogItem,
+        viewId: string,
+        surface: PluginViewSurface,
+    ): ResolvedPluginClientView | null {
         const contribution = plugin.manifest.contributes.views.find((view) => (
             view.id === viewId && view.surface === surface
         ));
@@ -115,7 +127,11 @@ export function createPluginClientHost(initialAdapters: readonly PluginClientAda
     }
 
     function resolveEntrypoint(plugin: PluginCatalogItem): ResolvedPluginClientView | null {
-        return resolveView(plugin, plugin.manifest.entrypoint.viewId, 'page');
+        return resolveView(
+            plugin,
+            plugin.manifest.entrypoint.viewId,
+            plugin.manifest.entrypoint.type === 'view' ? 'page' : 'modal',
+        );
     }
 
     function resolveSurfaceViews(
@@ -129,7 +145,7 @@ export function createPluginClientHost(initialAdapters: readonly PluginClientAda
     }
 
     for (const adapter of initialAdapters) register(adapter);
-    return { register, resolveEntrypoint, resolveSurfaceViews, resolveView };
+    return { register, resolveDeclaredView, resolveEntrypoint, resolveSurfaceViews, resolveView };
 }
 
 const pluginClientHost = createPluginClientHost(bundledPluginAdapters);
@@ -146,6 +162,14 @@ export function resolveInstalledPluginView(
     surface: PluginViewSurface,
 ): ResolvedPluginClientView | null {
     return pluginClientHost.resolveView(plugin, viewId, surface);
+}
+
+export function resolvePluginDeclaredView(
+    plugin: PluginCatalogItem,
+    viewId: string,
+    surface: PluginViewSurface,
+): ResolvedPluginClientView | null {
+    return pluginClientHost.resolveDeclaredView(plugin, viewId, surface);
 }
 
 export function resolveInstalledPluginEntrypoint(

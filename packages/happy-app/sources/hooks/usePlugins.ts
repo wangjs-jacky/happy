@@ -8,6 +8,7 @@ export function usePlugins(enabled = true) {
     const [plugins, setPlugins] = React.useState<PluginCatalogItem[]>([]);
     const [loading, setLoading] = React.useState(enabled);
     const mountedRef = React.useRef(true);
+    const requestGenerationRef = React.useRef(0);
 
     React.useEffect(() => {
         mountedRef.current = true;
@@ -18,18 +19,27 @@ export function usePlugins(enabled = true) {
 
     const refresh = React.useCallback(async () => {
         if (!enabled) return null;
+        const requestGeneration = ++requestGenerationRef.current;
         setLoading(true);
         try {
             const catalog = await getPluginCatalog();
-            if (mountedRef.current) setPlugins(catalog.plugins);
+            if (mountedRef.current && requestGeneration === requestGenerationRef.current) {
+                setPlugins(catalog.plugins);
+            }
             return catalog;
         } finally {
-            if (mountedRef.current) setLoading(false);
+            if (mountedRef.current && requestGeneration === requestGenerationRef.current) {
+                setLoading(false);
+            }
         }
     }, [enabled]);
 
     React.useEffect(() => {
-        if (!enabled) return;
+        if (!enabled) {
+            requestGenerationRef.current++;
+            setLoading(false);
+            return;
+        }
         void refresh().catch(() => undefined);
     }, [enabled, refresh]);
 

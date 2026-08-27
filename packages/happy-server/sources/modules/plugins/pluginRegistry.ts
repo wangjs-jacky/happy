@@ -6,10 +6,10 @@ import type {
     PluginPermission,
 } from '@slopus/happy-wire';
 
-import type { PluginDefinition } from './pluginDefinitions';
-import { pluginDefinitions } from './pluginDefinitions';
-import type { PluginInstallation } from './pluginInstallationStore';
-import { pluginInstallationStore } from './pluginInstallationStore';
+import type { PluginDefinition } from '@/modules/plugins/pluginDefinitions';
+import { pluginDefinitions } from '@/modules/plugins/pluginDefinitions';
+import type { PluginInstallation } from '@/modules/plugins/pluginInstallationStore';
+import { pluginInstallationStore } from '@/modules/plugins/pluginInstallationStore';
 
 interface PluginInstallationStore {
     get: (accountId: string, pluginId: string) => Promise<PluginInstallation | null>;

@@ -60,8 +60,8 @@ flowchart LR
 | `featured` | boolean | 表示市场推荐属性；不要用它表达权限或安装状态 |
 | `installedAction` | `configure` 或 `open` | 安装后继续配置，或打开可信的内置能力 |
 | `permissions` | 已知权限枚举，最多 20 项 | 只声明真实需要的能力；服务端调用时再次校验 |
-| `entrypoint.type` | 固定 `view` | 入口是声明式 View，不是路由或代码 |
-| `entrypoint.viewId` | 稳定 contribution ID | 必须引用本清单贡献的 `page` View |
+| `entrypoint.type` | `view` 或 `configuration` | 普通入口引用 `page`；纯配置插件入口引用 `modal`，两者都不是路由或代码 |
+| `entrypoint.viewId` | 稳定 contribution ID | 必须引用与入口类型匹配的本清单 View |
 | `contributes.views` | 最多 50 项且 ID 唯一 | ID 必须以 `<pluginId>.` 为命名空间；可声明 `page`、`left-sidebar`、`right-panel`、`modal` |
 | `configuration.notice` | 可选本地化文本 | 解释凭据保存位置、计费或隐私影响 |
 | `configuration.fields` | 最多 20 项 | 市场据此生成表单；字段顺序即展示顺序 |
@@ -73,6 +73,10 @@ flowchart LR
 - `secret`：App 使用密码输入框，服务端响应只能返回提示，不能回传原值。
 
 字段 key 使用 lowerCamelCase。所有服务端配置 schema 必须 `.strict()`，拒绝清单未声明或业务不认识的字段。
+
+当前 Broker 权限为 `paws.ai.provider.invoke`、`paws.secrets.use`、
+`paws.conversations.images.read` 和 `paws.storage.images.write`。读取会话图片与写入插件自有图片
+是两种不同能力，插件不能用读权限申请上传或删除。
 
 ## 4. 插件类型与改动范围
 

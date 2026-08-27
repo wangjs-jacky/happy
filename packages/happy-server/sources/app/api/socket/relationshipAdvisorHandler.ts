@@ -29,6 +29,7 @@ export interface RelationshipAdvisorStreamInput extends RelationshipAdvisorStart
 
 export interface RelationshipAdvisorHandlerDependencies {
     streamChat: (input: RelationshipAdvisorStreamInput & { signal?: AbortSignal }) => AsyncIterable<{ text: string }>;
+    requireImageReadPermission: (userId: string) => Promise<void>;
     resolveImageUrls: (userId: string, refs: string[]) => Promise<string[]>;
     deleteImageRefs?: (userId: string, refs: string[]) => Promise<void>;
 }
@@ -47,6 +48,7 @@ const relationshipAdvisorPluginRuntime = createRelationshipAdvisorPluginRuntime(
 function defaultRelationshipAdvisorDependencies(): RelationshipAdvisorHandlerDependencies {
     return {
         streamChat: (input) => relationshipAdvisorPluginRuntime.stream(input),
+        requireImageReadPermission: (userId) => relationshipAdvisorPlugin.requireImageReadPermission(userId),
         resolveImageUrls: resolveRelationshipAdvisorImageUrls,
         deleteImageRefs: deleteRelationshipAdvisorImages,
     };
@@ -124,6 +126,9 @@ export function relationshipAdvisorHandler(
 
         void (async () => {
             try {
+                if (request.imageRefs.length > 0) {
+                    await dependencies.requireImageReadPermission(userId);
+                }
                 const imageUrls = await dependencies.resolveImageUrls(userId, request.imageRefs);
                 for await (const delta of dependencies.streamChat({
                     ...request,

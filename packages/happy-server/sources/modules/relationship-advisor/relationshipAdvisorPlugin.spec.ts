@@ -1,10 +1,35 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const registryMock = vi.hoisted(() => ({
+    requirePermission: vi.fn(async () => undefined),
+    requireConfiguration: vi.fn(async () => ({
+        apiKey: 'server-stored-secret',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'example-chat',
+    })),
+}));
+
+vi.mock('@/modules/plugins/pluginRegistry', () => ({
+    pluginRegistry: registryMock,
+}));
+
 import {
     createRelationshipAdvisorPluginRuntime,
+    relationshipAdvisorPlugin,
 } from './relationshipAdvisorPlugin';
 
 describe('createRelationshipAdvisorPluginRuntime', () => {
+    it('brokers provider and secret configuration separately from image reads', async () => {
+        await relationshipAdvisorPlugin.requireConfiguration('user-4');
+        await relationshipAdvisorPlugin.requireImageReadPermission('user-4');
+
+        expect(registryMock.requirePermission.mock.calls).toEqual([
+            ['user-4', 'relationship-advisor', 'paws.ai.provider.invoke'],
+            ['user-4', 'relationship-advisor', 'paws.secrets.use'],
+            ['user-4', 'relationship-advisor', 'paws.conversations.images.read'],
+        ]);
+    });
+
     it('decrypts the user configuration only when starting the provider stream', async () => {
         const configuration = {
             apiKey: 'server-stored-secret',

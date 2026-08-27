@@ -23,7 +23,7 @@ Paws Plugin Host v2 组合两套成熟模式：
 - `hostApiVersion: 1`：Plugin Host API 主版本；
 - `permissions`：插件可能调用的宿主能力；
 - `contributes.views`：页面、左栏、右栏、弹窗贡献，View ID 必须以 `<pluginId>.` 为命名空间；
-- `entrypoint.viewId`：必须引用本插件贡献的 `page` View；
+- `entrypoint`：`view` 引用 `page`；`configuration` 引用 `modal`，从而支持没有独立页面的纯配置插件；
 - `configuration`：由 Host 渲染和加密保存的声明式字段。
 
 Manifest 不得包含路径、URL、JavaScript、组件名或动态 import 目标。
@@ -47,7 +47,8 @@ Host 解析贡献时必须同时满足：安装存在、版本精确匹配、Vie
 
 - `paws.ai.provider.invoke`：由 Paws Server 代表插件调用 AI Provider；
 - `paws.secrets.use`：只允许服务端能力使用已加密 Secret，不向 App 返回明文；
-- `paws.conversations.images.read`：读取会话生成图片投影。
+- `paws.conversations.images.read`：读取会话生成图片投影；
+- `paws.storage.images.write`：写入或删除插件自有图片对象。
 
 业务 Runtime 必须先调用 `requirePermission`，再通过 `requireConfiguration` 读取和解析配置。Manifest 隐藏、UI `when` 条件和安装按钮都不能替代服务端权限检查。
 
