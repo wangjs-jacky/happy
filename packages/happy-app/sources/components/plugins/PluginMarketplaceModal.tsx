@@ -19,7 +19,7 @@ import { Typography } from '@/constants/Typography';
 import { usePlugins } from '@/hooks/usePlugins';
 import { t } from '@/text';
 import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
-import { resolvePluginRoute } from './pluginClientAdapters';
+import { resolveInstalledPluginEntrypoint } from './pluginClientAdapters';
 import { resolvePluginText } from './pluginText';
 
 type Props = {
@@ -109,10 +109,10 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
     const installedPlugins = plugins.filter((plugin) => plugin.status.installed);
 
     const openPlugin = React.useCallback((plugin: PluginCatalogItem) => {
-        const route = resolvePluginRoute(plugin.manifest.id, plugin.manifest.entrypoint.routeId);
-        if (!route) return;
+        const entrypoint = resolveInstalledPluginEntrypoint(plugin);
+        if (!entrypoint?.path) return;
         close();
-        router.navigate(route as any);
+        router.navigate(entrypoint.path as any);
     }, [close, router]);
 
     return (

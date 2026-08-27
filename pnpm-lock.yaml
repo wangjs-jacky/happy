@@ -474,8 +474,8 @@ importers:
         specifier: ^2.3.1
         version: 2.3.1
       '@paws/plugins':
-        specifier: github:wangjs-jacky/paws-plugins#aa2069a74683924fcce5b249c3f2b2fd8a07ee98
-        version: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/aa2069a74683924fcce5b249c3f2b2fd8a07ee98
+        specifier: github:wangjs-jacky/paws-plugins#97b3600e73dc3de0b850932261c141bb27b9a87d
+        version: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/97b3600e73dc3de0b850932261c141bb27b9a87d
       '@peoplesgrocers/seti-ui-file-icons':
         specifier: 1.11.3
         version: 1.11.3
@@ -1103,8 +1103,8 @@ importers:
         specifier: ^8.1.1
         version: 8.3.0
       '@paws/plugins':
-        specifier: github:wangjs-jacky/paws-plugins#aa2069a74683924fcce5b249c3f2b2fd8a07ee98
-        version: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/aa2069a74683924fcce5b249c3f2b2fd8a07ee98
+        specifier: github:wangjs-jacky/paws-plugins#97b3600e73dc3de0b850932261c141bb27b9a87d
+        version: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/97b3600e73dc3de0b850932261c141bb27b9a87d
       '@prisma/client':
         specifier: 6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -4003,9 +4003,9 @@ packages:
   '@paralleldrive/cuid2@2.3.1':
     resolution: {integrity: sha512-XO7cAxhnTZl0Yggq6jOgjiOHhbgcO4NqFqwSmQpjK3b6TEE6Uj/jfSk6wzYyemh3+I0sHirKSetjQwn5cZktFw==}
 
-  '@paws/plugins@https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/aa2069a74683924fcce5b249c3f2b2fd8a07ee98':
-    resolution: {tarball: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/aa2069a74683924fcce5b249c3f2b2fd8a07ee98}
-    version: 0.1.0
+  '@paws/plugins@https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/97b3600e73dc3de0b850932261c141bb27b9a87d':
+    resolution: {tarball: https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/97b3600e73dc3de0b850932261c141bb27b9a87d}
+    version: 0.2.0
     engines: {node: '>=20'}
 
   '@peculiar/asn1-cms@2.6.0':
@@ -15943,7 +15943,7 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
 
-  '@paws/plugins@https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/aa2069a74683924fcce5b249c3f2b2fd8a07ee98':
+  '@paws/plugins@https://codeload.github.com/wangjs-jacky/paws-plugins/tar.gz/97b3600e73dc3de0b850932261c141bb27b9a87d':
     dependencies:
       remend: 1.3.0
       zod: 4.4.3

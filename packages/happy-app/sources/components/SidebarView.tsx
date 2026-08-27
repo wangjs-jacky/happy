@@ -17,10 +17,10 @@ import { AgentSpaceWorkbench } from './agents/AgentSpaceWorkbench';
 import { SidebarAccountMenu } from './SidebarAccountMenu';
 import { SidebarHelpMenu } from './SidebarHelpMenu';
 import { useCommandPaletteLauncher } from './CommandPalette/CommandPaletteProvider';
-import { RelationshipAdvisorSidebarHistory } from './relationship-advisor/RelationshipAdvisorSidebarHistory';
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
 import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
 import { PluginMarketplaceModal } from './plugins/PluginMarketplaceModal';
+import { PluginLeftSidebarSlot } from './plugins/PluginLeftSidebarSlot';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -474,7 +474,7 @@ export const SidebarView = React.memo(({
                 </Pressable>
             </View>
 
-            <RelationshipAdvisorSidebarHistory
+            <PluginLeftSidebarSlot
                 desktopDensity={desktopDensity}
                 onNavigate={go}
             />

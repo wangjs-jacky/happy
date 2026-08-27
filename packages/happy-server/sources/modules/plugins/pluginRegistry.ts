@@ -3,6 +3,7 @@ import type {
     PluginCatalogResponse,
     PluginInstallRequest,
     PluginInstallationStatus,
+    PluginPermission,
 } from '@slopus/happy-wire';
 
 import type { PluginDefinition } from './pluginDefinitions';
@@ -20,6 +21,7 @@ export type PluginRegistryErrorCode =
     | 'plugin_not_found'
     | 'plugin_not_installed'
     | 'version_mismatch'
+    | 'permission_not_declared'
     | 'invalid_configuration';
 
 export class PluginRegistryError extends Error {
@@ -99,6 +101,29 @@ export function createPluginRegistry(
             findDefinition(definitions, pluginId);
             await store.delete(accountId, pluginId);
             return { installed: false };
+        },
+        async requirePermission(
+            accountId: string,
+            pluginId: string,
+            permission: PluginPermission,
+        ): Promise<void> {
+            const definition = findDefinition(definitions, pluginId);
+            const installation = await store.get(accountId, pluginId);
+            if (!installation) {
+                throw new PluginRegistryError('plugin_not_installed', `Plugin ${pluginId} is not installed`);
+            }
+            if (installation.version !== definition.manifest.version) {
+                throw new PluginRegistryError(
+                    'version_mismatch',
+                    `Plugin ${pluginId} requires version ${definition.manifest.version}`,
+                );
+            }
+            if (!definition.manifest.permissions.includes(permission)) {
+                throw new PluginRegistryError(
+                    'permission_not_declared',
+                    `Plugin ${pluginId} did not declare permission ${permission}`,
+                );
+            }
         },
         async requireConfiguration(accountId: string, pluginId: string): Promise<Record<string, string>> {
             const definition = findDefinition(definitions, pluginId);

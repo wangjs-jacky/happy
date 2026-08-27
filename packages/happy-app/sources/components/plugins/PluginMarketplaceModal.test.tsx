@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const manifest = (id: string, installedAction: 'configure' | 'open') => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    hostApiVersion: 1,
     id,
     version: '1.0.0',
     title: { default: id },
@@ -20,7 +21,23 @@ const manifest = (id: string, installedAction: 'configure' | 'open') => ({
     icon: 'apps-outline',
     featured: true,
     installedAction,
-    entrypoint: { type: 'app-route', routeId: id },
+    permissions: [],
+    entrypoint: { type: 'view', viewId: id === 'relationship-advisor'
+        ? 'relationship-advisor.chat'
+        : id === 'generated-images-gallery'
+            ? 'generated-images-gallery.browser'
+            : `${id}.page` },
+    contributes: {
+        views: [{
+            id: id === 'relationship-advisor'
+                ? 'relationship-advisor.chat'
+                : id === 'generated-images-gallery'
+                    ? 'generated-images-gallery.browser'
+                    : `${id}.page`,
+            surface: 'page',
+            title: { default: id },
+        }],
+    },
     configuration: { fields: [] },
 });
 

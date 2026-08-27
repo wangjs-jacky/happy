@@ -6,7 +6,8 @@ vi.mock('./apiSocket', () => ({ apiSocket: { request } }));
 import { getPluginCatalog, installPlugin, uninstallPlugin } from './plugins';
 
 const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    hostApiVersion: 1,
     id: 'sample-plugin',
     version: '2.1.0',
     title: { default: 'Sample' },
@@ -14,7 +15,11 @@ const manifest = {
     icon: 'apps-outline',
     featured: true,
     installedAction: 'open',
-    entrypoint: { type: 'app-route', routeId: 'sample-plugin' },
+    permissions: [],
+    entrypoint: { type: 'view', viewId: 'sample-plugin.page' },
+    contributes: {
+        views: [{ id: 'sample-plugin.page', surface: 'page', title: { default: 'Sample' } }],
+    },
     configuration: { fields: [] },
 };
 

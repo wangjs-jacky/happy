@@ -30,7 +30,8 @@ vi.mock('@/text', () => ({ getCurrentLanguage: () => 'zh-Hans', t: (key: string)
 import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
 
 const manifest = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    hostApiVersion: 1 as const,
     id: 'server-plugin',
     version: '2.3.0',
     title: { default: 'Server plugin' },
@@ -38,7 +39,11 @@ const manifest = {
     icon: 'apps-outline',
     featured: true,
     installedAction: 'configure' as const,
-    entrypoint: { type: 'app-route' as const, routeId: 'server-plugin' },
+    permissions: [],
+    entrypoint: { type: 'view' as const, viewId: 'server-plugin.page' },
+    contributes: {
+        views: [{ id: 'server-plugin.page', surface: 'page' as const, title: { default: 'Server plugin' } }],
+    },
     configuration: {
         notice: { default: 'Encrypted', translations: { 'zh-Hans': '加密保存' } },
         fields: [

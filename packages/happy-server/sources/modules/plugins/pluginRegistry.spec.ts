@@ -38,7 +38,7 @@ describe('createPluginRegistry', () => {
         const registry = createPluginRegistry(pluginDefinitions, store);
 
         const status = await registry.install('user-1', 'relationship-advisor', {
-            version: '1.0.0',
+            version: '1.1.0',
             configuration: {
                 apiKey: '  sk-secret-1234  ',
                 baseUrl: 'https://api.example.com/v1/',
@@ -48,7 +48,7 @@ describe('createPluginRegistry', () => {
 
         expect(status).toEqual({
             installed: true,
-            version: '1.0.0',
+            version: '1.1.0',
             configuration: {
                 baseUrl: 'https://api.example.com/v1',
                 model: 'example-chat',
@@ -63,7 +63,7 @@ describe('createPluginRegistry', () => {
         });
 
         const updated = await registry.install('user-1', 'relationship-advisor', {
-            version: '1.0.0',
+            version: '1.1.0',
             configuration: {
                 apiKey: '',
                 baseUrl: 'https://api.example.com/v2',
@@ -80,20 +80,20 @@ describe('createPluginRegistry', () => {
         const registry = createPluginRegistry(pluginDefinitions, store);
 
         await expect(registry.install('user-1', 'missing-plugin', {
-            version: '1.0.0', configuration: {},
+            version: '1.1.0', configuration: {},
         })).rejects.toMatchObject({ code: 'plugin_not_found' } satisfies Partial<PluginRegistryError>);
         await expect(registry.install('user-1', 'relationship-advisor', {
             version: '0.9.0', configuration: {},
         })).rejects.toMatchObject({ code: 'version_mismatch' } satisfies Partial<PluginRegistryError>);
         await expect(registry.install('user-1', 'generated-images-gallery', {
-            version: '1.0.0', configuration: { source: 'javascript:alert(1)' },
+            version: '1.1.0', configuration: { source: 'javascript:alert(1)' },
         })).rejects.toMatchObject({ code: 'invalid_configuration' } satisfies Partial<PluginRegistryError>);
     });
 
     it('uninstalls idempotently and blocks runtime configuration after removal', async () => {
         const { store } = createMemoryStore();
         const registry = createPluginRegistry(pluginDefinitions, store);
-        await registry.install('user-2', 'generated-images-gallery', { version: '1.0.0', configuration: {} });
+        await registry.install('user-2', 'generated-images-gallery', { version: '1.1.0', configuration: {} });
 
         await expect(registry.uninstall('user-2', 'generated-images-gallery')).resolves.toEqual({ installed: false });
         await expect(registry.uninstall('user-2', 'generated-images-gallery')).resolves.toEqual({ installed: false });
@@ -115,5 +115,38 @@ describe('createPluginRegistry', () => {
 
         await expect(registry.requireConfiguration('user-stale', 'relationship-advisor'))
             .rejects.toMatchObject({ code: 'version_mismatch' });
+    });
+
+    it('authorizes only installed plugins that declared the requested host capability', async () => {
+        const { store } = createMemoryStore();
+        const registry = createPluginRegistry(pluginDefinitions, store);
+        await registry.install('user-1', 'relationship-advisor', {
+            version: '1.1.0',
+            configuration: {
+                apiKey: 'sk-secret',
+                baseUrl: 'https://api.example.com/v1',
+                model: 'example-chat',
+            },
+        });
+        await registry.install('user-1', 'generated-images-gallery', {
+            version: '1.1.0',
+            configuration: {},
+        });
+
+        await expect(registry.requirePermission(
+            'user-1',
+            'relationship-advisor',
+            'paws.ai.provider.invoke',
+        )).resolves.toBeUndefined();
+        await expect(registry.requirePermission(
+            'user-1',
+            'generated-images-gallery',
+            'paws.ai.provider.invoke',
+        )).rejects.toMatchObject({ code: 'permission_not_declared' });
+        await expect(registry.requirePermission(
+            'user-2',
+            'relationship-advisor',
+            'paws.ai.provider.invoke',
+        )).rejects.toMatchObject({ code: 'plugin_not_installed' });
     });
 });

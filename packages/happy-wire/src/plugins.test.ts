@@ -7,7 +7,8 @@ import {
 } from './plugins';
 
 const manifest = {
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
+  hostApiVersion: 1 as const,
   id: 'relationship-advisor',
   version: '1.0.0',
   title: { default: 'Relationship Advisor', translations: { 'zh-Hans': '狗头军师' } },
@@ -15,7 +16,26 @@ const manifest = {
   icon: 'chatbubbles-outline',
   featured: true,
   installedAction: 'configure' as const,
-  entrypoint: { type: 'app-route' as const, routeId: 'relationship-advisor' },
+  permissions: [
+    'paws.ai.provider.invoke' as const,
+    'paws.secrets.use' as const,
+  ],
+  entrypoint: { type: 'view' as const, viewId: 'relationship-advisor.chat' },
+  contributes: {
+    views: [
+      {
+        id: 'relationship-advisor.chat',
+        surface: 'page' as const,
+        title: { default: 'Relationship Advisor' },
+        icon: 'chatbubbles-outline',
+      },
+      {
+        id: 'relationship-advisor.history',
+        surface: 'left-sidebar' as const,
+        title: { default: 'Advisor history' },
+      },
+    ],
+  },
   configuration: {
     notice: { default: 'Secrets are encrypted on the Paws server.' },
     fields: [
@@ -40,6 +60,31 @@ describe('plugin wire contract', () => {
       ...manifest,
       version: 'latest',
       entrypoint: { type: 'javascript', source: 'alert(1)' },
+    })).toThrow();
+  });
+
+  it('rejects undeclared capabilities, unknown surfaces, and entrypoints that are not contributed pages', () => {
+    expect(() => PluginManifestSchema.parse({
+      ...manifest,
+      permissions: ['paws.shell.execute'],
+    })).toThrow();
+    expect(() => PluginManifestSchema.parse({
+      ...manifest,
+      contributes: {
+        views: [{
+          id: 'relationship-advisor.chat',
+          surface: 'floating-window',
+          title: { default: 'Relationship Advisor' },
+        }],
+      },
+    })).toThrow();
+    expect(() => PluginManifestSchema.parse({
+      ...manifest,
+      entrypoint: { type: 'view', viewId: 'relationship-advisor.missing' },
+    })).toThrow();
+    expect(() => PluginManifestSchema.parse({
+      ...manifest,
+      id: 'renamed-plugin',
     })).toThrow();
   });
 

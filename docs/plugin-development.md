@@ -4,24 +4,26 @@
 
 ## 1. 系统定位与安全边界
 
-当前插件系统是一个 **清单驱动、构建时集成可信代码** 的插件系统：
+当前插件系统是一个 **Manifest v2 驱动、构建时集成可信代码、运行时动态挂载贡献点** 的插件系统：
 
 - 服务端动态返回插件清单和当前账号的安装状态；
 - App 根据清单动态生成市场列表、配置表单、安装、更新和卸载界面；
 - 插件的可复用 Implementation 来自固定 commit 的 `@paws/plugins` Git 依赖；客户端页面以及数据库、Socket 和文件存储 Adapter 必须随受信任的 Paws 代码发布；
-- “安装”只启用一个已随 Paws 发布的能力并保存其配置，不下载 npm 包，也不执行清单中的脚本。
+- “安装”只启用一个已随 Paws 发布的能力并保存其配置，不下载 npm 包，也不执行清单中的脚本；
+- 已安装且版本匹配时，Plugin Host 才把页面、左栏、右栏和弹窗贡献解析到受信任 Adapter；卸载或版本过期会立即撤销全部贡献；
+- 服务端 Capability Broker 在每次业务调用时同时检查安装状态、精确版本和 Manifest 权限。
 
-插件清单不得包含 JavaScript、远程模块 URL、任意路由路径或可执行表达式。第三方签名包、沙箱执行、远程代码更新和权限授权模型不属于 `schemaVersion: 1` 的能力范围。
+插件清单不得包含 JavaScript、远程模块 URL、任意路由路径或可执行表达式。第三方签名包、沙箱执行和远程代码更新仍不属于 `schemaVersion: 2` 第一阶段的能力范围。身份、密钥保险库、Manifest 校验、Capability Broker、审计、导航骨架和平台适配属于不可插件化的 Paws Kernel。
 
 ```mermaid
 flowchart LR
-    A[PluginManifest<br/>happy-wire] --> B[Plugin Registry<br/>happy-server]
+    A[PluginManifest v2<br/>happy-wire] --> B[Plugin Registry<br/>happy-server]
     B --> C[统一插件 API]
     C --> D[插件市场与动态表单<br/>happy-app]
     B --> E[加密安装记录]
-    D --> F[可信客户端 Adapter]
-    B --> G[可信服务端 Runtime]
-    F --> H[内置页面]
+    D --> F[Plugin Host + UI Slot Registry]
+    B --> G[Capability Broker]
+    F --> H[受信任 UI Adapter]
     G --> I[外部服务或业务能力]
 ```
 
@@ -38,7 +40,7 @@ flowchart LR
 | Installation store | `packages/happy-server/sources/modules/plugins/pluginInstallationStore.ts` | 加密记录的读写、删除和兼容迁移 | 清单展示、业务调用 |
 | Generic API | `packages/happy-server/sources/app/api/routes/pluginRoutes.ts` | 认证、协议校验、错误到 HTTP 状态的映射 | 每个插件各自的安装接口 |
 | Marketplace UI | `packages/happy-app/sources/components/plugins/` | 动态列表、配置表单和生命周期操作 | 执行服务端下发的代码或路径 |
-| Client Adapter | `pluginClientAdapters.ts` | 把受信任的 `(pluginId, routeId)` 映射到内置页面 | 接受清单提供的任意 URL |
+| Client Plugin Host | `pluginClientAdapters.ts`、`usePluginSurfaceViews.ts` | 校验安装状态、声明贡献点和受信任 Adapter，并投影到页面/左栏/右栏/弹窗 | 接受清单提供的任意 URL、组件名或代码 |
 | Runtime Adapter | 各业务 Module，例如 `relationship-advisor/relationshipAdvisorPlugin.ts` | 在执行能力前读取并解析已安装配置 | 绕过 registry 直接读取密文 |
 
 新增插件时优先保持这些 Module 的 Depth：通用行为进入 registry 或市场，插件差异留在 definition 和少量 Adapter 中。不要为了一个插件复制一套安装路由、配置表或设置页面。
@@ -49,15 +51,18 @@ flowchart LR
 
 | 字段 | 约束 | 约定 |
 |---|---|---|
-| `schemaVersion` | 当前固定为 `1` | 表示清单协议版本，不是插件版本 |
+| `schemaVersion` | 当前固定为 `2` | 表示清单协议版本，不是插件版本 |
+| `hostApiVersion` | 当前固定为 `1` | Plugin Host API 的主版本；未知版本拒绝解析 |
 | `id` | 小写 kebab-case，最长 100 | 发布后不可复用或改名；同时用于存储键和 Adapter 身份校验 |
 | `version` | `x.y.z`，可带 prerelease | 安装请求必须与服务端当前清单精确一致 |
 | `title` / `description` | `PluginLocalizedText` | `default` 必填；第一方插件至少提供 `zh-Hans`、`zh-Hant` |
 | `icon` | 字母、数字或连字符 | 必须是当前 App 已支持的 Ionicons 名称，不得是远程图片 URL |
 | `featured` | boolean | 表示市场推荐属性；不要用它表达权限或安装状态 |
 | `installedAction` | `configure` 或 `open` | 安装后继续配置，或打开可信的内置能力 |
-| `entrypoint.type` | 固定 `app-route` | 仅是声明式入口类型 |
-| `entrypoint.routeId` | 小写 kebab-case | 是 Adapter key，不是 URL；`open` 类型必须有客户端 Adapter |
+| `permissions` | 已知权限枚举，最多 20 项 | 只声明真实需要的能力；服务端调用时再次校验 |
+| `entrypoint.type` | 固定 `view` | 入口是声明式 View，不是路由或代码 |
+| `entrypoint.viewId` | 稳定 contribution ID | 必须引用本清单贡献的 `page` View |
+| `contributes.views` | 最多 50 项且 ID 唯一 | ID 必须以 `<pluginId>.` 为命名空间；可声明 `page`、`left-sidebar`、`right-panel`、`modal` |
 | `configuration.notice` | 可选本地化文本 | 解释凭据保存位置、计费或隐私影响 |
 | `configuration.fields` | 最多 20 项 | 市场据此生成表单；字段顺序即展示顺序 |
 
@@ -92,8 +97,9 @@ const exampleConfigurationSchema = z.object({
     baseUrl: providerBaseUrlSchema,
 }).strict();
 
-const exampleManifest: PluginManifestV1 = {
-    schemaVersion: 1,
+const exampleManifest: PluginManifestV2 = {
+    schemaVersion: 2,
+    hostApiVersion: 1,
     id: 'example-provider',
     version: '1.0.0',
     title: localized('Example Provider', '示例提供商', '範例提供商'),
@@ -101,7 +107,15 @@ const exampleManifest: PluginManifestV1 = {
     icon: 'extension-puzzle-outline',
     featured: false,
     installedAction: 'configure',
-    entrypoint: { type: 'app-route', routeId: 'example-provider' },
+    permissions: ['paws.ai.provider.invoke', 'paws.secrets.use'],
+    entrypoint: { type: 'view', viewId: 'example-provider.page' },
+    contributes: {
+        views: [{
+            id: 'example-provider.page',
+            surface: 'page',
+            title: localized('Example Provider', '示例提供商', '範例提供商'),
+        }],
+    },
     configuration: {
         fields: [
             {
@@ -129,26 +143,27 @@ const exampleManifest: PluginManifestV1 = {
 4. 每个 `secret` 字段只在 `secretHints` 返回不可逆提示，例如末四位；
 5. 错误消息不得包含用户提交的配置值。
 
-### 5.2 接入客户端入口
+### 5.2 接入客户端贡献点
 
-`installedAction: open` 的插件必须在 `pluginClientAdapters.ts` 注册固定映射：
+清单只声明稳定 View ID；受信任 Paws App 在 `pluginClientAdapters.ts` 注册对应 Adapter：
 
 ```ts
-'example-provider': {
-    routeId: 'example-provider',
-    path: '/example-provider',
-},
+'example-provider.page': { surface: 'page', path: '/example-provider' },
 ```
 
-同时实现对应 Expo Router 页面。`resolvePluginRoute` 必须同时匹配 `pluginId` 和 `routeId`；未知组合返回 `null`。不要把 `path` 加入服务端清单，也不要对清单字符串调用动态 import、`eval` 或 URL 跳转。
+同时实现对应 Expo Router 页面或 Slot Adapter。受信 Adapter 通过 `Plugin Client Host.register()` 挂载并获得幂等 `dispose()`，其 activation 结束时必须统一撤销。Host 必须同时确认：插件已安装、安装版本等于 Manifest、View 在清单中声明、surface 与本地 Adapter 一致；任一条件不满足都返回 `null`。不要把 `path`、React 组件名加入服务端清单，也不要对清单字符串调用动态 import、`eval` 或 URL 跳转。
+
+`modal` 表示插件贡献一个可由用户动作打开的对话框定义，不表示插件可以任意抢占焦点弹窗。主题、无障碍、排序、密度、同时可见数量及移动端降级均由 Host 决定。
 
 使用 `installedAction: configure` 且没有独立页面时，配置表单由市场弹窗直接渲染，不需要新增一套配置页面。
 
 ### 5.3 接入服务端运行时
 
-需要服务端执行能力的插件必须通过 registry 门禁读取配置：
+需要服务端执行能力的插件必须先通过 registry 权限门禁，再读取配置：
 
 ```ts
+await pluginRegistry.requirePermission(accountId, 'example-provider', 'paws.ai.provider.invoke');
+await pluginRegistry.requirePermission(accountId, 'example-provider', 'paws.secrets.use');
 const configuration = await pluginRegistry.requireConfiguration(accountId, 'example-provider');
 ```
 
@@ -169,6 +184,8 @@ const configuration = await pluginRegistry.requireConfiguration(accountId, 'exam
 2. **已安装且为当前版本**：可配置；`open` 插件可以进入可信页面；运行时可以读取配置。
 3. **已安装但版本过期**：市场显示更新；运行时返回 `version_mismatch`，直到用户以当前 manifest version 完成 `PUT`。
 4. **卸载**：`DELETE` 删除该账号的加密安装记录；重复卸载是幂等操作。
+
+客户端 Slot Registry 只从“已安装且为当前版本”的目录状态派生贡献，不额外持久化 UI 注册表。因此安装或更新后的 refresh 会挂载贡献，卸载或版本过期后的 refresh 会产生等价于 reversible effect 的统一撤销。
 
 通用 API：
 
@@ -193,7 +210,7 @@ const configuration = await pluginRegistry.requireConfiguration(accountId, 'exam
 
 `schemaVersion` 只在 wire 清单结构变化时升级。升级它需要 App 和 Server 的协调发布、旧客户端行为说明以及协议测试，不能用它代替插件版本。
 
-当前 v1 registry 假设旧安装配置仍能被新版 `redactConfiguration` 安全读取。若要重命名、删除字段或改变字段类型，必须先设计并测试显式迁移；在迁移能力合入前，不得发布会让旧记录无法脱敏的 definition。已有 legacy 加密路径兼容逻辑只用于历史安装记录，不是通用配置迁移机制。
+当前 v2 registry 假设旧安装配置仍能被新版 `redactConfiguration` 安全读取。若要重命名、删除字段或改变字段类型，必须先设计并测试显式迁移；在迁移能力合入前，不得发布会让旧记录无法脱敏的 definition。已有 legacy 加密路径兼容逻辑只用于历史安装记录，不是通用配置迁移机制。
 
 ## 8. 加密存储与威胁模型
 
@@ -216,6 +233,7 @@ const configuration = await pluginRegistry.requireConfiguration(accountId, 'exam
 | `version_mismatch` | 409；运行时门禁 | 请求或安装记录不是当前版本 |
 | `invalid_configuration` | 400 | 配置不满足插件白名单和业务 schema |
 | `plugin_not_installed` | 运行时门禁 | 账号尚未安装；若暴露为 HTTP，目前映射为 400 |
+| `permission_not_declared` | Capability Broker | 插件调用了 Manifest 未声明的宿主能力 |
 | `internal_error` | 500 | 未分类服务端错误 |
 
 对外错误保持稳定、简短且不包含配置值。业务 Runtime 可以把 registry 错误转换为适合用户的提示，但不能把缺少插件静默降级成继续执行。
@@ -229,8 +247,8 @@ const configuration = await pluginRegistry.requireConfiguration(accountId, 'exam
 - registry：安装、重复更新、空 secret 沿用、版本不匹配、幂等卸载、卸载后运行时拒绝；
 - storage：密文不含明文 secret、账号/插件隔离、删除、历史记录兼容（如涉及）；
 - API：认证、schema、200/400/404/409 响应；
-- App：动态表单、必填状态、安装/更新/卸载、`open` Adapter 白名单、未知入口拒绝；
-- runtime：只有已安装且为当前版本时才执行业务能力。
+- App：动态表单、必填状态、安装/更新/卸载、各 surface Adapter 白名单、未知/错配贡献拒绝、卸载后贡献撤销；
+- runtime：只有已安装、为当前版本且声明相应 permission 时才执行业务能力。
 
 常用检查：
 
@@ -260,7 +278,7 @@ pnpm --filter happy-app exec vitest run \
 - [ ] 服务端使用 strict schema，并有长度、格式和 URL 安全校验；
 - [ ] API、日志、错误、测试快照中都没有 secret 明文；
 - [ ] `open` 插件只通过可信 Adapter 打开内置页面；
-- [ ] 服务端运行时通过 `requireConfiguration` 检查安装和版本；
+- [ ] 服务端运行时通过 `requirePermission` 和 `requireConfiguration` 检查权限、安装和版本；
 - [ ] 更新路径能安全读取旧记录，破坏性配置变更有迁移方案；
 - [ ] 卸载删除插件安装记录，并阻止后续运行时调用；
 - [ ] 聚焦测试、相关 package typecheck 和可视验收通过；
@@ -269,11 +287,11 @@ pnpm --filter happy-app exec vitest run \
 ## 12. 明确禁止
 
 - 不在清单中增加任意 JavaScript、HTML、远程模块或未经白名单校验的 URL；
-- 不从服务端清单直接解析客户端路由；
+- 不从服务端清单直接解析客户端路由、组件或模块；
 - 不把 API key 保存到 AsyncStorage、客户端状态持久层或会话消息；
 - 不向 App 返回 secret 原值，也不依赖 UI 校验保护服务端；
 - 不为单个插件复制安装表、安装 API 或市场 UI；
 - 不绕过版本门禁运行过期插件；
 - 不把“已安装”等同于下载并信任了第三方代码。
 
-当确实需要开放第三方插件时，应另行设计签名、来源信任、权限声明、沙箱、资源限额、撤销、审计和供应链更新机制，并通过新的 manifest schemaVersion 显式区分，不能在 v1 清单上隐式扩展。
+当确实需要开放第三方可执行插件时，应另行设计签名、来源信任、用户授权、沙箱、资源限额、撤销、审计和供应链更新机制，并通过新的运行时/Artifact 契约显式区分，不能把 Manifest v2 的声明式 View 偷换成远程 JavaScript。

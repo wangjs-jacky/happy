@@ -147,8 +147,8 @@ vi.mock('./CommandPalette/CommandPaletteProvider', () => ({
         open: mocks.openCommandPalette,
     }),
 }));
-vi.mock('./relationship-advisor/RelationshipAdvisorSidebarHistory', () => ({
-    RelationshipAdvisorSidebarHistory: 'RelationshipAdvisorSidebarHistory',
+vi.mock('./plugins/PluginLeftSidebarSlot', () => ({
+    PluginLeftSidebarSlot: 'PluginLeftSidebarSlot',
 }));
 vi.mock('./DesktopSidebarSessionsNavigation', () => ({
     DesktopSidebarSessionsNavigation: 'DesktopSidebarSessionsNavigation',
@@ -243,7 +243,7 @@ describe('SidebarView Agent space exit', () => {
         expect(renderer.root.findAllByProps({ testID: 'sidebar-user-card' })).toHaveLength(0);
         expect(renderer.root.findAllByType('MainView')).toHaveLength(0);
         expect(renderer.root.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(1);
-        expect(renderer.root.findAllByType('RelationshipAdvisorSidebarHistory')).toHaveLength(1);
+        expect(renderer.root.findAllByType('PluginLeftSidebarSlot')).toHaveLength(1);
         expect(renderer.root.findAllByType('Text').some((node: any) => node.props.children === 'agents.empty')).toBe(false);
 
         act(() => renderer.unmount());
