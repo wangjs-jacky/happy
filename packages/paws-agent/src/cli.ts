@@ -502,7 +502,11 @@ program
         }
     });
 
-program.parseAsync(process.argv).catch(err => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-});
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+    try {
+        await program.parseAsync(argv);
+    } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 1;
+    }
+}

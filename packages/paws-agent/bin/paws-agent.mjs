@@ -11,7 +11,7 @@ const hasNoDeprecation = process.execArgv.includes('--no-deprecation');
 if (!hasNoWarnings || !hasNoDeprecation) {
   // Get path to the actual CLI entrypoint
   const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-  const entrypoint = join(projectRoot, 'dist', 'index.mjs');
+  const entrypoint = join(projectRoot, 'dist', 'cli.mjs');
 
   // Execute the actual CLI directly with the correct flags
   try {
@@ -33,6 +33,6 @@ if (!hasNoWarnings || !hasNoDeprecation) {
     process.exit(error.status ?? 1);
   }
 } else {
-  // We're running Node with the flags we wanted, import the CLI entrypoint
-  import("../dist/index.mjs");
+  // We're running Node with the flags we wanted, run the CLI entrypoint.
+  import("../dist/cli.mjs").then(({ runCli }) => runCli());
 }
