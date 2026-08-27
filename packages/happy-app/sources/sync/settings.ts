@@ -3,6 +3,7 @@ import { AgentDefaultOverridesSchema } from './agentDefaults';
 import {
     emptySidebarOrganization,
     isValidSidebarOrganizationPayload,
+    serializeSidebarOrganizationWithRaw,
     isSidebarOrganizationEmpty,
     SidebarOrganizationSchema,
     type SidebarOrganization,
@@ -121,6 +122,7 @@ export const SettingsSchema = z.object({
     lastUsedModelMode: z.string().nullable().describe('Last selected model mode for new sessions'),
     agentDefaultOverrides: AgentDefaultOverridesSchema.describe('User-selected agent defaults. Missing values use code defaults and are not sent as agent metadata.'),
     sidebarOrganization: SidebarOrganizationSchema.describe('Account-synced session Lists, Tags, and assignments'),
+    sidebarOrganizationRaw: z.unknown().nullable().describe('Locally preserved future-format sidebar records; reconstructed into sidebarOrganization before sync'),
     // Dismissed CLI warning banners (supports both per-machine and global dismissal)
     dismissedCLIWarnings: z.object({
         perMachine: z.record(z.string(), z.object({
@@ -199,6 +201,7 @@ export const settingsDefaults: Settings = {
     lastUsedModelMode: null,
     agentDefaultOverrides: {},
     sidebarOrganization: emptySidebarOrganization,
+    sidebarOrganizationRaw: null,
     dismissedCLIWarnings: { perMachine: {}, global: {} },
     agents: [],
 };
@@ -235,7 +238,17 @@ export function settingsParse(settings: unknown): Settings {
     // Remove known fields from unknownFields to preserve only the unknown ones
     Object.keys(parsed.data).forEach(key => delete unknownFields[key]);
 
-    return { ...settingsDefaults, ...parsed.data, ...unknownFields };
+    const rawSidebarOrganization = Object.prototype.hasOwnProperty.call(settings, 'sidebarOrganization')
+        ? (settings as { sidebarOrganization: unknown }).sidebarOrganization
+        : undefined;
+    return {
+        ...settingsDefaults,
+        ...parsed.data,
+        ...unknownFields,
+        sidebarOrganizationRaw: isValidSidebarOrganizationPayload(rawSidebarOrganization)
+            ? null
+            : rawSidebarOrganization ?? null,
+    };
 }
 
 //
@@ -269,10 +282,7 @@ export function resolveSidebarOrganizationMigration(
     currentOrganization: SidebarOrganization,
     legacyLocalOrganization: SidebarOrganization,
 ): { organization: SidebarOrganization; shouldUpload: boolean } {
-    const rawOrganization = hasOwnField(rawServerSettings, 'sidebarOrganization')
-        ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
-        : undefined;
-    if (isValidSidebarOrganizationPayload(rawOrganization)) {
+    if (hasOwnField(rawServerSettings, 'sidebarOrganization')) {
         return { organization: currentOrganization, shouldUpload: false };
     }
 
@@ -306,11 +316,8 @@ export function mergeServerSettings(
     if (!hasOwnField(pendingSettings, 'customImageStyles') && !hasOwnField(rawServerSettings, 'customImageStyles') && currentSettings.customImageStyles.length > 0) {
         baseSettings = { ...baseSettings, customImageStyles: currentSettings.customImageStyles };
     }
-    const rawSidebarOrganization = hasOwnField(rawServerSettings, 'sidebarOrganization')
-        ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
-        : undefined;
     if (!hasOwnField(pendingSettings, 'sidebarOrganization')
-        && !isValidSidebarOrganizationPayload(rawSidebarOrganization)
+        && !hasOwnField(rawServerSettings, 'sidebarOrganization')
         && !isSidebarOrganizationEmpty(currentSettings.sidebarOrganization)) {
         baseSettings = { ...baseSettings, sidebarOrganization: currentSettings.sidebarOrganization };
     }
@@ -322,6 +329,13 @@ export function mergeServerSettings(
 
 export function settingsToSyncPayload(settings: Settings): Partial<Settings> {
     const result: Partial<Settings> = { ...settings };
+    if (settings.sidebarOrganizationRaw !== null) {
+        result.sidebarOrganization = serializeSidebarOrganizationWithRaw(
+            settings.sidebarOrganization,
+            settings.sidebarOrganizationRaw,
+        ) as Settings['sidebarOrganization'];
+    }
+    delete result.sidebarOrganizationRaw;
     const compactAgentOverrides = Object.fromEntries(
         Object.entries(settings.agentDefaultOverrides ?? {}).filter(([, value]) => (
             value && typeof value === 'object' && Object.keys(value).length > 0

@@ -19,7 +19,7 @@ import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, mergeServerSettings, resolveSidebarOrganizationMigration, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
 import { loadPendingSettings, loadPendingSidebarOrganizationBase, savePendingSettings, savePendingSidebarOrganizationBase } from './persistence';
-import { emptySidebarOrganization, isSidebarOrganizationEmpty, isValidSidebarOrganizationPayload, mergeSidebarOrganizations } from './sidebarOrganization';
+import { emptySidebarOrganization, isSidebarOrganizationEmpty, isUsableSidebarOrganizationPayload, isValidSidebarOrganizationPayload, mergeSidebarOrganizations } from './sidebarOrganization';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -793,10 +793,11 @@ class Sync {
             ? (rawServerSettings as { sidebarOrganization: unknown }).sidebarOrganization
             : undefined;
         const hasValidServerSidebarOrganization = isValidSidebarOrganizationPayload(rawServerSidebarOrganization);
+        const hasUsableServerSidebarOrganization = isUsableSidebarOrganizationPayload(rawServerSidebarOrganization);
         const legacyLocalOrganization = storage.getState().localSettings.sidebarOrganization;
         if (this.pendingSettings.sidebarOrganization
             && this.pendingSidebarOrganizationBase
-            && hasValidServerSidebarOrganization) {
+            && hasUsableServerSidebarOrganization) {
             this.pendingSettings = {
                 ...this.pendingSettings,
                 sidebarOrganization: mergeSidebarOrganizations(

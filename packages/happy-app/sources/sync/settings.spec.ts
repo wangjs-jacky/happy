@@ -335,6 +335,7 @@ describe('settings', () => {
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
                 sidebarOrganization: { lists: [], tags: [], sessions: {} },
+                sidebarOrganizationRaw: null,
                 dismissedCLIWarnings: { perMachine: {}, global: {} },
                 agents: [],
             });
@@ -532,12 +533,12 @@ describe('settings', () => {
             )).toEqual({ organization: settingsDefaults.sidebarOrganization, shouldUpload: false });
         });
 
-        it('keeps legacy data when the database payload is present but malformed', () => {
+        it('does not treat a present future-format database payload as missing migration data', () => {
             expect(resolveSidebarOrganizationMigration(
                 { sidebarOrganization: { lists: 'broken', tags: [], sessions: {} } },
                 settingsDefaults.sidebarOrganization,
                 legacyOrganization,
-            )).toEqual({ organization: legacyOrganization, shouldUpload: true });
+            )).toEqual({ organization: settingsDefaults.sidebarOrganization, shouldUpload: false });
         });
     });
 
@@ -576,6 +577,39 @@ describe('settings', () => {
                 futureField1: 'value1',
                 futureField2: 42
             });
+        });
+
+        it('preserves future-format sidebar records while syncing known records', () => {
+            const futureList = {
+                id: 'future-list',
+                name: 'Future',
+                kind: 'smart-folder',
+                color: 'blue',
+                createdAt: 2,
+                query: { unread: true },
+            };
+            const parsed = settingsParse({
+                sidebarOrganization: {
+                    lists: [futureList],
+                    tags: [],
+                    sessions: {},
+                },
+            });
+            const knownList = {
+                id: 'known-list',
+                name: 'Known',
+                kind: 'agent' as const,
+                color: 'green' as const,
+                createdAt: 3,
+            };
+
+            const payload = settingsToSyncPayload({
+                ...parsed,
+                sidebarOrganization: { lists: [knownList], tags: [], sessions: {} },
+            });
+
+            expect(payload.sidebarOrganization?.lists).toEqual([knownList, futureList]);
+            expect(payload).not.toHaveProperty('sidebarOrganizationRaw');
         });
     });
 

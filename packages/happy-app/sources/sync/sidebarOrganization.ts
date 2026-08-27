@@ -84,21 +84,21 @@ const SidebarTagSchema = z.object({
 
 const SidebarSessionOrganizationSchema = z.object({
     listId: z.string().nullable(),
-    tagIds: z.array(z.string()).max(SIDEBAR_SESSION_TAG_MAX_COUNT),
+    tagIds: z.array(z.string()),
 });
 
 const StrictSidebarOrganizationSchema = z.object({
-    lists: z.array(z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema])).max(SIDEBAR_LIST_MAX_COUNT),
-    tags: z.array(SidebarTagSchema).max(SIDEBAR_TAG_MAX_COUNT),
+    lists: z.array(z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema])),
+    tags: z.array(SidebarTagSchema),
     sessions: z.record(z.string(), SidebarSessionOrganizationSchema),
 }).passthrough();
 
 export const SidebarOrganizationSchema = z.object({
-    lists: z.array(z.unknown()).max(SIDEBAR_LIST_MAX_COUNT).transform((items) => items.flatMap((item) => {
+    lists: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
         const parsed = z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema]).safeParse(item);
         return parsed.success ? [parsed.data] : [];
     })),
-    tags: z.array(z.unknown()).max(SIDEBAR_TAG_MAX_COUNT).transform((items) => items.flatMap((item) => {
+    tags: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
         const parsed = SidebarTagSchema.safeParse(item);
         return parsed.success ? [parsed.data] : [];
     })),
@@ -112,6 +112,42 @@ export const SidebarOrganizationSchema = z.object({
 
 export function isValidSidebarOrganizationPayload(value: unknown): boolean {
     return StrictSidebarOrganizationSchema.safeParse(value).success;
+}
+
+export function isUsableSidebarOrganizationPayload(value: unknown): value is {
+    lists: unknown[];
+    tags: unknown[];
+    sessions: Record<string, unknown>;
+} {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const candidate = value as { lists?: unknown; tags?: unknown; sessions?: unknown };
+    return Array.isArray(candidate.lists)
+        && Array.isArray(candidate.tags)
+        && !!candidate.sessions
+        && typeof candidate.sessions === 'object'
+        && !Array.isArray(candidate.sessions);
+}
+
+export function serializeSidebarOrganizationWithRaw(
+    organization: SidebarOrganization,
+    rawValue: unknown,
+): unknown {
+    if (!isUsableSidebarOrganizationPayload(rawValue)) return organization;
+
+    const unknownLists = rawValue.lists.filter((item) => (
+        !z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema]).safeParse(item).success
+    ));
+    const unknownTags = rawValue.tags.filter((item) => !SidebarTagSchema.safeParse(item).success);
+    const unknownSessions = Object.fromEntries(Object.entries(rawValue.sessions).filter(([, assignment]) => (
+        !SidebarSessionOrganizationSchema.safeParse(assignment).success
+    )));
+
+    return {
+        ...rawValue,
+        lists: [...organization.lists, ...unknownLists],
+        tags: [...organization.tags, ...unknownTags],
+        sessions: { ...unknownSessions, ...organization.sessions },
+    };
 }
 
 export function isSidebarOrganizationEmpty(value: SidebarOrganization): boolean {
@@ -265,8 +301,7 @@ export function normalizeSidebarOrganization(value: SidebarOrganization): Sideba
         sessionId,
         {
             listId: assignment.listId && listIds.has(assignment.listId) ? assignment.listId : null,
-            tagIds: Array.from(new Set(assignment.tagIds.filter((tagId) => tagIds.has(tagId))))
-                .slice(0, SIDEBAR_SESSION_TAG_MAX_COUNT),
+            tagIds: Array.from(new Set(assignment.tagIds.filter((tagId) => tagIds.has(tagId)))),
         },
     ]));
 
