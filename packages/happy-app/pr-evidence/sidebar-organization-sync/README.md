@@ -11,7 +11,8 @@ Captured on 2026-08-28 from PR #371 (`fix/sync-sidebar-organization`) against th
 
 ## Evidence
 
-- `client-a-desktop.png`: desktop Client A immediately after creating the list and tag.
-- `client-b-mobile.png`: independent Client B at a 390 x 844 mobile viewport, with the drawer open after receiving the same account settings.
+- `client-a-desktop.png`: Client A immediately after creating the list and tag.
+- `client-b-desktop.png`: independent Client B after receiving the same account settings. Both desktop captures use the same 2250 x 1406 output size.
+- `client-b-mobile.png`: supplemental Client B capture at a 390 x 844 emulated mobile viewport, with the drawer open.
 
 Both screenshots show the same list and tag names. The clients used separate browser task spaces; the shared state arrived through encrypted account settings rather than device-local sidebar settings.
