@@ -184,9 +184,11 @@ const machines = await client.machines.list({ active: true });
 await client.dispose();
 ```
 
-## Publishing to npm
+## Release status
 
-Maintainers can publish a new version:
+The package is currently consumed through workspace linking or an exact verified tarball while npm account recovery is pending. Do not claim registry availability until the first trusted-publishing workflow succeeds.
+
+Maintainers prepare a release commit and tag with:
 
 ```bash
 pnpm --filter @wangjs-jacky/paws-agent release
@@ -196,7 +198,9 @@ This flow:
 - runs tests/build checks via `prepublishOnly`
 - creates a release commit and `paws-agent-vX.Y.Z` tag
 - creates a GitHub release with generated notes
-- publishes `@wangjs-jacky/paws-agent` to npm
+- lets the tag-gated GitHub Actions workflow publish the exact verified tarball through npm trusted publishing
+
+The workflow is idempotent, maps prereleases to the `next` dist-tag and stable versions to `latest`, and performs a clean registry install before creating release evidence.
 
 ## License
 

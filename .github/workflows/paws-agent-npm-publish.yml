@@ -1,0 +1,73 @@
+name: Paws Agent npm publish
+
+on:
+  push:
+    tags: ['paws-agent-v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: paws-agent-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: Validate immutable release contract
+        id: contract
+        shell: bash
+        run: PAWS_TAG_SHA="$(git rev-list -n 1 "$GITHUB_REF_NAME")" node packages/paws-agent/scripts/release-contract.mjs
+      - run: pnpm --filter @wangjs-jacky/paws-agent test
+      - run: pnpm --filter @wangjs-jacky/paws-agent test:integration
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm --filter @wangjs-jacky/paws-agent verify:pack
+      - name: Pack once
+        id: pack
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/paws-agent"
+          cd packages/paws-agent
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/paws-agent"
+          TARBALL="$(find "$RUNNER_TEMP/paws-agent" -name '*.tgz' -print -quit)"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$TARBALL" | tee "$RUNNER_TEMP/paws-agent/SHA256SUMS"
+      - name: Check exact registry version
+        id: registry
+        shell: bash
+        run: |
+          if npm view "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}" version >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish with npm trusted publishing
+        if: steps.registry.outputs.exists == 'false'
+        run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --tag "${{ steps.contract.outputs.dist_tag }}"
+      - name: Verify exact registry install
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/registry-consumer"
+          cd "$RUNNER_TEMP/registry-consumer"
+          npm init -y
+          npm install --ignore-scripts "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}"
+          node -e "import('@wangjs-jacky/paws-agent').then(x => { if (typeof x.PawsAgentClient !== 'function') process.exit(1) })"
+          npx paws-agent --version
+      - name: Create immutable GitHub Release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" "${{ steps.pack.outputs.tarball }}" "$RUNNER_TEMP/paws-agent/SHA256SUMS" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
