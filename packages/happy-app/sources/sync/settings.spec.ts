@@ -611,6 +611,40 @@ describe('settings', () => {
             expect(payload.sidebarOrganization?.lists).toEqual([knownList, futureList]);
             expect(payload).not.toHaveProperty('sidebarOrganizationRaw');
         });
+
+        it('preserves additive future fields on known sidebar records', () => {
+            const rawOrganization = {
+                lists: [{
+                    id: 'known-list',
+                    name: 'Known',
+                    kind: 'agent' as const,
+                    color: 'green' as const,
+                    createdAt: 3,
+                    query: { unread: true },
+                }],
+                tags: [{
+                    id: 'known-tag',
+                    name: 'Known tag',
+                    color: 'blue' as const,
+                    createdAt: 4,
+                    icon: 'sparkles',
+                }],
+                sessions: {
+                    'session-1': {
+                        listId: 'known-list',
+                        tagIds: ['known-tag'],
+                        pinned: true,
+                    },
+                },
+                smartFoldersVersion: 2,
+            };
+
+            const parsed = settingsParse({ sidebarOrganization: rawOrganization });
+            const payload = settingsToSyncPayload(parsed);
+
+            expect(parsed.sidebarOrganizationRaw).toBeNull();
+            expect(payload.sidebarOrganization).toEqual(rawOrganization);
+        });
     });
 
     describe('edge cases', () => {

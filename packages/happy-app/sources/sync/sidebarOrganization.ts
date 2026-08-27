@@ -66,38 +66,58 @@ const SidebarWorkspaceListSchema = z.object({
     path: z.string().max(SIDEBAR_LIST_PATH_MAX_LENGTH).nullable(),
     defaultAgent: z.enum(['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw']).nullable(),
     createdAt: z.number().finite(),
-});
+}).passthrough();
 const SidebarAgentListSchema = z.object({
     id: z.string().min(1).max(100),
     name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
     kind: z.literal('agent'),
     color: SidebarListColorSchema,
     createdAt: z.number().finite(),
-});
+}).passthrough();
+const SidebarListSchema = z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema]);
 
 const SidebarTagSchema = z.object({
     id: z.string().min(1).max(100),
     name: z.string().min(1).max(SIDEBAR_LIST_NAME_MAX_LENGTH),
     color: SidebarListColorSchema,
     createdAt: z.number().finite(),
-});
+}).passthrough();
 
 const SidebarSessionOrganizationSchema = z.object({
     listId: z.string().nullable(),
     tagIds: z.array(z.string()),
-});
+}).passthrough();
 
 const StrictSidebarOrganizationSchema = z.object({
-    lists: z.array(z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema])),
+    lists: z.array(SidebarListSchema),
     tags: z.array(SidebarTagSchema),
     sessions: z.record(z.string(), SidebarSessionOrganizationSchema),
 }).passthrough();
 
 export const SidebarOrganizationSchema = z.object({
-    lists: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
-        const parsed = z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema]).safeParse(item);
-        return parsed.success ? [parsed.data] : [];
-    })),
+    lists: z.array(z.unknown()).transform((items): SidebarList[] => {
+        const lists: SidebarList[] = [];
+        for (const item of items) {
+            const parsed = SidebarListSchema.safeParse(item);
+            if (!parsed.success) continue;
+            if (parsed.data.kind !== 'agent') {
+                lists.push(parsed.data);
+                continue;
+            }
+
+            // These keys belonged to the removed Agent List launch-preset format. Keep
+            // genuinely unknown future keys, but do not revive known legacy behavior.
+            const {
+                machineId: _machineId,
+                path: _path,
+                prompt: _prompt,
+                presets: _presets,
+                ...agentList
+            } = parsed.data;
+            lists.push(agentList);
+        }
+        return lists;
+    }),
     tags: z.array(z.unknown()).transform((items) => items.flatMap((item) => {
         const parsed = SidebarTagSchema.safeParse(item);
         return parsed.success ? [parsed.data] : [];
@@ -108,7 +128,7 @@ export const SidebarOrganizationSchema = z.object({
             return parsed.success ? [[sessionId, parsed.data]] : [];
         }),
     )),
-}).catch(emptySidebarOrganization);
+}).passthrough().catch(emptySidebarOrganization);
 
 export function isValidSidebarOrganizationPayload(value: unknown): boolean {
     return StrictSidebarOrganizationSchema.safeParse(value).success;
@@ -135,7 +155,7 @@ export function serializeSidebarOrganizationWithRaw(
     if (!isUsableSidebarOrganizationPayload(rawValue)) return organization;
 
     const unknownLists = rawValue.lists.filter((item) => (
-        !z.discriminatedUnion('kind', [SidebarWorkspaceListSchema, SidebarAgentListSchema]).safeParse(item).success
+        !SidebarListSchema.safeParse(item).success
     ));
     const unknownTags = rawValue.tags.filter((item) => !SidebarTagSchema.safeParse(item).success);
     const unknownSessions = Object.fromEntries(Object.entries(rawValue.sessions).filter(([, assignment]) => (
