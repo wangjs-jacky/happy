@@ -279,6 +279,10 @@ function getTaskContextEmptyPreview(key: CapabilityKey): string | null {
 
 const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() {
     const { theme } = useUnistyles();
+    const pluginViews = usePluginSurfaceViews('right-panel');
+    const generatedImagesViewAvailable = pluginViews.some((view) => (
+        view.componentId === 'generated-images-session-images'
+    ));
 
     return (
         <ScrollView
@@ -295,7 +299,7 @@ const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() 
             </View>
 
             <View style={styles.grid}>
-                {BLOCK_ORDER.map((key) => (
+                {BLOCK_ORDER.filter((key) => key !== 'images' || generatedImagesViewAvailable).map((key) => (
                     <CapabilityBlockCard
                         count={0}
                         disabled={true}
