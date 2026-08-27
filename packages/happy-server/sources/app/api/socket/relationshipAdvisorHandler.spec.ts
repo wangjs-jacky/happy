@@ -37,6 +37,7 @@ describe('relationshipAdvisorHandler', () => {
         relationshipAdvisorHandler('user-1', socket as any, {
             streamChat,
             requireImageReadPermission: vi.fn(async () => undefined),
+            requireImageWritePermission: vi.fn(async () => undefined),
             resolveImageUrls: vi.fn(async () => []),
         });
 
@@ -89,6 +90,7 @@ describe('relationshipAdvisorHandler', () => {
         relationshipAdvisorHandler('user-1', socket as any, {
             streamChat: streamChat as any,
             requireImageReadPermission: vi.fn(async () => undefined),
+            requireImageWritePermission: vi.fn(async () => undefined),
             resolveImageUrls: vi.fn(async () => []),
         });
 
@@ -126,6 +128,7 @@ describe('relationshipAdvisorHandler', () => {
         relationshipAdvisorHandler('user-1', socket as any, {
             streamChat: streamChat as any,
             requireImageReadPermission: vi.fn(async () => undefined),
+            requireImageWritePermission: vi.fn(async () => undefined),
             resolveImageUrls: vi.fn(async () => []),
         });
 
@@ -148,6 +151,7 @@ describe('relationshipAdvisorHandler', () => {
                 throw new Error('upstream secret response');
             },
             requireImageReadPermission: vi.fn(async () => undefined),
+            requireImageWritePermission: vi.fn(async () => undefined),
             resolveImageUrls: vi.fn(async () => []),
         });
 
@@ -180,6 +184,7 @@ describe('relationshipAdvisorHandler', () => {
         relationshipAdvisorHandler('user-1', socket as any, {
             streamChat: streamChat as any,
             requireImageReadPermission: vi.fn(async () => undefined),
+            requireImageWritePermission: vi.fn(async () => undefined),
             resolveImageUrls: vi.fn(async () => []),
         });
         socket.receive('relationship-advisor:start', {
@@ -205,11 +210,15 @@ describe('relationshipAdvisorHandler', () => {
         });
         const resolveImageUrls = vi.fn(async () => ['https://storage.example/image']);
         const streamChat = vi.fn();
+        const requireImageWritePermission = vi.fn(async () => undefined);
+        const deleteImageRefs = vi.fn(async () => undefined);
 
         relationshipAdvisorHandler('user-1', socket as any, {
             streamChat: streamChat as any,
             requireImageReadPermission,
+            requireImageWritePermission,
             resolveImageUrls,
+            deleteImageRefs,
         });
         socket.receive('relationship-advisor:start', {
             requestId: 'request-image-denied',
@@ -228,7 +237,9 @@ describe('relationshipAdvisorHandler', () => {
             });
         });
         expect(requireImageReadPermission).toHaveBeenCalledWith('user-1');
+        expect(requireImageWritePermission).not.toHaveBeenCalled();
         expect(resolveImageUrls).not.toHaveBeenCalled();
         expect(streamChat).not.toHaveBeenCalled();
+        expect(deleteImageRefs).not.toHaveBeenCalled();
     });
 });

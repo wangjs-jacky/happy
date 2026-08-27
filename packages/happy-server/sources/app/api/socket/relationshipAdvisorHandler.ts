@@ -30,6 +30,7 @@ export interface RelationshipAdvisorStreamInput extends RelationshipAdvisorStart
 export interface RelationshipAdvisorHandlerDependencies {
     streamChat: (input: RelationshipAdvisorStreamInput & { signal?: AbortSignal }) => AsyncIterable<{ text: string }>;
     requireImageReadPermission: (userId: string) => Promise<void>;
+    requireImageWritePermission: (userId: string) => Promise<void>;
     resolveImageUrls: (userId: string, refs: string[]) => Promise<string[]>;
     deleteImageRefs?: (userId: string, refs: string[]) => Promise<void>;
 }
@@ -49,6 +50,7 @@ function defaultRelationshipAdvisorDependencies(): RelationshipAdvisorHandlerDep
     return {
         streamChat: (input) => relationshipAdvisorPluginRuntime.stream(input),
         requireImageReadPermission: (userId) => relationshipAdvisorPlugin.requireImageReadPermission(userId),
+        requireImageWritePermission: (userId) => relationshipAdvisorPlugin.requireImageWritePermission(userId),
         resolveImageUrls: resolveRelationshipAdvisorImageUrls,
         deleteImageRefs: deleteRelationshipAdvisorImages,
     };
@@ -125,9 +127,12 @@ export function relationshipAdvisorHandler(
         });
 
         void (async () => {
+            let canDeleteImageRefs = false;
             try {
                 if (request.imageRefs.length > 0) {
                     await dependencies.requireImageReadPermission(userId);
+                    await dependencies.requireImageWritePermission(userId);
+                    canDeleteImageRefs = true;
                 }
                 const imageUrls = await dependencies.resolveImageUrls(userId, request.imageRefs);
                 for await (const delta of dependencies.streamChat({
@@ -170,7 +175,9 @@ export function relationshipAdvisorHandler(
                 clearTimeout(firstTokenTimeout);
                 clearTimeout(totalTimeout);
                 activeRequests.delete(request.requestId);
-                void dependencies.deleteImageRefs?.(userId, request.imageRefs).catch(() => undefined);
+                if (canDeleteImageRefs) {
+                    void dependencies.deleteImageRefs?.(userId, request.imageRefs).catch(() => undefined);
+                }
             }
         })();
     });

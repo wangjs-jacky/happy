@@ -46,6 +46,13 @@ export const relationshipAdvisorPlugin = {
             'paws.conversations.images.read',
         );
     },
+    async requireImageWritePermission(accountId: string): Promise<void> {
+        await pluginRegistry.requirePermission(
+            accountId,
+            RELATIONSHIP_ADVISOR_PLUGIN_ID,
+            'paws.storage.images.write',
+        );
+    },
     async requireConfiguration(accountId: string): Promise<RelationshipAdvisorConfiguration> {
         await pluginRegistry.requirePermission(
             accountId,

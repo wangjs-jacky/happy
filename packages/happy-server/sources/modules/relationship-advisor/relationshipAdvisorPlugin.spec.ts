@@ -22,11 +22,13 @@ describe('createRelationshipAdvisorPluginRuntime', () => {
     it('brokers provider and secret configuration separately from image reads', async () => {
         await relationshipAdvisorPlugin.requireConfiguration('user-4');
         await relationshipAdvisorPlugin.requireImageReadPermission('user-4');
+        await relationshipAdvisorPlugin.requireImageWritePermission('user-4');
 
         expect(registryMock.requirePermission.mock.calls).toEqual([
             ['user-4', 'relationship-advisor', 'paws.ai.provider.invoke'],
             ['user-4', 'relationship-advisor', 'paws.secrets.use'],
             ['user-4', 'relationship-advisor', 'paws.conversations.images.read'],
+            ['user-4', 'relationship-advisor', 'paws.storage.images.write'],
         ]);
     });
 
