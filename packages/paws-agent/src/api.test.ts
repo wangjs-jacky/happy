@@ -276,7 +276,7 @@ describe('api', () => {
             mockedAxios.get.mockRejectedValueOnce(err);
 
             await expect(listSessions(config, creds)).rejects.toThrow(
-                'Authentication expired. Run `happy-agent auth login` to re-authenticate.',
+                'Authentication expired. Run `paws-agent auth login` to re-authenticate.',
             );
         });
 

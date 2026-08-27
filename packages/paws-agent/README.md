@@ -1,36 +1,36 @@
-# Happy Agent
+# Paws Agent
 
-CLI client for controlling Paws agent sessions remotely.
+Browser-safe SDK and CLI for controlling Paws agent sessions remotely. The first release is supported for Paws-owned clients.
 
-Unlike `happy-cli` which both runs and controls agents, `happy-agent` only controls them — listing machines, spawning sessions on a machine, creating sessions, sending messages, reading history, monitoring state, and stopping sessions.
+Unlike the local runner, `paws-agent` is a remote control plane for listing machines, spawning or resuming sessions, sending messages, reading history, resolving requests, monitoring state, and stopping sessions.
 
 ## Installation
 
 From the monorepo:
 
 ```bash
-yarn workspace happy-agent build
+pnpm --filter @wangjs-jacky/paws-agent build
 ```
 
 Or link globally:
 
 ```bash
-cd packages/happy-agent && npm link
+pnpm --filter @wangjs-jacky/paws-agent link --global
 ```
 
 ## Authentication
 
-Happy Agent uses account authentication via QR code, the same flow as linking a device in the Happy mobile app.
+Paws Agent uses account authentication via QR code, the same flow as linking a device in the Paws app.
 
 ```bash
 # Authenticate by scanning the QR code with the Paws mobile app
-happy-agent auth login
+paws-agent auth login
 
 # Check authentication status
-happy-agent auth status
+paws-agent auth status
 
 # Clear stored credentials
-happy-agent auth logout
+paws-agent auth logout
 ```
 
 Credentials are stored at `~/.happy/agent.key`.
@@ -41,118 +41,118 @@ Credentials are stored at `~/.happy/agent.key`.
 
 ```bash
 # List all sessions
-happy-agent list
+paws-agent list
 
 # List only active sessions
-happy-agent list --active
+paws-agent list --active
 
 # Output as JSON
-happy-agent list --json
+paws-agent list --json
 ```
 
 ### List machines
 
 ```bash
 # List all machines
-happy-agent machines
+paws-agent machines
 
 # List only active machines
-happy-agent machines --active
+paws-agent machines --active
 
 # Output as JSON
-happy-agent machines --json
+paws-agent machines --json
 ```
 
 ### Spawn on a machine
 
 ```bash
 # Spawn a session on a specific machine
-happy-agent spawn --machine <machine-id> --path ~/project
+paws-agent spawn --machine <machine-id> --path ~/project
 
 # Let the daemon create the directory if needed
-happy-agent spawn --machine <machine-id> --path ~/new-project --create-dir
+paws-agent spawn --machine <machine-id> --path ~/new-project --create-dir
 
 # Choose a specific agent
-happy-agent spawn --machine <machine-id> --path ~/project --agent codex
+paws-agent spawn --machine <machine-id> --path ~/project --agent codex
 
 # Output as JSON
-happy-agent spawn --machine <machine-id> --path ~/project --json
+paws-agent spawn --machine <machine-id> --path ~/project --json
 ```
 
 ### Session status
 
 ```bash
 # Get live session state (supports ID prefix matching)
-happy-agent status <session-id>
+paws-agent status <session-id>
 
 # Output as JSON
-happy-agent status <session-id> --json
+paws-agent status <session-id> --json
 ```
 
-### Create a session
+### Resume a session
 
 ```bash
-# Create a new session with a tag
-happy-agent create --tag my-project
-
-# Specify a working directory
-happy-agent create --tag my-project --path /home/user/project
-
-# Output as JSON
-happy-agent create --tag my-project --json
+paws-agent resume <session-id>
 ```
 
 ### Send a message
 
 ```bash
 # Send a message to a session
-happy-agent send <session-id> "Fix the login bug"
+paws-agent send <session-id> "Fix the login bug"
 
 # Send with yolo permissions
-happy-agent send <session-id> "Ship it" --yolo
+paws-agent send <session-id> "Ship it" --yolo
 
 # Send and wait for the agent to finish
-happy-agent send <session-id> "Run the tests" --wait
+paws-agent send <session-id> "Run the tests" --wait
 
 # Output as JSON
-happy-agent send <session-id> "Hello" --json
+paws-agent send <session-id> "Hello" --json
 ```
 
 ### Message history
 
 ```bash
 # View message history
-happy-agent history <session-id>
+paws-agent history <session-id>
 
 # Limit to last N messages
-happy-agent history <session-id> --limit 10
+paws-agent history <session-id> --limit 10
 
 # Output as JSON
-happy-agent history <session-id> --json
+paws-agent history <session-id> --json
 ```
 
 ### Stop a session
 
 ```bash
-happy-agent stop <session-id>
+paws-agent stop <session-id>
+```
+
+### Approve a request
+
+```bash
+paws-agent approve <session-id> <request-id>
 ```
 
 ### Wait for idle
 
 ```bash
 # Wait for agent to become idle (default 300s timeout)
-happy-agent wait <session-id>
+paws-agent wait <session-id>
 
 # Custom timeout
-happy-agent wait <session-id> --timeout 60
+paws-agent wait <session-id> --timeout 60
 ```
 
 Exit code 0 when agent becomes idle, 1 on timeout.
 
 ## Environment Variables
 
-- `HAPPY_SERVER_URL` - API server URL (default: `https://api.cluster-fluster.com`)
-- `HAPPY_HOME_DIR` - Home directory for credential storage (default: `~/.happy`)
+- `HAPPY_SERVER_URL` - compatibility API server URL override
+- `PAWS_HOME_DIR` - credential home directory override
+- `HAPPY_HOME_DIR` - legacy-compatible credential home override
 
 ## Session ID Matching
 
@@ -166,24 +166,37 @@ All machine and session data is end-to-end encrypted. New records use AES-256-GC
 
 ## Requirements
 
-- Node.js >= 20.0.0
-- A Happy mobile app account for authentication
+- Node.js >= 20.19.0
+- A Paws account for authentication
+
+## SDK
+
+```ts
+import { PawsAgentClient } from '@wangjs-jacky/paws-agent';
+import { createDefaultFileCredentialProvider } from '@wangjs-jacky/paws-agent/node';
+
+const client = new PawsAgentClient({
+  serverUrl: process.env.HAPPY_SERVER_URL!,
+  credentials: createDefaultFileCredentialProvider(),
+});
+
+const machines = await client.machines.list({ active: true });
+await client.dispose();
+```
 
 ## Publishing to npm
 
 Maintainers can publish a new version:
 
 ```bash
-yarn release               # From repo root: choose library to release
-# or directly:
-yarn workspace happy-agent release
+pnpm --filter @wangjs-jacky/paws-agent release
 ```
 
 This flow:
 - runs tests/build checks via `prepublishOnly`
-- creates a release commit and `happy-agent-vX.Y.Z` tag
+- creates a release commit and `paws-agent-vX.Y.Z` tag
 - creates a GitHub release with generated notes
-- publishes `happy-agent` to npm
+- publishes `@wangjs-jacky/paws-agent` to npm
 
 ## License
 

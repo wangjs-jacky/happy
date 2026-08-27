@@ -1,512 +1,267 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
-import { hostname } from 'node:os';
+import { Command, CommanderError } from 'commander';
 import { join } from 'node:path';
-import { loadConfig } from './config';
-import type { Config } from './config';
-import { requireCredentials } from './credentials';
-import type { Credentials } from './credentials';
+import { PawsAgentClient } from './client/PawsAgentClient';
+import type { Machine, PawsAgentClientOptions, Session, SupportedAgent } from './client/types';
+import { FileCredentialProvider } from './adapters/nodeCredentials';
 import { authLogin, authLogout, authStatus } from './auth';
-import { listSessions, listActiveSessions, createSession, getSessionMessages, listMachines } from './api';
-import type { DecryptedMachine, DecryptedSession } from './api';
-import { resumeSessionOnMachine, spawnSessionOnMachine, type SupportedAgent } from './machineRpc';
-import { SessionClient } from './session';
-import { formatMachineTable, formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './output';
-
-// --- Helpers ---
+import { loadConfig } from './config';
+import {
+    formatJson,
+    formatMachineTable,
+    formatMessageHistory,
+    formatSessionStatus,
+    formatSessionTable,
+} from './output';
 
 const SUPPORTED_AGENTS: SupportedAgent[] = ['claude', 'codex', 'gemini', 'openclaw'];
 
+export type CliDependencies = {
+    client: PawsAgentClient;
+    auth: {
+        login(): Promise<void>;
+        logout(): Promise<void>;
+        status(): Promise<void>;
+    };
+    stdout(value: string): void;
+    stderr(value: string): void;
+};
+
+function defaultDependencies(): CliDependencies {
+    const config = loadConfig();
+    const credentials = new FileCredentialProvider(config.credentialPath);
+    const options: PawsAgentClientOptions = { serverUrl: config.serverUrl, credentials };
+    return {
+        client: new PawsAgentClient(options),
+        auth: {
+            login: () => authLogin(config),
+            logout: () => authLogout(config),
+            status: () => authStatus(config),
+        },
+        stdout: value => process.stdout.write(value),
+        stderr: value => process.stderr.write(value),
+    };
+}
+
 function resolveByPrefix<T extends { id: string }>(items: T[], value: string, label: string): T {
-    if (!value || value.trim().length === 0) {
-        throw new Error(`${label} is required`);
-    }
+    if (!value.trim()) throw new Error(`${label} is required`);
     const matches = items.filter(item => item.id.startsWith(value));
-    if (matches.length === 0) {
-        throw new Error(`No ${label.toLowerCase()} found matching "${value}"`);
-    }
-    if (matches.length > 1) {
-        throw new Error(`Ambiguous ${label.toLowerCase()} "${value}" matches ${matches.length} records. Be more specific.`);
-    }
+    if (matches.length === 0) throw new Error(`No ${label.toLowerCase()} found matching "${value}"`);
+    if (matches.length > 1) throw new Error(`Ambiguous ${label.toLowerCase()} "${value}" matches ${matches.length} records. Be more specific.`);
     return matches[0];
 }
 
-async function resolveSession(config: Config, creds: Credentials, sessionId: string): Promise<DecryptedSession> {
-    const sessions = await listSessions(config, creds);
-    return resolveByPrefix(sessions, sessionId, 'Session ID');
+async function resolveSession(client: PawsAgentClient, value: string): Promise<Session> {
+    return resolveByPrefix(await client.sessions.list(), value, 'Session ID');
 }
 
-async function resolveMachine(config: Config, creds: Credentials, machineId: string): Promise<DecryptedMachine> {
-    const machines = await listMachines(config, creds);
-    return resolveByPrefix(machines, machineId, 'Machine ID');
+async function resolveMachine(client: PawsAgentClient, value: string): Promise<Machine> {
+    return resolveByPrefix(await client.machines.list(), value, 'Machine ID');
 }
 
-function createClient(session: DecryptedSession, creds: Credentials, config: Config): SessionClient {
-    return new SessionClient({
-        sessionId: session.id,
-        encryptionKey: session.encryption.key,
-        encryptionVariant: session.encryption.variant,
-        token: creds.token,
-        serverUrl: config.serverUrl,
-        initialAgentState: session.agentState ?? null,
-    });
-}
-
-function resolveRemotePath(rawPath: string | undefined, machine: DecryptedMachine): string {
+function resolveRemotePath(rawPath: string | undefined, machine: Machine): string {
     const metadata = (machine.metadata ?? {}) as { homeDir?: unknown };
-    const homeDir = typeof metadata.homeDir === 'string' && metadata.homeDir.trim().length > 0
-        ? metadata.homeDir
-        : undefined;
+    const homeDir = typeof metadata.homeDir === 'string' && metadata.homeDir.trim() ? metadata.homeDir : undefined;
     const path = rawPath ?? homeDir;
-
-    if (!path) {
-        throw new Error('Machine metadata does not include a home directory. Pass --path explicitly.');
-    }
-
+    if (!path) throw new Error('Machine metadata does not include a home directory. Pass --path explicitly.');
     if (path === '~') {
-        if (!homeDir) {
-            throw new Error('Machine metadata does not include a home directory, so `~` cannot be resolved. Pass an absolute --path.');
-        }
+        if (!homeDir) throw new Error('Machine metadata does not include a home directory, so `~` cannot be resolved.');
         return homeDir;
     }
     if (path.startsWith('~/')) {
-        if (!homeDir) {
-            throw new Error('Machine metadata does not include a home directory, so `~/...` cannot be resolved. Pass an absolute --path.');
-        }
-        const normalizedHome = homeDir.endsWith('/') || homeDir.endsWith('\\')
-            ? homeDir.slice(0, -1)
-            : homeDir;
-        const separator = normalizedHome.includes('\\') && !normalizedHome.includes('/')
-            ? '\\'
-            : '/';
+        if (!homeDir) throw new Error('Machine metadata does not include a home directory, so `~/...` cannot be resolved.');
+        const normalizedHome = homeDir.replace(/[\\/]$/, '');
+        const separator = normalizedHome.includes('\\') && !normalizedHome.includes('/') ? '\\' : '/';
         return join(normalizedHome, path.slice(2)).replaceAll('/', separator);
     }
     return path;
 }
 
-function resolveSessionMachineId(session: DecryptedSession): string {
-    const metadata = (session.metadata ?? {}) as { machineId?: unknown };
-    if (typeof metadata.machineId !== 'string' || metadata.machineId.trim().length === 0) {
-        throw new Error(`Session ${session.id} is missing machine metadata and cannot be resumed.`);
-    }
-    return metadata.machineId;
+function isIdle(session: Session): boolean {
+    const metadata = session.metadata as { lifecycleState?: unknown } | null;
+    if (metadata?.lifecycleState === 'archived') throw new Error('Session is archived');
+    const state = session.agentState as { controlledByUser?: unknown; requests?: unknown } | null;
+    if (!state) return false;
+    const requests = state.requests;
+    const hasRequests = requests != null && typeof requests === 'object' && !Array.isArray(requests)
+        && Object.keys(requests as Record<string, unknown>).length > 0;
+    return state.controlledByUser !== true && !hasRequests;
 }
 
-function ensureMachineCanResume(machine: DecryptedMachine): void {
-    const metadata = (machine.metadata ?? {}) as {
-        resumeSupport?: {
-            rpcAvailable?: unknown;
-            happyAgentAuthenticated?: unknown;
-        };
-    };
-
-    if (metadata.resumeSupport?.rpcAvailable === true) {
-        return;
+async function waitForIdle(client: PawsAgentClient, sessionId: string, timeoutMs: number, requireActivity = false): Promise<void> {
+    const startedAt = Date.now();
+    let sawActivity = !requireActivity;
+    while (Date.now() - startedAt < timeoutMs) {
+        const session = await client.sessions.get(sessionId);
+        const idle = isIdle(session);
+        if (!idle) sawActivity = true;
+        if (idle && (sawActivity || Date.now() - startedAt >= 2_000)) return;
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
-
-    if (metadata.resumeSupport?.happyAgentAuthenticated === false) {
-        throw new Error('Resume is unavailable on this machine. Run `happy-agent auth login` in that machine environment first.');
-    }
-
-    throw new Error('Resume RPC is unavailable on this machine right now.');
+    throw new Error('Timeout waiting for agent to become idle');
 }
 
-// --- CLI ---
+async function withConnection<T>(client: PawsAgentClient, action: () => Promise<T>): Promise<T> {
+    await client.connect();
+    try {
+        return await action();
+    } finally {
+        await client.disconnect();
+    }
+}
 
-const program = new Command();
+function writeResult(dependencies: CliDependencies, data: unknown, json: boolean | undefined, formatted: string): void {
+    dependencies.stdout((json ? formatJson(data) : formatted) + '\n');
+}
 
-program
-    .name('happy-agent')
-    .description('CLI client for controlling Happy Coder agents remotely')
-    .version('0.1.0');
+export function createCli(dependencies: CliDependencies = defaultDependencies()): Command {
+    const { client } = dependencies;
+    const program = new Command()
+        .name('paws-agent')
+        .description('CLI client for controlling Paws agents remotely')
+        .version('0.1.0-beta.1')
+        .exitOverride()
+        .configureOutput({
+            writeOut: value => dependencies.stdout(value),
+            writeErr: value => dependencies.stderr(value),
+        });
 
-program
-    .command('auth')
-    .description('Manage authentication')
-    .addCommand(
-        new Command('login').description('Authenticate via QR code').action(async () => {
-            const config = loadConfig();
-            await authLogin(config);
+    program.command('auth').description('Manage authentication')
+        .addCommand(new Command('login').description('Authenticate via QR code').action(dependencies.auth.login))
+        .addCommand(new Command('logout').description('Clear stored credentials').action(dependencies.auth.logout))
+        .addCommand(new Command('status').description('Show authentication status').action(dependencies.auth.status));
+
+    program.command('machines').description('List all machines')
+        .option('--active', 'Show only active machines').option('--json', 'Output as JSON')
+        .action(async (options: { active?: boolean; json?: boolean }) => {
+            const machines = await client.machines.list({ active: options.active });
+            writeResult(dependencies, machines, options.json, formatMachineTable(machines));
+        });
+
+    program.command('list').description('List all sessions')
+        .option('--active', 'Show only active sessions').option('--json', 'Output as JSON')
+        .action(async (options: { active?: boolean; json?: boolean }) => {
+            const sessions = await client.sessions.list({ active: options.active });
+            writeResult(dependencies, sessions, options.json, formatSessionTable(sessions));
+        });
+
+    program.command('status').description('Get current session state')
+        .argument('<session-id>', 'Session ID or prefix').option('--json', 'Output as JSON')
+        .action(async (value: string, options: { json?: boolean }) => {
+            const session = await resolveSession(client, value);
+            writeResult(dependencies, session, options.json, formatSessionStatus(session));
+        });
+
+    program.command('spawn').description('Spawn a new session on a machine')
+        .requiredOption('--machine <machine-id>', 'Machine ID or prefix')
+        .option('--path <path>', 'Working directory path (defaults to machine home directory)')
+        .option('--agent <agent>', `Agent to start (${SUPPORTED_AGENTS.join(', ')})`, value => {
+            if (!SUPPORTED_AGENTS.includes(value as SupportedAgent)) throw new Error(`--agent must be one of: ${SUPPORTED_AGENTS.join(', ')}`);
+            return value as SupportedAgent;
         })
-    )
-    .addCommand(
-        new Command('logout').description('Clear stored credentials').action(async () => {
-            const config = loadConfig();
-            await authLogout(config);
-        })
-    )
-    .addCommand(
-        new Command('status').description('Show authentication status').action(async () => {
-            const config = loadConfig();
-            await authStatus(config);
-        })
-    );
+        .option('--create-dir', 'Allow creating the directory if it does not exist')
+        .option('--json', 'Output as JSON')
+        .action(async (options: { machine: string; path?: string; agent?: SupportedAgent; createDir?: boolean; json?: boolean }) => {
+            const machine = await resolveMachine(client, options.machine);
+            const directory = resolveRemotePath(options.path, machine);
+            const result = await withConnection(client, () => client.sessions.spawn({
+                machineId: machine.id,
+                directory,
+                agent: options.agent,
+                approvedNewDirectoryCreation: options.createDir,
+            }));
+            const payload = { machineId: machine.id, directory, agent: options.agent ?? null, ...result };
+            if (result.type !== 'success') throw new Error(result.type === 'error' ? result.errorMessage : `Directory approval required: ${result.directory}`);
+            writeResult(dependencies, payload, options.json, `## Session Spawned\n\n- Machine ID: \`${machine.id}\`\n- Session ID: \`${result.sessionId}\`\n- Path: ${directory}`);
+        });
 
-program
-    .command('machines')
-    .description('List all machines')
-    .option('--active', 'Show only active machines')
-    .option('--json', 'Output as JSON')
-    .action(async (opts: { active?: boolean; json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const machines = await listMachines(config, creds);
-        const filtered = opts.active ? machines.filter(machine => machine.active) : machines;
-        if (opts.json) {
-            console.log(formatJson(filtered));
-        } else {
-            console.log(formatMachineTable(filtered));
-        }
-    });
+    program.command('resume').description('Resume a session on its original machine')
+        .argument('<session-id>', 'Session ID or prefix').option('--json', 'Output as JSON')
+        .action(async (value: string, options: { json?: boolean }) => {
+            const session = await resolveSession(client, value);
+            const result = await withConnection(client, () => client.sessions.resume({ sessionId: session.id }));
+            if (result.type !== 'success') throw new Error(result.type === 'error' ? result.errorMessage : `Directory approval required: ${result.directory}`);
+            writeResult(dependencies, result, options.json, `## Session Resumed\n\n- Source Session ID: \`${session.id}\`\n- Resumed Session ID: \`${result.sessionId}\``);
+        });
 
-program
-    .command('list')
-    .description('List all sessions')
-    .option('--active', 'Show only active sessions')
-    .option('--json', 'Output as JSON')
-    .action(async (opts: { active?: boolean; json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const sessions = opts.active
-            ? await listActiveSessions(config, creds)
-            : await listSessions(config, creds);
-        if (opts.json) {
-            console.log(formatJson(sessions));
-        } else {
-            console.log(formatSessionTable(sessions));
-        }
-    });
-
-program
-    .command('status')
-    .description('Get live session state')
-    .argument('<session-id>', 'Session ID or prefix')
-    .option('--json', 'Output as JSON')
-    .action(async (sessionId: string, opts: { json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-
-        const client = createClient(session, creds, config);
-
-        let liveData = false;
-        try {
-            // Wait for connection, then wait for a state-change event or a short timeout
-            await new Promise<void>(resolve => {
-                let resolved = false;
-                const done = () => {
-                    if (resolved) return;
-                    resolved = true;
-                    clearTimeout(timeout);
-                    client.removeAllListeners('state-change');
-                    client.removeAllListeners('connect_error');
-                    resolve();
-                };
-
-                const timeout = setTimeout(done, 3000);
-
-                client.once('state-change', (data: { metadata: unknown; agentState: unknown }) => {
-                    session.metadata = data.metadata ?? session.metadata;
-                    session.agentState = data.agentState ?? session.agentState;
-                    liveData = true;
-                    done();
-                });
-
-                client.once('connect_error', () => {
-                    done();
-                });
+    program.command('send').description('Send a message to a session')
+        .argument('<session-id>', 'Session ID or prefix').argument('<message>', 'Message text')
+        .option('--yolo', 'Send with permissionMode=yolo').option('--wait', 'Wait for agent to become idle')
+        .option('--json', 'Output as JSON')
+        .action(async (value: string, message: string, options: { yolo?: boolean; wait?: boolean; json?: boolean }) => {
+            const session = await resolveSession(client, value);
+            const receipt = await client.messages.send({
+                sessionId: session.id,
+                text: message,
+                meta: options.yolo ? { permissionMode: 'yolo' } : undefined,
             });
-        } finally {
-            client.close();
-        }
-
-        if (opts.json) {
-            console.log(formatJson(session));
-        } else {
-            if (!liveData) {
-                console.log('> Note: showing cached data (could not get live status).');
-            }
-            console.log(formatSessionStatus(session));
-        }
-    });
-
-program
-    .command('spawn')
-    .description('Spawn a new session on a machine')
-    .requiredOption('--machine <machine-id>', 'Machine ID or prefix')
-    .option('--path <path>', 'Working directory path (defaults to machine home directory)')
-    .option('--agent <agent>', `Agent to start (${SUPPORTED_AGENTS.join(', ')})`, (value: string) => {
-        if (!SUPPORTED_AGENTS.includes(value as SupportedAgent)) {
-            throw new Error(`--agent must be one of: ${SUPPORTED_AGENTS.join(', ')}`);
-        }
-        return value as SupportedAgent;
-    })
-    .option('--create-dir', 'Allow creating the directory if it does not exist')
-    .option('--json', 'Output as JSON')
-    .action(async (opts: {
-        machine: string;
-        path?: string;
-        agent?: SupportedAgent;
-        createDir?: boolean;
-        json?: boolean;
-    }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const machine = await resolveMachine(config, creds, opts.machine);
-        const directory = resolveRemotePath(opts.path, machine);
-
-        const result = await spawnSessionOnMachine(config, machine, creds.token, {
-            directory,
-            approvedNewDirectoryCreation: opts.createDir,
-            agent: opts.agent,
+            if (options.wait) await waitForIdle(client, session.id, 300_000, true);
+            writeResult(dependencies, receipt, options.json, `## Message Sent\n\n- Session ID: \`${session.id}\`\n- Local ID: \`${receipt.localId}\``);
         });
 
-        const payload = {
-            machineId: machine.id,
-            directory,
-            agent: opts.agent ?? null,
-            ...result,
-        };
-
-        if (opts.json) {
-            console.log(formatJson(payload));
-            if (result.type !== 'success') {
-                process.exitCode = 1;
-            }
-            return;
-        }
-
-        switch (result.type) {
-            case 'success':
-                console.log([
-                    '## Session Spawned',
-                    '',
-                    `- Machine ID: \`${machine.id}\``,
-                    `- Session ID: \`${result.sessionId}\``,
-                    `- Path: ${directory}`,
-                    `- Agent: ${opts.agent ?? 'default'}`,
-                ].join('\n'));
-                break;
-            case 'requestToApproveDirectoryCreation':
-                throw new Error(`The directory '${result.directory}' does not exist. Re-run with --create-dir to allow creating it.`);
-            case 'error':
-                throw new Error(result.errorMessage);
-        }
-    });
-
-program
-    .command('resume')
-    .description('Resume a session on its original machine')
-    .argument('<session-id>', 'Session ID or prefix')
-    .option('--json', 'Output as JSON')
-    .action(async (sessionId: string, opts: { json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-        const machineId = resolveSessionMachineId(session);
-        const machine = await resolveMachine(config, creds, machineId);
-        ensureMachineCanResume(machine);
-
-        const result = await resumeSessionOnMachine(config, machine, creds.token, session.id);
-        const payload = {
-            sourceSessionId: session.id,
-            machineId: machine.id,
-            ...result,
-        };
-
-        if (opts.json) {
-            console.log(formatJson(payload));
-            if (result.type !== 'success') {
-                process.exitCode = 1;
-            }
-            return;
-        }
-
-        switch (result.type) {
-            case 'success':
-                console.log([
-                    '## Session Resumed',
-                    '',
-                    `- Machine ID: \`${machine.id}\``,
-                    `- Source Session ID: \`${session.id}\``,
-                    `- Resumed Session ID: \`${result.sessionId}\``,
-                ].join('\n'));
-                break;
-            case 'requestToApproveDirectoryCreation':
-                throw new Error(`Resume unexpectedly requested directory creation for '${result.directory}'. Resume should reuse the saved path.`);
-            case 'error':
-                throw new Error(result.errorMessage);
-        }
-    });
-
-program
-    .command('create')
-    .description('Create a new session')
-    .requiredOption('--tag <tag>', 'Session tag')
-    .option('--path <path>', 'Working directory path')
-    .option('--json', 'Output as JSON')
-    .action(async (opts: { tag: string; path?: string; json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const metadata = {
-            tag: opts.tag,
-            path: opts.path ?? process.cwd(),
-            host: hostname(),
-        };
-        const session = await createSession(config, creds, {
-            tag: opts.tag,
-            metadata,
+    program.command('history').description('Read message history')
+        .argument('<session-id>', 'Session ID or prefix')
+        .option('--limit <n>', 'Limit number of messages', value => {
+            const limit = Number.parseInt(value, 10);
+            if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('--limit must be a positive integer');
+            return limit;
+        })
+        .option('--json', 'Output as JSON')
+        .action(async (value: string, options: { limit?: number; json?: boolean }) => {
+            const session = await resolveSession(client, value);
+            const messages = await client.messages.history(session.id, { limit: options.limit });
+            writeResult(dependencies, messages, options.json, formatMessageHistory(messages));
         });
-        if (opts.json) {
-            console.log(formatJson(session));
-        } else {
-            console.log([
-                '## Session Created',
-                '',
-                `- Session ID: \`${session.id}\``,
-            ].join('\n'));
-        }
-    });
 
-program
-    .command('send')
-    .description('Send a message to a session')
-    .argument('<session-id>', 'Session ID or prefix')
-    .argument('<message>', 'Message text')
-    .option('--yolo', 'Send with permissionMode=yolo')
-    .option('--wait', 'Wait for agent to become idle')
-    .option('--json', 'Output as JSON')
-    .action(async (sessionId: string, message: string, opts: { yolo?: boolean; wait?: boolean; json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-        const permissionMode = opts.yolo ? 'yolo' : null;
+    program.command('approve').description('Approve a pending agent request')
+        .argument('<session-id>', 'Session ID or prefix').argument('<request-id>', 'Request ID')
+        .option('--json', 'Output as JSON')
+        .action(async (value: string, requestId: string, options: { json?: boolean }) => {
+            const session = await resolveSession(client, value);
+            await withConnection(client, () => client.requests.approve({ sessionId: session.id, requestId }));
+            const payload = { sessionId: session.id, requestId, approved: true };
+            writeResult(dependencies, payload, options.json, `## Request Approved\n\n- Session ID: \`${session.id}\`\n- Request ID: \`${requestId}\``);
+        });
 
-        const client = createClient(session, creds, config);
-        try {
-            await client.waitForConnect();
-            const completion = opts.wait ? client.waitForTurnCompletion() : null;
-            client.sendMessage(message, permissionMode ? { permissionMode } : undefined);
+    program.command('stop').description('Stop a session')
+        .argument('<session-id>', 'Session ID or prefix')
+        .action(async (value: string) => {
+            const session = await resolveSession(client, value);
+            await withConnection(client, () => client.sessions.stop(session.id));
+            dependencies.stdout(`## Session Stopped\n\n- Session ID: \`${session.id}\`\n`);
+        });
 
-            if (completion) {
-                await completion;
-            } else {
-                // Delay to allow the Socket.IO event to flush before closing
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-        } finally {
-            client.close();
-        }
+    program.command('wait').description('Wait for agent to become idle')
+        .argument('<session-id>', 'Session ID or prefix')
+        .option('--timeout <seconds>', 'Timeout in seconds', value => {
+            const seconds = Number.parseInt(value, 10);
+            if (!Number.isSafeInteger(seconds) || seconds <= 0) throw new Error('--timeout must be a positive integer');
+            return seconds;
+        }, 300)
+        .action(async (value: string, options: { timeout: number }) => {
+            const session = await resolveSession(client, value);
+            await waitForIdle(client, session.id, options.timeout * 1_000);
+            dependencies.stdout(`## Session Idle\n\n- Session ID: \`${session.id}\`\n`);
+        });
 
-        if (opts.json) {
-            console.log(formatJson({ sessionId: session.id, message, sent: true, permissionMode }));
-        } else {
-            console.log([
-                '## Message Sent',
-                '',
-                `- Session ID: \`${session.id}\``,
-                `- Permission Mode: ${permissionMode ?? 'default'}`,
-                `- Waited For Idle: ${opts.wait ? 'yes' : 'no'}`,
-            ].join('\n'));
-        }
-    });
+    return program;
+}
 
-program
-    .command('history')
-    .description('Read message history')
-    .argument('<session-id>', 'Session ID or prefix')
-    .option('--limit <n>', 'Limit number of messages', (v: string) => {
-        const n = parseInt(v, 10);
-        if (isNaN(n) || n <= 0) throw new Error('--limit must be a positive integer');
-        return n;
-    })
-    .option('--json', 'Output as JSON')
-    .action(async (sessionId: string, opts: { limit?: number; json?: boolean }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-        let messages = await getSessionMessages(config, creds, session.id, session.encryption);
-
-        // Sort chronologically by createdAt
-        messages.sort((a, b) => a.createdAt - b.createdAt);
-
-        // Apply limit
-        if (opts.limit && opts.limit > 0) {
-            messages = messages.slice(-opts.limit);
-        }
-
-        if (opts.json) {
-            console.log(formatJson(messages));
-        } else {
-            console.log(formatMessageHistory(messages));
-        }
-    });
-
-program
-    .command('stop')
-    .description('Stop a session')
-    .argument('<session-id>', 'Session ID or prefix')
-    .action(async (sessionId: string) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-
-        const client = createClient(session, creds, config);
-        try {
-            await client.waitForConnect();
-            client.sendStop();
-
-            // Delay to allow the Socket.IO event to flush before closing
-            await new Promise(resolve => setTimeout(resolve, 500));
-        } finally {
-            client.close();
-        }
-
-        console.log([
-            '## Session Stopped',
-            '',
-            `- Session ID: \`${session.id}\``,
-        ].join('\n'));
-    });
-
-program
-    .command('wait')
-    .description('Wait for agent to become idle')
-    .argument('<session-id>', 'Session ID or prefix')
-    .option('--timeout <seconds>', 'Timeout in seconds', (v: string) => {
-        const n = parseInt(v, 10);
-        if (isNaN(n) || n <= 0) throw new Error('--timeout must be a positive integer');
-        return n;
-    }, 300)
-    .action(async (sessionId: string, opts: { timeout: number }) => {
-        const config = loadConfig();
-        const creds = requireCredentials(config);
-        const session = await resolveSession(config, creds, sessionId);
-
-        const client = createClient(session, creds, config);
-        try {
-            await client.waitForConnect();
-            await client.waitForIdle(opts.timeout * 1000);
-            console.log([
-                '## Session Idle',
-                '',
-                `- Session ID: \`${session.id}\``,
-            ].join('\n'));
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error(msg);
-            process.exitCode = 1;
-        } finally {
-            client.close();
-        }
-    });
-
-export async function runCli(argv: string[] = process.argv): Promise<void> {
+export async function runCli(argv: string[] = process.argv, dependencies?: CliDependencies): Promise<void> {
+    const resolvedDependencies = dependencies ?? defaultDependencies();
+    const program = createCli(resolvedDependencies);
     try {
         await program.parseAsync(argv);
-    } catch (err) {
-        console.error(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+        if (error instanceof CommanderError) {
+            if (error.exitCode !== 0) process.exitCode = 2;
+            return;
+        }
+        const message = error instanceof Error ? error.message : 'Operation failed';
+        resolvedDependencies.stderr(message + '\n');
         process.exitCode = 1;
+    } finally {
+        await resolvedDependencies.client.dispose();
     }
 }

@@ -4,7 +4,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const binPath = resolve(__dirname, '..', 'bin', 'happy-agent.mjs');
+const binPath = resolve(__dirname, '..', 'bin', 'paws-agent.mjs');
 
 function runCli(...args: string[]): { stdout: string; stderr: string; exitCode: number } {
     try {
@@ -25,16 +25,16 @@ function runCli(...args: string[]): { stdout: string; stderr: string; exitCode: 
     }
 }
 
-describe('happy-agent CLI', () => {
+describe('paws-agent CLI', () => {
     it('should display help output', () => {
         const { stdout } = runCli('--help');
-        expect(stdout).toContain('happy-agent');
-        expect(stdout).toContain('CLI client for controlling Happy Coder agents remotely');
+        expect(stdout).toContain('paws-agent');
+        expect(stdout).toContain('CLI client for controlling Paws agents remotely');
     });
 
     it('should display version', () => {
         const { stdout } = runCli('--version');
-        expect(stdout.trim()).toBe('0.1.0');
+        expect(stdout.trim()).toBe('0.1.0-beta.1');
     });
 
     it('should list all expected commands in help', () => {
@@ -45,9 +45,9 @@ describe('happy-agent CLI', () => {
         expect(stdout).toContain('status');
         expect(stdout).toContain('spawn');
         expect(stdout).toContain('resume');
-        expect(stdout).toContain('create');
         expect(stdout).toContain('send');
         expect(stdout).toContain('history');
+        expect(stdout).toContain('approve');
         expect(stdout).toContain('stop');
         expect(stdout).toContain('wait');
     });
@@ -63,7 +63,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('list');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -78,7 +78,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('machines');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -92,29 +92,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('status', 'fake-session-id');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
-        });
-    });
-
-    describe('create command', () => {
-        it('should show create help with --tag, --path, and --json options', () => {
-            const { stdout } = runCli('create', '--help');
-            expect(stdout).toContain('Create a new session');
-            expect(stdout).toContain('--tag');
-            expect(stdout).toContain('--path');
-            expect(stdout).toContain('--json');
-        });
-
-        it('should require --tag option', () => {
-            const { stderr, exitCode } = runCli('create');
-            expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('--tag');
-        });
-
-        it('should fail with auth error when not authenticated', () => {
-            const { stderr, exitCode } = runCli('create', '--tag', 'my-tag');
-            expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -131,7 +109,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('spawn', '--machine', 'fake-machine');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -146,7 +124,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('resume', 'fake-id');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -164,7 +142,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('send', 'fake-id', 'hello');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -180,7 +158,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('history', 'fake-id');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -194,7 +172,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('stop', 'fake-id');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -209,7 +187,7 @@ describe('happy-agent CLI', () => {
         it('should fail with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('wait', 'fake-id');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 });

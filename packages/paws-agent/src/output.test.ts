@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './output';
-import type { DecryptedSession, DecryptedMessage } from './api';
+import type { Message, Session } from './client/types';
 
-function makeSession(overrides: Partial<DecryptedSession> = {}): DecryptedSession {
+function makeSession(overrides: Partial<Session> = {}): Session {
     return {
         id: 'abcdef1234567890',
         seq: 1,
@@ -11,9 +11,9 @@ function makeSession(overrides: Partial<DecryptedSession> = {}): DecryptedSessio
         active: true,
         activeAt: Date.now() - 60_000,
         metadata: { tag: 'test-session', path: '/home/user/project', summary: 'Test session' },
+        metadataVersion: 1,
         agentState: null,
-        dataEncryptionKey: null,
-        encryption: { key: new Uint8Array(32), variant: 'dataKey' as const },
+        agentStateVersion: 0,
         ...overrides,
     };
 }
@@ -208,7 +208,7 @@ describe('formatSessionStatus', () => {
 });
 
 describe('formatMessageHistory', () => {
-    function makeMessage(overrides: Partial<DecryptedMessage> = {}): DecryptedMessage {
+    function makeMessage(overrides: Partial<Message> = {}): Message {
         return {
             id: 'msg-1',
             seq: 1,

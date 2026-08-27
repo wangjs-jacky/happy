@@ -7,7 +7,7 @@ import { getRandomBytes, deriveContentKeyPair, encodeBase64 } from './encryption
 import type { Config } from './config';
 
 function makeTestConfig(): Config {
-    const homeDir = mkdtempSync(join(tmpdir(), 'happy-agent-test-'));
+    const homeDir = mkdtempSync(join(tmpdir(), 'paws-agent-test-'));
     return {
         serverUrl: 'https://api.cluster-fluster.com',
         homeDir,
@@ -107,7 +107,7 @@ describe('credentials', () => {
 
         it('throws when credentials are missing', () => {
             expect(() => requireCredentials(config)).toThrow(
-                'Not authenticated. Run `happy-agent auth login` first.'
+                'Not authenticated. Run `paws-agent auth login` first.'
             );
         });
     });

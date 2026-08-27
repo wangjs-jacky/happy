@@ -259,7 +259,7 @@ describe('SessionClient', () => {
             expect(decrypted.role).toBe('user');
             expect((decrypted.content as Record<string, unknown>).type).toBe('text');
             expect((decrypted.content as Record<string, unknown>).text).toBe('Test message text');
-            expect((decrypted.meta as Record<string, unknown>).sentFrom).toBe('happy-agent');
+            expect((decrypted.meta as Record<string, unknown>).sentFrom).toBe('paws-agent');
 
             client.close();
         });
@@ -280,7 +280,7 @@ describe('SessionClient', () => {
                 decodeBase64(data.message),
             ) as Record<string, unknown>;
             const meta = decrypted.meta as Record<string, unknown>;
-            expect(meta.sentFrom).toBe('happy-agent');
+            expect(meta.sentFrom).toBe('paws-agent');
             expect(meta.customField).toBe('value');
 
             client.close();

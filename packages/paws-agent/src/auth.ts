@@ -41,7 +41,7 @@ export async function authLogin(config: Config): Promise<void> {
         console.log(code);
     });
     console.log('## Authentication');
-    console.log('- Action: Scan this QR code with the Happy app');
+    console.log('- Action: Scan this QR code with the Paws app');
     console.log('- Path: Settings -> Account -> Link New Device');
     console.log(`- Public Key: \`${publicKeyBase64}\``);
     console.log(`- URL: \`${qrData}\``);
@@ -102,7 +102,7 @@ export async function authStatus(config: Config): Promise<void> {
         console.log(`- Public Key: \`${encodeBase64(creds.contentKeyPair.publicKey)}\``);
     } else {
         console.log('- Status: Not authenticated');
-        console.log('- Action: Run `happy-agent auth login` to authenticate.');
+        console.log('- Action: Run `paws-agent auth login` to authenticate.');
     }
 }
 

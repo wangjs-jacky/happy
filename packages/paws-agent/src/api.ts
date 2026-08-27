@@ -180,7 +180,7 @@ function handleApiError(err: unknown, context: string): never {
     if (err instanceof AxiosError) {
         const status = err.response?.status;
         if (status === 401) {
-            throw new Error('Authentication expired. Run `happy-agent auth login` to re-authenticate.');
+            throw new Error('Authentication expired. Run `paws-agent auth login` to re-authenticate.');
         }
         if (status === 403) {
             throw new Error(`Forbidden: ${context}. Check your account permissions.`);

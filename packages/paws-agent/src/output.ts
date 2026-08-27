@@ -1,4 +1,4 @@
-import type { DecryptedMachine, DecryptedSession, DecryptedMessage } from './api';
+import type { Machine, Message, Session } from './client/types';
 
 // --- Types ---
 
@@ -89,7 +89,7 @@ function extractSessionSummary(meta: SessionMetadata): string | undefined {
 
 // --- Session list formatting ---
 
-export function formatSessionTable(sessions: DecryptedSession[]): string {
+export function formatSessionTable(sessions: Session[]): string {
     if (sessions.length === 0) {
         return '## Sessions\n\n- Total: 0\n- Items: none';
     }
@@ -113,7 +113,7 @@ export function formatSessionTable(sessions: DecryptedSession[]): string {
     return `## Sessions\n\n- Total: ${sessions.length}\n\n${sections.join('\n\n')}`;
 }
 
-export function formatMachineTable(machines: DecryptedMachine[]): string {
+export function formatMachineTable(machines: Machine[]): string {
     if (machines.length === 0) {
         return '## Machines\n\n- Total: 0\n- Items: none';
     }
@@ -142,7 +142,7 @@ export function formatMachineTable(machines: DecryptedMachine[]): string {
 
 // --- Session status formatting ---
 
-export function formatSessionStatus(session: DecryptedSession): string {
+export function formatSessionStatus(session: Session): string {
     const meta = (session.metadata ?? {}) as SessionMetadata;
     const state = (session.agentState ?? null) as AgentState | null;
     const tag = toNonEmptyString(meta.tag);
@@ -187,7 +187,7 @@ type MessageContent = {
     [key: string]: unknown;
 };
 
-export function formatMessageHistory(messages: DecryptedMessage[]): string {
+export function formatMessageHistory(messages: Message[]): string {
     if (messages.length === 0) {
         return '## Message History\n\n- Count: 0\n- Items: none';
     }

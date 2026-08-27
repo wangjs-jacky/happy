@@ -197,7 +197,7 @@ export class SessionClient extends PawsEventEmitter {
                 text,
             },
             meta: {
-                sentFrom: 'happy-agent',
+                sentFrom: 'paws-agent',
                 ...meta,
             },
         };

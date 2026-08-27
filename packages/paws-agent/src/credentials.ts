@@ -46,7 +46,7 @@ export function clearCredentials(config: Config): void {
 export function requireCredentials(config: Config): Credentials {
     const creds = readCredentials(config);
     if (!creds) {
-        throw new Error('Not authenticated. Run `happy-agent auth login` first.');
+        throw new Error('Not authenticated. Run `paws-agent auth login` first.');
     }
     return creds;
 }

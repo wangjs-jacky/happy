@@ -1,5 +1,5 @@
 /**
- * CLI smoke tests for happy-agent.
+ * CLI smoke tests for paws-agent.
  *
  * These are local command-shape and helper checks only.
  * Real end-to-end coverage for auth + spawn lives in the integration test suite.
@@ -33,7 +33,7 @@ import { resolveSessionEncryption } from './api';
 import { formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './output';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const binPath = resolve(__dirname, '..', 'bin', 'happy-agent.mjs');
+const binPath = resolve(__dirname, '..', 'bin', 'paws-agent.mjs');
 
 // --- CLI runner ---
 
@@ -161,7 +161,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('list');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -175,28 +175,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('status', 'abc');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
-        });
-    });
-
-    describe('4. create command', () => {
-        it('shows help with --tag, --path, --json', () => {
-            const { stdout } = runCli('create', '--help');
-            expect(stdout).toContain('--tag');
-            expect(stdout).toContain('--path');
-            expect(stdout).toContain('--json');
-        });
-
-        it('requires --tag option', () => {
-            const { stderr, exitCode } = runCli('create');
-            expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('--tag');
-        });
-
-        it('fails with auth error when not authenticated', () => {
-            const { stderr, exitCode } = runCli('create', '--tag', 'test');
-            expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -213,7 +192,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('send', 'abc', 'hello');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -228,7 +207,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('history', 'abc');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -241,7 +220,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('stop', 'abc');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 
@@ -255,7 +234,7 @@ describe('Smoke: CLI command surface', () => {
         it('fails with auth error when not authenticated', () => {
             const { stderr, exitCode } = runCli('wait', 'abc');
             expect(exitCode).not.toBe(0);
-            expect(stderr).toContain('happy-agent auth login');
+            expect(stderr).toContain('paws-agent auth login');
         });
     });
 });
@@ -269,11 +248,6 @@ describe('Smoke: --json flag on applicable commands', () => {
 
     it('status --json is documented in help', () => {
         const { stdout } = runCli('status', '--help');
-        expect(stdout).toContain('--json');
-    });
-
-    it('create --json is documented in help', () => {
-        const { stdout } = runCli('create', '--help');
         expect(stdout).toContain('--json');
     });
 
@@ -304,7 +278,6 @@ describe('Smoke: Error handling', () => {
             const commands = [
                 ['list'],
                 ['status', 'fake-id'],
-                ['create', '--tag', 'test'],
                 ['send', 'fake-id', 'hello'],
                 ['history', 'fake-id'],
                 ['stop', 'fake-id'],
@@ -314,9 +287,9 @@ describe('Smoke: Error handling', () => {
             for (const args of commands) {
                 const { stderr, exitCode } = runCli(...args);
                 expect(exitCode).not.toBe(0);
-                expect(stderr).toContain('happy-agent auth login');
+                expect(stderr).toContain('paws-agent auth login');
             }
-        });
+        }, 30_000);
     });
 
     describe('invalid session ID (in unit-tested code paths)', () => {
@@ -350,8 +323,8 @@ describe('Smoke: Error handling', () => {
     describe('server error handling (via API error mapper)', () => {
         it('HTTP 401 maps to re-authenticate message', async () => {
             // This is tested in api.test.ts but we verify the error message format here
-            const errorMsg = 'Authentication expired. Run `happy-agent auth login` to re-authenticate.';
-            expect(errorMsg).toContain('happy-agent auth login');
+            const errorMsg = 'Authentication expired. Run `paws-agent auth login` to re-authenticate.';
+            expect(errorMsg).toContain('paws-agent auth login');
         });
 
         it('HTTP 404 maps to not found message', () => {
@@ -409,7 +382,7 @@ describe('Smoke: Interop — dataKey vs legacy encryption', () => {
 
     it('messages encrypted with dataKey can be round-tripped', () => {
         const sessionKey = getRandomBytes(32);
-        const messageContent = { role: 'user', content: { type: 'text', text: 'Hello from happy-agent' } };
+        const messageContent = { role: 'user', content: { type: 'text', text: 'Hello from paws-agent' } };
 
         const encrypted = encrypt(sessionKey, 'dataKey', messageContent);
         const decrypted = decrypt(sessionKey, 'dataKey', encrypted);
@@ -493,7 +466,11 @@ describe('Smoke: Output formatting', () => {
             encryption,
         };
 
-        const result = formatSessionTable([session]);
+        const result = formatSessionTable([{
+            ...session,
+            metadataVersion: raw.metadataVersion,
+            agentStateVersion: raw.agentStateVersion,
+        }]);
         expect(result).toContain('### Session 1');
         expect(result).toContain('- ID: `sess-12345678`');
         expect(result).toContain('- Name: My Project');
