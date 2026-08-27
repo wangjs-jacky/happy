@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { listInferenceTokens } from './listInferenceTokens';
+import { listInferenceTokens } from '@/modules/inference-tokens/listInferenceTokens';
 
 describe('listInferenceTokens', () => {
     it('never exposes plugin vault records through the legacy inference-token list', async () => {

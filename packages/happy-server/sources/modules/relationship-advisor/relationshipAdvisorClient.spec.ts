@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { streamRelationshipAdvisor } from './relationshipAdvisorClient';
+import { streamRelationshipAdvisor } from '@/modules/relationship-advisor/relationshipAdvisorClient';
 
 function streamResponse(chunks: string[]): Response {
     const encoder = new TextEncoder();

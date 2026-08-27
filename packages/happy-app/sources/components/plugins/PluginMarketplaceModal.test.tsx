@@ -38,15 +38,13 @@ const manifest = (id: string, installedAction: 'configure' | 'open') => ({
                 surface: 'page',
                 title: { default: id },
             },
-            {
+            ...(id === 'generated-images-gallery' ? [] : [{
                 id: id === 'relationship-advisor'
                     ? 'relationship-advisor.configuration'
-                    : id === 'generated-images-gallery'
-                        ? 'generated-images-gallery.configuration'
-                        : `${id}.configuration`,
+                    : `${id}.configuration`,
                 surface: 'modal',
                 title: { default: `${id} configuration` },
-            },
+            }]),
         ],
     },
     configuration: { fields: [] },
@@ -111,6 +109,7 @@ vi.mock('@/hooks/usePlugins', () => ({
 vi.mock('./DynamicPluginConfiguration', () => ({
     DynamicPluginConfiguration: 'DynamicPluginConfiguration',
 }));
+vi.mock('./PluginModalSlot', () => ({ PluginModalSlot: 'PluginModalSlot' }));
 
 import { PluginMarketplaceModal } from './PluginMarketplaceModal';
 
@@ -146,7 +145,7 @@ describe('PluginMarketplaceModal', () => {
         act(() => renderer.unmount());
     });
 
-    it('shows installed plugins separately and opens configuration directly', () => {
+    it('shows installed plugins separately and activates their declared modal contribution', () => {
         setPlugins(true, false);
         let renderer: any;
         act(() => {
@@ -159,7 +158,8 @@ describe('PluginMarketplaceModal', () => {
             );
         });
 
-        expect(renderer.root.findAllByType('DynamicPluginConfiguration')).toHaveLength(1);
+        expect(renderer.root.findAllByType('PluginModalSlot')).toHaveLength(1);
+        expect(renderer.root.findAllByType('DynamicPluginConfiguration')).toHaveLength(0);
         act(() => renderer.root.findByProps({ testID: 'plugin-marketplace-back' }).props.onPress());
         expect(renderer.root.findByProps({ testID: 'plugin-marketplace-installed-section' })).toBeTruthy();
         act(() => renderer.unmount());

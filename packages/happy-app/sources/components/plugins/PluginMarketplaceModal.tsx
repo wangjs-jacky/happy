@@ -18,6 +18,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { usePlugins } from '@/hooks/usePlugins';
 import { t } from '@/text';
+import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
 import { PluginModalSlot } from './PluginModalSlot';
 import { resolveInstalledPluginEntrypoint } from './pluginClientAdapters';
 import { resolvePluginText } from './pluginText';
@@ -106,6 +107,11 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
             .includes(normalizedQuery);
     }), [normalizedQuery, plugins]);
     const activePlugin = plugins.find((plugin) => plugin.manifest.id === activePluginId);
+    const hasActiveInstalledModal = Boolean(
+        activePlugin?.status.installed
+        && activePlugin.status.version === activePlugin.manifest.version
+        && activePlugin.manifest.contributes.views.some((view) => view.surface === 'modal'),
+    );
     const installedPlugins = plugins.filter((plugin) => plugin.status.installed);
 
     const openPlugin = React.useCallback((plugin: PluginCatalogItem) => {
@@ -180,14 +186,25 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
 
                     {activePlugin ? (
                         <View style={styles.configurationContent}>
-                            <PluginModalSlot
-                                onInstalled={activePlugin.manifest.installedAction === 'open'
-                                    ? () => openPlugin(activePlugin)
-                                    : undefined}
-                                onOpen={() => openPlugin(activePlugin)}
-                                onStatusChanged={async () => { await refresh(); }}
-                                plugin={activePlugin}
-                            />
+                            {hasActiveInstalledModal ? (
+                                <PluginModalSlot
+                                    onInstalled={activePlugin.manifest.installedAction === 'open'
+                                        ? () => openPlugin(activePlugin)
+                                        : undefined}
+                                    onOpen={() => openPlugin(activePlugin)}
+                                    onStatusChanged={async () => { await refresh(); }}
+                                    plugin={activePlugin}
+                                />
+                            ) : (
+                                <DynamicPluginConfiguration
+                                    onInstalled={activePlugin.manifest.installedAction === 'open'
+                                        ? () => openPlugin(activePlugin)
+                                        : undefined}
+                                    onOpen={() => openPlugin(activePlugin)}
+                                    onStatusChanged={async () => { await refresh(); }}
+                                    plugin={activePlugin}
+                                />
+                            )}
                         </View>
                     ) : (
                         <View style={styles.marketContent}>

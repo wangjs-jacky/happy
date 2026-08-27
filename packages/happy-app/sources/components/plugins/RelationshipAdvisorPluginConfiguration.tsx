@@ -8,7 +8,7 @@ type Props = {
     onStatusChanged?: () => void | Promise<void>;
 };
 
-/** Compatibility surface for the legacy settings route; fields still come from the server manifest. */
+/** Host-owned configuration surface; fields still come from the server manifest. */
 export const RelationshipAdvisorPluginConfiguration = React.memo(function RelationshipAdvisorPluginConfiguration({
     onInstalled,
     onStatusChanged,

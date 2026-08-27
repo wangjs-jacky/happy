@@ -53,6 +53,24 @@ export function createPluginRegistry(
         return { manifest: definition.manifest, status: publicStatus(definition, installation) };
     }
 
+    async function requireCurrentInstallation(accountId: string, pluginId: string): Promise<{
+        definition: PluginDefinition;
+        installation: PluginInstallation;
+    }> {
+        const definition = findDefinition(definitions, pluginId);
+        const installation = await store.get(accountId, pluginId);
+        if (!installation) {
+            throw new PluginRegistryError('plugin_not_installed', `Plugin ${pluginId} is not installed`);
+        }
+        if (installation.version !== definition.manifest.version) {
+            throw new PluginRegistryError(
+                'version_mismatch',
+                `Plugin ${pluginId} requires version ${definition.manifest.version}`,
+            );
+        }
+        return { definition, installation };
+    }
+
     return {
         async list(accountId: string): Promise<PluginCatalogResponse> {
             return {
@@ -107,17 +125,7 @@ export function createPluginRegistry(
             pluginId: string,
             permission: PluginPermission,
         ): Promise<void> {
-            const definition = findDefinition(definitions, pluginId);
-            const installation = await store.get(accountId, pluginId);
-            if (!installation) {
-                throw new PluginRegistryError('plugin_not_installed', `Plugin ${pluginId} is not installed`);
-            }
-            if (installation.version !== definition.manifest.version) {
-                throw new PluginRegistryError(
-                    'version_mismatch',
-                    `Plugin ${pluginId} requires version ${definition.manifest.version}`,
-                );
-            }
+            const { definition } = await requireCurrentInstallation(accountId, pluginId);
             if (!definition.manifest.permissions.includes(permission)) {
                 throw new PluginRegistryError(
                     'permission_not_declared',
@@ -126,17 +134,7 @@ export function createPluginRegistry(
             }
         },
         async requireConfiguration(accountId: string, pluginId: string): Promise<Record<string, string>> {
-            const definition = findDefinition(definitions, pluginId);
-            const installation = await store.get(accountId, pluginId);
-            if (!installation) {
-                throw new PluginRegistryError('plugin_not_installed', `Plugin ${pluginId} is not installed`);
-            }
-            if (installation.version !== definition.manifest.version) {
-                throw new PluginRegistryError(
-                    'version_mismatch',
-                    `Plugin ${pluginId} requires version ${definition.manifest.version}`,
-                );
-            }
+            const { definition, installation } = await requireCurrentInstallation(accountId, pluginId);
             try {
                 return definition.normalizeConfiguration(installation.configuration);
             } catch {

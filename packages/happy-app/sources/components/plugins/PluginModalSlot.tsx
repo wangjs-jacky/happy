@@ -2,7 +2,7 @@ import type { PluginCatalogItem } from '@slopus/happy-wire';
 import * as React from 'react';
 
 import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
-import { resolvePluginDeclaredView } from './pluginClientAdapters';
+import { resolveInstalledPluginView } from './pluginClientAdapters';
 
 interface Props {
     plugin: PluginCatalogItem;
@@ -22,7 +22,7 @@ export const PluginModalSlot = React.memo(function PluginModalSlot({
         : plugin.manifest.contributes.views.find((view) => view.surface === 'modal')?.id;
     if (!viewId) return null;
 
-    const view = resolvePluginDeclaredView(plugin, viewId, 'modal');
+    const view = resolveInstalledPluginView(plugin, viewId, 'modal');
     if (view?.componentId !== 'plugin-configuration') return null;
 
     return (

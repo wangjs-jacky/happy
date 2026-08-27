@@ -16,7 +16,7 @@ vi.mock('@/modules/plugins/pluginRegistry', () => ({
 import {
     createRelationshipAdvisorPluginRuntime,
     relationshipAdvisorPlugin,
-} from './relationshipAdvisorPlugin';
+} from '@/modules/relationship-advisor/relationshipAdvisorPlugin';
 
 describe('createRelationshipAdvisorPluginRuntime', () => {
     it('brokers provider and secret configuration separately from image reads', async () => {

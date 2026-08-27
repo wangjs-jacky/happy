@@ -2,8 +2,8 @@ import fastify from 'fastify';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Fastify } from '../types';
-import { pluginRoutes } from './pluginRoutes';
+import type { Fastify } from '@/app/api/types';
+import { pluginRoutes } from '@/app/api/routes/pluginRoutes';
 
 async function createApp(registry: Parameters<typeof pluginRoutes>[1]) {
     const app = fastify();

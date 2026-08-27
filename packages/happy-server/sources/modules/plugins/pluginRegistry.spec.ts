@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createPluginRegistry, PluginRegistryError } from './pluginRegistry';
-import { pluginDefinitions } from './pluginDefinitions';
+import { pluginDefinitions } from '@/modules/plugins/pluginDefinitions';
+import { createPluginRegistry, PluginRegistryError } from '@/modules/plugins/pluginRegistry';
 
 function createMemoryStore() {
     const installations = new Map<string, { version: string; configuration: Record<string, string> }>();

@@ -1,11 +1,20 @@
 import type { PluginCatalogItem } from '@slopus/happy-wire';
 import * as React from 'react';
 
-import { getPluginCatalog, subscribePluginCatalogChanges } from '@/sync/plugins';
+import { sync } from '@/sync/sync';
 
-/** Loads the account-specific server catalog only while a plugin surface is active. */
+const EMPTY_PLUGIN_CATALOG: readonly PluginCatalogItem[] = [];
+const getEmptyPluginCatalog = () => EMPTY_PLUGIN_CATALOG;
+const subscribeToNothing = () => () => undefined;
+
+/** Subscribes active plugin surfaces to the account-specific catalog in the central sync layer. */
 export function usePlugins(enabled = true) {
-    const [plugins, setPlugins] = React.useState<PluginCatalogItem[]>([]);
+    const catalogSnapshot = React.useSyncExternalStore(
+        enabled ? sync.subscribePluginCatalog : subscribeToNothing,
+        enabled ? sync.getPluginCatalogSnapshot : getEmptyPluginCatalog,
+        getEmptyPluginCatalog,
+    );
+    const plugins: readonly PluginCatalogItem[] = catalogSnapshot;
     const [loading, setLoading] = React.useState(enabled);
     const mountedRef = React.useRef(true);
     const requestGenerationRef = React.useRef(0);
@@ -22,11 +31,7 @@ export function usePlugins(enabled = true) {
         const requestGeneration = ++requestGenerationRef.current;
         setLoading(true);
         try {
-            const catalog = await getPluginCatalog();
-            if (mountedRef.current && requestGeneration === requestGenerationRef.current) {
-                setPlugins(catalog.plugins);
-            }
-            return catalog;
+            return await sync.refreshPluginCatalog();
         } finally {
             if (mountedRef.current && requestGeneration === requestGenerationRef.current) {
                 setLoading(false);
@@ -41,13 +46,6 @@ export function usePlugins(enabled = true) {
             return;
         }
         void refresh().catch(() => undefined);
-    }, [enabled, refresh]);
-
-    React.useEffect(() => {
-        if (!enabled) return;
-        return subscribePluginCatalogChanges(() => {
-            void refresh().catch(() => undefined);
-        });
     }, [enabled, refresh]);
 
     const getPlugin = React.useCallback(

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createPluginInstallationStore } from './pluginInstallationStore';
+import { createPluginInstallationStore } from '@/modules/plugins/pluginInstallationStore';
 
 describe('createPluginInstallationStore', () => {
     it('encrypts the complete versioned installation document before persistence', async () => {

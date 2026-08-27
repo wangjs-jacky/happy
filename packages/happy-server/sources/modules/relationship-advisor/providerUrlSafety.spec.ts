@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { validateRelationshipAdvisorProviderUrl } from './providerUrlSafety';
+import { validateRelationshipAdvisorProviderUrl } from '@/modules/relationship-advisor/providerUrlSafety';
 
 describe('validateRelationshipAdvisorProviderUrl', () => {
     it.each([

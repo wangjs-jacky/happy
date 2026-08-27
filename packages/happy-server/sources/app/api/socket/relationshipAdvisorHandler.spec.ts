@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { relationshipAdvisorHandler } from './relationshipAdvisorHandler';
+import { relationshipAdvisorHandler } from '@/app/api/socket/relationshipAdvisorHandler';
 
 type Listener = (...args: any[]) => void;
 

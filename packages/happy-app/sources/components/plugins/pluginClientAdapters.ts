@@ -1,5 +1,6 @@
 import type {
     PluginCatalogItem,
+    PluginPermission,
     PluginViewContribution,
     PluginViewSurface,
 } from '@slopus/happy-wire';
@@ -13,6 +14,7 @@ export type PluginClientViewAdapter = {
     surface: PluginViewSurface;
     path?: string;
     componentId?: PluginClientComponentId;
+    requiredPermissions?: readonly PluginPermission[];
 };
 
 export interface PluginClientAdapterRegistration {
@@ -44,6 +46,7 @@ const bundledPluginAdapters: readonly PluginClientAdapterRegistration[] = [{
         'relationship-advisor.chat': {
             surface: 'page',
             path: '/relationship-advisor',
+            requiredPermissions: ['paws.ai.provider.invoke', 'paws.secrets.use'],
         },
         'relationship-advisor.history': {
             surface: 'left-sidebar',
@@ -60,14 +63,12 @@ const bundledPluginAdapters: readonly PluginClientAdapterRegistration[] = [{
         'generated-images-gallery.browser': {
             surface: 'page',
             path: '/generated-images',
+            requiredPermissions: ['paws.conversations.images.read'],
         },
         'generated-images-gallery.session-images': {
             surface: 'right-panel',
             componentId: 'generated-images-session-images',
-        },
-        'generated-images-gallery.configuration': {
-            surface: 'modal',
-            componentId: 'plugin-configuration',
+            requiredPermissions: ['paws.conversations.images.read'],
         },
     },
 }];
@@ -116,6 +117,9 @@ export function createPluginClientHost(initialAdapters: readonly PluginClientAda
         if (!contribution) return null;
         const adapter = adapters.get(plugin.manifest.id)?.[viewId];
         if (!adapter || adapter.surface !== surface) return null;
+        if (adapter.requiredPermissions?.some((permission) => !plugin.manifest.permissions.includes(permission))) {
+            return null;
+        }
         return {
             pluginId: plugin.manifest.id,
             viewId,
@@ -162,14 +166,6 @@ export function resolveInstalledPluginView(
     surface: PluginViewSurface,
 ): ResolvedPluginClientView | null {
     return pluginClientHost.resolveView(plugin, viewId, surface);
-}
-
-export function resolvePluginDeclaredView(
-    plugin: PluginCatalogItem,
-    viewId: string,
-    surface: PluginViewSurface,
-): ResolvedPluginClientView | null {
-    return pluginClientHost.resolveDeclaredView(plugin, viewId, surface);
 }
 
 export function resolveInstalledPluginEntrypoint(

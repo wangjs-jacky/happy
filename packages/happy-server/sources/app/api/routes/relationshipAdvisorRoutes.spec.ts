@@ -2,7 +2,7 @@ import fastify from 'fastify';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Fastify } from '../types';
+import type { Fastify } from '@/app/api/types';
 
 const filesMock = vi.hoisted(() => ({
     isLocalStorage: vi.fn(() => true),
@@ -26,7 +26,7 @@ vi.mock('@/modules/plugins/pluginRegistry', () => ({
     },
 }));
 
-import { relationshipAdvisorRoutes } from './relationshipAdvisorRoutes';
+import { relationshipAdvisorRoutes } from '@/app/api/routes/relationshipAdvisorRoutes';
 
 async function createApp() {
     const app = fastify();

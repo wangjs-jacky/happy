@@ -6,7 +6,6 @@ vi.mock('./apiSocket', () => ({ apiSocket: { request } }));
 import {
     getPluginCatalog,
     installPlugin,
-    subscribePluginCatalogChanges,
     uninstallPlugin,
 } from './plugins';
 
@@ -43,8 +42,6 @@ describe('dynamic plugin client', () => {
     });
 
     it('pins the manifest version when installing and supports generic uninstall', async () => {
-        const onCatalogChanged = vi.fn();
-        const unsubscribe = subscribePluginCatalogChanges(onCatalogChanged);
         request
             .mockResolvedValueOnce(new Response(JSON.stringify({
                 installed: true, version: '2.1.0', configuration: {}, secretHints: {},
@@ -60,11 +57,5 @@ describe('dynamic plugin client', () => {
             body: JSON.stringify({ version: '2.1.0', configuration: { token: 'secret' } }),
         });
         expect(request).toHaveBeenNthCalledWith(2, '/v1/plugins/sample-plugin', { method: 'DELETE' });
-        expect(onCatalogChanged).toHaveBeenCalledTimes(2);
-
-        unsubscribe();
-        request.mockResolvedValueOnce(new Response(JSON.stringify({ installed: false }), { status: 200 }));
-        await uninstallPlugin('sample-plugin');
-        expect(onCatalogChanged).toHaveBeenCalledTimes(2);
     });
 });

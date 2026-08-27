@@ -6,7 +6,6 @@ import {
     resolveInstalledPluginEntrypoint,
     resolveInstalledPluginSurfaceViews,
     resolveInstalledPluginView,
-    resolvePluginDeclaredView,
 } from './pluginClientAdapters';
 
 function catalogItem(
@@ -45,7 +44,6 @@ function catalogItem(
                     : [
                         view('generated-images-gallery.browser', 'page'),
                         view('generated-images-gallery.session-images', 'right-panel'),
-                        view('generated-images-gallery.configuration', 'modal'),
                     ],
             },
             configuration: { fields: [] },
@@ -80,10 +78,7 @@ describe('Paws plugin host client adapters', () => {
         expect(resolveInstalledPluginSurfaceViews(plugins, 'right-panel').map((view) => view.viewId))
             .toEqual(['generated-images-gallery.session-images']);
         expect(resolveInstalledPluginSurfaceViews(plugins, 'modal').map((view) => view.viewId))
-            .toEqual([
-                'relationship-advisor.configuration',
-                'generated-images-gallery.configuration',
-            ]);
+            .toEqual(['relationship-advisor.configuration']);
     });
 
     it('retracts every contribution immediately when a plugin is uninstalled or stale', () => {
@@ -104,17 +99,22 @@ describe('Paws plugin host client adapters', () => {
         expect(resolveInstalledPluginView(advisor, 'relationship-advisor.unknown', 'modal')).toBeNull();
     });
 
-    it('resolves a trusted modal adapter before installation for marketplace configuration', () => {
+    it('does not activate a declared modal before installation', () => {
         const advisor = catalogItem('relationship-advisor', false);
 
-        expect(resolvePluginDeclaredView(
+        expect(resolveInstalledPluginView(
             advisor,
             'relationship-advisor.configuration',
             'modal',
-        )).toMatchObject({
-            componentId: 'plugin-configuration',
-            surface: 'modal',
-        });
+        )).toBeNull();
+    });
+
+    it('fails closed when a trusted adapter requires an undeclared capability', () => {
+        const gallery = catalogItem('generated-images-gallery');
+        gallery.manifest.permissions = [];
+
+        expect(resolveInstalledPluginEntrypoint(gallery)).toBeNull();
+        expect(resolveInstalledPluginSurfaceViews([gallery], 'right-panel')).toEqual([]);
     });
 
     it('registers and disposes a trusted Adapter as one reversible activation effect', () => {
