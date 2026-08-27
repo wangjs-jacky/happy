@@ -15,7 +15,7 @@ const credentials = {
 describe('MachinesResource', () => {
     it('returns decrypted SDK-owned values without encryption material', async () => {
         const transport = {
-            get: vi.fn().mockResolvedValue([{
+            getWithCredentials: vi.fn().mockResolvedValue({ data: [{
                 id: 'machine-1',
                 seq: 4,
                 createdAt: 10,
@@ -27,14 +27,13 @@ describe('MachinesResource', () => {
                 daemonState: encodeBase64(encryptLegacy({ status: 'ready' }, secret)),
                 daemonStateVersion: 3,
                 dataEncryptionKey: null,
-            }]),
-            getCredentials: vi.fn().mockResolvedValue(credentials),
+            }], credentials }),
         };
         const resource = new MachinesResourceImpl(transport as never);
 
         const result = await resource.list({ active: true });
 
-        expect(transport.get).toHaveBeenCalledWith('/v1/machines');
+        expect(transport.getWithCredentials).toHaveBeenCalledWith('/v1/machines');
         expect(result).toEqual([{
             id: 'machine-1',
             seq: 4,
@@ -52,12 +51,9 @@ describe('MachinesResource', () => {
     });
 
     it('uses the active snapshot endpoint when requested', async () => {
-        const transport = {
-            get: vi.fn().mockResolvedValue([]),
-            getCredentials: vi.fn().mockResolvedValue(credentials),
-        };
+        const transport = { getWithCredentials: vi.fn().mockResolvedValue({ data: [], credentials }) };
         const resource = new MachinesResourceImpl(transport as never);
         await resource.list({ active: true });
-        expect(transport.get).toHaveBeenCalledWith('/v1/machines');
+        expect(transport.getWithCredentials).toHaveBeenCalledWith('/v1/machines');
     });
 });

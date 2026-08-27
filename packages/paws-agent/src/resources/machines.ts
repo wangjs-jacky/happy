@@ -23,10 +23,9 @@ export class MachinesResourceImpl implements MachinesResource {
     ) {}
 
     async list(options: { active?: boolean } = {}): Promise<Machine[]> {
-        const [records, credentials] = await Promise.all([
-            this.transport.get<RawMachine[]>('/v1/machines'),
-            this.transport.getCredentials(),
-        ]);
+        const snapshot = await this.transport.getWithCredentials<RawMachine[]>('/v1/machines');
+        const records = snapshot.data;
+        const credentials = snapshot.credentials;
 
         const machines = records.map(record => {
             const encryption = resolveRecordEncryption(record, credentials, 'machine');

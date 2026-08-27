@@ -1,29 +1,29 @@
-export type { Credentials } from './credentials';
+export { PawsAgentClient } from './client/PawsAgentClient';
+export { PawsAgentError } from './client/errors';
+export type { PawsAgentErrorCode } from './client/errors';
 export type {
-    DecryptedMachine,
-    DecryptedMessage,
-    DecryptedSession,
-    EncryptionVariant,
-    RecordEncryption,
-    SessionEncryption,
-} from './api';
-export {
-    createSession,
-    deleteSession,
-    getSessionMessages,
-    listActiveSessions,
-    listMachines,
-    listSessions,
-    resolveMachineEncryption,
-    resolveSessionEncryption,
-} from './api';
-export { SessionClient } from './session';
-export type { SessionClientOptions } from './session';
-export {
-    resumeSessionOnMachine,
-    spawnSessionOnMachine,
-} from './machineRpc';
-export type {
-    SpawnMachineSessionResult,
+    AgentLogger,
+    AgentRequest,
+    AgentStorage,
+    ConnectionState,
+    CredentialProvider,
+    Machine,
+    MachinesResource,
+    Message,
+    MessagesResource,
+    PawsAgentClientOptions,
+    PawsAgentEvent,
+    PawsAgentEventListener,
+    PawsCredentials,
+    ReconnectPolicy,
+    RequestsResource,
+    ResolveRequestInput,
+    ResumeSessionInput,
+    SendMessageInput,
+    SendMessageReceipt,
+    Session,
+    SessionsResource,
+    SpawnSessionInput,
+    SpawnSessionResult,
     SupportedAgent,
-} from './machineRpc';
+} from './client/types';

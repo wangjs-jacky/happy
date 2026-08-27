@@ -32,11 +32,16 @@ export class PawsHttpTransport {
     }
 
     async get<T>(path: string): Promise<T> {
+        return (await this.getWithCredentials<T>(path)).data;
+    }
+
+    async getWithCredentials<T>(path: string): Promise<{ data: T; credentials: PawsCredentials }> {
         try {
+            const credentials = await this.getCredentials();
             const response = await this.client.get(this.url(path), {
-                headers: await this.headers(),
+                headers: this.headers(credentials),
             });
-            return response.data as T;
+            return { data: response.data as T, credentials };
         } catch (error) {
             throw normalizeHttpError(error, `GET ${path}`);
         }
@@ -45,7 +50,7 @@ export class PawsHttpTransport {
     async post<T>(path: string, body: unknown): Promise<T> {
         try {
             const response = await this.client.post(this.url(path), body, {
-                headers: await this.headers(),
+                headers: this.headers(await this.getCredentials()),
             });
             return response.data as T;
         } catch (error) {
@@ -56,7 +61,7 @@ export class PawsHttpTransport {
     async delete(path: string): Promise<void> {
         try {
             await this.client.delete(this.url(path), {
-                headers: await this.headers(),
+                headers: this.headers(await this.getCredentials()),
             });
         } catch (error) {
             throw normalizeHttpError(error, `DELETE ${path}`);
@@ -70,8 +75,7 @@ export class PawsHttpTransport {
         return this.serverUrl + path;
     }
 
-    private async headers(): Promise<Record<string, string>> {
-        const credentials = await this.getCredentials();
+    private headers(credentials: PawsCredentials): Record<string, string> {
         return {
             Authorization: `Bearer ${credentials.token}`,
             'X-Happy-Client': COMPATIBILITY_CLIENT,
