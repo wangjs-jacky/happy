@@ -52,7 +52,18 @@ describe('useRelationshipAdvisorPlugin', () => {
         });
         expect(mocks.enabled).toBe(false);
 
-        mocks.item = { manifest: { id: 'relationship-advisor' }, status: { installed: false } };
+        mocks.item = {
+            manifest: {
+                id: 'relationship-advisor',
+                version: '1.1.1',
+                permissions: ['paws.ai.provider.invoke', 'paws.secrets.use'],
+                entrypoint: { type: 'view', viewId: 'relationship-advisor.chat' },
+                contributes: {
+                    views: [{ id: 'relationship-advisor.chat', surface: 'page' }],
+                },
+            },
+            status: { installed: false },
+        };
         await act(async () => {
             renderer.update(<Probe enabled />);
         });

@@ -1,3 +1,4 @@
+import { resolveInstalledPluginEntrypoint } from '@/components/plugins/pluginClientAdapters';
 import { usePlugins } from './usePlugins';
 
 type RelationshipAdvisorPluginStatus =
@@ -8,8 +9,9 @@ type RelationshipAdvisorPluginStatus =
 export function useRelationshipAdvisorPlugin(enabled = true) {
     const { getPlugin, loading, refresh } = usePlugins(enabled);
     const item = getPlugin('relationship-advisor');
+    const entrypoint = item ? resolveInstalledPluginEntrypoint(item) : null;
     const status: RelationshipAdvisorPluginStatus | null = item
-        ? item.status.installed && item.status.version === item.manifest.version
+        ? item.status.installed && entrypoint
             ? {
                 installed: true,
                 baseUrl: item.status.configuration.baseUrl,

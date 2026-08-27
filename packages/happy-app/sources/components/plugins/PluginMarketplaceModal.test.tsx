@@ -21,7 +21,11 @@ const manifest = (id: string, installedAction: 'configure' | 'open') => ({
     icon: 'apps-outline',
     featured: true,
     installedAction,
-    permissions: [],
+    permissions: id === 'relationship-advisor'
+        ? ['paws.ai.provider.invoke', 'paws.secrets.use']
+        : id === 'generated-images-gallery'
+            ? ['paws.conversations.images.read']
+            : [],
     entrypoint: { type: 'view', viewId: id === 'relationship-advisor'
         ? 'relationship-advisor.chat'
         : id === 'generated-images-gallery'
@@ -191,6 +195,28 @@ describe('PluginMarketplaceModal', () => {
         expect(renderer.root.findByProps({
             testID: 'plugin-marketplace-plugin-server-added-plugin',
         })).toBeTruthy();
+        act(() => renderer.unmount());
+    });
+
+    it('falls back to host configuration when an installed plugin has no trusted modal adapter', () => {
+        mocks.plugins.push({
+            manifest: manifest('server-added-plugin', 'configure'),
+            status: { installed: true, version: '1.0.0', configuration: {}, secretHints: {} },
+        });
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <PluginMarketplaceModal
+                    initialPluginId="server-added-plugin"
+                    visible
+                    onClose={vi.fn()}
+                />,
+            );
+        });
+
+        expect(renderer.root.findAllByType('PluginModalSlot')).toHaveLength(0);
+        expect(renderer.root.findByType('DynamicPluginConfiguration').props.plugin.manifest.id)
+            .toBe('server-added-plugin');
         act(() => renderer.unmount());
     });
 

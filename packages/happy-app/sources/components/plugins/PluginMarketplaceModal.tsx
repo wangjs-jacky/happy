@@ -20,7 +20,7 @@ import { usePlugins } from '@/hooks/usePlugins';
 import { t } from '@/text';
 import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
 import { PluginModalSlot } from './PluginModalSlot';
-import { resolveInstalledPluginEntrypoint } from './pluginClientAdapters';
+import { resolveInstalledPluginEntrypoint, resolveInstalledPluginView } from './pluginClientAdapters';
 import { resolvePluginText } from './pluginText';
 
 type Props = {
@@ -107,11 +107,12 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
             .includes(normalizedQuery);
     }), [normalizedQuery, plugins]);
     const activePlugin = plugins.find((plugin) => plugin.manifest.id === activePluginId);
-    const hasActiveInstalledModal = Boolean(
-        activePlugin?.status.installed
-        && activePlugin.status.version === activePlugin.manifest.version
-        && activePlugin.manifest.contributes.views.some((view) => view.surface === 'modal'),
-    );
+    const activeModalContribution = activePlugin?.manifest.contributes.views.find((view) => (
+        view.surface === 'modal'
+    ));
+    const activeInstalledModal = activePlugin && activeModalContribution
+        ? resolveInstalledPluginView(activePlugin, activeModalContribution.id, 'modal')
+        : null;
     const installedPlugins = plugins.filter((plugin) => plugin.status.installed);
 
     const openPlugin = React.useCallback((plugin: PluginCatalogItem) => {
@@ -186,7 +187,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
 
                     {activePlugin ? (
                         <View style={styles.configurationContent}>
-                            {hasActiveInstalledModal ? (
+                            {activeInstalledModal?.componentId === 'plugin-configuration' ? (
                                 <PluginModalSlot
                                     onInstalled={activePlugin.manifest.installedAction === 'open'
                                         ? () => openPlugin(activePlugin)
