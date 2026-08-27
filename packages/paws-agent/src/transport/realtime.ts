@@ -54,7 +54,7 @@ export class PawsRealtimeTransport {
 
         const credentials = await this.options.credentials.getCredentials();
         if (!credentials) {
-            throw new PawsAgentError('AUTH_REQUIRED', 'Not authenticated. Run `paws-agent auth login` first.');
+            throw new PawsAgentError('AUTH_REQUIRED', 'Authentication required');
         }
 
         this.manualDisconnect = false;

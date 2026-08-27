@@ -26,7 +26,7 @@ export class PawsHttpTransport {
     async getCredentials(): Promise<PawsCredentials> {
         const credentials = await this.credentials.getCredentials();
         if (!credentials) {
-            throw new PawsAgentError('AUTH_REQUIRED', 'Not authenticated. Run `paws-agent auth login` first.');
+            throw new PawsAgentError('AUTH_REQUIRED', 'Authentication required');
         }
         return credentials;
     }

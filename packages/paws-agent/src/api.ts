@@ -1,5 +1,4 @@
 import axios, { AxiosError } from 'axios';
-import type { SessionMessage as WireSessionMessage } from '@slopus/happy-wire';
 import type { Config } from './config';
 import type { Credentials } from './credentials';
 import {
@@ -80,7 +79,14 @@ export type DecryptedMachine = {
     encryption: RecordEncryption;
 };
 
-export type RawMessage = WireSessionMessage;
+export type RawMessage = {
+    id: string;
+    seq: number;
+    content: { t: 'encrypted'; c: string };
+    localId?: string | null;
+    createdAt: number;
+    updatedAt: number;
+};
 
 export type DecryptedMessage = {
     id: string;

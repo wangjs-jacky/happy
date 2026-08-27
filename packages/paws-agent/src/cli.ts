@@ -3,6 +3,7 @@
 import { Command, CommanderError } from 'commander';
 import { join } from 'node:path';
 import { PawsAgentClient } from './client/PawsAgentClient';
+import { PawsAgentError } from './client/errors';
 import type { Machine, PawsAgentClientOptions, Session, SupportedAgent } from './client/types';
 import { FileCredentialProvider } from './adapters/nodeCredentials';
 import { authLogin, authLogout, authStatus } from './auth';
@@ -258,7 +259,9 @@ export async function runCli(argv: string[] = process.argv, dependencies?: CliDe
             if (error.exitCode !== 0) process.exitCode = 2;
             return;
         }
-        const message = error instanceof Error ? error.message : 'Operation failed';
+        const message = error instanceof PawsAgentError && error.code === 'AUTH_REQUIRED'
+            ? 'Not authenticated. Run `paws-agent auth login` first.'
+            : error instanceof Error ? error.message : 'Operation failed';
         resolvedDependencies.stderr(message + '\n');
         process.exitCode = 1;
     } finally {
