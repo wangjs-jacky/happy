@@ -1378,6 +1378,8 @@ export const pt: TranslationStructure = {
         codeCopied: 'Código copiado',
         copyFailed: 'Falha ao copiar',
         mermaidRenderFailed: 'Falha ao renderizar diagrama mermaid',
+        mermaidOpenFullscreen: 'Abrir diagrama em tela cheia',
+        mermaidCloseFullscreen: 'Fechar diagrama em tela cheia',
     },
 
     artifacts: {

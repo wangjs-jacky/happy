@@ -1395,6 +1395,8 @@ export const ru: TranslationStructure = {
         codeCopied: 'Код скопирован',
         copyFailed: 'Ошибка копирования',
         mermaidRenderFailed: 'Не удалось отобразить диаграмму mermaid',
+        mermaidOpenFullscreen: 'Открыть диаграмму на весь экран',
+        mermaidCloseFullscreen: 'Закрыть полноэкранную диаграмму',
     },
 
     artifacts: {
