@@ -176,8 +176,6 @@ function buildNativeDocument(content: string, config: MermaidThemeConfig): strin
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.min.js"></script>
     <style>
         html, body { height: 100%; margin: 0; overflow: hidden; background: ${background}; }
         body { padding: 16px; box-sizing: border-box; }
@@ -196,7 +194,62 @@ function buildNativeDocument(content: string, config: MermaidThemeConfig): strin
             const post = function(payload) {
                 if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(payload));
             };
+            const loadScript = function(source, globalName) {
+                if (window[globalName]) return Promise.resolve();
+                return new Promise(function(resolve, reject) {
+                    const script = document.createElement('script');
+                    let settled = false;
+                    const finish = function(error) {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timeout);
+                        script.onload = null;
+                        script.onerror = null;
+                        if (error) {
+                            script.remove();
+                            reject(error);
+                        } else {
+                            resolve();
+                        }
+                    };
+                    const timeout = setTimeout(function() {
+                        finish(new Error(globalName + ' timed out from ' + source));
+                    }, 6000);
+                    script.async = true;
+                    script.src = source;
+                    script.onload = function() {
+                        finish(window[globalName] ? null : new Error(globalName + ' missing after loading ' + source));
+                    };
+                    script.onerror = function() {
+                        finish(new Error(globalName + ' failed from ' + source));
+                    };
+                    document.head.appendChild(script);
+                });
+            };
+            const loadScriptWithFallback = async function(globalName, sources) {
+                const errors = [];
+                for (const source of sources) {
+                    try {
+                        await loadScript(source, globalName);
+                        return;
+                    } catch (error) {
+                        errors.push(error && error.message ? error.message : String(error));
+                    }
+                }
+                throw new Error(errors.join('; '));
+            };
             try {
+                await Promise.all([
+                    loadScriptWithFallback('mermaid', [
+                        'https://registry.npmmirror.com/mermaid/11.12.2/files/dist/mermaid.min.js',
+                        'https://unpkg.com/mermaid@11.12.2/dist/mermaid.min.js',
+                        'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js'
+                    ]),
+                    loadScriptWithFallback('Panzoom', [
+                        'https://unpkg.com/@panzoom/panzoom@4.6.2/dist/panzoom.min.js',
+                        'https://cdn.jsdelivr.net/npm/@panzoom/panzoom@4.6.2/dist/panzoom.min.js'
+                    ])
+                ]);
                 mermaid.initialize(config);
                 const result = await mermaid.render('mermaid-diagram', content);
                 viewport.innerHTML = result.svg;
