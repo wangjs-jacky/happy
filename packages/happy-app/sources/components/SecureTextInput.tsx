@@ -11,36 +11,53 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 
 type Props = Omit<TextInputProps, 'secureTextEntry' | 'style'> & {
+    emptyValueAccessibilityLabel: string;
     hideValueAccessibilityLabel: string;
     showValueAccessibilityLabel: string;
     visibilityButtonTestID?: string;
 };
 
 export const SecureTextInput = React.memo(React.forwardRef<TextInput, Props>(function SecureTextInput({
+    emptyValueAccessibilityLabel,
     hideValueAccessibilityLabel,
     showValueAccessibilityLabel,
+    value,
     visibilityButtonTestID,
     ...inputProps
 }, ref) {
     const { theme } = useUnistyles();
     const [valueVisible, setValueVisible] = React.useState(false);
+    const hasValue = Boolean(value?.length);
+
+    React.useEffect(() => {
+        if (!hasValue) setValueVisible(false);
+    }, [hasValue]);
 
     return (
         <View style={styles.container}>
             <TextInput
                 {...inputProps}
                 ref={ref}
-                secureTextEntry={!valueVisible}
+                secureTextEntry={!hasValue || !valueVisible}
                 style={styles.input}
+                value={value}
             />
             <Pressable
-                accessibilityLabel={valueVisible
-                    ? hideValueAccessibilityLabel
-                    : showValueAccessibilityLabel}
+                accessibilityLabel={!hasValue
+                    ? emptyValueAccessibilityLabel
+                    : valueVisible
+                        ? hideValueAccessibilityLabel
+                        : showValueAccessibilityLabel}
                 accessibilityRole="button"
+                accessibilityState={{ disabled: !hasValue }}
+                disabled={!hasValue}
                 hitSlop={6}
                 onPress={() => setValueVisible((current) => !current)}
-                style={({ pressed }) => [styles.visibilityButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                    styles.visibilityButton,
+                    !hasValue && styles.disabled,
+                    pressed && hasValue && styles.pressed,
+                ]}
                 testID={visibilityButtonTestID}
             >
                 <Ionicons
@@ -82,5 +99,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     pressed: {
         opacity: 0.55,
+    },
+    disabled: {
+        opacity: 0.4,
     },
 }));

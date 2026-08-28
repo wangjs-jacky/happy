@@ -172,19 +172,36 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
             await expect(visibilityToggle).toHaveCount(0);
         } else {
             await expect(visibilityToggle).toBeVisible();
+            await expect(visibilityToggle).toBeDisabled();
         }
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 3), fullPage: true });
 
         if (evidencePhase === 'after') {
             await secretInput.fill('e2e-replacement-secret');
+            await expect(visibilityToggle).toBeEnabled();
             await visibilityToggle.click();
             await expect.poll(() => secretInput.evaluate((element) => (
                 (element as HTMLInputElement).type
             ))).toBe('text');
             await expect(secretInput).toHaveValue('e2e-replacement-secret');
+            await pauseForRecordedReview(page);
+
+            await secretInput.fill('');
+            await expect(secretInput).toHaveAttribute('type', 'password');
+            await expect(visibilityToggle).toBeDisabled();
+            await pauseForRecordedReview(page);
+
+            await secretInput.fill('e2e-replacement-secret');
+            await expect(visibilityToggle).toBeEnabled();
+            await visibilityToggle.click();
+            await expect.poll(() => secretInput.evaluate((element) => (
+                (element as HTMLInputElement).type
+            ))).toBe('text');
+            await pauseForRecordedReview(page);
             await visibilityToggle.click();
             await expect(secretInput).toHaveAttribute('type', 'password');
+            await pauseForRecordedReview(page);
         }
     } finally {
         await page.close();

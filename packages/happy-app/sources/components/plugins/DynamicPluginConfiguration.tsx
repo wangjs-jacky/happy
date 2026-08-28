@@ -86,6 +86,7 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
                                         accessibilityLabel={label}
                                         autoCapitalize="none"
                                         autoCorrect={false}
+                                        emptyValueAccessibilityLabel={`${label} · ${t('relationshipAdvisorPlugin.encryptionNotice')}`}
                                         hideValueAccessibilityLabel={`${label} · ${t('settingsAccount.tapToHide')}`}
                                         onChangeText={(value) => setValues((current) => ({
                                             ...current,
