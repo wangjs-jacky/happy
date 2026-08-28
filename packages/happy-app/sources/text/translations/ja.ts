@@ -155,7 +155,6 @@ export const ja: TranslationStructure = {
         zoomIn: '拡大',
         zoomOut: '縮小',
         resetZoom: 'ズームをリセット',
-        commandPaletteDisabled: '設定でコマンドパレットのショートカットを有効にしてください',
     },
     composeHome: {
         greeting: ({ name }: { name: string }) => `こんにちは ${name}さん、今日は何をしますか？`,
@@ -496,9 +495,6 @@ export const ja: TranslationStructure = {
         enterToSend: 'Enterで送信',
         enterToSendEnabled: 'Enterで送信（Shift+Enterで改行）',
         enterToSendDisabled: 'Enterで改行',
-        commandPalette: 'コマンドパレット',
-        commandPaletteEnabled: '⌘Pで開く',
-        commandPaletteDisabled: 'クイックコマンドアクセスは無効',
         markdownCopyV2: 'Markdownコピー v2',
         markdownCopyV2Subtitle: '長押しでコピーモーダルを開く',
         hideInactiveSessions: 'アーカイブ済みセッションを非表示',
