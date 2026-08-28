@@ -188,19 +188,21 @@ await client.dispose();
 
 The package is currently consumed through workspace linking or an exact verified tarball while npm account recovery is pending. Do not claim registry availability until the first trusted-publishing workflow succeeds.
 
-Maintainers prepare a release commit and tag with:
+Maintainers prepare the version and changelog on a dedicated release PR branch with:
 
 ```bash
-pnpm --filter @wangjs-jacky/paws-agent release
+git switch -c release/paws-agent-v0.1.0
+pnpm --filter @wangjs-jacky/paws-agent release:prepare -- 0.1.0
 ```
 
 This flow:
-- runs tests/build checks via `prepublishOnly`
-- creates a release commit and `paws-agent-vX.Y.Z` tag
-- creates a GitHub release with generated notes
-- lets the tag-gated GitHub Actions workflow publish the exact verified tarball through npm trusted publishing
+- updates the package manifest and deterministic changelog without committing, tagging, or pushing `main`
+- requires a PR titled `chore(agent): release paws-agent vX.Y.Z` from the matching `release/paws-agent-vX.Y.Z` branch
+- creates the immutable tag only after that release PR merges
+- dispatches the tag-gated workflow, which publishes and verifies the exact tarball through npm trusted publishing
+- rolls `latest` back and deprecates a failed stable version when registry credentials permit
 
-The workflow is idempotent, maps prereleases to the `next` dist-tag and stable versions to `latest`, and performs a clean registry install before creating release evidence.
+The workflow is idempotent, maps prereleases to the `next` dist-tag and stable versions to `latest`, compares an already-existing registry version to the local tarball byte-for-byte, and repeats clean Node, CJS, Chromium, CLI, and isolated E2E checks before creating release evidence.
 
 ## License
 

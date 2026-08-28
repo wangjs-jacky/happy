@@ -43,4 +43,41 @@ describe('SessionsResource', () => {
         expect(JSON.stringify(result)).not.toContain('dataEncryptionKey');
         expect(JSON.stringify(result)).not.toContain('secret');
     });
+
+    it.each([
+        null,
+        {},
+        { type: 'success' },
+        { type: 'requestToApproveDirectoryCreation' },
+        { type: 'error' },
+        { type: 'unexpected', sessionId: 'session-1' },
+    ])('rejects malformed spawn RPC results: %j', async malformed => {
+        const realtime = { machineRpc: vi.fn().mockResolvedValue(malformed) };
+        const sessions = new SessionsResourceImpl(
+            {} as never,
+            realtime as never,
+            new RecordEncryptionStore(),
+            vi.fn().mockResolvedValue([{ id: 'machine-1' }]),
+        );
+
+        await expect(sessions.spawn({ machineId: 'machine-1', directory: '/tmp/project' }))
+            .rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    });
+
+    it.each([
+        { type: 'success', sessionId: 'session-1' },
+        { type: 'requestToApproveDirectoryCreation', directory: '/tmp/new' },
+        { type: 'error', errorMessage: 'failed' },
+    ])('accepts a valid spawn RPC result: %j', async result => {
+        const realtime = { machineRpc: vi.fn().mockResolvedValue(result) };
+        const sessions = new SessionsResourceImpl(
+            {} as never,
+            realtime as never,
+            new RecordEncryptionStore(),
+            vi.fn().mockResolvedValue([{ id: 'machine-1' }]),
+        );
+
+        await expect(sessions.spawn({ machineId: 'machine-1', directory: '/tmp/project' }))
+            .resolves.toEqual(result);
+    });
 });

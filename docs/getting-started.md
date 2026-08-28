@@ -61,7 +61,7 @@ This repository is a pnpm monorepo.
 | `packages/happy-app` | `happy-app` | Expo / React Native app for iOS, Android, web, and desktop experiments |
 | `packages/happy-cli` | `@wangjs-jacky/paws` | `paws` CLI, `happy` compatibility alias, agent runners, daemon, local state, auth, and sync |
 | `packages/happy-server` | `happy-server-self-host` | Fastify + Socket.IO backend for encrypted sync and self-hosting |
-| `packages/paws-agent` | `paws-agent` | Browser-safe SDK and CLI for machines, sessions, messages, requests, and realtime events |
+| `packages/paws-agent` | `@wangjs-jacky/paws-agent` | Browser-safe SDK and CLI for machines, sessions, messages, requests, and realtime events |
 | `packages/happy-wire` | `@slopus/happy-wire` | Shared wire schemas and protocol types |
 | `packages/happy-app-logs` | `happy-app-logs` | Development helper for app logs |
 | `packages/codium` | `codium` | Desktop / experimental package |

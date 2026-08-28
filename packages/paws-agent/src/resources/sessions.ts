@@ -75,13 +75,14 @@ export class SessionsResourceImpl implements SessionsResource {
         this.requireId(input.machineId, 'machineId');
         this.requireId(input.directory, 'directory');
         await this.ensureMachine(input.machineId);
-        return this.realtime.machineRpc(input.machineId, 'spawn-happy-session', {
+        const result = await this.realtime.machineRpc<unknown>(input.machineId, 'spawn-happy-session', {
             type: 'spawn-in-directory',
             directory: input.directory,
             approvedNewDirectoryCreation: input.approvedNewDirectoryCreation ?? false,
             token: input.providerToken,
             agent: input.agent,
         });
+        return this.parseSpawnResult(result);
     }
 
     async resume(input: ResumeSessionInput): Promise<SpawnSessionResult> {
@@ -91,9 +92,10 @@ export class SessionsResourceImpl implements SessionsResource {
             throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Session does not identify its machine');
         }
         await this.ensureMachine(metadata.machineId);
-        return this.realtime.machineRpc(metadata.machineId, 'resume-happy-session', {
+        const result = await this.realtime.machineRpc<unknown>(metadata.machineId, 'resume-happy-session', {
             sessionId: session.id,
         });
+        return this.parseSpawnResult(result);
     }
 
     async stop(sessionId: string): Promise<void> {
@@ -122,5 +124,26 @@ export class SessionsResourceImpl implements SessionsResource {
         if (!value.trim()) {
             throw new PawsAgentError('INVALID_ARGUMENT', `${name} is required`);
         }
+    }
+
+    private parseSpawnResult(value: unknown): SpawnSessionResult {
+        if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+            throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Machine RPC returned a malformed session result');
+        }
+        const result = value as Record<string, unknown>;
+        if (result.type === 'success' && typeof result.sessionId === 'string' && result.sessionId.length > 0) {
+            return { type: 'success', sessionId: result.sessionId };
+        }
+        if (
+            result.type === 'requestToApproveDirectoryCreation'
+            && typeof result.directory === 'string'
+            && result.directory.length > 0
+        ) {
+            return { type: 'requestToApproveDirectoryCreation', directory: result.directory };
+        }
+        if (result.type === 'error' && typeof result.errorMessage === 'string' && result.errorMessage.length > 0) {
+            return { type: 'error', errorMessage: result.errorMessage };
+        }
+        throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Machine RPC returned a malformed session result');
     }
 }

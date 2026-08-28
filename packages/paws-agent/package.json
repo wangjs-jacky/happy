@@ -68,7 +68,7 @@
     "verify:pack": "node scripts/verify-pack.mjs",
     "dev": "tsx src/cli.ts",
     "prepublishOnly": "$npm_execpath run build && $npm_execpath test",
-    "release": "npx --no-install release-it"
+    "release:prepare": "node scripts/prepare-release.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "^2.0.1",
@@ -85,7 +85,6 @@
     "@types/node": ">=20",
     "@types/qrcode-terminal": "^0.12.2",
     "pkgroll": "^2.14.2",
-    "release-it": "^19.0.6",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
     "vitest": "^3.2.4"

@@ -18,11 +18,6 @@ import { SessionsResourceImpl } from '../resources/sessions';
 import { PawsHttpTransport } from '../transport/http';
 import { PawsRealtimeTransport } from '../transport/realtime';
 
-type ClientDependencies = {
-    http?: PawsHttpTransport;
-    realtime?: PawsRealtimeTransport;
-};
-
 export class PawsAgentClient {
     readonly machines: MachinesResource;
     readonly sessions: SessionsResource;
@@ -36,13 +31,13 @@ export class PawsAgentClient {
     private readonly sessionsImpl: SessionsResourceImpl;
     private disposed = false;
 
-    constructor(options: PawsAgentClientOptions, dependencies: ClientDependencies = {}) {
+    constructor(options: PawsAgentClientOptions) {
         this.events = new PawsAgentEvents(options.logger);
-        const http = dependencies.http ?? new PawsHttpTransport(options);
+        const http = new PawsHttpTransport(options);
         this.http = http;
         const machines = new MachinesResourceImpl(http, this.encryption);
         let sessions!: SessionsResourceImpl;
-        this.realtime = dependencies.realtime ?? new PawsRealtimeTransport({
+        this.realtime = new PawsRealtimeTransport({
             serverUrl: options.serverUrl,
             credentials: options.credentials,
             encryption: this.encryption,

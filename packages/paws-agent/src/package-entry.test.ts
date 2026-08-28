@@ -38,4 +38,12 @@ describe('package root', () => {
             'createDefaultFileCredentialProvider',
         ]);
     });
+
+    it('keeps transport dependencies out of the public client constructor', async () => {
+        const declaration = await readFile(new URL('../dist/index.d.mts', import.meta.url), 'utf8');
+        expect(declaration).toContain('constructor(options: PawsAgentClientOptions);');
+        expect(declaration).not.toContain('ClientDependencies');
+        expect(declaration).not.toContain('PawsHttpTransport');
+        expect(declaration).not.toContain('PawsRealtimeTransport');
+    });
 });

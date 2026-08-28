@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './output';
-import type { Message, Session } from './client/types';
+import type { Message, Session } from '../client/types';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
     return {

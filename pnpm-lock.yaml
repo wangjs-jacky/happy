@@ -1275,9 +1275,6 @@ importers:
       pkgroll:
         specifier: ^2.14.2
         version: 2.22.0(typescript@5.9.3)
-      release-it:
-        specifier: ^19.0.6
-        version: 19.2.4(@types/node@20.19.39)
       tsx:
         specifier: ^4.20.6
         version: 4.21.0

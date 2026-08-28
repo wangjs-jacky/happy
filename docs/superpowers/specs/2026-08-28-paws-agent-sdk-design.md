@@ -289,7 +289,7 @@ PR jobs may cancel obsolete runs. Release jobs use a non-cancelling concurrency 
 
 ## Release Design
 
-Ordinary merges to `main` do not publish this package. A release PR owns the package version and changelog. Merging the release PR creates a `paws-agent-v<version>` tag and triggers `.github/workflows/paws-agent-npm-publish.yml`.
+Ordinary merges to `main` do not publish this package. A release PR owns the package version and changelog. The release PR must use the matching `release/paws-agent-v<version>` branch and `chore(agent): release paws-agent v<version>` title. Merging it creates a `paws-agent-v<version>` tag and dispatches `.github/workflows/paws-agent-npm-publish.yml`; no release tooling commits or pushes directly to `main`.
 
 The release workflow:
 

@@ -15,7 +15,7 @@ export function validateReleaseContract({ tag, version, tagSha, headSha }) {
 async function main() {
     const manifest = JSON.parse(await readFile(resolve(packageDir, 'package.json'), 'utf8'));
     const result = validateReleaseContract({
-        tag: process.env.GITHUB_REF_NAME,
+        tag: process.env.PAWS_RELEASE_TAG ?? process.env.GITHUB_REF_NAME,
         version: manifest.version,
         tagSha: process.env.PAWS_TAG_SHA,
         headSha: process.env.GITHUB_SHA,

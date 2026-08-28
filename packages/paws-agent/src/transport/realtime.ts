@@ -177,10 +177,16 @@ export class PawsRealtimeTransport {
                 params: encodeBase64(encrypt(encryption.key, encryption.variant, params)),
             });
             if (!response.ok) {
-                const code = scope === 'machine' && response.error === 'RPC method not available'
-                    ? 'MACHINE_OFFLINE'
-                    : 'UNKNOWN';
-                throw new PawsAgentError(code, code === 'MACHINE_OFFLINE' ? 'Machine is offline' : 'RPC call failed');
+                const timedOut = typeof response.error === 'string' && /timed? out|timeout/i.test(response.error);
+                const code = timedOut
+                    ? 'RPC_TIMEOUT'
+                    : scope === 'machine' && response.error === 'RPC method not available'
+                        ? 'MACHINE_OFFLINE'
+                        : 'UNKNOWN';
+                const message = code === 'RPC_TIMEOUT'
+                    ? 'RPC call timed out'
+                    : code === 'MACHINE_OFFLINE' ? 'Machine is offline' : 'RPC call failed';
+                throw new PawsAgentError(code, message);
             }
             if (typeof response.result !== 'string') {
                 throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'RPC response is missing an encrypted result');

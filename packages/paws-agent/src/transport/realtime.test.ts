@@ -196,4 +196,26 @@ describe('PawsRealtimeTransport', () => {
         await expect(realtime.machineRpc('machine-1', 'spawn-happy-session', {}))
             .rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
     });
+
+    it('normalizes a server-side RPC timeout response', async () => {
+        const socket = new MockSocket();
+        const encryption = new RecordEncryptionStore();
+        encryption.setSession('session-1', { key: credentials.secret, variant: 'legacy' });
+        socket.emitWithAck.mockResolvedValue({ ok: false, error: 'operation has timed out' });
+        const realtime = new PawsRealtimeTransport({
+            serverUrl: 'https://paws.example',
+            credentials: { getCredentials: vi.fn().mockResolvedValue(credentials) } as never,
+            encryption,
+            events: new PawsAgentEvents(),
+            resync: vi.fn(),
+            socketFactory: () => socket as never,
+        });
+        const connecting = realtime.connect();
+        await vi.waitFor(() => expect(socket.listeners.has('connect')).toBe(true));
+        socket.server('connect');
+        await connecting;
+
+        await expect(realtime.sessionRpc('session-1', 'permission', {}))
+            .rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
+    });
 });

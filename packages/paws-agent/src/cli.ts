@@ -2,6 +2,7 @@
 
 import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { join } from 'node:path';
+import packageMetadata from '../package.json' with { type: 'json' };
 import { PawsAgentClient } from './client/PawsAgentClient';
 import { PawsAgentError } from './client/errors';
 import type { Machine, PawsAgentClientOptions, Session, SupportedAgent } from './client/types';
@@ -14,7 +15,7 @@ import {
     formatMessageHistory,
     formatSessionStatus,
     formatSessionTable,
-} from './output';
+} from './cli/output';
 
 const SUPPORTED_AGENTS: SupportedAgent[] = ['ask', 'claude', 'codex', 'gemini', 'opencode', 'openclaw'];
 
@@ -126,7 +127,7 @@ export function createCli(dependencies: CliDependencies = defaultDependencies())
     const program = new Command()
         .name('paws-agent')
         .description('CLI client for controlling Paws agents remotely')
-        .version('0.1.0-beta.1')
+        .version(packageMetadata.version)
         .exitOverride()
         .configureOutput({
             writeOut: value => dependencies.stdout(value),

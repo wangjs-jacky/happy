@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -34,7 +35,13 @@ describe('paws-agent CLI', () => {
 
     it('should display version', () => {
         const { stdout } = runCli('--version');
-        expect(stdout.trim()).toBe('0.1.0-beta.1');
+        const manifest = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf8')) as { version: string };
+        expect(stdout.trim()).toBe(manifest.version);
+    });
+
+    it('sources the CLI version from package metadata instead of a duplicate literal', () => {
+        const source = readFileSync(resolve(__dirname, 'cli.ts'), 'utf8');
+        expect(source).not.toMatch(/\.version\(['\"]\d+\.\d+\.\d+/);
     });
 
     it('should list all expected commands in help', () => {

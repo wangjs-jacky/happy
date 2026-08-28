@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   workspace:
+    name: workspace typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -32,7 +33,6 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --if-present typecheck
-      - run: pnpm -r --workspace-concurrency=4 --if-present test -- --run
 
   unit:
     strategy:
@@ -81,6 +81,7 @@ jobs:
           npm init -y
           npm install --ignore-scripts (Get-ChildItem *.tgz | Select-Object -First 1).FullName
           node -e "import('@wangjs-jacky/paws-agent').then(x => { if (typeof x.PawsAgentClient !== 'function') process.exit(1) })"
+          node -e "const x = require('@wangjs-jacky/paws-agent'); if (typeof x.PawsAgentClient !== 'function') process.exit(1)"
           .\node_modules\.bin\paws-agent.cmd --version
 
   integration:

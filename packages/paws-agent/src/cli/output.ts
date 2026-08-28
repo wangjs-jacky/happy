@@ -1,4 +1,4 @@
-import type { Machine, Message, Session } from './client/types';
+import type { Machine, Message, Session } from '../client/types';
 
 // --- Types ---
 

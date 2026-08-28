@@ -24,16 +24,30 @@ import {
     encrypt,
     decrypt,
     deriveKey,
-} from './encryption';
+} from './crypto/encryption';
+import { resolveRecordEncryption } from './crypto/records';
+import type { Session } from './client/types';
 import { loadConfig } from './config';
 import type { Config } from './config';
 import type { Credentials } from './credentials';
-import type { RawSession, RawMessage, DecryptedSession, EncryptionVariant } from './api';
-import { resolveSessionEncryption } from './api';
-import { formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './output';
+import { formatSessionTable, formatSessionStatus, formatMessageHistory, formatJson } from './cli/output';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const binPath = resolve(__dirname, '..', 'bin', 'paws-agent.mjs');
+
+type RawSession = {
+    id: string;
+    seq: number;
+    createdAt: number;
+    updatedAt: number;
+    active: boolean;
+    activeAt: number;
+    metadata: string;
+    metadataVersion: number;
+    agentState: string | null;
+    agentStateVersion: number;
+    dataEncryptionKey: string | null;
+};
 
 // --- CLI runner ---
 
@@ -316,7 +330,7 @@ describe('Smoke: Error handling', () => {
                 dataEncryptionKey: encodeBase64(withVersion),
             };
 
-            expect(() => resolveSessionEncryption(raw, creds)).toThrow('Failed to decrypt session key');
+            expect(() => resolveRecordEncryption(raw, creds, 'session')).toThrow('Unable to decrypt session key');
         });
     });
 
@@ -346,7 +360,7 @@ describe('Smoke: Interop — dataKey vs legacy encryption', () => {
         const agentState = { controlledByUser: false, requests: [] };
 
         const { raw, sessionKey } = makeRawSessionWithDataKey(creds, metadata, agentState);
-        const encryption = resolveSessionEncryption(raw, creds);
+        const encryption = resolveRecordEncryption(raw, creds, 'session');
 
         expect(encryption.variant).toBe('dataKey');
         expect(encryption.key).toEqual(sessionKey);
@@ -366,7 +380,7 @@ describe('Smoke: Interop — dataKey vs legacy encryption', () => {
         const agentState = { controlledByUser: true, requests: [{ id: 'req-1' }] };
 
         const raw = makeRawSessionLegacy(creds, metadata, agentState);
-        const encryption = resolveSessionEncryption(raw, creds);
+        const encryption = resolveRecordEncryption(raw, creds, 'session');
 
         expect(encryption.variant).toBe('legacy');
         expect(encryption.key).toEqual(creds.secret);
@@ -452,8 +466,8 @@ describe('Smoke: Output formatting', () => {
             null,
             { id: 'sess-12345678', active: true, activeAt: Date.now() },
         );
-        const encryption = resolveSessionEncryption(raw, creds);
-        const session: DecryptedSession = {
+        const encryption = resolveRecordEncryption(raw, creds, 'session');
+        const session: Session = {
             id: raw.id,
             seq: raw.seq,
             createdAt: raw.createdAt,
@@ -462,15 +476,12 @@ describe('Smoke: Output formatting', () => {
             activeAt: raw.activeAt,
             metadata: { tag: 'my-project', path: '/home/user', summary: 'My Project' },
             agentState: null,
-            dataEncryptionKey: raw.dataEncryptionKey,
-            encryption,
-        };
-
-        const result = formatSessionTable([{
-            ...session,
             metadataVersion: raw.metadataVersion,
             agentStateVersion: raw.agentStateVersion,
-        }]);
+        };
+
+        expect(encryption.key).toEqual(sessionKey);
+        const result = formatSessionTable([session]);
         expect(result).toContain('### Session 1');
         expect(result).toContain('- ID: `sess-12345678`');
         expect(result).toContain('- Name: My Project');

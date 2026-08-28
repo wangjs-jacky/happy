@@ -4,16 +4,21 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeBase64, encodeBase64, libsodiumEncryptForPublicKey } from './encryption';
+import { io } from 'socket.io-client';
+import { decodeBase64, decrypt, encodeBase64, encrypt, libsodiumEncryptForPublicKey } from './crypto/encryption';
+import { resolveRecordEncryption, type RecordEncryption } from './crypto/records';
 import { FileCredentialProvider } from './adapters/nodeCredentials';
 import { PawsAgentClient } from './client/PawsAgentClient';
+import type { PawsCredentials } from './client/types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(__dirname, '..');
 const repoRoot = resolve(packageDir, '..', '..');
 const environmentsDir = join(repoRoot, 'environments', 'data', 'envs');
 const currentEnvironmentPath = join(repoRoot, 'environments', 'data', 'current.json');
-const binPath = resolve(packageDir, 'bin', 'paws-agent.mjs');
+const binPath = process.env.PAWS_AGENT_BIN_PATH
+    ? resolve(process.env.PAWS_AGENT_BIN_PATH)
+    : resolve(packageDir, 'bin', 'paws-agent.mjs');
 const keepIntegrationEnv = ['1', 'true', 'yes'].includes((process.env.HAPPY_AGENT_KEEP_ENV ?? '').toLowerCase());
 
 type EnvironmentConfig = {
@@ -25,6 +30,12 @@ type EnvironmentConfig = {
 type DaemonState = {
     httpPort?: number;
     pid?: number;
+};
+
+type RawSessionRecord = {
+    id: string;
+    agentStateVersion: number;
+    dataEncryptionKey: string | null;
 };
 
 let previousCurrentEnv: string | null = null;
@@ -380,6 +391,46 @@ async function stopDaemonSession(httpPort: number, sessionId: string): Promise<b
     }
     const parsed = await response.json() as { success?: boolean };
     return parsed.success === true;
+}
+
+async function fetchRawSession(serverUrl: string, token: string, sessionId: string): Promise<RawSessionRecord> {
+    const response = await fetch(`${serverUrl}/v1/sessions`, {
+        headers: { Authorization: `Bearer ${token}`, 'X-Happy-Client': 'paws-agent-integration/0.1.0' },
+    });
+    if (!response.ok) throw new Error(`Session snapshot failed: ${response.status}`);
+    const body = await response.json() as { sessions?: RawSessionRecord[] };
+    const session = body.sessions?.find(candidate => candidate.id === sessionId);
+    if (!session) throw new Error(`Raw session ${sessionId} not found`);
+    return session;
+}
+
+async function writeAgentState(
+    serverUrl: string,
+    credentials: PawsCredentials,
+    sessionId: string,
+    encryption: RecordEncryption,
+    state: unknown,
+): Promise<void> {
+    const raw = await fetchRawSession(serverUrl, credentials.token, sessionId);
+    const socket = io(serverUrl, {
+        auth: { token: credentials.token, clientType: 'user-scoped', happyClient: 'paws-agent-integration/0.1.0' },
+        path: '/v1/updates',
+        transports: ['websocket'],
+    });
+    try {
+        await new Promise<void>((resolvePromise, rejectPromise) => {
+            socket.once('connect', () => resolvePromise());
+            socket.once('connect_error', rejectPromise);
+        });
+        const result = await socket.timeout(5_000).emitWithAck('update-state', {
+            sid: sessionId,
+            expectedVersion: raw.agentStateVersion,
+            agentState: encodeBase64(encrypt(encryption.key, encryption.variant, state)),
+        }) as { result?: string };
+        if (result.result !== 'success') throw new Error(`Fixture state update failed: ${JSON.stringify(result)}`);
+    } finally {
+        socket.close();
+    }
 }
 
 describe('paws-agent integration', { timeout: 180_000 }, () => {
@@ -815,6 +866,89 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         await expect(client.requests.approve({ sessionId, requestId: 'missing-request' }))
             .rejects.toMatchObject({ code: 'NOT_FOUND' });
         await client.dispose();
+    });
+
+    it('resolves a real approval RPC and normalizes a full-stack RPC timeout', async () => {
+        if (!activeMachineId || !integrationConfig || !agentHomeDir || !testProjectDir) {
+            throw new Error('Integration environment not initialized');
+        }
+        const serverUrl = `http://localhost:${integrationConfig.serverPort}`;
+        const provider = new FileCredentialProvider(join(agentHomeDir, 'agent.key'));
+        const credentials = await provider.getCredentials();
+        if (!credentials) throw new Error('Expected fixture credentials');
+        const client = new PawsAgentClient({ serverUrl, credentials: provider });
+        await client.connect();
+        const spawned = await client.sessions.spawn({
+            machineId: activeMachineId,
+            directory: testProjectDir,
+            agent: 'ask',
+        });
+        expect(spawned.type).toBe('success');
+        if (spawned.type !== 'success') throw new Error('Expected fixture session to spawn');
+        spawnedSessionIds.add(spawned.sessionId);
+
+        const raw = await fetchRawSession(serverUrl, credentials.token, spawned.sessionId);
+        const encryption = resolveRecordEncryption(raw, credentials, 'session');
+        const fixtureSocket = io(serverUrl, {
+            auth: {
+                token: credentials.token,
+                clientType: 'session-scoped',
+                sessionId: spawned.sessionId,
+                happyClient: 'paws-agent-integration-fixture/0.1.0',
+            },
+            path: '/v1/updates',
+            transports: ['websocket'],
+        });
+        let acknowledge = true;
+        let receivedApproval: unknown;
+        fixtureSocket.on('rpc-request', (request: { method?: string; params?: string }, callback: (result: string) => void) => {
+            if (request.method !== `${spawned.sessionId}:permission` || typeof request.params !== 'string') return;
+            receivedApproval = decrypt(encryption.key, encryption.variant, decodeBase64(request.params));
+            if (acknowledge) {
+                callback(encodeBase64(encrypt(encryption.key, encryption.variant, { accepted: true })));
+            }
+        });
+        try {
+            await new Promise<void>((resolvePromise, rejectPromise) => {
+                fixtureSocket.once('connect', () => resolvePromise());
+                fixtureSocket.once('connect_error', rejectPromise);
+            });
+            await new Promise<void>((resolvePromise, rejectPromise) => {
+                const timeout = setTimeout(() => rejectPromise(new Error('RPC fixture registration timed out')), 5_000);
+                fixtureSocket.once('rpc-registered', (event: { method?: string }) => {
+                    if (event.method !== `${spawned.sessionId}:permission`) return;
+                    clearTimeout(timeout);
+                    resolvePromise();
+                });
+                fixtureSocket.emit('rpc-register', { method: `${spawned.sessionId}:permission` });
+            });
+
+            await writeAgentState(serverUrl, credentials, spawned.sessionId, encryption, {
+                controlledByUser: true,
+                requests: { 'fixture-approval': { tool: 'Bash', arguments: { command: 'pwd' } } },
+            });
+            await waitFor(async () => {
+                const state = (await client.sessions.get(spawned.sessionId)).agentState as { requests?: Record<string, unknown> } | null;
+                return state?.requests?.['fixture-approval'] != null;
+            }, 10_000, 'fixture approval request');
+            await client.requests.approve({ sessionId: spawned.sessionId, requestId: 'fixture-approval' });
+            expect(receivedApproval).toEqual({ id: 'fixture-approval', approved: true });
+
+            acknowledge = false;
+            await writeAgentState(serverUrl, credentials, spawned.sessionId, encryption, {
+                controlledByUser: true,
+                requests: { 'fixture-timeout': { tool: 'Bash', arguments: { command: 'pwd' } } },
+            });
+            await waitFor(async () => {
+                const state = (await client.sessions.get(spawned.sessionId)).agentState as { requests?: Record<string, unknown> } | null;
+                return state?.requests?.['fixture-timeout'] != null;
+            }, 10_000, 'fixture timeout request');
+            await expect(client.requests.approve({ sessionId: spawned.sessionId, requestId: 'fixture-timeout' }))
+                .rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
+        } finally {
+            fixtureSocket.close();
+            await client.dispose();
+        }
     });
 
     it('normalizes expired credentials against the isolated server', async () => {
