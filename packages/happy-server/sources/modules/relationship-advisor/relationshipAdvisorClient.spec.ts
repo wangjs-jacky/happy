@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { streamRelationshipAdvisor } from '@/modules/relationship-advisor/relationshipAdvisorClient';
+import * as relationshipAdvisorClient from '@/modules/relationship-advisor/relationshipAdvisorClient';
+
+const { streamRelationshipAdvisor } = relationshipAdvisorClient;
 
 function streamResponse(chunks: string[]): Response {
     const encoder = new TextEncoder();
@@ -82,5 +84,132 @@ describe('streamRelationshipAdvisor', () => {
 
         await expect(consume()).rejects.toThrow('unsafe');
         expect(fetchImpl).not.toHaveBeenCalled();
+    });
+});
+
+describe('testRelationshipAdvisorConnection', () => {
+    it('checks the configured chat endpoint with a one-token non-streaming request', async () => {
+        const testConnection = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
+            testRelationshipAdvisorConnection?: (
+                configuration: { apiKey: string; baseUrl: string; model: string },
+                options: { fetchImpl: typeof fetch; validateBaseUrl: (value: string) => Promise<string> },
+            ) => Promise<{ success: boolean; latencyMs?: number }>;
+        }).testRelationshipAdvisorConnection;
+        expect(testConnection).toBeTypeOf('function');
+        if (!testConnection) return;
+
+        const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>) => new Response(JSON.stringify({
+            choices: [{ message: { content: 'OK' } }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+        await expect(testConnection({
+            apiKey: 'server-only-key',
+            baseUrl: 'https://model.test/v1',
+            model: 'fast-model',
+        }, {
+            fetchImpl: fetchImpl as typeof fetch,
+            validateBaseUrl: vi.fn(async (value: string) => value),
+        })).resolves.toMatchObject({ success: true });
+
+        const [url, init] = fetchImpl.mock.calls[0];
+        expect(url).toBe('https://model.test/v1/chat/completions');
+        expect(init?.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer server-only-key' }));
+        expect(JSON.parse(String(init?.body))).toEqual({
+            model: 'fast-model',
+            messages: [{ role: 'user', content: 'Reply with OK.' }],
+            stream: false,
+            max_tokens: 1,
+            temperature: 0,
+        });
+    });
+
+    it.each([
+        [401, 'authentication_failed'],
+        [404, 'model_not_found'],
+        [429, 'rate_limited'],
+        [500, 'provider_error'],
+    ])('maps provider HTTP %s to %s', async (status, code) => {
+        const testConnection = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
+            testRelationshipAdvisorConnection?: (
+                configuration: { apiKey: string; baseUrl: string; model: string },
+                options: { fetchImpl: typeof fetch; validateBaseUrl: (value: string) => Promise<string> },
+            ) => Promise<{ success: boolean; code?: string }>;
+        }).testRelationshipAdvisorConnection;
+        expect(testConnection).toBeTypeOf('function');
+        if (!testConnection) return;
+
+        await expect(testConnection({
+            apiKey: 'server-only-key',
+            baseUrl: 'https://model.test/v1',
+            model: 'fast-model',
+        }, {
+            fetchImpl: vi.fn(async () => new Response('', { status })) as typeof fetch,
+            validateBaseUrl: vi.fn(async (value: string) => value),
+        })).resolves.toEqual({ success: false, code });
+    });
+
+    it('rejects an HTTP 200 response that is not a chat completion', async () => {
+        const testConnection = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
+            testRelationshipAdvisorConnection?: (
+                configuration: { apiKey: string; baseUrl: string; model: string },
+                options: { fetchImpl: typeof fetch; validateBaseUrl: (value: string) => Promise<string> },
+            ) => Promise<{ success: boolean; code?: string }>;
+        }).testRelationshipAdvisorConnection;
+        expect(testConnection).toBeTypeOf('function');
+        if (!testConnection) return;
+
+        await expect(testConnection({
+            apiKey: 'server-only-key',
+            baseUrl: 'https://model.test/v1',
+            model: 'fast-model',
+        }, {
+            fetchImpl: vi.fn(async () => new Response(JSON.stringify({ error: 'proxy fallback' }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            })) as typeof fetch,
+            validateBaseUrl: vi.fn(async (value: string) => value),
+        })).resolves.toEqual({ success: false, code: 'provider_error' });
+    });
+
+    it('distinguishes a timeout from an unreachable provider', async () => {
+        const testConnection = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
+            testRelationshipAdvisorConnection?: (
+                configuration: { apiKey: string; baseUrl: string; model: string },
+                options: {
+                    fetchImpl: typeof fetch;
+                    timeoutMs: number;
+                    validateBaseUrl: (value: string) => Promise<string>;
+                },
+            ) => Promise<{ success: boolean; code?: string }>;
+        }).testRelationshipAdvisorConnection;
+        expect(testConnection).toBeTypeOf('function');
+        if (!testConnection) return;
+
+        const abortingFetch = vi.fn(async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+                const error = new Error('Aborted');
+                error.name = 'AbortError';
+                reject(error);
+            });
+        })) as typeof fetch;
+        const options = {
+            fetchImpl: abortingFetch,
+            timeoutMs: 1,
+            validateBaseUrl: vi.fn(async (value: string) => value),
+        };
+        const configuration = {
+            apiKey: 'server-only-key',
+            baseUrl: 'https://model.test/v1',
+            model: 'fast-model',
+        };
+
+        await expect(testConnection(configuration, options)).resolves.toEqual({
+            success: false,
+            code: 'timed_out',
+        });
+        await expect(testConnection(configuration, {
+            ...options,
+            fetchImpl: vi.fn(async () => { throw new TypeError('fetch failed'); }) as typeof fetch,
+        })).resolves.toEqual({ success: false, code: 'provider_unreachable' });
     });
 });
