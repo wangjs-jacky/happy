@@ -1319,6 +1319,32 @@ export const ja: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: {
+            title: 'システムの状態',
+            status: { healthy: '正常', warning: '要確認', critical: '重大', unavailable: '利用不可', offline: 'デバイスはオフラインです' },
+            empty: { unsupported: 'システム監視を使うにはリモートの Paws CLI を更新してください。', disabled: 'このデバイスではシステム監視が有効になっていません。', pending: 'デーモンがシステム監視を初期化するのを待機しています。', collecting: '最初のシステムサンプルを収集中です。', unavailable: 'システム監視データを利用できません。' },
+            metrics: { cpu: 'CPU', memory: '利用可能なメモリ', swap: 'Swap', processes: 'プロセス', zombies: 'ゾンビプロセス', orphans: '孤立 Worker' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `ゾンビプロセス: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `負荷 1/5/15分: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `メモリ圧迫時の空き: ${percent}%`, compressed: ({ value }: { value: string }) => `圧縮メモリ: ${value}`,
+                disk: ({ value }: { value: string }) => `利用可能なディスク: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Paws Worker: ${roots} ルート · ${processes} プロセス · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `孤立 Worker: ${roots} ルート · ${processes} プロセス · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': '孤立 Worker を検出しました', 'swap-high': 'Swap 使用量が高すぎます', 'swap-growing': 'Swap が急増しています',
+                'cpu-sustained': 'CPU 使用率が高い状態です', 'load-high': 'システム負荷が高すぎます', 'memory-pressure-high': 'メモリ圧迫が高すぎます',
+                'worker-memory-high': 'Worker のメモリ使用量が高すぎます', 'process-count-high': 'プロセス数が多すぎます',
+                'process-capacity-high': 'プロセス容量がまもなく不足します', 'zombie-processes': 'ゾンビプロセスが継続しています',
+                'disk-low': 'ディスク空き容量が不足しています', 'single-source-cpu-high': '1 つのソースが CPU を継続使用しています',
+            },
+            statusSummary: ({ status }: { status: string }) => `システムの状態: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `${seconds} 秒前に更新`, collectorErrors: ({ count }: { count: number }) => `収集エラー ${count} 件`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: 最小 ${min}、最大 ${max}、最新 ${latest}`,
+            collectingTrend: '傾向データを収集中', range: ({ min, max }: { min: string; max: string }) => `最小 ${min} · 最大 ${max}`,
+            trends: '過去 30 分', sources: '上位のリソースソース', zombieSources: 'ゾンビプロセスのソース', zombieShort: ({ count }: { count: number }) => `ゾンビ ${count}`,
+        },
         launchNewSessionInDirectory: 'ディレクトリで新しいセッションを起動',
         offlineUnableToSpawn: 'マシンがオフラインのためランチャーは無効です',
         offlineHelp: '• コンピューターがオンラインであることを確認してください\n• `happy daemon status`を実行して診断してください\n• 最新のCLIバージョンを使用していますか？`npm install -g happy@latest`でアップグレードしてください',

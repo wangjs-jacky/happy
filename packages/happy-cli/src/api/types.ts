@@ -150,6 +150,12 @@ export const MachineMetadataSchema = z.object({
     happyAgentAuthenticated: z.boolean(),
     detectedAt: z.number(),
   }).optional(),
+  systemHealthMonitor: z.object({
+    schemaVersion: z.literal(1),
+    supported: z.literal(true),
+    enabled: z.boolean(),
+    reportedAt: z.number().finite().nonnegative(),
+  }).optional(),
 })
 
 export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
@@ -201,6 +207,109 @@ export const CodexUsageSnapshotSchema = z.object({
   warnings: z.array(z.string()),
 })
 
+const NonNegativeFinite = z.number().finite().nonnegative()
+
+export const SystemHealthSourceSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().min(1).max(40),
+  cpuPercent: NonNegativeFinite,
+  rssBytes: NonNegativeFinite,
+  processCount: NonNegativeFinite,
+  zombieProcessCount: NonNegativeFinite,
+  oldestProcessAgeSeconds: NonNegativeFinite.optional(),
+})
+
+export const SystemHealthCurrentSchema = z.object({
+  sampledAt: NonNegativeFinite,
+  cpuUsedPercent: NonNegativeFinite,
+  cpuCores: NonNegativeFinite,
+  load1: NonNegativeFinite,
+  load5: NonNegativeFinite,
+  load15: NonNegativeFinite,
+  memoryTotalBytes: NonNegativeFinite,
+  memoryAvailableBytes: NonNegativeFinite,
+  memoryCompressedBytes: NonNegativeFinite,
+  memoryPressureFreePercent: NonNegativeFinite.optional(),
+  swapUsedBytes: NonNegativeFinite,
+  swapTotalBytes: NonNegativeFinite,
+  diskFreeBytes: NonNegativeFinite.optional(),
+  diskTotalBytes: NonNegativeFinite.optional(),
+  processCount: NonNegativeFinite,
+  processLimit: NonNegativeFinite.optional(),
+  zombieProcessCount: NonNegativeFinite,
+  pawsWorkerRoots: NonNegativeFinite,
+  pawsWorkerProcesses: NonNegativeFinite,
+  pawsWorkerRssBytes: NonNegativeFinite,
+  orphanWorkerRoots: NonNegativeFinite,
+  orphanWorkerProcesses: NonNegativeFinite,
+  orphanWorkerRssBytes: NonNegativeFinite,
+  topCpuSources: z.array(SystemHealthSourceSchema).max(5),
+  topMemorySources: z.array(SystemHealthSourceSchema).max(5),
+  topZombieSources: z.array(SystemHealthSourceSchema).max(5),
+})
+
+export const SystemHealthHistoryPointSchema = z.object({
+  sampledAt: NonNegativeFinite,
+  cpuUsedPercent: NonNegativeFinite,
+  load1: NonNegativeFinite,
+  memoryAvailableBytes: NonNegativeFinite,
+  swapUsedBytes: NonNegativeFinite,
+  processCount: NonNegativeFinite,
+  zombieProcessCount: NonNegativeFinite,
+  orphanWorkerRoots: NonNegativeFinite,
+  pawsWorkerRssBytes: NonNegativeFinite,
+})
+
+export const SystemHealthIssueSchema = z.object({
+  code: z.enum([
+    'orphan-workers',
+    'swap-high',
+    'swap-growing',
+    'cpu-sustained',
+    'load-high',
+    'memory-pressure-high',
+    'worker-memory-high',
+    'process-count-high',
+    'process-capacity-high',
+    'zombie-processes',
+    'disk-low',
+    'single-source-cpu-high',
+  ]),
+  severity: z.enum(['warning', 'critical']),
+  subject: z.string().max(64).optional(),
+  observed: z.number().finite(),
+  threshold: NonNegativeFinite,
+  unit: z.enum(['percent', 'ratio', 'bytes', 'count']),
+  since: NonNegativeFinite,
+})
+
+export const SystemHealthSnapshotSchema = z.object({
+  schemaVersion: z.literal(1),
+  platform: z.literal('darwin'),
+  updatedAt: NonNegativeFinite.nullable(),
+  lastAttemptAt: NonNegativeFinite.nullable(),
+  resourceStatus: z.enum(['healthy', 'warning', 'critical']),
+  issues: z.array(SystemHealthIssueSchema).max(16),
+  current: SystemHealthCurrentSchema.nullable(),
+  history: z.array(SystemHealthHistoryPointSchema).max(30),
+  collector: z.object({
+    intervalSeconds: z.literal(15),
+    historyStepSeconds: z.literal(60),
+    durationMs: NonNegativeFinite,
+    lastSampleKind: z.enum(['complete', 'partial', 'failed', 'pending']),
+    errors: z.array(z.object({
+      command: z.enum(['sysctl', 'launchctl', 'top', 'vm_stat', 'memory_pressure', 'ps', 'df']),
+      code: z.enum(['timeout', 'exit', 'parse']),
+    })).max(16),
+  }),
+})
+
+export type SystemHealthSource = z.infer<typeof SystemHealthSourceSchema>
+export type SystemHealthCurrent = z.infer<typeof SystemHealthCurrentSchema>
+export type SystemHealthHistoryPoint = z.infer<typeof SystemHealthHistoryPointSchema>
+export type SystemHealthIssue = z.infer<typeof SystemHealthIssueSchema>
+export type SystemHealthSnapshot = z.infer<typeof SystemHealthSnapshotSchema>
+
 /**
  * Daemon state - dynamic runtime information (frequently updated)
  */
@@ -219,6 +328,7 @@ export const DaemonStateSchema = z.object({
       z.string() // Forward compatibility
     ]).optional(),
   codexUsage: CodexUsageSnapshotSchema.optional(),
+  systemHealth: SystemHealthSnapshotSchema.optional(),
 })
 
 export type DaemonState = z.infer<typeof DaemonStateSchema>

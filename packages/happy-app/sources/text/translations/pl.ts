@@ -1334,6 +1334,32 @@ export const pl: TranslationStructure = {
     },
 
     machine: {
+        systemHealth: {
+            title: 'Stan systemu',
+            status: { healthy: 'Prawidłowy', warning: 'Wymaga uwagi', critical: 'Krytyczny', unavailable: 'Niedostępne', offline: 'Urządzenie offline' },
+            empty: { unsupported: 'Zaktualizuj zdalny CLI Paws, aby używać monitorowania systemu.', disabled: 'Monitorowanie systemu nie jest włączone na tym urządzeniu.', pending: 'Oczekiwanie na zainicjowanie monitorowania systemu przez demona.', collecting: 'Zbieranie pierwszej próbki systemu.', unavailable: 'Dane monitorowania systemu są niedostępne.' },
+            metrics: { cpu: 'CPU', memory: 'Dostępna pamięć', swap: 'Swap', processes: 'Procesy', zombies: 'Procesy zombie', orphans: 'Osierocone Workery' },
+            facts: {
+                zombies: ({ count }: { count: number }) => `Procesy zombie: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `Obciążenie 1/5/15 min: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `Wolna pamięć pod presją: ${percent}%`, compressed: ({ value }: { value: string }) => `Skompresowana pamięć: ${value}`,
+                disk: ({ value }: { value: string }) => `Dostępny dysk: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Workery Paws: ${roots} korzeni · ${processes} procesów · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Osierocone Workery: ${roots} korzeni · ${processes} procesów · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': 'Wykryto osierocone Workery', 'swap-high': 'Użycie swap jest wysokie', 'swap-growing': 'Swap szybko rośnie',
+                'cpu-sustained': 'Użycie CPU pozostaje wysokie', 'load-high': 'Obciążenie systemu jest wysokie', 'memory-pressure-high': 'Presja pamięci jest wysoka',
+                'worker-memory-high': 'Zużycie pamięci Workerów jest wysokie', 'process-count-high': 'Liczba procesów jest wysoka',
+                'process-capacity-high': 'Pojemność procesów jest prawie wyczerpana', 'zombie-processes': 'Procesy zombie utrzymują się',
+                'disk-low': 'Mało miejsca na dysku', 'single-source-cpu-high': 'Jedno źródło stale używa CPU',
+            },
+            statusSummary: ({ status }: { status: string }) => `Stan systemu: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `Zaktualizowano ${seconds} s temu`, collectorErrors: ({ count }: { count: number }) => `${count} błędów zbierania`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: minimum ${min}, maksimum ${max}, ostatnio ${latest}`,
+            collectingTrend: 'Zbieranie danych trendu', range: ({ min, max }: { min: string; max: string }) => `Min. ${min} · Maks. ${max}`,
+            trends: 'Ostatnie 30 minut', sources: 'Główne źródła zasobów', zombieSources: 'Źródła procesów zombie', zombieShort: ({ count }: { count: number }) => `${count} zombie`,
+        },
         offlineUnableToSpawn: 'Launcher wyłączony, gdy maszyna jest offline',
         offlineHelp: '• Upewnij się, że komputer jest online\n• Uruchom `happy daemon status`, aby zdiagnozować\n• Czy używasz najnowszej wersji CLI? Zaktualizuj poleceniem `npm install -g happy@latest`',
         launchNewSessionInDirectory: 'Uruchom nową sesję w katalogu',

@@ -87,3 +87,5 @@ happy-workspaces/
 # third party tools
 .supervibe/
 .superpowers/
+# 本地 PC 交互评审证据，不提交
+artifacts/interaction-review/

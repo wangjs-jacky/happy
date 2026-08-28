@@ -1978,6 +1978,64 @@ export const en = {
     },
 
     machine: {
+        systemHealth: {
+            title: 'System Health',
+            status: {
+                healthy: 'Healthy',
+                warning: 'Needs attention',
+                critical: 'Critical',
+                unavailable: 'Unavailable',
+                offline: 'Device offline',
+            },
+            empty: {
+                unsupported: 'Update the remote Paws CLI to use system monitoring.',
+                disabled: 'System monitoring is not enabled on this device.',
+                pending: 'Waiting for the daemon to initialize system monitoring.',
+                collecting: 'Collecting the first system sample.',
+                unavailable: 'System monitoring data is unavailable.',
+            },
+            metrics: {
+                cpu: 'CPU',
+                memory: 'Available memory',
+                swap: 'Swap',
+                processes: 'Processes',
+                zombies: 'Zombie processes',
+                orphans: 'Orphan workers',
+            },
+            facts: {
+                zombies: ({ count }: { count: number }) => `Zombie processes: ${count}`,
+                load: ({ one, five, fifteen }: { one: string; five: string; fifteen: string }) => `Load 1/5/15m: ${one} / ${five} / ${fifteen}`,
+                pressure: ({ percent }: { percent: string }) => `Memory pressure free: ${percent}%`,
+                compressed: ({ value }: { value: string }) => `Compressed memory: ${value}`,
+                disk: ({ value }: { value: string }) => `Disk available: ${value}`,
+                workers: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Paws workers: ${roots} roots · ${processes} processes · ${rss}`,
+                orphans: ({ roots, processes, rss }: { roots: number; processes: number; rss: string }) => `Orphan workers: ${roots} roots · ${processes} processes · ${rss}`,
+            },
+            issues: {
+                'orphan-workers': 'Orphan workers detected',
+                'swap-high': 'Swap usage is high',
+                'swap-growing': 'Swap is growing quickly',
+                'cpu-sustained': 'CPU usage remains high',
+                'load-high': 'System load is high',
+                'memory-pressure-high': 'Memory pressure is high',
+                'worker-memory-high': 'Worker memory usage is high',
+                'process-count-high': 'Process count is high',
+                'process-capacity-high': 'Process capacity is nearly exhausted',
+                'zombie-processes': 'Zombie processes persist',
+                'disk-low': 'Disk space is low',
+                'single-source-cpu-high': 'One source is using sustained CPU',
+            },
+            statusSummary: ({ status }: { status: string }) => `System health: ${status}`,
+            updatedAgo: ({ seconds }: { seconds: number }) => `Updated ${seconds}s ago`,
+            collectorErrors: ({ count }: { count: number }) => `${count} collector errors`,
+            chartSummary: ({ label, min, max, latest }: { label: string; min: string; max: string; latest: string }) => `${label}: minimum ${min}, maximum ${max}, latest ${latest}`,
+            collectingTrend: 'Collecting trend data',
+            range: ({ min, max }: { min: string; max: string }) => `Min ${min} · Max ${max}`,
+            trends: 'Last 30 minutes',
+            sources: 'Top resource sources',
+            zombieSources: 'Zombie process sources',
+            zombieShort: ({ count }: { count: number }) => `${count} zombie`,
+        },
         launchNewSessionInDirectory: 'Launch New Session in Directory',
         offlineUnableToSpawn: 'Launcher disabled while machine is offline',
         offlineHelp: '• Make sure your computer is online\n• Run `happy daemon status` to diagnose\n• Are you running the latest CLI version? Upgrade with `npm install -g happy@latest`',
@@ -2448,18 +2506,12 @@ export type Translations = typeof en;
  * Generic translation type that matches the structure of Translations
  * but allows different string values (for other languages)
  */
-export type TranslationStructure = {
-    readonly [K in keyof Translations]: {
-        readonly [P in keyof Translations[K]]: Translations[K][P] extends string 
-            ? string 
-            : Translations[K][P] extends (...args: any[]) => string 
-                ? Translations[K][P] 
-                : Translations[K][P] extends object
-                    ? {
-                        readonly [Q in keyof Translations[K][P]]: Translations[K][P][Q] extends string
-                            ? string
-                            : Translations[K][P][Q]
-                      }
-                    : Translations[K][P]
-    }
-};
+type WidenTranslation<T> = T extends string
+    ? string
+    : T extends (...args: infer A) => string
+        ? (...args: A) => string
+        : T extends object
+            ? { readonly [K in keyof T]: WidenTranslation<T[K]> }
+            : T;
+
+export type TranslationStructure = WidenTranslation<Translations>;

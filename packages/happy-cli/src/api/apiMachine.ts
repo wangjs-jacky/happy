@@ -28,6 +28,9 @@ import {
     forkCodexThread,
     listCodexRewindPoints,
 } from '@/codex/codexThreadFork';
+import { DaemonStatePublisher, type DaemonStateMutation } from './daemonStatePublisher';
+import type { SystemHealthSnapshot } from './types';
+import { getSystemHealthMetadata } from '@/daemon/systemHealth/systemHealthRuntime';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -120,6 +123,11 @@ export class ApiMachineClient {
     private rpcHandlerManager: RpcHandlerManager;
     private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>) | null = null;
     private reconnectInterval: NodeJS.Timeout | null = null;
+    private connectionGeneration = 0;
+    private daemonStatePublisher: DaemonStatePublisher;
+    private connectionListener: ((connected: boolean) => void) | null = null;
+    private closing = false;
+    private closePromise: Promise<void> | null = null;
 
     constructor(
         private token: string,
@@ -134,6 +142,9 @@ export class ApiMachineClient {
         });
 
         registerCommonHandlers(this.rpcHandlerManager, process.cwd());
+        this.daemonStatePublisher = new DaemonStatePublisher({
+            write: (mutation, generation, timeoutMs) => this.writeDaemonStateOnce(mutation, generation, timeoutMs),
+        }, (error) => logger.debug('[API MACHINE] Latest daemon state publication failed:', error));
     }
 
     setRPCHandlers({
@@ -403,32 +414,48 @@ export class ApiMachineClient {
         });
     }
 
-    /**
-     * Update daemon state (runtime info) - similar to session updateAgentState
-     * Simplified without lock - relies on backoff for retry
-     */
     async updateDaemonState(handler: (state: DaemonState | null) => DaemonState): Promise<void> {
-        await backoff(async () => {
-            const updated = handler(this.machine.daemonState);
+        await this.daemonStatePublisher.publish(handler);
+    }
 
-            const answer = await this.socket.emitWithAck('machine-update-state', {
-                machineId: this.machine.id,
-                daemonState: encodeBase64(encrypt(this.machine.encryptionKey, this.machine.encryptionVariant, updated)),
-                expectedVersion: this.machine.daemonStateVersion
-            });
+    publishSystemHealth(snapshot: SystemHealthSnapshot): void {
+        this.daemonStatePublisher.publishLatest('system-health', (state) => ({
+            ...state,
+            status: state?.status ?? 'running',
+            systemHealth: snapshot,
+        }));
+    }
 
-            if (answer.result === 'success') {
-                this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
-                this.machine.daemonStateVersion = answer.version;
-                logger.debug('[API MACHINE] Daemon state updated successfully');
-            } else if (answer.result === 'version-mismatch') {
-                if (answer.version > this.machine.daemonStateVersion) {
-                    this.machine.daemonStateVersion = answer.version;
-                    this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
-                }
-                throw new Error('Daemon state version mismatch'); // Triggers retry
-            }
+    setConnectionListener(listener: (connected: boolean) => void): void {
+        this.connectionListener = listener;
+    }
+
+    private async writeDaemonStateOnce(handler: DaemonStateMutation, generation: number, timeoutMs: number): Promise<void> {
+        if (generation !== this.connectionGeneration || !this.socket.connected) {
+            throw new Error('Daemon state connection generation is stale');
+        }
+        const updated = handler(this.machine.daemonState);
+        const emitter = typeof this.socket.timeout === 'function' ? this.socket.timeout(timeoutMs) : this.socket;
+        const answer = await emitter.emitWithAck('machine-update-state', {
+            machineId: this.machine.id,
+            daemonState: encodeBase64(encrypt(this.machine.encryptionKey, this.machine.encryptionVariant, updated)),
+            expectedVersion: this.machine.daemonStateVersion
         });
+        if (generation !== this.connectionGeneration || !this.socket.connected) {
+            throw new Error('Daemon state ACK belongs to a stale generation');
+        }
+        if (answer.result === 'success') {
+            this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
+            this.machine.daemonStateVersion = answer.version;
+            logger.debug('[API MACHINE] Daemon state updated successfully');
+            return;
+        }
+        if (answer.result === 'version-mismatch') {
+            this.machine.daemonStateVersion = answer.version;
+            this.machine.daemonState = decrypt(this.machine.encryptionKey, this.machine.encryptionVariant, decodeBase64(answer.daemonState));
+            throw new Error('Daemon state version mismatch');
+        }
+        throw new Error('Daemon state update failed');
     }
 
     connect() {
@@ -449,6 +476,8 @@ export class ApiMachineClient {
 
         this.socket.on('connect', () => {
             logger.debug('[API MACHINE] Connected to server');
+            this.connectionGeneration += 1;
+            this.daemonStatePublisher.onConnected(this.connectionGeneration);
 
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
@@ -461,7 +490,8 @@ export class ApiMachineClient {
                 pid: process.pid,
                 httpPort: this.machine.daemonState?.httpPort,
                 startedAt: Date.now()
-            }));
+            })).then(() => this.connectionListener?.(true))
+                .catch((error) => logger.debug('[API MACHINE] Failed to publish running state:', error));
 
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.syncResumeSessionRpcRegistration();
@@ -470,9 +500,12 @@ export class ApiMachineClient {
 
         this.socket.on('disconnect', (reason) => {
             logger.debug(`[API MACHINE] Disconnected from server — reason: ${reason}`);
+            this.connectionGeneration += 1;
+            this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
+            this.connectionListener?.(false);
             this.rpcHandlerManager.onSocketDisconnect();
             this.stopKeepAlive();
-            this.startSmartReconnect();
+            if (!this.closing) this.startSmartReconnect();
         });
 
         // Single consolidated RPC handler
@@ -546,11 +579,15 @@ export class ApiMachineClient {
             if (cliAvailabilityChanged || resumeSupportChanged) {
                 this.lastKnownCLIAvailability = newAvailability;
                 this.lastKnownResumeSupport = newResumeSupport;
-                this.updateMachineMetadata((metadata) => ({
-                    ...(metadata || {} as any),
-                    cliAvailability: newAvailability,
-                    resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
-                })).catch((err) => {
+                this.updateMachineMetadata((metadata) => {
+                    const { systemHealthMonitor: _previousCapability, ...currentMetadata } = metadata || {} as MachineMetadata;
+                    return {
+                        ...currentMetadata,
+                        cliAvailability: newAvailability,
+                        resumeSupport: { ...newResumeSupport, rpcAvailable: !!this.resumeSessionHandler },
+                        ...getSystemHealthMetadata(),
+                    };
+                }).catch((err) => {
                     logger.debug('[API MACHINE] Failed to update machine capabilities:', err);
                 });
             }
@@ -563,7 +600,7 @@ export class ApiMachineClient {
     }
 
     private startSmartReconnect() {
-        if (this.reconnectInterval) return;
+        if (this.closing || this.reconnectInterval) return;
 
         this.reconnectInterval = setInterval(() => {
             if (this.socket.connected) {
@@ -581,7 +618,9 @@ export class ApiMachineClient {
 
         if (shouldReconnect()) {
             logger.debug('[API MACHINE] Network up + lid open — reconnecting in 1s');
-            setTimeout(() => { if (!this.socket.connected) this.socket.connect() }, 1000);
+            setTimeout(() => {
+                if (!this.closing && !this.socket.connected) this.socket.connect();
+            }, 1000);
         }
     }
 
@@ -595,14 +634,34 @@ export class ApiMachineClient {
 
     shutdown() {
         logger.debug('[API MACHINE] Shutting down');
+        this.closing = true;
         this.stopKeepAlive();
         if (this.reconnectInterval) {
             clearInterval(this.reconnectInterval);
             this.reconnectInterval = null;
         }
         if (this.socket) {
+            this.connectionGeneration += 1;
+            this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
             this.socket.close();
             logger.debug('[API MACHINE] Socket closed');
         }
+    }
+
+    close(shutdownMutation?: DaemonStateMutation): Promise<void> {
+        if (this.closePromise) return this.closePromise;
+        this.closing = true;
+        this.closePromise = (async () => {
+            this.stopKeepAlive();
+            if (this.reconnectInterval) {
+                clearInterval(this.reconnectInterval);
+                this.reconnectInterval = null;
+            }
+            await this.daemonStatePublisher.close(shutdownMutation);
+            this.connectionGeneration += 1;
+            this.daemonStatePublisher.onDisconnected(this.connectionGeneration);
+            if (this.socket) this.socket.close();
+        })();
+        return this.closePromise;
     }
 }

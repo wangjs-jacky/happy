@@ -1,0 +1,4 @@
+ 100 /opt/tools/paws
+ 110 /Applications/Sample Helper
+ 120 /usr/bin/mds
+ 130 /usr/bin/sleep
