@@ -49,6 +49,24 @@ export function createPluginRegistry(
     definitions: readonly PluginDefinition[],
     store: PluginInstallationStore,
 ) {
+    function canReuseStoredSecrets(
+        definition: PluginDefinition,
+        previous: PluginInstallation | null,
+        requested: Record<string, string>,
+    ): boolean {
+        if (!previous) return false;
+        return definition.manifest.configuration.fields
+            .filter((field) => field.type === 'url')
+            .every((field) => {
+                try {
+                    return new URL(previous.configuration[field.key] ?? '').origin
+                        === new URL(requested[field.key] ?? '').origin;
+                } catch {
+                    return false;
+                }
+            });
+    }
+
     async function get(accountId: string, pluginId: string): Promise<PluginCatalogItem> {
         const definition = findDefinition(definitions, pluginId);
         const installation = await store.get(accountId, pluginId);
@@ -87,10 +105,11 @@ export function createPluginRegistry(
         try {
             const previous = await store.get(accountId, definition.manifest.id);
             const merged = { ...request.configuration };
+            const reuseStoredSecrets = canReuseStoredSecrets(definition, previous, merged);
             for (const field of definition.manifest.configuration.fields) {
                 if (field.type !== 'secret') continue;
                 if (merged[field.key]?.trim()) continue;
-                if (previous?.configuration[field.key]) {
+                if (reuseStoredSecrets && previous?.configuration[field.key]) {
                     merged[field.key] = previous.configuration[field.key];
                 }
             }

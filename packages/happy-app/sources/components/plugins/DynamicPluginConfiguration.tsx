@@ -51,13 +51,18 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
     const { theme } = useUnistyles();
     const [values, setValues] = React.useState<Record<string, string>>({});
     const [connectionResult, setConnectionResult] = React.useState<PluginConnectionTestResult | null>(null);
+    const connectionTestVersion = React.useRef(0);
     const { manifest, status } = plugin;
     const installed = status.installed;
     const currentVersionInstalled = status.installed && status.version === manifest.version;
 
     React.useEffect(() => {
+        connectionTestVersion.current += 1;
         setValues(status.installed ? { ...status.configuration } : {});
         setConnectionResult(null);
+        return () => {
+            connectionTestVersion.current += 1;
+        };
     }, [manifest.id, status]);
 
     const install = React.useCallback(async () => {
@@ -75,12 +80,16 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
     const [uninstalling, performUninstall] = useHappyAction(uninstall);
 
     const testConnection = React.useCallback(async () => {
+        const requestVersion = connectionTestVersion.current + 1;
+        connectionTestVersion.current = requestVersion;
         setConnectionResult(null);
-        setConnectionResult(await testPluginConnection(manifest.id, manifest.version, values));
+        const result = await testPluginConnection(manifest.id, manifest.version, values);
+        if (connectionTestVersion.current === requestVersion) setConnectionResult(result);
     }, [manifest.id, manifest.version, values]);
     const [testingConnection, performConnectionTest] = useHappyAction(testConnection);
 
     const updateValue = React.useCallback((key: string, value: string) => {
+        connectionTestVersion.current += 1;
         setConnectionResult(null);
         setValues((current) => ({ ...current, [key]: value }));
     }, []);

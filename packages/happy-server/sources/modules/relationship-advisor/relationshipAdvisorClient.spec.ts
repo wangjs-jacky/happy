@@ -123,6 +123,34 @@ describe('testRelationshipAdvisorConnection', () => {
         });
     });
 
+    it('pins the validated public DNS answer for the provider request', async () => {
+        const publicAnswer = [{ address: '93.184.216.34', family: 4 as const }];
+        const privateAnswer = [{ address: '127.0.0.1', family: 4 as const }];
+        const lookup = vi.fn()
+            .mockResolvedValueOnce(publicAnswer)
+            .mockResolvedValueOnce(privateAnswer);
+        const dispatcher = { close: vi.fn(async () => undefined) };
+        const createDispatcher = vi.fn(() => dispatcher);
+        const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>) => new Response(JSON.stringify({
+            choices: [{ message: { content: 'OK' } }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+        await expect(relationshipAdvisorClient.testRelationshipAdvisorConnection({
+            apiKey: 'server-only-key',
+            baseUrl: 'https://provider.example/v1',
+            model: 'fast-model',
+        }, {
+            fetchImpl: fetchImpl as typeof fetch,
+            lookup,
+            createDispatcher: createDispatcher as never,
+        })).resolves.toMatchObject({ success: true });
+
+        expect(lookup).toHaveBeenCalledTimes(1);
+        expect(createDispatcher).toHaveBeenCalledWith(publicAnswer);
+        expect(fetchImpl.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ dispatcher }));
+        expect(dispatcher.close).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
         [401, 'authentication_failed'],
         [404, 'model_not_found'],

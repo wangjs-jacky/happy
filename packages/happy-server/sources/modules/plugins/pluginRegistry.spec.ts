@@ -120,6 +120,44 @@ describe('createPluginRegistry', () => {
         expect(store.set).not.toHaveBeenCalled();
     });
 
+    it('requires the secret again when a provider URL changes origin', async () => {
+        const { store } = createMemoryStore();
+        const testConnection = vi.fn(async () => ({ success: true as const, latencyMs: 12 }));
+        const relationshipDefinition = pluginDefinitions.find(({ manifest }) => manifest.id === 'relationship-advisor');
+        if (!relationshipDefinition) throw new Error('relationship-advisor definition missing');
+        const registry = createPluginRegistry([{
+            ...relationshipDefinition,
+            testConnection,
+        }], store);
+        await registry.install('user-1', 'relationship-advisor', {
+            version: '1.1.1',
+            configuration: {
+                apiKey: 'stored-secret',
+                baseUrl: 'https://api.example.com/v1',
+                model: 'old-model',
+            },
+        });
+
+        const changedOrigin = {
+            version: '1.1.1',
+            configuration: {
+                apiKey: '',
+                baseUrl: 'https://attacker.example/v1',
+                model: 'new-model',
+            },
+        };
+        await expect(registry.testConnection('user-1', 'relationship-advisor', changedOrigin))
+            .rejects.toMatchObject({ code: 'invalid_configuration' });
+        await expect(registry.install('user-1', 'relationship-advisor', changedOrigin))
+            .rejects.toMatchObject({ code: 'invalid_configuration' });
+        expect(testConnection).not.toHaveBeenCalled();
+        await expect(registry.requireConfiguration('user-1', 'relationship-advisor')).resolves.toEqual({
+            apiKey: 'stored-secret',
+            baseUrl: 'https://api.example.com/v1',
+            model: 'old-model',
+        });
+    });
+
     it('rejects unknown plugins, stale versions, and arbitrary configuration fields', async () => {
         const { store } = createMemoryStore();
         const registry = createPluginRegistry(pluginDefinitions, store);

@@ -213,4 +213,41 @@ describe('DynamicPluginConfiguration', () => {
         expect(mocks.install).not.toHaveBeenCalled();
         act(() => renderer.unmount());
     });
+
+    it('does not show a stale connection result after configuration changes', async () => {
+        let resolveConnection: ((value: { success: true; latencyMs: number }) => void) | undefined;
+        mocks.testConnection.mockReturnValue(new Promise((resolve) => {
+            resolveConnection = resolve;
+        }));
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<DynamicPluginConfiguration plugin={{
+                manifest: { ...manifest, permissions: ['paws.ai.provider.invoke'] },
+                status: { installed: false },
+            }} />);
+        });
+
+        let fields = renderer.root.findAllByType('TextInput');
+        act(() => {
+            fields[0].props.onChangeText('server-secret');
+            fields[1].props.onChangeText('https://example.com/v1');
+        });
+        let pendingTest: Promise<void> | undefined;
+        act(() => {
+            pendingTest = renderer.root.findByProps({
+                testID: 'server-plugin-plugin-test-connection',
+            }).props.onPress();
+        });
+        fields = renderer.root.findAllByType('TextInput');
+        act(() => fields[1].props.onChangeText('https://example.com/v2'));
+        await act(async () => {
+            resolveConnection?.({ success: true, latencyMs: 31 });
+            await pendingTest;
+        });
+
+        expect(renderer.root.findAllByProps({
+            testID: 'server-plugin-plugin-test-connection-result',
+        })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
 });
