@@ -24,6 +24,15 @@ HAPPY_CODEX_APP_SERVER_SOCKET=/absolute/path/to/app-server.sock \
 paws codex --resume <codex-thread-id>
 ```
 
+Shared mode leaves approval control with Codex Desktop by default. To route
+command, patch, and MCP approval responses through Paws instead:
+
+```bash
+HAPPY_CODEX_APP_SERVER_MODE=shared \
+HAPPY_CODEX_APPROVAL_AUTHORITY=paws \
+paws codex --resume <codex-thread-id>
+```
+
 ## Behavior
 
 - Each Paws process opens its own WebSocket connection over the Unix socket.
@@ -32,6 +41,10 @@ paws codex --resume <codex-thread-id>
 - Disconnecting Paws closes only its client connection. It never terminates the
   shared app-server process.
 - A failed initialize handshake closes the partially opened socket.
+- With the default `HAPPY_CODEX_APPROVAL_AUTHORITY=desktop`, Paws does not
+  respond to server-initiated approval requests. Desktop remains the reviewer.
+- With `HAPPY_CODEX_APPROVAL_AUTHORITY=paws`, Paws routes approval requests to
+  its existing permission handler and responds to the shared app-server.
 - Paws' existing stdio transport and sandbox wrapper remain unchanged when
   shared mode is not enabled.
 
@@ -42,9 +55,17 @@ paws codex --resume <codex-thread-id>
 - Codex Desktop local projects currently use a private stdio app-server, so
   they cannot join this PoC until Desktop itself is pointed at the same Unix
   socket. Its remote/SSH path is the candidate for that follow-up.
-- Approval requests may be visible on multiple connected controllers; the
-  first valid response wins. Production rollout needs an explicit active
-  controller policy.
+- The upstream protocol sends one approval request ID to every connection
+  subscribed to the thread and accepts the first response. It has no owner or
+  lease field. Paws' authority setting prevents Paws from competing when
+  Desktop owns approvals, but `paws` mode cannot stop Desktop from answering.
+  Exclusive Paws approval control therefore also requires Desktop to
+  unsubscribe from or close that thread.
+- On the installed Codex 0.144.5 server, a just-created thread cannot be
+  resumed by a second connection until its first turn creates a rollout.
+- The shared app-server owns its launch environment. Desktop's SSH bootstrap
+  must pass any required HTTP(S) proxy variables when starting the daemon;
+  clients attaching later cannot repair a missing proxy in the running process.
 - Process-wide settings such as the app-server launch-time service tier are
   owned by the shared server rather than an individual Paws connection.
 
@@ -52,7 +73,8 @@ paws codex --resume <codex-thread-id>
 
 The unit test uses a real WebSocket server on a temporary Unix socket and
 checks two clients resuming one thread, notification fan-out, independent
-disconnect, configuration validation, and initialize failure cleanup.
+disconnect, approval-authority routing, configuration validation, and
+initialize failure cleanup.
 
 The integration test starts one isolated official Codex app-server in a
 temporary `CODEX_HOME`, connects two Paws clients, persists a thread through

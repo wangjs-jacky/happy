@@ -73,9 +73,16 @@ type PendingRequest = {
 
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
 
+export type CodexApprovalAuthority = 'desktop' | 'paws';
+
 export type CodexAppServerConnection =
     | { type: 'spawn' }
-    | { type: 'unixSocket'; socketPath: string; connectTimeoutMs?: number };
+    | {
+        type: 'unixSocket';
+        socketPath: string;
+        connectTimeoutMs?: number;
+        approvalAuthority?: CodexApprovalAuthority;
+    };
 
 export function resolveCodexAppServerConnection(
     env: NodeJS.ProcessEnv = process.env,
@@ -96,7 +103,13 @@ export function resolveCodexAppServerConnection(
     if (!isAbsolute(socketPath)) {
         throw new Error('HAPPY_CODEX_APP_SERVER_SOCKET must be an absolute path');
     }
-    return { type: 'unixSocket', socketPath };
+    const approvalAuthority = env.HAPPY_CODEX_APPROVAL_AUTHORITY?.trim().toLowerCase() || 'desktop';
+    if (approvalAuthority !== 'desktop' && approvalAuthority !== 'paws') {
+        throw new Error(
+            `Invalid HAPPY_CODEX_APPROVAL_AUTHORITY=${env.HAPPY_CODEX_APPROVAL_AUTHORITY}; expected "desktop" or "paws"`,
+        );
+    }
+    return { type: 'unixSocket', socketPath, approvalAuthority };
 }
 
 export type ApprovalHandler = (params: {
@@ -1722,6 +1735,19 @@ export class CodexAppServerClient {
     }
 
     private async handleServerRequest(id: number, method: string, params: any): Promise<void> {
+        const isApprovalRequest = method === 'mcpServer/elicitation/request'
+            || method === 'item/commandExecution/requestApproval'
+            || method === 'execCommandApproval'
+            || method === 'item/fileChange/requestApproval'
+            || method === 'applyPatchApproval';
+        const approvalAuthority = this.connection.type === 'unixSocket'
+            ? (this.connection.approvalAuthority ?? 'paws')
+            : 'paws';
+        if (isApprovalRequest && approvalAuthority === 'desktop') {
+            logger.debug(`[CodexAppServer] Leaving ${method} for the Desktop approval authority`);
+            return;
+        }
+
         if (method === 'mcpServer/elicitation/request') {
             const toolName = this.parseToolNameFromElicitationMessage(params?.message) ?? params?.serverName ?? 'McpTool';
             const decision = await this.handleApproval({

@@ -10,6 +10,7 @@ type JsonRpcMessage = {
     id?: number;
     method?: string;
     params?: Record<string, unknown>;
+    result?: unknown;
 };
 
 async function waitFor(predicate: () => boolean, timeoutMs: number = 1_000): Promise<void> {
@@ -38,13 +39,16 @@ describe('CodexAppServerClient shared Unix socket connection', () => {
         })).toEqual({
             type: 'unixSocket',
             socketPath: '/tmp/codex-home/app-server-control/app-server-control.sock',
+            approvalAuthority: 'desktop',
         });
         expect(resolveCodexAppServerConnection({
             HAPPY_CODEX_APP_SERVER_MODE: 'shared',
             HAPPY_CODEX_APP_SERVER_SOCKET: '/tmp/custom-codex.sock',
+            HAPPY_CODEX_APPROVAL_AUTHORITY: 'paws',
         })).toEqual({
             type: 'unixSocket',
             socketPath: '/tmp/custom-codex.sock',
+            approvalAuthority: 'paws',
         });
         expect(resolveCodexAppServerConnection({})).toEqual({ type: 'spawn' });
     });
@@ -56,6 +60,10 @@ describe('CodexAppServerClient shared Unix socket connection', () => {
             HAPPY_CODEX_APP_SERVER_MODE: 'shared',
             HAPPY_CODEX_APP_SERVER_SOCKET: 'relative/app-server.sock',
         })).toThrow('must be an absolute path');
+        expect(() => resolveCodexAppServerConnection({
+            HAPPY_CODEX_APP_SERVER_MODE: 'shared',
+            HAPPY_CODEX_APPROVAL_AUTHORITY: 'both',
+        })).toThrow('expected "desktop" or "paws"');
     });
 
     it('closes its socket when the shared app-server rejects initialization', async () => {
@@ -204,5 +212,94 @@ describe('CodexAppServerClient shared Unix socket connection', () => {
         expect(firstEvents).not.toContain('task_complete');
 
         await secondClient.disconnect();
+    });
+
+    it('routes shared-thread approval responses only through the configured Paws authority', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'paws-codex-approval-authority-'));
+        const socketPath = join(tempDir, 'app-server.sock');
+        const server: Server = createServer();
+        const webSocketServer = new WebSocketServer({ server });
+        const connections: WebSocket[] = [];
+        const approvalResponses: unknown[] = [];
+
+        cleanupTasks.push(async () => {
+            for (const connection of connections) {
+                connection.terminate();
+            }
+            await new Promise<void>((resolve) => webSocketServer.close(() => resolve()));
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await rm(tempDir, { recursive: true, force: true });
+        });
+
+        webSocketServer.on('connection', (connection) => {
+            connections.push(connection);
+            connection.on('message', (data) => {
+                const message = JSON.parse(data.toString()) as JsonRpcMessage;
+                if (message.method === 'initialize' && message.id !== undefined) {
+                    connection.send(JSON.stringify({ id: message.id, result: { userAgent: 'test-app-server' } }));
+                }
+                if (message.method === 'thread/resume' && message.id !== undefined) {
+                    connection.send(JSON.stringify({
+                        id: message.id,
+                        result: {
+                            thread: { id: 'thread-shared-approval' },
+                            model: 'gpt-test',
+                            reasoningEffort: null,
+                        },
+                    }));
+                }
+                if (message.id === 77 && message.result !== undefined) {
+                    approvalResponses.push(message.result);
+                }
+            });
+        });
+
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(socketPath, () => {
+                server.off('error', reject);
+                resolve();
+            });
+        });
+
+        const desktopAuthorityClient = new CodexAppServerClient(undefined, {
+            type: 'unixSocket',
+            socketPath,
+            approvalAuthority: 'desktop',
+        });
+        const pawsAuthorityClient = new CodexAppServerClient(undefined, {
+            type: 'unixSocket',
+            socketPath,
+            approvalAuthority: 'paws',
+        });
+        desktopAuthorityClient.setApprovalHandler(async () => 'denied');
+        pawsAuthorityClient.setApprovalHandler(async () => 'approved');
+
+        await desktopAuthorityClient.connect();
+        await pawsAuthorityClient.connect();
+        await Promise.all([
+            desktopAuthorityClient.resumeThread({ threadId: 'thread-shared-approval', cwd: tempDir }),
+            pawsAuthorityClient.resumeThread({ threadId: 'thread-shared-approval', cwd: tempDir }),
+        ]);
+
+        for (const connection of connections) {
+            connection.send(JSON.stringify({
+                id: 77,
+                method: 'item/commandExecution/requestApproval',
+                params: {
+                    threadId: 'thread-shared-approval',
+                    turnId: 'turn-approval',
+                    itemId: 'item-approval',
+                    command: 'printf ok',
+                    cwd: tempDir,
+                },
+            }));
+        }
+
+        await waitFor(() => approvalResponses.length >= 1);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(approvalResponses).toEqual([{ decision: 'accept' }]);
+
+        await Promise.all([desktopAuthorityClient.disconnect(), pawsAuthorityClient.disconnect()]);
     });
 });
