@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { pluginPackages } from '@paws/plugins/catalog';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,12 +15,29 @@ function authenticatedRoute(pathname: string): string {
     return url.toString();
 }
 
-function evidencePath(testInfo: TestInfo, caseId: 1 | 2): string {
+function evidencePath(testInfo: TestInfo, caseId: 1 | 2 | 3): string {
     const filename = `case-${caseId}-${evidencePhase}.png`;
     if (!evidenceDirectory) return testInfo.outputPath(filename);
     fs.mkdirSync(evidenceDirectory, { recursive: true });
     return path.join(evidenceDirectory, filename);
 }
+
+const catalogFixture = {
+    plugins: pluginPackages.map(({ manifest }) => ({
+        manifest,
+        status: manifest.id === 'relationship-advisor'
+            ? {
+                installed: true,
+                version: manifest.version,
+                configuration: {
+                    baseUrl: 'https://api.example.com/v1',
+                    model: 'example/model-mini',
+                },
+                secretHints: { apiKey: 'LLPq' },
+            }
+            : { installed: false },
+    })),
+};
 
 async function pauseForRecordedReview(page: Page): Promise<void> {
     if (process.env.HAPPY_E2E_RECORD === '1') {
@@ -49,12 +67,28 @@ test.setTimeout(120_000);
 test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不进入我的 Agent', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await installDevelopmentRefreshIndicatorSuppression(page);
+    let baselineCatalogMode: 'missing' | 'uninstalled' | 'installed' = 'missing';
 
     try {
         if (evidencePhase === 'before') {
             // Reproduce the production failure that motivated PR #376: the old
             // standalone image did not expose the newly added plugin route.
             await page.route('**/v1/plugins', async (route) => {
+                if (baselineCatalogMode !== 'missing') {
+                    await route.fulfill({
+                        contentType: 'application/json',
+                        status: 200,
+                        body: JSON.stringify(baselineCatalogMode === 'uninstalled'
+                            ? {
+                                plugins: catalogFixture.plugins.map(({ manifest }) => ({
+                                    manifest,
+                                    status: { installed: false },
+                                })),
+                            }
+                            : catalogFixture),
+                    });
+                    return;
+                }
                 await route.fulfill({
                     contentType: 'application/json',
                     status: 404,
@@ -96,6 +130,7 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
         }
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 1), fullPage: true });
+        if (evidencePhase === 'before') baselineCatalogMode = 'uninstalled';
 
         await page.getByTestId('plugin-marketplace-close').click();
         await expect(marketplace).toHaveCount(0);
@@ -111,6 +146,46 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
         }
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 2), fullPage: true });
+        if (evidencePhase === 'before') baselineCatalogMode = 'installed';
+
+        await page.keyboard.press('Escape');
+        await expect(agentDialog).toHaveCount(0);
+
+        if (evidencePhase === 'after') {
+            await page.route('**/v1/plugins', async (route) => {
+                await route.fulfill({
+                    contentType: 'application/json',
+                    status: 200,
+                    body: JSON.stringify(catalogFixture),
+                });
+            });
+        }
+
+        await pluginButton.click();
+        await expect(marketplace).toBeVisible();
+        await page.getByTestId('plugin-marketplace-plugin-relationship-advisor').click();
+        const secretInput = page.getByTestId('relationship-advisor-plugin-api-key');
+        const visibilityToggle = page.getByTestId('relationship-advisor-plugin-api-key-visibility-toggle');
+        await expect(secretInput).toBeVisible();
+        await expect(secretInput).toHaveAttribute('type', 'password');
+        if (evidencePhase === 'before') {
+            await expect(visibilityToggle).toHaveCount(0);
+        } else {
+            await expect(visibilityToggle).toBeVisible();
+        }
+        await pauseForRecordedReview(page);
+        await page.screenshot({ path: evidencePath(testInfo, 3), fullPage: true });
+
+        if (evidencePhase === 'after') {
+            await secretInput.fill('e2e-replacement-secret');
+            await visibilityToggle.click();
+            await expect.poll(() => secretInput.evaluate((element) => (
+                (element as HTMLInputElement).type
+            ))).toBe('text');
+            await expect(secretInput).toHaveValue('e2e-replacement-secret');
+            await visibilityToggle.click();
+            await expect(secretInput).toHaveAttribute('type', 'password');
+        }
     } finally {
         await page.close();
     }
