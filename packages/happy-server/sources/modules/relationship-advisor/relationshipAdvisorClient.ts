@@ -28,21 +28,30 @@ interface RelationshipAdvisorConnectionTestOptions {
     validateBaseUrl?: (baseUrl: string) => Promise<string>;
 }
 
-function createPinnedDispatcher(addresses: readonly LookupAddress[]): Dispatcher {
+export function createPinnedDispatcher(addresses: readonly LookupAddress[]): Dispatcher {
     return new Agent({
         connect: {
             lookup(_hostname, options, callback) {
                 const requestedFamily = typeof options === 'number'
                     ? options
                     : Number(options.family ?? 0);
-                const selected = addresses.find(({ family }) => !requestedFamily || family === requestedFamily)
-                    ?? addresses[0];
-                if (!selected) {
+                const matchingAddresses = addresses.filter(({ family }) => (
+                    !requestedFamily || family === requestedFamily
+                ));
+                if (matchingAddresses.length === 0) {
                     const error = new Error('Provider hostname resolved to no validated addresses') as NodeJS.ErrnoException;
                     error.code = 'ENOTFOUND';
                     (callback as (error: NodeJS.ErrnoException) => void)(error);
                     return;
                 }
+                if (typeof options === 'object' && options.all) {
+                    (callback as (
+                        error: NodeJS.ErrnoException | null,
+                        addresses: LookupAddress[],
+                    ) => void)(null, matchingAddresses);
+                    return;
+                }
+                const selected = matchingAddresses[0]!;
                 (callback as (
                     error: NodeJS.ErrnoException | null,
                     address: string,
@@ -118,7 +127,10 @@ export async function testRelationshipAdvisorConnection(
         };
         if (dispatcher) requestInit.dispatcher = dispatcher;
         const response = await (options.fetchImpl ?? fetch)(chatCompletionsUrl(safeBaseUrl), requestInit);
-        if (!response.ok) return { success: false, code: failureCodeForStatus(response.status) };
+        if (!response.ok) {
+            await response.body?.cancel().catch(() => undefined);
+            return { success: false, code: failureCodeForStatus(response.status) };
+        }
         const body = await response.json().catch(() => null) as { choices?: unknown } | null;
         if (!body || !Array.isArray(body.choices) || body.choices.length === 0) {
             return { success: false, code: 'provider_error' };

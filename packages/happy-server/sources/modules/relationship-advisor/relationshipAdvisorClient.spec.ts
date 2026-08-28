@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { fetch as undiciFetch, type Dispatcher } from 'undici';
 
 import * as relationshipAdvisorClient from '@/modules/relationship-advisor/relationshipAdvisorClient';
 
@@ -88,6 +91,34 @@ describe('streamRelationshipAdvisor', () => {
 });
 
 describe('testRelationshipAdvisorConnection', () => {
+    it('connects with a pinned dispatcher when Undici requests all DNS addresses', async () => {
+        const createDispatcher = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
+            createPinnedDispatcher?: (addresses: Array<{ address: string; family: 4 | 6 }>) => Dispatcher;
+        }).createPinnedDispatcher;
+        expect(createDispatcher).toBeTypeOf('function');
+        if (!createDispatcher) return;
+
+        const server = createServer((_request, response) => {
+            response.writeHead(200, { 'Content-Type': 'text/plain' });
+            response.end('ok');
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', resolve);
+        });
+        const port = (server.address() as AddressInfo).port;
+        const dispatcher = createDispatcher([{ address: '127.0.0.1', family: 4 }]);
+        try {
+            const response = await undiciFetch(`http://provider.example:${port}/health`, { dispatcher });
+            await expect(response.text()).resolves.toBe('ok');
+        } finally {
+            await dispatcher.close();
+            await new Promise<void>((resolve, reject) => server.close((error) => (
+                error ? reject(error) : resolve()
+            )));
+        }
+    });
+
     it('checks the configured chat endpoint with a one-token non-streaming request', async () => {
         const testConnection = (relationshipAdvisorClient as typeof relationshipAdvisorClient & {
             testRelationshipAdvisorConnection?: (
