@@ -122,7 +122,7 @@ const styles = StyleSheet.create(() => ({
     previewImage: { width: '100%', height: '100%' },
     previewPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     activeCopy: { marginTop: 10, marginBottom: 18 },
-    activeLabel: { fontSize: 15, fontWeight: '650', lineHeight: 21 },
+    activeLabel: { fontSize: 15, fontWeight: '600', lineHeight: 21 },
     activeMeta: { fontSize: 12, marginTop: 4 },
     timeline: { gap: 0 },
     stepRow: { flexDirection: 'row', minHeight: 78 },
