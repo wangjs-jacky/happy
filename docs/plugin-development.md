@@ -1,6 +1,6 @@
 # Paws 动态插件开发规范
 
-本文是 Paws 当前动态插件系统的开发约定，适用于插件清单、安装状态、服务端配置、客户端入口和运行时能力。协议的机器可读定义仍以 [`packages/happy-wire/src/plugins.ts`](../packages/happy-wire/src/plugins.ts) 为准；第一方插件包的源码位于公开的 [`wangjs-jacky/paws-plugins`](https://github.com/wangjs-jacky/paws-plugins) Monorepo。
+本文是 Paws 当前动态插件系统的开发约定，适用于插件清单、安装状态、服务端配置、客户端入口和运行时能力。先阅读 [`plugin-system-overview.md`](plugin-system-overview.md) 了解当前系统真正动态的部分、两个仓库的职责和现状审阅。协议的机器可读定义仍以 [`packages/happy-wire/src/plugins.ts`](../packages/happy-wire/src/plugins.ts) 为准；第一方插件包的源码位于公开的 [`wangjs-jacky/paws-plugins`](https://github.com/wangjs-jacky/paws-plugins) Monorepo。
 
 ## 1. 系统定位与安全边界
 
@@ -10,7 +10,7 @@
 - App 根据清单动态生成市场列表、配置表单、安装、更新和卸载界面；
 - 插件的可复用 Implementation 来自固定 commit 的 `@paws/plugins` Git 依赖；客户端页面以及数据库、Socket 和文件存储 Adapter 必须随受信任的 Paws 代码发布；
 - “安装”只启用一个已随 Paws 发布的能力并保存其配置，不下载 npm 包，也不执行清单中的脚本；
-- 已安装且版本匹配时，Plugin Host 才把页面、左栏、右栏和弹窗贡献解析到受信任 Adapter；卸载或版本过期会立即撤销全部贡献；
+- 已安装且版本匹配时，Plugin Host 才把页面、左栏、右栏和弹窗贡献解析到受信任 Adapter；卸载或版本过期后的目录 refresh 会撤销全部贡献；
 - 服务端 Capability Broker 在每次业务调用时同时检查安装状态、精确版本和 Manifest 权限。
 
 插件清单不得包含 JavaScript、远程模块 URL、任意路由路径或可执行表达式。第三方签名包、沙箱执行和远程代码更新仍不属于 `schemaVersion: 2` 第一阶段的能力范围。身份、密钥保险库、Manifest 校验、Capability Broker、审计、导航骨架和平台适配属于不可插件化的 Paws Kernel。
@@ -155,7 +155,7 @@ const exampleManifest: PluginManifestV2 = {
 'example-provider.page': { surface: 'page', path: '/example-provider' },
 ```
 
-同时实现对应 Expo Router 页面或 Slot Adapter。受信 Adapter 通过 `Plugin Client Host.register()` 挂载并获得幂等 `dispose()`，其 activation 结束时必须统一撤销。Host 必须同时确认：插件已安装、安装版本等于 Manifest、View 在清单中声明、surface 与本地 Adapter 一致；任一条件不满足都返回 `null`。不要把 `path`、React 组件名加入服务端清单，也不要对清单字符串调用动态 import、`eval` 或 URL 跳转。
+同时实现对应 Expo Router 页面或 Slot Adapter。受信 Adapter 通过 `Plugin Client Host.register()` 挂载并获得幂等 `dispose()`；当前第一方 Adapter 随 App 模块加载，其注册生命周期属于 Host 构建，不等同于账号安装状态。安装和卸载通过最新目录状态派生或撤销 View，而不是动态加载或卸载 Adapter 代码。Host 必须同时确认：插件已安装、安装版本等于 Manifest、View 在清单中声明、surface 与本地 Adapter 一致；任一条件不满足都返回 `null`。不要把 `path`、React 组件名加入服务端清单，也不要对清单字符串调用动态 import、`eval` 或 URL 跳转。
 
 `modal` 表示插件贡献一个可由用户动作打开的对话框定义，不表示插件可以任意抢占焦点弹窗。主题、无障碍、排序、密度、同时可见数量及移动端降级均由 Host 决定。
 

@@ -1,6 +1,6 @@
 # Paws Plugin Host v2 设计
 
-状态：第一阶段实现中
+状态：第一阶段已实现；本文保留为历史设计记录，当前总览见 [`../plugin-system-overview.md`](../plugin-system-overview.md)
 日期：2026-08-28
 
 ## 决策
