@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { io } from 'socket.io-client';
 import { decodeBase64, decrypt, encodeBase64, encrypt, libsodiumEncryptForPublicKey } from './crypto/encryption';
 import { resolveRecordEncryption, type RecordEncryption } from './crypto/records';
-import { FileCredentialProvider } from './adapters/nodeCredentials';
-import { PawsAgentClient } from './client/PawsAgentClient';
 import type { PawsCredentials } from './client/types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,6 +19,37 @@ const binPath = process.env.PAWS_AGENT_BIN_PATH
     ? resolve(process.env.PAWS_AGENT_BIN_PATH)
     : resolve(packageDir, 'bin', 'paws-agent.mjs');
 const keepIntegrationEnv = ['1', 'true', 'yes'].includes((process.env.HAPPY_AGENT_KEEP_ENV ?? '').toLowerCase());
+
+type PawsAgentClientConstructor = typeof import('./client/PawsAgentClient').PawsAgentClient;
+type FileCredentialProviderConstructor = typeof import('./adapters/nodeCredentials').FileCredentialProvider;
+
+async function loadSdkRuntime(): Promise<{
+    PawsAgentClient: PawsAgentClientConstructor;
+    FileCredentialProvider: FileCredentialProviderConstructor;
+}> {
+    const consumerDir = process.env.PAWS_AGENT_CONSUMER_DIR;
+    if (!consumerDir) {
+        const [root, node] = await Promise.all([
+            import('./client/PawsAgentClient'),
+            import('./adapters/nodeCredentials'),
+        ]);
+        return { PawsAgentClient: root.PawsAgentClient, FileCredentialProvider: node.FileCredentialProvider };
+    }
+    const resolveFromConsumer = createRequire(resolve(consumerDir, 'package.json')).resolve;
+    const [root, node] = await Promise.all([
+        import(pathToFileURL(resolveFromConsumer('@wangjs-jacky/paws-agent')).href),
+        import(pathToFileURL(resolveFromConsumer('@wangjs-jacky/paws-agent/node')).href),
+    ]);
+    if (typeof root.PawsAgentClient !== 'function' || typeof node.FileCredentialProvider !== 'function') {
+        throw new Error('Installed Paws Agent package does not expose the required integration runtime');
+    }
+    return {
+        PawsAgentClient: root.PawsAgentClient as PawsAgentClientConstructor,
+        FileCredentialProvider: node.FileCredentialProvider as FileCredentialProviderConstructor,
+    };
+}
+
+const { PawsAgentClient, FileCredentialProvider } = await loadSdkRuntime();
 
 type EnvironmentConfig = {
     name: string;

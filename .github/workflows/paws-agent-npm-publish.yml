@@ -123,7 +123,7 @@ jobs:
           mkdir -p "$registry_e2e"
           npm init -y --prefix "$registry_e2e"
           npm install --prefix "$registry_e2e" --ignore-scripts "$PAWS_AGENT_INSTALL_SPEC"
-          PAWS_AGENT_BIN_PATH="$registry_e2e/node_modules/.bin/paws-agent" pnpm --filter @wangjs-jacky/paws-agent test:integration
+          PAWS_AGENT_CONSUMER_DIR="$registry_e2e" PAWS_AGENT_BIN_PATH="$registry_e2e/node_modules/.bin/paws-agent" pnpm --filter @wangjs-jacky/paws-agent test:integration
       - name: Roll back a failed stable promotion when credentials permit
         if: >-
           steps.post_publish.outcome == 'failure' &&
@@ -142,6 +142,8 @@ jobs:
           fi
           if [ -n "$PREVIOUS_LATEST" ] && [ "$PREVIOUS_LATEST" != "$FAILED_VERSION" ]; then
             npm dist-tag add "@wangjs-jacky/paws-agent@$PREVIOUS_LATEST" latest
+          elif [ -z "$PREVIOUS_LATEST" ]; then
+            npm dist-tag rm '@wangjs-jacky/paws-agent' latest
           fi
           npm deprecate "@wangjs-jacky/paws-agent@$FAILED_VERSION" "Post-publish validation failed; use the previous latest release."
       - name: Fail release after post-publish validation

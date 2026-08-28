@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   workspace:
-    name: workspace typecheck
+    name: workspace suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -33,6 +33,7 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --if-present typecheck
+      - run: pnpm -r --workspace-concurrency=4 --if-present test -- --run
 
   unit:
     strategy:

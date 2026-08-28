@@ -17,6 +17,7 @@ jobs:
   tag-and-dispatch:
     if: >-
       github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
       startsWith(github.event.pull_request.head.ref, 'release/paws-agent-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -45,6 +46,8 @@ jobs:
           grep -Fxq 'packages/paws-agent/package.json' <<<"$changed"
           grep -Fxq 'packages/paws-agent/CHANGELOG.md' <<<"$changed"
           tag="paws-agent-v${version}"
+          git fetch origin main
+          git merge-base --is-ancestor "$PAWS_MERGE_SHA" origin/main
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Create immutable release tag
         shell: bash
