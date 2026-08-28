@@ -1,7 +1,7 @@
 import { render } from "ink";
 import React from "react";
 import { ApiClient } from '@/api/api';
-import { CodexAppServerClient } from './codexAppServerClient';
+import { CodexAppServerClient, resolveCodexAppServerConnection } from './codexAppServerClient';
 import type {
     GetAccountTokenUsageResponse,
     ListMcpServerStatusResponse,
@@ -846,7 +846,7 @@ export async function runCodex(opts: {
     // Start Context 
     //
 
-    client = new CodexAppServerClient(sandboxConfig);
+    client = new CodexAppServerClient(sandboxConfig, resolveCodexAppServerConnection());
 
     permissionHandler = new CodexPermissionHandler(session, (notification) => {
         api.push().sendSessionNotification(notification);

@@ -2,7 +2,8 @@
  * Codex App Server Client — drives Codex via the v2 JSON-RPC protocol
  * (`codex app-server`), replacing the legacy MCP-based CodexMcpClient.
  *
- * Protocol: JSON-RPC 2.0 over stdio (newline-delimited JSON).
+ * Protocol: JSON-RPC 2.0 over stdio (newline-delimited JSON) or WebSocket
+ * frames over the Codex app-server Unix control socket.
  * Reference: codex-rs/app-server/README.md in the openai/codex repo.
  *
  * WARNING: @openai/codex-sdk (v0.118.0) exists but only wraps `codex exec`
@@ -14,8 +15,11 @@
  */
 
 import { execSync, type ChildProcess } from 'node:child_process';
+import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { spawn as crossSpawn } from 'cross-spawn';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
+import WebSocket from 'ws';
 import { logger } from '@/ui/logger';
 import type {
     InitializeParams,
@@ -68,6 +72,32 @@ type PendingRequest = {
 };
 
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
+
+export type CodexAppServerConnection =
+    | { type: 'spawn' }
+    | { type: 'unixSocket'; socketPath: string; connectTimeoutMs?: number };
+
+export function resolveCodexAppServerConnection(
+    env: NodeJS.ProcessEnv = process.env,
+): CodexAppServerConnection {
+    const mode = env.HAPPY_CODEX_APP_SERVER_MODE?.trim().toLowerCase();
+    if (!mode || mode === 'spawn') {
+        return { type: 'spawn' };
+    }
+    if (mode !== 'shared') {
+        throw new Error(
+            `Invalid HAPPY_CODEX_APP_SERVER_MODE=${env.HAPPY_CODEX_APP_SERVER_MODE}; expected "spawn" or "shared"`,
+        );
+    }
+
+    const codexHome = env.CODEX_HOME?.trim() || join(homedir(), '.codex');
+    const socketPath = env.HAPPY_CODEX_APP_SERVER_SOCKET?.trim()
+        || join(codexHome, 'app-server-control', 'app-server-control.sock');
+    if (!isAbsolute(socketPath)) {
+        throw new Error('HAPPY_CODEX_APP_SERVER_SOCKET must be an absolute path');
+    }
+    return { type: 'unixSocket', socketPath };
+}
 
 export type ApprovalHandler = (params: {
     type: 'exec' | 'patch' | 'mcp';
@@ -199,6 +229,7 @@ function normalizeRawFileChangeList(changes: unknown): LegacyPatchChanges | unde
 export class CodexAppServerClient {
     private process: ChildProcess | null = null;
     private readline: ReadlineInterface | null = null;
+    private socket: WebSocket | null = null;
     private nextId = 1;
     private pending = new Map<number, PendingRequest>();
     private processEpoch = 0;
@@ -238,7 +269,10 @@ export class CodexAppServerClient {
     private eventHandler: ((msg: EventMsg) => void) | null = null;
     private approvalHandler: ApprovalHandler | null = null;
 
-    constructor(sandboxConfig?: SandboxConfig) {
+    constructor(
+        sandboxConfig?: SandboxConfig,
+        private readonly connection: CodexAppServerConnection = { type: 'spawn' },
+    ) {
         this.sandboxConfig = sandboxConfig;
     }
 
@@ -632,6 +666,17 @@ export class CodexAppServerClient {
     async connect(): Promise<void> {
         if (this.connected) return;
 
+        if (this.connection.type === 'unixSocket') {
+            try {
+                await this.connectUnixSocket(this.connection);
+                await this.initializeConnection();
+            } catch (error) {
+                await this.disconnectInternal();
+                throw error;
+            }
+            return;
+        }
+
         if (!isAppServerAvailable()) {
             throw new Error(
                 'Codex CLI is not installed\n\n' +
@@ -721,6 +766,76 @@ export class CodexAppServerClient {
             this.handleLine(line, epoch);
         });
 
+        await this.initializeConnection();
+    }
+
+    private async connectUnixSocket(
+        connection: Extract<CodexAppServerConnection, { type: 'unixSocket' }>,
+    ): Promise<void> {
+        this.sandboxEnabled = false;
+        if (this.sandboxConfig?.enabled) {
+            logger.warn('[CodexAppServer] Client sandbox is ignored when using a shared app-server');
+        }
+
+        const epoch = ++this.processEpoch;
+        const socketUrl = `ws+unix://${connection.socketPath}:/`;
+        const socket = new WebSocket(socketUrl, {
+            handshakeTimeout: connection.connectTimeoutMs ?? 5_000,
+            perMessageDeflate: false,
+        });
+        this.socket = socket;
+
+        socket.on('message', (data, isBinary) => {
+            if (this.socket !== socket || this.processEpoch !== epoch) return;
+            if (isBinary) {
+                logger.warn('[CodexAppServer] Ignoring unexpected binary message from shared app-server');
+                return;
+            }
+            this.handleLine(data.toString(), epoch);
+        });
+        socket.on('error', (error) => {
+            if (this.socket !== socket || this.processEpoch !== epoch) return;
+            logger.debug('[CodexAppServer] Shared socket error:', error);
+        });
+        socket.on('close', (code, reason) => {
+            if (this.socket !== socket || this.processEpoch !== epoch) return;
+            this.socket = null;
+            this.connected = false;
+            for (const [id, request] of this.pending) {
+                if (request.epoch !== epoch) continue;
+                request.reject(new Error(
+                    `Shared Codex app-server connection closed (${code}${reason.length > 0 ? `: ${reason.toString()}` : ''}) while waiting for ${request.method}`,
+                ));
+                this.pending.delete(id);
+            }
+            this.resolvePendingTurn(true);
+        });
+
+        await new Promise<void>((resolve, reject) => {
+            const handleOpen = (): void => {
+                socket.off('error', handleConnectError);
+                socket.off('close', handleConnectClose);
+                resolve();
+            };
+            const handleConnectError = (error: Error): void => {
+                socket.off('open', handleOpen);
+                socket.off('close', handleConnectClose);
+                reject(new Error(`Unable to connect to shared Codex app-server at ${connection.socketPath}: ${error.message}`));
+            };
+            const handleConnectClose = (): void => {
+                socket.off('open', handleOpen);
+                socket.off('error', handleConnectError);
+                reject(new Error(`Shared Codex app-server closed before initialization at ${connection.socketPath}`));
+            };
+            socket.once('open', handleOpen);
+            socket.once('error', handleConnectError);
+            socket.once('close', handleConnectClose);
+        });
+
+        logger.debug(`[CodexAppServer] Connected to shared Unix socket: ${connection.socketPath}`);
+    }
+
+    private async initializeConnection(): Promise<void> {
         // Perform initialize handshake
         const initParams: InitializeParams = {
             clientInfo: {
@@ -739,15 +854,17 @@ export class CodexAppServerClient {
     }
 
     private async disconnectInternal(opts?: { preserveThreadState?: boolean }): Promise<void> {
-        if (!this.connected && !this.process) return;
+        if (!this.connected && !this.process && !this.socket) return;
 
         const proc = this.process;
+        const socket = this.socket;
         const pid = proc?.pid;
         const epoch = this.processEpoch;
-        logger.debug(`[CodexAppServer] Disconnecting; pid=${pid ?? 'none'}`);
+        logger.debug(`[CodexAppServer] Disconnecting; pid=${pid ?? 'none'} shared=${socket !== null}`);
 
         this.readline?.close();
         this.readline = null;
+        this.socket = null;
 
         try {
             proc?.stdin?.end();
@@ -763,6 +880,26 @@ export class CodexAppServerClient {
                 } catch { /* already dead */ }
             }, 2000);
             killTimer.unref();
+        }
+
+        if (socket) {
+            await new Promise<void>((resolve) => {
+                if (socket.readyState === WebSocket.CLOSED) {
+                    resolve();
+                    return;
+                }
+                const timer = setTimeout(resolve, 1_000);
+                timer.unref();
+                socket.once('close', () => {
+                    clearTimeout(timer);
+                    resolve();
+                });
+                if (socket.readyState === WebSocket.CONNECTING) {
+                    socket.terminate();
+                } else {
+                    socket.close(1000, 'Paws client disconnected');
+                }
+            });
         }
 
         this.process = null;
@@ -1399,8 +1536,8 @@ export class CodexAppServerClient {
     private request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
         const timeout = timeoutMs ?? CodexAppServerClient.REQUEST_TIMEOUT_MS;
         return new Promise((resolve, reject) => {
-            if (!this.process?.stdin?.writable) {
-                reject(new Error(`Cannot send ${method}: stdin not writable`));
+            if (!this.canWriteToTransport()) {
+                reject(new Error(`Cannot send ${method}: Codex transport is not writable`));
                 return;
             }
             const id = this.nextId++;
@@ -1418,24 +1555,45 @@ export class CodexAppServerClient {
             });
 
             const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-            const line = JSON.stringify(msg) + '\n';
             logger.debug(`[CodexAppServer] → ${method} (id=${id})`);
-            this.process.stdin.write(line);
+            try {
+                this.writeTransportMessage(JSON.stringify(msg));
+            } catch (error) {
+                clearTimeout(timer);
+                this.pending.delete(id);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
         });
     }
 
     private notify(method: string, params?: unknown): void {
-        if (!this.process?.stdin?.writable) return;
+        if (!this.canWriteToTransport()) return;
         const msg: JsonRpcRequest = { jsonrpc: '2.0', method, params };
-        this.process.stdin.write(JSON.stringify(msg) + '\n');
+        this.writeTransportMessage(JSON.stringify(msg));
         logger.debug(`[CodexAppServer] → ${method} (notification)`);
     }
 
     private respond(id: number, result: unknown): void {
-        if (!this.process?.stdin?.writable) return;
+        if (!this.canWriteToTransport()) return;
         const msg: JsonRpcResponse = { jsonrpc: '2.0', id, result };
-        this.process.stdin.write(JSON.stringify(msg) + '\n');
+        this.writeTransportMessage(JSON.stringify(msg));
         logger.debug(`[CodexAppServer] → response (id=${id})`);
+    }
+
+    private canWriteToTransport(): boolean {
+        return this.socket?.readyState === WebSocket.OPEN || this.process?.stdin?.writable === true;
+    }
+
+    private writeTransportMessage(message: string): void {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+            this.socket.send(message);
+            return;
+        }
+        if (this.process?.stdin?.writable) {
+            this.process.stdin.write(`${message}\n`);
+            return;
+        }
+        throw new Error('Codex transport is not writable');
     }
 
     private handleLine(line: string, sourceEpoch: number = this.processEpoch): void {
