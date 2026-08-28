@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command, CommanderError } from 'commander';
+import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { join } from 'node:path';
 import { PawsAgentClient } from './client/PawsAgentClient';
 import { PawsAgentError } from './client/errors';
@@ -79,11 +79,16 @@ function resolveRemotePath(rawPath: string | undefined, machine: Machine): strin
     return path;
 }
 
-function isIdle(session: Session): boolean {
+export function isIdle(session: Session): boolean {
     const metadata = session.metadata as { lifecycleState?: unknown } | null;
     if (metadata?.lifecycleState === 'archived') throw new Error('Session is archived');
-    const state = session.agentState as { controlledByUser?: unknown; requests?: unknown } | null;
+    const state = session.agentState as {
+        controlledByUser?: unknown;
+        requests?: unknown;
+        turnStatus?: { status?: unknown };
+    } | null;
     if (!state) return false;
+    if (state.turnStatus?.status === 'running') return false;
     const requests = state.requests;
     const hasRequests = requests != null && typeof requests === 'object' && !Array.isArray(requests)
         && Object.keys(requests as Record<string, unknown>).length > 0;
@@ -158,7 +163,7 @@ export function createCli(dependencies: CliDependencies = defaultDependencies())
         .requiredOption('--machine <machine-id>', 'Machine ID or prefix')
         .option('--path <path>', 'Working directory path (defaults to machine home directory)')
         .option('--agent <agent>', `Agent to start (${SUPPORTED_AGENTS.join(', ')})`, value => {
-            if (!SUPPORTED_AGENTS.includes(value as SupportedAgent)) throw new Error(`--agent must be one of: ${SUPPORTED_AGENTS.join(', ')}`);
+            if (!SUPPORTED_AGENTS.includes(value as SupportedAgent)) throw new InvalidArgumentError(`--agent must be one of: ${SUPPORTED_AGENTS.join(', ')}`);
             return value as SupportedAgent;
         })
         .option('--create-dir', 'Allow creating the directory if it does not exist')
@@ -205,7 +210,7 @@ export function createCli(dependencies: CliDependencies = defaultDependencies())
         .argument('<session-id>', 'Session ID or prefix')
         .option('--limit <n>', 'Limit number of messages', value => {
             const limit = Number.parseInt(value, 10);
-            if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error('--limit must be a positive integer');
+            if (!Number.isSafeInteger(limit) || limit <= 0) throw new InvalidArgumentError('--limit must be a positive integer');
             return limit;
         })
         .option('--json', 'Output as JSON')
@@ -237,7 +242,7 @@ export function createCli(dependencies: CliDependencies = defaultDependencies())
         .argument('<session-id>', 'Session ID or prefix')
         .option('--timeout <seconds>', 'Timeout in seconds', value => {
             const seconds = Number.parseInt(value, 10);
-            if (!Number.isSafeInteger(seconds) || seconds <= 0) throw new Error('--timeout must be a positive integer');
+            if (!Number.isSafeInteger(seconds) || seconds <= 0) throw new InvalidArgumentError('--timeout must be a positive integer');
             return seconds;
         }, 300)
         .action(async (value: string, options: { timeout: number }) => {

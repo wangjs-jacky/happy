@@ -31,6 +31,7 @@ export class PawsAgentClient {
 
     private readonly events: PawsAgentEvents;
     private readonly encryption = new RecordEncryptionStore();
+    private readonly http: PawsHttpTransport;
     private readonly realtime: PawsRealtimeTransport;
     private readonly sessionsImpl: SessionsResourceImpl;
     private disposed = false;
@@ -38,6 +39,7 @@ export class PawsAgentClient {
     constructor(options: PawsAgentClientOptions, dependencies: ClientDependencies = {}) {
         this.events = new PawsAgentEvents(options.logger);
         const http = dependencies.http ?? new PawsHttpTransport(options);
+        this.http = http;
         const machines = new MachinesResourceImpl(http, this.encryption);
         let sessions!: SessionsResourceImpl;
         this.realtime = dependencies.realtime ?? new PawsRealtimeTransport({
@@ -83,6 +85,7 @@ export class PawsAgentClient {
     async dispose(): Promise<void> {
         if (this.disposed) return;
         this.disposed = true;
+        this.http.dispose();
         await this.realtime.dispose();
         this.encryption.clear();
         this.events.clear();
@@ -91,11 +94,25 @@ export class PawsAgentClient {
     private async handleUpdate(update: unknown): Promise<void> {
         if (this.disposed || update == null || typeof update !== 'object') return;
         try {
-            const body = (update as { body?: any }).body;
+            const body = (update as { body?: unknown }).body;
             if (!body || typeof body !== 'object') return;
+            const record = body as {
+                t?: unknown;
+                id?: unknown;
+                sid?: unknown;
+                session?: { id?: unknown };
+                message?: {
+                    id?: unknown;
+                    seq?: unknown;
+                    content?: { t?: unknown; c?: unknown };
+                    localId?: unknown;
+                    createdAt?: unknown;
+                    updatedAt?: unknown;
+                };
+            };
 
-            if (body.t === 'new-message' && body.message?.content?.t === 'encrypted') {
-                const sessionId = body.sid;
+            if (record.t === 'new-message' && record.message?.content?.t === 'encrypted') {
+                const sessionId = record.sid;
                 if (typeof sessionId !== 'string') return;
                 let encryption = this.encryption.getSession(sessionId);
                 if (!encryption) {
@@ -103,7 +120,16 @@ export class PawsAgentClient {
                     encryption = this.encryption.getSession(sessionId);
                 }
                 if (!encryption) throw new PawsAgentError('DECRYPTION_FAILED', 'Session encryption is unavailable');
-                const raw = body.message;
+                const raw = record.message;
+                if (
+                    typeof raw.id !== 'string'
+                    || typeof raw.seq !== 'number'
+                    || typeof raw.content?.c !== 'string'
+                    || typeof raw.createdAt !== 'number'
+                    || typeof raw.updatedAt !== 'number'
+                ) {
+                    throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Realtime message payload is malformed');
+                }
                 this.events.emit({
                     type: 'message',
                     sessionId,
@@ -111,7 +137,7 @@ export class PawsAgentClient {
                         id: raw.id,
                         seq: raw.seq,
                         content: decrypt(encryption.key, encryption.variant, decodeBase64(raw.content.c)),
-                        localId: raw.localId ?? null,
+                        localId: typeof raw.localId === 'string' ? raw.localId : null,
                         createdAt: raw.createdAt,
                         updatedAt: raw.updatedAt,
                     },
@@ -119,9 +145,9 @@ export class PawsAgentClient {
                 return;
             }
 
-            if (body.t === 'update-session' || body.t === 'new-session') {
+            if (record.t === 'update-session' || record.t === 'new-session') {
                 const sessions = await this.sessionsImpl.list();
-                const sessionId = body.id ?? body.sid ?? body.session?.id;
+                const sessionId = record.id ?? record.sid ?? record.session?.id;
                 const session = sessions.find(candidate => candidate.id === sessionId);
                 if (!session) return;
                 this.events.emit({ type: 'session', session });
@@ -137,7 +163,7 @@ export class PawsAgentClient {
                     };
                     this.events.emit({ type: 'request', sessionId: session.id, request });
                 }
-            } else if (body.t === 'update-machine' || body.t === 'new-machine') {
+            } else if (record.t === 'update-machine' || record.t === 'new-machine') {
                 await this.machines.list();
             }
         } catch (cause) {

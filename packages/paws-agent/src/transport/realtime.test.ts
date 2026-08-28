@@ -83,6 +83,28 @@ describe('PawsRealtimeTransport', () => {
         expect(seen).toHaveBeenCalledTimes(callCount);
     });
 
+    it('rejects a pending connection when disposed', async () => {
+        const socket = new MockSocket();
+        const realtime = new PawsRealtimeTransport({
+            serverUrl: 'https://paws.example',
+            credentials: { getCredentials: vi.fn().mockResolvedValue(credentials) } as never,
+            encryption: new RecordEncryptionStore(),
+            events: new PawsAgentEvents(),
+            resync: vi.fn(),
+            socketFactory: () => socket as never,
+        });
+
+        const connecting = realtime.connect();
+        await vi.waitFor(() => expect(socket.listeners.has('connect')).toBe(true));
+        await realtime.dispose();
+
+        const outcome = await Promise.race([
+            connecting.catch(error => error),
+            new Promise(resolve => setTimeout(() => resolve('still-pending'), 25)),
+        ]);
+        expect(outcome).toMatchObject({ code: 'CONNECTION_LOST' });
+    });
+
     it('uses the loaded record key for existing session RPC envelopes', async () => {
         const socket = new MockSocket();
         const encryption = new RecordEncryptionStore();
@@ -107,5 +129,71 @@ describe('PawsRealtimeTransport', () => {
 
         await expect(realtime.sessionRpc('session-1', 'permission', { id: 'r1', approved: true }))
             .resolves.toEqual({ accepted: true });
+    });
+
+    it('rejects malformed successful RPC acknowledgements', async () => {
+        const socket = new MockSocket();
+        const encryption = new RecordEncryptionStore();
+        encryption.setSession('session-1', { key: credentials.secret, variant: 'legacy' });
+        socket.emitWithAck.mockResolvedValue({ ok: true });
+        const realtime = new PawsRealtimeTransport({
+            serverUrl: 'https://paws.example',
+            credentials: { getCredentials: vi.fn().mockResolvedValue(credentials) } as never,
+            encryption,
+            events: new PawsAgentEvents(),
+            resync: vi.fn(),
+            socketFactory: () => socket as never,
+        });
+        const connecting = realtime.connect();
+        await vi.waitFor(() => expect(socket.listeners.has('connect')).toBe(true));
+        socket.server('connect');
+        await connecting;
+
+        await expect(realtime.sessionRpc('session-1', 'permission', { id: 'r1' }))
+            .rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    });
+
+    it('reports encrypted RPC payload corruption as a decryption failure', async () => {
+        const socket = new MockSocket();
+        const encryption = new RecordEncryptionStore();
+        encryption.setSession('session-1', { key: credentials.secret, variant: 'legacy' });
+        socket.emitWithAck.mockResolvedValue({ ok: true, result: 'not-valid-base64' });
+        const realtime = new PawsRealtimeTransport({
+            serverUrl: 'https://paws.example',
+            credentials: { getCredentials: vi.fn().mockResolvedValue(credentials) } as never,
+            encryption,
+            events: new PawsAgentEvents(),
+            resync: vi.fn(),
+            socketFactory: () => socket as never,
+        });
+        const connecting = realtime.connect();
+        await vi.waitFor(() => expect(socket.listeners.has('connect')).toBe(true));
+        socket.server('connect');
+        await connecting;
+
+        await expect(realtime.sessionRpc('session-1', 'permission', { id: 'r1' }))
+            .rejects.toMatchObject({ code: 'DECRYPTION_FAILED' });
+    });
+
+    it('normalizes a timed-out acknowledgement', async () => {
+        const socket = new MockSocket();
+        const encryption = new RecordEncryptionStore();
+        encryption.setMachine('machine-1', { key: credentials.secret, variant: 'legacy' });
+        socket.emitWithAck.mockRejectedValue(new Error('operation has timed out'));
+        const realtime = new PawsRealtimeTransport({
+            serverUrl: 'https://paws.example',
+            credentials: { getCredentials: vi.fn().mockResolvedValue(credentials) } as never,
+            encryption,
+            events: new PawsAgentEvents(),
+            resync: vi.fn(),
+            socketFactory: () => socket as never,
+        });
+        const connecting = realtime.connect();
+        await vi.waitFor(() => expect(socket.listeners.has('connect')).toBe(true));
+        socket.server('connect');
+        await connecting;
+
+        await expect(realtime.machineRpc('machine-1', 'spawn-happy-session', {}))
+            .rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
     });
 });

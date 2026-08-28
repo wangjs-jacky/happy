@@ -23,4 +23,19 @@ describe('package root', () => {
             expect(bundle).not.toContain('Buffer.from');
         }
     });
+
+    it('publishes only the documented SDK entrypoints', async () => {
+        const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+            exports: Record<string, unknown>;
+        };
+        expect(Object.keys(manifest.exports)).toEqual(['.', './node', './browser', './package.json']);
+
+        const nodeEntry = await import('./node');
+        expect(Object.keys(nodeEntry).sort()).toEqual([
+            'FileCredentialProvider',
+            'PawsAgentClient',
+            'PawsAgentError',
+            'createDefaultFileCredentialProvider',
+        ]);
+    });
 });

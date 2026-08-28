@@ -7,7 +7,7 @@ import { RecordEncryptionStore, type RecordEncryption } from '../crypto/records'
 
 type RealtimeSocket = {
     connected: boolean;
-    on(event: string, listener: (...args: any[]) => void): unknown;
+    on(event: string, listener: (...args: unknown[]) => void): unknown;
     connect(): unknown;
     disconnect(): unknown;
     close(): unknown;
@@ -116,6 +116,7 @@ export class PawsRealtimeTransport {
         if (this.disposed) return;
         this.disposed = true;
         this.manualDisconnect = true;
+        this.rejectInitial?.(new PawsAgentError('CONNECTION_LOST', 'Client has been disposed'));
         this.socket?.close();
         this.socket = null;
         this.clearInitial();
@@ -182,9 +183,13 @@ export class PawsRealtimeTransport {
                 throw new PawsAgentError(code, code === 'MACHINE_OFFLINE' ? 'Machine is offline' : 'RPC call failed');
             }
             if (typeof response.result !== 'string') {
-                return undefined as T;
+                throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'RPC response is missing an encrypted result');
             }
-            return decrypt(encryption.key, encryption.variant, decodeBase64(response.result)) as T;
+            try {
+                return decrypt(encryption.key, encryption.variant, decodeBase64(response.result)) as T;
+            } catch (cause) {
+                throw new PawsAgentError('DECRYPTION_FAILED', 'Unable to decrypt RPC response', { cause });
+            }
         } catch (cause) {
             if (cause instanceof PawsAgentError) throw cause;
             throw new PawsAgentError('RPC_TIMEOUT', 'RPC call timed out', { cause });

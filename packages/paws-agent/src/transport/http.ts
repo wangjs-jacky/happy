@@ -8,6 +8,8 @@ export class PawsHttpTransport {
     private readonly serverUrl: string;
     private readonly credentials: CredentialProvider;
     private readonly client: AxiosInstance;
+    private readonly abortController = new AbortController();
+    private disposed = false;
 
     constructor(options: {
         serverUrl: string;
@@ -24,6 +26,7 @@ export class PawsHttpTransport {
     }
 
     async getCredentials(): Promise<PawsCredentials> {
+        this.ensureActive();
         const credentials = await this.credentials.getCredentials();
         if (!credentials) {
             throw new PawsAgentError('AUTH_REQUIRED', 'Authentication required');
@@ -40,9 +43,11 @@ export class PawsHttpTransport {
             const credentials = await this.getCredentials();
             const response = await this.client.get(this.url(path), {
                 headers: this.headers(credentials),
+                signal: this.abortController.signal,
             });
             return { data: response.data as T, credentials };
         } catch (error) {
+            if (this.disposed) throw new PawsAgentError('CONNECTION_LOST', 'HTTP transport disposed');
             throw normalizeHttpError(error, `GET ${path}`);
         }
     }
@@ -51,9 +56,11 @@ export class PawsHttpTransport {
         try {
             const response = await this.client.post(this.url(path), body, {
                 headers: this.headers(await this.getCredentials()),
+                signal: this.abortController.signal,
             });
             return response.data as T;
         } catch (error) {
+            if (this.disposed) throw new PawsAgentError('CONNECTION_LOST', 'HTTP transport disposed');
             throw normalizeHttpError(error, `POST ${path}`);
         }
     }
@@ -62,10 +69,18 @@ export class PawsHttpTransport {
         try {
             await this.client.delete(this.url(path), {
                 headers: this.headers(await this.getCredentials()),
+                signal: this.abortController.signal,
             });
         } catch (error) {
+            if (this.disposed) throw new PawsAgentError('CONNECTION_LOST', 'HTTP transport disposed');
             throw normalizeHttpError(error, `DELETE ${path}`);
         }
+    }
+
+    dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.abortController.abort();
     }
 
     private url(path: string): string {
@@ -80,5 +95,11 @@ export class PawsHttpTransport {
             Authorization: `Bearer ${credentials.token}`,
             'X-Happy-Client': COMPATIBILITY_CLIENT,
         };
+    }
+
+    private ensureActive(): void {
+        if (this.disposed) {
+            throw new PawsAgentError('CONNECTION_LOST', 'HTTP transport disposed');
+        }
     }
 }

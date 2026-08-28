@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PawsAgentClient } from './client/PawsAgentClient';
 import type { Session } from './client/types';
-import { runCli, type CliDependencies } from './cli';
+import { isIdle, runCli, type CliDependencies } from './cli';
 
 const session: Session = {
     id: 'session-1', seq: 1, createdAt: 1, updatedAt: 1, active: true, activeAt: 1,
@@ -13,6 +13,17 @@ afterEach(() => {
 });
 
 describe('thin CLI', () => {
+    it('treats a running turn as busy and a completed turn as idle', () => {
+        expect(isIdle({
+            ...session,
+            agentState: { turnStatus: { status: 'running' }, requests: {} },
+        })).toBe(false);
+        expect(isIdle({
+            ...session,
+            agentState: { turnStatus: { status: 'completed' }, requests: {} },
+        })).toBe(true);
+    });
+
     it('delegates send to the public SDK and keeps JSON on stdout', async () => {
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -38,5 +49,21 @@ describe('thin CLI', () => {
         });
         expect(JSON.parse(stdout.join(''))).toEqual({ sessionId: 'session-1', localId: 'local-1' });
         expect(stderr).toEqual([]);
+    });
+
+    it.each([
+        ['spawn', '--machine', 'machine-1', '--agent', 'invalid-agent'],
+        ['history', 'session-1', '--limit', '0'],
+    ])('returns exit code 2 for invalid usage: %s', async (...args: string[]) => {
+        const dependencies: CliDependencies = {
+            client: { dispose: vi.fn() } as unknown as PawsAgentClient,
+            auth: { login: vi.fn(), logout: vi.fn(), status: vi.fn() },
+            stdout: vi.fn(),
+            stderr: vi.fn(),
+        };
+
+        await runCli(['node', 'paws-agent', ...args], dependencies);
+
+        expect(process.exitCode).toBe(2);
     });
 });

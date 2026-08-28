@@ -52,16 +52,6 @@
         "default": "./dist/browser.mjs"
       }
     },
-    "./cli": {
-      "require": {
-        "types": "./dist/cli.d.cts",
-        "default": "./dist/cli.cjs"
-      },
-      "import": {
-        "types": "./dist/cli.d.mts",
-        "default": "./dist/cli.mjs"
-      }
-    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
@@ -72,7 +62,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --noEmit && pkgroll",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --noEmit && pkgroll --input dist/cli.mjs",
     "test": "$npm_execpath run build && vitest run",
     "test:integration": "$npm_execpath run build && vitest run --config vitest.integration.config.ts",
     "verify:pack": "node scripts/verify-pack.mjs",

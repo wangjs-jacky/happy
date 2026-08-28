@@ -4,12 +4,13 @@ import { PawsAgentClient } from './PawsAgentClient';
 describe('PawsAgentClient', () => {
     it('composes resources and delegates lifecycle without import-time connection', async () => {
         const realtime = { connect: vi.fn(), disconnect: vi.fn(), dispose: vi.fn() };
+        const http = { dispose: vi.fn() };
         const credentials = {
             getCredentials: vi.fn(), setCredentials: vi.fn(), clearCredentials: vi.fn(),
         };
         const client = new PawsAgentClient(
             { serverUrl: 'https://paws.example', credentials },
-            { realtime: realtime as never },
+            { realtime: realtime as never, http: http as never },
         );
 
         expect(realtime.connect).not.toHaveBeenCalled();
@@ -24,5 +25,6 @@ describe('PawsAgentClient', () => {
         expect(realtime.connect).toHaveBeenCalledOnce();
         expect(realtime.disconnect).toHaveBeenCalledOnce();
         expect(realtime.dispose).toHaveBeenCalledOnce();
+        expect(http.dispose).toHaveBeenCalledOnce();
     });
 });

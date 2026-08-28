@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodeBase64, encodeBase64, libsodiumEncryptForPublicKey } from './encryption';
@@ -35,10 +36,26 @@ let activeMachineId: string | null = null;
 let testProjectDir: string | null = null;
 let testWorktreeDir: string | null = null;
 let previousAskBaseUrl: string | undefined;
+let previousDeepSeekApiKey: string | undefined;
+let fixtureServer: Server | null = null;
 const spawnedSessionIds = new Set<string>();
 
-function runPnpm(args: string[], cwd = repoRoot): string {
-    return runCommand('pnpm', args, cwd, process.env);
+async function runPnpmAsync(args: string[], cwd = repoRoot): Promise<string> {
+    return await new Promise<string>((resolvePromise, rejectPromise) => {
+        const child = spawn('pnpm', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+        child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+        child.on('error', rejectPromise);
+        child.on('close', code => {
+            if (code === 0) {
+                resolvePromise(stdout);
+                return;
+            }
+            rejectPromise(new Error(`pnpm ${args.join(' ')} failed with code ${code}\n${stdout}\n${stderr}`));
+        });
+    });
 }
 
 function runCommand(command: string, args: string[], cwd = repoRoot, env: NodeJS.ProcessEnv = process.env): string {
@@ -91,6 +108,15 @@ function readDaemonState(envDir: string): DaemonState | null {
         return null;
     }
     return JSON.parse(readFileSync(daemonStatePath, 'utf-8')) as DaemonState;
+}
+
+function isProcessAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 function agentEnvVars(serverPort: number, homeDir: string): NodeJS.ProcessEnv {
@@ -157,6 +183,38 @@ function isUserTextMessage(message: unknown, expectedText: string): boolean {
     return payload.role === 'user'
         && payload.content?.type === 'text'
         && payload.content?.text === expectedText;
+}
+
+function containsText(value: unknown, expectedText: string): boolean {
+    if (typeof value === 'string') return value.includes(expectedText);
+    if (Array.isArray(value)) return value.some(item => containsText(item, expectedText));
+    if (value == null || typeof value !== 'object') return false;
+    return Object.values(value).some(item => containsText(item, expectedText));
+}
+
+async function startDeepSeekFixture(): Promise<string> {
+    fixtureServer = createServer((_request, response) => {
+        response.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+        });
+        setTimeout(() => {
+            response.write('data: {"choices":[{"delta":{"content":"fixture "},"finish_reason":null}]}\n\n');
+            setTimeout(() => {
+                response.write('data: {"choices":[{"delta":{"content":"response"},"finish_reason":null}]}\n\n');
+                response.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+                response.end('data: [DONE]\n\n');
+            }, 100);
+        }, 750);
+    });
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+        fixtureServer!.once('error', rejectPromise);
+        fixtureServer!.listen(0, '127.0.0.1', () => resolvePromise());
+    });
+    const address = fixtureServer.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture server did not bind a TCP port');
+    return `http://127.0.0.1:${address.port}`;
 }
 
 async function waitForSessionInList(sessionId: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -328,10 +386,12 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
     beforeAll(async () => {
         previousCurrentEnv = readCurrentEnvName();
         previousAskBaseUrl = process.env.HAPPY_ASK_BASE_URL;
-        process.env.HAPPY_ASK_BASE_URL = 'http://127.0.0.1:1';
+        previousDeepSeekApiKey = process.env.HAPPY_DEEPSEEK_API_KEY;
+        process.env.HAPPY_ASK_BASE_URL = await startDeepSeekFixture();
+        process.env.HAPPY_DEEPSEEK_API_KEY = 'paws-agent-fixture-key';
 
         try {
-            runPnpm(['env:up', '--template', 'authenticated-empty', '--no-web']);
+            await runPnpmAsync(['env:up', '--template', 'authenticated-empty', '--no-web']);
         } finally {
             const current = readCurrentEnvName();
             if (current && current !== previousCurrentEnv) {
@@ -365,6 +425,16 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         } else {
             process.env.HAPPY_ASK_BASE_URL = previousAskBaseUrl;
         }
+        if (previousDeepSeekApiKey === undefined) {
+            delete process.env.HAPPY_DEEPSEEK_API_KEY;
+        } else {
+            process.env.HAPPY_DEEPSEEK_API_KEY = previousDeepSeekApiKey;
+        }
+        if (fixtureServer) {
+            fixtureServer.closeAllConnections();
+            await new Promise<void>(resolvePromise => fixtureServer!.close(() => resolvePromise()));
+            fixtureServer = null;
+        }
         if (keepIntegrationEnv) {
             return;
         }
@@ -381,13 +451,13 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         } finally {
             if (integrationEnvName) {
                 try {
-                    runPnpm(['env:down']);
+                    await runPnpmAsync(['env:down']);
                 } catch {
                     // ignore cleanup failures here and continue best effort
                 }
 
                 try {
-                    runPnpm(['env:remove', integrationEnvName]);
+                    await runPnpmAsync(['env:remove', integrationEnvName]);
                 } catch {
                     // ignore cleanup failures here and continue best effort
                 }
@@ -399,7 +469,7 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
                 && environmentExists(previousCurrentEnv)
             ) {
                 try {
-                    runPnpm(['env:use', previousCurrentEnv]);
+                    await runPnpmAsync(['env:use', previousCurrentEnv]);
                 } catch {
                     // ignore restore failures
                 }
@@ -610,6 +680,7 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         if (!activeMachineId || !integrationConfig || !agentHomeDir || !integrationEnvDir) {
             throw new Error('Integration environment not initialized');
         }
+        const deniedDirectory = join(integrationEnvDir, 'denied-new-directory');
         const directory = join(integrationEnvDir, 'approved-new-directory');
         const client = new PawsAgentClient({
             serverUrl: `http://localhost:${integrationConfig.serverPort}`,
@@ -617,6 +688,14 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         });
         await client.connect();
         try {
+            const denied = await client.sessions.spawn({
+                machineId: activeMachineId,
+                directory: deniedDirectory,
+                agent: 'ask',
+            });
+            expect(denied).toEqual({ type: 'requestToApproveDirectoryCreation', directory: deniedDirectory });
+            expect(existsSync(deniedDirectory)).toBe(false);
+
             const pending = await client.sessions.spawn({
                 machineId: activeMachineId,
                 directory,
@@ -632,6 +711,47 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
             });
             expect(approved.type).toBe('success');
             if (approved.type === 'success') spawnedSessionIds.add(approved.sessionId);
+        } finally {
+            await client.dispose();
+        }
+    });
+
+    it('observes the deterministic fixture turn lifecycle and response', async () => {
+        if (!activeMachineId || !integrationConfig || !agentHomeDir || !testProjectDir) {
+            throw new Error('Integration environment not initialized');
+        }
+        const client = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: new FileCredentialProvider(join(agentHomeDir, 'agent.key')),
+        });
+        await client.connect();
+        try {
+            const spawned = await client.sessions.spawn({
+                machineId: activeMachineId,
+                directory: testProjectDir,
+                agent: 'ask',
+            });
+            expect(spawned.type).toBe('success');
+            if (spawned.type !== 'success') throw new Error('Expected fixture session to spawn');
+            spawnedSessionIds.add(spawned.sessionId);
+
+            await client.messages.send({ sessionId: spawned.sessionId, text: 'fixture lifecycle' });
+            await waitFor(async () => {
+                const state = (await client.sessions.get(spawned.sessionId)).agentState as {
+                    turnStatus?: { status?: string };
+                } | null;
+                return state?.turnStatus?.status === 'running';
+            }, 20_000, 'fixture session to become busy');
+            await waitFor(async () => {
+                const state = (await client.sessions.get(spawned.sessionId)).agentState as {
+                    turnStatus?: { status?: string };
+                } | null;
+                return state?.turnStatus?.status === 'completed';
+            }, 20_000, 'fixture session to become idle');
+            await waitFor(async () => {
+                const history = await client.messages.history(spawned.sessionId);
+                return history.some(message => containsText(message.content, 'fixture response'));
+            }, 20_000, 'fixture response in session history');
         } finally {
             await client.dispose();
         }
@@ -669,6 +789,20 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         const history = await client.messages.history(sessionId);
         expect(history.filter(message => message.localId === localId)).toHaveLength(1);
 
+        const secondClient = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: new FileCredentialProvider(join(agentHomeDir, 'agent.key')),
+        });
+        try {
+            await secondClient.messages.send({ sessionId, text: 'second client update' });
+            await waitFor(async () => {
+                const messages = await client.messages.history(sessionId);
+                return messages.some(message => isUserTextMessage(message.content, 'second client update'));
+            }, 20_000, 'second client message to become visible');
+        } finally {
+            await secondClient.dispose();
+        }
+
         await client.disconnect();
         await client.connect();
         expect((await client.sessions.get(sessionId)).id).toBe(sessionId);
@@ -681,5 +815,56 @@ describe('paws-agent integration', { timeout: 180_000 }, () => {
         await expect(client.requests.approve({ sessionId, requestId: 'missing-request' }))
             .rejects.toMatchObject({ code: 'NOT_FOUND' });
         await client.dispose();
+    });
+
+    it('normalizes expired credentials against the isolated server', async () => {
+        if (!integrationConfig || !agentHomeDir) throw new Error('Integration environment not initialized');
+        const validProvider = new FileCredentialProvider(join(agentHomeDir, 'agent.key'));
+        const valid = await validProvider.getCredentials();
+        if (!valid) throw new Error('Expected fixture credentials');
+        const client = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: {
+                getCredentials: async () => ({ ...valid, token: 'expired-fixture-token' }),
+                setCredentials: async () => undefined,
+                clearCredentials: async () => undefined,
+            },
+        });
+        try {
+            await expect(client.machines.list()).rejects.toMatchObject({ code: 'AUTH_EXPIRED' });
+        } finally {
+            await client.dispose();
+        }
+    });
+
+    it('reports the isolated machine offline after its daemon exits', async () => {
+        if (!activeMachineId || !integrationConfig || !agentHomeDir || !integrationEnvDir || !testProjectDir) {
+            throw new Error('Integration environment not initialized');
+        }
+        const daemonState = readDaemonState(integrationEnvDir);
+        if (!daemonState?.pid || !daemonState.httpPort) throw new Error('Isolated daemon state is unavailable');
+
+        for (const child of await listDaemonSessions(daemonState.httpPort)) {
+            await stopDaemonSession(daemonState.httpPort, child.happySessionId);
+        }
+        await waitFor(async () => (await listDaemonSessions(daemonState.httpPort!)).length === 0, 20_000, 'isolated daemon sessions to stop');
+
+        const client = new PawsAgentClient({
+            serverUrl: `http://localhost:${integrationConfig.serverPort}`,
+            credentials: new FileCredentialProvider(join(agentHomeDir, 'agent.key')),
+        });
+        await client.connect();
+        await client.machines.list();
+        process.kill(daemonState.pid, 'SIGTERM');
+        await waitFor(async () => !isProcessAlive(daemonState.pid!), 20_000, 'isolated daemon to exit');
+        try {
+            await expect(client.sessions.spawn({
+                machineId: activeMachineId,
+                directory: testProjectDir,
+                agent: 'ask',
+            })).rejects.toMatchObject({ code: 'MACHINE_OFFLINE' });
+        } finally {
+            await client.dispose();
+        }
     });
 });

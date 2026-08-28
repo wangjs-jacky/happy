@@ -33,7 +33,6 @@ jobs:
       - run: pnpm --filter @wangjs-jacky/paws-agent test
       - run: pnpm --filter @wangjs-jacky/paws-agent test:integration
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm --filter @wangjs-jacky/paws-agent verify:pack
       - name: Pack once
         id: pack
         shell: bash
@@ -44,6 +43,9 @@ jobs:
           TARBALL="$(find "$RUNNER_TEMP/paws-agent" -name '*.tgz' -print -quit)"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           shasum -a 256 "$TARBALL" | tee "$RUNNER_TEMP/paws-agent/SHA256SUMS"
+      - name: Verify the exact release tarball
+        shell: bash
+        run: PAWS_AGENT_DIST_TAG="${{ steps.contract.outputs.dist_tag }}" node packages/paws-agent/scripts/verify-pack.mjs "${{ steps.pack.outputs.tarball }}"
       - name: Check exact registry version
         id: registry
         shell: bash
@@ -55,16 +57,41 @@ jobs:
           fi
       - name: Publish with npm trusted publishing
         if: steps.registry.outputs.exists == 'false'
-        run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --tag "${{ steps.contract.outputs.dist_tag }}"
-      - name: Verify exact registry install
         shell: bash
         run: |
-          mkdir "$RUNNER_TEMP/registry-consumer"
-          cd "$RUNNER_TEMP/registry-consumer"
-          npm init -y
-          npm install --ignore-scripts "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}"
-          node -e "import('@wangjs-jacky/paws-agent').then(x => { if (typeof x.PawsAgentClient !== 'function') process.exit(1) })"
-          npx paws-agent --version
+          set +e
+          npm publish "${{ steps.pack.outputs.tarball }}" --access public --provenance --tag "${{ steps.contract.outputs.dist_tag }}"
+          publish_status=$?
+          set -e
+          if [ "$publish_status" -ne 0 ]; then
+            published_version="$(npm view "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}" version 2>/dev/null || true)"
+            if [ "$published_version" != "${{ steps.contract.outputs.version }}" ]; then
+              exit "$publish_status"
+            fi
+            echo "Publish returned $publish_status, but the immutable version is present; continuing verification."
+          fi
+      - name: Wait for exact registry version
+        shell: bash
+        run: |
+          for attempt in $(seq 1 30); do
+            published_version="$(npm view "@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}" version 2>/dev/null || true)"
+            if [ "$published_version" = "${{ steps.contract.outputs.version }}" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Exact npm version did not become visible within five minutes" >&2
+          exit 1
+      - name: Verify exact registry install in Node and Chromium consumers
+        shell: bash
+        env:
+          PAWS_AGENT_INSTALL_SPEC: '@wangjs-jacky/paws-agent@${{ steps.contract.outputs.version }}'
+          PAWS_AGENT_DIST_TAG: '${{ steps.contract.outputs.dist_tag }}'
+        run: node packages/paws-agent/scripts/verify-pack.mjs "${{ steps.pack.outputs.tarball }}"
+      - name: Rerun package and isolated E2E smoke tests after publication
+        run: |
+          pnpm --filter @wangjs-jacky/paws-agent test
+          pnpm --filter @wangjs-jacky/paws-agent test:integration
       - name: Create immutable GitHub Release evidence
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,3 +1,5 @@
+import type { PawsAgentError } from './errors';
+
 export type PawsCredentials = {
     token: string;
     secret: Uint8Array;
@@ -138,7 +140,7 @@ export type PawsAgentEvent =
     | { type: 'message'; sessionId: string; message: Message }
     | { type: 'session'; session: Session }
     | { type: 'request'; sessionId: string; request: AgentRequest }
-    | { type: 'error'; error: import('./errors').PawsAgentError };
+    | { type: 'error'; error: PawsAgentError };
 
 export type PawsAgentEventListener = (event: PawsAgentEvent) => void;
 
