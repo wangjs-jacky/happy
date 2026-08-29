@@ -105,7 +105,7 @@ export function registerHappyBridgeTools(
       title: 'Report Browser Step',
       inputSchema: {
         path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
-        label: z.string().trim().min(1).describe('Short description of the browser operation that just completed'),
+        label: z.string().trim().min(1).max(80).describe('Short description of the browser operation that just completed'),
       },
     },
     async (args) => forwardHappyToolCall(

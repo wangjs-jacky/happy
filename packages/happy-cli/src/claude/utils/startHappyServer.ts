@@ -21,6 +21,10 @@ import { configuration } from "@/configuration";
 import { captureScreenshot, type ScreenshotTarget } from "@/utils/screenshot";
 import { type ScreenshotStore, type ScreenshotRef } from "@/utils/screenshotStore";
 import { fetchFinanceChart } from "@/finance/financeChart";
+import {
+    createBrowserStepReporter,
+    type BrowserStepInput,
+} from '@/browser/browserStepReporter';
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -44,11 +48,6 @@ type SendImageInput = {
 type SendFileInput = {
     path: string;
     mimeType?: string;
-};
-
-type BrowserStepInput = {
-    path: string;
-    label: string;
 };
 
 /** 带外图库三工具的依赖注入接口（便于纯函数单测，且给 Task 2.2/3.1 留注入点） */
@@ -196,7 +195,7 @@ function createMcpServer(handlers: HappyMcpHandlers, screenshotTools: ReturnType
         title: 'Report Browser Step',
         inputSchema: {
             path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
-            label: z.string().trim().min(1).describe('Short description of the operation that just completed'),
+            label: z.string().trim().min(1).max(80).describe('Short description of the operation that just completed'),
         },
     }, async (args) => {
         const response = await handlers.reportBrowserStep({ path: args.path, label: args.label });
@@ -334,6 +333,7 @@ export async function startHappyServer(
     },
 ) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
+    const browserStepReporter = createBrowserStepReporter(client);
 
     const handlers: HappyMcpHandlers = {
         changeTitle: async (title: string) => {
@@ -389,17 +389,8 @@ export async function startHappyServer(
             }
         },
         reportBrowserStep: async (input: BrowserStepInput) => {
-            logger.debug('[happyMCP] Reporting browser step:', input.label, input.path);
-            try {
-                const uploaded = await client.uploadImageAttachment(input.path);
-                client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
-                    source: 'browser_step',
-                    browserStep: { label: input.label.trim() },
-                });
-                return { success: true };
-            } catch (error) {
-                return { success: false, error: String(error) };
-            }
+            logger.debug('[happyMCP] Reporting browser step:', input.label, basename(input.path));
+            return browserStepReporter.report(input);
         },
         archiveSession: async (reason?: string) => {
             logger.debug('[happyMCP] Archiving current session:', reason);
