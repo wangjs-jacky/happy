@@ -1,7 +1,7 @@
 import type { SessionEnvelope } from '@slopus/happy-wire';
 import { trimIdent } from '@/utils/trimIdent';
 import type { ReasoningEffort, Thread } from './codexAppServerTypes';
-import { mapCodexThreadToSessionEnvelopes } from './utils/sessionProtocolMapper';
+import { isTerminalCodexTurn, mapCodexThreadToSessionEnvelopes } from './utils/sessionProtocolMapper';
 
 type ResumeThreadClient = {
     resumeThread: (opts: {
@@ -16,13 +16,15 @@ type ResumeThreadClient = {
 };
 
 type ResumeThreadSession = {
+    sessionId: string;
     getMetadata: () => {
         codexThreadId?: string;
         codexSyncCursor?: { threadId: string; turnId: string };
+        codexPawsOriginToken?: string;
     } | null;
     updateMetadata: (handler: (currentMetadata: any) => any) => void;
     updateMetadataAndAwait: (handler: (currentMetadata: any) => any) => Promise<void>;
-    flush: () => Promise<void>;
+    flushOutboxAndAwait: () => Promise<void>;
     sendSessionEvent: (event: { type: 'message'; message: string }) => void;
     sendSessionProtocolMessage: (envelope: SessionEnvelope) => void;
 };
@@ -39,7 +41,12 @@ export async function resumeExistingThread(opts: {
     cwd: string;
     mcpServers: Record<string, unknown>;
     historyMode?: 'full' | 'after-cursor';
-}): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
+}): Promise<{
+    threadId: string;
+    model: string;
+    reasoningEffort: ReasoningEffort | null;
+    activeTurnId: string | null;
+}> {
     try {
         const resumedThread = await opts.client.resumeThread({
             threadId: opts.threadId,
@@ -53,40 +60,50 @@ export async function resumeExistingThread(opts: {
         }));
 
         const historyMode = opts.historyMode ?? 'full';
+        let activeTurnId: string | null = null;
         const syncCursor = opts.session.getMetadata()?.codexSyncCursor;
-        if (historyMode === 'full' || syncCursor?.threadId === resumedThread.threadId) {
-            const { thread } = await opts.client.readThread({
-                threadId: resumedThread.threadId,
-                includeTurns: true,
-            });
-            const turns = thread.turns ?? [];
-            let turnsToReplay = turns;
-            if (historyMode === 'after-cursor') {
-                const cursorIndex = turns.findIndex((turn) => turn.id === syncCursor?.turnId);
-                // Legacy sessions have no cursor, and a missing cursor cannot be
-                // reconciled safely without duplicating already mirrored turns.
-                turnsToReplay = cursorIndex >= 0 ? turns.slice(cursorIndex + 1) : [];
-            }
+        const { thread } = await opts.client.readThread({
+            threadId: resumedThread.threadId,
+            includeTurns: true,
+        });
+        const turns = thread.turns ?? [];
+        let turnsToReplay = turns;
+        if (historyMode === 'after-cursor') {
+            const cursorIndex = syncCursor?.threadId === resumedThread.threadId
+                ? turns.findIndex((turn) => turn.id === syncCursor.turnId)
+                : -1;
+            // Legacy sessions have no cursor, and a missing cursor cannot be
+            // reconciled safely without duplicating already mirrored turns. We
+            // still read the thread so an in-flight Turn can be attached live.
+            turnsToReplay = cursorIndex >= 0 ? turns.slice(cursorIndex + 1) : [];
+        }
+        activeTurnId = turns.filter((turn) => !isTerminalCodexTurn(turn)).at(-1)?.id ?? null;
 
-            const historicalEnvelopes = mapCodexThreadToSessionEnvelopes({ turns: turnsToReplay });
-            for (const envelope of historicalEnvelopes) {
-                opts.session.sendSessionProtocolMessage(envelope);
-            }
+        const historicalEnvelopes = mapCodexThreadToSessionEnvelopes(
+            { turns: turnsToReplay },
+            {
+                omitPawsUserMessagesFromOriginToken: opts.session.getMetadata()?.codexPawsOriginToken,
+                dialogueOnly: historyMode === 'after-cursor',
+                activeTurnsUserOnly: true,
+            },
+        );
+        for (const envelope of historicalEnvelopes) {
+            opts.session.sendSessionProtocolMessage(envelope);
+        }
 
-            const lastReplayedTurn = turnsToReplay.at(-1);
-            if (lastReplayedTurn) {
-                // Persist the cursor only after the server has acknowledged all
-                // deterministic envelope IDs. A crash can then cause a safe,
-                // idempotent replay, but never a silently skipped Turn.
-                await opts.session.flush();
-                await opts.session.updateMetadataAndAwait((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexSyncCursor: {
-                        threadId: resumedThread.threadId,
-                        turnId: lastReplayedTurn.id,
-                    },
-                }));
-            }
+        const lastReplayedTurn = turnsToReplay.filter(isTerminalCodexTurn).at(-1);
+        if (lastReplayedTurn) {
+            // Persist the cursor only after the server has acknowledged all
+            // deterministic envelope IDs. A crash can then cause a safe,
+            // idempotent replay, but never a silently skipped Turn.
+            await opts.session.flushOutboxAndAwait();
+            await opts.session.updateMetadataAndAwait((currentMetadata) => ({
+                ...currentMetadata,
+                codexSyncCursor: {
+                    threadId: resumedThread.threadId,
+                    turnId: lastReplayedTurn.id,
+                },
+            }));
         }
 
         opts.messageBuffer.addMessage(`Resumed thread ${trimIdent(resumedThread.threadId)}`, 'status');
@@ -95,7 +112,7 @@ export async function resumeExistingThread(opts: {
             message: `Resumed Codex thread ${resumedThread.threadId}`,
         });
 
-        return resumedThread;
+        return { ...resumedThread, activeTurnId };
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to resume Codex thread ${opts.threadId}: ${reason}`);

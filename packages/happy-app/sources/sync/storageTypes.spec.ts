@@ -31,11 +31,13 @@ describe('MetadataSchema', () => {
                 threadId: 'thread-1',
                 turnId: 'turn-7',
             },
+            codexPawsOriginToken: 'opaque-origin-token',
         });
 
         expect(metadata.codexSyncCursor).toEqual({
             threadId: 'thread-1',
             turnId: 'turn-7',
         });
+        expect(metadata.codexPawsOriginToken).toBe('opaque-origin-token');
     });
 });

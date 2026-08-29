@@ -145,7 +145,7 @@ function isAppServerAvailable(): boolean {
 function buildCodexProcessEnv(): Record<string, string> {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-        if (typeof value === 'string') {
+        if (typeof value === 'string' && !key.startsWith('HAPPY_RECONNECT_')) {
             env[key] = value;
         }
     }
@@ -540,7 +540,11 @@ export class CodexAppServerClient {
             return method.startsWith('item/');
         }
 
-        const eventScope = this.childEventScope(params);
+        const rootTurnId = this.isRootThreadNotification(params) ? this.extractTurnId(params) : null;
+        const eventScope = {
+            ...this.childEventScope(params),
+            ...(rootTurnId ? { turn_id: rootTurnId } : {}),
+        };
 
         if (method === 'item/completed' && item.type === 'userMessage') {
             // A turn submitted through this Bridge already exists in Paws as the
@@ -706,19 +710,21 @@ export class CodexAppServerClient {
 
         if (method === 'item/completed' && item.type === 'agentMessage') {
             const text = typeof item.text === 'string' ? item.text : '';
+            const turnId = this.extractTurnId(params);
             if (text.length > 0) {
                 this.eventHandler?.({
                     type: 'agent_message',
                     message: text,
                     item_id: item.id,
                     phase: item.phase,
+                    ...(turnId ? { turn_id: turnId } : {}),
                     ...eventScope,
                 });
             }
 
             if (this.isRootThreadNotification(params) && item.phase === 'final_answer' && this.pendingTurnCompletion) {
                 this.emitRawTurnCompletion(
-                    this.extractTurnId(params),
+                    turnId,
                     'completed',
                     null,
                     `${method}:final_answer`,
@@ -729,19 +735,21 @@ export class CodexAppServerClient {
 
         if (method === 'item/completed' && item.type === 'exitedReviewMode') {
             const review = typeof item.review === 'string' ? item.review : '';
+            const turnId = this.extractTurnId(params);
             if (review.length > 0) {
                 this.eventHandler?.({
                     type: 'agent_message',
                     message: review,
                     item_id: item.id,
                     phase: 'final_answer',
+                    ...(turnId ? { turn_id: turnId } : {}),
                     ...eventScope,
                 });
             }
 
             if (this.isRootThreadNotification(params) && this.pendingTurnCompletion) {
                 this.emitRawTurnCompletion(
-                    this.extractTurnId(params),
+                    turnId,
                     'completed',
                     null,
                     `${method}:exitedReviewMode`,

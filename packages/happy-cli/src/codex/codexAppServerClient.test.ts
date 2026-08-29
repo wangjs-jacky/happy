@@ -267,6 +267,24 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('does not forward Happy reconnect credentials or metadata to app-server', async () => {
+        process.env.HAPPY_RECONNECT_ENCRYPTION_KEY = 'secret-key';
+        process.env.HAPPY_RECONNECT_METADATA_JSON = '{"path":"/private/project"}';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        try {
+            await client.connect();
+            const childEnv = mockSpawn.mock.calls.at(-1)?.[2]?.env as Record<string, string>;
+            expect(childEnv.HAPPY_RECONNECT_ENCRYPTION_KEY).toBeUndefined();
+            expect(childEnv.HAPPY_RECONNECT_METADATA_JSON).toBeUndefined();
+        } finally {
+            delete process.env.HAPPY_RECONNECT_ENCRYPTION_KEY;
+            delete process.env.HAPPY_RECONNECT_METADATA_JSON;
+            await client.disconnect();
+        }
+    });
+
     it('ignores stale process exit during reconnect initialize', async () => {
         const proc1 = createMockProcess({ pid: 1001, initializeDelayMs: 5 });
         const proc2 = createMockProcess({ pid: 1002, initializeDelayMs: 50 });
@@ -809,7 +827,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         })).resolves.toEqual({ aborted: false });
 
         expect(events).toEqual(expect.arrayContaining([
-            expect.objectContaining({ type: 'agent_message', message: 'Findings: none.', item_id: 'review-item-1' }),
+            expect.objectContaining({ type: 'agent_message', message: 'Findings: none.', item_id: 'review-item-1', turn_id: 'turn-review-inline' }),
             expect.objectContaining({ type: 'task_complete', turn_id: 'turn-review-inline' }),
         ]));
 
@@ -1014,9 +1032,9 @@ describe('CodexAppServerClient sandbox integration', () => {
 
         expect(events).toEqual(expect.arrayContaining([
             expect.objectContaining({ type: 'task_started', turn_id: 'turn-raw-1' }),
-            expect.objectContaining({ type: 'exec_command_begin', callId: 'call-1' }),
-            expect.objectContaining({ type: 'exec_command_end', callId: 'call-1', output: '/tmp/project\n' }),
-            expect.objectContaining({ type: 'agent_message', message: 'done' }),
+            expect.objectContaining({ type: 'exec_command_begin', callId: 'call-1', turn_id: 'turn-raw-1' }),
+            expect.objectContaining({ type: 'exec_command_end', callId: 'call-1', output: '/tmp/project\n', turn_id: 'turn-raw-1' }),
+            expect.objectContaining({ type: 'agent_message', message: 'done', turn_id: 'turn-raw-1' }),
         ]));
         expect(events.filter((event) => event.type === 'task_complete')).toHaveLength(1);
         expect(events.filter((event) => event.type === 'user_message')).toHaveLength(0);

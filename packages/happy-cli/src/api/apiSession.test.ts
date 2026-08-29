@@ -253,6 +253,20 @@ describe('ApiSessionClient v3 messages API migration', () => {
         });
     });
 
+    it('rejects strict outbox flush when delivery is not acknowledged', async () => {
+        const client = new ApiSessionClient('fake-token', session);
+        mockAxiosPost.mockImplementationOnce(() => new Promise(() => {}));
+
+        client.sendCodexMessage({ type: 'never-acknowledged' });
+        const assertion = expect(client.flushOutboxAndAwait(10)).rejects.toThrow(
+            'Timed out waiting for session outbox after 10ms',
+        );
+
+        await assertion;
+        expect((client as any).pendingOutbox).toHaveLength(1);
+        await client.close();
+    });
+
     it('accumulates multiple pending outbox messages into one follow-up batch', async () => {
         const client = new ApiSessionClient('fake-token', session);
 

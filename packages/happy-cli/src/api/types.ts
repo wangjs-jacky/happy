@@ -381,6 +381,8 @@ export type Metadata = {
     threadId: string
     turnId: string
   },
+  /** Opaque key used to recognize this Paws session's user turns in a shared Codex Thread. */
+  codexPawsOriginToken?: string,
   tools?: string[],
   slashCommands?: string[],
   mcpServers?: Array<{ name: string; status: string }>,

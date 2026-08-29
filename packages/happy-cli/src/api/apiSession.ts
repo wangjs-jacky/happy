@@ -1016,6 +1016,27 @@ export class ApiSessionClient extends EventEmitter {
         });
     }
 
+    /**
+     * Wait until every queued message has been acknowledged by the v3 API.
+     * Unlike flush(), timing out rejects: callers must not commit a replay
+     * cursor when the outbox may still contain undelivered envelopes.
+     */
+    async flushOutboxAndAwait(timeoutMs = 60_000): Promise<void> {
+        let timeout: NodeJS.Timeout | undefined;
+        try {
+            await Promise.race([
+                this.sendSync.invalidateAndAwait(),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(() => {
+                        reject(new Error(`Timed out waiting for session outbox after ${timeoutMs}ms`));
+                    }, timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timeout) clearTimeout(timeout);
+        }
+    }
+
     async close() {
         logger.debug('[API] socket.close() called');
         this.sendSync.stop();

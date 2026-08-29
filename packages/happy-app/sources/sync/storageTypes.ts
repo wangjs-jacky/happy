@@ -49,6 +49,7 @@ export const MetadataSchema = z.object({
         threadId: z.string(),
         turnId: z.string(),
     }).optional(),
+    codexPawsOriginToken: z.string().optional(),
     tools: z.array(z.string()).optional(),
     slashCommands: z.array(z.string()).optional(),
     mcpServers: z.array(z.object({ name: z.string(), status: z.string() })).optional(),
