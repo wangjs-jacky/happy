@@ -35,6 +35,7 @@ import { syncRestore } from '@/sync/sync';
 import { useTrackScreens } from '@/track/useTrackScreens';
 import { RealtimeProvider } from '@/realtime/RealtimeProvider';
 import { FaviconPermissionIndicator } from '@/components/web/FaviconPermissionIndicator';
+import { AndroidAppIconBadge } from '@/components/notifications/AndroidAppIconBadge';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ImageViewerHost } from '@/components/ImageViewerHost';
 import { StatusBarProvider } from '@/components/StatusBarProvider';
@@ -78,12 +79,14 @@ if (Platform.OS === 'android') {
     Notifications.setNotificationChannelAsync('default', {
         name: 'Default',
         importance: Notifications.AndroidImportance.MAX,
+        showBadge: true,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
     });
     Notifications.setNotificationChannelAsync('messages', {
         name: 'Messages',
         importance: Notifications.AndroidImportance.HIGH,
+        showBadge: true,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
     });
@@ -480,6 +483,7 @@ export default function RootLayout() {
     return (
         <>
             <FaviconPermissionIndicator />
+            <AndroidAppIconBadge />
             {providers}
         </>
     );
