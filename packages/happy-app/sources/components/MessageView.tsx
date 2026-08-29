@@ -656,6 +656,12 @@ function ToolCallBlock(props: {
   if (!props.message.tool) {
     return null;
   }
+  if (props.message.tool.name === 'Skill') {
+    return <ConversationActivityStrip messages={[props.message]} />;
+  }
+  if (props.message.tool.name === 'file' && props.message.tool.input?.source === 'browser_step') {
+    return null;
+  }
   return (
     <View style={styles.toolContainer}>
       <ToolView

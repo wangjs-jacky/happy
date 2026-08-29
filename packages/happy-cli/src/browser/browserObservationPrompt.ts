@@ -8,7 +8,7 @@ import { trimIdent } from '@/utils/trimIdent';
 export const BROWSER_OBSERVATION_PROMPT = trimIdent(`
     Ego Lite browser observation protocol:
 
-    These instructions apply only when using ego-browser.
+    These instructions apply whenever ego-ops governs a browser task or ego-browser / Ego Lite performs one. ego-ops is the user-visible Skill entry and experience layer; ego-browser is the browser execution layer.
 
     1. Divide the browser task into meaningful, user-visible completed steps.
     2. Each ego-browser nodejs invocation should complete no more than one observable step. Keep observation and verification inside that invocation; do not create separate steps for read-only probes.

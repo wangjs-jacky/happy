@@ -8,6 +8,8 @@ import {
 describe('browserObservationPrompt', () => {
     it('defines the ordered Ego screenshot reporting contract', () => {
         expect(BROWSER_OBSERVATION_PROMPT).toContain('ego-browser');
+        expect(BROWSER_OBSERVATION_PROMPT).toContain('ego-ops');
+        expect(BROWSER_OBSERVATION_PROMPT).toContain('user-visible Skill entry');
         expect(BROWSER_OBSERVATION_PROMPT).toContain('mcp__happy__report_browser_step');
         expect(BROWSER_OBSERVATION_PROMPT).toContain('verify');
         expect(BROWSER_OBSERVATION_PROMPT).toContain('absolute');

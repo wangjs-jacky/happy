@@ -9,6 +9,7 @@ import {
     ConversationActivityStatus,
 } from '@/utils/conversationActivity';
 import { useSubagentInspector } from './subagent/SubagentInspectorContext';
+import { useSessionRightPanelNavigation } from './rightPanel/SessionRightPanelNavigationContext';
 
 export const ConversationActivitySuppressedContext = React.createContext(false);
 
@@ -20,6 +21,7 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
     const { theme } = useUnistyles();
     const suppressed = React.useContext(ConversationActivitySuppressedContext);
     const inspector = useSubagentInspector();
+    const rightPanelNavigation = useSessionRightPanelNavigation();
     const activities = React.useMemo(
         () => collectConversationActivities(props.messages, { rootSubagentId: props.rootSubagentId }),
         [props.messages, props.rootSubagentId],
@@ -35,7 +37,28 @@ export const ConversationActivityStrip = React.memo(function ConversationActivit
 
     return (
         <View style={[styles.container, props.nested && styles.nestedContainer]}>
-            {orderedActivities.map((activity) => activity.kind === 'skill' ? (
+            {orderedActivities.map((activity) => activity.kind === 'skill' && activity.name.toLowerCase() === 'ego-ops' && rightPanelNavigation ? (
+                    <Pressable
+                        accessibilityLabel={`${t('toolGroup.skillLabel')} ${activity.name}`}
+                        accessibilityRole="button"
+                        key={`skill-${activity.order}-${activity.name}`}
+                        onPress={rightPanelNavigation.openBrowserSteps}
+                        style={({ pressed }) => [
+                            styles.row,
+                            { paddingLeft: 8 + activity.depth * 16 },
+                            pressed && styles.rowPressed,
+                        ]}
+                        testID={`activity-skill-${activity.name}`}
+                    >
+                        <Ionicons name="sparkles-outline" size={14} color={theme.colors.textSecondary} />
+                        <Text style={styles.kind}>{t('toolGroup.skillLabel')}</Text>
+                        <Text style={styles.title} numberOfLines={1}>{activity.name}</Text>
+                        <View style={styles.statusPill}>
+                            <ActivityStatusIcon status={activity.status} />
+                            <Text style={styles.statusText}>{getStatusLabel(activity.status)}</Text>
+                        </View>
+                    </Pressable>
+                ) : activity.kind === 'skill' ? (
                     <View
                         key={`skill-${activity.order}-${activity.name}`}
                         style={[styles.row, { paddingLeft: 8 + activity.depth * 16 }]}

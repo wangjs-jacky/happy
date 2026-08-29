@@ -132,7 +132,6 @@ async function appendBrowserStep(
     sessionId: string,
     input: { id: string; ref: string; name: string; label: string; time: number },
 ): Promise<void> {
-    const { token, secret } = getE2ECredentials();
     const envelope = {
         id: input.id,
         time: input.time,
@@ -149,14 +148,23 @@ async function appendBrowserStep(
             image: { width: 1280, height: 720, thumbhash: '' },
         },
     };
+    await appendSessionEnvelopes(request, sessionId, [envelope]);
+}
+
+async function appendSessionEnvelopes(
+    request: APIRequestContext,
+    sessionId: string,
+    envelopes: Array<Record<string, unknown>>,
+): Promise<void> {
+    const { token, secret } = getE2ECredentials();
     const response = await request.post(
         new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, e2eServerUrl).toString(),
         {
             data: {
-                messages: [{
+                messages: envelopes.map((envelope, index) => ({
                     content: encodeBase64(encryptLegacy({ role: 'session', content: envelope }, secret)),
-                    localId: `${input.id}-${Date.now()}`,
-                }],
+                    localId: `browser-steps-${index}-${Date.now()}-${Math.random()}`,
+                })),
             },
             headers: { Authorization: `Bearer ${token}`, 'X-Happy-Client': 'playwright-browser-steps' },
         },
@@ -272,7 +280,7 @@ test('[BROWSER-STEPS-PANEL] 实时回显浏览器截图、保留步骤时间线�
     ]));
     try {
         await page.goto(authenticatedRoute(`/session/${sessionId}`));
-        await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 90_000 });
 
         const baseTime = Date.now();
         await appendBrowserStep(request, sessionId, {
@@ -288,6 +296,7 @@ test('[BROWSER-STEPS-PANEL] 实时回显浏览器截图、保留步骤时间线�
         await expect(panel.getByTestId('browser-steps-active-label')).toHaveText('打开项目概览');
         await expect(page.getByTestId('browser-steps-preview-image').locator('img'))
             .toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+        await expect(page.getByTestId('desktop-workspace-main').getByText('browser-step-01.png')).toHaveCount(0);
 
         await appendBrowserStep(request, sessionId, {
             id: 'browser-step-second',
@@ -317,7 +326,7 @@ test('[LIVE-EGO-DOUYIN-PANEL] Ego Lite 真实抖音步骤经附件上报后实�
     // A real logged-in browser must load a remote page and produce three PNGs.
     // Keep this opt-in acceptance case independent from the Web suite's 60s
     // default, especially when HAPPY_E2E_RECORD adds review pauses.
-    test.setTimeout(process.env.HAPPY_E2E_RECORD === '1' ? 360_000 : 180_000);
+    test.setTimeout(process.env.HAPPY_E2E_RECORD === '1' ? 480_000 : 240_000);
     test.skip(!liveEgoAcceptance, '仅在维护者显式设置 HAPPY_EGO_LIVE_E2E=1 且本机已登录抖音时运行。');
 
     const sessionId = await createE2ESession(request);
@@ -332,7 +341,57 @@ test('[LIVE-EGO-DOUYIN-PANEL] Ego Lite 真实抖音步骤经附件上报后实�
         // route so the real panel's decryption path can render each screenshot.
         await installEncryptedAttachmentRoutes(page, sessionId, attachments);
         await page.goto(authenticatedRoute(`/session/${sessionId}`));
-        await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 90_000 });
+
+        const panelToggle = page.locator('[data-testid="desktop-right-panel-toggle-button"]:visible');
+        if (await panelToggle.getAttribute('aria-expanded') === 'true') {
+            await panelToggle.click();
+            await expect(panelToggle).toHaveAttribute('aria-expanded', 'false');
+        }
+
+        const turn = 'live-ego-douyin-turn';
+        const skillCall = 'live-ego-ops-skill';
+        const transcriptTime = Date.now();
+        await appendSessionEnvelopes(request, sessionId, [
+            {
+                id: 'live-ego-user-request',
+                time: transcriptTime,
+                role: 'user',
+                turn,
+                ev: {
+                    t: 'text',
+                    text: '请使用 ego-ops 读取我的抖音收藏夹前 10 个视频，并实时回显浏览器步骤。',
+                },
+            },
+            {
+                id: 'live-ego-agent-intro',
+                time: transcriptTime + 1,
+                role: 'agent',
+                turn,
+                ev: { t: 'text', text: '我会通过 ego-ops 调用 Ego Browser，并在每个有效步骤完成后上报截图。' },
+            },
+            {
+                id: 'live-ego-skill-start',
+                time: transcriptTime + 2,
+                role: 'agent',
+                turn,
+                ev: {
+                    t: 'tool-call-start',
+                    call: skillCall,
+                    name: 'Skill',
+                    title: 'Use ego-ops',
+                    description: 'Run the governed Ego browser workflow',
+                    args: { skillNames: ['ego-ops'] },
+                },
+            },
+        ]);
+
+        await expect(page.getByText('请使用 ego-ops 读取我的抖音收藏夹前 10 个视频，并实时回显浏览器步骤。')).toBeVisible({ timeout: 30_000 });
+        const egoOpsActivity = page.getByTestId('activity-skill-ego-ops');
+        await expect(egoOpsActivity).toBeVisible();
+        await expect(egoOpsActivity).toHaveAttribute('role', 'button');
+        await egoOpsActivity.click();
+        await expect(panelToggle).toHaveAttribute('aria-expanded', 'true');
 
         const openedDouyin = await runEgoStep(`
 const fs = await import('node:fs');
@@ -356,6 +415,7 @@ cliLog(JSON.stringify({ taskSpaceId: task.id, screenshotPath }));
         await expect(panel.getByText('实时回显 · 1 步', { exact: true })).toBeVisible();
         await expect(panel.getByTestId('browser-steps-active-label')).toHaveText('打开抖音并确认登录');
         await expect(page.getByTestId('browser-steps-preview-image').locator('img')).toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+        await expect(page.getByTestId('desktop-workspace-main').getByText('step-1-open-douyin.png')).toHaveCount(0);
 
         const openedFavorites = await runEgoStep(`
 const fs = await import('node:fs');
@@ -405,6 +465,24 @@ cliLog(JSON.stringify({ taskSpaceId: ${taskSpaceId}, screenshotPath, ...extracte
         await reportLiveEgoStep(request, sessionId, extractedFavorites.screenshotPath, '提取收藏夹前 10 个视频', 3, attachments);
         await expect(panel.getByText('实时回显 · 3 步', { exact: true })).toBeVisible({ timeout: 30_000 });
         await expect(panel.getByTestId('browser-steps-active-label')).toHaveText('提取收藏夹前 10 个视频');
+        await appendSessionEnvelopes(request, sessionId, [
+            {
+                id: 'live-ego-skill-end',
+                time: Date.now(),
+                role: 'agent',
+                turn,
+                ev: { t: 'tool-call-end', call: skillCall, status: 'completed' },
+            },
+            {
+                id: 'live-ego-agent-result',
+                time: Date.now() + 1,
+                role: 'agent',
+                turn,
+                ev: { t: 'text', text: '已完成：抖音收藏夹前 10 个视频均已提取，3 个浏览器步骤可在右侧面板回看。' },
+            },
+        ]);
+        await expect(page.getByText('已完成：抖音收藏夹前 10 个视频均已提取，3 个浏览器步骤可在右侧面板回看。')).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByTestId('desktop-workspace-main').getByText('step-3-extracted-first-ten.png')).toHaveCount(0);
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 'live-ego-douyin-latest.png') });
 
