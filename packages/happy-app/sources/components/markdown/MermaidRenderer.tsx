@@ -95,6 +95,8 @@ const WebDiagramCanvas = React.forwardRef<DiagramCanvasHandle, DiagramCanvasProp
         let wheelTarget: HTMLElement | SVGElement | null = null;
         let wheelHandler: ((event: WheelEvent) => void) | null = null;
 
+        // Interaction contract and regression matrix:
+        // docs/mermaid-panzoom-integration.md
         void import('@panzoom/panzoom').then((module) => {
             if (disposed) return;
             const Panzoom = module.default;
