@@ -21,6 +21,8 @@ type ResumeThreadSession = {
         codexSyncCursor?: { threadId: string; turnId: string };
     } | null;
     updateMetadata: (handler: (currentMetadata: any) => any) => void;
+    updateMetadataAndAwait: (handler: (currentMetadata: any) => any) => Promise<void>;
+    flush: () => Promise<void>;
     sendSessionEvent: (event: { type: 'message'; message: string }) => void;
     sendSessionProtocolMessage: (envelope: SessionEnvelope) => void;
 };
@@ -73,7 +75,11 @@ export async function resumeExistingThread(opts: {
 
             const lastReplayedTurn = turnsToReplay.at(-1);
             if (lastReplayedTurn) {
-                opts.session.updateMetadata((currentMetadata) => ({
+                // Persist the cursor only after the server has acknowledged all
+                // deterministic envelope IDs. A crash can then cause a safe,
+                // idempotent replay, but never a silently skipped Turn.
+                await opts.session.flush();
+                await opts.session.updateMetadataAndAwait((currentMetadata) => ({
                     ...currentMetadata,
                     codexSyncCursor: {
                         threadId: resumedThread.threadId,

@@ -21,4 +21,21 @@ describe('MetadataSchema', () => {
         expect(metadata.archivedBy).toBe('cli');
         expect(metadata.archiveReason).toBe('User terminated');
     });
+
+    it('preserves the Codex reconnect sync cursor', () => {
+        const metadata = MetadataSchema.parse({
+            path: '/tmp/project',
+            host: 'local-machine',
+            codexThreadId: 'thread-1',
+            codexSyncCursor: {
+                threadId: 'thread-1',
+                turnId: 'turn-7',
+            },
+        });
+
+        expect(metadata.codexSyncCursor).toEqual({
+            threadId: 'thread-1',
+            turnId: 'turn-7',
+        });
+    });
 });

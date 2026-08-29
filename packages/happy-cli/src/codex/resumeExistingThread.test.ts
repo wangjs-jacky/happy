@@ -30,6 +30,10 @@ describe('resumeExistingThread', () => {
             updateMetadata: vi.fn((handler) => {
                 metadata = handler(metadata);
             }),
+            updateMetadataAndAwait: vi.fn(async (handler) => {
+                metadata = handler(metadata);
+            }),
+            flush: vi.fn(async () => {}),
             sendSessionEvent: vi.fn(),
             sendSessionProtocolMessage: vi.fn(),
         };
@@ -75,6 +79,10 @@ describe('resumeExistingThread', () => {
                 text: 'Existing desktop message',
             }),
         }));
+        expect(session.flush).toHaveBeenCalledTimes(1);
+        expect(session.updateMetadataAndAwait).toHaveBeenCalledTimes(1);
+        expect(session.flush.mock.invocationCallOrder[0])
+            .toBeLessThan(session.updateMetadataAndAwait.mock.invocationCallOrder[0]);
         expect(messageBuffer.addMessage).toHaveBeenCalledWith(expect.stringContaining('Resumed thread'), 'status');
         expect(session.sendSessionEvent).toHaveBeenCalledWith({
             type: 'message',
@@ -90,6 +98,8 @@ describe('resumeExistingThread', () => {
         const session = {
             getMetadata: vi.fn(() => null),
             updateMetadata: vi.fn(),
+            updateMetadataAndAwait: vi.fn(async () => {}),
+            flush: vi.fn(async () => {}),
             sendSessionEvent: vi.fn(),
             sendSessionProtocolMessage: vi.fn(),
         };
@@ -132,6 +142,8 @@ describe('resumeExistingThread', () => {
         const session = {
             getMetadata: vi.fn(() => ({ codexThreadId: 'thread-reconnect-1' })),
             updateMetadata: vi.fn(),
+            updateMetadataAndAwait: vi.fn(async () => {}),
+            flush: vi.fn(async () => {}),
             sendSessionEvent: vi.fn(),
             sendSessionProtocolMessage: vi.fn(),
         };
@@ -200,6 +212,10 @@ describe('resumeExistingThread', () => {
             updateMetadata: vi.fn((handler) => {
                 metadata = handler(metadata);
             }),
+            updateMetadataAndAwait: vi.fn(async (handler) => {
+                metadata = handler(metadata);
+            }),
+            flush: vi.fn(async () => {}),
             sendSessionEvent: vi.fn(),
             sendSessionProtocolMessage: vi.fn(),
         };

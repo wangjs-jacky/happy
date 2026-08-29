@@ -418,6 +418,7 @@ export async function runCodex(opts: {
         }
     });
     session = initialSession;
+    let codexCursorSync: Promise<void> = Promise.resolve();
     void syncQueuedMessageCount(session);
 
     // On reconnect, un-archive the session and skip replaying old messages.
@@ -769,6 +770,7 @@ export async function runCodex(opts: {
         try {
             // Update lifecycle state to archived before closing
             if (session) {
+                await codexCursorSync;
                 session.updateMetadata((currentMetadata) => ({
                     ...currentMetadata,
                     lifecycleState: 'archived',
@@ -1020,14 +1022,24 @@ export async function runCodex(opts: {
             const completedTurnId = (msg as any).turn_id;
             if (typeof completedTurnId === 'string' && client?.threadId) {
                 const completedThreadId = client.threadId;
-                // Advance only after the turn envelopes have been queued for Paws.
-                session.updateMetadata((currentMetadata) => ({
-                    ...currentMetadata,
-                    codexSyncCursor: {
-                        threadId: completedThreadId,
-                        turnId: completedTurnId,
-                    },
-                }));
+                const completedSession = session;
+                codexCursorSync = codexCursorSync
+                    .then(async () => {
+                        // Advance only after the server acknowledges the Turn's
+                        // stable envelope IDs. If the process dies first, the old
+                        // cursor causes an idempotent replay on reconnect.
+                        await completedSession.flush();
+                        await completedSession.updateMetadataAndAwait((currentMetadata) => ({
+                            ...currentMetadata,
+                            codexSyncCursor: {
+                                threadId: completedThreadId,
+                                turnId: completedTurnId,
+                            },
+                        }));
+                    })
+                    .catch((error) => {
+                        logger.debug(`[Codex] Failed to persist sync cursor for turn ${completedTurnId}`, error);
+                    });
             }
         }
     });
@@ -1105,7 +1117,7 @@ export async function runCodex(opts: {
         }
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;
-        if (!reconnectSessionId && forkCodexThreadId) {
+        if (!reconnectSessionId && forkCodexThreadId && !opts.resumeThreadId) {
             try {
                 const { thread } = await client.readThread({
                     threadId: forkCodexThreadId,
@@ -1659,6 +1671,7 @@ export async function runCodex(opts: {
 
         try {
             logger.debug('[codex]: sendSessionDeath');
+            await codexCursorSync;
             session.sendSessionDeath();
             logger.debug('[codex]: flush begin');
             await session.flush();

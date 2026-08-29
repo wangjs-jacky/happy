@@ -693,11 +693,11 @@ export class ApiSessionClient extends EventEmitter {
         }
     }
 
-    private enqueueMessage(content: unknown, invalidate: boolean = true) {
+    private enqueueMessage(content: unknown, invalidate: boolean = true, localId: string = randomUUID()) {
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
         this.pendingOutbox.push({
             content: encrypted,
-            localId: randomUUID()
+            localId,
         });
         if (invalidate) {
             this.sendSync.invalidate();
@@ -766,7 +766,10 @@ export class ApiSessionClient extends EventEmitter {
             }
         };
 
-        this.enqueueMessage(content, invalidate);
+        // Envelope IDs are stable across thread/read replays. Reuse them as the
+        // server idempotency key so a crash between message delivery and cursor
+        // persistence cannot create duplicate history on reconnect.
+        this.enqueueMessage(content, invalidate, `session-envelope:${envelope.id}`);
     }
 
     sendSessionProtocolMessage(envelope: SessionEnvelope) {

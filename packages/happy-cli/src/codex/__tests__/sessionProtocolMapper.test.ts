@@ -32,12 +32,18 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
     });
 
     it('starts and ends turns for task lifecycle events', () => {
-        const started = mapCodexMcpMessageToSessionEnvelopes({ type: 'task_started' }, { currentTurnId: null });
+        const started = mapCodexMcpMessageToSessionEnvelopes(
+            { type: 'task_started', turn_id: 'codex-turn-1' },
+            { currentTurnId: null },
+        );
 
         expect(started.envelopes).toHaveLength(1);
         expect(started.envelopes[0].ev.t).toBe('turn-start');
-        expect(started.envelopes[0].turn).toBe(started.currentTurnId);
-        expect(started.envelopes[0].turn).not.toBe(started.envelopes[0].id);
+        expect(started.currentTurnId).toBe('codex-turn-1');
+        expect(started.envelopes[0]).toMatchObject({
+            id: 'codex-turn-1:start',
+            turn: 'codex-turn-1',
+        });
 
         const ended = mapCodexMcpMessageToSessionEnvelopes({ type: 'task_complete' }, { currentTurnId: started.currentTurnId });
         expect(ended.envelopes).toHaveLength(1);
@@ -45,6 +51,7 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
         if (ended.envelopes[0].ev.t === 'turn-end') {
             expect(ended.envelopes[0].ev.status).toBe('completed');
         }
+        expect(ended.envelopes[0].id).toBe('codex-turn-1:end');
         expect(ended.envelopes[0].turn).toBe(started.currentTurnId);
         expect(ended.currentTurnId).toBeNull();
     });
@@ -65,11 +72,13 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
 
     it('maps agent text messages with turn context', () => {
         const result = mapCodexMcpMessageToSessionEnvelopes(
-            { type: 'agent_message', message: 'hello' },
+            { type: 'agent_message', message: 'hello', item_id: 'agent-item-1' },
             { currentTurnId: 'turn-1' }
         );
 
         expect(result.envelopes).toHaveLength(1);
+        expect(result.envelopes[0].id).toBe('agent-item-1');
+        expect(result.envelopes[0].codexItemId).toBe('agent-item-1');
         expect(result.envelopes[0].turn).toBe('turn-1');
         expect(result.envelopes[0].ev).toEqual({ t: 'text', text: 'hello' });
     });

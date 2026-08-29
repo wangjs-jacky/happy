@@ -392,6 +392,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
         });
 
         const payload = mockAxiosPost.mock.calls[0][1];
+        expect(payload.messages[0].localId).toBe('session-envelope:env-1');
         const decrypted = decrypt(
             session.encryptionKey,
             session.encryptionVariant,
