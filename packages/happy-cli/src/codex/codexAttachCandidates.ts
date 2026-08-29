@@ -5,9 +5,11 @@
  */
 
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 
 import type { ListedThread, ThreadListResponse } from './codexAppServerTypes';
+import { resolveCodexHome } from './codexHome';
 
 const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_LIMIT = 20;
@@ -36,6 +38,112 @@ type CandidateServiceOptions = {
 };
 
 const EMPTY_STATE: CandidateState = { version: 1, dismissed: {}, attached: {} };
+
+type CodexStateThreadRow = {
+    id: unknown;
+    rolloutPath: unknown;
+    cwd: unknown;
+    name: unknown;
+    title: unknown;
+    preview: unknown;
+    createdAt: unknown;
+    updatedAt: unknown;
+    recencyAt: unknown;
+    source: unknown;
+    archived: unknown;
+    parentThreadId: unknown;
+};
+
+type ReadonlyDatabase = {
+    prepare(sql: string): { all(...params: unknown[]): unknown[] };
+    close(): void;
+};
+
+type OpenReadonlyDatabase = (path: string) => ReadonlyDatabase;
+
+function openReadonlyDatabase(path: string): ReadonlyDatabase {
+    // node:sqlite is available in the Node 24 runtime used by the managed daemon.
+    // Loading it through createRequire keeps older TypeScript declarations from
+    // rejecting the built-in module during the CLI build.
+    const require = createRequire(import.meta.url);
+    const sqlite = require('node:sqlite') as {
+        DatabaseSync: new (filename: string, options: { readOnly: boolean; timeout: number }) => ReadonlyDatabase;
+    };
+    return new sqlite.DatabaseSync(path, { readOnly: true, timeout: 1_000 });
+}
+
+function optionalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Reads only the lightweight Codex thread index. This deliberately avoids a
+ * second app-server client while Codex Desktop or Paws is actively using the
+ * shared process; takeover itself still resumes through that shared process.
+ */
+export function listCodexThreadsFromStateDb(options: {
+    codexHome?: string;
+    limit?: number;
+    openDatabase?: OpenReadonlyDatabase;
+} = {}): ThreadListResponse {
+    const database = (options.openDatabase ?? openReadonlyDatabase)(
+        join(options.codexHome ?? resolveCodexHome(), 'state_5.sqlite'),
+    );
+    try {
+        const rows = database.prepare(`
+            SELECT
+                threads.id AS id,
+                threads.rollout_path AS rolloutPath,
+                threads.cwd AS cwd,
+                threads.name AS name,
+                threads.title AS title,
+                threads.preview AS preview,
+                threads.created_at AS createdAt,
+                threads.updated_at AS updatedAt,
+                threads.recency_at AS recencyAt,
+                threads.source AS source,
+                threads.archived AS archived,
+                thread_spawn_edges.parent_thread_id AS parentThreadId
+            FROM threads
+            LEFT JOIN thread_spawn_edges
+                ON thread_spawn_edges.child_thread_id = threads.id
+            WHERE threads.source = 'vscode' AND threads.archived = 0
+            ORDER BY threads.recency_at DESC, threads.id DESC
+            LIMIT ?
+        `).all(options.limit ?? 100) as CodexStateThreadRow[];
+
+        return {
+            data: rows.flatMap((row): ListedThread[] => {
+                const id = optionalString(row.id);
+                const path = optionalString(row.rolloutPath);
+                const cwd = optionalString(row.cwd);
+                if (!id || !path || !cwd || row.source !== 'vscode') return [];
+
+                return [{
+                    id,
+                    path,
+                    cwd,
+                    name: optionalString(row.name) ?? optionalString(row.title) ?? null,
+                    preview: optionalString(row.preview) ?? optionalString(row.title) ?? '',
+                    createdAt: optionalNumber(row.createdAt),
+                    updatedAt: optionalNumber(row.updatedAt),
+                    recencyAt: optionalNumber(row.recencyAt),
+                    source: 'vscode',
+                    archived: row.archived === 1,
+                    parentThreadId: optionalString(row.parentThreadId) ?? null,
+                    ephemeral: false,
+                }];
+            }),
+            nextCursor: null,
+        };
+    } finally {
+        database.close();
+    }
+}
 
 function secondsToMilliseconds(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value) ? value * 1000 : 0;

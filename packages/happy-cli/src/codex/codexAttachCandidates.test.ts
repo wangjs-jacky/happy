@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { createCodexAttachCandidateService, readCodexThreadOriginator } from './codexAttachCandidates';
+import {
+    createCodexAttachCandidateService,
+    listCodexThreadsFromStateDb,
+    readCodexThreadOriginator,
+} from './codexAttachCandidates';
 import type { ListedThread } from './codexAppServerTypes';
 
 describe('Codex attach candidates', () => {
@@ -48,6 +52,51 @@ describe('Codex attach candidates', () => {
         ].join('\n'));
 
         await expect(readCodexThreadOriginator(rolloutPath)).resolves.toBe('Codex Desktop');
+    });
+
+    it('discovers thread metadata from the read-only Codex state index', () => {
+        let openedPath = '';
+        let closed = false;
+        const response = listCodexThreadsFromStateDb({
+            codexHome: '/tmp/codex-home',
+            limit: 7,
+            openDatabase: (path) => {
+                openedPath = path;
+                return {
+                    prepare: () => ({
+                        all: (limit) => {
+                            expect(limit).toBe(7);
+                            return [{
+                                id: 'desktop',
+                                rolloutPath: '/tmp/desktop.jsonl',
+                                cwd: '/Users/test/project',
+                                name: null,
+                                title: 'Desktop title',
+                                preview: 'First user message',
+                                createdAt: 1_999_999_900,
+                                updatedAt: 1_999_999_950,
+                                recencyAt: 1_999_999_960,
+                                source: 'vscode',
+                                archived: 0,
+                                parentThreadId: null,
+                            }];
+                        },
+                    }),
+                    close: () => { closed = true; },
+                };
+            },
+        });
+
+        expect(openedPath).toBe('/tmp/codex-home/state_5.sqlite');
+        expect(closed).toBe(true);
+        expect(response.data).toEqual([
+            expect.objectContaining({
+                id: 'desktop',
+                path: '/tmp/desktop.jsonl',
+                name: 'Desktop title',
+                source: 'vscode',
+            }),
+        ]);
     });
 
     it('persists dismissed and attached threads and also removes server-known mappings', async () => {

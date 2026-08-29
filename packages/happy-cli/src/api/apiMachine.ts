@@ -24,7 +24,7 @@ import {
     ForkSourceMissingError,
 } from '@/claude/utils/claudeSessionFork';
 import { CodexAppServerClient, resolveCodexAppServerConnection } from '@/codex/codexAppServerClient';
-import { createCodexAttachCandidateService } from '@/codex/codexAttachCandidates';
+import { createCodexAttachCandidateService, listCodexThreadsFromStateDb } from '@/codex/codexAttachCandidates';
 import {
     CodexForkRewindPointNotFoundError,
     forkCodexThread,
@@ -139,14 +139,7 @@ export class ApiMachineClient {
     private reconnectInterval: NodeJS.Timeout | null = null;
     private readonly codexAttachCandidates = createCodexAttachCandidateService({
         statePath: join(configuration.happyHomeDir, 'codex-attach-candidates.json'),
-        listThreads: () => withSharedCodexAppServerClient((client) => client.listThreads({
-            limit: 100,
-            sortKey: 'recency_at',
-            sortDirection: 'desc',
-            sourceKinds: ['vscode'],
-            archived: false,
-            useStateDbOnly: true,
-        })),
+        listThreads: async () => listCodexThreadsFromStateDb({ limit: 100 }),
     });
 
     constructor(
