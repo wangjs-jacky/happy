@@ -11,6 +11,7 @@ const exec = promisify(execFile);
 const extensionDir = resolve('dist');
 const artifactDir = resolve('test-results/paws-agent-chrome-e2e');
 const recording = process.env.PAWS_EXTENSION_E2E_RECORD === '1';
+const headed = process.env.PAWS_EXTENSION_E2E_HEADED === '1';
 const screenshotPath = resolve(artifactDir, recording ? 'connected-recording.png' : 'connected.png');
 const reconnectPath = resolve(artifactDir, recording ? 'reconnected-recording.png' : 'reconnected.png');
 const rawVideoDir = resolve(artifactDir, 'raw-video');
@@ -26,7 +27,11 @@ if (recording) {
 }
 
 const fixture = await startE2eFixtureServer(extensionDir);
-const browser = await chromium.launch({ headless: true, executablePath });
+const browser = await chromium.launch({
+    headless: !headed,
+    executablePath,
+    slowMo: headed ? 500 : 0,
+});
 let context;
 let page;
 let video;
@@ -75,24 +80,24 @@ try {
     await bubble.getByLabel('Server URL').fill(fixture.origin);
     await bubble.getByRole('button', { name: '生成绑定二维码' }).click();
     await bubble.getByAltText('Paws 设备绑定二维码').waitFor({ state: 'visible' });
-    if (recording) await page.waitForTimeout(900);
+    if (recording || headed) await page.waitForTimeout(900);
 
     stage('connect SDK and select remote target');
     await bubble.getByText('已连接').waitFor({ timeout: 15_000 });
     await bubble.getByLabel('远端机器').selectOption('paws-e2e-machine');
     await bubble.getByLabel('远端工作目录').fill('/tmp/paws-e2e-project');
     await bubble.getByPlaceholder('告诉远端 Agent 你想做什么…').fill(marker);
-    if (recording) await page.waitForTimeout(900);
+    if (recording || headed) await page.waitForTimeout(900);
     await bubble.getByRole('button', { name: '发送', exact: true }).click();
     await bubble.getByText('远端目录不存在：/tmp/paws-e2e-project').waitFor();
-    if (recording) await page.waitForTimeout(900);
+    if (recording || headed) await page.waitForTimeout(900);
     await bubble.getByRole('button', { name: '允许创建并继续' }).click();
 
     stage('verify remote reply and encrypted page context');
     await bubble.getByText('E2E fixture reply: remote session is ready.').waitFor({ timeout: 15_000 });
     await bubble.getByText(marker, { exact: false }).waitFor();
     await page.screenshot({ path: screenshotPath, fullPage: true });
-    if (recording) await page.waitForTimeout(1_100);
+    if (recording || headed) await page.waitForTimeout(1_100);
 
     assert.equal(fixture.state.authRequests >= 2, true, 'account link must poll for authorization');
     assert.equal(fixture.state.spawnRequests, 2, 'directory approval must retry the spawn once');
@@ -114,7 +119,7 @@ try {
     await reloadedBubble.getByText('已连接').waitFor({ timeout: 15_000 });
     assert.equal(await reloadedBubble.getByText('把这个浏览器连接到 Paws').count(), 0, 'stored credentials must survive reload');
     await page.screenshot({ path: reconnectPath, fullPage: true });
-    if (recording) await page.waitForTimeout(1_100);
+    if (recording || headed) await page.waitForTimeout(2_500);
 
     assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`);
     stage('case assertions passed');
@@ -157,7 +162,7 @@ process.stdout.write(JSON.stringify({
     case: 'PAWS-CHROME-BUBBLE-01',
     status: 'pass',
     host: '/Applications/Google Chrome.app',
-    mode: 'browser-harness-with-real-sdk-protocol',
+    mode: headed ? 'headed-browser-harness-with-real-sdk-protocol' : 'browser-harness-with-real-sdk-protocol',
     assertions: [
         'single injection and collapsed geometry',
         'QR account link and encrypted credential persistence',

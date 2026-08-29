@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:smoke": "node scripts/smoke.mjs",
     "test:e2e": "pnpm run build && node scripts/e2e.mjs",
+    "test:e2e:headed": "PAWS_EXTENSION_E2E_HEADED=1 pnpm run test:e2e",
     "test:e2e:record": "PAWS_EXTENSION_E2E_RECORD=1 pnpm run test:e2e",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:smoke"
   },

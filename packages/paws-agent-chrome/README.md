@@ -14,6 +14,7 @@ The unpacked extension is written to `packages/paws-agent-chrome/dist`.
 
 ```bash
 pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e
+pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:headed
 pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:record
 ```
 
