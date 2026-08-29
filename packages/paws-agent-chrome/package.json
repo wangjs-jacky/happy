@@ -9,6 +9,8 @@
     "build": "node scripts/build.mjs",
     "test": "vitest run",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:e2e": "pnpm run build && node scripts/e2e.mjs",
+    "test:e2e:record": "PAWS_EXTENSION_E2E_RECORD=1 pnpm run test:e2e",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:smoke"
   },
   "dependencies": {
@@ -19,6 +21,7 @@
     "@playwright/test": "^1.61.1",
     "@types/qrcode": "^1.5.6",
     "esbuild": "^0.27.2",
+    "socket.io": "^4.8.1",
     "typescript": "5.9.3",
     "vitest": "^3.2.4"
   },

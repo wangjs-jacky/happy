@@ -10,6 +10,17 @@ pnpm --filter @wangjs-jacky/paws-agent-chrome verify
 
 The unpacked extension is written to `packages/paws-agent-chrome/dist`.
 
+## End-to-end test
+
+```bash
+pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e
+pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:record
+```
+
+`[PAWS-CHROME-BUBBLE-01]` runs the built content and panel bundles in a real Chromium page against a temporary local server that implements the account-link, encrypted SDK snapshot, Socket.IO RPC, session, and message boundaries. It covers QR linking, stored browser credentials, online machine selection, directory approval, page context, session creation, remote reply rendering, reset, and reconnect after reload without touching a production account.
+
+The harness cannot prove command-line installation in Google Chrome because current branded Chrome builds ignore `--load-extension`. Ego Lite host compatibility therefore remains a separate unpacked-extension acceptance step.
+
 ## Load in Ego Lite
 
 1. Open `chrome://extensions` in Ego Lite.

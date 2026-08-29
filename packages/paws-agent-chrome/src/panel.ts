@@ -238,10 +238,16 @@ function renderRequests(): HTMLElement {
 function renderComposer(): HTMLElement {
     const form = element('form', 'composer') as HTMLFormElement;
     const textarea = document.createElement('textarea');
+    const send = primaryButton(busy ? '发送中…' : '发送', () => undefined);
+    send.type = 'submit';
+    send.disabled = busy || !draft.trim();
     textarea.placeholder = '告诉远端 Agent 你想做什么…';
     textarea.value = draft;
     textarea.rows = 3;
-    textarea.addEventListener('input', () => { draft = textarea.value; });
+    textarea.addEventListener('input', () => {
+        draft = textarea.value;
+        send.disabled = busy || !draft.trim();
+    });
     textarea.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
@@ -255,9 +261,6 @@ function renderComposer(): HTMLElement {
     checkbox.checked = includeContext;
     checkbox.addEventListener('change', () => { includeContext = checkbox.checked; });
     contextLabel.append(checkbox, element('span', '', pageContext?.selection ? '带上选中内容' : '带上当前网页'));
-    const send = primaryButton(busy ? '发送中…' : '发送', () => undefined);
-    send.type = 'submit';
-    send.disabled = busy || !draft.trim();
     footer.append(contextLabel, send);
     form.append(textarea, footer);
     form.addEventListener('submit', event => { event.preventDefault(); void sendDraft(false); });

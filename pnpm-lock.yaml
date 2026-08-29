@@ -1315,6 +1315,9 @@ importers:
       esbuild:
         specifier: ^0.27.2
         version: 0.27.2
+      socket.io:
+        specifier: ^4.8.1
+        version: 4.8.3
       typescript:
         specifier: 5.9.3
         version: 5.9.3
