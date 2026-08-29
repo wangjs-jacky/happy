@@ -376,6 +376,11 @@ export type Metadata = {
   machineId?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
+  /** Last Codex turn mirrored into this Paws session, used for reconnect catch-up. */
+  codexSyncCursor?: {
+    threadId: string
+    turnId: string
+  },
   tools?: string[],
   slashCommands?: string[],
   mcpServers?: Array<{ name: string; status: string }>,

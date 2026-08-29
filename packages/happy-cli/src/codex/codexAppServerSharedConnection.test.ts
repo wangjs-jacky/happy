@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket, WebSocketServer } from 'ws';
 import { CodexAppServerClient, resolveCodexAppServerConnection } from './codexAppServerClient';
 
@@ -272,14 +272,23 @@ describe('CodexAppServerClient shared Unix socket connection', () => {
             socketPath,
             approvalAuthority: 'paws',
         });
-        desktopAuthorityClient.setApprovalHandler(async () => 'denied');
+        const defaultAuthorityClient = new CodexAppServerClient(undefined, {
+            type: 'unixSocket',
+            socketPath,
+        });
+        const desktopApprovalHandler = vi.fn(async () => 'denied' as const);
+        const defaultApprovalHandler = vi.fn(async () => 'denied' as const);
+        desktopAuthorityClient.setApprovalHandler(desktopApprovalHandler);
         pawsAuthorityClient.setApprovalHandler(async () => 'approved');
+        defaultAuthorityClient.setApprovalHandler(defaultApprovalHandler);
 
         await desktopAuthorityClient.connect();
         await pawsAuthorityClient.connect();
+        await defaultAuthorityClient.connect();
         await Promise.all([
             desktopAuthorityClient.resumeThread({ threadId: 'thread-shared-approval', cwd: tempDir }),
             pawsAuthorityClient.resumeThread({ threadId: 'thread-shared-approval', cwd: tempDir }),
+            defaultAuthorityClient.resumeThread({ threadId: 'thread-shared-approval', cwd: tempDir }),
         ]);
 
         for (const connection of connections) {
@@ -299,7 +308,13 @@ describe('CodexAppServerClient shared Unix socket connection', () => {
         await waitFor(() => approvalResponses.length >= 1);
         await new Promise((resolve) => setTimeout(resolve, 100));
         expect(approvalResponses).toEqual([{ decision: 'accept' }]);
+        expect(desktopApprovalHandler).not.toHaveBeenCalled();
+        expect(defaultApprovalHandler).not.toHaveBeenCalled();
 
-        await Promise.all([desktopAuthorityClient.disconnect(), pawsAuthorityClient.disconnect()]);
+        await Promise.all([
+            desktopAuthorityClient.disconnect(),
+            pawsAuthorityClient.disconnect(),
+            defaultAuthorityClient.disconnect(),
+        ]);
     });
 });

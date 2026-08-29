@@ -276,6 +276,15 @@ export class CodexAppServerClient {
     private notificationProtocol: 'unknown' | 'legacy' | 'raw' = 'unknown';
     private startedTurnIds = new Set<string>();
     private completedTurnIds = new Set<string>();
+    private pawsStartedTurnIds = new Set<string>();
+    private pendingPawsTurnStart: {
+        prompt: string;
+        deferredUserItems: Array<{
+            content: unknown;
+            itemId: unknown;
+            turnId: string | null;
+        }>;
+    } | null = null;
     private rawFileChangesByItemId = new Map<string, LegacyPatchChanges>();
 
     // Handlers set by the consumer (runCodex.ts)
@@ -330,6 +339,49 @@ export class CodexAppServerClient {
         return threadId && this._threadId && threadId !== this._threadId
             ? { subagent: threadId }
             : {};
+    }
+
+    private userMessageText(content: unknown): string | null {
+        if (!Array.isArray(content)) return null;
+        const text = content
+            .filter((item): item is { type: 'text'; text: string } => (
+                item?.type === 'text' && typeof item.text === 'string'
+            ))
+            .map((item) => item.text)
+            .join('\n');
+        return text.length > 0 ? text : null;
+    }
+
+    private rememberPawsStartedTurn(turnId: string): void {
+        this.pawsStartedTurnIds.add(turnId);
+        const oldest = this.pawsStartedTurnIds.values().next().value;
+        if (this.pawsStartedTurnIds.size > 256 && typeof oldest === 'string') {
+            this.pawsStartedTurnIds.delete(oldest);
+        }
+    }
+
+    private emitExternalUserItem(item: { content: unknown; itemId: unknown; turnId: string | null }): void {
+        this.eventHandler?.({
+            type: 'user_message',
+            content: item.content,
+            item_id: item.itemId,
+            turn_id: item.turnId,
+        });
+    }
+
+    private settlePawsTurnStart(turnId: string | null, accepted: boolean): void {
+        const pending = this.pendingPawsTurnStart;
+        this.pendingPawsTurnStart = null;
+        if (!pending) return;
+
+        if (accepted && turnId) {
+            this.rememberPawsStartedTurn(turnId);
+        }
+        for (const item of pending.deferredUserItems) {
+            if (!accepted || !turnId || item.turnId !== turnId) {
+                this.emitExternalUserItem(item);
+            }
+        }
     }
 
     private shouldHandleRawNotification(method: string): boolean {
@@ -494,15 +546,26 @@ export class CodexAppServerClient {
             // A turn submitted through this Bridge already exists in Paws as the
             // incoming user message. Only mirror user items created by another
             // client of the shared app-server (for example Codex Desktop).
-            if (!this.isRootThreadNotification(params) || this.pendingTurnCompletion) {
+            if (!this.isRootThreadNotification(params)) {
                 return true;
             }
-            this.eventHandler?.({
-                type: 'user_message',
+            const userItem = {
                 content: item.content,
-                item_id: item.id,
-                turn_id: this.extractTurnId(params),
-            });
+                itemId: item.id,
+                turnId: this.extractTurnId(params),
+            };
+            if (userItem.turnId && this.pawsStartedTurnIds.has(userItem.turnId)) {
+                return true;
+            }
+            const pendingStart = this.pendingPawsTurnStart;
+            if (pendingStart && this.userMessageText(item.content) === pendingStart.prompt) {
+                // The app-server may publish the item before replying to turn/start.
+                // Defer only this matching candidate until the authoritative turn
+                // ID arrives, so an overlapping Desktop turn is not hidden.
+                pendingStart.deferredUserItems.push(userItem);
+                return true;
+            }
+            this.emitExternalUserItem(userItem);
             return true;
         }
 
@@ -937,9 +1000,11 @@ export class CodexAppServerClient {
         this.notificationProtocol = 'unknown';
         this.startedTurnIds.clear();
         this.completedTurnIds.clear();
+        this.settlePawsTurnStart(null, false);
         if (!opts?.preserveThreadState) {
             this._threadId = null;
             this.threadDefaults = null;
+            this.pawsStartedTurnIds.clear();
         }
 
         // Fail in-flight requests from this process generation.
@@ -1380,16 +1445,24 @@ export class CodexAppServerClient {
         // turn/start returns immediately; turn completes via events.
         // We don't await completion here — the caller's event handler
         // tracks task_complete / turn_aborted.
-        const result = await this.request('turn/start', params) as { turn?: { id?: string | null } };
-        const turnId = result?.turn?.id;
-        if (typeof turnId === 'string' && turnId.length > 0) {
-            if (this.pendingTurnCompletion) {
-                this.pendingTurnCompletion.turnId = turnId;
+        this.pendingPawsTurnStart = { prompt, deferredUserItems: [] };
+        try {
+            const result = await this.request('turn/start', params) as { turn?: { id?: string | null } };
+            const turnId = result?.turn?.id;
+            const resolvedTurnId = typeof turnId === 'string' && turnId.length > 0 ? turnId : null;
+            this.settlePawsTurnStart(resolvedTurnId, true);
+            if (resolvedTurnId) {
+                if (this.pendingTurnCompletion) {
+                    this.pendingTurnCompletion.turnId = resolvedTurnId;
+                }
+                // Some app-server versions accept a turn but omit turn/started and
+                // legacy task_started notifications. The successful RPC response is
+                // authoritative that work has begun, so keep session state live.
+                this.emitTaskStarted(resolvedTurnId);
             }
-            // Some app-server versions accept a turn but omit turn/started and
-            // legacy task_started notifications. The successful RPC response is
-            // authoritative that work has begun, so keep session state live.
-            this.emitTaskStarted(turnId);
+        } catch (error) {
+            this.settlePawsTurnStart(null, false);
+            throw error;
         }
     }
 
@@ -1554,6 +1627,8 @@ export class CodexAppServerClient {
         this.threadDefaults = null;
         this.startedTurnIds.clear();
         this.completedTurnIds.clear();
+        this.pawsStartedTurnIds.clear();
+        this.settlePawsTurnStart(null, false);
         this.rawFileChangesByItemId.clear();
     }
 
@@ -1757,7 +1832,7 @@ export class CodexAppServerClient {
             || method === 'item/fileChange/requestApproval'
             || method === 'applyPatchApproval';
         const approvalAuthority = this.connection.type === 'unixSocket'
-            ? (this.connection.approvalAuthority ?? 'paws')
+            ? (this.connection.approvalAuthority ?? 'desktop')
             : 'paws';
         if (isApprovalRequest && approvalAuthority === 'desktop') {
             logger.debug(`[CodexAppServer] Leaving ${method} for the Desktop approval authority`);

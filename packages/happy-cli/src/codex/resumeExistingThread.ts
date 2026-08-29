@@ -16,6 +16,10 @@ type ResumeThreadClient = {
 };
 
 type ResumeThreadSession = {
+    getMetadata: () => {
+        codexThreadId?: string;
+        codexSyncCursor?: { threadId: string; turnId: string };
+    } | null;
     updateMetadata: (handler: (currentMetadata: any) => any) => void;
     sendSessionEvent: (event: { type: 'message'; message: string }) => void;
     sendSessionProtocolMessage: (envelope: SessionEnvelope) => void;
@@ -32,7 +36,7 @@ export async function resumeExistingThread(opts: {
     threadId: string;
     cwd: string;
     mcpServers: Record<string, unknown>;
-    replayHistory?: boolean;
+    historyMode?: 'full' | 'after-cursor';
 }): Promise<{ threadId: string; model: string; reasoningEffort: ReasoningEffort | null }> {
     try {
         const resumedThread = await opts.client.resumeThread({
@@ -46,14 +50,36 @@ export async function resumeExistingThread(opts: {
             codexThreadId: resumedThread.threadId,
         }));
 
-        if (opts.replayHistory !== false) {
+        const historyMode = opts.historyMode ?? 'full';
+        const syncCursor = opts.session.getMetadata()?.codexSyncCursor;
+        if (historyMode === 'full' || syncCursor?.threadId === resumedThread.threadId) {
             const { thread } = await opts.client.readThread({
                 threadId: resumedThread.threadId,
                 includeTurns: true,
             });
-            const historicalEnvelopes = mapCodexThreadToSessionEnvelopes(thread);
+            const turns = thread.turns ?? [];
+            let turnsToReplay = turns;
+            if (historyMode === 'after-cursor') {
+                const cursorIndex = turns.findIndex((turn) => turn.id === syncCursor?.turnId);
+                // Legacy sessions have no cursor, and a missing cursor cannot be
+                // reconciled safely without duplicating already mirrored turns.
+                turnsToReplay = cursorIndex >= 0 ? turns.slice(cursorIndex + 1) : [];
+            }
+
+            const historicalEnvelopes = mapCodexThreadToSessionEnvelopes({ turns: turnsToReplay });
             for (const envelope of historicalEnvelopes) {
                 opts.session.sendSessionProtocolMessage(envelope);
+            }
+
+            const lastReplayedTurn = turnsToReplay.at(-1);
+            if (lastReplayedTurn) {
+                opts.session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    codexSyncCursor: {
+                        threadId: resumedThread.threadId,
+                        turnId: lastReplayedTurn.id,
+                    },
+                }));
             }
         }
 

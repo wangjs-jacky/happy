@@ -1016,6 +1016,20 @@ export async function runCodex(opts: {
                 session.sendSessionProtocolMessage(envelope);
             }
         }
+        if (msg.type === 'task_complete') {
+            const completedTurnId = (msg as any).turn_id;
+            if (typeof completedTurnId === 'string' && client?.threadId) {
+                const completedThreadId = client.threadId;
+                // Advance only after the turn envelopes have been queued for Paws.
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    codexSyncCursor: {
+                        threadId: completedThreadId,
+                        turnId: completedTurnId,
+                    },
+                }));
+            }
+        }
     });
 
     // Start Happy MCP server (HTTP) and prepare STDIO bridge config for Codex
@@ -1072,7 +1086,7 @@ export async function runCodex(opts: {
                 threadId: opts.resumeThreadId,
                 cwd: process.cwd(),
                 mcpServers,
-                replayHistory: !reconnectSessionId,
+                historyMode: reconnectSessionId ? 'after-cursor' : 'full',
             });
             if (!opts.model) {
                 baselineModel = resumedThread.model;

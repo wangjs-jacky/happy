@@ -1094,6 +1094,102 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('uses the authoritative turn ID to suppress only the Paws-originated user item', async () => {
+        const proc = createMockProcess({
+            pid: 3003,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => pushJsonLine(stdout, {
+                        id: msg.id,
+                        result: {
+                            thread: { id: 'thread-shared-overlap', path: '/tmp/thread-shared-overlap' },
+                            model: 'gpt-test',
+                            modelProvider: 'openai',
+                            cwd: '/tmp/project',
+                            approvalPolicy: 'never',
+                            sandbox: { type: 'dangerFullAccess' },
+                            reasoningEffort: null,
+                        },
+                    }), 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        // An overlapping Desktop item must remain visible even while
+                        // the Paws turn/start RPC is still pending.
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-shared-overlap',
+                                turnId: 'turn-desktop-overlap',
+                                item: {
+                                    type: 'userMessage',
+                                    id: 'user-desktop-overlap',
+                                    content: [{ type: 'text', text: 'Desktop overlaps.' }],
+                                },
+                            },
+                        });
+                        // The local echo can race ahead of the turn/start response.
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-shared-overlap',
+                                turnId: 'turn-paws-overlap',
+                                item: {
+                                    type: 'userMessage',
+                                    id: 'user-paws-early',
+                                    content: [{ type: 'text', text: 'Paws starts.' }],
+                                },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: { turn: { id: 'turn-paws-overlap', items: [], status: 'inProgress', error: null } },
+                        });
+                        // A delayed duplicate echo is still identified by turn ID.
+                        pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-shared-overlap',
+                                turnId: 'turn-paws-overlap',
+                                item: {
+                                    type: 'userMessage',
+                                    id: 'user-paws-late',
+                                    content: [{ type: 'text', text: 'Paws starts.' }],
+                                },
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => events.push(msg as Record<string, unknown>));
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+        await client.sendTurn('Paws starts.');
+        await waitFor(() => events.some((event) => event.item_id === 'user-desktop-overlap'));
+
+        expect(events.filter((event) => event.type === 'user_message')).toEqual([
+            expect.objectContaining({
+                item_id: 'user-desktop-overlap',
+                turn_id: 'turn-desktop-overlap',
+            }),
+        ]);
+
+        await client.disconnect();
+    });
+
     it('synthesizes task_started when turn/start succeeds without a lifecycle notification', async () => {
         const proc = createMockProcess({
             pid: 3006,
