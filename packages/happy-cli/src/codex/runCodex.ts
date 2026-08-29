@@ -382,9 +382,17 @@ export async function runCodex(opts: {
             delete process.env[key];
         }
     }
+    const importedSessionTitle = process.env.HAPPY_IMPORTED_SESSION_TITLE?.trim();
+    delete process.env.HAPPY_IMPORTED_SESSION_TITLE;
     const hydratedMetadata = mergeReconnectMetadata(localMetadata, reconnectServerMetadata);
     let codexPawsOriginToken = hydratedMetadata.codexPawsOriginToken ?? randomUUID();
-    const metadata = { ...hydratedMetadata, codexPawsOriginToken };
+    const metadata = {
+        ...hydratedMetadata,
+        codexPawsOriginToken,
+        ...(!hydratedMetadata.summary?.text?.trim() && importedSessionTitle
+            ? { summary: { text: importedSessionTitle, updatedAt: Date.now() } }
+            : {}),
+    };
 
     let response: ApiSession | null;
     if (reconnectSessionId && reconnectKeyBase64 && reconnectVariant) {
