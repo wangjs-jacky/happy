@@ -107,7 +107,7 @@ describe('UsagePanel', () => {
         consoleErrorSpy.mockRestore();
     });
 
-    it('exposes period tabs and renders the localized empty state', async () => {
+    it('shows a Codex sync state instead of empty API usage metrics', async () => {
         mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
         const renderer = await renderUsagePanel();
 
@@ -117,10 +117,10 @@ describe('UsagePanel', () => {
             .filter((node: any) => node.props.accessibilityRole === 'tab');
         const texts = renderer.root.findAllByType('Text').map(textValue);
 
-        expect(tablists).toHaveLength(1);
-        expect(tabs).toHaveLength(3);
-        expect(tabs.map((node: any) => node.props['aria-selected'])).toEqual([false, true, false]);
-        expect(texts).toContain('usage.noData');
+        expect(tablists).toHaveLength(0);
+        expect(tabs).toHaveLength(0);
+        expect(texts).toContain('machine.codexUsageWaitingForDaemon');
+        expect(texts).not.toContain('usage.noData');
 
         act(() => renderer.unmount());
     });
@@ -218,12 +218,42 @@ describe('UsagePanel', () => {
         ];
 
         const renderer = await renderUsagePanel();
-        const rateLimitItem = renderer.root.findAllByType('Item')
-            .find((node: any) => node.props.title === 'machine.codexUsageRateLimits');
+        const texts = renderer.root.findAllByType('Text').map(textValue);
 
-        expect(rateLimitItem?.props.subtitle).toContain('"used":49');
-        expect(rateLimitItem?.props.subtitle).toContain('"remaining":51');
-        expect(rateLimitItem?.props.subtitle).toContain('"period":"7d"');
+        expect(texts).toContain('51%');
+        expect(texts).toContain('PRO');
+        expect(texts.some((text: string) => text.startsWith('machine.codexUsageResetsAt:'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('prioritizes the Codex balance and hides empty API usage metrics', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: 200,
+                    latestEvent: {
+                        rateLimits: {
+                            planType: 'pro',
+                            primary: {
+                                usedPercent: 49,
+                                windowMinutes: 10080,
+                                resetsAt: 1_788_452_692,
+                            },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('51%');
+        expect(texts).not.toContain('usage.totalTokens');
+        expect(texts).not.toContain('usage.noData');
 
         act(() => renderer.unmount());
     });

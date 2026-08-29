@@ -1346,6 +1346,8 @@ export const ja: TranslationStructure = {
         codexUsageEvents: 'イベント',
         codexUsageSessions: 'セッション',
         codexUsageRateLimits: 'レート制限',
+        codexUsageRemaining: '残り',
+        codexUsageResetsAt: ({ time }: { time: string }) => `${time} にリセット`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: 使用済み ${used}% · 残り ${remaining}% · ${resetAt} にリセット`,
         codexUsageScannedAt: 'スキャン時刻',
         codexUsageNoData: 'ローカルの Codex 使用量データが見つかりません',
@@ -1511,6 +1513,7 @@ export const ja: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: 'API 使用量',
         today: '今日',
         last7Days: '過去7日間',
         last30Days: '過去30日間',

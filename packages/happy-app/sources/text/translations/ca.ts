@@ -1345,6 +1345,8 @@ export const ca: TranslationStructure = {
         codexUsageEvents: 'Esdeveniments',
         codexUsageSessions: 'Sessions',
         codexUsageRateLimits: 'Límits de ritme',
+        codexUsageRemaining: 'Restant',
+        codexUsageResetsAt: ({ time }: { time: string }) => `Es restableix ${time}`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% utilitzat · ${remaining}% restant · Es restableix ${resetAt}`,
         codexUsageScannedAt: 'Escanejat a',
         codexUsageNoData: 'No s\'han trobat dades locals d\'ús de Codex',
@@ -1509,6 +1511,7 @@ export const ca: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: "Ús de l'API",
         today: 'Avui',
         last7Days: 'Últims 7 dies',
         last30Days: 'Últims 30 dies',

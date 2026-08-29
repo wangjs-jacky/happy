@@ -1343,6 +1343,8 @@ export const it: TranslationStructure = {
         codexUsageEvents: 'Eventi',
         codexUsageSessions: 'Sessioni',
         codexUsageRateLimits: 'Limiti di frequenza',
+        codexUsageRemaining: 'Rimanente',
+        codexUsageResetsAt: ({ time }: { time: string }) => `Si reimposta ${time}`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% utilizzato · ${remaining}% rimanente · Si reimposta ${resetAt}`,
         codexUsageScannedAt: 'Scansionato il',
         codexUsageNoData: 'Nessun dato locale di utilizzo Codex trovato',
@@ -1508,6 +1510,7 @@ export const it: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: 'Utilizzo API',
         today: 'Oggi',
         last7Days: 'Ultimi 7 giorni',
         last30Days: 'Ultimi 30 giorni',

@@ -1454,6 +1454,8 @@ export const zhHant: TranslationStructure = {
         codexUsageEvents: '事件',
         codexUsageSessions: '會話',
         codexUsageRateLimits: '限流狀態',
+        codexUsageRemaining: '剩餘',
+        codexUsageResetsAt: ({ time }: { time: string }) => `${time} 重設`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}：已用 ${used}% · 剩餘 ${remaining}% · ${resetAt} 重設`,
         codexUsageScannedAt: '掃描時間',
         codexUsageNoData: '沒有找到本機 Codex 用量資料',
@@ -1618,6 +1620,7 @@ export const zhHant: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: 'API 用量',
         today: '今天',
         last7Days: '過去 7 天',
         last30Days: '過去 30 天',

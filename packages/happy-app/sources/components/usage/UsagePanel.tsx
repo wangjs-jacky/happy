@@ -3,7 +3,6 @@ import { View, ActivityIndicator, ScrollView, Pressable } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
-import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { UsageChart } from './UsageChart';
 import { UsageBar } from './UsageBar';
@@ -65,20 +64,26 @@ function formatRateLimitPeriod(windowMinutes: number | undefined): string {
     return `${windowMinutes}m`;
 }
 
-function formatCodexRateLimitWindow(window: CodexRateLimitWindow | undefined): string | null {
+interface CodexRateLimitSummary {
+    period: string;
+    used: number;
+    remaining: number;
+    resetAt: string;
+}
+
+function getCodexRateLimitSummary(window: CodexRateLimitWindow | undefined): CodexRateLimitSummary | null {
     if (!window || typeof window.usedPercent !== 'number') {
         return null;
     }
     const used = Math.max(0, Math.min(100, window.usedPercent));
-    const resetAt = typeof window.resetsAt === 'number'
-        ? new Date(window.resetsAt * 1000).toLocaleString()
-        : t('common.unknown');
-    return t('machine.codexUsageRateLimitWindow', {
+    return {
         period: formatRateLimitPeriod(window.windowMinutes),
         used,
         remaining: 100 - used,
-        resetAt,
-    });
+        resetAt: typeof window.resetsAt === 'number'
+            ? new Date(window.resetsAt * 1000).toLocaleString()
+            : t('common.unknown'),
+    };
 }
 
 const styles = StyleSheet.create((theme) => ({
@@ -115,6 +120,72 @@ const styles = StyleSheet.create((theme) => ({
         margin: 16,
         borderRadius: 12,
         gap: 12,
+    },
+    codexCard: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: 16,
+        gap: 16,
+        marginHorizontal: 16,
+        marginTop: 16,
+        padding: 20,
+    },
+    codexHeader: {
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    codexTitle: {
+        color: theme.colors.text,
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    planBadge: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+    },
+    planBadgeText: {
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        fontWeight: '700',
+        letterSpacing: 0.8,
+    },
+    quotaValue: {
+        color: theme.colors.text,
+        fontSize: 48,
+        fontWeight: '700',
+        lineHeight: 54,
+    },
+    quotaLabel: {
+        color: theme.colors.textSecondary,
+        fontSize: 15,
+    },
+    progressTrack: {
+        backgroundColor: theme.colors.divider,
+        borderRadius: 999,
+        height: 8,
+        overflow: 'hidden',
+    },
+    progressFill: {
+        backgroundColor: theme.colors.accent,
+        borderRadius: 999,
+        height: '100%',
+    },
+    quotaDetails: {
+        color: theme.colors.textSecondary,
+        fontSize: 14,
+        lineHeight: 20,
+    },
+    quotaReset: {
+        color: theme.colors.text,
+        fontSize: 14,
+        fontWeight: '500',
+        lineHeight: 20,
+    },
+    quotaScannedAt: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
     },
     statRow: {
         flexDirection: 'row',
@@ -209,14 +280,16 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         costByModel: {} as Record<string, number>
     });
     const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
-    const codexRateLimitLines = React.useMemo(() => {
+    const codexRateLimits = React.useMemo(() => {
         const rateLimits = codexUsage?.latestEvent?.rateLimits;
         if (!rateLimits) return [];
         return [
-            formatCodexRateLimitWindow(rateLimits.primary),
-            formatCodexRateLimitWindow(rateLimits.secondary),
-        ].filter((line): line is string => !!line);
+            getCodexRateLimitSummary(rateLimits.primary),
+            getCodexRateLimitSummary(rateLimits.secondary),
+        ].filter((limit): limit is CodexRateLimitSummary => !!limit);
     }, [codexUsage]);
+    const primaryCodexRateLimit = codexRateLimits[0];
+    const hasApiUsage = usageData.length > 0;
     
     useEffect(() => {
         let cancelled = false;
@@ -307,73 +380,85 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     
     return (
         <ScrollView style={styles.container}>
-            {/* Period Selector */}
-            <View
-                style={styles.periodSelector}
-                accessibilityRole="tablist"
-                accessibilityLabel={t('settings.usage')}
-            >
-                {(['today', '7days', '30days'] as TimePeriod[]).map((p) => (
-                    <Pressable
-                        key={p}
-                        style={[styles.periodButton, period === p && styles.periodButtonActive]}
-                        onPress={() => setPeriod(p)}
-                        accessibilityRole="tab"
-                        aria-selected={period === p}
-                    >
-                        <Text style={[styles.periodText, period === p && styles.periodTextActive]}>
-                            {periodLabels[p]}
-                        </Text>
-                    </Pressable>
-                ))}
-            </View>
-            
-            {/* Summary Stats */}
-            <View style={styles.statsContainer}>
-                <View style={styles.statRow}>
-                    <Text style={styles.statLabel}>{t('usage.totalTokens')}</Text>
-                    <Text style={styles.statValue}>{formatTokens(totals.totalTokens)}</Text>
+            <View style={styles.codexCard} accessibilityLiveRegion="polite">
+                <View style={styles.codexHeader}>
+                    <Text style={styles.codexTitle}>{t('machine.codexUsage')}</Text>
+                    {!!codexUsage?.latestEvent?.rateLimits?.planType && (
+                        <View style={styles.planBadge}>
+                            <Text style={styles.planBadgeText}>
+                                {codexUsage.latestEvent.rateLimits.planType.toUpperCase()}
+                            </Text>
+                        </View>
+                    )}
                 </View>
-                <View style={styles.statRow}>
-                    <Text style={styles.statLabel}>{t('usage.totalCost')}</Text>
-                    <Text style={styles.statValue}>{formatCost(totals.totalCost)}</Text>
-                </View>
-            </View>
-
-            <ItemGroup title={t('machine.codexUsage')}>
-                {!codexUsage ? (
-                    <Item
-                        title={t('machine.status')}
-                        subtitle={t('machine.codexUsageWaitingForDaemon')}
-                        showChevron={false}
-                    />
-                ) : (
+                {primaryCodexRateLimit ? (
                     <>
-                        <Item
-                            title={t('machine.codexUsageRateLimits')}
-                            detail={codexUsage.latestEvent?.rateLimits?.planType?.toUpperCase()}
-                            subtitle={codexRateLimitLines.join('\n') || t('machine.codexUsageNoData')}
-                            subtitleLines={0}
-                            showChevron={false}
-                        />
-                        <Item
-                            title={t('machine.codexUsageScannedAt')}
-                            subtitle={new Date(codexUsage.scannedAt).toLocaleString()}
-                            showChevron={false}
-                        />
+                        <View>
+                            <Text style={styles.quotaValue}>{`${primaryCodexRateLimit.remaining}%`}</Text>
+                            <Text style={styles.quotaLabel}>{t('machine.codexUsageRemaining')}</Text>
+                        </View>
+                        <View style={styles.progressTrack}>
+                            <View style={[styles.progressFill, { width: `${primaryCodexRateLimit.used}%` }]} />
+                        </View>
+                        <Text style={styles.quotaDetails}>
+                            {t('machine.codexUsageRateLimitWindow', primaryCodexRateLimit)}
+                        </Text>
+                        {codexRateLimits.slice(1).map((limit) => (
+                            <Text key={limit.period} style={styles.quotaDetails}>
+                                {t('machine.codexUsageRateLimitWindow', limit)}
+                            </Text>
+                        ))}
+                        <Text style={styles.quotaReset}>
+                            {t('machine.codexUsageResetsAt', { time: primaryCodexRateLimit.resetAt })}
+                        </Text>
+                        <Text style={styles.quotaScannedAt}>
+                            {`${t('machine.codexUsageScannedAt')}: ${new Date(codexUsage!.scannedAt).toLocaleString()}`}
+                        </Text>
                     </>
+                ) : (
+                    <Text style={styles.quotaDetails}>
+                        {codexUsage ? t('machine.codexUsageNoData') : t('machine.codexUsageWaitingForDaemon')}
+                    </Text>
                 )}
-            </ItemGroup>
+            </View>
 
-            {usageData.length === 0 && (
-                <View style={styles.emptyContainer} accessibilityLiveRegion="polite">
-                    <Ionicons name="bar-chart-outline" size={36} color={theme.colors.textSecondary} />
-                    <Text style={styles.emptyText}>{t('usage.noData')}</Text>
-                </View>
+            {hasApiUsage && (
+                <>
+                    <Text style={styles.sectionTitle}>{t('usage.apiUsage')}</Text>
+                    <View
+                        style={styles.periodSelector}
+                        accessibilityRole="tablist"
+                        accessibilityLabel={t('settings.usage')}
+                    >
+                        {(['today', '7days', '30days'] as TimePeriod[]).map((p) => (
+                            <Pressable
+                                key={p}
+                                style={[styles.periodButton, period === p && styles.periodButtonActive]}
+                                onPress={() => setPeriod(p)}
+                                accessibilityRole="tab"
+                                aria-selected={period === p}
+                            >
+                                <Text style={[styles.periodText, period === p && styles.periodTextActive]}>
+                                    {periodLabels[p]}
+                                </Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                    <View style={styles.statsContainer}>
+                        <View style={styles.statRow}>
+                            <Text style={styles.statLabel}>{t('usage.totalTokens')}</Text>
+                            <Text style={styles.statValue}>{formatTokens(totals.totalTokens)}</Text>
+                        </View>
+                        <View style={styles.statRow}>
+                            <Text style={styles.statLabel}>{t('usage.totalCost')}</Text>
+                            <Text style={styles.statValue}>{formatCost(totals.totalCost)}</Text>
+                        </View>
+                    </View>
+                </>
             )}
             
             {/* Usage Chart */}
-            {usageData.length > 0 && (
+            {hasApiUsage && (
                 <View style={styles.chartSection}>
                     <Text style={styles.sectionTitle}>{t('usage.usageOverTime')}</Text>
                     
@@ -414,7 +499,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
             )}
             
             {/* Usage by Model */}
-            {topModels.length > 0 && (
+            {hasApiUsage && topModels.length > 0 && (
                 <ItemGroup title={t('usage.byModel')}>
                     <View style={{ padding: 16 }}>
                         {topModels.map(([model, tokens]) => (

@@ -1368,6 +1368,8 @@ export const en: TranslationStructure = {
         codexUsageEvents: 'Events',
         codexUsageSessions: 'Sessions',
         codexUsageRateLimits: 'Rate Limits',
+        codexUsageRemaining: 'Remaining',
+        codexUsageResetsAt: ({ time }: { time: string }) => `Resets ${time}`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% used · ${remaining}% remaining · Resets ${resetAt}`,
         codexUsageScannedAt: 'Scanned At',
         codexUsageNoData: 'No local Codex usage data found',
@@ -1533,6 +1535,7 @@ export const en: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: 'API usage',
         today: 'Today',
         last7Days: 'Last 7 days',
         last30Days: 'Last 30 days',

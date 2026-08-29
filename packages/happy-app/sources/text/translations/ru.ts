@@ -1349,6 +1349,8 @@ export const ru: TranslationStructure = {
         codexUsageEvents: 'События',
         codexUsageSessions: 'Сессии',
         codexUsageRateLimits: 'Лимиты частоты',
+        codexUsageRemaining: 'Осталось',
+        codexUsageResetsAt: ({ time }: { time: string }) => `Сбросится ${time}`,
         codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: использовано ${used}% · осталось ${remaining}% · Сброс ${resetAt}`,
         codexUsageScannedAt: 'Просканировано',
         codexUsageNoData: 'Локальные данные использования Codex не найдены',
@@ -1538,6 +1540,7 @@ export const ru: TranslationStructure = {
 
     usage: {
         // Usage panel strings
+        apiUsage: 'Использование API',
         today: 'Сегодня',
         last7Days: 'Последние 7 дней',
         last30Days: 'Последние 30 дней',
