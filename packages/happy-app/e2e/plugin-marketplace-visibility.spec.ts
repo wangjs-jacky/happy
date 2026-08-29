@@ -8,6 +8,10 @@ const evidenceDirectory = process.env.HAPPY_PLUGIN_VISIBILITY_EVIDENCE_DIR;
 const evidencePhase = process.env.HAPPY_PLUGIN_VISIBILITY_EVIDENCE_PHASE === 'before'
     ? 'before'
     : 'after';
+const permissionEvidenceDirectory = process.env.HAPPY_PLUGIN_PERMISSION_EVIDENCE_DIR;
+const permissionEvidencePhase = process.env.HAPPY_PLUGIN_PERMISSION_EVIDENCE_PHASE === 'before'
+    ? 'before'
+    : 'after';
 
 function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
@@ -22,6 +26,13 @@ function evidencePath(testInfo: TestInfo, caseId: 1 | 2 | 3): string {
     return path.join(evidenceDirectory, filename);
 }
 
+function permissionEvidencePath(testInfo: TestInfo): string {
+    const filename = `case-1-${permissionEvidencePhase}.png`;
+    if (!permissionEvidenceDirectory) return testInfo.outputPath(filename);
+    fs.mkdirSync(permissionEvidenceDirectory, { recursive: true });
+    return path.join(permissionEvidenceDirectory, filename);
+}
+
 const catalogFixture = {
     plugins: pluginPackages.map(({ manifest }) => ({
         manifest,
@@ -29,6 +40,7 @@ const catalogFixture = {
             ? {
                 installed: true,
                 version: manifest.version,
+                grantedPermissions: [...manifest.permissions],
                 configuration: {
                     baseUrl: 'https://api.example.com/v1',
                     model: 'example/model-mini',
@@ -203,6 +215,58 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
             await expect(secretInput).toHaveAttribute('type', 'password');
             await pauseForRecordedReview(page);
         }
+    } finally {
+        await page.close();
+    }
+});
+
+test('[PLUGIN-PERMISSION-GRANTS] 安装前展示内置代码边界与完整权限', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    await installDevelopmentRefreshIndicatorSuppression(page);
+    await page.route('**/v1/plugins', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            status: 200,
+            body: JSON.stringify({
+                plugins: catalogFixture.plugins.map(({ manifest }) => ({
+                    manifest,
+                    status: { installed: false },
+                })),
+            }),
+        });
+    });
+
+    try {
+        await page.goto(authenticatedRoute('/'));
+        await page.getByTestId('sidebar-plugins-button').click();
+        await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible({ timeout: 120_000 });
+        await page.getByTestId('plugin-marketplace-plugin-relationship-advisor').click();
+        await expect(page.getByTestId('relationship-advisor-plugin-api-key')).toBeVisible();
+
+        const permissions = page.getByTestId('relationship-advisor-plugin-permissions');
+        if (permissionEvidencePhase === 'before') {
+            await expect(permissions).toHaveCount(0);
+        } else {
+            await expect(permissions).toBeVisible();
+            await expect(page.getByTestId('relationship-advisor-built-in-code')).toBeVisible();
+            await expect(page.locator('[data-testid^="relationship-advisor-permission-"]')).toHaveCount(4);
+            for (const permission of [
+                'paws.ai.provider.invoke',
+                'paws.secrets.use',
+                'paws.conversations.images.read',
+                'paws.storage.images.write',
+            ]) {
+                await expect(page.getByTestId(`relationship-advisor-permission-${permission}`)).toBeVisible();
+            }
+            const imageWritePermission = page.getByTestId(
+                'relationship-advisor-permission-paws.storage.images.write',
+            );
+            await imageWritePermission.scrollIntoViewIfNeeded();
+            await expect(imageWritePermission).toBeInViewport();
+        }
+
+        await pauseForRecordedReview(page);
+        await page.screenshot({ path: permissionEvidencePath(testInfo), fullPage: true });
     } finally {
         await page.close();
     }

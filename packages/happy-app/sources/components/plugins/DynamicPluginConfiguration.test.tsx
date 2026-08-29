@@ -43,7 +43,7 @@ const manifest = {
     icon: 'apps-outline',
     featured: true,
     installedAction: 'configure' as const,
-    permissions: [],
+    permissions: ['paws.secrets.use' as const, 'paws.storage.images.write' as const],
     entrypoint: { type: 'view' as const, viewId: 'server-plugin.page' },
     contributes: {
         views: [{ id: 'server-plugin.page', surface: 'page' as const, title: { default: 'Server plugin' } }],
@@ -99,9 +99,21 @@ describe('DynamicPluginConfiguration', () => {
             await renderer.root.findByProps({ testID: 'server-plugin-plugin-install' }).props.onPress();
         });
 
-        expect(mocks.install).toHaveBeenCalledWith('server-plugin', '2.3.0', {
-            token: 'server-secret', endpoint: 'https://example.com/v1',
-        });
+        expect(mocks.install).toHaveBeenCalledWith(
+            'server-plugin',
+            '2.3.0',
+            { token: 'server-secret', endpoint: 'https://example.com/v1' },
+            ['paws.secrets.use', 'paws.storage.images.write'],
+        );
+        expect(renderer.root.findByProps({
+            title: 'relationshipAdvisorPlugin.permissions',
+        }).props.footer).toBe('relationshipAdvisorPlugin.permissionGrantNotice');
+        expect(renderer.root.findByProps({
+            testID: 'server-plugin-permission-paws.secrets.use',
+        }).props.title).toBe('relationshipAdvisorPlugin.permissionSecretsUse');
+        expect(renderer.root.findByProps({
+            testID: 'server-plugin-built-in-code',
+        }).props.subtitle).toBe('relationshipAdvisorPlugin.builtInCodeNotice');
         expect(onStatusChanged).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
@@ -114,6 +126,7 @@ describe('DynamicPluginConfiguration', () => {
                 status: {
                     installed: true,
                     version: '2.3.0',
+                    grantedPermissions: [...manifest.permissions],
                     configuration: { endpoint: 'https://example.com/v1' },
                     secretHints: { token: '1234' },
                 },
@@ -130,6 +143,7 @@ describe('DynamicPluginConfiguration', () => {
         const installedStatus = {
             installed: true as const,
             version: '2.3.0',
+            grantedPermissions: [...manifest.permissions],
             configuration: { endpoint: 'https://example.com/v1' },
             secretHints: { token: '1234' },
         };
@@ -205,9 +219,12 @@ describe('DynamicPluginConfiguration', () => {
             await renderer.root.findByProps({ testID: 'server-plugin-plugin-test-connection' }).props.onPress();
         });
 
-        expect(mocks.testConnection).toHaveBeenCalledWith('server-plugin', '2.3.0', {
-            token: 'server-secret', endpoint: 'https://example.com/v1',
-        });
+        expect(mocks.testConnection).toHaveBeenCalledWith(
+            'server-plugin',
+            '2.3.0',
+            { token: 'server-secret', endpoint: 'https://example.com/v1' },
+            ['paws.ai.provider.invoke'],
+        );
         expect(renderer.root.findByProps({ testID: 'server-plugin-plugin-test-connection-result' }).props.title)
             .toBe('relationshipAdvisorPlugin.connectionSuccess');
         expect(mocks.install).not.toHaveBeenCalled();
@@ -248,6 +265,27 @@ describe('DynamicPluginConfiguration', () => {
         expect(renderer.root.findAllByProps({
             testID: 'server-plugin-plugin-test-connection-result',
         })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('requires an explicit update before opening when stored permission grants are incomplete', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<DynamicPluginConfiguration plugin={{
+                manifest: { ...manifest, installedAction: 'open' },
+                status: {
+                    installed: true,
+                    version: '2.3.0',
+                    grantedPermissions: [],
+                    configuration: { endpoint: 'https://example.com/v1' },
+                    secretHints: { token: '1234' },
+                },
+            }} />);
+        });
+
+        expect(renderer.root.findAllByProps({ testID: 'server-plugin-plugin-open' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'server-plugin-plugin-install' }).props.title)
+            .toBe('relationshipAdvisorPlugin.update');
         act(() => renderer.unmount());
     });
 });

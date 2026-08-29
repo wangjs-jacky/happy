@@ -22,6 +22,7 @@ import { DynamicPluginConfiguration } from './DynamicPluginConfiguration';
 import { PluginModalSlot } from './PluginModalSlot';
 import { resolveInstalledPluginEntrypoint, resolveInstalledPluginView } from './pluginClientAdapters';
 import { resolvePluginText } from './pluginText';
+import { isCurrentPluginInstallation } from './pluginInstallation';
 
 type Props = {
     visible: boolean;
@@ -41,8 +42,7 @@ function PluginRow({
     plugin: PluginCatalogItem;
 }) {
     const { theme } = useUnistyles();
-    const currentVersionInstalled = plugin.status.installed
-        && plugin.status.version === plugin.manifest.version;
+    const currentInstallation = isCurrentPluginInstallation(plugin);
     return (
         <Pressable
             accessibilityRole="button"
@@ -61,7 +61,7 @@ function PluginRow({
             <View style={[styles.actionPill, installed && styles.actionPillInstalled]}>
                 <Text style={[styles.actionText, installed && styles.actionTextInstalled]}>
                     {installed
-                        ? t(!currentVersionInstalled
+                        ? t(!currentInstallation
                             ? 'relationshipAdvisorPlugin.update'
                             : plugin.manifest.installedAction === 'open'
                                 ? 'relationshipAdvisorPlugin.openPlugin'
