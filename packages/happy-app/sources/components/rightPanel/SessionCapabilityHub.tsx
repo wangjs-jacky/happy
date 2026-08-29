@@ -4,7 +4,7 @@ import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
 import { Modal } from '@/modal';
-import { useSession, useSettingMutable } from '@/sync/storage';
+import { useSession, useSessionMessages, useSettingMutable } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 import { hapticsLight } from '../haptics';
@@ -19,6 +19,9 @@ import { formatPathRelativeToHome } from '@/utils/sessionUtils';
 import { SessionFolderBrowserView } from './SessionFolderBrowserView';
 import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
+import { usePluginSurfaceViews } from '../plugins/usePluginSurfaceViews';
+import { BrowserStepsPanel } from './BrowserStepsPanel';
+import { getBrowserSteps } from './browserStepsModel';
 
 type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
@@ -60,6 +63,12 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 }) {
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
+    const { messages } = useSessionMessages(props.sessionId);
+    const browserSteps = React.useMemo(() => getBrowserSteps(messages), [messages]);
+    const pluginViews = usePluginSurfaceViews('right-panel');
+    const generatedImagesViewAvailable = pluginViews.some((view) => (
+        view.componentId === 'generated-images-session-images'
+    ));
     // 取会话工作目录与家目录，用于文件夹浏览卡片
     const rootPath = props.session.metadata?.path ?? null;
     const homeDir = props.session.metadata?.homeDir ?? null;
@@ -80,6 +89,10 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     React.useEffect(() => {
         if (panel?.isOpen === false) setSelectedKey(null);
     }, [panel?.isOpen]);
+
+    React.useEffect(() => {
+        if (selectedKey === 'images' && !generatedImagesViewAvailable) setSelectedKey(null);
+    }, [generatedImagesViewAvailable, selectedKey]);
 
     const returnToSummary = React.useCallback(() => {
         setSelectedKey(null);
@@ -150,6 +163,12 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
         item.onPress();
     }, [panel]);
 
+    // This check must stay after the component's hooks so a frame arriving
+    // during a session never changes the hook order of the existing hub.
+    if (browserSteps.length > 0) {
+        return <BrowserStepsPanel sessionId={props.sessionId} steps={browserSteps} />;
+    }
+
     if (selectedKey) {
         if (selectedKey === 'sessionActions') {
             return (
@@ -206,6 +225,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 
             <View style={styles.grid}>
                 {BLOCK_ORDER.map((key) => {
+                    if (key === 'images' && !generatedImagesViewAvailable) return null;
                     if (key === 'sessionActions') {
                         return (
                             <CapabilityBlockCard
@@ -269,6 +289,10 @@ function getTaskContextEmptyPreview(key: CapabilityKey): string | null {
 
 const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() {
     const { theme } = useUnistyles();
+    const pluginViews = usePluginSurfaceViews('right-panel');
+    const generatedImagesViewAvailable = pluginViews.some((view) => (
+        view.componentId === 'generated-images-session-images'
+    ));
 
     return (
         <ScrollView
@@ -285,7 +309,7 @@ const CapabilityHubPlaceholder = React.memo(function CapabilityHubPlaceholder() 
             </View>
 
             <View style={styles.grid}>
-                {BLOCK_ORDER.map((key) => (
+                {BLOCK_ORDER.filter((key) => key !== 'images' || generatedImagesViewAvailable).map((key) => (
                     <CapabilityBlockCard
                         count={0}
                         disabled={true}

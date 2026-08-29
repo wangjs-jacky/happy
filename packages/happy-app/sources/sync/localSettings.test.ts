@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { localSettingsDefaults, localSettingsParse } from './localSettings';
 
 describe('localSettings web command palette', () => {
-    it('is available by default while preserving an explicit opt-out', () => {
-        expect(localSettingsDefaults.commandPaletteEnabled).toBe(true);
-        expect(localSettingsParse({}).commandPaletteEnabled).toBe(true);
-        expect(localSettingsParse({ commandPaletteEnabled: false }).commandPaletteEnabled).toBe(false);
+    it('drops removed command palette flags from stale local settings', () => {
+        const parsed = localSettingsParse({
+            commandPaletteEnabled: false,
+            commandPaletteShortcutMigrated: true,
+        });
+
+        expect(parsed).not.toHaveProperty('commandPaletteEnabled');
+        expect(parsed).not.toHaveProperty('commandPaletteShortcutMigrated');
     });
 });
 
@@ -64,6 +68,7 @@ describe('localSettings session list layout', () => {
         expect(localSettingsDefaults.sessionListLayout).toBe('projects');
         expect(localSettingsParse({}).sessionListLayout).toBe('projects');
         expect(localSettingsParse({ sessionListLayout: 'time' }).sessionListLayout).toBe('time');
+        expect(localSettingsParse({ sessionListLayout: 'time' }).desktopSidebarMode).toBe('timeline');
     });
 });
 
@@ -72,6 +77,7 @@ describe('localSettings desktop Lists and Tags', () => {
         expect(localSettingsDefaults.desktopSidebarMode).toBe('projects');
         expect(localSettingsParse({}).desktopSidebarMode).toBe('projects');
         expect(localSettingsParse({ desktopSidebarMode: 'lists' }).desktopSidebarMode).toBe('lists');
+        expect(localSettingsParse({ desktopSidebarMode: 'timeline' }).desktopSidebarMode).toBe('timeline');
     });
 
     it('persists one List and multiple Tags for a session', () => {

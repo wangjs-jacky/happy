@@ -13,13 +13,19 @@ import { launchAgent, type AgentLauncher } from './launchAgent';
 import { createAppBuilderAgent, createRelationshipAdvisorAgent, getAgentSubtitle } from './builtinAgents';
 import { useEnterAgentSpace } from '@/hooks/useEnterAgentSpace';
 import { useAgentSpace } from '@/hooks/useAgentSpace';
+import { useRelationshipAdvisorPlugin } from '@/hooks/useRelationshipAdvisorPlugin';
+
+type Props = {
+    visible: boolean;
+    onClose: () => void;
+};
 
 /**
  * 列出用户配置的「我的 Agent」：手机使用底部抽屉，PC Web/Tauri 使用紧凑居中弹层。
  * 点击在线 Agent → 预填新建会话 draft 并导航；离线 / 机器缺失的 Agent 置灰不可点。
  * 复用 RN 原生 Modal + 半透明 scrim，沿用侧栏卡片视觉语言。
  */
-export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
+export const AgentSheet = React.memo(({ visible, onClose }: Props) => {
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const windowDimensions = useWindowDimensions();
@@ -30,6 +36,10 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
     const draft = useNewSessionDraft();
     const { entering, enter } = useEnterAgentSpace();
     const { enter: enterSpace } = useAgentSpace();
+    const {
+        loading: relationshipAdvisorPluginLoading,
+        status: relationshipAdvisorPluginStatus,
+    } = useRelationshipAdvisorPlugin(visible);
     const relationshipAdvisorTitle = t('relationshipAdvisor.title');
     const relationshipAdvisorSubtitle = t('relationshipAdvisor.cloudSubtitle');
     const builtinRelationshipAdvisor = React.useMemo(() => createRelationshipAdvisorAgent({
@@ -44,10 +54,11 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
         presetBuildLabel: t('agents.appBuilderPresetBuild'),
         presetBugfixLabel: t('agents.appBuilderPresetBugfix'),
     }), [draft.selectedMachineId, draft.selectedPath, machines]);
-    const visibleAgents = React.useMemo(
-        () => [builtinRelationshipAdvisor, ...(builtinAppAgent ? [builtinAppAgent] : []), ...agents],
-        [builtinAppAgent, builtinRelationshipAdvisor, agents],
-    );
+    const visibleAgents = React.useMemo(() => [
+        ...(relationshipAdvisorPluginStatus?.installed === true ? [builtinRelationshipAdvisor] : []),
+        ...(builtinAppAgent ? [builtinAppAgent] : []),
+        ...agents,
+    ], [agents, builtinAppAgent, builtinRelationshipAdvisor, relationshipAdvisorPluginStatus?.installed]);
 
     const goManage = React.useCallback(() => {
         if (entering) return;
@@ -128,10 +139,14 @@ export const AgentSheet = React.memo(({ visible, onClose }: { visible: boolean; 
                         {visibleAgents.map((agent) => {
                             const machine = machines.find((m) => m.id === agent.machineId);
                             const isCloudAdvisor = agent.runtime === 'relationship-advisor';
-                            const online = isCloudAdvisor || (!!machine && isMachineOnline(machine));
+                            const online = isCloudAdvisor
+                                ? !relationshipAdvisorPluginLoading
+                                : !!machine && isMachineOnline(machine);
                             const missing = !isCloudAdvisor && !machine;
                             const subtitle = isCloudAdvisor
-                                ? agent.path
+                                ? relationshipAdvisorPluginStatus?.installed === true
+                                    ? agent.path
+                                    : t('relationshipAdvisor.installSubtitle')
                                 : getAgentSubtitle(agent, machine, missing ? t('agents.machineMissing') : agent.machineId);
 
                             return (

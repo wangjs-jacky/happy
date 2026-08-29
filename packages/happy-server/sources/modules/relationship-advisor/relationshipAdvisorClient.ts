@@ -1,122 +1,148 @@
-import { RELATIONSHIP_ADVISOR_SYSTEM_PROMPT } from './_prompts';
+import type { PluginConnectionTestResult } from '@slopus/happy-wire';
+import type { LookupAddress } from 'node:dns';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { Agent, type Dispatcher } from 'undici';
+import {
+    streamRelationshipAdvisor,
+    validateRelationshipAdvisorProviderUrl,
+} from '@paws/plugins/relationship-advisor/server';
 
-interface AdvisorMessage {
-    role: 'user' | 'assistant';
-    text: string;
-}
+export {
+    streamRelationshipAdvisor,
+    type RelationshipAdvisorMessage,
+    type StreamRelationshipAdvisorInput,
+    type StreamRelationshipAdvisorOptions,
+} from '@paws/plugins/relationship-advisor/server';
 
-interface StreamRelationshipAdvisorInput {
-    messages: AdvisorMessage[];
-    imageUrls: string[];
-    signal?: AbortSignal;
-}
-
-interface StreamRelationshipAdvisorOptions {
+interface RelationshipAdvisorConnectionConfiguration {
     apiKey: string;
     baseUrl: string;
     model: string;
+}
+
+interface RelationshipAdvisorConnectionTestOptions {
+    createDispatcher?: (addresses: readonly LookupAddress[]) => Dispatcher;
     fetchImpl?: typeof fetch;
+    lookup?: (hostname: string) => Promise<LookupAddress[]>;
+    timeoutMs?: number;
+    validateBaseUrl?: (baseUrl: string) => Promise<string>;
 }
 
-interface ProviderStreamDelta {
-    choices?: Array<{
-        delta?: { content?: string | null };
-    }>;
+export function createPinnedDispatcher(addresses: readonly LookupAddress[]): Dispatcher {
+    return new Agent({
+        connect: {
+            lookup(_hostname, options, callback) {
+                const requestedFamily = typeof options === 'number'
+                    ? options
+                    : Number(options.family ?? 0);
+                const matchingAddresses = addresses.filter(({ family }) => (
+                    !requestedFamily || family === requestedFamily
+                ));
+                if (matchingAddresses.length === 0) {
+                    const error = new Error('Provider hostname resolved to no validated addresses') as NodeJS.ErrnoException;
+                    error.code = 'ENOTFOUND';
+                    (callback as (error: NodeJS.ErrnoException) => void)(error);
+                    return;
+                }
+                if (typeof options === 'object' && options.all) {
+                    (callback as (
+                        error: NodeJS.ErrnoException | null,
+                        addresses: LookupAddress[],
+                    ) => void)(null, matchingAddresses);
+                    return;
+                }
+                const selected = matchingAddresses[0]!;
+                (callback as (
+                    error: NodeJS.ErrnoException | null,
+                    address: string,
+                    family: number,
+                ) => void)(null, selected.address, selected.family);
+            },
+        },
+    });
 }
 
-type ProviderFetchSignal = NonNullable<Parameters<typeof fetch>[1]>['signal'];
-
-function resolveChatCompletionsUrl(baseUrl: string): string {
+function chatCompletionsUrl(baseUrl: string): string {
     const normalized = baseUrl.trim().replace(/\/+$/, '');
     return normalized.endsWith('/chat/completions') ? normalized : `${normalized}/chat/completions`;
 }
 
-function providerMessages(messages: AdvisorMessage[], imageUrls: string[]) {
-    let lastUserIndex = -1;
-    for (let index = messages.length - 1; index >= 0; index--) {
-        if (messages[index].role === 'user') {
-            lastUserIndex = index;
-            break;
-        }
-    }
-    return [
-        { role: 'system', content: RELATIONSHIP_ADVISOR_SYSTEM_PROMPT },
-        ...messages.map((message, index) => {
-            if (index !== lastUserIndex || imageUrls.length === 0) {
-                return { role: message.role, content: message.text };
-            }
-            return {
-                role: 'user',
-                content: [
-                    { type: 'text', text: message.text.trim() || '请分析这些图片。' },
-                    ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
-                ],
-            };
-        }),
-    ];
+function failureCodeForStatus(status: number): Extract<PluginConnectionTestResult, { success: false }>['code'] {
+    if (status === 401 || status === 403) return 'authentication_failed';
+    if (status === 404) return 'model_not_found';
+    if (status === 429) return 'rate_limited';
+    return 'provider_error';
 }
 
-function parseSseBlock(block: string): string | 'done' | null {
-    const data = block
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trimStart())
-        .join('\n')
-        .trim();
-    if (!data) return null;
-    if (data === '[DONE]') return 'done';
-    const parsed = JSON.parse(data) as ProviderStreamDelta;
-    return parsed.choices?.[0]?.delta?.content ?? null;
-}
-
-export async function* streamRelationshipAdvisor(
-    input: StreamRelationshipAdvisorInput,
-    options: StreamRelationshipAdvisorOptions,
-): AsyncGenerator<{ text: string }> {
-    const response = await (options.fetchImpl ?? fetch)(resolveChatCompletionsUrl(options.baseUrl), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${options.apiKey}`,
-        },
-        body: JSON.stringify({
-            model: options.model,
-            messages: providerMessages(input.messages, input.imageUrls),
-            stream: true,
-            max_tokens: 1_200,
-            temperature: 0.7,
-        }),
-        // elevenlabs brings in node-fetch's ambient AbortSignal declaration,
-        // which disagrees structurally with Node's native signal at this boundary.
-        signal: input.signal as ProviderFetchSignal,
-    });
-
-    if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Relationship advisor provider returned HTTP ${response.status}: ${body.slice(0, 500)}`);
-    }
-    if (!response.body) {
-        throw new Error('Relationship advisor provider returned no stream');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() ?? '';
-        for (const block of blocks) {
-            const parsed = parseSseBlock(block);
-            if (parsed === 'done') return;
-            if (parsed) yield { text: parsed };
+/** Sends a minimal provider request so configuration can be checked without storing it. */
+export async function testRelationshipAdvisorConnection(
+    configuration: RelationshipAdvisorConnectionConfiguration,
+    options: RelationshipAdvisorConnectionTestOptions = {},
+): Promise<PluginConnectionTestResult> {
+    let safeBaseUrl: string;
+    let pinnedAddresses: LookupAddress[] = [];
+    try {
+        if (options.validateBaseUrl) {
+            safeBaseUrl = await options.validateBaseUrl(configuration.baseUrl);
+        } else {
+            const lookup = options.lookup
+                ?? ((hostname: string) => dnsLookup(hostname, { all: true, verbatim: true }));
+            const validationLookup = (async (hostname: string) => {
+                pinnedAddresses = await lookup(hostname);
+                return pinnedAddresses;
+            }) as unknown as typeof dnsLookup;
+            safeBaseUrl = await validateRelationshipAdvisorProviderUrl(
+                configuration.baseUrl,
+                validationLookup,
+            );
         }
+    } catch {
+        return { success: false, code: 'invalid_configuration' };
     }
 
-    buffer += decoder.decode();
-    const parsed = parseSseBlock(buffer);
-    if (parsed && parsed !== 'done') yield { text: parsed };
+    const dispatcher = pinnedAddresses.length > 0
+        ? (options.createDispatcher ?? createPinnedDispatcher)(pinnedAddresses)
+        : undefined;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
+    const startedAt = Date.now();
+    try {
+        const requestInit: RequestInit & { dispatcher?: Dispatcher } = {
+            method: 'POST',
+            redirect: 'error',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${configuration.apiKey}`,
+            },
+            body: JSON.stringify({
+                model: configuration.model,
+                messages: [{ role: 'user', content: 'Reply with OK.' }],
+                stream: false,
+                max_tokens: 1,
+                temperature: 0,
+            }),
+            // Node's fetch and the transitive DOM types expose structurally different
+            // AbortSignal declarations, though they share the same runtime object.
+            signal: controller.signal as never,
+        };
+        if (dispatcher) requestInit.dispatcher = dispatcher;
+        const response = await (options.fetchImpl ?? fetch)(chatCompletionsUrl(safeBaseUrl), requestInit);
+        if (!response.ok) {
+            await response.body?.cancel().catch(() => undefined);
+            return { success: false, code: failureCodeForStatus(response.status) };
+        }
+        const body = await response.json().catch(() => null) as { choices?: unknown } | null;
+        if (!body || !Array.isArray(body.choices) || body.choices.length === 0) {
+            return { success: false, code: 'provider_error' };
+        }
+        return { success: true, latencyMs: Math.max(0, Date.now() - startedAt) };
+    } catch (error) {
+        if (controller.signal.aborted || (error as { name?: unknown })?.name === 'AbortError') {
+            return { success: false, code: 'timed_out' };
+        }
+        return { success: false, code: 'provider_unreachable' };
+    } finally {
+        clearTimeout(timeout);
+        await dispatcher?.close().catch(() => undefined);
+    }
 }
