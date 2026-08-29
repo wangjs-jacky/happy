@@ -14,6 +14,8 @@ const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-cou
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
 const SESSION_MANAGEMENT_KEY = 'session-management-v1';
 const PENDING_SIDEBAR_ORGANIZATION_BASE_KEY = 'pending-sidebar-organization-base-v1';
+const PENDING_SESSION_PINNED_ORDER_BASE_KEY = 'pending-session-pinned-order-base-v1';
+const PENDING_SESSION_PINNED_STATE_KEY = 'pending-session-pinned-state-v1';
 
 export type NewSessionAgentType = 'ask' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -72,6 +74,74 @@ export function savePendingSettings(settings: Partial<Settings>) {
     mmkv.set('pending-settings', JSON.stringify(settings));
 }
 
+export type PendingSessionPinnedState = {
+    value: string[];
+    base: string[];
+    clearRaw: true;
+};
+
+export function recoverPendingSettingsWithPinnedState(
+    pending: Partial<Settings>,
+    pinnedState: PendingSessionPinnedState | null,
+): Partial<Settings> {
+    if (pinnedState) {
+        return {
+            ...pending,
+            sessionPinnedOrder: pinnedState.value,
+            sessionPinnedOrderRaw: null,
+        };
+    }
+
+    // Both fields belong to the same atomic intent. If its state record is
+    // absent (for example after an ACK), neither mirrored field is recoverable.
+    const {
+        sessionPinnedOrder: _unsafeUnpairedPinIntent,
+        sessionPinnedOrderRaw: _unsafeUnpairedRawReset,
+        ...safePending
+    } = pending;
+    return safePending;
+}
+
+function parsePinnedOrder(value: unknown): string[] | null {
+    return Array.isArray(value) && value.every((item) => typeof item === 'string' && item.length > 0)
+        ? Array.from(new Set(value))
+        : null;
+}
+
+/**
+ * Loads the pending pin value and its three-way merge base from one MMKV record.
+ * The legacy two-record fallback is only for builds produced during migration.
+ */
+export function loadPendingSessionPinnedState(): PendingSessionPinnedState | null {
+    const value = mmkv.getString(PENDING_SESSION_PINNED_STATE_KEY);
+    if (value) {
+        try {
+            const parsed = JSON.parse(value) as { value?: unknown; base?: unknown };
+            const pendingValue = parsePinnedOrder(parsed.value);
+            const base = parsePinnedOrder(parsed.base);
+            return pendingValue && base ? { value: pendingValue, base, clearRaw: true } : null;
+        } catch {
+            return null;
+        }
+    }
+
+    const legacyPending = loadPendingSettings().sessionPinnedOrder;
+    const legacyBase = loadPendingSessionPinnedOrderBase();
+    return legacyPending && legacyBase
+        ? { value: legacyPending, base: legacyBase, clearRaw: true }
+        : null;
+}
+
+export function savePendingSessionPinnedState(value: PendingSessionPinnedState | null): void {
+    if (value) {
+        mmkv.set(PENDING_SESSION_PINNED_STATE_KEY, JSON.stringify(value));
+    } else {
+        mmkv.delete(PENDING_SESSION_PINNED_STATE_KEY);
+    }
+    // Stop consulting the pre-atomic base after the first v1 state write.
+    mmkv.delete(PENDING_SESSION_PINNED_ORDER_BASE_KEY);
+}
+
 export function loadPendingSidebarOrganizationBase(): SidebarOrganization | null {
     const value = mmkv.getString(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY);
     if (!value) return null;
@@ -88,6 +158,16 @@ export function savePendingSidebarOrganizationBase(value: SidebarOrganization | 
         mmkv.set(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY, JSON.stringify(value));
     } else {
         mmkv.delete(PENDING_SIDEBAR_ORGANIZATION_BASE_KEY);
+    }
+}
+
+export function loadPendingSessionPinnedOrderBase(): string[] | null {
+    const value = mmkv.getString(PENDING_SESSION_PINNED_ORDER_BASE_KEY);
+    if (!value) return null;
+    try {
+        return parsePinnedOrder(JSON.parse(value));
+    } catch {
+        return null;
     }
 }
 
@@ -252,6 +332,25 @@ export function loadSessionManagementPreferences(): SessionManagementPreferences
 
 export function saveSessionManagementPreferences(preferences: SessionManagementPreferences) {
     mmkv.set(SESSION_MANAGEMENT_KEY, JSON.stringify(preferences));
+}
+
+export function loadLegacySessionPinnedOrder(): string[] {
+    return loadSessionManagementPreferences().pinnedOrder;
+}
+
+export function clearLegacySessionPinnedOrder(): void {
+    const preferences = loadSessionManagementPreferences();
+    if (preferences.pinnedOrder.length === 0) return;
+    saveSessionManagementPreferences({ ...preferences, pinnedOrder: [] });
+}
+
+export function loadSessionManagementFocusOrder(): string[] {
+    return loadSessionManagementPreferences().focusOrder;
+}
+
+export function saveSessionManagementFocusOrder(focusOrder: string[]): void {
+    const preferences = loadSessionManagementPreferences();
+    saveSessionManagementPreferences({ ...preferences, focusOrder });
 }
 
 export function loadRegisteredPushToken(): string | null {

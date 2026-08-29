@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { mergeServerSettings, resolveSidebarOrganizationMigration, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import {
+    applySettings,
+    mergeServerSettings,
+    mergeSessionPinnedOrders,
+    resolveSessionPinnedOrderMigration,
+    resolveSidebarOrganizationMigration,
+    settingsDefaults,
+    settingsParse,
+    settingsToSyncPayload,
+    type Settings,
+} from './settings';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -120,6 +130,26 @@ describe('settings', () => {
                     sessions: organization.sessions,
                 },
             }).sidebarOrganization).toEqual(organization);
+        });
+
+        it('validates pinned session order as an account-synced database setting', () => {
+            expect(settingsParse({ sessionPinnedOrder: ['session-b', 'session-a', 'session-b'] }).sessionPinnedOrder)
+                .toEqual(['session-b', 'session-a']);
+            expect(settingsParse({ sessionPinnedOrder: ['session-a', 42, ''] }).sessionPinnedOrder)
+                .toEqual([]);
+        });
+
+        it('preserves an unrecognized pinned-order payload for forward-compatible writes', () => {
+            const futurePinnedOrder = { version: 2, ids: ['session-a'] };
+            const parsed = settingsParse({
+                viewInline: true,
+                sessionPinnedOrder: futurePinnedOrder,
+            });
+
+            expect(parsed.viewInline).toBe(true);
+            expect(parsed.sessionPinnedOrder).toEqual([]);
+            expect(parsed.sessionPinnedOrderRaw).toEqual(futurePinnedOrder);
+            expect(settingsToSyncPayload(parsed).sessionPinnedOrder).toEqual(futurePinnedOrder);
         });
 
         describe('agents field', () => {
@@ -334,6 +364,8 @@ describe('settings', () => {
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
+                sessionPinnedOrder: [],
+                sessionPinnedOrderRaw: null,
                 sidebarOrganization: { lists: [], tags: [], sessions: {} },
                 sidebarOrganizationRaw: null,
                 dismissedCLIWarnings: { perMachine: {}, global: {} },
@@ -507,6 +539,65 @@ describe('settings', () => {
             );
 
             expect(merged.sidebarOrganization).toEqual(organization);
+        });
+
+        it('preserves pinned sessions when an older server payload omits the field', () => {
+            const serverRaw = { viewInline: true };
+            const merged = mergeServerSettings(
+                { ...settingsDefaults, sessionPinnedOrder: ['session-b', 'session-a'] },
+                settingsParse(serverRaw),
+                {},
+                serverRaw,
+            );
+
+            expect(merged.sessionPinnedOrder).toEqual(['session-b', 'session-a']);
+        });
+    });
+
+    describe('pinned session migration and conflict merge', () => {
+        it('uploads legacy device-local pins only when the database field is absent', () => {
+            expect(resolveSessionPinnedOrderMigration(
+                { viewInline: true },
+                [],
+                ['session-b', 'session-a'],
+            )).toEqual({ pinnedOrder: ['session-b', 'session-a'], shouldUpload: true });
+            expect(resolveSessionPinnedOrderMigration(
+                { sessionPinnedOrder: [] },
+                [],
+                ['session-b', 'session-a'],
+            )).toEqual({ pinnedOrder: [], shouldUpload: false });
+        });
+
+        it('keeps independent concurrent pins while honoring a local unpin', () => {
+            expect(mergeSessionPinnedOrders(
+                ['existing'],
+                ['local-added'],
+                ['remote-added', 'existing'],
+            )).toEqual(['local-added', 'remote-added']);
+        });
+
+        it('preserves an independent remote reorder when local only adds a pin', () => {
+            expect(mergeSessionPinnedOrders(
+                ['session-a', 'session-b'],
+                ['session-c', 'session-a', 'session-b'],
+                ['session-b', 'session-a'],
+            )).toEqual(['session-c', 'session-b', 'session-a']);
+        });
+
+        it('uses the local reorder when both clients reorder the same base pins', () => {
+            expect(mergeSessionPinnedOrders(
+                ['session-a', 'session-b', 'session-c'],
+                ['session-c', 'session-a', 'session-b'],
+                ['session-b', 'session-c', 'session-a'],
+            )).toEqual(['session-c', 'session-a', 'session-b']);
+        });
+
+        it('keeps multiple local additions ordered within the same insertion region', () => {
+            expect(mergeSessionPinnedOrders(
+                ['session-a'],
+                ['session-a', 'local-c', 'local-d'],
+                ['remote-b', 'session-a', 'local-c'],
+            )).toEqual(['remote-b', 'session-a', 'local-c', 'local-d']);
         });
     });
 
