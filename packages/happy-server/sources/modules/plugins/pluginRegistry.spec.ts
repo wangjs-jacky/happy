@@ -300,4 +300,22 @@ describe('createPluginRegistry', () => {
             'paws.ai.provider.invoke',
         ])).rejects.toMatchObject({ code: 'permission_not_granted' });
     });
+
+    it('blocks every runtime capability when the stored grant snapshot is only a subset', async () => {
+        const { installations, store } = createMemoryStore();
+        installations.set('user-partial-grants:relationship-advisor', {
+            version: '1.1.1',
+            grantedPermissions: ['paws.storage.images.write'],
+            configuration: {
+                apiKey: 'stored-secret',
+                baseUrl: 'https://api.example.com/v1',
+                model: 'example-chat',
+            },
+        });
+        const registry = createPluginRegistry(pluginDefinitions, store);
+
+        await expect(registry.openRuntime('user-partial-grants', 'relationship-advisor', [
+            'paws.storage.images.write',
+        ])).rejects.toMatchObject({ code: 'permission_not_granted' });
+    });
 });

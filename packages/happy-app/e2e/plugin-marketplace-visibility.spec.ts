@@ -12,6 +12,10 @@ const permissionEvidenceDirectory = process.env.HAPPY_PLUGIN_PERMISSION_EVIDENCE
 const permissionEvidencePhase = process.env.HAPPY_PLUGIN_PERMISSION_EVIDENCE_PHASE === 'before'
     ? 'before'
     : 'after';
+const reviewEvidenceDirectory = process.env.HAPPY_PLUGIN_REVIEW_EVIDENCE_DIR;
+const reviewEvidencePhase = process.env.HAPPY_PLUGIN_REVIEW_EVIDENCE_PHASE === 'before'
+    ? 'before'
+    : 'after';
 
 function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
@@ -31,6 +35,13 @@ function permissionEvidencePath(testInfo: TestInfo): string {
     if (!permissionEvidenceDirectory) return testInfo.outputPath(filename);
     fs.mkdirSync(permissionEvidenceDirectory, { recursive: true });
     return path.join(permissionEvidenceDirectory, filename);
+}
+
+function reviewEvidencePath(testInfo: TestInfo): string {
+    const filename = `case-2-${reviewEvidencePhase}.png`;
+    if (!reviewEvidenceDirectory) return testInfo.outputPath(filename);
+    fs.mkdirSync(reviewEvidenceDirectory, { recursive: true });
+    return path.join(reviewEvidenceDirectory, filename);
 }
 
 const catalogFixture = {
@@ -109,14 +120,14 @@ test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不
             });
         }
 
-        await page.goto(authenticatedRoute('/'));
-        const pluginButton = page.getByTestId('sidebar-plugins-button');
-        await expect(pluginButton).toBeVisible({ timeout: 120_000 });
-
         const catalogResponsePromise = page.waitForResponse((response) => (
             response.request().method() === 'GET'
             && new URL(response.url()).pathname === '/v1/plugins'
         ));
+        await page.goto(authenticatedRoute('/'));
+        const pluginButton = page.getByTestId('sidebar-plugins-button');
+        await expect(pluginButton).toBeVisible({ timeout: 120_000 });
+
         await pluginButton.click();
 
         const catalogResponse = await catalogResponsePromise;
@@ -267,6 +278,80 @@ test('[PLUGIN-PERMISSION-GRANTS] 安装前展示内置代码边界与完整权�
 
         await pauseForRecordedReview(page);
         await page.screenshot({ path: permissionEvidencePath(testInfo), fullPage: true });
+
+        if (permissionEvidencePhase === 'after') {
+            await page.setViewportSize({ width: 390, height: 844 });
+            await expect(page.getByTestId('plugin-marketplace-mobile-drawer')).toBeVisible();
+            await expect(page.getByTestId('relationship-advisor-plugin-permissions')).toBeVisible();
+        }
+    } finally {
+        await page.close();
+    }
+});
+
+test('[PLUGIN-PERMISSION-REVIEW] 授权快照失效时要求复审并可安全卸载', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installDevelopmentRefreshIndicatorSuppression(page);
+    let installed = true;
+    const partialGrantCatalog = () => ({
+        plugins: catalogFixture.plugins.map(({ manifest }) => ({
+            manifest,
+            status: manifest.id === 'relationship-advisor' && installed
+                ? {
+                    installed: true,
+                    version: manifest.version,
+                    grantedPermissions: ['paws.storage.images.write'],
+                    configuration: {
+                        baseUrl: 'https://api.example.com/v1',
+                        model: 'example/model-mini',
+                    },
+                    secretHints: { apiKey: 'LLPq' },
+                }
+                : { installed: false },
+        })),
+    });
+    await page.route('**/v1/plugins', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            status: 200,
+            body: JSON.stringify(partialGrantCatalog()),
+        });
+    });
+    await page.route('**/v1/plugins/relationship-advisor', async (route) => {
+        if (route.request().method() !== 'DELETE') {
+            await route.fallback();
+            return;
+        }
+        installed = false;
+        await route.fulfill({
+            contentType: 'application/json',
+            status: 200,
+            body: JSON.stringify({ installed: false }),
+        });
+    });
+
+    try {
+        await page.goto(authenticatedRoute('/'));
+        await page.getByTestId('sidebar-plugins-button').click();
+        await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible({ timeout: 120_000 });
+        await expect(page.getByTestId('plugin-marketplace-installed-relationship-advisor')).toHaveCount(0);
+        await page.getByTestId('plugin-marketplace-plugin-relationship-advisor').click();
+
+        const status = page.getByTestId('relationship-advisor-plugin-status');
+        await expect(status).toContainText(/Review required|需要重新确认/);
+        await expect(page.getByTestId('relationship-advisor-plugin-open')).toHaveCount(0);
+        const reviewAction = page.getByTestId('relationship-advisor-plugin-install');
+        await reviewAction.scrollIntoViewIfNeeded();
+        await expect(reviewAction).toBeVisible();
+        await page.screenshot({ path: reviewEvidencePath(testInfo), fullPage: true });
+
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.getByTestId('plugin-marketplace-mobile-drawer')).toBeVisible();
+        await expect(status).toContainText(/Review required|需要重新确认/);
+
+        await page.getByTestId('relationship-advisor-plugin-uninstall').click();
+        await expect(status).toContainText(/Not installed|未安装/);
+        await expect(page.getByTestId('relationship-advisor-plugin-uninstall')).toHaveCount(0);
     } finally {
         await page.close();
     }

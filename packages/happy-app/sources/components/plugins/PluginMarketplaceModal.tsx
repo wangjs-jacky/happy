@@ -62,7 +62,7 @@ function PluginRow({
                 <Text style={[styles.actionText, installed && styles.actionTextInstalled]}>
                     {installed
                         ? t(!currentInstallation
-                            ? 'relationshipAdvisorPlugin.update'
+                            ? 'relationshipAdvisorPlugin.reviewAndUpdate'
                             : plugin.manifest.installedAction === 'open'
                                 ? 'relationshipAdvisorPlugin.openPlugin'
                                 : 'relationshipAdvisorPlugin.configure')
@@ -113,7 +113,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
     const activeInstalledModal = activePlugin && activeModalContribution
         ? resolveInstalledPluginView(activePlugin, activeModalContribution.id, 'modal')
         : null;
-    const installedPlugins = plugins.filter((plugin) => plugin.status.installed);
+    const installedPlugins = plugins.filter(isCurrentPluginInstallation);
 
     const openPlugin = React.useCallback((plugin: PluginCatalogItem) => {
         const entrypoint = resolveInstalledPluginEntrypoint(plugin);

@@ -84,6 +84,7 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
     const { manifest, status } = plugin;
     const installed = status.installed;
     const currentInstallation = isCurrentPluginInstallation(plugin);
+    const reviewRequired = installed && !currentInstallation;
 
     React.useEffect(() => {
         connectionTestVersion.current += 1;
@@ -228,16 +229,25 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
                 <Item
                     icon={<Ionicons
                         color={theme.colors.accent}
-                        name={installed ? 'checkmark-circle-outline' : 'download-outline'}
+                        name={currentInstallation
+                            ? 'checkmark-circle-outline'
+                            : reviewRequired
+                                ? 'alert-circle-outline'
+                                : 'download-outline'}
                         size={29}
                     />}
                     showChevron={false}
-                    subtitle={installed
+                    subtitle={currentInstallation
                         ? t('relationshipAdvisorPlugin.installedSubtitle')
-                        : t('relationshipAdvisorPlugin.notInstalledSubtitle')}
-                    title={installed
+                        : reviewRequired
+                            ? t('relationshipAdvisorPlugin.reviewRequiredSubtitle')
+                            : t('relationshipAdvisorPlugin.notInstalledSubtitle')}
+                    testID={`${manifest.id}-plugin-status`}
+                    title={currentInstallation
                         ? t('relationshipAdvisorPlugin.installed')
-                        : t('relationshipAdvisorPlugin.notInstalled')}
+                        : reviewRequired
+                            ? t('relationshipAdvisorPlugin.reviewRequired')
+                            : t('relationshipAdvisorPlugin.notInstalled')}
                 />
                 {manifest.permissions.includes('paws.ai.provider.invoke') ? (
                     <Item
@@ -285,8 +295,10 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
                         onPress={performInstall}
                         showChevron={false}
                         testID={`${manifest.id}-plugin-install`}
-                        title={installed
-                            ? t('relationshipAdvisorPlugin.update')
+                        title={reviewRequired
+                            ? t('relationshipAdvisorPlugin.reviewAndUpdate')
+                            : installed
+                                ? t('relationshipAdvisorPlugin.update')
                             : t('relationshipAdvisorPlugin.install')}
                     />
                 )}

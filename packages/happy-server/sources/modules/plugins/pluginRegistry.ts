@@ -195,8 +195,18 @@ export function createPluginRegistry(
             requiredPermissions: readonly PluginPermission[],
         ): Promise<Record<string, string>> {
             const { definition, installation } = await requireCurrentInstallation(accountId, pluginId);
+            const declaredPermissions = definition.manifest.permissions;
+            if (
+                installation.grantedPermissions.length !== declaredPermissions.length
+                || declaredPermissions.some((permission) => !installation.grantedPermissions.includes(permission))
+            ) {
+                throw new PluginRegistryError(
+                    'permission_not_granted',
+                    `Plugin ${pluginId} must review and grant its current permission set`,
+                );
+            }
             for (const permission of requiredPermissions) {
-                if (!definition.manifest.permissions.includes(permission)) {
+                if (!declaredPermissions.includes(permission)) {
                     throw new PluginRegistryError(
                         'permission_not_declared',
                         `Plugin ${pluginId} did not declare permission ${permission}`,

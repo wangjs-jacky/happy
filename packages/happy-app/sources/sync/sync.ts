@@ -322,12 +322,12 @@ class Sync {
     }
 
     private fetchPluginCatalog = async () => {
-        this.pluginCatalogStore.beginRefresh();
+        const accountGeneration = this.pluginCatalogStore.beginRefresh();
         try {
             const catalog = await getPluginCatalog();
-            this.pluginCatalogStore.resolve(catalog.plugins);
+            this.pluginCatalogStore.resolve(catalog.plugins, accountGeneration);
         } catch (error) {
-            this.pluginCatalogStore.reject();
+            this.pluginCatalogStore.reject(accountGeneration);
             throw error;
         }
     }
@@ -2253,6 +2253,7 @@ class Sync {
             this.friendsSync.invalidate();
             this.friendRequestsSync.invalidate();
             this.feedSync.invalidate();
+            this.pluginCatalogSync.invalidate();
             // Messages are fetched lazily per-session via onSessionVisible (called by SessionView
             // when realtimeStatus changes). Session metadata + agentState (including permission
             // requests) are already refreshed by sessionsSync.invalidate() above.

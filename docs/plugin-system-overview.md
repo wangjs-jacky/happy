@@ -151,7 +151,7 @@ flowchart TB
 5. 更新配置时，空的 secret 字段会沿用已有密钥；首次安装仍必须提供必填 secret；
 6. Server 加密整个 `{ version, grantedPermissions, configuration }` 后写入账号安装记录；
 7. App 刷新账号级目录；只有“已安装、版本匹配且授权集合等于当前 Manifest”的 contribution 才会被 Client Host 解析；
-8. 业务请求到来时，Server 通过一次 `openRuntime` 读取和解密安装记录，同时检查安装、版本、权限声明和账号授权，再返回短生命周期配置上下文。
+8. 业务请求到来时，Server 通过一次 `openRuntime` 读取和解密安装记录；它先要求已保存 grant 快照与当前 Manifest 完全一致，再检查本次调用请求的能力是否已声明，最后返回短生命周期配置上下文。即使部分 grant 已包含本次调用所需权限，整个插件仍处于 `REVIEW_REQUIRED`，任何 Runtime 能力都不能执行。
 
 安装**不会**：
 
@@ -252,9 +252,9 @@ Manifest 只声明稳定的 View ID 和 surface。Paws App 的 [`pluginClientAda
 |---|---|---|---|
 | P0 | `0.2.0` 没有正式 Release，Paws 固定在 PR head | 已发布并回验 `v0.2.0` 全部资产；App / Server 固定到 Release 源提交 `eb24f765…` |
 | P1 | “动态插件”容易被理解为动态下载代码 | 市场文案和安装页明确说明“当前 Paws 版本内置的可信代码；安装只按账号启用” |
-| P1 | 权限只有 Manifest 声明，没有账号级授权快照 | 安装前展示全部权限；加密持久化 grant；Server Broker 与 Client Host 都检查声明和授权；旧记录以空 grant 安全迁移并要求用户更新 |
+| P1 | 权限只有 Manifest 声明，没有账号级授权快照 | 安装前展示全部权限；加密持久化 grant；Server Broker 与 Client Host 都要求 grant 快照与 Manifest 完全一致；旧记录或部分授权记录进入明确的“需要重新确认”状态，所有贡献点与 Runtime 能力 fail closed |
 | P1 | Runtime 多次读取、解密同一安装记录 | Registry 提供深 Interface `openRuntime(accountId, pluginId, requirements)`；狗头军师一次打开完整 capability context 后才解析图片和调用提供商 |
-| P1 | 多个 `usePlugins()` 消费者重复 refresh | 账号级 `PluginCatalogStore` 统一拥有 `idle/loading/ready/error` snapshot；切换账号先清空旧目录，消费者只订阅，显式操作才 refresh |
+| P1 | 多个 `usePlugins()` 消费者重复 refresh | 账号级 `PluginCatalogStore` 统一拥有 `idle/loading/ready/error` snapshot；切换账号通过 generation 丢弃旧账号的在途响应，Socket 重连重新拉取目录；消费者只订阅，显式操作才 refresh |
 
 ### 10.3 后续问题与建议
 

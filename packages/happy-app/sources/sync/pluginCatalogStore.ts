@@ -17,6 +17,7 @@ export class PluginCatalogStore {
         revision: 0,
     };
     private readonly listeners = new Set<() => void>();
+    private accountGeneration = 0;
 
     getSnapshot = (): PluginCatalogSnapshot => this.snapshot;
 
@@ -26,18 +27,23 @@ export class PluginCatalogStore {
     };
 
     beginAccount(): void {
+        this.accountGeneration += 1;
         this.publish('loading', EMPTY_PLUGIN_CATALOG);
     }
 
-    beginRefresh(): void {
+    beginRefresh(): number {
+        const generation = this.accountGeneration;
         this.publish('loading', this.snapshot.plugins);
+        return generation;
     }
 
-    resolve(plugins: readonly PluginCatalogItem[]): void {
+    resolve(plugins: readonly PluginCatalogItem[], generation = this.accountGeneration): void {
+        if (generation !== this.accountGeneration) return;
         this.publish('ready', [...plugins]);
     }
 
-    reject(): void {
+    reject(generation = this.accountGeneration): void {
+        if (generation !== this.accountGeneration) return;
         this.publish('error', this.snapshot.plugins);
     }
 

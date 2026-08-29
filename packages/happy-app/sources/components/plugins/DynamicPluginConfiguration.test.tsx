@@ -284,8 +284,12 @@ describe('DynamicPluginConfiguration', () => {
         });
 
         expect(renderer.root.findAllByProps({ testID: 'server-plugin-plugin-open' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'server-plugin-plugin-status' }).props).toMatchObject({
+            title: 'relationshipAdvisorPlugin.reviewRequired',
+            subtitle: 'relationshipAdvisorPlugin.reviewRequiredSubtitle',
+        });
         expect(renderer.root.findByProps({ testID: 'server-plugin-plugin-install' }).props.title)
-            .toBe('relationshipAdvisorPlugin.update');
+            .toBe('relationshipAdvisorPlugin.reviewAndUpdate');
         act(() => renderer.unmount());
     });
 });

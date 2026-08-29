@@ -48,4 +48,24 @@ describe('PluginCatalogStore', () => {
         expect(ready.status).toBe('ready');
         expect(ready.revision).toBe(initial.revision + 1);
     });
+
+    it('ignores a catalog response that started before the active account changed', () => {
+        const store = new PluginCatalogStore();
+        const staleAccount = store.beginRefresh();
+
+        store.beginAccount();
+        store.resolve([plugin('stale-account-plugin')], staleAccount);
+
+        expect(store.getSnapshot()).toMatchObject({
+            status: 'loading',
+            plugins: [],
+        });
+
+        const activeAccount = store.beginRefresh();
+        store.resolve([plugin('active-account-plugin')], activeAccount);
+        expect(store.getSnapshot()).toMatchObject({
+            status: 'ready',
+            plugins: [expect.objectContaining({ manifest: expect.objectContaining({ id: 'active-account-plugin' }) })],
+        });
+    });
 });

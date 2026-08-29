@@ -174,7 +174,7 @@ const configuration = await pluginRegistry.openRuntime(
 );
 ```
 
-`openRuntime` 只读取和解密一次安装记录，在同一个 Interface 内检查安装、版本、声明、授权，并返回经过插件 normalization 的配置。再由插件自己的 Runtime Adapter 用更具体的 Zod schema 解析成业务类型。需要图片等附加能力时，应在打开上下文前一次性构造完整 requirements，不能先解析资源再补权限检查。该 Adapter 提供 Locality：插件 ID、业务配置类型和外部服务调用保持在同一业务 Module 附近；加密和生命周期仍封装在 registry 后面。
+`openRuntime` 只读取和解密一次安装记录，在同一个 Interface 内检查安装、版本、声明、授权，并返回经过插件 normalization 的配置。门禁先要求安装记录的完整 grant 快照与当前 Manifest 完全一致，再检查调用方传入的 requirements；不能因为某个部分授权记录恰好包含本次所需权限就执行能力。再由插件自己的 Runtime Adapter 用更具体的 Zod schema 解析成业务类型。需要图片等附加能力时，应在打开上下文前一次性构造完整 requirements，不能先解析资源再补权限检查。该 Adapter 提供 Locality：插件 ID、业务配置类型和外部服务调用保持在同一业务 Module 附近；加密和生命周期仍封装在 registry 后面。
 
 运行时不得：
 
@@ -192,7 +192,7 @@ const configuration = await pluginRegistry.openRuntime(
 3. **需要重新审阅**：版本过期、Manifest 权限变化，或旧记录没有授权快照；市场显示更新，Client Host 撤销贡献，运行时 fail closed，直到用户以当前 version 和完整权限集合完成 `PUT`。
 4. **卸载**：`DELETE` 删除该账号的加密安装记录；重复卸载是幂等操作。
 
-客户端 Slot Registry 只从“已安装且为当前版本”的目录状态派生贡献，不额外持久化 UI 注册表。因此安装或更新后的 refresh 会挂载贡献，卸载或版本过期后的 refresh 会产生等价于 reversible effect 的统一撤销。
+客户端 Slot Registry 只从“已安装、为当前版本且 grant 快照完整”的目录状态派生贡献，不额外持久化 UI 注册表。因此安装或更新后的 refresh 会挂载贡献，卸载、版本过期或授权变化后的 refresh 会产生等价于 reversible effect 的统一撤销。账号切换会递增目录 generation，旧账号的在途响应不能覆盖新账号快照；Socket 重连也会重新获取目录，以收敛其他设备上的安装和卸载变化。
 
 通用 API：
 

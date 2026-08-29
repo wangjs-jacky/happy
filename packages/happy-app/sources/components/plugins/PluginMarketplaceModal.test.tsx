@@ -273,7 +273,10 @@ describe('PluginMarketplaceModal', () => {
             testID: 'plugin-marketplace-plugin-generated-images-gallery',
         });
         expect(row.findAllByType('Text').at(-1).props.children)
-            .toBe('relationshipAdvisorPlugin.update');
+            .toBe('relationshipAdvisorPlugin.reviewAndUpdate');
+        expect(renderer.root.findAllByProps({
+            testID: 'plugin-marketplace-installed-generated-images-gallery',
+        })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 });
