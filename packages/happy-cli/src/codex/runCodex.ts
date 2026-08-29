@@ -1072,6 +1072,7 @@ export async function runCodex(opts: {
                 threadId: opts.resumeThreadId,
                 cwd: process.cwd(),
                 mcpServers,
+                replayHistory: !reconnectSessionId,
             });
             if (!opts.model) {
                 baselineModel = resumedThread.model;

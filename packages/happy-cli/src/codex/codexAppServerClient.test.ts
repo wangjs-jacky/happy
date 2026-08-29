@@ -922,6 +922,18 @@ describe('CodexAppServerClient sandbox integration', () => {
                             },
                         });
                         pushJsonLine(stdout, {
+                            method: 'item/completed',
+                            params: {
+                                threadId: 'thread-raw-1',
+                                turnId: 'turn-raw-1',
+                                item: {
+                                    type: 'userMessage',
+                                    id: 'user-local-1',
+                                    content: [{ type: 'text', text: 'run pwd' }],
+                                },
+                            },
+                        });
+                        pushJsonLine(stdout, {
                             method: 'item/started',
                             params: {
                                 threadId: 'thread-raw-1',
@@ -1007,6 +1019,77 @@ describe('CodexAppServerClient sandbox integration', () => {
             expect.objectContaining({ type: 'agent_message', message: 'done' }),
         ]));
         expect(events.filter((event) => event.type === 'task_complete')).toHaveLength(1);
+        expect(events.filter((event) => event.type === 'user_message')).toHaveLength(0);
+
+        await client.disconnect();
+    });
+
+    it('mirrors a root user item submitted by another shared app-server client', async () => {
+        const proc = createMockProcess({
+            pid: 3002,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-shared-1', path: '/tmp/thread-shared-1' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => events.push(msg as Record<string, unknown>));
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        pushJsonLine(proc.stdout, {
+            method: 'turn/started',
+            params: {
+                threadId: 'thread-shared-1',
+                turn: { id: 'turn-desktop-1', items: [], status: 'inProgress', error: null },
+            },
+        });
+        pushJsonLine(proc.stdout, {
+            method: 'item/completed',
+            params: {
+                threadId: 'thread-shared-1',
+                turnId: 'turn-desktop-1',
+                item: {
+                    type: 'userMessage',
+                    id: 'user-desktop-1',
+                    content: [{ type: 'text', text: 'Continue from Codex Desktop.' }],
+                },
+            },
+        });
+
+        await waitFor(() => events.some((event) => event.type === 'user_message'));
+        expect(events).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                type: 'user_message',
+                item_id: 'user-desktop-1',
+                turn_id: 'turn-desktop-1',
+                content: [{ type: 'text', text: 'Continue from Codex Desktop.' }],
+            }),
+        ]));
 
         await client.disconnect();
     });

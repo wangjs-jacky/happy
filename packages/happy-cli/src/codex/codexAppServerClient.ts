@@ -490,6 +490,22 @@ export class CodexAppServerClient {
 
         const eventScope = this.childEventScope(params);
 
+        if (method === 'item/completed' && item.type === 'userMessage') {
+            // A turn submitted through this Bridge already exists in Paws as the
+            // incoming user message. Only mirror user items created by another
+            // client of the shared app-server (for example Codex Desktop).
+            if (!this.isRootThreadNotification(params) || this.pendingTurnCompletion) {
+                return true;
+            }
+            this.eventHandler?.({
+                type: 'user_message',
+                content: item.content,
+                item_id: item.id,
+                turn_id: this.extractTurnId(params),
+            });
+            return true;
+        }
+
         if (method === 'item/completed' && item.type === 'subAgentActivity') {
             const kind = item.kind;
             const agentThreadId = typeof item.agentThreadId === 'string'

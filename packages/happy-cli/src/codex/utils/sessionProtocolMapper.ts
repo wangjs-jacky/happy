@@ -732,6 +732,31 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
         subagent,
     );
 
+    if (type === 'user_message') {
+        const text = textFromInputItems(message.content);
+        if (!text || subagent) {
+            return {
+                currentTurnId: state.currentTurnId,
+                startedSubagents,
+                activeSubagents,
+                providerSubagentToSessionSubagent,
+                envelopes: [],
+            };
+        }
+
+        const itemId = typeof message.item_id === 'string' ? message.item_id : undefined;
+        return {
+            currentTurnId: state.currentTurnId,
+            startedSubagents,
+            activeSubagents,
+            providerSubagentToSessionSubagent,
+            envelopes: [createEnvelope('user', { t: 'text', text }, {
+                ...opts,
+                ...(itemId ? { id: itemId, codexItemId: itemId } : {}),
+            })],
+        };
+    }
+
     if (type === 'agent_message') {
         if (typeof message.message !== 'string') {
             return {

@@ -10,11 +10,25 @@ describe('resumeExistingThread', () => {
                 model: 'gpt-5.4',
                 reasoningEffort: 'xhigh',
             }),
+            readThread: vi.fn().mockResolvedValue({
+                thread: {
+                    turns: [{
+                        id: 'turn-1',
+                        status: 'completed',
+                        items: [{
+                            type: 'userMessage',
+                            id: 'item-1',
+                            content: [{ type: 'text', text: 'Existing desktop message' }],
+                        }],
+                    }],
+                },
+            }),
         };
         const metadataHandlers: Array<(metadata: any) => any> = [];
         const session = {
             updateMetadata: vi.fn((handler) => metadataHandlers.push(handler)),
             sendSessionEvent: vi.fn(),
+            sendSessionProtocolMessage: vi.fn(),
         };
         const messageBuffer = {
             addMessage: vi.fn(),
@@ -44,6 +58,17 @@ describe('resumeExistingThread', () => {
             existing: true,
             codexThreadId: '019ccca2-1a77-7481-9873-de72f3464372',
         });
+        expect(client.readThread).toHaveBeenCalledWith({
+            threadId: '019ccca2-1a77-7481-9873-de72f3464372',
+            includeTurns: true,
+        });
+        expect(session.sendSessionProtocolMessage).toHaveBeenCalledWith(expect.objectContaining({
+            role: 'user',
+            ev: expect.objectContaining({
+                t: 'text',
+                text: 'Existing desktop message',
+            }),
+        }));
         expect(messageBuffer.addMessage).toHaveBeenCalledWith(expect.stringContaining('Resumed thread'), 'status');
         expect(session.sendSessionEvent).toHaveBeenCalledWith({
             type: 'message',
@@ -54,10 +79,12 @@ describe('resumeExistingThread', () => {
     it('wraps backend resume errors with the thread ID', async () => {
         const client = {
             resumeThread: vi.fn().mockRejectedValue(new Error('thread not found')),
+            readThread: vi.fn(),
         };
         const session = {
             updateMetadata: vi.fn(),
             sendSessionEvent: vi.fn(),
+            sendSessionProtocolMessage: vi.fn(),
         };
         const messageBuffer = {
             addMessage: vi.fn(),
@@ -73,5 +100,34 @@ describe('resumeExistingThread', () => {
                 mcpServers: {},
             }),
         ).rejects.toThrow('Failed to resume Codex thread thread-404: thread not found');
+    });
+
+    it('does not replay history when reconnecting the same Paws session', async () => {
+        const client = {
+            resumeThread: vi.fn().mockResolvedValue({
+                threadId: 'thread-reconnect-1',
+                model: 'gpt-5.6-sol',
+                reasoningEffort: 'high',
+            }),
+            readThread: vi.fn(),
+        };
+        const session = {
+            updateMetadata: vi.fn(),
+            sendSessionEvent: vi.fn(),
+            sendSessionProtocolMessage: vi.fn(),
+        };
+
+        await resumeExistingThread({
+            client,
+            session,
+            messageBuffer: { addMessage: vi.fn() },
+            threadId: 'thread-reconnect-1',
+            cwd: '/tmp/project',
+            mcpServers: {},
+            replayHistory: false,
+        });
+
+        expect(client.readThread).not.toHaveBeenCalled();
+        expect(session.sendSessionProtocolMessage).not.toHaveBeenCalled();
     });
 });

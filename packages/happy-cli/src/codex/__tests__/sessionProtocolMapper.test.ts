@@ -13,6 +13,24 @@ import {
 } from '../codexPrompt';
 
 describe('mapCodexMcpMessageToSessionEnvelopes', () => {
+    it('maps a Codex Desktop user item into a root user envelope', () => {
+        const result = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'user_message',
+            item_id: 'user-desktop-1',
+            content: [{ type: 'text', text: 'Continue from Codex Desktop.' }],
+        }, { currentTurnId: 'turn-desktop-1' });
+
+        expect(result.envelopes).toEqual([
+            expect.objectContaining({
+                id: 'user-desktop-1',
+                codexItemId: 'user-desktop-1',
+                role: 'user',
+                turn: 'turn-desktop-1',
+                ev: { t: 'text', text: 'Continue from Codex Desktop.' },
+            }),
+        ]);
+    });
+
     it('starts and ends turns for task lifecycle events', () => {
         const started = mapCodexMcpMessageToSessionEnvelopes({ type: 'task_started' }, { currentTurnId: null });
 
