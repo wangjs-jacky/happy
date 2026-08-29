@@ -121,7 +121,9 @@ describe('MermaidRenderer', () => {
     it('uses the themed pressed surface while a toolbar button is hovered', async () => {
         await act(async () => {
             renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
-                createNodeMock: (element: { type: string }) => element.type === 'div' ? {} : {},
+                createNodeMock: (element: { type: string }) => element.type === 'div'
+                    ? { querySelector: () => null }
+                    : {},
             });
         });
 
