@@ -317,7 +317,7 @@ test('[LIVE-EGO-DOUYIN-PANEL] Ego Lite 真实抖音步骤经附件上报后实�
     // A real logged-in browser must load a remote page and produce three PNGs.
     // Keep this opt-in acceptance case independent from the Web suite's 60s
     // default, especially when HAPPY_E2E_RECORD adds review pauses.
-    test.setTimeout(180_000);
+    test.setTimeout(process.env.HAPPY_E2E_RECORD === '1' ? 360_000 : 180_000);
     test.skip(!liveEgoAcceptance, '仅在维护者显式设置 HAPPY_EGO_LIVE_E2E=1 且本机已登录抖音时运行。');
 
     const sessionId = await createE2ESession(request);
@@ -414,8 +414,11 @@ cliLog(JSON.stringify({ taskSpaceId: ${taskSpaceId}, screenshotPath, ...extracte
         await page.screenshot({ path: evidencePath(testInfo, 'live-ego-douyin-history.png') });
     } finally {
         if (taskSpaceId !== null) closeEgoTaskSpace(taskSpaceId);
-        // The fixture owns this page and closes its context after the test.
-        // Explicit close can wait on the panel's live attachment requests while
-        // recording is finalised, despite all acceptance assertions succeeding.
+        // Stop the panel's live attachment requests before Playwright finalises
+        // the recording. The fixture remains responsible for closing the page
+        // so video and trace artifacts are finalised in Playwright's normal order.
+        if (!page.isClosed()) {
+            await page.goto('about:blank', { waitUntil: 'commit' });
+        }
     }
 });
