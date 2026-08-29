@@ -1343,6 +1343,7 @@ export const it: TranslationStructure = {
         codexUsageEvents: 'Eventi',
         codexUsageSessions: 'Sessioni',
         codexUsageRateLimits: 'Limiti di frequenza',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% utilizzato · ${remaining}% rimanente · Si reimposta ${resetAt}`,
         codexUsageScannedAt: 'Scansionato il',
         codexUsageNoData: 'Nessun dato locale di utilizzo Codex trovato',
         codexUsageWaitingForDaemon: 'In attesa del report di utilizzo del daemon',

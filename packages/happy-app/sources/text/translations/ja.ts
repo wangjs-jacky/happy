@@ -1346,6 +1346,7 @@ export const ja: TranslationStructure = {
         codexUsageEvents: 'イベント',
         codexUsageSessions: 'セッション',
         codexUsageRateLimits: 'レート制限',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: 使用済み ${used}% · 残り ${remaining}% · ${resetAt} にリセット`,
         codexUsageScannedAt: 'スキャン時刻',
         codexUsageNoData: 'ローカルの Codex 使用量データが見つかりません',
         codexUsageWaitingForDaemon: 'デーモンからの使用量レポートを待機中',

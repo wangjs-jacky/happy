@@ -1924,6 +1924,7 @@ export const zhHans: TranslationStructure = {
         codexUsageEvents: '事件',
         codexUsageSessions: '会话',
         codexUsageRateLimits: '限流状态',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}：已用 ${used}% · 剩余 ${remaining}% · ${resetAt} 重置`,
         codexUsageScannedAt: '扫描时间',
         codexUsageNoData: '没有找到本机 Codex 用量数据',
         codexUsageWaitingForDaemon: '等待守护进程上报本机 Codex 用量',

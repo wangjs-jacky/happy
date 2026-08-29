@@ -1454,6 +1454,7 @@ export const zhHant: TranslationStructure = {
         codexUsageEvents: '事件',
         codexUsageSessions: '會話',
         codexUsageRateLimits: '限流狀態',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}：已用 ${used}% · 剩餘 ${remaining}% · ${resetAt} 重設`,
         codexUsageScannedAt: '掃描時間',
         codexUsageNoData: '沒有找到本機 Codex 用量資料',
         codexUsageWaitingForDaemon: '等待守護進程上報本機 Codex 用量',

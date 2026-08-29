@@ -11,8 +11,75 @@ import { getUsageForPeriod, calculateTotals, UsageDataPoint } from '@/sync/apiUs
 import { Ionicons } from '@expo/vector-icons';
 import { HappyError } from '@/utils/errors';
 import { t } from '@/text';
+import { useAllMachines } from '@/sync/storage';
 
 type TimePeriod = 'today' | '7days' | '30days';
+
+interface CodexRateLimitWindow {
+    usedPercent?: number;
+    windowMinutes?: number;
+    resetsAt?: number;
+}
+
+interface CodexUsageSnapshot {
+    source: 'codex-session-jsonl';
+    scannedAt: number;
+    latestEvent?: {
+        rateLimits?: {
+            planType?: string;
+            primary?: CodexRateLimitWindow;
+            secondary?: CodexRateLimitWindow;
+        };
+    } | null;
+}
+
+function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null {
+    if (!daemonState || typeof daemonState !== 'object') {
+        return null;
+    }
+    const snapshot = (daemonState as { codexUsage?: unknown }).codexUsage;
+    if (!snapshot || typeof snapshot !== 'object') {
+        return null;
+    }
+    const candidate = snapshot as Partial<CodexUsageSnapshot>;
+    if (candidate.source !== 'codex-session-jsonl' || typeof candidate.scannedAt !== 'number') {
+        return null;
+    }
+    return candidate as CodexUsageSnapshot;
+}
+
+function getLatestCodexUsageSnapshot(machines: Array<{ daemonState: unknown }>): CodexUsageSnapshot | null {
+    return machines.reduce<CodexUsageSnapshot | null>((latest, machine) => {
+        const snapshot = getCodexUsageSnapshot(machine.daemonState);
+        if (!snapshot || (latest && latest.scannedAt >= snapshot.scannedAt)) {
+            return latest;
+        }
+        return snapshot;
+    }, null);
+}
+
+function formatRateLimitPeriod(windowMinutes: number | undefined): string {
+    if (typeof windowMinutes !== 'number') return '?';
+    if (windowMinutes % 1440 === 0) return `${windowMinutes / 1440}d`;
+    if (windowMinutes >= 60) return `${windowMinutes / 60}h`;
+    return `${windowMinutes}m`;
+}
+
+function formatCodexRateLimitWindow(window: CodexRateLimitWindow | undefined): string | null {
+    if (!window || typeof window.usedPercent !== 'number') {
+        return null;
+    }
+    const used = Math.max(0, Math.min(100, window.usedPercent));
+    const resetAt = typeof window.resetsAt === 'number'
+        ? new Date(window.resetsAt * 1000).toLocaleString()
+        : t('common.unknown');
+    return t('machine.codexUsageRateLimitWindow', {
+        period: formatRateLimitPeriod(window.windowMinutes),
+        used,
+        remaining: 100 - used,
+        resetAt,
+    });
+}
 
 const styles = StyleSheet.create((theme) => ({
     container: {
@@ -129,6 +196,7 @@ const styles = StyleSheet.create((theme) => ({
 export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const { theme } = useUnistyles();
     const auth = useAuth();
+    const machines = useAllMachines({ includeOffline: true });
     const [period, setPeriod] = useState<TimePeriod>('7days');
     const [chartMetric, setChartMetric] = useState<'tokens' | 'cost'>('tokens');
     const [loading, setLoading] = useState(true);
@@ -140,6 +208,15 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         tokensByModel: {} as Record<string, number>,
         costByModel: {} as Record<string, number>
     });
+    const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
+    const codexRateLimitLines = React.useMemo(() => {
+        const rateLimits = codexUsage?.latestEvent?.rateLimits;
+        if (!rateLimits) return [];
+        return [
+            formatCodexRateLimitWindow(rateLimits.primary),
+            formatCodexRateLimitWindow(rateLimits.secondary),
+        ].filter((line): line is string => !!line);
+    }, [codexUsage]);
     
     useEffect(() => {
         let cancelled = false;
@@ -262,6 +339,31 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                     <Text style={styles.statValue}>{formatCost(totals.totalCost)}</Text>
                 </View>
             </View>
+
+            <ItemGroup title={t('machine.codexUsage')}>
+                {!codexUsage ? (
+                    <Item
+                        title={t('machine.status')}
+                        subtitle={t('machine.codexUsageWaitingForDaemon')}
+                        showChevron={false}
+                    />
+                ) : (
+                    <>
+                        <Item
+                            title={t('machine.codexUsageRateLimits')}
+                            detail={codexUsage.latestEvent?.rateLimits?.planType?.toUpperCase()}
+                            subtitle={codexRateLimitLines.join('\n') || t('machine.codexUsageNoData')}
+                            subtitleLines={0}
+                            showChevron={false}
+                        />
+                        <Item
+                            title={t('machine.codexUsageScannedAt')}
+                            subtitle={new Date(codexUsage.scannedAt).toLocaleString()}
+                            showChevron={false}
+                        />
+                    </>
+                )}
+            </ItemGroup>
 
             {usageData.length === 0 && (
                 <View style={styles.emptyContainer} accessibilityLiveRegion="polite">

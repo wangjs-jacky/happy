@@ -2005,6 +2005,7 @@ export const en = {
         codexUsageEvents: 'Events',
         codexUsageSessions: 'Sessions',
         codexUsageRateLimits: 'Rate Limits',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% used · ${remaining}% remaining · Resets ${resetAt}`,
         codexUsageScannedAt: 'Scanned At',
         codexUsageNoData: 'No local Codex usage data found',
         codexUsageWaitingForDaemon: 'Waiting for daemon usage report',

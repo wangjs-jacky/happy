@@ -1349,6 +1349,7 @@ export const ru: TranslationStructure = {
         codexUsageEvents: 'События',
         codexUsageSessions: 'Сессии',
         codexUsageRateLimits: 'Лимиты частоты',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: использовано ${used}% · осталось ${remaining}% · Сброс ${resetAt}`,
         codexUsageScannedAt: 'Просканировано',
         codexUsageNoData: 'Локальные данные использования Codex не найдены',
         codexUsageWaitingForDaemon: 'Ожидание отчета об использовании от демона',

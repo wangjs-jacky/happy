@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     calculateTotals: vi.fn(),
     credentials: { token: 'test' } as { token: string } | null,
     getUsageForPeriod: vi.fn(),
+    machines: [] as Array<{ daemonState: unknown }>,
 }));
 
 vi.mock('react-native', () => ({
@@ -44,6 +45,9 @@ vi.mock('react-native-unistyles', () => {
 vi.mock('@/auth/AuthContext', () => ({
     useAuth: () => ({ credentials: mocks.credentials }),
 }));
+vi.mock('@/sync/storage', () => ({
+    useAllMachines: () => mocks.machines,
+}));
 vi.mock('@/sync/apiUsage', () => ({
     getUsageForPeriod: mocks.getUsageForPeriod,
     calculateTotals: mocks.calculateTotals,
@@ -51,8 +55,13 @@ vi.mock('@/sync/apiUsage', () => ({
 vi.mock('./UsageChart', () => ({ UsageChart: 'UsageChart' }));
 vi.mock('./UsageBar', () => ({ UsageBar: 'UsageBar' }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: 'ItemGroup' }));
+vi.mock('@/components/Item', () => ({ Item: 'Item' }));
 vi.mock('@/utils/errors', () => ({ HappyError: class HappyError extends Error {} }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/text', () => ({
+    t: (key: string, values?: Record<string, unknown>) => values
+        ? `${key}:${JSON.stringify(values)}`
+        : key,
+}));
 
 const emptyTotals = {
     totalTokens: 0,
@@ -83,6 +92,7 @@ describe('UsagePanel', () => {
 
     beforeEach(() => {
         mocks.credentials = { token: 'test' };
+        mocks.machines = [];
         mocks.getUsageForPeriod.mockReset();
         mocks.calculateTotals.mockReset();
         mocks.calculateTotals.mockReturnValue(emptyTotals);
@@ -162,6 +172,58 @@ describe('UsagePanel', () => {
 
         expect(texts).toContain('Not authenticated');
         expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+
+        act(() => renderer.unmount());
+    });
+
+    it('shows the freshest Codex rate limit with remaining allowance and reset time', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 100,
+                        latestEvent: {
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: {
+                                    usedPercent: 83,
+                                    windowMinutes: 10080,
+                                    resetsAt: 1_788_452_692,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 200,
+                        latestEvent: {
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: {
+                                    usedPercent: 49,
+                                    windowMinutes: 10080,
+                                    resetsAt: 1_788_452_692,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const renderer = await renderUsagePanel();
+        const rateLimitItem = renderer.root.findAllByType('Item')
+            .find((node: any) => node.props.title === 'machine.codexUsageRateLimits');
+
+        expect(rateLimitItem?.props.subtitle).toContain('"used":49');
+        expect(rateLimitItem?.props.subtitle).toContain('"remaining":51');
+        expect(rateLimitItem?.props.subtitle).toContain('"period":"7d"');
 
         act(() => renderer.unmount());
     });

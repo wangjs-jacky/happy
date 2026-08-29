@@ -1345,6 +1345,7 @@ export const ca: TranslationStructure = {
         codexUsageEvents: 'Esdeveniments',
         codexUsageSessions: 'Sessions',
         codexUsageRateLimits: 'Límits de ritme',
+        codexUsageRateLimitWindow: ({ period, used, remaining, resetAt }: { period: string; used: number; remaining: number; resetAt: string }) => `${period}: ${used}% utilitzat · ${remaining}% restant · Es restableix ${resetAt}`,
         codexUsageScannedAt: 'Escanejat a',
         codexUsageNoData: 'No s\'han trobat dades locals d\'ús de Codex',
         codexUsageWaitingForDaemon: 'Esperant l\'informe d\'ús del daemon',
