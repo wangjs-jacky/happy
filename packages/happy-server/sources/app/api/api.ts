@@ -26,6 +26,7 @@ import { attachmentRoutes } from "./routes/attachmentRoutes";
 import { fileRoutes } from "./routes/fileRoutes";
 import { relationshipAdvisorRoutes } from "./routes/relationshipAdvisorRoutes";
 import { pluginRoutes } from "@/app/api/routes/pluginRoutes";
+import { publicSessionShareRoutes } from "./routes/publicSessionShareRoutes";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -99,6 +100,7 @@ export async function startApi(opts: StartApiOptions = {}) {
     attachmentRoutes(typed);
     relationshipAdvisorRoutes(typed);
     pluginRoutes(typed);
+    publicSessionShareRoutes(typed);
 
     // Static webapp (self-host mode)
     if (opts.staticDir) {
