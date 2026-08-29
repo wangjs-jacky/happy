@@ -258,6 +258,60 @@ describe('UsagePanel', () => {
         act(() => renderer.unmount());
     });
 
+    it('renders a 14-day Codex activity heatmap with empty days included', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: Date.UTC(2026, 7, 30, 12),
+                    days: [
+                        {
+                            date: '2026-08-18',
+                            inputTokens: 100,
+                            cachedInputTokens: 0,
+                            outputTokens: 20,
+                            reasoningOutputTokens: 5,
+                            totalTokens: 120,
+                            tokenCountEvents: 1,
+                            sessions: 1,
+                            totalOnlyTokens: 0,
+                        },
+                        {
+                            date: '2026-08-30',
+                            inputTokens: 500,
+                            cachedInputTokens: 0,
+                            outputTokens: 80,
+                            reasoningOutputTokens: 40,
+                            totalTokens: 580,
+                            tokenCountEvents: 2,
+                            sessions: 2,
+                            totalOnlyTokens: 0,
+                        },
+                    ],
+                    latestEvent: {
+                        rateLimits: {
+                            primary: { usedPercent: 49, windowMinutes: 10080 },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const cells = renderer.root.findAll((node: any) => (
+            typeof node.props.testID === 'string' && node.props.testID.startsWith('codex-usage-day-')
+        ));
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(cells).toHaveLength(14);
+        expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-18')).toBe(true);
+        expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-19')).toBe(true);
+        expect(texts.some((text: string) => text.startsWith('machine.codexUsageHeatmapDay:'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
     it('ignores an older request that resolves after the latest session request', async () => {
         let resolveFirst!: (value: { usage: unknown[] }) => void;
         let resolveSecond!: (value: { usage: unknown[] }) => void;

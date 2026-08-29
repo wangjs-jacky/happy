@@ -23,6 +23,8 @@ interface CodexRateLimitWindow {
 interface CodexUsageSnapshot {
     source: 'codex-session-jsonl';
     scannedAt: number;
+    timeZone?: string;
+    days?: CodexUsageDay[];
     latestEvent?: {
         rateLimits?: {
             planType?: string;
@@ -31,6 +33,20 @@ interface CodexUsageSnapshot {
         };
     } | null;
 }
+
+interface CodexUsageDay {
+    date: string;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+    totalTokens: number;
+    tokenCountEvents: number;
+    sessions: number;
+    totalOnlyTokens: number;
+}
+
+const CODEX_HEATMAP_DAYS = 14;
 
 function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null {
     if (!daemonState || typeof daemonState !== 'object') {
@@ -55,6 +71,44 @@ function getLatestCodexUsageSnapshot(machines: Array<{ daemonState: unknown }>):
         }
         return snapshot;
     }, null);
+}
+
+function dateKeyForTimeZone(timestamp: number, timeZone?: string): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp)).reduce<Record<string, string>>((result, part) => {
+        result[part.type] = part.value;
+        return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getCodexHeatmapDays(snapshot: CodexUsageSnapshot | null): CodexUsageDay[] {
+    if (!snapshot?.days?.length) {
+        return [];
+    }
+    const daysByDate = new Map(snapshot.days.map((day) => [day.date, day]));
+    const endDate = new Date(`${dateKeyForTimeZone(snapshot.scannedAt, snapshot.timeZone)}T00:00:00.000Z`);
+
+    return Array.from({ length: CODEX_HEATMAP_DAYS }, (_, index) => {
+        const day = new Date(endDate);
+        day.setUTCDate(day.getUTCDate() - (CODEX_HEATMAP_DAYS - index - 1));
+        const date = day.toISOString().slice(0, 10);
+        return daysByDate.get(date) || {
+            date,
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 0,
+            tokenCountEvents: 0,
+            sessions: 0,
+            totalOnlyTokens: 0,
+        };
+    });
 }
 
 function formatRateLimitPeriod(windowMinutes: number | undefined): string {
@@ -187,6 +241,49 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         fontSize: 13,
     },
+    heatmapSection: {
+        gap: 12,
+        marginHorizontal: 16,
+        marginTop: 24,
+    },
+    heatmapHeader: {
+        alignItems: 'baseline',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    heatmapTitle: {
+        color: theme.colors.text,
+        fontSize: 17,
+        fontWeight: '600',
+    },
+    heatmapLegend: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+    },
+    heatmapGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 5,
+    },
+    heatmapCell: {
+        aspectRatio: 1,
+        borderRadius: 4,
+        width: '12.5%',
+    },
+    heatmapCellInactive: {
+        backgroundColor: theme.colors.surfaceHigh,
+    },
+    heatmapCellActive: {
+        backgroundColor: theme.colors.accent,
+    },
+    heatmapCellSelected: {
+        borderColor: theme.colors.text,
+        borderWidth: 1,
+    },
+    heatmapSelection: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+    },
     statRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -279,6 +376,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         tokensByModel: {} as Record<string, number>,
         costByModel: {} as Record<string, number>
     });
+    const [selectedCodexUsageDate, setSelectedCodexUsageDate] = useState<string | null>(null);
     const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
     const codexRateLimits = React.useMemo(() => {
         const rateLimits = codexUsage?.latestEvent?.rateLimits;
@@ -289,6 +387,14 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         ].filter((limit): limit is CodexRateLimitSummary => !!limit);
     }, [codexUsage]);
     const primaryCodexRateLimit = codexRateLimits[0];
+    const codexHeatmapDays = React.useMemo(() => getCodexHeatmapDays(codexUsage), [codexUsage]);
+    const maxCodexHeatmapTokens = React.useMemo(
+        () => Math.max(...codexHeatmapDays.map((day) => day.totalTokens), 1),
+        [codexHeatmapDays],
+    );
+    const selectedCodexUsageDay = codexHeatmapDays.find((day) => day.date === selectedCodexUsageDate)
+        || [...codexHeatmapDays].reverse().find((day) => day.totalTokens > 0)
+        || codexHeatmapDays.at(-1);
     const hasApiUsage = usageData.length > 0;
     
     useEffect(() => {
@@ -421,6 +527,53 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                     </Text>
                 )}
             </View>
+
+            {codexHeatmapDays.length > 0 && (
+                <View style={styles.heatmapSection}>
+                    <View style={styles.heatmapHeader}>
+                        <Text style={styles.heatmapTitle}>{t('machine.codexUsageHeatmap')}</Text>
+                        <Text style={styles.heatmapLegend}>{t('machine.codexUsageHeatmapLegend')}</Text>
+                    </View>
+                    <View style={styles.heatmapGrid}>
+                        {codexHeatmapDays.map((day) => {
+                            const isActive = day.totalTokens > 0;
+                            const isSelected = day.date === selectedCodexUsageDay?.date;
+                            const opacity = isActive
+                                ? 0.25 + (0.75 * Math.sqrt(day.totalTokens / maxCodexHeatmapTokens))
+                                : 1;
+                            return (
+                                <Pressable
+                                    key={day.date}
+                                    testID={`codex-usage-day-${day.date}`}
+                                    style={[
+                                        styles.heatmapCell,
+                                        isActive ? styles.heatmapCellActive : styles.heatmapCellInactive,
+                                        isActive && { opacity },
+                                        isSelected && styles.heatmapCellSelected,
+                                    ]}
+                                    onPress={() => setSelectedCodexUsageDate(day.date)}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected: isSelected }}
+                                    accessibilityLabel={t('machine.codexUsageHeatmapDay', {
+                                        date: day.date,
+                                        tokens: formatTokens(day.totalTokens),
+                                        sessions: day.sessions,
+                                    })}
+                                />
+                            );
+                        })}
+                    </View>
+                    {selectedCodexUsageDay && (
+                        <Text style={styles.heatmapSelection}>
+                            {t('machine.codexUsageHeatmapDay', {
+                                date: selectedCodexUsageDay.date,
+                                tokens: formatTokens(selectedCodexUsageDay.totalTokens),
+                                sessions: selectedCodexUsageDay.sessions,
+                            })}
+                        </Text>
+                    )}
+                </View>
+            )}
 
             {hasApiUsage && (
                 <>
