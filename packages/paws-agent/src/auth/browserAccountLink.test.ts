@@ -52,4 +52,70 @@ describe('startBrowserAccountLink', () => {
         await expect(link.waitForAuthorization({ signal: controller.signal })).rejects.toThrow('cancelled');
         expect(fetcher).toHaveBeenCalledTimes(1);
     });
+
+    it('passes cancellation into the initial account-link request', async () => {
+        const controller = new AbortController();
+        const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => (
+            new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+            })
+        ));
+
+        const pending = startBrowserAccountLink({
+            serverUrl: 'https://paws.example',
+            credentials: provider(),
+            fetch: fetcher,
+            signal: controller.signal,
+        });
+        await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+        controller.abort(new Error('cancelled before QR creation'));
+
+        await expect(pending).rejects.toThrow('cancelled before QR creation');
+    });
+
+    it('passes cancellation into an in-flight authorization request', async () => {
+        const controller = new AbortController();
+        let calls = 0;
+        const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+            calls += 1;
+            if (calls === 1) return Promise.resolve(Response.json({ state: 'requested' }));
+            return new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+            });
+        });
+        const link = await startBrowserAccountLink({
+            serverUrl: 'https://paws.example',
+            credentials: provider(),
+            fetch: fetcher,
+        });
+
+        const pending = link.waitForAuthorization({ signal: controller.signal, pollIntervalMs: 0 });
+        await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+        try {
+            expect(fetcher.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+        } finally {
+            controller.abort(new Error('cancelled in flight'));
+        }
+        await expect(pending).rejects.toThrow('cancelled in flight');
+    });
+
+    it('times out an in-flight authorization request', async () => {
+        let calls = 0;
+        const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+            calls += 1;
+            if (calls === 1) return Promise.resolve(Response.json({ state: 'requested' }));
+            return new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+            });
+        });
+        const link = await startBrowserAccountLink({
+            serverUrl: 'https://paws.example',
+            credentials: provider(),
+            fetch: fetcher,
+        });
+
+        await expect(link.waitForAuthorization({ pollIntervalMs: 0, timeoutMs: 25 }))
+            .rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
+        expect(fetcher.mock.calls[1]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    });
 });

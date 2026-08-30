@@ -18,6 +18,8 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
         approvedSpawnRequests: 0,
         plainPrompts: [],
         sessionCreated: false,
+        agentRequestPending: false,
+        requestResolutionCalls: 0,
     };
     const messages = [];
     let linkPublicKey = null;
@@ -74,7 +76,7 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
                 return;
             }
             if ((url.pathname === '/v1/sessions' || url.pathname === '/v2/sessions/active') && request.method === 'GET') {
-                sendJson(response, { sessions: state.sessionCreated ? [sessionRecord(secret)] : [] });
+                sendJson(response, { sessions: state.sessionCreated ? [sessionRecord(secret, state)] : [] });
                 return;
             }
             if (url.pathname === `/v3/sessions/${SESSION_ID}/messages` && request.method === 'POST') {
@@ -119,6 +121,11 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
         socket.on('rpc-call', (payload, acknowledge) => {
             try {
                 const params = decryptLegacy(fromBase64(payload?.params), secret);
+                if (payload?.method === `${SESSION_ID}:permission`) {
+                    state.requestResolutionCalls += 1;
+                    acknowledge({ ok: true, result: toBase64(encryptLegacy({ success: true }, secret)) });
+                    return;
+                }
                 if (payload?.method !== `${MACHINE_ID}:spawn-happy-session`) {
                     acknowledge({ ok: false, error: 'RPC method not available' });
                     return;
@@ -157,6 +164,10 @@ export async function startE2eFixtureServer(extensionDir, { injectContentScript 
     return {
         origin,
         state,
+        emitAgentRequest() {
+            state.agentRequestPending = true;
+            io.emit('update', { body: { t: 'update-session', id: SESSION_ID } });
+        },
         async close() {
             await new Promise(resolve => io.close(resolve));
             if (server.listening) await new Promise(resolve => server.close(resolve));
@@ -181,7 +192,7 @@ function machineRecord(secret) {
     };
 }
 
-function sessionRecord(secret) {
+function sessionRecord(secret, state) {
     const now = Date.now();
     return {
         id: SESSION_ID,
@@ -192,8 +203,18 @@ function sessionRecord(secret) {
         activeAt: now,
         metadata: toBase64(encryptLegacy({ machineId: MACHINE_ID, path: '/tmp/paws-e2e-project' }, secret)),
         metadataVersion: 1,
-        agentState: null,
-        agentStateVersion: 0,
+        agentState: state.agentRequestPending ? toBase64(encryptLegacy({
+            requests: {
+                'fixture-bash-request': {
+                    tool: 'Bash',
+                    arguments: {
+                        command: 'echo paws-e2e-safe-request',
+                        cwd: '/tmp/paws-e2e-project',
+                    },
+                },
+            },
+        }, secret)) : null,
+        agentStateVersion: state.agentRequestPending ? 1 : 0,
         dataEncryptionKey: null,
     };
 }

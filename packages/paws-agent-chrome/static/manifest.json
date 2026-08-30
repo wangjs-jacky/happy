@@ -6,9 +6,7 @@
   "permissions": ["storage"],
   "host_permissions": [
     "http://47.115.228.20:3005/*",
-    "https://47.115.228.20:3005/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
+    "https://47.115.228.20:3005/*"
   ],
   "content_scripts": [
     {

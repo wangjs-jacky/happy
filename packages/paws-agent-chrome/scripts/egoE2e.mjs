@@ -17,10 +17,12 @@ const marker = 'Investigate checkout failure from Ego Lite';
 const screenshotPaths = {
     installed: resolve(artifactDir, '01-extension-installed.png'),
     collapsed: resolve(artifactDir, '02-collapsed.png'),
-    linked: resolve(artifactDir, '03-linked.png'),
-    approval: resolve(artifactDir, '04-directory-approval.png'),
-    replied: resolve(artifactDir, '05-remote-reply.png'),
-    restarted: resolve(artifactDir, '06-restarted-connected.png'),
+    accountLink: resolve(artifactDir, '03-account-link.png'),
+    linked: resolve(artifactDir, '04-linked.png'),
+    approval: resolve(artifactDir, '05-directory-approval.png'),
+    replied: resolve(artifactDir, '06-remote-reply.png'),
+    safeRequest: resolve(artifactDir, '07-safe-agent-request.png'),
+    restarted: resolve(artifactDir, '08-restarted-connected.png'),
 };
 const mp4Path = resolve(artifactDir, 'paws-ego-lite-host-e2e.mp4');
 const contactSheetPath = resolve(artifactDir, 'paws-ego-lite-host-e2e-contact-sheet.png');
@@ -29,14 +31,16 @@ await access(egoExecutable, constants.X_OK);
 await rm(artifactDir, { recursive: true, force: true });
 await mkdir(artifactDir, { recursive: true });
 
-const profileDir = await mkdtemp(join(tmpdir(), 'paws-ego-host-e2e-'));
-const fixture = await startE2eFixtureServer(extensionDir, { injectContentScript: false });
+let profileDir = null;
+let fixture = null;
 let runtime = null;
 let browser = null;
 let extensionId = null;
 let browserVersion = null;
 
 try {
+    profileDir = await mkdtemp(join(tmpdir(), 'paws-ego-host-e2e-'));
+    fixture = await startE2eFixtureServer(extensionDir, { injectContentScript: false });
     stage('launch isolated Ego Lite with unpacked extension');
     runtime = await launchEgo(profileDir);
     browser = runtime.browser;
@@ -62,6 +66,7 @@ try {
     assert.equal(fixture.state.spawnRequests, 2, 'directory approval must retry the spawn once');
     assert.equal(fixture.state.approvedSpawnRequests, 1, 'the approved spawn must occur exactly once');
     assert.equal(fixture.state.plainPrompts.length, 1, 'the remote fixture must receive one prompt');
+    assert.equal(fixture.state.requestResolutionCalls, 0, 'the host-embedded frame must not resolve Agent requests');
     const prompt = fixture.state.plainPrompts[0];
     assert.match(prompt, /Investigate checkout failure from Ego Lite/);
     assert.match(prompt, /Paws Extension E2E Fixture/);
@@ -71,8 +76,8 @@ try {
 } finally {
     stage('cleanup');
     if (runtime) await closeRuntime(runtime).catch(() => {});
-    await fixture.close().catch(() => {});
-    await rm(profileDir, { recursive: true, force: true });
+    await fixture?.close().catch(() => {});
+    if (profileDir) await rm(profileDir, { recursive: true, force: true });
 }
 
 let media = null;
@@ -96,6 +101,7 @@ process.stdout.write(JSON.stringify({
         'QR account link and online machine selection',
         'directory approval retry',
         'encrypted page context and remote reply',
+        'full Agent request detail rendering without an approval RPC',
         'full Ego Lite process restart reconnect',
     ],
     sideEffects: 'temporary local protocol server and disposable Ego Lite profile only',
@@ -129,6 +135,7 @@ async function openFirstPage(targetBrowser) {
     await bubble.getByLabel('Server URL').fill(fixture.origin);
     await bubble.getByRole('button', { name: '生成绑定二维码' }).click();
     await bubble.getByAltText('Paws 设备绑定二维码').waitFor({ state: 'visible' });
+    await page.screenshot({ path: screenshotPaths.accountLink });
     await page.waitForTimeout(900);
 
     await bubble.getByText('已连接').waitFor({ timeout: 15_000 });
@@ -148,6 +155,16 @@ async function openFirstPage(targetBrowser) {
     await bubble.getByText(marker, { exact: false }).waitFor();
     await page.screenshot({ path: screenshotPaths.replied });
     await page.waitForTimeout(1_100);
+
+    stage('verify high-privilege requests stay inside the trusted approval boundary');
+    fixture.emitAgentRequest();
+    await bubble.getByText('Agent 请求：Bash').waitFor();
+    await bubble.getByText('echo paws-e2e-safe-request', { exact: false }).waitFor();
+    await bubble.getByText('/tmp/paws-e2e-project', { exact: false }).waitFor();
+    await bubble.getByText('请在 Paws 自有客户端中审批', { exact: false }).waitFor();
+    assert.equal(await bubble.getByRole('button', { name: '允许', exact: true }).count(), 0, 'the real extension frame must not expose a request approval control');
+    assert.equal(fixture.state.requestResolutionCalls, 0, 'rendering an Agent request must not send a permission RPC');
+    await page.screenshot({ path: screenshotPaths.safeRequest });
 
     const storageKeys = await readExtensionStorageKeys(bubble);
     return { extensionId: injection.extensionId, storageKeys };
@@ -208,34 +225,43 @@ async function launchEgo(profile) {
     ], { detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-20_000); });
 
-    let port = null;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-        try {
-            const [value] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).trim().split('\n');
-            port = Number(value);
-            if (Number.isInteger(port) && port > 0) break;
-        } catch {}
-        if (child.exitCode !== null) throw new Error(`Ego Lite exited before CDP was ready:\n${stderr}`);
-        await delay(250);
-    }
-    if (!port) throw new Error(`Ego Lite CDP did not become ready:\n${stderr}`);
-
     let connectedBrowser = null;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-        try {
-            connectedBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-            break;
-        } catch {
+    try {
+        let port = null;
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+            try {
+                const [value] = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).trim().split('\n');
+                port = Number(value);
+                if (Number.isInteger(port) && port > 0) break;
+            } catch {}
+            if (child.exitCode !== null) throw new Error(`Ego Lite exited before CDP was ready:\n${stderr}`);
             await delay(250);
         }
+        if (!port) throw new Error(`Ego Lite CDP did not become ready:\n${stderr}`);
+
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+            try {
+                connectedBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+                break;
+            } catch {
+                await delay(250);
+            }
+        }
+        if (!connectedBrowser) throw new Error(`Could not connect to Ego Lite CDP on port ${port}`);
+        return { browser: connectedBrowser, child, stderr: () => stderr };
+    } catch (error) {
+        await withTimeout(connectedBrowser?.close(), 4_000).catch(() => {});
+        await stopChild(child);
+        throw error;
     }
-    if (!connectedBrowser) throw new Error(`Could not connect to Ego Lite CDP on port ${port}`);
-    return { browser: connectedBrowser, child, stderr: () => stderr };
 }
 
 async function closeRuntime(targetRuntime) {
     await withTimeout(targetRuntime.browser.close(), 4_000).catch(() => {});
-    const child = targetRuntime.child;
+    await stopChild(targetRuntime.child);
+}
+
+async function stopChild(child) {
     if (child.exitCode !== null) return;
     const exited = new Promise(resolveExit => child.once('exit', resolveExit));
     try { process.kill(-child.pid, 'SIGTERM'); } catch {}
@@ -273,7 +299,7 @@ async function createEvidenceVideo(paths) {
     assert.equal(stream?.height, 720);
     await exec('/opt/homebrew/bin/ffmpeg', [
         '-y', '-i', mp4Path,
-        '-vf', 'fps=1/1.4,scale=320:-1,tile=3x2:padding=4:margin=4', '-frames:v', '1',
+        '-vf', 'fps=1/1.4,scale=320:-1,tile=4x2:padding=4:margin=4', '-frames:v', '1',
         contactSheetPath,
     ]);
     await rm(concatPath, { force: true });

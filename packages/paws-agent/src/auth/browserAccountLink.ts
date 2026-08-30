@@ -23,6 +23,7 @@ export type BrowserAccountLinkOptions = {
     credentials: CredentialProvider;
     fetch?: FetchLike;
     clientName?: string;
+    signal?: AbortSignal;
 };
 
 export type WaitForBrowserAccountLinkOptions = {
@@ -49,7 +50,7 @@ export async function startBrowserAccountLink(
     const publicKey = encodeBase64(keyPair.publicKey);
     const clientName = options.clientName ?? 'paws-agent-browser/0.1.0';
 
-    await requestAccountLink(fetcher, serverUrl, publicKey, clientName);
+    await requestAccountLink(fetcher, serverUrl, publicKey, clientName, options.signal);
 
     return {
         publicKey,
@@ -58,31 +59,36 @@ export async function startBrowserAccountLink(
             const timeoutMs = waitOptions.timeoutMs ?? DEFAULT_TIMEOUT_MS;
             const pollIntervalMs = waitOptions.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
             const deadline = Date.now() + timeoutMs;
+            const requestSignal = createDeadlineSignal(waitOptions.signal, timeoutMs);
 
-            while (Date.now() < deadline) {
-                throwIfAborted(waitOptions.signal);
-                await delay(pollIntervalMs, waitOptions.signal);
-                const result = await requestAccountLink(fetcher, serverUrl, publicKey, clientName);
-                if (result.state !== 'authorized') continue;
-                if (typeof result.token !== 'string' || typeof result.response !== 'string') {
-                    throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Account link response is incomplete');
+            try {
+                while (Date.now() < deadline) {
+                    throwIfAborted(requestSignal.signal);
+                    await delay(pollIntervalMs, requestSignal.signal);
+                    const result = await requestAccountLink(fetcher, serverUrl, publicKey, clientName, requestSignal.signal);
+                    if (result.state !== 'authorized') continue;
+                    if (typeof result.token !== 'string' || typeof result.response !== 'string') {
+                        throw new PawsAgentError('PROTOCOL_UNSUPPORTED', 'Account link response is incomplete');
+                    }
+
+                    const secret = decryptBoxBundle(decodeBase64(result.response), keyPair.secretKey);
+                    if (!secret) {
+                        throw new PawsAgentError('DECRYPTION_FAILED', 'Account link response could not be decrypted');
+                    }
+
+                    const credentials: PawsCredentials = {
+                        token: result.token,
+                        secret,
+                        contentKeyPair: deriveContentKeyPair(secret),
+                    };
+                    await options.credentials.setCredentials(credentials);
+                    return credentials;
                 }
 
-                const secret = decryptBoxBundle(decodeBase64(result.response), keyPair.secretKey);
-                if (!secret) {
-                    throw new PawsAgentError('DECRYPTION_FAILED', 'Account link response could not be decrypted');
-                }
-
-                const credentials: PawsCredentials = {
-                    token: result.token,
-                    secret,
-                    contentKeyPair: deriveContentKeyPair(secret),
-                };
-                await options.credentials.setCredentials(credentials);
-                return credentials;
+                throw new PawsAgentError('RPC_TIMEOUT', 'Account linking timed out');
+            } finally {
+                requestSignal.dispose();
             }
-
-            throw new PawsAgentError('RPC_TIMEOUT', 'Account linking timed out');
         },
     };
 }
@@ -92,6 +98,7 @@ async function requestAccountLink(
     serverUrl: string,
     publicKey: string,
     clientName: string,
+    signal?: AbortSignal,
 ): Promise<AccountLinkResponse> {
     let response: Response;
     try {
@@ -102,8 +109,10 @@ async function requestAccountLink(
                 'X-Happy-Client': clientName,
             },
             body: JSON.stringify({ publicKey }),
+            signal,
         });
     } catch (cause) {
+        if (signal?.aborted) throw abortReason(signal);
         throw new PawsAgentError('CONNECTION_LOST', 'Unable to reach the account link service', { cause });
     }
     if (!response.ok) {
@@ -122,8 +131,32 @@ async function requestAccountLink(
 
 function throwIfAborted(signal?: AbortSignal): void {
     if (signal?.aborted) {
-        throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+        throw abortReason(signal);
     }
+}
+
+function abortReason(signal: AbortSignal): Error {
+    return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError');
+}
+
+function createDeadlineSignal(parent: AbortSignal | undefined, timeoutMs: number): {
+    signal: AbortSignal;
+    dispose(): void;
+} {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(parent ? abortReason(parent) : undefined);
+    if (parent?.aborted) onAbort();
+    else parent?.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => {
+        controller.abort(new PawsAgentError('RPC_TIMEOUT', 'Account linking timed out'));
+    }, Math.max(0, timeoutMs));
+    return {
+        signal: controller.signal,
+        dispose() {
+            clearTimeout(timer);
+            parent?.removeEventListener('abort', onAbort);
+        },
+    };
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -136,7 +169,7 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
         const onAbort = () => {
             clearTimeout(timer);
             abortSignal?.removeEventListener('abort', onAbort);
-            reject(abortSignal?.reason instanceof Error ? abortSignal.reason : new DOMException('Aborted', 'AbortError'));
+            reject(abortSignal ? abortReason(abortSignal) : new DOMException('Aborted', 'AbortError'));
         };
         const timer = setTimeout(() => {
             abortSignal?.removeEventListener('abort', onAbort);

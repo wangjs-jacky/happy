@@ -17,21 +17,16 @@ const reconnectPath = resolve(artifactDir, recording ? 'reconnected-recording.pn
 const rawVideoDir = resolve(artifactDir, 'raw-video');
 const mp4Path = resolve(artifactDir, 'paws-chrome-bubble-e2e.mp4');
 const contactSheetPath = resolve(artifactDir, 'paws-chrome-bubble-e2e-contact-sheet.png');
-const executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const executablePath = await resolveBrowserExecutable();
 
-await access(executablePath, constants.X_OK);
 await mkdir(artifactDir, { recursive: true });
 if (recording) {
     await rm(rawVideoDir, { recursive: true, force: true });
     await mkdir(rawVideoDir, { recursive: true });
 }
 
-const fixture = await startE2eFixtureServer(extensionDir);
-const browser = await chromium.launch({
-    headless: !headed,
-    executablePath,
-    slowMo: headed ? 500 : 0,
-});
+let fixture;
+let browser;
 let context;
 let page;
 let video;
@@ -39,6 +34,12 @@ const pageErrors = [];
 const marker = 'Investigate checkout failure';
 
 try {
+    fixture = await startE2eFixtureServer(extensionDir);
+    browser = await chromium.launch({
+        headless: !headed,
+        ...(executablePath ? { executablePath } : {}),
+        slowMo: headed ? 500 : 0,
+    });
     stage('launch browser context');
     context = await browser.newContext({
         viewport: { width: 1280, height: 720 },
@@ -99,6 +100,15 @@ try {
     await page.screenshot({ path: screenshotPath, fullPage: true });
     if (recording || headed) await page.waitForTimeout(1_100);
 
+    stage('verify high-privilege requests stay inside the trusted approval boundary');
+    fixture.emitAgentRequest();
+    await bubble.getByText('Agent 请求：Bash').waitFor();
+    await bubble.getByText('echo paws-e2e-safe-request', { exact: false }).waitFor();
+    await bubble.getByText('/tmp/paws-e2e-project', { exact: false }).waitFor();
+    await bubble.getByText('请在 Paws 自有客户端中审批', { exact: false }).waitFor();
+    assert.equal(await bubble.getByRole('button', { name: '允许', exact: true }).count(), 0, 'the host-embedded frame must not expose a request approval control');
+    assert.equal(fixture.state.requestResolutionCalls, 0, 'rendering an Agent request must not send a permission RPC');
+
     assert.equal(fixture.state.authRequests >= 2, true, 'account link must poll for authorization');
     assert.equal(fixture.state.spawnRequests, 2, 'directory approval must retry the spawn once');
     assert.equal(fixture.state.approvedSpawnRequests, 1, 'the approved spawn must occur exactly once');
@@ -127,8 +137,8 @@ try {
     stage('cleanup');
     await withTimeout(page?.close(), 5_000).catch(() => {});
     await withTimeout(context?.close(), 5_000).catch(() => {});
-    await withTimeout(browser.close(), 5_000).catch(() => {});
-    await withTimeout(fixture.close(), 5_000).catch(() => {});
+    await withTimeout(browser?.close(), 5_000).catch(() => {});
+    await withTimeout(fixture?.close(), 5_000).catch(() => {});
 }
 
 let media = null;
@@ -161,7 +171,7 @@ if (recording && video) {
 process.stdout.write(JSON.stringify({
     case: 'PAWS-CHROME-BUBBLE-01',
     status: 'pass',
-    host: '/Applications/Google Chrome.app',
+    host: executablePath ?? 'Playwright Chromium',
     mode: headed ? 'headed-browser-harness-with-real-sdk-protocol' : 'browser-harness-with-real-sdk-protocol',
     assertions: [
         'single injection and collapsed geometry',
@@ -170,6 +180,7 @@ process.stdout.write(JSON.stringify({
         'directory approval retry',
         'page context transmission',
         'remote reply rendering',
+        'full Agent request detail rendering without an approval RPC',
         'new session reset and reload reconnect',
     ],
     sideEffects: 'temporary local protocol server and disposable browser context only',
@@ -196,4 +207,18 @@ function withTimeout(promise, timeoutMs) {
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error(`cleanup timed out after ${timeoutMs}ms`)), timeoutMs)),
     ]);
+}
+
+async function resolveBrowserExecutable() {
+    const candidates = [
+        process.env.PAWS_EXTENSION_BROWSER,
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+        try {
+            await access(candidate, constants.X_OK);
+            return candidate;
+        } catch {}
+    }
+    return null;
 }

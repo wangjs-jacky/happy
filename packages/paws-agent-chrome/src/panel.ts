@@ -227,10 +227,15 @@ function renderMessages(): HTMLElement {
 
 function renderRequests(): HTMLElement {
     const section = element('section', 'request-list');
+    section.setAttribute('aria-label', '待审批的 Agent 请求');
     for (const request of requests) {
-        const row = element('div', 'request-row');
-        row.append(element('span', '', `Agent 请求：${request.type}`), primaryButton('允许', () => void approveRequest(request.id)));
-        section.append(row);
+        const card = element('article', 'request-card');
+        card.append(
+            element('strong', '', `Agent 请求：${request.type}`),
+            element('pre', 'request-payload', requestPayloadText(request.payload)),
+            element('p', 'request-boundary', '为防止网页点击劫持，请在 Paws 自有客户端中审批。此悬浮球不会执行审批操作。'),
+        );
+        section.append(card);
     }
     return section;
 }
@@ -275,7 +280,11 @@ async function beginLink(): Promise<void> {
     try {
         linkController?.abort();
         linkController = new AbortController();
-        const link = await startBrowserAccountLink({ serverUrl: config.serverUrl, credentials });
+        const link = await startBrowserAccountLink({
+            serverUrl: config.serverUrl,
+            credentials,
+            signal: linkController.signal,
+        });
         linkUrl = link.qrUrl;
         qrDataUrl = await QRCode.toDataURL(link.qrUrl, { width: 220, margin: 1, color: { dark: '#1c1917', light: '#fffaf2' } });
         phase = 'linking';
@@ -392,18 +401,6 @@ async function sendDraft(approvedNewDirectoryCreation: boolean): Promise<void> {
     }
 }
 
-async function approveRequest(requestId: string): Promise<void> {
-    if (!client || !config.sessionId) return;
-    try {
-        await client.requests.approve({ sessionId: config.sessionId, requestId });
-        requests = requests.filter(item => item.id !== requestId);
-        render();
-    } catch (cause) {
-        errorText = errorMessage(cause);
-        render();
-    }
-}
-
 async function resetSession(): Promise<void> {
     config.sessionId = '';
     messages = [];
@@ -452,6 +449,11 @@ function messageText(content: unknown): string {
         try { return JSON.stringify(content, null, 2); } catch { return '收到一条新消息'; }
     }
     return content == null ? '' : String(content);
+}
+
+function requestPayloadText(payload: unknown): string {
+    if (typeof payload === 'string') return payload;
+    try { return JSON.stringify(payload, null, 2); } catch { return String(payload); }
 }
 
 function errorMessage(cause: unknown): string {

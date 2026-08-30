@@ -15,7 +15,7 @@
     "test:e2e": "pnpm run build && node scripts/e2e.mjs",
     "test:e2e:headed": "PAWS_EXTENSION_E2E_HEADED=1 pnpm run test:e2e",
     "test:e2e:record": "PAWS_EXTENSION_E2E_RECORD=1 pnpm run test:e2e",
-    "test:e2e:ego": "pnpm run build && node scripts/egoE2e.mjs",
+    "test:e2e:ego": "PAWS_EXTENSION_INCLUDE_LOCALHOST=1 pnpm run build && node scripts/egoE2e.mjs",
     "test:e2e:ego:record": "PAWS_EGO_E2E_RECORD=1 pnpm run test:e2e:ego",
     "verify": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:smoke"
   },

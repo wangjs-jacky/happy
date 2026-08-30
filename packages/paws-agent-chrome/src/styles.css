@@ -114,4 +114,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .notice-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .notice-warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); }
 .request-list { margin: 0 12px 8px; display: grid; gap: 6px; }
-.request-row { padding: 9px 10px; border-radius: 12px; background: var(--surface-selected); display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.request-card { padding: 10px; border-radius: 12px; background: var(--surface-selected); display: grid; gap: 7px; font-size: 12px; }
+.request-payload { max-height: 118px; margin: 0; padding: 8px; overflow: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.request-boundary { margin: 0; color: var(--warning); line-height: 1.45; }
