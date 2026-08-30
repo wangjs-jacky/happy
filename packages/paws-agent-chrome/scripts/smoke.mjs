@@ -31,13 +31,17 @@ const server = createServer(async (request, response) => {
         response.end('not found');
     }
 });
-await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
-const address = server.address();
-if (!address || typeof address === 'string') throw new Error('Fixture server did not bind');
-const origin = `http://127.0.0.1:${address.port}`;
-
-const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+let browser;
 try {
+    await new Promise((resolveListen, rejectListen) => {
+        server.once('error', rejectListen);
+        server.listen(0, '127.0.0.1', resolveListen);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Fixture server did not bind');
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
     const page = await browser.newPage();
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
@@ -102,8 +106,10 @@ try {
         size: dimensions,
     }) + '\n');
 } finally {
-    await browser.close();
-    server.close();
+    if (browser) await browser.close().catch(() => {});
+    if (server.listening) {
+        await new Promise(resolveClose => server.close(resolveClose));
+    }
 }
 
 async function resolveBrowserExecutable() {

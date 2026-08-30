@@ -24,6 +24,7 @@ export type BrowserAccountLinkOptions = {
     fetch?: FetchLike;
     clientName?: string;
     signal?: AbortSignal;
+    timeoutMs?: number;
 };
 
 export type WaitForBrowserAccountLinkOptions = {
@@ -50,7 +51,15 @@ export async function startBrowserAccountLink(
     const publicKey = encodeBase64(keyPair.publicKey);
     const clientName = options.clientName ?? 'paws-agent-browser/0.1.0';
 
-    await requestAccountLink(fetcher, serverUrl, publicKey, clientName, options.signal);
+    const initialRequestSignal = createDeadlineSignal(
+        options.signal,
+        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    );
+    try {
+        await requestAccountLink(fetcher, serverUrl, publicKey, clientName, initialRequestSignal.signal);
+    } finally {
+        initialRequestSignal.dispose();
+    }
 
     return {
         publicKey,

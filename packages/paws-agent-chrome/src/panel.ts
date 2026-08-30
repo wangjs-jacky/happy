@@ -153,7 +153,10 @@ function renderSignedOut(): HTMLElement {
 
 function renderLinking(): HTMLElement {
     const section = element('section', 'setup-card linking-card');
-    section.append(element('span', 'eyebrow', '等待手机确认'), element('h1', '', '扫描二维码连接'));
+    section.append(
+        element('span', 'eyebrow', qrDataUrl ? '等待手机确认' : '正在准备'),
+        element('h1', '', qrDataUrl ? '扫描二维码连接' : '正在生成绑定二维码'),
+    );
     if (qrDataUrl) {
         const image = document.createElement('img');
         image.className = 'qr-code';
@@ -161,12 +164,14 @@ function renderLinking(): HTMLElement {
         image.alt = 'Paws 设备绑定二维码';
         section.append(image);
     }
-    section.append(element('p', 'muted', '在 Paws 客户端中进入“设置 → 账号 → 连接新设备”，扫码后本页会自动继续。'));
-    const open = document.createElement('a');
-    open.className = 'text-link';
-    open.href = linkUrl;
-    open.textContent = '在已安装 Paws 的设备上打开';
-    section.append(open);
+    section.append(element('p', 'muted', qrDataUrl ? '在 Paws 客户端中进入“设置 → 账号 → 连接新设备”，扫码后本页会自动继续。' : '正在向 Paws 服务申请一次性绑定码，你可以随时取消。'));
+    if (linkUrl) {
+        const open = document.createElement('a');
+        open.className = 'text-link';
+        open.href = linkUrl;
+        open.textContent = '在已安装 Paws 的设备上打开';
+        section.append(open);
+    }
     const cancel = secondaryButton('取消', () => cancelLink());
     section.append(cancel);
     return section;
@@ -277,13 +282,20 @@ async function beginLink(): Promise<void> {
     busy = true;
     errorText = '';
     await saveConfig();
+    linkController?.abort();
+    const controller = new AbortController();
+    linkController = controller;
     try {
-        linkController?.abort();
-        linkController = new AbortController();
+        qrDataUrl = '';
+        linkUrl = '';
+        phase = 'linking';
+        statusText = '正在生成绑定码';
+        busy = false;
+        render();
         const link = await startBrowserAccountLink({
             serverUrl: config.serverUrl,
             credentials,
-            signal: linkController.signal,
+            signal: controller.signal,
         });
         linkUrl = link.qrUrl;
         qrDataUrl = await QRCode.toDataURL(link.qrUrl, { width: 220, margin: 1, color: { dark: '#1c1917', light: '#fffaf2' } });
@@ -291,14 +303,14 @@ async function beginLink(): Promise<void> {
         statusText = '等待扫码';
         busy = false;
         render();
-        await link.waitForAuthorization({ signal: linkController.signal });
-        linkController = null;
+        await link.waitForAuthorization({ signal: controller.signal });
+        if (linkController === controller) linkController = null;
         phase = 'connecting';
         statusText = '正在连接';
         render();
         await connectClient();
     } catch (cause) {
-        if (linkController?.signal.aborted) return;
+        if (controller.signal.aborted) return;
         busy = false;
         phase = 'signedOut';
         errorText = errorMessage(cause);

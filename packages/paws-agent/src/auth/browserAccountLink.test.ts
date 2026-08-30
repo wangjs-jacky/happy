@@ -73,6 +73,21 @@ describe('startBrowserAccountLink', () => {
         await expect(pending).rejects.toThrow('cancelled before QR creation');
     });
 
+    it('times out a hung initial account-link request', async () => {
+        const fetcher = vi.fn((_input: string | URL | Request, init?: RequestInit) => (
+            new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+            })
+        ));
+
+        await expect(startBrowserAccountLink({
+            serverUrl: 'https://paws.example',
+            credentials: provider(),
+            fetch: fetcher,
+            timeoutMs: 25,
+        })).rejects.toMatchObject({ code: 'RPC_TIMEOUT' });
+    });
+
     it('passes cancellation into an in-flight authorization request', async () => {
         const controller = new AbortController();
         let calls = 0;
