@@ -26,6 +26,7 @@ interface CodexUsageSnapshot {
     timeZone?: string;
     days?: CodexUsageDay[];
     latestEvent?: {
+        timestamp?: string;
         rateLimits?: {
             planType?: string;
             primary?: CodexRateLimitWindow;
