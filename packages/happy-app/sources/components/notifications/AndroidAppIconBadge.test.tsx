@@ -146,7 +146,7 @@ describe('AndroidAppIconBadge', () => {
     });
 
     it('does not let a stale zero update overwrite a newer positive count', async () => {
-        let resolvePresentedNotifications: ((notifications: unknown[]) => void) | undefined;
+        let resolvePresentedNotifications: ((notifications: Array<{ request: { identifier: string } }>) => void) | undefined;
         harness.getPresentedNotificationsAsync.mockReturnValueOnce(new Promise((resolve) => {
             resolvePresentedNotifications = resolve;
         }));
