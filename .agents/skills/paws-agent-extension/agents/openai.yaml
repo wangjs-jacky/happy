@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paws Agent Extension"
+  short_description: "Build durable first-party extensions on the Paws Agent SDK"
+  default_prompt: "Use $paws-agent-extension to build a first-party extension on the Paws Agent SDK."
