@@ -7,7 +7,6 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     destroy: vi.fn(),
     panzoom: vi.fn(),
-    render: vi.fn().mockResolvedValue({ svg: '<svg viewBox="0 0 200 100"><g /></svg>' }),
     reset: vi.fn(),
     zoomIn: vi.fn(),
     zoomOut: vi.fn(),
@@ -49,7 +48,7 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('mermaid', () => ({
     default: {
         initialize: vi.fn(),
-        render: mocks.render,
+        render: vi.fn().mockResolvedValue({ svg: '<svg viewBox="0 0 200 100"><g /></svg>' }),
     },
 }));
 vi.mock('@panzoom/panzoom', () => ({
@@ -62,7 +61,7 @@ vi.mock('@panzoom/panzoom', () => ({
     })),
 }));
 
-import { MermaidRenderer } from './MermaidRenderer';
+import { initializeWebDiagramPanzoom, MermaidRenderer } from './MermaidRenderer';
 
 describe('MermaidRenderer', () => {
     const originalConsoleError = console.error;
@@ -135,13 +134,7 @@ describe('MermaidRenderer', () => {
         expect(button.props.style({ pressed: false })).toContainEqual({ backgroundColor: '#303a45' });
     });
 
-    it('allows default-scale mouse panning without stealing ordinary page scroll', async () => {
-        const renderResult = { svg: '<svg viewBox="0 0 200 100"><g /></svg>' };
-        let resolveRender!: (result: typeof renderResult) => void;
-        const renderPromise = new Promise<typeof renderResult>((resolve) => {
-            resolveRender = resolve;
-        });
-        mocks.render.mockReturnValueOnce(renderPromise);
+    it('allows default-scale mouse panning without stealing ordinary page scroll', () => {
         let wheelHandler: ((event: WheelEvent) => void) | undefined;
         const viewport = {
             addEventListener: vi.fn((type: string, handler: (event: WheelEvent) => void) => {
@@ -149,35 +142,28 @@ describe('MermaidRenderer', () => {
             }),
             removeEventListener: vi.fn(),
         };
-        const svg = {
-            setAttribute: vi.fn(),
-            style: {},
-        };
         const scene = {
             parentElement: viewport,
-            querySelector: vi.fn(() => svg),
         };
+        const createPanzoom = vi.fn(() => ({
+            destroy: mocks.destroy,
+            zoomWithWheel: mocks.zoomWithWheel,
+        }));
 
-        await act(async () => {
-            renderer = TestRenderer.create(<MermaidRenderer content="flowchart LR\nA --> B" />, {
-                createNodeMock: (element: { type: string }) => element.type === 'div' ? scene : {},
-            });
-        });
-        await vi.waitFor(() => {
-            expect(mocks.render).toHaveBeenCalled();
-        }, { timeout: 5_000 });
-        await act(async () => {
-            resolveRender(renderResult);
-            await renderPromise;
-            await Promise.resolve();
-        });
+        const controller = initializeWebDiagramPanzoom(
+            scene as unknown as HTMLElement,
+            createPanzoom as unknown as Parameters<typeof initializeWebDiagramPanzoom>[1],
+        );
 
-        await vi.waitFor(() => {
-            expect(mocks.panzoom).toHaveBeenCalledWith(
-                scene,
-                expect.not.objectContaining({ contain: expect.anything() }),
-            );
-        });
+        expect(createPanzoom).toHaveBeenCalledWith(
+            scene,
+            {
+                canvas: true,
+                maxScale: 5,
+                minScale: 0.5,
+                step: 0.25,
+            },
+        );
         expect(wheelHandler).toBeDefined();
 
         const ordinaryWheel = { ctrlKey: false, metaKey: false } as WheelEvent;
@@ -187,8 +173,9 @@ describe('MermaidRenderer', () => {
         const modifiedWheel = { ctrlKey: true, metaKey: false } as WheelEvent;
         wheelHandler!(modifiedWheel);
         expect(mocks.zoomWithWheel).toHaveBeenCalledWith(modifiedWheel);
-        expect(consoleErrorSpy.mock.calls.some(([message]) => (
-            String(message).includes('not wrapped in act')
-        ))).toBe(false);
-    }, 15_000);
+
+        controller.dispose();
+        expect(viewport.removeEventListener).toHaveBeenCalledWith('wheel', wheelHandler);
+        expect(mocks.destroy).toHaveBeenCalledOnce();
+    });
 });
