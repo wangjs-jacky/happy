@@ -7,6 +7,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     destroy: vi.fn(),
     panzoom: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg viewBox="0 0 200 100"><g /></svg>' }),
     reset: vi.fn(),
     zoomIn: vi.fn(),
     zoomOut: vi.fn(),
@@ -48,7 +49,7 @@ vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('mermaid', () => ({
     default: {
         initialize: vi.fn(),
-        render: vi.fn().mockResolvedValue({ svg: '<svg viewBox="0 0 200 100"><g /></svg>' }),
+        render: mocks.render,
     },
 }));
 vi.mock('@panzoom/panzoom', () => ({
@@ -135,6 +136,12 @@ describe('MermaidRenderer', () => {
     });
 
     it('allows default-scale mouse panning without stealing ordinary page scroll', async () => {
+        const renderResult = { svg: '<svg viewBox="0 0 200 100"><g /></svg>' };
+        let resolveRender!: (result: typeof renderResult) => void;
+        const renderPromise = new Promise<typeof renderResult>((resolve) => {
+            resolveRender = resolve;
+        });
+        mocks.render.mockReturnValueOnce(renderPromise);
         let wheelHandler: ((event: WheelEvent) => void) | undefined;
         const viewport = {
             addEventListener: vi.fn((type: string, handler: (event: WheelEvent) => void) => {
@@ -156,9 +163,20 @@ describe('MermaidRenderer', () => {
                 createNodeMock: (element: { type: string }) => element.type === 'div' ? scene : {},
             });
         });
+        await vi.waitFor(() => {
+            expect(mocks.render).toHaveBeenCalled();
+        }, { timeout: 5_000 });
+        await act(async () => {
+            resolveRender(renderResult);
+            await renderPromise;
+            await Promise.resolve();
+        });
 
         await vi.waitFor(() => {
-            expect(mocks.panzoom).toHaveBeenCalledWith(scene, expect.not.objectContaining({ contain: expect.anything() }));
+            expect(mocks.panzoom).toHaveBeenCalledWith(
+                scene,
+                expect.not.objectContaining({ contain: expect.anything() }),
+            );
         });
         expect(wheelHandler).toBeDefined();
 
@@ -169,5 +187,8 @@ describe('MermaidRenderer', () => {
         const modifiedWheel = { ctrlKey: true, metaKey: false } as WheelEvent;
         wheelHandler!(modifiedWheel);
         expect(mocks.zoomWithWheel).toHaveBeenCalledWith(modifiedWheel);
-    });
+        expect(consoleErrorSpy.mock.calls.some(([message]) => (
+            String(message).includes('not wrapped in act')
+        ))).toBe(false);
+    }, 15_000);
 });
