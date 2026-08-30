@@ -16,7 +16,7 @@ import {
     MaterialIcons,
     Octicons,
 } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Slot, usePathname, useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
 import { AuthProvider } from '@/auth/AuthContext';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -52,6 +52,7 @@ import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcut
 import { OtaPreviewFloatingButton } from '@/components/OtaPreviewFloatingButton';
 import { loadAppConfig } from '@/sync/appConfig';
 import { shouldShowOtaFloatingSwitcher } from '@/utils/otaFloatingSwitcher';
+import { isPublicSessionSharePath } from '@/utils/publicSessionShareRouting';
 
 // Configure notification handler — by default suppress push display when the
 // app is in foreground, EXCEPT for session-event pushes (Claude done /
@@ -244,10 +245,71 @@ function getDevWebQueryCredentials(): AuthCredentials | null {
 }
 
 export default function RootLayout() {
+    const pathname = usePathname();
+    return isPublicSessionSharePath(pathname) ? <PublicShareRootLayout /> : <AuthenticatedRootLayout />;
+}
+
+function usePawsNavigationTheme() {
+    const { theme } = useUnistyles();
+    return React.useMemo(() => {
+        if (theme.dark) {
+            return {
+                ...DarkTheme,
+                colors: {
+                    ...DarkTheme.colors,
+                    background: theme.colors.groupped.background,
+                },
+            };
+        }
+        return {
+            ...DefaultTheme,
+            colors: {
+                ...DefaultTheme.colors,
+                background: theme.colors.groupped.background,
+            },
+        };
+    }, [theme.colors.groupped.background, theme.dark]);
+}
+
+function PublicShareRootLayout() {
+    const navigationTheme = usePawsNavigationTheme();
+    const [fontsReady, setFontsReady] = React.useState(false);
+
+    React.useEffect(() => {
+        let active = true;
+        void loadFonts()
+            .catch((error) => console.log('[fonts] Public share font loading failed; using fallbacks.', error))
+            .finally(() => {
+                if (active) setFontsReady(true);
+            });
+        return () => { active = false; };
+    }, []);
+
+    React.useEffect(() => {
+        if (fontsReady) void SplashScreen.hideAsync();
+    }, [fontsReady]);
+
+    if (!fontsReady) return null;
+
+    return (
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+                <ThemeCaptureRoot>
+                    <ThemeProvider value={navigationTheme}>
+                        <StatusBarProvider />
+                        <Slot />
+                    </ThemeProvider>
+                </ThemeCaptureRoot>
+            </GestureHandlerRootView>
+        </SafeAreaProvider>
+    );
+}
+
+function AuthenticatedRootLayout() {
     useTauriZoom();
     useTauriDrag();
     const router = useRouter();
-    const { theme } = useUnistyles();
+    const navigationTheme = usePawsNavigationTheme();
     const appConfig = React.useMemo(() => loadAppConfig(), []);
     const devModeEnabled = __DEV__ || useLocalSetting('devModeEnabled');
     const showOtaFloatingSwitcher = shouldShowOtaFloatingSwitcher({
@@ -258,25 +320,6 @@ export default function RootLayout() {
         isDev: __DEV__,
         devModeEnabled,
     });
-    const navigationTheme = React.useMemo(() => {
-        if (theme.dark) {
-            return {
-                ...DarkTheme,
-                colors: {
-                    ...DarkTheme.colors,
-                    background: theme.colors.groupped.background,
-                }
-            }
-        }
-        return {
-            ...DefaultTheme,
-            colors: {
-                ...DefaultTheme.colors,
-                background: theme.colors.groupped.background,
-            }
-        };
-    }, [theme.dark]);
-
     //
     // Init sequence
     //
