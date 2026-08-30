@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     release: vi.fn(),
     openDocument: vi.fn(async () => undefined),
     downloadOriginal: vi.fn(async () => true),
+    downloadVideo: vi.fn(async () => true),
     openImageViewer: vi.fn(),
     resolveSource: vi.fn(async () => ({
         uri: 'https://files.test/acceptance.mp4',
@@ -44,6 +45,7 @@ vi.mock('@/sync/resolveMediaAttachmentSource', () => ({ resolveMediaAttachmentSo
 vi.mock('@/sync/resolveMotionPhotoAttachmentSource', () => ({ resolveMotionPhotoAttachmentSource: mocks.resolveMotionSource }));
 vi.mock('@/sync/openDocumentAttachment', () => ({ openDocumentAttachment: mocks.openDocument }));
 vi.mock('@/sync/downloadOriginalAttachment', () => ({ downloadOriginalAttachment: mocks.downloadOriginal }));
+vi.mock('@/sync/downloadVideoAttachment', () => ({ downloadVideoAttachment: mocks.downloadVideo }));
 vi.mock('./MediaAttachmentPlayer', () => ({ MediaAttachmentPlayer: 'MediaAttachmentPlayer' }));
 vi.mock('@/components/DesktopShortcutTooltip', () => ({ DesktopShortcutTooltip: 'DesktopShortcutTooltip' }));
 vi.mock('@/text', () => ({
@@ -106,6 +108,7 @@ describe('FileView media playback', () => {
         mocks.release.mockClear();
         mocks.openDocument.mockClear();
         mocks.downloadOriginal.mockClear();
+        mocks.downloadVideo.mockClear();
         mocks.openImageViewer.mockClear();
         mocks.resolveSource.mockReset();
         mocks.resolveSource.mockResolvedValue({
@@ -155,6 +158,66 @@ describe('FileView media playback', () => {
         }));
         expect(renderer.root.findAllByProps({ testID: 'media-attachment-card-user' })).toHaveLength(0);
         expect(renderer.root.findByType('MediaAttachmentPlayer').props.testID).toBe('media-attachment-player-user');
+        act(() => renderer.unmount());
+    });
+
+    it('downloads the complete original MP4 from the inline video action', async () => {
+        mocks.resolveSource
+            .mockResolvedValueOnce({
+                uri: 'file:///cache/acceptance-playback.mp4',
+                headers: {},
+                release: mocks.release,
+            })
+            .mockResolvedValueOnce({
+                uri: 'file:///cache/acceptance-download.mp4',
+                headers: {},
+                release: mocks.release,
+            });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={videoTool({ encrypted: false, source: 'generated' })} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        const download = renderer.root.findByProps({ testID: 'media-attachment-download-generated' });
+        await act(async () => { await download.props.onPress(); });
+
+        expect(mocks.resolveSource).toHaveBeenLastCalledWith({
+            sessionId: 's1',
+            ref: 'sessions/s1/attachments/acceptance.mp4',
+            mimeType: 'video/mp4',
+            fileName: 'acceptance.mp4',
+            encrypted: false,
+        });
+        expect(mocks.downloadVideo).toHaveBeenCalledWith(
+            'file:///cache/acceptance-download.mp4',
+            'acceptance.mp4',
+            'video/mp4',
+        );
+        act(() => renderer.unmount());
+    });
+
+    it('clears the video download busy state when staged-file cleanup fails', async () => {
+        mocks.resolveSource
+            .mockResolvedValueOnce({
+                uri: 'file:///cache/acceptance-playback.mp4', headers: {}, release: mocks.release,
+            })
+            .mockResolvedValueOnce({
+                uri: 'file:///cache/acceptance-download.mp4',
+                headers: {},
+                release: vi.fn(async () => { throw new Error('cleanup failed'); }),
+            });
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView tool={videoTool({ encrypted: false, source: 'generated' })} sessionId="s1" metadata={null} messages={[]} />,
+            );
+        });
+
+        const download = renderer.root.findByProps({ testID: 'media-attachment-download-generated' });
+        await expect(act(async () => { await download.props.onPress(); })).rejects.toThrow('cleanup failed');
+        expect(renderer.root.findByProps({ testID: 'media-attachment-download-generated' }).props.accessibilityState.busy).toBe(false);
         act(() => renderer.unmount());
     });
 

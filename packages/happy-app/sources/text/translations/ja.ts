@@ -1619,6 +1619,7 @@ export const ja: TranslationStructure = {
 
     imageViewer: {
         download: '画像をダウンロード',
+        downloadOriginalVideo: '元の動画をダウンロード',
         downloadOriginalMotionPhoto: '元のモーションフォトをダウンロード',
         playMotionPhoto: 'モーションフォトを再生',
         stopMotionPhoto: 'モーションフォトを停止',
@@ -1626,6 +1627,7 @@ export const ja: TranslationStructure = {
         downloadFailedTitle: 'ダウンロードに失敗しました',
         downloadFailedMessage: 'この画像をダウンロード用に準備できませんでした。',
         motionPhotoDownloadFailedMessage: '元のモーションフォトをダウンロードできませんでした。',
+        videoDownloadFailedMessage: '元の動画をダウンロードできませんでした。',
         motionPhotoLoadFailedMessage: 'このモーションフォトを再生できませんでした。',
     },
 

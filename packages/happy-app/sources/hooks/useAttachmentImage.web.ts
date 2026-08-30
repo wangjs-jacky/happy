@@ -7,7 +7,7 @@ import { detectSupportedImageMime } from '@/utils/detectSupportedImageMime';
 import { createAttachmentImageSource } from '@/utils/attachmentImageSource';
 import type { LoadedAttachmentImageSource } from '@/utils/attachmentImageSourceTypes';
 import type { AttachmentImageOptions, AttachmentImageState } from './attachmentImageTypes';
-import { detectHonorMotionPhoto } from '@slopus/happy-wire';
+import { detectMotionPhoto } from '@slopus/happy-wire';
 
 export type { AttachmentImageState } from './attachmentImageTypes';
 
@@ -118,7 +118,7 @@ async function loadAttachmentSource(
     }
     const mime = detectSupportedImageMime(decrypted) ?? 'image/png';
     const source: LoadedMotionImageSource = await createAttachmentImageSource(decrypted, mime, options);
-    const motionPhoto = detectHonorMotionPhoto(decrypted);
+    const motionPhoto = detectMotionPhoto(decrypted);
     if (motionPhoto) source.motionPhoto = motionPhoto;
     return source;
 }

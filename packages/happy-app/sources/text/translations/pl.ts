@@ -1647,6 +1647,7 @@ export const pl: TranslationStructure = {
 
     imageViewer: {
         download: 'Pobierz obraz',
+        downloadOriginalVideo: 'Pobierz oryginalny film',
         downloadOriginalMotionPhoto: 'Pobierz oryginalne ruchome zdjęcie',
         playMotionPhoto: 'Odtwórz ruchome zdjęcie',
         stopMotionPhoto: 'Zatrzymaj ruchome zdjęcie',
@@ -1654,6 +1655,7 @@ export const pl: TranslationStructure = {
         downloadFailedTitle: 'Pobieranie nie powiodło się',
         downloadFailedMessage: 'Nie udało się przygotować tego obrazu do pobrania.',
         motionPhotoDownloadFailedMessage: 'Nie udało się pobrać oryginalnego ruchomego zdjęcia.',
+        videoDownloadFailedMessage: 'Nie udało się pobrać oryginalnego filmu.',
         motionPhotoLoadFailedMessage: 'Nie udało się odtworzyć tego ruchomego zdjęcia.',
     },
 

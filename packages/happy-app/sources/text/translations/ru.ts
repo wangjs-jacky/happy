@@ -1646,6 +1646,7 @@ export const ru: TranslationStructure = {
 
     imageViewer: {
         download: 'Скачать изображение',
+        downloadOriginalVideo: 'Скачать исходное видео',
         downloadOriginalMotionPhoto: 'Скачать исходное динамическое фото',
         playMotionPhoto: 'Воспроизвести динамическое фото',
         stopMotionPhoto: 'Остановить динамическое фото',
@@ -1653,6 +1654,7 @@ export const ru: TranslationStructure = {
         downloadFailedTitle: 'Ошибка скачивания',
         downloadFailedMessage: 'Не удалось подготовить это изображение для скачивания.',
         motionPhotoDownloadFailedMessage: 'Не удалось скачать исходное динамическое фото.',
+        videoDownloadFailedMessage: 'Не удалось скачать исходное видео.',
         motionPhotoLoadFailedMessage: 'Не удалось воспроизвести это динамическое фото.',
     },
 

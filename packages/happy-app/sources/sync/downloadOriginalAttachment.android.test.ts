@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fileSystemMock = vi.hoisted(() => ({
     EncodingType: { Base64: 'base64' },
+    getInfoAsync: vi.fn(),
     readAsStringAsync: vi.fn(),
     StorageAccessFramework: {
         requestDirectoryPermissionsAsync: vi.fn(),
@@ -22,7 +23,10 @@ describe('downloadOriginalAttachment on Android', () => {
             granted: true,
             directoryUri: 'content://downloads',
         });
-        fileSystemMock.readAsStringAsync.mockResolvedValue('FULL_JPEG_AND_MP4_BASE64');
+        fileSystemMock.getInfoAsync.mockResolvedValue({ exists: true, isDirectory: false, size: 900 * 1024 });
+        fileSystemMock.readAsStringAsync
+            .mockResolvedValueOnce('FIRST_CHUNK_BASE64')
+            .mockResolvedValueOnce('SECOND_CHUNK_BASE64');
         fileSystemMock.StorageAccessFramework.createFileAsync.mockResolvedValue('content://downloads/holiday');
         fileSystemMock.StorageAccessFramework.writeAsStringAsync.mockResolvedValue(undefined);
 
@@ -32,20 +36,27 @@ describe('downloadOriginalAttachment on Android', () => {
             'image/jpeg',
         )).resolves.toBe(true);
 
-        expect(fileSystemMock.readAsStringAsync).toHaveBeenCalledWith(
-            'file:///cache/holiday.jpg',
-            { encoding: 'base64' },
-        );
+        expect(fileSystemMock.readAsStringAsync.mock.calls).toEqual([
+            ['file:///cache/holiday.jpg', {
+                encoding: 'base64', position: 0, length: 768 * 1024,
+            }],
+            ['file:///cache/holiday.jpg', {
+                encoding: 'base64', position: 768 * 1024, length: 132 * 1024,
+            }],
+        ]);
         expect(fileSystemMock.StorageAccessFramework.createFileAsync).toHaveBeenCalledWith(
             'content://downloads',
             'holiday.jpg',
             'image/jpeg',
         );
-        expect(fileSystemMock.StorageAccessFramework.writeAsStringAsync).toHaveBeenCalledWith(
-            'content://downloads/holiday',
-            'FULL_JPEG_AND_MP4_BASE64',
-            { encoding: 'base64' },
-        );
+        expect(fileSystemMock.StorageAccessFramework.writeAsStringAsync.mock.calls).toEqual([
+            ['content://downloads/holiday', 'FIRST_CHUNK_BASE64', {
+                encoding: 'base64', append: false,
+            }],
+            ['content://downloads/holiday', 'SECOND_CHUNK_BASE64', {
+                encoding: 'base64', append: true,
+            }],
+        ]);
     });
 
     it('treats directory-picker cancellation as a cancelled download', async () => {
