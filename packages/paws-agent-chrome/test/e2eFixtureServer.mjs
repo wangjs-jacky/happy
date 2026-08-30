@@ -10,7 +10,7 @@ const MACHINE_ID = 'paws-e2e-machine';
 const SESSION_ID = 'paws-e2e-session';
 const TOKEN = 'paws-e2e-token';
 
-export async function startE2eFixtureServer(extensionDir) {
+export async function startE2eFixtureServer(extensionDir, { injectContentScript = true } = {}) {
     const secret = tweetnacl.randomBytes(32);
     const state = {
         authRequests: 0,
@@ -33,7 +33,8 @@ export async function startE2eFixtureServer(extensionDir) {
         const url = new URL(request.url ?? '/', 'http://127.0.0.1');
         try {
             if (url.pathname === '/') {
-                send(response, 200, '<!doctype html><html><head><title>Paws Extension E2E Fixture</title></head><body><main><h1>Remote debugging fixture</h1><p id="issue">Payment failed with code 42</p></main><script src="/content.js"></script></body></html>', 'text/html; charset=utf-8');
+                const contentScript = injectContentScript ? '<script src="/content.js"></script>' : '';
+                send(response, 200, `<!doctype html><html><head><title>Paws Extension E2E Fixture</title></head><body><main><h1>Remote debugging fixture</h1><p id="issue">Payment failed with code 42</p></main>${contentScript}</body></html>`, 'text/html; charset=utf-8');
                 return;
             }
             const staticPath = url.pathname.slice(1);

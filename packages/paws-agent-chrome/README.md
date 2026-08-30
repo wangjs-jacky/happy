@@ -16,11 +16,15 @@ The unpacked extension is written to `packages/paws-agent-chrome/dist`.
 pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e
 pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:headed
 pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:record
+pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:ego
+pnpm --filter @wangjs-jacky/paws-agent-chrome test:e2e:ego:record
 ```
 
 `[PAWS-CHROME-BUBBLE-01]` runs the built content and panel bundles in a real Chromium page against a temporary local server that implements the account-link, encrypted SDK snapshot, Socket.IO RPC, session, and message boundaries. It covers QR linking, stored browser credentials, online machine selection, directory approval, page context, session creation, remote reply rendering, reset, and reconnect after reload without touching a production account.
 
-The harness cannot prove command-line installation in Google Chrome because current branded Chrome builds ignore `--load-extension`. Ego Lite host compatibility therefore remains a separate unpacked-extension acceptance step.
+The harness cannot prove command-line installation in Google Chrome because current branded Chrome builds ignore `--load-extension`. Ego Lite host compatibility is covered separately by the real-host acceptance Case below.
+
+`[PAWS-EGO-LITE-HOST-01]` launches the installed Ego Lite binary with a disposable browser profile and the unpacked extension, while disabling the fixture page's harness injection. It requires a real `chrome-extension://` iframe, real `chrome.storage`, the full encrypted SDK flow, and reconnect after a complete Ego Lite process restart. The recording entry assembles the same Case's six real-host screenshots into a validated H.264 evidence video. It does not modify the user's regular Ego Lite profile or connect to production.
 
 ## Load in Ego Lite
 
