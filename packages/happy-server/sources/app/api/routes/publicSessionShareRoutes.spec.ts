@@ -370,7 +370,26 @@ describe('publicSessionShareRoutes', () => {
             method: 'PUT', url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
             headers: { 'x-user-id': 'owner-1' }, payload: { snapshot: snapshot() },
         });
+        let transactionActive = false;
+        let cleanupMarkerWrittenInTransaction = false;
+        dbMock.$transaction.mockImplementationOnce(async (callback: any, options: any) => {
+            expect(options).toEqual({ isolationLevel: 'Serializable' });
+            transactionActive = true;
+            try {
+                return await callback(dbMock);
+            } finally {
+                transactionActive = false;
+            }
+        });
+        dbMock.publicSessionShareDraft.updateMany.mockImplementationOnce(async ({ where, data }: any) => {
+            expect(transactionActive).toBe(true);
+            cleanupMarkerWrittenInTransaction = data.status === 'revoked';
+            const rows = state.drafts.filter((row) => row.shareId === where.shareId);
+            rows.forEach((row) => Object.assign(row, data));
+            return { count: rows.length };
+        });
         expect((await app.inject({ method: 'DELETE', url: '/v1/sessions/session-1/share', headers: { 'x-user-id': 'owner-1' } })).statusCode).toBe(200);
+        expect(cleanupMarkerWrittenInTransaction).toBe(true);
         expect((await app.inject({ method: 'GET', url: `/v1/public/session-shares/${draft.publicId}` })).statusCode).toBe(404);
 
         const next = (await createDraft()).json();

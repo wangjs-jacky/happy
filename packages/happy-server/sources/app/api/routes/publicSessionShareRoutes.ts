@@ -517,29 +517,39 @@ export function publicSessionShareRoutes(app: Fastify) {
         });
         if (!session) return reply.code(404).send({ error: 'Session not found' });
         if (!await enforceShareWriteRate(request.userId, reply)) return;
-        const share = await db.publicSessionShare.findUnique({ where: { sessionId: session.id } });
-        if (!share || share.revokedAt) return reply.send({ ok: true });
         // Revocation is the terminal operation for the current public id. Do
-        // not condition it on a previously-read lifecycle version: if a
-        // publish transaction commits between this read and the update,
-        // revoke must still win instead of silently reporting success.
-        const revoked = await db.publicSessionShare.updateMany({
-            where: { id: share.id, revokedAt: null },
-            data: { revokedAt: new Date(), lifecycleVersion: { increment: 1 } },
-        });
-        if (revoked.count === 1) {
-            await db.publicSessionShareDraft.updateMany({
-                where: { shareId: share.id },
-                data: { status: 'revoked', expiresAt: new Date() },
+        // not condition it on a previously-read lifecycle version. The share
+        // and every cleanup marker commit atomically so a crash cannot leave a
+        // revoked public id whose published generation is excluded forever
+        // from the retry worker.
+        const revocation = await serializableTransaction(async (tx) => {
+            const share = await tx.publicSessionShare.findUnique({ where: { sessionId: session.id } });
+            if (!share || share.revokedAt) return null;
+            const revokedAt = new Date();
+            const revoked = await tx.publicSessionShare.updateMany({
+                where: { id: share.id, revokedAt: null },
+                data: { revokedAt, lifecycleVersion: { increment: 1 } },
             });
-            const generations = await db.publicSessionShareDraft.findMany({
+            if (revoked.count !== 1) return null;
+            await tx.publicSessionShareDraft.updateMany({
+                where: { shareId: share.id },
+                data: { status: 'revoked', expiresAt: revokedAt },
+            });
+            const generations = await tx.publicSessionShareDraft.findMany({
                 where: { shareId: share.id },
                 select: { id: true },
             });
-            const generationIds = new Set(generations.map((draft) => draft.id));
-            if (share.activeGeneration) generationIds.add(share.activeGeneration);
+            return {
+                shareId: share.id,
+                activeGeneration: share.activeGeneration,
+                generations: generations.map((draft) => draft.id),
+            };
+        });
+        if (revocation) {
+            const generationIds = new Set(revocation.generations);
+            if (revocation.activeGeneration) generationIds.add(revocation.activeGeneration);
             await Promise.all(Array.from(generationIds, (generation) => (
-                cleanupShareGenerationWhenPossible(share.id, generation)
+                cleanupShareGenerationWhenPossible(revocation.shareId, generation)
             )));
         }
         return reply.send({ ok: true });
