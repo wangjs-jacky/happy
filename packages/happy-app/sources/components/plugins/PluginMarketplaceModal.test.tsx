@@ -261,6 +261,32 @@ describe('PluginMarketplaceModal', () => {
         act(() => renderer.unmount());
     });
 
+    it('opens an open-action plugin with the status returned by installation', () => {
+        const onClose = vi.fn();
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <PluginMarketplaceModal
+                    initialPluginId="generated-images-gallery"
+                    visible
+                    onClose={onClose}
+                />,
+            );
+        });
+
+        act(() => renderer.root.findByType('DynamicPluginConfiguration').props.onInstalled({
+            installed: true,
+            version: '1.0.0',
+            grantedPermissions: ['paws.conversations.images.read'],
+            configuration: {},
+            secretHints: {},
+        }));
+
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(mocks.navigate).toHaveBeenCalledWith('/generated-images');
+        act(() => renderer.unmount());
+    });
+
     it('offers an update instead of opening when stored grants no longer match the manifest', () => {
         setPlugins(false, true);
         mocks.plugins[1].status.grantedPermissions = [];

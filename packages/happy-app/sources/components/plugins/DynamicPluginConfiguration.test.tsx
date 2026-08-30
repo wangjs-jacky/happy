@@ -80,10 +80,20 @@ describe('DynamicPluginConfiguration', () => {
     afterEach(() => consoleErrorSpy.mockRestore());
 
     it('builds localized fields from the manifest and pins its version on install', async () => {
+        const installedStatus = {
+            installed: true as const,
+            version: '2.3.0',
+            grantedPermissions: [...manifest.permissions],
+            configuration: { endpoint: 'https://example.com/v1' },
+            secretHints: { token: 'cret' },
+        };
+        mocks.install.mockResolvedValue(installedStatus);
+        const onInstalled = vi.fn();
         const onStatusChanged = vi.fn();
         let renderer: any;
         await act(async () => {
             renderer = TestRenderer.create(<DynamicPluginConfiguration
+                onInstalled={onInstalled}
                 onStatusChanged={onStatusChanged}
                 plugin={{ manifest, status: { installed: false } }}
             />);
@@ -115,6 +125,7 @@ describe('DynamicPluginConfiguration', () => {
             testID: 'server-plugin-built-in-code',
         }).props.subtitle).toBe('relationshipAdvisorPlugin.builtInCodeNotice');
         expect(onStatusChanged).toHaveBeenCalledTimes(1);
+        expect(onInstalled).toHaveBeenCalledWith(installedStatus);
         act(() => renderer.unmount());
     });
 

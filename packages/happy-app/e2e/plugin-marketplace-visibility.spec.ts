@@ -85,7 +85,27 @@ async function installDevelopmentRefreshIndicatorSuppression(page: Page): Promis
     });
 }
 
-test.setTimeout(120_000);
+async function activateGinghamDarkTheme(page: Page): Promise<void> {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto(authenticatedRoute('/settings/appearance'));
+    const gingham = page.getByText('Gingham', { exact: true });
+    await expect(gingham).toBeVisible({ timeout: 120_000 });
+    await gingham.click();
+    await expectGinghamDarkTheme(page);
+}
+
+async function expectGinghamDarkTheme(page: Page): Promise<void> {
+    await expect.poll(() => page.locator('body').evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ))).toBe('rgb(18, 24, 33)');
+}
+
+const evidenceMode = Boolean(
+    evidenceDirectory
+    || permissionEvidenceDirectory
+    || reviewEvidenceDirectory,
+);
+test.setTimeout(evidenceMode ? 600_000 : 120_000);
 
 test('[PLUGIN-MARKETPLACE-VISIBILITY] 插件目录有内容且未安装军师不进入我的 Agent', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -248,7 +268,7 @@ test('[PLUGIN-PERMISSION-GRANTS] 安装前展示内置代码边界与完整权�
     });
 
     try {
-        await page.goto(authenticatedRoute('/'));
+        await activateGinghamDarkTheme(page);
         await page.getByTestId('sidebar-plugins-button').click();
         await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible({ timeout: 120_000 });
         await page.getByTestId('plugin-marketplace-plugin-relationship-advisor').click();
@@ -279,6 +299,7 @@ test('[PLUGIN-PERMISSION-GRANTS] 安装前展示内置代码边界与完整权�
         await pauseForRecordedReview(page);
         await page.screenshot({ path: permissionEvidencePath(testInfo), fullPage: true });
 
+        if (permissionEvidenceDirectory) return;
         if (permissionEvidencePhase === 'after') {
             await page.setViewportSize({ width: 390, height: 844 });
             await expect(page.getByTestId('plugin-marketplace-mobile-drawer')).toBeVisible();
@@ -331,7 +352,7 @@ test('[PLUGIN-PERMISSION-REVIEW] 授权快照失效时要求复审并可安全�
     });
 
     try {
-        await page.goto(authenticatedRoute('/'));
+        await activateGinghamDarkTheme(page);
         await page.getByTestId('sidebar-plugins-button').click();
         await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible({ timeout: 120_000 });
         await expect(page.getByTestId('plugin-marketplace-installed-relationship-advisor')).toHaveCount(0);
@@ -345,6 +366,7 @@ test('[PLUGIN-PERMISSION-REVIEW] 授权快照失效时要求复审并可安全�
         await expect(reviewAction).toBeVisible();
         await page.screenshot({ path: reviewEvidencePath(testInfo), fullPage: true });
 
+        if (reviewEvidenceDirectory) return;
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.getByTestId('plugin-marketplace-mobile-drawer')).toBeVisible();
         await expect(status).toContainText(/Review required|需要重新确认/);
@@ -352,6 +374,85 @@ test('[PLUGIN-PERMISSION-REVIEW] 授权快照失效时要求复审并可安全�
         await page.getByTestId('relationship-advisor-plugin-uninstall').click();
         await expect(status).toContainText(/Not installed|未安装/);
         await expect(page.getByTestId('relationship-advisor-plugin-uninstall')).toHaveCount(0);
+    } finally {
+        await page.close();
+    }
+});
+
+test('[PLUGIN-INSTALL-LIFECYCLE] 画廊插件通过真实 API 完成安装与卸载闭环', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installDevelopmentRefreshIndicatorSuppression(page);
+
+    const isPluginResponse = (response: import('@playwright/test').Response, method: string, pathname: string) => (
+        response.request().method() === method
+        && new URL(response.url()).pathname === pathname
+    );
+
+    try {
+        await page.goto(authenticatedRoute('/'));
+        const pluginButton = page.getByTestId('sidebar-plugins-button');
+        await expect(pluginButton).toBeVisible({ timeout: 120_000 });
+        await pluginButton.click();
+        await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible();
+        await page.getByTestId('plugin-marketplace-plugin-generated-images-gallery').click();
+
+        const installButton = page.getByTestId('generated-images-gallery-plugin-install');
+        await expect(installButton).toBeVisible();
+        const installResponsePromise = page.waitForResponse((response) => isPluginResponse(
+            response,
+            'PUT',
+            '/v1/plugins/generated-images-gallery',
+        ));
+        const installedCatalogPromise = page.waitForResponse((response) => isPluginResponse(
+            response,
+            'GET',
+            '/v1/plugins',
+        ));
+        await installButton.click();
+
+        const installResponse = await installResponsePromise;
+        expect(installResponse.status()).toBe(200);
+        const installedCatalogResponse = await installedCatalogPromise;
+        expect(installedCatalogResponse.status()).toBe(200);
+        const installedCatalog = await installedCatalogResponse.json() as typeof catalogFixture;
+        expect(installedCatalog.plugins.find(({ manifest }) => (
+            manifest.id === 'generated-images-gallery'
+        ))?.status).toMatchObject({
+            installed: true,
+            grantedPermissions: ['paws.conversations.images.read'],
+        });
+        await expect(page).toHaveURL(/\/generated-images$/);
+
+        await pluginButton.click();
+        await expect(page.getByTestId('plugin-marketplace-desktop-dialog')).toBeVisible();
+        await expect(page.getByTestId('plugin-marketplace-installed-generated-images-gallery')).toBeVisible();
+        await page.getByTestId('plugin-marketplace-plugin-generated-images-gallery').click();
+
+        const uninstallButton = page.getByTestId('generated-images-gallery-plugin-uninstall');
+        await expect(uninstallButton).toBeVisible();
+        const uninstallResponsePromise = page.waitForResponse((response) => isPluginResponse(
+            response,
+            'DELETE',
+            '/v1/plugins/generated-images-gallery',
+        ));
+        const uninstalledCatalogPromise = page.waitForResponse((response) => isPluginResponse(
+            response,
+            'GET',
+            '/v1/plugins',
+        ));
+        await uninstallButton.click();
+
+        const uninstallResponse = await uninstallResponsePromise;
+        expect(uninstallResponse.status()).toBe(200);
+        const uninstalledCatalogResponse = await uninstalledCatalogPromise;
+        expect(uninstalledCatalogResponse.status()).toBe(200);
+        const uninstalledCatalog = await uninstalledCatalogResponse.json() as typeof catalogFixture;
+        expect(uninstalledCatalog.plugins.find(({ manifest }) => (
+            manifest.id === 'generated-images-gallery'
+        ))?.status).toEqual({ installed: false });
+        await expect(page.getByTestId('generated-images-gallery-plugin-uninstall')).toHaveCount(0);
+        await expect(page.getByTestId('generated-images-gallery-plugin-status'))
+            .toContainText(/Not installed|未安装/);
     } finally {
         await page.close();
     }

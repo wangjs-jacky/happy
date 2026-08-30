@@ -2,6 +2,7 @@ import type {
     PluginCatalogItem,
     PluginConnectionTestFailureCode,
     PluginConnectionTestResult,
+    PluginInstallationStatus,
     PluginPermission,
 } from '@slopus/happy-wire';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +23,7 @@ import { isCurrentPluginInstallation } from './pluginInstallation';
 
 type Props = {
     plugin: PluginCatalogItem;
-    onInstalled?: () => void;
+    onInstalled?: (status: PluginInstallationStatus) => void | Promise<void>;
     onOpen?: () => void;
     onStatusChanged?: () => void | Promise<void>;
 };
@@ -96,9 +97,14 @@ export const DynamicPluginConfiguration = React.memo(function DynamicPluginConfi
     }, [manifest.id, status]);
 
     const install = React.useCallback(async () => {
-        await installPlugin(manifest.id, manifest.version, values, [...manifest.permissions]);
+        const installedStatus = await installPlugin(
+            manifest.id,
+            manifest.version,
+            values,
+            [...manifest.permissions],
+        );
         await onStatusChanged?.();
-        onInstalled?.();
+        await onInstalled?.(installedStatus);
     }, [manifest.id, manifest.permissions, manifest.version, onInstalled, onStatusChanged, values]);
     const [installing, performInstall] = useHappyAction(install);
 

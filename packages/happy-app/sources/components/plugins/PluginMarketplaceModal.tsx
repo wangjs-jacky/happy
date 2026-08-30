@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { PluginCatalogItem } from '@slopus/happy-wire';
+import type { PluginCatalogItem, PluginInstallationStatus } from '@slopus/happy-wire';
 import {
     Modal,
     Platform,
@@ -121,6 +121,10 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
         close();
         router.navigate(entrypoint.path as any);
     }, [close, router]);
+    const openActivePluginAfterInstall = React.useCallback((status: PluginInstallationStatus) => {
+        if (!activePlugin || activePlugin.manifest.installedAction !== 'open') return;
+        openPlugin({ ...activePlugin, status });
+    }, [activePlugin, openPlugin]);
 
     return (
         <Modal
@@ -190,7 +194,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                             {activeInstalledModal?.componentId === 'plugin-configuration' ? (
                                 <PluginModalSlot
                                     onInstalled={activePlugin.manifest.installedAction === 'open'
-                                        ? () => openPlugin(activePlugin)
+                                        ? openActivePluginAfterInstall
                                         : undefined}
                                     onOpen={() => openPlugin(activePlugin)}
                                     onStatusChanged={async () => { await refresh(); }}
@@ -199,7 +203,7 @@ export const PluginMarketplaceModal = React.memo(function PluginMarketplaceModal
                             ) : (
                                 <DynamicPluginConfiguration
                                     onInstalled={activePlugin.manifest.installedAction === 'open'
-                                        ? () => openPlugin(activePlugin)
+                                        ? openActivePluginAfterInstall
                                         : undefined}
                                     onOpen={() => openPlugin(activePlugin)}
                                     onStatusChanged={async () => { await refresh(); }}
