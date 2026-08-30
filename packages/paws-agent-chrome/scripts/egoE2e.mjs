@@ -125,9 +125,10 @@ async function openFirstPage(targetBrowser) {
     await page.goto(fixture.origin, { waitUntil: 'domcontentloaded' });
     await page.locator('#issue').selectText();
     const injection = await verifyInjection(page);
+    const bubble = page.frameLocator('#paws-agent-bubble-frame');
+    await bubble.getByRole('button', { name: '打开 Paws Agent' }).waitFor();
     await page.screenshot({ path: screenshotPaths.collapsed });
 
-    const bubble = page.frameLocator('#paws-agent-bubble-frame');
     stage('link account through the real extension frame');
     await bubble.getByRole('button', { name: '打开 Paws Agent' }).click();
     await waitForExpandedFrame(page);
