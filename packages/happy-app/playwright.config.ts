@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL;
 const recordArtifacts = process.env.HAPPY_E2E_RECORD === '1';
+const liveEgoAcceptance = process.env.HAPPY_EGO_LIVE_E2E === '1';
 
 if (!authenticatedWebUrl) {
     throw new Error('缺少 HAPPY_E2E_WEB_URL；请通过 pnpm test:e2e:web 启动测试。');
@@ -16,7 +17,9 @@ export default defineConfig({
         ['line'],
         ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ],
-    timeout: 60_000,
+    // The opt-in real-browser acceptance case drives an authenticated remote
+    // site and produces three screenshots. Keep ordinary Web E2E at 60s.
+    timeout: liveEgoAcceptance ? 180_000 : 60_000,
     repeatEach: Number.parseInt(process.env.HAPPY_E2E_REPEAT_EACH ?? '1', 10),
     use: {
         channel: process.env.HAPPY_E2E_BROWSER_CHANNEL ?? 'chrome',

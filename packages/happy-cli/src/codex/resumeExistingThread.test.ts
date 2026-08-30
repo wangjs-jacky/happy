@@ -49,6 +49,7 @@ describe('resumeExistingThread', () => {
             threadId: '019ccca2-1a77-7481-9873-de72f3464372',
             cwd: '/tmp/project',
             mcpServers: { happy: { command: 'happy-mcp' } },
+            developerInstructions: 'Observe browser steps.',
         });
 
         expect(result).toEqual({
@@ -61,6 +62,7 @@ describe('resumeExistingThread', () => {
             threadId: '019ccca2-1a77-7481-9873-de72f3464372',
             cwd: '/tmp/project',
             mcpServers: { happy: { command: 'happy-mcp' } },
+            developerInstructions: 'Observe browser steps.',
         });
         expect(metadata).toEqual({
             existing: true,

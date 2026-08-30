@@ -60,6 +60,10 @@ import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
 import { mergeReconnectMetadata } from './reconnectMetadata';
+import {
+    BROWSER_OBSERVATION_PROMPT,
+    isBrowserObservationPromptEnabled,
+} from '@/browser/browserObservationPrompt';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -1112,6 +1116,9 @@ export async function runCodex(opts: {
     } as const;
     let first = true;
     let appendSystemPromptInjected = false;
+    const browserObservationDeveloperInstructions = isBrowserObservationPromptEnabled()
+        ? BROWSER_OBSERVATION_PROMPT
+        : undefined;
 
     try {
         await reconnectMetadataReady;
@@ -1146,6 +1153,7 @@ export async function runCodex(opts: {
                 cwd: process.cwd(),
                 mcpServers,
                 historyMode: reconnectSessionId ? 'after-cursor' : 'full',
+                developerInstructions: browserObservationDeveloperInstructions,
             });
             if (resumedThread.activeTurnId) {
                 currentTurnId = resumedThread.activeTurnId;
@@ -1212,6 +1220,7 @@ export async function runCodex(opts: {
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
                     mcpServers,
+                    developerInstructions: browserObservationDeveloperInstructions,
                 });
                 if (!mode.model) {
                     baselineModel = startedThread.model;
@@ -1255,6 +1264,7 @@ export async function runCodex(opts: {
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
                     mcpServers,
+                    developerInstructions: browserObservationDeveloperInstructions,
                 });
                 session.updateMetadata((currentMetadata) => ({
                     ...currentMetadata,
@@ -1382,6 +1392,7 @@ export async function runCodex(opts: {
                 approvalPolicy: existing.executionPolicy.approvalPolicy,
                 sandbox: existing.executionPolicy.sandbox,
                 mcpServers,
+                developerInstructions: browserObservationDeveloperInstructions,
             });
             session.updateMetadata((currentMetadata) => ({
                 ...currentMetadata,

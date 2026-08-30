@@ -90,6 +90,7 @@ import {
 } from '@/components/subagent/SubagentInspectorContext';
 import { SubagentInspectorPanel } from '@/components/subagent/SubagentInspectorPanel';
 import { findSessionTitleTagQuery, removeSessionTitleTagQuery } from '@/utils/sessionTitleTags';
+import { SessionRightPanelNavigationProvider } from '@/components/rightPanel/SessionRightPanelNavigationContext';
 
 // Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
 // off the running session's `flavor` (an active session reports its agent there).
@@ -732,6 +733,27 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             setRightDrawerOpen(true);
         }
     }, [desktopRightPanelAvailable, isDataReady, session, setDesktopRightPanelCollapsed, subagentSelection]);
+    const openBrowserStepsPanel = React.useCallback(() => {
+        if (!isDataReady || !session) return;
+        setInfoPanelOpen(false);
+        subagentInspector?.close();
+        setDesktopPanelMode('capabilities');
+        if (desktopRightPanelAvailable) {
+            setDesktopRightPanelCollapsed(false);
+        } else if (compactRightDrawerAvailable) {
+            setRightDrawerOpen(true);
+        }
+    }, [
+        compactRightDrawerAvailable,
+        desktopRightPanelAvailable,
+        isDataReady,
+        session,
+        setDesktopRightPanelCollapsed,
+        subagentInspector,
+    ]);
+    const rightPanelNavigation = React.useMemo(() => ({
+        openBrowserSteps: openBrowserStepsPanel,
+    }), [openBrowserStepsPanel]);
     const toggleCompactRightDrawer = React.useCallback(() => {
         if (!compactRightDrawerAvailable) return;
         if (rightDrawerOpen) {
@@ -949,7 +971,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         : 0;
 
     const mainContent = (
-        <>
+        <SessionRightPanelNavigationProvider value={rightPanelNavigation}>
             {/* Status bar shadow for landscape mode */}
             {isLandscape && deviceType === 'phone' && (
                 <View style={{
@@ -1055,7 +1077,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     visible={organizerOpen}
                 />
             ) : null}
-        </>
+        </SessionRightPanelNavigationProvider>
     );
 
     if (!desktopRightPanelAvailable) {

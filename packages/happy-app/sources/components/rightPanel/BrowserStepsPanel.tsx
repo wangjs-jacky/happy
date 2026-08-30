@@ -22,7 +22,12 @@ const BrowserStepPreview = React.memo(function BrowserStepPreview(props: {
     return (
         <View style={[styles.preview, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
             {uri ? (
-                <Image resizeMode="contain" source={{ uri }} style={styles.previewImage} />
+                <Image
+                    resizeMode="contain"
+                    source={{ uri }}
+                    style={styles.previewImage}
+                    testID="browser-steps-preview-image"
+                />
             ) : (
                 <View style={styles.previewPlaceholder}>
                     {loading ? <ActivityIndicator color={theme.colors.textSecondary} size="small" /> : <Ionicons color={theme.colors.textSecondary} name="image-outline" size={28} />}
@@ -61,7 +66,11 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
     if (!selected) return null;
 
     return (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            testID="browser-steps-panel"
+        >
             <View style={styles.heading}>
                 <View style={[styles.headingIcon, { backgroundColor: theme.colors.surfaceHigh }]}>
                     <Ionicons color={theme.colors.text} name="globe-outline" size={17} />
@@ -74,10 +83,19 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
 
             <BrowserStepPreview sessionId={props.sessionId} step={selected} />
             <View style={styles.activeCopy}>
-                <Text style={[styles.activeLabel, { color: theme.colors.text }]} numberOfLines={2}>
+                <Text
+                    style={[styles.activeLabel, { color: theme.colors.text }]}
+                    numberOfLines={2}
+                    testID="browser-steps-active-label"
+                >
                     {selected.label}
                 </Text>
-                <Text style={[styles.activeMeta, { color: theme.colors.textSecondary }]}>第 {props.steps.findIndex((step) => step.id === selected.id) + 1} 步 · {formatTime(selected.createdAt)}</Text>
+                <Text
+                    style={[styles.activeMeta, { color: theme.colors.textSecondary }]}
+                    testID="browser-steps-active-meta"
+                >
+                    第 {props.steps.findIndex((step) => step.id === selected.id) + 1} 步 · {formatTime(selected.createdAt)}
+                </Text>
             </View>
 
             <View style={styles.timeline}>
@@ -85,10 +103,12 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
                     const active = step.id === selected.id;
                     return (
                         <Pressable
+                            accessibilityLabel={`浏览器步骤 ${index + 1}: ${step.label}`}
                             accessibilityRole="button"
                             key={step.id}
                             onPress={() => setSelectedId(step.id)}
                             style={({ pressed }) => [styles.stepRow, { opacity: pressed ? 0.72 : 1 }]}
+                            testID={`browser-steps-step-${index + 1}`}
                         >
                             <View style={styles.timelineMarker}>
                                 <View style={[styles.stepNumber, { backgroundColor: active ? theme.colors.surfaceSelected : theme.colors.surfaceHigh }]}>

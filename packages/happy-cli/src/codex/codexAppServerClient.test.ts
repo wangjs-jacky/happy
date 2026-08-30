@@ -407,6 +407,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'read-only',
+            developerInstructions: 'Observe browser steps.',
         });
 
         const pendingTurn = client.sendTurnAndWait('hang forever', { turnTimeoutMs: 5000 });
@@ -438,6 +439,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'read-only',
+            developerInstructions: 'Observe browser steps.',
             persistExtendedHistory: true,
         }));
         expect(client.threadId).toBe('thread-1');
@@ -529,6 +531,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'workspace-write',
+            developerInstructions: 'Observe browser steps.',
         });
         const read = await client.readThread({ threadId: forked.threadId, includeTurns: true });
         const rolledBack = await client.rollbackThread({ threadId: forked.threadId, numTurns: 2 });
@@ -550,6 +553,7 @@ describe('CodexAppServerClient sandbox integration', () => {
             cwd: '/tmp/project',
             approvalPolicy: 'on-request',
             sandbox: 'workspace-write',
+            developerInstructions: 'Observe browser steps.',
         }));
         expect(requests.find((msg) => msg.method === 'thread/read')?.params).toEqual({
             threadId: 'thread-forked',

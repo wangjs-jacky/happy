@@ -62,6 +62,10 @@ function humanSize(bytes: number | undefined): string | null {
 export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
     const parsed = fileInputSchema.safeParse(tool.input);
     if (!parsed.success) return null;
+    // Browser observation images belong exclusively to BrowserStepsPanel.
+    // Keep the event in the conversation model so the panel can derive its
+    // timeline, but never duplicate it as an ordinary chat attachment.
+    if (parsed.data.source === 'browser_step') return null;
     if (parsed.data.kind === 'video') {
         return (
             <InlineVideoFile

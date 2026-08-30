@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { SubagentInspectorProvider, useSubagentInspector } from './subagent/SubagentInspectorContext';
 import { ConversationActivityStrip } from './ConversationActivityStrip';
+import { SessionRightPanelNavigationProvider } from './rightPanel/SessionRightPanelNavigationContext';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface below.
@@ -104,6 +105,29 @@ describe('ConversationActivityStrip', () => {
         subagentRow = renderer.root.findByProps({ testID: 'activity-subagent-agent-one' });
         expect(subagentRow.props.accessibilityState).toEqual({ expanded: true });
 
+        act(() => renderer.unmount());
+    });
+
+    it('opens Browser Steps when the ego-ops Skill row is pressed', () => {
+        const openBrowserSteps = vi.fn();
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <SessionRightPanelNavigationProvider value={{ openBrowserSteps }}>
+                    <ConversationActivityStrip messages={[
+                        toolMessage('3', 'Skill', { skillName: 'ego-ops' }),
+                    ]} />
+                </SessionRightPanelNavigationProvider>,
+            );
+        });
+
+        const skillRow = renderer.root.findByProps({ testID: 'activity-skill-ego-ops' });
+        expect(skillRow.type).toBe('Pressable');
+        expect(skillRow.props.accessibilityRole).toBe('button');
+        expect(skillRow.props.accessibilityLabel).toBe('toolGroup.skillLabel ego-ops');
+
+        act(() => skillRow.props.onPress());
+        expect(openBrowserSteps).toHaveBeenCalledTimes(1);
         act(() => renderer.unmount());
     });
 });

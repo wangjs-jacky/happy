@@ -120,6 +120,35 @@ describe('FileView media playback', () => {
 
     afterEach(() => consoleWarnSpy.mockRestore());
 
+    it('keeps browser step screenshots out of the ordinary conversation attachment flow', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <FileView
+                    tool={{
+                        name: 'file',
+                        state: 'completed',
+                        input: {
+                            ref: 'sessions/s1/attachments/browser-step.enc',
+                            name: 'browser-step.png',
+                            kind: 'image',
+                            mimeType: 'image/png',
+                            source: 'browser_step',
+                            image: { width: 1280, height: 720 },
+                        },
+                    } as any}
+                    sessionId="s1"
+                    metadata={null}
+                    messages={[]}
+                />,
+            );
+        });
+
+        expect(renderer.toJSON()).toBeNull();
+        expect(renderer.root.findAllByType('Image')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
     it('renders a generated plaintext MP4 directly without a file card', async () => {
         let renderer: any;
         await act(async () => {

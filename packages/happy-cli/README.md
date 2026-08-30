@@ -143,6 +143,7 @@ paws connect status
 | `HAPPY_CODEX_APP_SERVER_MODE` | Codex transport: `spawn` (default) or experimental `shared` Unix Socket mode |
 | `HAPPY_CODEX_APP_SERVER_SOCKET` | Absolute path to a shared Codex app-server socket (default: `$CODEX_HOME/app-server-control/app-server-control.sock`) |
 | `HAPPY_CODEX_APPROVAL_AUTHORITY` | Shared-mode approval responder: `desktop` (default) or `paws` |
+| `HAPPY_BROWSER_OBSERVATION_PROMPT` | Set to `0` to disable automatic Ego Lite browser-step screenshot instructions |
 
 ### Shared Codex Desktop Thread (experimental)
 
