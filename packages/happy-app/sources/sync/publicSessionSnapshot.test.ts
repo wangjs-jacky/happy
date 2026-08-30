@@ -14,7 +14,13 @@ describe('buildPublicSessionSnapshot', () => {
                 kind: 'tool-call', id: 't1', localId: null, createdAt: 4,
                 tool: {
                     name: 'Bash', state: 'completed', input: { command: 'pwd', sessionId: 'secret-session' },
-                    description: 'Read the working directory', result: { output: '/workspace', machineId: 'secret-machine' },
+                    description: 'Read the working directory', result: {
+                        output: '/workspace',
+                        machineId: 'secret-machine',
+                        api_key: 'secret-api-key',
+                        Authorization: 'Bearer secret-token',
+                        nested: { password: 'secret-password' },
+                    },
                     createdAt: 4, startedAt: 4, completedAt: 5,
                 },
                 children: [],
@@ -44,6 +50,9 @@ describe('buildPublicSessionSnapshot', () => {
         expect(serialized).not.toContain('private wire text');
         expect(serialized).not.toContain('secret-session');
         expect(serialized).not.toContain('secret-machine');
+        expect(serialized).not.toContain('secret-api-key');
+        expect(serialized).not.toContain('secret-token');
+        expect(serialized).not.toContain('secret-password');
     });
 
     it('replaces private file refs with deduplicated opaque attachment ids', () => {

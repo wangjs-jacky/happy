@@ -9,16 +9,19 @@ import type {
 } from './publicSessionShareTypes';
 
 const PRIVATE_TOOL_KEYS = new Set([
-    'sessionId',
-    'machineId',
-    'localPath',
+    'sessionid',
+    'machineid',
+    'localpath',
     'permission',
     'permissions',
     'ref',
-    'token',
-    'accessToken',
-    'secret',
 ]);
+
+function isPrivateToolKey(key: string): boolean {
+    const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    return PRIVATE_TOOL_KEYS.has(normalized)
+        || /(token|secret|password|passwd|authorization|cookie|credential|privatekey|apikey)/.test(normalized);
+}
 
 function sanitizeToolValue(value: unknown, depth = 0): unknown {
     if (depth > 8) return '[nested content omitted]';
@@ -28,8 +31,14 @@ function sanitizeToolValue(value: unknown, depth = 0): unknown {
     if (typeof value === 'object') {
         return Object.fromEntries(
             Object.entries(value as Record<string, unknown>)
-                .filter(([key]) => !PRIVATE_TOOL_KEYS.has(key))
-                .map(([key, child]) => [key, sanitizeToolValue(child, depth + 1)]),
+                .filter(([key]) => !isPrivateToolKey(key))
+                .flatMap(([key, child]) => {
+                    const sanitized = sanitizeToolValue(child, depth + 1);
+                    if (sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) && Object.keys(sanitized).length === 0) {
+                        return [];
+                    }
+                    return [[key, sanitized]];
+                }),
         );
     }
     return String(value);
