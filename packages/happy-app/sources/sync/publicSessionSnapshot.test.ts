@@ -34,14 +34,13 @@ describe('buildPublicSessionSnapshot', () => {
             title: 'Session title',
             sharedAt: now,
             messages: [
-                { id: 'u1', role: 'user', createdAt: 1, blocks: [{ type: 'text', markdown: 'Visible question' }] },
-                { id: 'a1', role: 'assistant', createdAt: 2, blocks: [{ type: 'text', markdown: 'Visible answer' }] },
-                { id: 'a2', role: 'assistant', createdAt: 3, blocks: [{ type: 'thinking', markdown: 'Reasoning' }] },
+                { id: 'message-1', role: 'user', createdAt: 1, blocks: [{ type: 'text', markdown: 'Visible question' }] },
+                { id: 'message-2', role: 'assistant', createdAt: 2, blocks: [{ type: 'text', markdown: 'Visible answer' }] },
+                { id: 'message-3', role: 'assistant', createdAt: 3, blocks: [{ type: 'thinking', markdown: 'Reasoning' }] },
                 {
-                    id: 't1', role: 'assistant', createdAt: 4,
+                    id: 'message-4', role: 'assistant', createdAt: 4,
                     blocks: [{
-                        type: 'tool', name: 'Bash', status: 'completed', title: 'Read the working directory',
-                        body: '{\n  "output": "/workspace"\n}',
+                        type: 'tool', name: 'Bash', status: 'completed',
                     }],
                 },
             ],
@@ -53,6 +52,51 @@ describe('buildPublicSessionSnapshot', () => {
         expect(serialized).not.toContain('secret-api-key');
         expect(serialized).not.toContain('secret-token');
         expect(serialized).not.toContain('secret-password');
+    });
+
+    it('publishes only the public tool envelope and drops hidden tools and private metadata', () => {
+        const visible: Message = {
+            kind: 'tool-call', id: 'visible', localId: null, createdAt: 1,
+            tool: {
+                name: 'Read', state: 'completed', description: '/Users/private/secrets.txt',
+                input: {
+                    path: '/Users/private/secrets.txt', file_path: '/Users/private/secrets.txt', cwd: '/Users/private',
+                    workdir: '/workspace/private', homeDir: '/Users/private', host: 'private-host', model: 'internal-model',
+                    permission_mode: 'bypassPermissions', token: 'secret-token', arbitrary: 'must-not-be-public',
+                },
+                result: { output: 'raw private output', apiKey: 'secret-key' },
+                createdAt: 1, startedAt: 1, completedAt: 1,
+            }, children: [],
+        };
+        const hiddenTool = (id: string, name: string): Message => ({
+            kind: 'tool-call', id, localId: null, createdAt: 2,
+            tool: {
+                name, state: 'completed', input: { content: 'hidden input' }, result: { content: 'hidden result' },
+                description: 'hidden description', createdAt: 2, startedAt: 2, completedAt: 2,
+            }, children: [],
+        });
+
+        const result = buildPublicSessionSnapshot({
+            title: 'Safe tools',
+            messages: [
+                visible,
+                hiddenTool('codex-reasoning', 'CodexReasoning'),
+                hiddenTool('gemini-reasoning', 'GeminiReasoning'),
+                hiddenTool('think', 'think'),
+                hiddenTool('change-title', 'change_title'),
+                hiddenTool('tool-search', 'ToolSearch'),
+            ],
+            sharedAt: now,
+        });
+
+        expect(result.snapshot.messages).toEqual([{
+            id: 'message-1', role: 'assistant', createdAt: 1,
+            blocks: [{ type: 'tool', name: 'Read', status: 'completed' }],
+        }]);
+        const serialized = JSON.stringify(result.snapshot);
+        for (const prohibited of ['Users', 'workspace', 'private-host', 'internal-model', 'permission_mode', 'secret-token', 'secret-key', 'raw private output', 'hidden input']) {
+            expect(serialized).not.toContain(prohibited);
+        }
     });
 
     it('replaces private file refs with deduplicated opaque attachment ids', () => {
@@ -121,5 +165,27 @@ describe('buildPublicSessionSnapshot', () => {
             { kind: 'video', mimeType: 'video/mp4', encrypted: false },
             { kind: 'file', mimeType: 'application/pdf', encrypted: true },
         ]);
+    });
+
+    it('normalizes cross-platform attachment names without Node path APIs', () => {
+        const message: Message = {
+            kind: 'tool-call', id: 'audio', localId: null, createdAt: 1,
+            tool: {
+                name: 'file', state: 'completed', input: {
+                    ref: 'sessions/s/attachments/voice.enc', name: 'C:\\Users\\private\\voice.WAV', size: 12,
+                    kind: 'audio', encrypted: true,
+                },
+                description: null, createdAt: 1, startedAt: 1, completedAt: 1,
+            }, children: [],
+        };
+
+        const result = buildPublicSessionSnapshot({
+            title: 'Audio', messages: [message], sharedAt: now,
+            createAttachmentId: () => '11111111-1111-4111-8111-111111111111',
+        });
+
+        expect(result.attachments[0]).toMatchObject({ name: 'voice.WAV', mimeType: 'audio/wav' });
+        expect(JSON.stringify(result.snapshot)).not.toContain('Users');
+        expect(JSON.stringify(result.snapshot)).not.toContain('private');
     });
 });

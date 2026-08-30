@@ -143,7 +143,7 @@ const session = {
     },
 } as any;
 
-function renderPanel(online: boolean) {
+function renderPanel(online: boolean, sharingEnabled = true) {
     const onShareSession = vi.fn();
     let renderer: any;
     act(() => {
@@ -154,7 +154,7 @@ function renderPanel(online: boolean) {
                 online={online}
                 top={64}
                 onClose={vi.fn()}
-                onShareSession={onShareSession}
+                onShareSession={sharingEnabled ? onShareSession : undefined}
                 onViewDetails={vi.fn()}
             />,
         );
@@ -247,6 +247,12 @@ describe('SessionInfoDropdown', () => {
         act(() => share.props.onPress());
         expect(onShareSession).toHaveBeenCalledTimes(1);
 
+        act(() => renderer.unmount());
+    });
+
+    it('does not expose sharing when the responsive parent disables PC management', () => {
+        const { renderer } = renderPanel(true, false);
+        expect(renderer.root.findAllByProps({ testID: 'session-agent-panel-share-session' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 });

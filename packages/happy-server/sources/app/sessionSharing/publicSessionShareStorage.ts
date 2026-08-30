@@ -8,7 +8,6 @@ import {
     s3client,
 } from '@/storage/files';
 
-const PRESIGNED_TTL_SECONDS = 15 * 60;
 const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 
 function assertSafeIdentifier(value: string): void {
@@ -21,27 +20,12 @@ export function buildPublicShareStoragePath(shareId: string, generation: string,
     assertSafeIdentifier(shareId);
     assertSafeIdentifier(generation);
     assertSafeIdentifier(assetId);
-    return `public/session-shares/${shareId}/${generation}/${assetId}`;
+    return `private/session-shares/${shareId}/${generation}/${assetId}`;
 }
 
-export async function createPublicShareUploadDescriptor(
-    storagePath: string,
-    localUploadUrl: string,
-): Promise<{ method: 'PUT'; uploadUrl: string }> {
-    if (isLocalStorage()) {
-        return { method: 'PUT', uploadUrl: localUploadUrl };
-    }
-    return {
-        method: 'PUT',
-        uploadUrl: await s3client.presignedPutObject(s3bucket, storagePath, PRESIGNED_TTL_SECONDS),
-    };
-}
-
-export async function putPublicShareLocalAsset(storagePath: string, data: Buffer): Promise<void> {
-    if (!isLocalStorage()) {
-        throw new Error('Direct share upload is unavailable');
-    }
-    await putLocalFile(storagePath, data);
+export async function putPublicShareAsset(storagePath: string, data: Buffer): Promise<void> {
+    if (isLocalStorage()) return putLocalFile(storagePath, data);
+    await s3client.putObject(s3bucket, storagePath, data, data.length);
 }
 
 export async function publicShareAssetExists(storagePath: string, expectedSize: number): Promise<boolean> {
@@ -57,30 +41,20 @@ export async function publicShareAssetExists(storagePath: string, expectedSize: 
     }
 }
 
-export async function getPublicShareDownloadSource(storagePath: string, response?: {
-    contentType: string;
-    contentDisposition: string;
-}): Promise<
+export async function getPublicShareDownloadSource(storagePath: string): Promise<
     | { kind: 'buffer'; data: Buffer }
-    | { kind: 'redirect'; url: string }
+    | { kind: 'stream'; data: NodeJS.ReadableStream }
 > {
     if (isLocalStorage()) {
         const data = readLocalFile(storagePath);
         if (!data) throw new Error('Public share asset not found');
         return { kind: 'buffer', data };
     }
-    return {
-        kind: 'redirect',
-        url: await s3client.presignedGetObject(s3bucket, storagePath, PRESIGNED_TTL_SECONDS, response ? {
-            'response-cache-control': 'no-store',
-            'response-content-disposition': response.contentDisposition,
-            'response-content-type': response.contentType,
-        } : undefined),
-    };
+    return { kind: 'stream', data: await s3client.getObject(s3bucket, storagePath) };
 }
 
 export async function deletePublicShareGeneration(shareId: string, generation: string): Promise<void> {
     assertSafeIdentifier(shareId);
     assertSafeIdentifier(generation);
-    await deleteFilePrefix(`public/session-shares/${shareId}/${generation}`);
+    await deleteFilePrefix(`private/session-shares/${shareId}/${generation}`);
 }

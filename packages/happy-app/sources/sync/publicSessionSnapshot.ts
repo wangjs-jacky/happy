@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { v4 as uuid } from 'uuid';
 import type { Message, ToolCallMessage } from './typesMessage';
 import type {
@@ -8,52 +7,27 @@ import type {
     PublicSessionSnapshotV1,
 } from './publicSessionShareTypes';
 
-const PRIVATE_TOOL_KEYS = new Set([
-    'sessionid',
-    'machineid',
-    'localpath',
-    'permission',
-    'permissions',
-    'ref',
+// Keep this aligned with the authenticated renderer's hidden tools. Public
+// snapshots never serialize raw tool input/result/description: those fields
+// routinely contain local paths, host details, credentials, and permission
+// state. The public contract exposes only the visible tool's name and status.
+const HIDDEN_TOOL_NAMES = new Set([
+    'CodexReasoning',
+    'GeminiReasoning',
+    'think',
+    'change_title',
+    'ToolSearch',
 ]);
-
-function isPrivateToolKey(key: string): boolean {
-    const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
-    return PRIVATE_TOOL_KEYS.has(normalized)
-        || /(token|secret|password|passwd|authorization|cookie|credential|privatekey|apikey)/.test(normalized);
-}
-
-function sanitizeToolValue(value: unknown, depth = 0): unknown {
-    if (depth > 8) return '[nested content omitted]';
-    if (typeof value === 'string') return value.slice(0, 200_000);
-    if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
-    if (Array.isArray(value)) return value.slice(0, 2_000).map((item) => sanitizeToolValue(item, depth + 1));
-    if (typeof value === 'object') {
-        return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-                .filter(([key]) => !isPrivateToolKey(key))
-                .flatMap(([key, child]) => {
-                    const sanitized = sanitizeToolValue(child, depth + 1);
-                    if (sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) && Object.keys(sanitized).length === 0) {
-                        return [];
-                    }
-                    return [[key, sanitized]];
-                }),
-        );
-    }
-    return String(value);
-}
-
-function stringifyToolBody(value: unknown): string | undefined {
-    if (value === undefined) return undefined;
-    const sanitized = sanitizeToolValue(value);
-    const serialized = typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized, null, 2);
-    return serialized?.slice(0, 2_000_000) || undefined;
-}
 
 function safeAttachmentName(name: unknown): string {
     if (typeof name !== 'string' || !name.trim()) return 'attachment';
-    return path.posix.basename(name.replace(/\\/g, '/')) || 'attachment';
+    return name.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'attachment';
+}
+
+function attachmentExtension(name: string): string {
+    const basename = safeAttachmentName(name);
+    const dot = basename.lastIndexOf('.');
+    return dot > 0 ? basename.slice(dot).toLowerCase() : '';
 }
 
 function attachmentKind(value: unknown): PublicSessionAttachmentKind {
@@ -61,7 +35,7 @@ function attachmentKind(value: unknown): PublicSessionAttachmentKind {
 }
 
 function defaultMimeType(kind: PublicSessionAttachmentKind, name: string): string {
-    const extension = path.extname(name).toLowerCase();
+    const extension = attachmentExtension(name);
     if (kind === 'image') {
         if (extension === '.png') return 'image/png';
         if (extension === '.gif') return 'image/gif';
@@ -130,18 +104,20 @@ export function buildPublicSessionSnapshot(input: {
     const createAttachmentId = input.createAttachmentId ?? uuid;
     const attachmentByRef = new Map<string, PublicSessionAttachmentJob>();
     const publicMessages: PublicSessionMessageV1[] = [];
+    const addMessage = (message: Omit<PublicSessionMessageV1, 'id'>) => {
+        publicMessages.push({ id: `message-${publicMessages.length + 1}`, ...message });
+    };
 
     const visit = (message: Message) => {
         if (message.kind === 'user-text') {
             const markdown = (message.displayText ?? message.text).trim();
-            if (markdown) publicMessages.push({ id: message.id, role: 'user', createdAt: message.createdAt, blocks: [{ type: 'text', markdown }] });
+            if (markdown) addMessage({ role: 'user', createdAt: message.createdAt, blocks: [{ type: 'text', markdown }] });
             return;
         }
         if (message.kind === 'agent-text') {
             const markdown = message.text.trim();
             if (markdown) {
-                publicMessages.push({
-                    id: message.id,
+                addMessage({
                     role: 'assistant',
                     createdAt: message.createdAt,
                     blocks: [{ type: message.isThinking ? 'thinking' : 'text', markdown }],
@@ -152,7 +128,7 @@ export function buildPublicSessionSnapshot(input: {
         if (message.kind === 'agent-event') {
             const event = message.event;
             if (event.type === 'message' && event.message.trim()) {
-                publicMessages.push({ id: message.id, role: 'system', createdAt: message.createdAt, blocks: [{ type: 'text', markdown: event.message.trim() }] });
+                addMessage({ role: 'system', createdAt: message.createdAt, blocks: [{ type: 'text', markdown: event.message.trim() }] });
             }
             return;
         }
@@ -160,20 +136,16 @@ export function buildPublicSessionSnapshot(input: {
         if (message.tool.name === 'file') {
             const mapped = mapFileTool(message, attachmentByRef, createAttachmentId);
             if (mapped) {
-                publicMessages.push({ id: message.id, role: 'assistant', createdAt: message.createdAt, blocks: [mapped.block] });
+                addMessage({ role: 'assistant', createdAt: message.createdAt, blocks: [mapped.block] });
             }
-        } else {
-            const body = stringifyToolBody(message.tool.result ?? message.tool.input);
-            publicMessages.push({
-                id: message.id,
+        } else if (!HIDDEN_TOOL_NAMES.has(message.tool.name)) {
+            addMessage({
                 role: 'assistant',
                 createdAt: message.createdAt,
                 blocks: [{
                     type: 'tool',
                     name: message.tool.name,
                     status: message.tool.state === 'error' ? 'failed' : message.tool.state,
-                    ...(message.tool.description ? { title: message.tool.description } : {}),
-                    ...(body ? { body } : {}),
                 }],
             });
         }

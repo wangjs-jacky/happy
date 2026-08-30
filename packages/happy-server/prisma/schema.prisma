@@ -127,11 +127,27 @@ model PublicSessionShare {
     activeGeneration String?
     publishedAt      DateTime?
     revokedAt        DateTime?
+    lifecycleVersion Int                       @default(1)
+    createdAt        DateTime                  @default(now())
+    updatedAt        DateTime                  @updatedAt
+    assets           PublicSessionShareAsset[]
+    drafts           PublicSessionShareDraft[]
+
+    @@index([accountId, updatedAt(sort: Desc)])
+}
+
+model PublicSessionShareDraft {
+    id               String                    @id
+    shareId          String
+    share             PublicSessionShare        @relation(fields: [shareId], references: [id], onDelete: Cascade)
+    lifecycleVersion Int
+    status           String                    @default("pending")
+    expiresAt        DateTime
     createdAt        DateTime                  @default(now())
     updatedAt        DateTime                  @updatedAt
     assets           PublicSessionShareAsset[]
 
-    @@index([accountId, updatedAt(sort: Desc)])
+    @@index([shareId, status, expiresAt])
 }
 
 model PublicSessionShareAsset {
@@ -139,10 +155,13 @@ model PublicSessionShareAsset {
     shareId     String
     share       PublicSessionShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
     generation  String
+    draft       PublicSessionShareDraft @relation(fields: [generation], references: [id], onDelete: Cascade)
     name        String
     mimeType    String
     kind        String
     size        Int
+    sha256      String
+    uploadedAt  DateTime?
     storagePath String
     createdAt   DateTime           @default(now())
 

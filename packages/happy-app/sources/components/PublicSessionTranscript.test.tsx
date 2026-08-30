@@ -15,6 +15,7 @@ vi.mock('react-native', () => ({
     View: 'View',
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
@@ -81,6 +82,9 @@ describe('PublicSessionTranscript', () => {
         expect(renderer.root.findAllByProps({ testID: 'message-composer' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'desktop-left-sidebar' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'desktop-right-panel' })).toHaveLength(0);
+
+        act(() => renderer.root.findByProps({ testID: 'public-session-attachment-asset-1' }).props.onError());
+        expect(renderer.root.findAllByProps({ testID: 'public-session-attachment-unavailable-asset-1' })).toHaveLength(1);
 
         act(() => renderer.unmount());
     });

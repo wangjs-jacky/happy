@@ -50,7 +50,7 @@ describe('apiPublicSessionShares', () => {
         expect(fetchMock.mock.calls[3][1].method).toBe('DELETE');
     });
 
-    it('prepares and uploads a plaintext asset with auth only for the Paws server', async () => {
+    it('prepares and uploads a plaintext asset through the authenticated Paws server', async () => {
         const fetchMock = vi.fn()
             .mockResolvedValueOnce(new Response(JSON.stringify({
                 assetId: '22222222-2222-4222-8222-222222222222',
@@ -69,16 +69,26 @@ describe('apiPublicSessionShares', () => {
                 attachmentId: '22222222-2222-4222-8222-222222222222',
                 name: 'photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5,
             },
+            'a'.repeat(64),
         );
         expect(upload.uploadUrl).toBe('https://api.paws.test/local-upload');
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+            attachmentId: '22222222-2222-4222-8222-222222222222',
+            name: 'photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5,
+            sha256: 'a'.repeat(64),
+        });
         await uploadPublicSessionShareAsset(upload, new Uint8Array([1, 2, 3, 4, 5]), credentials);
-        await uploadPublicSessionShareAsset({ ...upload, uploadUrl: 'https://s3.test/signed' }, new Uint8Array([1]), credentials);
+        await expect(uploadPublicSessionShareAsset(
+            { ...upload, uploadUrl: 'https://s3.test/signed' },
+            new Uint8Array([1]),
+            credentials,
+        )).rejects.toThrow('untrusted upload origin');
 
         expect(fetchMock.mock.calls[1][1].headers).toEqual({
             Authorization: 'Bearer owner-token',
             'Content-Type': 'application/octet-stream',
         });
-        expect(fetchMock.mock.calls[2][1].headers).toEqual({ 'Content-Type': 'application/octet-stream' });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('builds the browser-facing share URL from the Web origin', () => {
@@ -94,11 +104,11 @@ describe('apiPublicSessionShares', () => {
         vi.stubGlobal('fetch', fetchMock);
 
         expect(await getPublicSessionShareSnapshot('public-id')).toEqual({ snapshot, publishedAt: 123 });
-        expect(fetchMock).toHaveBeenCalledWith('https://api.paws.test/v1/public/session-shares/public-id', {
+        expect(fetchMock).toHaveBeenCalledWith('https://paws.test/v1/public/session-shares/public-id', {
             headers: { Accept: 'application/json' },
         });
         expect(getPublicSessionAttachmentUrl('public-id', 'asset-id')).toBe(
-            'https://api.paws.test/v1/public/session-shares/public-id/attachments/asset-id',
+            'https://paws.test/v1/public/session-shares/public-id/attachments/asset-id',
         );
     });
 });

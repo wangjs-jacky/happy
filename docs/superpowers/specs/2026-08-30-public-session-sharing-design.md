@@ -98,7 +98,7 @@ Markdown remains untrusted input. The public renderer uses the same safe Markdow
 
 The account and session relations authorize owner operations. Revocation rotates away from the public identifier before any future republish. Public handlers query only non-revoked records.
 
-Attachments live under a generation-scoped object prefix such as `public/session-shares/<internalShareId>/<generation>/<opaqueAssetId>`. The snapshot manifest never exposes the storage path. A public attachment handler resolves `publicId + attachmentId` against the active manifest and then redirects to or streams the matching object with sanitized headers.
+Attachments live under a generation-scoped private object prefix such as `private/session-shares/<internalShareId>/<generation>/<opaqueAssetId>`. The snapshot manifest never exposes the storage path. A public attachment handler resolves `publicId + attachmentId` against the active manifest and streams the matching object with sanitized headers; it never returns a reusable object-store URL.
 
 ## API and Publication Flow
 

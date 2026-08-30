@@ -36,10 +36,10 @@
 
 **Interfaces:**
 - Produces Prisma models `PublicSessionShare` and `PublicSessionShareAsset`.
-- Produces `createPublicShareUploadDescriptor(input)`, `publicShareAssetExists(path)`, `readPublicShareAsset(path)`, and `deletePublicShareGeneration(prefix)`.
+- Produces `putPublicShareAsset(path)`, `publicShareAssetExists(path)`, `getPublicShareDownloadSource(path)`, and `deletePublicShareGeneration(prefix)`.
 - `PublicSessionShare.publicId` is a 32-byte base64url token, `sessionId` is unique, and `activeGeneration` is nullable.
 
-- [ ] **Step 1: Write storage tests** covering local path containment, local byte writes/reads, S3 PUT/GET descriptor generation, object existence, and generation-prefix deletion.
+- [ ] **Step 1: Write storage tests** covering private path containment, local/S3 server-proxied byte writes/reads, object existence, and generation-prefix deletion.
 - [ ] **Step 2: Run the focused test and verify failure** with `pnpm --filter happy-server exec vitest run sources/app/sessionSharing/publicSessionShareStorage.spec.ts`.
 - [ ] **Step 3: Add Prisma relations and migration** equivalent to:
 
@@ -76,7 +76,7 @@ model PublicSessionShareAsset {
 }
 ```
 
-- [ ] **Step 4: Implement storage adapters** with strict `public/session-shares/<shareId>/<generation>/<assetId>` paths, local disk helpers, and 15-minute S3 presigned PUT/GET URLs.
+- [ ] **Step 4: Implement storage adapters** with strict `private/session-shares/<shareId>/<generation>/<assetId>` paths and revocation-aware local/S3 server proxying without presigned public URLs.
 - [ ] **Step 5: Generate Prisma client and run tests** with `pnpm --filter happy-server generate` followed by the focused Vitest command.
 - [ ] **Step 6: Commit** with `git commit -m "feat(server): add public share persistence"`.
 
@@ -105,8 +105,8 @@ type PublicSessionBlockV1 =
     | { type: 'attachment'; attachmentId: string; kind: 'image' | 'audio' | 'video' | 'file'; name: string; mimeType: string; size: number };
 ```
 
-- [ ] **Step 4: Implement draft creation and upload preparation** with cryptographic `publicId`, UUID generation IDs/assets, ownership checks, file-count/size/rate limits, and local/S3 descriptors.
-- [ ] **Step 5: Implement publish transaction** that validates every manifest attachment against the same share/generation and verifies each object exists before updating `snapshot`, `activeGeneration`, `publishedAt`, and `revokedAt` atomically.
+- [ ] **Step 4: Implement persisted, expiring draft creation and upload preparation** with cryptographic `publicId`, UUID generation IDs/assets, lifecycle versions, ownership checks, file-count/size/account/rate limits, and exact SHA-256 validation.
+- [ ] **Step 5: Implement publish transaction** that validates every manifest attachment against the same share/generation and atomically activates only an unrevoked matching lifecycle version without clearing a concurrent revoke.
 - [ ] **Step 6: Implement revoke and public reads** with generic 404 responses, safe basename/MIME handling, and public security headers.
 - [ ] **Step 7: Register the routes** in `api.ts` before the SPA fallback.
 - [ ] **Step 8: Run route/storage tests and server typecheck** using `pnpm --filter happy-server exec vitest run sources/app/sessionSharing/publicSessionShareStorage.spec.ts sources/app/api/routes/publicSessionShareRoutes.spec.ts` and `pnpm --filter happy-server typecheck`.
@@ -124,7 +124,7 @@ type PublicSessionBlockV1 =
 - Produces attachment jobs `{ sourceRef, encrypted, attachmentId, kind, name, mimeType, size }` without retaining the private ref inside `snapshot`.
 - Consumes flattened `Message[]` from `storage.getState().sessionMessages[sessionId].messages`.
 
-- [ ] **Step 1: Write failing sanitizer tests** for user/assistant/thinking text, tool status/body, nested tool children, file-tool parsing, attachment de-duplication, display-text selection, and absence of `ref`, `sessionId`, `localPath`, permission, path, model, and callback fields in serialized output.
+- [ ] **Step 1: Write failing sanitizer tests** for user/assistant/thinking text, public tool name/status envelopes, hidden-tool exclusion, nested tool children, file-tool parsing, attachment de-duplication, display-text selection, and absence of raw tool bodies, refs, credentials, session/machine/path, permission, model, and callback fields in serialized output.
 - [ ] **Step 2: Run and verify failure** with `pnpm --filter happy-app exec vitest run sources/sync/publicSessionSnapshot.test.ts`.
 - [ ] **Step 3: Implement the contract and pure builder** using exhaustive switches over `Message.kind`; map file tool calls to attachment blocks and other tool calls to bounded plain-text summaries.
 - [ ] **Step 4: Run the focused test and app typecheck for the new module** with the focused Vitest command and `pnpm --filter happy-app typecheck`.

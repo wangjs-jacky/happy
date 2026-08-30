@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Image, Linking, Platform, Pressable, ScrollView, Text, View, type StyleProp, type TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
+import { layout } from '@/components/layout';
 import { parseMarkdown, type MarkdownSpan } from '@/components/markdown/parseMarkdown';
 import { getPublicSessionAttachmentUrl } from '@/sync/apiPublicSessionShares';
 import type {
@@ -81,6 +82,7 @@ function PublicMessage({ message, publicId }: { message: PublicSessionMessageV1;
 }
 
 function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicId: string }) {
+    const [attachmentUnavailable, setAttachmentUnavailable] = React.useState(false);
     if (block.type === 'text') return <PublicMarkdown markdown={block.markdown} />;
     if (block.type === 'thinking') {
         return (
@@ -116,6 +118,14 @@ function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicI
     }
 
     const uri = getPublicSessionAttachmentUrl(publicId, block.attachmentId);
+    if (attachmentUnavailable) {
+        return (
+            <View style={styles.unavailableAttachment} testID={`public-session-attachment-unavailable-${block.attachmentId}`}>
+                <Ionicons name="alert-circle-outline" size={18} color={styles.secondaryIcon.color} />
+                <Text style={styles.unavailableAttachmentText}>{t('sessionShare.attachmentUnavailable')}</Text>
+            </View>
+        );
+    }
     if (block.kind === 'image') {
         return (
             <Pressable
@@ -130,6 +140,7 @@ function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicI
                     source={{ uri }}
                     style={styles.attachmentImage}
                     testID={`public-session-attachment-${block.attachmentId}`}
+                    onError={() => setAttachmentUnavailable(true)}
                 />
                 <View style={styles.attachmentCaption}>
                     <Text style={styles.attachmentName} numberOfLines={1}>{block.name}</Text>
@@ -143,6 +154,7 @@ function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicI
             controls: true,
             preload: 'metadata',
             src: uri,
+            onError: () => setAttachmentUnavailable(true),
             style: block.kind === 'video' ? styles.videoPlayer : styles.audioPlayer,
             testID: `public-session-attachment-${block.attachmentId}`,
         });
@@ -156,11 +168,20 @@ function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicI
             </View>
         );
     }
+    const openFile = async () => {
+        try {
+            const response = await fetch(uri, { method: 'HEAD' });
+            if (!response.ok) throw new Error('Attachment unavailable');
+            await Linking.openURL(uri);
+        } catch {
+            setAttachmentUnavailable(true);
+        }
+    };
     return (
         <Pressable
             accessibilityLabel={`${t('sessionShare.downloadAttachment')}: ${block.name}`}
             accessibilityRole="link"
-            onPress={() => void Linking.openURL(uri)}
+            onPress={() => void openFile()}
             style={({ pressed }) => [styles.fileAttachment, pressed && styles.pressed]}
             testID={`public-session-attachment-${block.attachmentId}`}
         >
@@ -294,7 +315,7 @@ function formatBytes(size: number): string {
 const styles = StyleSheet.create((theme) => ({
     page: { flex: 1, backgroundColor: theme.colors.groupped.background },
     pageContent: { alignItems: 'center', paddingHorizontal: 24, paddingVertical: 48 },
-    shell: { width: '100%', maxWidth: 860 },
+    shell: { width: '100%', maxWidth: layout.maxWidth },
     brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
     brandMark: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent },
     brandMarkIcon: { color: theme.colors.surface },
@@ -353,6 +374,8 @@ const styles = StyleSheet.create((theme) => ({
     attachmentName: { flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500' as const },
     attachmentMeta: { color: theme.colors.textSecondary, fontSize: 12 },
     fileAttachment: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderRadius: 12 },
+    unavailableAttachment: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh },
+    unavailableAttachmentText: { color: theme.colors.textSecondary, fontSize: 13 },
     fileIcon: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent },
     fileCopy: { flex: 1 },
     footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 7, paddingTop: 22, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },

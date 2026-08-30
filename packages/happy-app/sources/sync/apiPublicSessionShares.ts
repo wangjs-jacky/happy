@@ -25,10 +25,9 @@ async function expectJson<T>(response: Response, operation: string): Promise<T> 
     return response.json() as Promise<T>;
 }
 
-function rewriteLoopbackHost(url: string): string {
+function rewriteUploadUrlToServer(url: string): string {
     try {
         const target = new URL(url);
-        if (!['localhost', '127.0.0.1', '::1'].includes(target.hostname)) return url;
         const server = new URL(getServerUrl());
         target.protocol = server.protocol;
         target.hostname = server.hostname;
@@ -59,17 +58,25 @@ export async function preparePublicSessionShareAsset(
     sessionId: string,
     generation: string,
     asset: { attachmentId: string; name: string; mimeType: string; kind: PublicSessionAttachmentKind; size: number },
+    sha256: string,
 ): Promise<PreparedPublicSessionShareAsset> {
     const response = await fetch(
         `${getServerUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts/${encodeURIComponent(generation)}/assets`,
         {
             method: 'POST',
             headers: ownerHeaders(credentials, true),
-            body: JSON.stringify(asset),
+            body: JSON.stringify({
+                attachmentId: asset.attachmentId,
+                name: asset.name,
+                mimeType: asset.mimeType,
+                kind: asset.kind,
+                size: asset.size,
+                sha256,
+            }),
         },
     );
     const result = await expectJson<PreparedPublicSessionShareAsset>(response, 'Prepare public session share asset');
-    return { ...result, uploadUrl: rewriteLoopbackHost(result.uploadUrl) };
+    return { ...result, uploadUrl: rewriteUploadUrlToServer(result.uploadUrl) };
 }
 
 export async function uploadPublicSessionShareAsset(
@@ -77,9 +84,13 @@ export async function uploadPublicSessionShareAsset(
     data: Uint8Array,
     credentials: AuthCredentials,
 ): Promise<void> {
-    const serverUrl = getServerUrl();
-    const headers: Record<string, string> = { 'Content-Type': 'application/octet-stream' };
-    if (upload.uploadUrl.startsWith(serverUrl)) headers.Authorization = `Bearer ${credentials.token}`;
+    if (new URL(upload.uploadUrl).origin !== new URL(getServerUrl()).origin) {
+        throw new Error('Upload public session share asset failed: untrusted upload origin');
+    }
+    const headers: Record<string, string> = {
+        Authorization: `Bearer ${credentials.token}`,
+        'Content-Type': 'application/octet-stream',
+    };
     const bytes = new Uint8Array(data);
     const response = await fetch(upload.uploadUrl, {
         method: upload.method,
@@ -115,9 +126,13 @@ export async function revokePublicSessionShare(credentials: AuthCredentials, ses
 }
 
 export function getPublicSessionShareUrl(publicId: string): string {
+    return `${getPublicSessionOrigin()}/share/${encodeURIComponent(publicId)}`;
+}
+
+function getPublicSessionOrigin(): string {
     const currentOrigin = typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : null;
     const origin = currentOrigin && /^https?:\/\//i.test(currentOrigin) ? currentOrigin : getServerUrl();
-    return `${origin.replace(/\/$/, '')}/share/${encodeURIComponent(publicId)}`;
+    return origin.replace(/\/$/, '');
 }
 
 export async function getPublicSessionShareSnapshot(publicId: string): Promise<{
@@ -125,12 +140,12 @@ export async function getPublicSessionShareSnapshot(publicId: string): Promise<{
     publishedAt: number;
 }> {
     const response = await fetch(
-        `${getServerUrl()}/v1/public/session-shares/${encodeURIComponent(publicId)}`,
+        `${getPublicSessionOrigin()}/v1/public/session-shares/${encodeURIComponent(publicId)}`,
         { headers: { Accept: 'application/json' } },
     );
     return expectJson(response, 'Get public session snapshot');
 }
 
 export function getPublicSessionAttachmentUrl(publicId: string, attachmentId: string): string {
-    return `${getServerUrl()}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(attachmentId)}`;
+    return `${getPublicSessionOrigin()}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(attachmentId)}`;
 }

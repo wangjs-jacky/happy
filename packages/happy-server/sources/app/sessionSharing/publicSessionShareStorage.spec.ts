@@ -1,3 +1,4 @@
+import { Readable } from 'stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { filesMock, resetStorage } = vi.hoisted(() => {
@@ -6,8 +7,12 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
         objects: new Map<string, Buffer>(),
     };
     const s3client = {
-        presignedPutObject: vi.fn(async (_bucket: string, key: string) => `https://s3.test/put/${key}`),
-        presignedGetObject: vi.fn(async (_bucket: string, key: string) => `https://s3.test/get/${key}`),
+        putObject: vi.fn(async (_bucket: string, key: string, value: Buffer) => { state.objects.set(key, value); }),
+        getObject: vi.fn(async (_bucket: string, key: string) => {
+            const value = state.objects.get(key);
+            if (!value) throw new Error('missing');
+            return Readable.from(value);
+        }),
         statObject: vi.fn(async (_bucket: string, key: string) => {
             if (!state.objects.has(key)) throw new Error('missing');
             return { size: state.objects.get(key)!.length };
@@ -42,11 +47,10 @@ vi.mock('@/storage/files', () => filesMock);
 
 import {
     buildPublicShareStoragePath,
-    createPublicShareUploadDescriptor,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
     publicShareAssetExists,
-    putPublicShareLocalAsset,
+    putPublicShareAsset,
 } from './publicSessionShareStorage';
 
 describe('publicSessionShareStorage', () => {
@@ -54,7 +58,7 @@ describe('publicSessionShareStorage', () => {
 
     it('builds a generation-contained object path and rejects unsafe identifiers', () => {
         expect(buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1')).toBe(
-            'public/session-shares/share_1/generation-1/asset_1',
+            'private/session-shares/share_1/generation-1/asset_1',
         );
         expect(() => buildPublicShareStoragePath('../share', 'generation-1', 'asset_1')).toThrow('Invalid share storage identifier');
         expect(() => buildPublicShareStoragePath('share_1', 'generation/1', 'asset_1')).toThrow('Invalid share storage identifier');
@@ -62,42 +66,21 @@ describe('publicSessionShareStorage', () => {
 
     it('writes and resolves local share assets without exposing a filesystem path', async () => {
         const storagePath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1');
-        const descriptor = await createPublicShareUploadDescriptor(storagePath, 'https://paws.test/upload/asset_1');
-        expect(descriptor).toEqual({ method: 'PUT', uploadUrl: 'https://paws.test/upload/asset_1' });
-
-        await putPublicShareLocalAsset(storagePath, Buffer.from('hello'));
+        await putPublicShareAsset(storagePath, Buffer.from('hello'));
         expect(await publicShareAssetExists(storagePath, 5)).toBe(true);
         expect(await getPublicShareDownloadSource(storagePath)).toEqual({ kind: 'buffer', data: Buffer.from('hello') });
     });
 
-    it('uses private S3 presigned URLs and checks the expected object size', async () => {
+    it('keeps S3 objects behind the revocation-aware server proxy', async () => {
         filesMock.__state.local = false;
         const storagePath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1');
-        filesMock.__state.objects.set(storagePath, Buffer.from('hello'));
-
-        expect(await createPublicShareUploadDescriptor(storagePath, 'https://unused.test')).toEqual({
-            method: 'PUT',
-            uploadUrl: `https://s3.test/put/${storagePath}`,
-        });
+        await putPublicShareAsset(storagePath, Buffer.from('hello'));
         expect(await publicShareAssetExists(storagePath, 5)).toBe(true);
         expect(await publicShareAssetExists(storagePath, 4)).toBe(false);
-        expect(await getPublicShareDownloadSource(storagePath, {
-            contentType: 'video/mp4',
-            contentDisposition: 'inline; filename="demo.mp4"',
-        })).toEqual({
-            kind: 'redirect',
-            url: `https://s3.test/get/${storagePath}`,
-        });
-        expect(filesMock.s3client.presignedGetObject).toHaveBeenCalledWith(
-            'bucket',
-            storagePath,
-            15 * 60,
-            {
-                'response-cache-control': 'no-store',
-                'response-content-disposition': 'inline; filename="demo.mp4"',
-                'response-content-type': 'video/mp4',
-            },
-        );
+        const source = await getPublicShareDownloadSource(storagePath);
+        expect(source.kind).toBe('stream');
+        expect(filesMock.s3client.getObject).toHaveBeenCalledWith('bucket', storagePath);
+        expect(filesMock.s3client.putObject).toHaveBeenCalledWith('bucket', storagePath, Buffer.from('hello'), 5);
     });
 
     it('deletes only the requested generation prefix', async () => {

@@ -75,7 +75,7 @@ export function usePublicSessionShare(sessionId: string, title: string) {
                     }),
                     createDraft: () => createPublicSessionShareDraft(credentials, sessionId),
                     loadAttachmentBytes: (asset) => loadAttachmentBytes(credentials, sessionId, asset),
-                    prepareAsset: (generation, asset) => preparePublicSessionShareAsset(credentials, sessionId, generation, asset),
+                    prepareAsset: (generation, asset, sha256) => preparePublicSessionShareAsset(credentials, sessionId, generation, asset, sha256),
                     uploadAsset: (upload, bytes) => uploadPublicSessionShareAsset(upload, bytes, credentials),
                     publishDraft: (generation, snapshot) => publishPublicSessionShareDraft(credentials, sessionId, generation, snapshot),
                     onProgress: (completed, total) => setProgress({ completed, total }),

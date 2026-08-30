@@ -41,13 +41,15 @@ describe('public session share publishing', () => {
             loadMessages: vi.fn(async () => [message]),
             createDraft: vi.fn(async () => ({ generation: 'generation-1', publicId: 'public-id' })),
             loadAttachmentBytes: vi.fn(async () => { events.push('decrypt'); return new Uint8Array([1, 2, 3]); }),
-            prepareAsset: vi.fn(async (_generation, asset) => {
+            prepareAsset: vi.fn(async (_generation, asset, sha256) => {
                 events.push('prepare');
+                expect(sha256).toBe('a'.repeat(64));
                 return { assetId: asset.attachmentId, method: 'PUT' as const, uploadUrl: 'https://upload.test' };
             }),
             uploadAsset: vi.fn(async () => { events.push('upload'); }),
             publishDraft: vi.fn(async () => { events.push('publish'); return { publicId: 'public-id', publishedAt: 123 }; }),
             createAttachmentId: () => '11111111-1111-4111-8111-111111111111',
+            hashAttachmentBytes: vi.fn(async () => 'a'.repeat(64)),
         };
 
         const result = await publishPublicSessionSnapshot({ sessionId: 'session-1', title: 'Title', sharedAt: 123 }, deps);
@@ -76,6 +78,7 @@ describe('public session share publishing', () => {
             uploadAsset: vi.fn(async () => { throw new Error('upload failed'); }),
             publishDraft,
             createAttachmentId: () => '11111111-1111-4111-8111-111111111111',
+            hashAttachmentBytes: vi.fn(async () => 'a'.repeat(64)),
         };
 
         await expect(publishPublicSessionSnapshot({ sessionId: 'session-1', title: 'Title', sharedAt: 123 }, deps)).rejects.toThrow('upload failed');

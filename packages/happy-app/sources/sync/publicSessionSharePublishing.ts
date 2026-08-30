@@ -30,12 +30,21 @@ export type PublicSessionPublishDependencies = {
     loadMessages: () => Promise<Message[]>;
     createDraft: () => Promise<{ generation: string; publicId: string }>;
     loadAttachmentBytes: (asset: PublicSessionAttachmentJob) => Promise<Uint8Array>;
-    prepareAsset: (generation: string, asset: PublicSessionAttachmentJob) => Promise<PreparedPublicSessionShareAsset>;
+    prepareAsset: (generation: string, asset: PublicSessionAttachmentJob, sha256: string) => Promise<PreparedPublicSessionShareAsset>;
     uploadAsset: (upload: PreparedPublicSessionShareAsset, bytes: Uint8Array) => Promise<void>;
     publishDraft: (generation: string, snapshot: PublicSessionSnapshotV1) => Promise<{ publicId: string; publishedAt: number }>;
     createAttachmentId?: () => string;
+    hashAttachmentBytes?: (bytes: Uint8Array) => Promise<string>;
     onProgress?: (completed: number, total: number) => void;
 };
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+    const Crypto = await import('expo-crypto');
+    const digestInput = new Uint8Array(bytes.length);
+    digestInput.set(bytes);
+    const digest = new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, digestInput));
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function replaceAttachmentSize(snapshot: PublicSessionSnapshotV1, attachmentId: string, size: number): void {
     for (const message of snapshot.messages) {
@@ -65,7 +74,8 @@ export async function publishPublicSessionSnapshot(
             attachment.size = bytes.length;
             replaceAttachmentSize(snapshot, attachment.attachmentId, bytes.length);
         }
-        const upload = await deps.prepareAsset(draft.generation, attachment);
+        const sha256 = await (deps.hashAttachmentBytes ?? sha256Hex)(bytes);
+        const upload = await deps.prepareAsset(draft.generation, attachment, sha256);
         await deps.uploadAsset(upload, bytes);
         deps.onProgress?.(index + 1, attachments.length);
     }
