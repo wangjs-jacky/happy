@@ -117,7 +117,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                             accessibilityLabel={t('sessionShare.revokeAction')}
                             accessibilityRole="button"
                             onPress={confirmRevoke}
-                            style={({ pressed }) => [styles.destructiveButton, pressed && styles.pressed]}
+                            style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
                             testID="public-session-share-revoke-confirm"
                         >
                             <Text style={styles.destructiveButtonText}>{t('sessionShare.revokeAction')}</Text>
@@ -369,9 +369,10 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'center',
         paddingHorizontal: 18,
         borderRadius: 10,
-        backgroundColor: theme.colors.status.error,
+        backgroundColor: theme.colors.button.destructive.background,
     },
-    destructiveButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '600' as const },
+    destructiveButtonPressed: { backgroundColor: theme.colors.button.destructive.backgroundPressed },
+    destructiveButtonText: { color: theme.colors.button.destructive.tint, fontSize: 14, fontWeight: '600' as const },
     busyBar: {
         flexDirection: 'row',
         alignItems: 'center',

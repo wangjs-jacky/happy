@@ -60,7 +60,10 @@ vi.mock('react-native-unistyles', () => ({
                 text: '#fff',
                 textSecondary: '#aaa',
                 warning: '#f90',
-                button: { primary: { background: '#08f', tint: '#fff' } },
+                button: {
+                    primary: { background: '#08f', tint: '#fff' },
+                    destructive: { background: '#b42318', backgroundPressed: '#8f1d14', tint: '#fff' },
+                },
                 status: { connected: '#0f0' },
             },
         }),
