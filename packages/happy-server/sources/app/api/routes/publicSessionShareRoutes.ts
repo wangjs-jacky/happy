@@ -17,6 +17,8 @@ import {
     putPublicShareAsset,
 } from '@/app/sessionSharing/publicSessionShareStorage';
 import { createPublicShareRateLimiter } from '@/app/sessionSharing/publicSessionShareRateLimit';
+import { cleanupPublicSessionShareGeneration } from '@/app/sessionSharing/publicSessionShareCleanup';
+import { log } from '@/utils/log';
 
 const MAX_ASSET_COUNT = 100;
 // This matches Fastify's global binary-body limit. Share uploads are proxied
@@ -126,6 +128,30 @@ function draftExpiry(): Date {
 }
 
 class StaleShareDraftError extends Error {}
+class PublicShareRequestError extends Error {
+    constructor(readonly statusCode: number, message: string) {
+        super(message);
+    }
+}
+
+async function serializableTransaction<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            return await db.$transaction(callback, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        } catch (error) {
+            if ((error as { code?: string })?.code !== 'P2034' || attempt === 2) throw error;
+        }
+    }
+    throw new Error('Serializable transaction retry exhausted');
+}
+
+async function cleanupShareGenerationWhenPossible(shareId: string, generation: string): Promise<void> {
+    try {
+        await cleanupPublicSessionShareGeneration(shareId, generation);
+    } catch (error) {
+        log({ module: 'public-session-share-cleanup', level: 'error', shareId, generation, error }, 'Deferred public share generation cleanup');
+    }
+}
 
 export function publicSessionShareRoutes(app: Fastify) {
     app.get('/v1/sessions/:sessionId/share', {
@@ -157,70 +183,69 @@ export function publicSessionShareRoutes(app: Fastify) {
         if (!session) return reply.code(404).send({ error: 'Session not found' });
         if (!await enforceShareWriteRate(request.userId, reply)) return;
 
-        const now = new Date();
-        const expiredDrafts = await db.publicSessionShareDraft.findMany({
-            where: {
-                status: 'pending',
-                expiresAt: { lte: now },
-                share: { accountId: request.userId },
-            },
-            select: { id: true, shareId: true },
-            take: 100,
-        });
-        if (expiredDrafts.length > 0) {
-            await db.publicSessionShareDraft.deleteMany({ where: { id: { in: expiredDrafts.map((draft) => draft.id) } } });
-            for (const draft of expiredDrafts) {
-                void deletePublicShareGeneration(draft.shareId, draft.id).catch(() => undefined);
-            }
-        }
-
-        let share = await db.publicSessionShare.findUnique({ where: { sessionId: session.id } });
-        if (!share) {
-            share = await db.publicSessionShare.create({
-                data: { publicId: newPublicId(), accountId: request.userId, sessionId: session.id },
-            });
-        } else if (share.revokedAt) {
-            const oldGeneration = share.activeGeneration;
-            share = await db.publicSessionShare.update({
-                where: { id: share.id },
-                data: {
-                    publicId: newPublicId(),
-                    snapshot: Prisma.JsonNull,
-                    activeGeneration: null,
-                    publishedAt: null,
-                    revokedAt: null,
-                    lifecycleVersion: { increment: 1 },
-                },
-            });
-            if (oldGeneration) void deletePublicShareGeneration(share.id, oldGeneration).catch(() => undefined);
-        }
-
-        const previousDrafts = await db.publicSessionShareDraft.findMany({
-            where: { shareId: share.id, status: 'pending' },
-            select: { id: true },
-        });
-        const pendingForAccount = await db.publicSessionShareDraft.count({
-            where: {
-                status: 'pending',
-                expiresAt: { gt: now },
-                share: { accountId: request.userId },
-            },
-        });
-        if (pendingForAccount - previousDrafts.length >= MAX_PENDING_DRAFTS_PER_ACCOUNT) {
-            return reply.code(429).send({ error: 'Too many pending shared-session drafts' });
-        }
-
         const generation = crypto.randomUUID();
-        const draftLifecycleVersion = share.lifecycleVersion + 1;
+        let result: {
+            shareId: string;
+            publicId: string;
+            cleanupGenerations: string[];
+        };
         try {
-            await db.$transaction(async (tx) => {
+            result = await serializableTransaction(async (tx) => {
+                const now = new Date();
+                let share = await tx.publicSessionShare.findUnique({ where: { sessionId: session.id } });
+                let oldGeneration: string | null = null;
+                if (!share) {
+                    share = await tx.publicSessionShare.create({
+                        data: { publicId: newPublicId(), accountId: request.userId, sessionId: session.id },
+                    });
+                } else if (share.revokedAt) {
+                    oldGeneration = share.activeGeneration;
+                    share = await tx.publicSessionShare.update({
+                        where: { id: share.id },
+                        data: {
+                            publicId: newPublicId(),
+                            snapshot: Prisma.JsonNull,
+                            activeGeneration: null,
+                            publishedAt: null,
+                            revokedAt: null,
+                            lifecycleVersion: { increment: 1 },
+                        },
+                    });
+                }
+
+                const previousDrafts = await tx.publicSessionShareDraft.findMany({
+                    where: { shareId: share.id, status: 'pending' },
+                    select: { id: true, expiresAt: true },
+                });
+                const pendingForAccount = await tx.publicSessionShareDraft.count({
+                    where: {
+                        status: 'pending',
+                        expiresAt: { gt: now },
+                        share: { accountId: request.userId },
+                    },
+                });
+                const replaceablePending = previousDrafts.filter((draft) => draft.expiresAt > now).length;
+                if (pendingForAccount - replaceablePending >= MAX_PENDING_DRAFTS_PER_ACCOUNT) {
+                    throw new PublicShareRequestError(429, 'Too many pending shared-session drafts');
+                }
+
+                const draftLifecycleVersion = share.lifecycleVersion + 1;
                 const changed = await tx.publicSessionShare.updateMany({
                     where: { id: share.id, lifecycleVersion: share.lifecycleVersion, revokedAt: null },
                     data: { lifecycleVersion: { increment: 1 } },
                 });
                 if (changed.count !== 1) throw new StaleShareDraftError();
                 if (previousDrafts.length > 0) {
-                    await tx.publicSessionShareDraft.deleteMany({ where: { id: { in: previousDrafts.map((draft) => draft.id) } } });
+                    await tx.publicSessionShareDraft.updateMany({
+                        where: { id: { in: previousDrafts.map((draft) => draft.id) }, shareId: share.id },
+                        data: { status: 'superseded', expiresAt: now },
+                    });
+                }
+                if (oldGeneration) {
+                    await tx.publicSessionShareDraft.updateMany({
+                        where: { id: oldGeneration, shareId: share.id },
+                        data: { status: 'superseded', expiresAt: now },
+                    });
                 }
                 await tx.publicSessionShareDraft.create({
                     data: {
@@ -231,20 +256,31 @@ export function publicSessionShareRoutes(app: Fastify) {
                         expiresAt: draftExpiry(),
                     },
                 });
+                return {
+                    shareId: share.id,
+                    publicId: share.publicId,
+                    cleanupGenerations: [
+                        ...previousDrafts.map((draft) => draft.id),
+                        ...(oldGeneration ? [oldGeneration] : []),
+                    ],
+                };
             });
         } catch (error) {
             if (error instanceof StaleShareDraftError) {
                 return reply.code(409).send({ error: 'Shared-session state changed; retry' });
             }
+            if (error instanceof PublicShareRequestError) {
+                return reply.code(error.statusCode).send({ error: error.message });
+            }
             throw error;
         }
-        for (const draft of previousDrafts) {
-            void deletePublicShareGeneration(share.id, draft.id).catch(() => undefined);
+        for (const cleanupGeneration of new Set(result.cleanupGenerations)) {
+            await cleanupShareGenerationWhenPossible(result.shareId, cleanupGeneration);
         }
 
         return reply.send({
             generation,
-            publicId: share.publicId,
+            publicId: result.publicId,
         });
     });
 
@@ -252,59 +288,69 @@ export function publicSessionShareRoutes(app: Fastify) {
         preHandler: app.authenticate,
         schema: { params: draftParamsSchema, body: prepareAssetBodySchema },
     }, async (request, reply) => {
-        const share = await db.publicSessionShare.findFirst({
-            where: { sessionId: request.params.sessionId, accountId: request.userId },
-        });
-        if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
         if (!await enforceShareWriteRate(request.userId, reply)) return;
-        const draft = await db.publicSessionShareDraft.findFirst({
-            where: {
-                id: request.params.generation,
-                shareId: share.id,
-                lifecycleVersion: share.lifecycleVersion,
-                status: 'pending',
-                expiresAt: { gt: new Date() },
-            },
-        });
-        if (!draft) return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
-
-        const generationAssets = await db.publicSessionShareAsset.findMany({
-            where: { shareId: share.id, generation: request.params.generation },
-        });
-        if (generationAssets.some((asset) => asset.id === request.body.attachmentId)) {
-            return reply.code(409).send({ error: 'Shared attachment already exists' });
-        }
-        const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + request.body.size;
-        if (generationAssets.length >= MAX_ASSET_COUNT || totalSize > MAX_TOTAL_ASSET_SIZE) {
-            return reply.code(413).send({ error: 'Shared session attachment limit exceeded' });
-        }
-        const accountPendingSize = await db.publicSessionShareAsset.aggregate({
-            where: {
-                share: { accountId: request.userId },
-                draft: { status: 'pending', expiresAt: { gt: new Date() } },
-            },
-            _sum: { size: true },
-        });
-        if ((accountPendingSize._sum.size ?? 0) + request.body.size > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
-            return reply.code(413).send({ error: 'Pending shared-session storage limit exceeded' });
-        }
-
         const assetId = request.body.attachmentId;
         const name = safeDispositionName(request.body.name);
-        const storagePath = buildPublicShareStoragePath(share.id, request.params.generation, assetId);
-        await db.publicSessionShareAsset.create({
-            data: {
-                id: assetId,
-                shareId: share.id,
-                generation: request.params.generation,
-                name,
-                mimeType: request.body.mimeType,
-                kind: request.body.kind,
-                size: request.body.size,
-                sha256: request.body.sha256,
-                storagePath,
-            },
-        });
+        try {
+            await serializableTransaction(async (tx) => {
+                const now = new Date();
+                const share = await tx.publicSessionShare.findFirst({
+                    where: { sessionId: request.params.sessionId, accountId: request.userId },
+                });
+                if (!share || share.revokedAt) throw new PublicShareRequestError(404, 'Session not found');
+                const draft = await tx.publicSessionShareDraft.findFirst({
+                    where: {
+                        id: request.params.generation,
+                        shareId: share.id,
+                        lifecycleVersion: share.lifecycleVersion,
+                        status: 'pending',
+                        expiresAt: { gt: now },
+                    },
+                });
+                if (!draft) throw new PublicShareRequestError(409, 'Shared-session draft is unavailable');
+
+                const generationAssets = await tx.publicSessionShareAsset.findMany({
+                    where: { shareId: share.id, generation: request.params.generation },
+                });
+                if (generationAssets.some((asset) => asset.id === assetId)) {
+                    throw new PublicShareRequestError(409, 'Shared attachment already exists');
+                }
+                const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + request.body.size;
+                if (generationAssets.length >= MAX_ASSET_COUNT || totalSize > MAX_TOTAL_ASSET_SIZE) {
+                    throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
+                }
+                const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
+                    where: {
+                        share: { accountId: request.userId },
+                        draft: { status: 'pending', expiresAt: { gt: now } },
+                    },
+                    _sum: { size: true },
+                });
+                if ((accountPendingSize._sum.size ?? 0) + request.body.size > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
+                    throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
+                }
+
+                const storagePath = buildPublicShareStoragePath(share.id, request.params.generation, assetId);
+                await tx.publicSessionShareAsset.create({
+                    data: {
+                        id: assetId,
+                        shareId: share.id,
+                        generation: request.params.generation,
+                        name,
+                        mimeType: request.body.mimeType,
+                        kind: request.body.kind,
+                        size: request.body.size,
+                        sha256: request.body.sha256,
+                        storagePath,
+                    },
+                });
+            });
+        } catch (error) {
+            if (error instanceof PublicShareRequestError) {
+                return reply.code(error.statusCode).send({ error: error.message });
+            }
+            throw error;
+        }
         const baseUrl = resolveBaseUrl(request);
         const localUrl = `${baseUrl}/v1/sessions/${request.params.sessionId}/share/drafts/${request.params.generation}/assets/${assetId}`;
         return reply.send({ assetId, method: 'PUT', uploadUrl: localUrl });
@@ -430,6 +476,12 @@ export function publicSessionShareRoutes(app: Fastify) {
                     },
                 });
                 if (changed.count !== 1) throw new StaleShareDraftError();
+                if (oldGeneration && oldGeneration !== request.params.generation) {
+                    await tx.publicSessionShareDraft.updateMany({
+                        where: { id: oldGeneration, shareId: share.id },
+                        data: { status: 'superseded', expiresAt: new Date() },
+                    });
+                }
                 const finalized = await tx.publicSessionShareDraft.updateMany({
                     where: {
                         id: draft.id,
@@ -450,8 +502,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             throw error;
         }
         if (oldGeneration && oldGeneration !== request.params.generation) {
-            void deletePublicShareGeneration(share.id, oldGeneration).catch(() => undefined);
-            void db.publicSessionShareDraft.deleteMany({ where: { id: oldGeneration, shareId: share.id } }).catch(() => undefined);
+            await cleanupShareGenerationWhenPossible(share.id, oldGeneration);
         }
         return reply.send({ publicId: updated.publicId, publishedAt: publishedAt.getTime() });
     });
@@ -477,15 +528,18 @@ export function publicSessionShareRoutes(app: Fastify) {
             data: { revokedAt: new Date(), lifecycleVersion: { increment: 1 } },
         });
         if (revoked.count === 1) {
+            await db.publicSessionShareDraft.updateMany({
+                where: { shareId: share.id },
+                data: { status: 'revoked', expiresAt: new Date() },
+            });
             const generations = await db.publicSessionShareDraft.findMany({
                 where: { shareId: share.id },
                 select: { id: true },
             });
-            await db.publicSessionShareDraft.deleteMany({ where: { shareId: share.id } });
             const generationIds = new Set(generations.map((draft) => draft.id));
             if (share.activeGeneration) generationIds.add(share.activeGeneration);
             await Promise.all(Array.from(generationIds, (generation) => (
-                deletePublicShareGeneration(share.id, generation).catch(() => undefined)
+                cleanupShareGenerationWhenPossible(share.id, generation)
             )));
         }
         return reply.send({ ok: true });

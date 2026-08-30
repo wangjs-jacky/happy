@@ -105,7 +105,7 @@ type PublicSessionBlockV1 =
     | { type: 'attachment'; attachmentId: string; kind: 'image' | 'audio' | 'video' | 'file'; name: string; mimeType: string; size: number };
 ```
 
-- [ ] **Step 4: Implement persisted, expiring draft creation and upload preparation** with cryptographic `publicId`, UUID generation IDs/assets, lifecycle versions, ownership checks, file-count/size/account/rate limits, and exact SHA-256 validation.
+- [ ] **Step 4: Implement persisted, expiring draft creation and upload preparation** with cryptographic `publicId`, UUID generation IDs/assets, lifecycle versions, ownership checks, Serializable file-count/size/account/rate reservations, exact SHA-256 validation, and durable scheduled object cleanup.
 - [ ] **Step 5: Implement publish transaction** that validates every manifest attachment against the same share/generation and atomically activates only an unrevoked matching lifecycle version without clearing a concurrent revoke.
 - [ ] **Step 6: Implement revoke and public reads** with generic 404 responses, safe basename/MIME handling, and public security headers.
 - [ ] **Step 7: Register the routes** in `api.ts` before the SPA fallback.
@@ -224,6 +224,7 @@ type PublicSessionBlockV1 =
 
 - [ ] **Step 1: Run focused server tests** for storage and public-share routes.
 - [ ] **Step 2: Run focused app tests** for snapshot, API, hook, dialog, dropdown, public transcript, route isolation, and header cleanup.
+- [ ] **Step 2a: Validate production routing** by applying the idempotent Caddy transformer to the live configuration in read-only mode, then require the post-merge Web workflow to verify `/share/*` returns HTML with CSP, `no-store`, `noindex`, nosniff, and no-referrer headers.
 - [ ] **Step 3: Run `pnpm --filter happy-server typecheck` and `pnpm --filter happy-app typecheck`**.
 - [ ] **Step 4: Run `git diff --check`, inspect `git status --short`, and review the complete diff** for secrets, hardcoded colors, untranslated strings, private metadata, and public mutation imports.
 - [ ] **Step 5: Add PC Web visual evidence** for the share entry, first-share warning, management state, public transcript, revoked state, and non-default dark theme. If this cannot be captured under the no-server guardrail, obtain the exact maintainer waiver required by `CLAUDE.md` before merge.

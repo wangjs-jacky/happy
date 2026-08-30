@@ -50,6 +50,8 @@ After revocation, both the page and its attachment URLs immediately return the s
 
 `/share/:publicId` renders without authentication. It uses a centered, width-constrained transcript with the session title and snapshot timestamp, followed by messages and displayable tool activity in chronological order. Images render inline; audio and video use read-only media controls; documents and other files expose a safe download action.
 
+The production reverse proxy treats `/share/*` as a Web SPA route rather than an API route and attaches `no-store`, `noindex`, CSP, nosniff, and no-referrer response headers before any JavaScript executes. Deployment verification fails if the route returns JSON, misses HTML, or lacks any required header.
+
 The route does not mount authenticated sync, the left session sidebar, right capability panel, agent status, runtime metadata, model or permission controls, composer, keyboard actions, or session mutation code. It includes no "continue this conversation" affordance. A minimal Paws attribution may appear in the transcript header, but it is not an application navigation element.
 
 The page is responsive so recipients can read it on a phone even though share creation and management are PC-only in the first release.
@@ -132,7 +134,8 @@ If any step before activation fails, the current public snapshot remains untouch
 - Owner endpoints use existing authentication and verify that the session belongs to `request.userId`.
 - Public responses use `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow, noarchive`, and a restrictive content security policy for the Web document.
 - Attachment names are basename-normalized. MIME types are allowlisted for inline media; unknown, HTML, SVG, and other script-capable types download as `application/octet-stream` with `Content-Disposition: attachment`.
-- The server enforces per-file, snapshot, file-count, and request-rate limits before accepting a draft.
+- The server enforces per-file, snapshot, file-count, account-storage, and request-rate limits before accepting a draft. Draft and asset reservations run in retryable Serializable transactions so concurrent requests cannot step around quotas.
+- A scheduled cleanup worker retries expired, superseded, and revoked generations. Storage is deleted before its database manifest, preserving a durable retry record whenever object deletion fails.
 - Public errors do not reveal whether a link was revoked, malformed, expired during a draft, or never existed.
 - Application logs do not include snapshot bodies, attachment plaintext, or full public URLs.
 - Revocation makes database resolution fail immediately; object deletion is defense-in-depth and may complete asynchronously.
@@ -143,6 +146,7 @@ If any step before activation fails, the current public snapshot remains untouch
 - A share API module owns draft, upload, publish, state, and revoke calls.
 - A `usePublicSessionShare` hook coordinates preparation and progress using the existing happy-action error surface.
 - The existing session information dropdown receives the PC-only share/manage row.
+- The public Web entry uses a persistence-free theme, translation, and same-origin API graph; it does not evaluate MMKV-backed app preferences or custom server configuration.
 - A focused share-management modal presents confirmation, progress, copy/open/update/revoke actions.
 - A top-level public route fetches only the public snapshot API and renders through stateless public transcript components.
 - Public transcript components depend on the snapshot contract, theme tokens, and safe renderers only. They never import authenticated storage, sync, session operations, or the message composer.

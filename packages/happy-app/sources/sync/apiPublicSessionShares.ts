@@ -5,6 +5,10 @@ import type {
     PublicSessionShareState,
     PublicSessionSnapshotV1,
 } from './publicSessionShareTypes';
+export {
+    getPublicSessionAttachmentUrl,
+    getPublicSessionShareSnapshot,
+} from './publicSessionShareViewer';
 
 type Draft = { generation: string; publicId: string };
 export type PreparedPublicSessionShareAsset = {
@@ -126,26 +130,7 @@ export async function revokePublicSessionShare(credentials: AuthCredentials, ses
 }
 
 export function getPublicSessionShareUrl(publicId: string): string {
-    return `${getPublicSessionOrigin()}/share/${encodeURIComponent(publicId)}`;
-}
-
-function getPublicSessionOrigin(): string {
     const currentOrigin = typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : null;
     const origin = currentOrigin && /^https?:\/\//i.test(currentOrigin) ? currentOrigin : getServerUrl();
-    return origin.replace(/\/$/, '');
-}
-
-export async function getPublicSessionShareSnapshot(publicId: string): Promise<{
-    snapshot: PublicSessionSnapshotV1;
-    publishedAt: number;
-}> {
-    const response = await fetch(
-        `${getPublicSessionOrigin()}/v1/public/session-shares/${encodeURIComponent(publicId)}`,
-        { headers: { Accept: 'application/json' } },
-    );
-    return expectJson(response, 'Get public session snapshot');
-}
-
-export function getPublicSessionAttachmentUrl(publicId: string, attachmentId: string): string {
-    return `${getPublicSessionOrigin()}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(attachmentId)}`;
+    return `${origin.replace(/\/$/, '')}/share/${encodeURIComponent(publicId)}`;
 }

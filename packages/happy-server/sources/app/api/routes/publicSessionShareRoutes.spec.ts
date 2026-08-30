@@ -251,6 +251,16 @@ describe('publicSessionShareRoutes', () => {
         expect(response.statusCode).toBe(200);
         expect(response.json().generation).toMatch(/^[0-9a-f-]{36}$/);
         expect(response.json().publicId).toMatch(/^[A-Za-z0-9_-]{43}$/);
+        expect(dbMock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
+    });
+
+    it('retries a serializable quota transaction after a database write conflict', async () => {
+        dbMock.$transaction.mockRejectedValueOnce(Object.assign(new Error('serialization conflict'), { code: 'P2034' }));
+
+        const response = await createDraft();
+
+        expect(response.statusCode).toBe(200);
+        expect(dbMock.$transaction).toHaveBeenCalledTimes(2);
     });
 
     it('rejects arbitrary generations and attachment checksum mismatches', async () => {
@@ -298,6 +308,7 @@ describe('publicSessionShareRoutes', () => {
             },
         });
         expect(prepared.statusCode).toBe(200);
+        expect(dbMock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
         const asset = prepared.json();
         expect(asset.assetId).toBe('22222222-2222-4222-8222-222222222222');
 

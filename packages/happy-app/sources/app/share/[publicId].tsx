@@ -4,9 +4,9 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { PublicSessionTranscript } from '@/components/PublicSessionTranscript';
-import { getPublicSessionShareSnapshot } from '@/sync/apiPublicSessionShares';
+import { getPublicSessionShareSnapshot } from '@/sync/publicSessionShareViewer';
 import type { PublicSessionSnapshotV1 } from '@/sync/publicSessionShareTypes';
-import { t } from '@/text';
+import { publicSessionShareText as t } from '@/text/publicSessionShareText';
 
 type PublicShareLoadState =
     | { status: 'loading' }

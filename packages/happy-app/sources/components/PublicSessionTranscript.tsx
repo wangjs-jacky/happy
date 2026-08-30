@@ -4,13 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
 import { parseMarkdown, type MarkdownSpan } from '@/components/markdown/parseMarkdown';
-import { getPublicSessionAttachmentUrl } from '@/sync/apiPublicSessionShares';
+import { getPublicSessionAttachmentUrl } from '@/sync/publicSessionShareViewer';
 import type {
     PublicSessionBlockV1,
     PublicSessionMessageV1,
     PublicSessionSnapshotV1,
 } from '@/sync/publicSessionShareTypes';
-import { t } from '@/text';
+import { publicSessionShareText as t } from '@/text/publicSessionShareText';
 
 export function PublicSessionTranscript({
     publicId,

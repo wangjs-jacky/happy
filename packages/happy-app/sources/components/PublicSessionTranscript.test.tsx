@@ -16,7 +16,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 800 } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/text/publicSessionShareText', () => ({ publicSessionShareText: (key: string) => key }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: {
         hairlineWidth: 1,
