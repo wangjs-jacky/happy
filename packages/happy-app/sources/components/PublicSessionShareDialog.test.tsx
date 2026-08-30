@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
-    confirm: vi.fn(),
     copy: vi.fn(),
     openUrl: vi.fn(),
     publish: vi.fn(),
@@ -42,7 +41,6 @@ vi.mock('@/hooks/usePublicSessionShare', () => ({
         revoke: mocks.revoke,
     }),
 }));
-vi.mock('@/modal', () => ({ Modal: { confirm: mocks.confirm } }));
 vi.mock('@/text', () => ({
     t: (key: string, params?: Record<string, unknown>) => {
         if (key === 'sessionShare.uploading') return `Uploading ${params?.completed}/${params?.total}`;
@@ -110,7 +108,6 @@ describe('PublicSessionShareDialog', () => {
     it('manages an active link with copy, open, update, and revoke actions', async () => {
         mocks.share.shareState = { active: true, publicId: 'public-id', publishedAt: 1_788_000_000_000 };
         mocks.share.shareUrl = 'https://paws.example/share/public-id';
-        mocks.confirm.mockResolvedValue(true);
         const renderer = renderDialog();
 
         await act(async () => {
@@ -121,9 +118,9 @@ describe('PublicSessionShareDialog', () => {
         expect(mocks.openUrl).toHaveBeenCalledWith('https://paws.example/share/public-id');
         act(() => renderer.root.findByProps({ testID: 'public-session-share-update' }).props.onPress());
         expect(mocks.publish).toHaveBeenCalledTimes(1);
-        await act(async () => {
-            await renderer.root.findByProps({ testID: 'public-session-share-revoke' }).props.onPress();
-        });
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-revoke' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'public-session-share-revoke-confirmation' })).toHaveLength(1);
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-revoke-confirm' }).props.onPress());
         expect(mocks.revoke).toHaveBeenCalledTimes(1);
 
         act(() => renderer.unmount());

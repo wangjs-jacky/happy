@@ -156,7 +156,7 @@ function PublicBlock({ block, publicId }: { block: PublicSessionBlockV1; publicI
             src: uri,
             onError: () => setAttachmentUnavailable(true),
             style: block.kind === 'video' ? styles.videoPlayer : styles.audioPlayer,
-            testID: `public-session-attachment-${block.attachmentId}`,
+            'data-testid': `public-session-attachment-${block.attachmentId}`,
         });
         return (
             <View style={styles.mediaAttachment}>

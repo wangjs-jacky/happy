@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { StyleSheet } from 'react-native-unistyles';
 import { usePublicSessionShare } from '@/hooks/usePublicSessionShare';
-import { Modal } from '@/modal';
 import { t } from '@/text';
 
 export interface PublicSessionShareDialogProps {
@@ -29,6 +28,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         revoke,
     } = usePublicSessionShare(sessionId, title);
     const [copied, setCopied] = React.useState(false);
+    const [confirmingRevoke, setConfirmingRevoke] = React.useState(false);
     const wasPublishing = React.useRef(false);
 
     const copyLink = React.useCallback(async () => {
@@ -53,17 +53,9 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         if (shareUrl) void Linking.openURL(shareUrl);
     }, [shareUrl]);
 
-    const revokeShare = React.useCallback(async () => {
-        const confirmed = await Modal.confirm(
-            t('sessionShare.revokeTitle'),
-            t('sessionShare.revokeMessage'),
-            {
-                cancelText: t('common.cancel'),
-                confirmText: t('sessionShare.revokeAction'),
-                destructive: true,
-            },
-        );
-        if (confirmed) revoke();
+    const confirmRevoke = React.useCallback(() => {
+        setConfirmingRevoke(false);
+        revoke();
     }, [revoke]);
 
     const busy = publishing || revoking;
@@ -101,6 +93,36 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
             {checking ? (
                 <View style={styles.checking} testID="public-session-share-checking">
                     <ActivityIndicator size="small" color={styles.icon.color} />
+                </View>
+            ) : shareState.active && shareUrl && confirmingRevoke ? (
+                <View style={styles.body} testID="public-session-share-revoke-confirmation">
+                    <View style={styles.notice}>
+                        <Ionicons name="warning-outline" size={20} color={styles.warningIcon.color} />
+                        <View style={styles.confirmCopy}>
+                            <Text style={styles.confirmTitle}>{t('sessionShare.revokeTitle')}</Text>
+                            <Text style={styles.confirmMessage}>{t('sessionShare.revokeMessage')}</Text>
+                        </View>
+                    </View>
+                    <View style={styles.footerActions}>
+                        <Pressable
+                            accessibilityLabel={t('common.cancel')}
+                            accessibilityRole="button"
+                            onPress={() => setConfirmingRevoke(false)}
+                            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                            testID="public-session-share-revoke-cancel"
+                        >
+                            <Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text>
+                        </Pressable>
+                        <Pressable
+                            accessibilityLabel={t('sessionShare.revokeAction')}
+                            accessibilityRole="button"
+                            onPress={confirmRevoke}
+                            style={({ pressed }) => [styles.destructiveButton, pressed && styles.pressed]}
+                            testID="public-session-share-revoke-confirm"
+                        >
+                            <Text style={styles.destructiveButtonText}>{t('sessionShare.revokeAction')}</Text>
+                        </Pressable>
+                    </View>
                 </View>
             ) : shareState.active && shareUrl ? (
                 <View style={styles.body}>
@@ -150,7 +172,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                         accessibilityLabel={t('sessionShare.revokeSharing')}
                         accessibilityRole="button"
                         disabled={busy}
-                        onPress={revokeShare}
+                        onPress={() => setConfirmingRevoke(true)}
                         style={({ pressed }) => [styles.revokeButton, pressed && styles.pressed, busy && styles.disabled]}
                         testID="public-session-share-revoke"
                     >
@@ -273,7 +295,11 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.surfaceHigh,
     },
     noticeIcon: { color: theme.colors.accent },
+    warningIcon: { color: theme.colors.status.error },
     noticeText: { flex: 1, color: theme.colors.text, fontSize: 14, lineHeight: 21 },
+    confirmCopy: { flex: 1, gap: 5 },
+    confirmTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' as const },
+    confirmMessage: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 },
     activeStatus: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     activeStatusIcon: { color: theme.colors.status.connected },
     statusCopy: { flex: 1 },
@@ -336,6 +362,16 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.button.primary.background,
     },
     primaryButtonText: { color: theme.colors.button.primary.tint, fontSize: 14, fontWeight: '600' as const },
+    destructiveButton: {
+        minWidth: 140,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 18,
+        borderRadius: 10,
+        backgroundColor: theme.colors.status.error,
+    },
+    destructiveButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '600' as const },
     busyBar: {
         flexDirection: 'row',
         alignItems: 'center',

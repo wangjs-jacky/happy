@@ -76,8 +76,8 @@ describe('PublicSessionTranscript', () => {
         expect(renderer.root.findAllByProps({ testID: 'public-session-message-assistant-1' })).toHaveLength(1);
         expect(renderer.root.findByProps({ testID: 'public-session-attachment-asset-1' }).props.source.uri)
             .toContain('/v1/public/session-shares/public-id/attachments/asset-1');
-        expect(renderer.root.findByProps({ testID: 'public-session-attachment-asset-2' }).type).toBe('audio');
-        expect(renderer.root.findByProps({ testID: 'public-session-attachment-asset-3' }).type).toBe('video');
+        expect(renderer.root.findByProps({ 'data-testid': 'public-session-attachment-asset-2' }).type).toBe('audio');
+        expect(renderer.root.findByProps({ 'data-testid': 'public-session-attachment-asset-3' }).type).toBe('video');
         expect(renderer.root.findAllByProps({ testID: 'public-session-attachment-asset-4' })).toHaveLength(1);
         expect(renderer.root.findAllByProps({ testID: 'message-composer' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'desktop-left-sidebar' })).toHaveLength(0);
