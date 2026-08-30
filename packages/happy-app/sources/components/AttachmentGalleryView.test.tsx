@@ -128,6 +128,15 @@ function uploadedImageMessage(index = 1, ref = `ref-uploaded-${index}`): ToolCal
     };
 }
 
+function browserStepImageMessage(index = 1, ref = `ref-browser-step-${index}`): ToolCallMessage {
+    const message = uploadedImageMessage(index, ref);
+    message.tool.input = {
+        ...message.tool.input,
+        source: 'browser_step',
+    };
+    return message;
+}
+
 function uploadedAudioMessage(index = 1, ref = `ref-uploaded-audio-${index}`): ToolCallMessage {
     return {
         kind: 'tool-call',
@@ -394,6 +403,27 @@ describe('AttachmentGalleryView generated batches', () => {
 
         expect(renderer.root.findAllByProps({ testID: 'attachment-gallery-download-all' })).toHaveLength(0);
 
+        act(() => renderer.unmount());
+    });
+
+    it('keeps browser step screenshots out of the conversation gallery', () => {
+        attachmentImages.set('ref-browser-step-1', {
+            uri: 'blob:browser-step-1',
+            loading: false,
+            error: null,
+        });
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <AttachmentGalleryView
+                    messages={[browserStepImageMessage()]}
+                    sessionId="session-1"
+                    presentation="compact"
+                />,
+            );
+        });
+
+        expect(renderer.toJSON()).toBeNull();
         act(() => renderer.unmount());
     });
 });

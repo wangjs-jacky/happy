@@ -482,7 +482,10 @@ cliLog(JSON.stringify({ taskSpaceId: ${taskSpaceId}, screenshotPath, ...extracte
             },
         ]);
         await expect(page.getByText('已完成：抖音收藏夹前 10 个视频均已提取，3 个浏览器步骤可在右侧面板回看。')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByTestId('desktop-workspace-main').getByText('step-3-extracted-first-ten.png')).toHaveCount(0);
+        const conversation = page.getByTestId('desktop-workspace-main');
+        await expect(conversation.getByText('step-3-extracted-first-ten.png')).toHaveCount(0);
+        await expect(conversation.getByTestId('attachment-gallery-compact')).toHaveCount(0);
+        await expect(conversation.getByTestId('attachment-gallery-download-all')).toHaveCount(0);
         await pauseForRecordedReview(page);
         await page.screenshot({ path: evidencePath(testInfo, 'live-ego-douyin-latest.png') });
 

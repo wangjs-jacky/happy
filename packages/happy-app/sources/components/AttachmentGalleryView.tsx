@@ -45,6 +45,7 @@ const BORDER_RADIUS = 10;
 const fileInputSchema = z.object({
     ref: z.string(),
     name: z.string(),
+    source: z.string().optional(),
     size: z.number().optional(),
     kind: z.enum(['image', 'audio', 'video']).optional(),
     image: z.object({
@@ -77,7 +78,10 @@ function toGalleryImages(messages: Message[]): GalleryImage[] {
         if (msg.kind !== 'tool-call' || msg.tool.name !== 'file') continue;
         const parsed = fileInputSchema.safeParse(msg.tool.input);
         if (!parsed.success) continue;
-        const { ref, name, image, kind, size } = parsed.data;
+        const { ref, name, source, image, kind, size } = parsed.data;
+        // Browser operation frames are rendered exclusively by the browser
+        // steps panel. They must not reappear in the conversation gallery.
+        if (source === 'browser_step') continue;
         result.push({
             id: msg.id,
             ref,
