@@ -178,12 +178,19 @@ describe('publicSessionShareRoutes', () => {
             method: 'POST',
             url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
             headers: { 'x-user-id': 'owner-1' },
-            payload: { name: 'photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5 },
+            payload: {
+                attachmentId: '22222222-2222-4222-8222-222222222222',
+                name: 'photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5,
+            },
         });
         expect(prepared.statusCode).toBe(200);
         const asset = prepared.json();
+        expect(asset.assetId).toBe('22222222-2222-4222-8222-222222222222');
 
-        expect((await app.inject({ method: 'GET', url: `/v1/public/session-shares/${draft.publicId}` })).statusCode).toBe(404);
+        const privateDraft = await app.inject({ method: 'GET', url: `/v1/public/session-shares/${draft.publicId}` });
+        expect(privateDraft.statusCode).toBe(404);
+        expect(privateDraft.headers['cache-control']).toBe('no-store');
+        expect(privateDraft.headers['x-robots-tag']).toContain('noindex');
         const beforeUpload = await app.inject({
             method: 'PUT',
             url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
@@ -249,7 +256,10 @@ describe('publicSessionShareRoutes', () => {
         const draft = (await createDraft()).json();
         const asset = (await app.inject({
             method: 'POST', url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
-            headers: { 'x-user-id': 'owner-1' }, payload: { name: '../photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5 },
+            headers: { 'x-user-id': 'owner-1' }, payload: {
+                attachmentId: '33333333-3333-4333-8333-333333333333',
+                name: '../photo.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5,
+            },
         })).json();
         await app.inject({
             method: 'PUT', url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,

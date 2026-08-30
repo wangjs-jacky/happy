@@ -81,10 +81,23 @@ describe('publicSessionShareStorage', () => {
         });
         expect(await publicShareAssetExists(storagePath, 5)).toBe(true);
         expect(await publicShareAssetExists(storagePath, 4)).toBe(false);
-        expect(await getPublicShareDownloadSource(storagePath)).toEqual({
+        expect(await getPublicShareDownloadSource(storagePath, {
+            contentType: 'video/mp4',
+            contentDisposition: 'inline; filename="demo.mp4"',
+        })).toEqual({
             kind: 'redirect',
             url: `https://s3.test/get/${storagePath}`,
         });
+        expect(filesMock.s3client.presignedGetObject).toHaveBeenCalledWith(
+            'bucket',
+            storagePath,
+            15 * 60,
+            {
+                'response-cache-control': 'no-store',
+                'response-content-disposition': 'inline; filename="demo.mp4"',
+                'response-content-type': 'video/mp4',
+            },
+        );
     });
 
     it('deletes only the requested generation prefix', async () => {

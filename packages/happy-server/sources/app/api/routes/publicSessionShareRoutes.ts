@@ -17,10 +17,13 @@ import {
     publicShareAssetExists,
     putPublicShareLocalAsset,
 } from '@/app/sessionSharing/publicSessionShareStorage';
+import { createFixedWindowRateLimiter } from '@/app/sessionSharing/publicSessionShareRateLimit';
 
 const MAX_ASSET_COUNT = 100;
 const MAX_ASSET_SIZE = 500 * 1024 * 1024;
 const MAX_TOTAL_ASSET_SIZE = 1024 * 1024 * 1024;
+const shareWriteRate = createFixedWindowRateLimiter({ max: 600, windowMs: 60_000 });
+const publicReadRate = createFixedWindowRateLimiter({ max: 600, windowMs: 60_000 });
 
 const sessionParamsSchema = z.object({ sessionId: z.string().min(1) });
 const draftParamsSchema = sessionParamsSchema.extend({ generation: z.string().uuid() });
@@ -31,6 +34,7 @@ const assetParamsSchema = draftParamsSchema.extend({ assetId: z.string().uuid() 
 const publicParamsSchema = z.object({ publicId: z.string().min(1).max(200) });
 const publicAssetParamsSchema = publicParamsSchema.extend({ assetId: z.string().min(1).max(200) });
 const prepareAssetBodySchema = z.object({
+    attachmentId: z.string().uuid(),
     name: z.string().min(1).max(500),
     mimeType: z.string().min(1).max(200),
     kind: publicShareAssetKindSchema,
@@ -51,6 +55,7 @@ function newPublicId(): string {
 }
 
 function publicNotFound(reply: any) {
+    setPublicHeaders(reply);
     return reply.code(404).send({ error: 'Shared session not found' });
 }
 
@@ -58,6 +63,19 @@ function setPublicHeaders(reply: any) {
     reply.header('Cache-Control', 'no-store');
     reply.header('X-Robots-Tag', 'noindex, nofollow, noarchive');
     reply.header('X-Content-Type-Options', 'nosniff');
+}
+
+function enforceShareWriteRate(userId: string, reply: any): boolean {
+    if (shareWriteRate.allow(userId)) return true;
+    reply.code(429).send({ error: 'Too many share requests. Try again in a minute.' });
+    return false;
+}
+
+function enforcePublicReadRate(ip: string, reply: any): boolean {
+    if (publicReadRate.allow(ip)) return true;
+    setPublicHeaders(reply);
+    reply.code(429).send({ error: 'Too many requests. Try again in a minute.' });
+    return false;
 }
 
 function attachmentIds(snapshot: PublicSessionSnapshot): Set<string> {
@@ -114,6 +132,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             select: { id: true, accountId: true },
         });
         if (!session) return reply.code(404).send({ error: 'Session not found' });
+        if (!enforceShareWriteRate(request.userId, reply)) return;
 
         let share = await db.publicSessionShare.findUnique({ where: { sessionId: session.id } });
         if (!share) {
@@ -149,6 +168,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             where: { sessionId: request.params.sessionId, accountId: request.userId },
         });
         if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
+        if (!enforceShareWriteRate(request.userId, reply)) return;
 
         const generationAssets = await db.publicSessionShareAsset.findMany({
             where: { shareId: share.id, generation: request.params.generation },
@@ -158,7 +178,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             return reply.code(413).send({ error: 'Shared session attachment limit exceeded' });
         }
 
-        const assetId = crypto.randomUUID();
+        const assetId = request.body.attachmentId;
         const name = safeDispositionName(request.body.name);
         const storagePath = buildPublicShareStoragePath(share.id, request.params.generation, assetId);
         await db.publicSessionShareAsset.create({
@@ -187,6 +207,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             where: { sessionId: request.params.sessionId, accountId: request.userId },
         });
         if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
+        if (!enforceShareWriteRate(request.userId, reply)) return;
         const asset = await db.publicSessionShareAsset.findFirst({
             where: { id: request.params.assetId, shareId: share.id, generation: request.params.generation },
         });
@@ -214,6 +235,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             where: { sessionId: request.params.sessionId, accountId: request.userId },
         });
         if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
+        if (!enforceShareWriteRate(request.userId, reply)) return;
 
         const assets = await db.publicSessionShareAsset.findMany({
             where: { shareId: share.id, generation: request.params.generation },
@@ -257,6 +279,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             select: { id: true },
         });
         if (!session) return reply.code(404).send({ error: 'Session not found' });
+        if (!enforceShareWriteRate(request.userId, reply)) return;
         const share = await db.publicSessionShare.findUnique({ where: { sessionId: session.id } });
         if (!share || share.revokedAt) return reply.send({ ok: true });
         await db.publicSessionShare.update({ where: { id: share.id }, data: { revokedAt: new Date() } });
@@ -266,6 +289,7 @@ export function publicSessionShareRoutes(app: Fastify) {
     app.get('/v1/public/session-shares/:publicId', {
         schema: { params: publicParamsSchema },
     }, async (request, reply) => {
+        if (!enforcePublicReadRate(request.ip, reply)) return;
         const share = await db.publicSessionShare.findUnique({ where: { publicId: request.params.publicId } });
         if (!share || share.revokedAt || !share.publishedAt || !share.snapshot || !share.activeGeneration) {
             return publicNotFound(reply);
@@ -279,23 +303,25 @@ export function publicSessionShareRoutes(app: Fastify) {
     app.get('/v1/public/session-shares/:publicId/attachments/:assetId', {
         schema: { params: publicAssetParamsSchema },
     }, async (request, reply) => {
+        if (!enforcePublicReadRate(request.ip, reply)) return;
         const share = await db.publicSessionShare.findUnique({ where: { publicId: request.params.publicId } });
         if (!share || share.revokedAt || !share.publishedAt || !share.activeGeneration) return publicNotFound(reply);
         const asset = await db.publicSessionShareAsset.findFirst({
             where: { id: request.params.assetId, shareId: share.id, generation: share.activeGeneration },
         });
         if (!asset) return publicNotFound(reply);
+        const contentType = safeMimeType(asset.kind, asset.mimeType);
+        const disposition = contentType === 'application/octet-stream' ? 'attachment' : 'inline';
+        const contentDisposition = `${disposition}; filename="${safeDispositionName(asset.name)}"`;
         let source: Awaited<ReturnType<typeof getPublicShareDownloadSource>>;
         try {
-            source = await getPublicShareDownloadSource(asset.storagePath);
+            source = await getPublicShareDownloadSource(asset.storagePath, { contentType, contentDisposition });
         } catch {
             return publicNotFound(reply);
         }
         setPublicHeaders(reply);
-        const contentType = safeMimeType(asset.kind, asset.mimeType);
-        const disposition = contentType === 'application/octet-stream' ? 'attachment' : 'inline';
         reply.header('Content-Type', contentType);
-        reply.header('Content-Disposition', `${disposition}; filename="${safeDispositionName(asset.name)}"`);
+        reply.header('Content-Disposition', contentDisposition);
         if (source.kind === 'redirect') return reply.redirect(source.url);
         return reply.type(contentType).send(source.data);
     });

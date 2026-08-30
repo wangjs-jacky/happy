@@ -57,7 +57,10 @@ export async function publicShareAssetExists(storagePath: string, expectedSize: 
     }
 }
 
-export async function getPublicShareDownloadSource(storagePath: string): Promise<
+export async function getPublicShareDownloadSource(storagePath: string, response?: {
+    contentType: string;
+    contentDisposition: string;
+}): Promise<
     | { kind: 'buffer'; data: Buffer }
     | { kind: 'redirect'; url: string }
 > {
@@ -68,7 +71,11 @@ export async function getPublicShareDownloadSource(storagePath: string): Promise
     }
     return {
         kind: 'redirect',
-        url: await s3client.presignedGetObject(s3bucket, storagePath, PRESIGNED_TTL_SECONDS),
+        url: await s3client.presignedGetObject(s3bucket, storagePath, PRESIGNED_TTL_SECONDS, response ? {
+            'response-cache-control': 'no-store',
+            'response-content-disposition': response.contentDisposition,
+            'response-content-type': response.contentType,
+        } : undefined),
     };
 }
 
