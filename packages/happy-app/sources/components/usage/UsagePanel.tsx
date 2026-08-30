@@ -66,11 +66,45 @@ function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null 
 function getLatestCodexUsageSnapshot(machines: Array<{ daemonState: unknown }>): CodexUsageSnapshot | null {
     return machines.reduce<CodexUsageSnapshot | null>((latest, machine) => {
         const snapshot = getCodexUsageSnapshot(machine.daemonState);
-        if (!snapshot || (latest && latest.scannedAt >= snapshot.scannedAt)) {
+        if (!snapshot) {
+            return latest;
+        }
+        const snapshotEventTime = snapshot.latestEvent?.timestamp
+            ? Date.parse(snapshot.latestEvent.timestamp)
+            : snapshot.scannedAt;
+        const latestEventTime = latest?.latestEvent?.timestamp
+            ? Date.parse(latest.latestEvent.timestamp)
+            : latest?.scannedAt;
+        if (latest && (latestEventTime || 0) >= (snapshotEventTime || 0)) {
             return latest;
         }
         return snapshot;
     }, null);
+}
+
+function mergeCodexUsageDays(snapshots: CodexUsageSnapshot[]): CodexUsageDay[] {
+    const merged = new Map<string, CodexUsageDay>();
+    for (const snapshot of snapshots) {
+        for (const day of snapshot.days || []) {
+            const existing = merged.get(day.date);
+            if (!existing) {
+                merged.set(day.date, { ...day });
+                continue;
+            }
+            merged.set(day.date, {
+                date: day.date,
+                inputTokens: existing.inputTokens + day.inputTokens,
+                cachedInputTokens: existing.cachedInputTokens + day.cachedInputTokens,
+                outputTokens: existing.outputTokens + day.outputTokens,
+                reasoningOutputTokens: existing.reasoningOutputTokens + day.reasoningOutputTokens,
+                totalTokens: existing.totalTokens + day.totalTokens,
+                tokenCountEvents: existing.tokenCountEvents + day.tokenCountEvents,
+                sessions: existing.sessions + day.sessions,
+                totalOnlyTokens: existing.totalOnlyTokens + day.totalOnlyTokens,
+            });
+        }
+    }
+    return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function dateKeyForTimeZone(timestamp: number, timeZone?: string): string {
@@ -268,7 +302,7 @@ const styles = StyleSheet.create((theme) => ({
     heatmapCell: {
         aspectRatio: 1,
         borderRadius: 4,
-        width: '12.5%',
+        flex: 1,
     },
     heatmapCellInactive: {
         backgroundColor: theme.colors.surfaceHigh,
@@ -377,6 +411,9 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         costByModel: {} as Record<string, number>
     });
     const [selectedCodexUsageDate, setSelectedCodexUsageDate] = useState<string | null>(null);
+    const codexUsageSnapshots = React.useMemo(() => machines
+        .map((machine) => getCodexUsageSnapshot(machine.daemonState))
+        .filter((snapshot): snapshot is CodexUsageSnapshot => !!snapshot), [machines]);
     const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
     const codexRateLimits = React.useMemo(() => {
         const rateLimits = codexUsage?.latestEvent?.rateLimits;
@@ -387,7 +424,15 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         ].filter((limit): limit is CodexRateLimitSummary => !!limit);
     }, [codexUsage]);
     const primaryCodexRateLimit = codexRateLimits[0];
-    const codexHeatmapDays = React.useMemo(() => getCodexHeatmapDays(codexUsage), [codexUsage]);
+    const codexActivity = React.useMemo(() => {
+        const latestScan = codexUsageSnapshots.reduce<CodexUsageSnapshot | null>((latest, snapshot) => (
+            !latest || snapshot.scannedAt > latest.scannedAt ? snapshot : latest
+        ), null);
+        return latestScan
+            ? { ...latestScan, days: mergeCodexUsageDays(codexUsageSnapshots) }
+            : null;
+    }, [codexUsageSnapshots]);
+    const codexHeatmapDays = React.useMemo(() => getCodexHeatmapDays(codexActivity), [codexActivity]);
     const maxCodexHeatmapTokens = React.useMemo(
         () => Math.max(...codexHeatmapDays.map((day) => day.totalTokens), 1),
         [codexHeatmapDays],

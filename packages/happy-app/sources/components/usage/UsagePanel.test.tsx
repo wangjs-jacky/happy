@@ -176,7 +176,7 @@ describe('UsagePanel', () => {
         act(() => renderer.unmount());
     });
 
-    it('shows the freshest Codex rate limit with remaining allowance and reset time', async () => {
+    it('shows the Codex rate limit from the freshest usage event', async () => {
         mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
         mocks.machines = [
             {
@@ -185,6 +185,7 @@ describe('UsagePanel', () => {
                         source: 'codex-session-jsonl',
                         scannedAt: 100,
                         latestEvent: {
+                            timestamp: '2026-08-30T03:00:00.000Z',
                             rateLimits: {
                                 planType: 'pro',
                                 primary: {
@@ -203,6 +204,7 @@ describe('UsagePanel', () => {
                         source: 'codex-session-jsonl',
                         scannedAt: 200,
                         latestEvent: {
+                            timestamp: '2026-08-30T02:00:00.000Z',
                             rateLimits: {
                                 planType: 'pro',
                                 primary: {
@@ -220,7 +222,7 @@ describe('UsagePanel', () => {
         const renderer = await renderUsagePanel();
         const texts = renderer.root.findAllByType('Text').map(textValue);
 
-        expect(texts).toContain('51%');
+        expect(texts).toContain('17%');
         expect(texts).toContain('PRO');
         expect(texts.some((text: string) => text.startsWith('machine.codexUsageResetsAt:'))).toBe(true);
 
@@ -307,7 +309,65 @@ describe('UsagePanel', () => {
         expect(cells).toHaveLength(14);
         expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-18')).toBe(true);
         expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-19')).toBe(true);
+        expect(cells.every((cell: any) => cell.props.style.some((style: any) => style?.flex === 1))).toBe(true);
         expect(texts.some((text: string) => text.startsWith('machine.codexUsageHeatmapDay:'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('merges Codex activity from every machine without changing the freshest rate limit', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        const usageDay = (totalTokens: number, sessions: number) => ({
+            date: '2026-08-30',
+            inputTokens: totalTokens - 20,
+            cachedInputTokens: 10,
+            outputTokens: 20,
+            reasoningOutputTokens: 5,
+            totalTokens,
+            tokenCountEvents: sessions,
+            sessions,
+            totalOnlyTokens: 0,
+        });
+        mocks.machines = [
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: Date.UTC(2026, 7, 30, 12),
+                        days: [usageDay(200, 2)],
+                        latestEvent: {
+                            timestamp: '2026-08-30T03:00:00.000Z',
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: { usedPercent: 60, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: Date.UTC(2026, 7, 30, 13),
+                        days: [usageDay(300, 3)],
+                        latestEvent: {
+                            timestamp: '2026-08-30T02:00:00.000Z',
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: { usedPercent: 20, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('40%');
+        expect(texts).toContain('machine.codexUsageHeatmapDay:{"date":"2026-08-30","tokens":"500","sessions":5}');
 
         act(() => renderer.unmount());
     });
