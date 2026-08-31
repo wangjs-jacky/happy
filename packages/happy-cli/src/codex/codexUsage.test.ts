@@ -144,6 +144,58 @@ describe('collectCodexUsageSnapshot', () => {
         expect(snapshot.yesterday?.totalTokens).toBe(999);
     });
 
+    it('falls back to streamed JSONL parsing when ripgrep is unavailable', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+
+        writeJsonl(join(codexHome, 'sessions', '2026', '07', '05', 'rollout.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', {
+                input_tokens: 100,
+                cached_input_tokens: 40,
+                output_tokens: 20,
+                total_tokens: 120,
+            }),
+        ]);
+
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-07-06T01:00:00.000+08:00'),
+            timeZone: 'Asia/Shanghai',
+            ripgrepCommands: ['definitely-missing-ripgrep-for-test'],
+        });
+
+        expect(snapshot.yesterday?.totalTokens).toBe(120);
+    });
+
+    it('separates local dates that cross midnight within one UTC hour', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+
+        writeJsonl(join(codexHome, 'sessions', '2026', '08', '30', 'rollout.jsonl'), [
+            tokenCount('2026-08-30T18:20:00.000Z', {
+                input_tokens: 100,
+                cached_input_tokens: 40,
+                output_tokens: 20,
+                total_tokens: 120,
+            }),
+            tokenCount('2026-08-30T18:40:00.000Z', {
+                input_tokens: 110,
+                cached_input_tokens: 42,
+                output_tokens: 20,
+                total_tokens: 130,
+            }),
+        ]);
+
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-08-31T12:00:00.000Z'),
+            timeZone: 'Asia/Kolkata',
+        });
+
+        expect(snapshot.days.find((day) => day.date === '2026-08-30')?.totalTokens).toBe(120);
+        expect(snapshot.days.find((day) => day.date === '2026-08-31')?.totalTokens).toBe(130);
+    });
+
     it('keeps the freshest known rate limits when a newer token event omits them', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
         created.push(codexHome);

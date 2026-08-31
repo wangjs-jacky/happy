@@ -60,6 +60,7 @@ interface CollectCodexUsageOptions {
     now?: Date;
     timeZone?: string;
     maxDays?: number;
+    ripgrepCommands?: string[];
 }
 
 interface SessionUsageAccumulator extends CodexUsageDay {
@@ -101,7 +102,6 @@ interface CodexUsageFileAccumulator {
 }
 
 const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
-const localDateByUtcHour = new Map<string, string>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -156,17 +156,6 @@ function localDateKey(date: Date, timeZone: string): string {
         return acc;
     }, {});
     return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-function localDateKeyForTimestamp(timestamp: string, date: Date, timeZone: string): string {
-    const cacheKey = `${timeZone}\0${timestamp.slice(0, 13)}`;
-    const cached = localDateByUtcHour.get(cacheKey);
-    if (cached) {
-        return cached;
-    }
-    const dateKey = localDateKey(date, timeZone);
-    localDateByUtcHour.set(cacheKey, dateKey);
-    return dateKey;
 }
 
 function getTimeZone(): string {
@@ -276,6 +265,7 @@ async function readCodexSessionMetadata(filePath: string): Promise<CodexSessionM
 
 async function readCodexSessionMetadataWithRipgrep(
     files: string[],
+    commands = defaultRipgrepCommands(),
 ): Promise<Map<string, CodexSessionMetadata> | null> {
     const args = [
         '--null',
@@ -287,15 +277,14 @@ async function readCodexSessionMetadataWithRipgrep(
         '"type":"session_meta"',
         ...files,
     ];
-    const packagedBinary = join(projectPath(), 'tools', 'unpacked', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    for (const command of [...new Set(['rg', packagedBinary])]) {
+    for (const command of commands) {
         const child = crossSpawn(command, args, {
             stdio: ['ignore', 'pipe', 'ignore'],
             windowsHide: true,
         });
-        const exitPromise = new Promise<number>((resolveExit, reject) => {
-            child.once('error', reject);
-            child.once('close', (code) => resolveExit(code ?? 1));
+        const exitPromise = new Promise<{ code: number; error?: Error }>((resolveExit) => {
+            child.once('error', (error) => resolveExit({ code: 1, error }));
+            child.once('close', (code) => resolveExit({ code: code ?? 1 }));
         });
         const metadataByFile = new Map<string, CodexSessionMetadata>();
         try {
@@ -314,7 +303,11 @@ async function readCodexSessionMetadataWithRipgrep(
                     // Ignore malformed session metadata and let it behave as a root session.
                 }
             }
-            if (await exitPromise <= 1) {
+            const result = await exitPromise;
+            if (result.error) {
+                throw result.error;
+            }
+            if (result.code <= 1) {
                 return metadataByFile;
             }
         } catch {
@@ -330,6 +323,7 @@ async function expandCodexFilesWithReplayParents(
     recentFiles: string[],
     firstDateKey: string,
     warnings: string[],
+    ripgrepCommands?: string[],
 ): Promise<string[]> {
     const allActiveFiles = await walkJsonlFiles(sessionsDir, warnings);
     const allArchivedFiles = await walkJsonlFiles(join(codexHome, 'archived_sessions'), warnings);
@@ -341,7 +335,7 @@ async function expandCodexFilesWithReplayParents(
         }
     }
     const allFiles = [...allFilesByName.values()];
-    const metadataByFile = await readCodexSessionMetadataWithRipgrep(allFiles)
+    const metadataByFile = await readCodexSessionMetadataWithRipgrep(allFiles, ripgrepCommands)
         || new Map<string, CodexSessionMetadata>();
     if (metadataByFile.size === 0 && allFiles.length > 0) {
         let nextIndex = 0;
@@ -504,7 +498,7 @@ function addCodexUsageLine(
         return;
     }
 
-    const dateKey = localDateKeyForTimestamp(timestamp, date, timeZone);
+    const dateKey = localDateKey(date, timeZone);
     const rateLimits = toRateLimits(record.payload.rate_limits);
     if (hasUsableRateLimits(rateLimits) && eventTime > accumulator.latestRateLimitsTime) {
         accumulator.latestRateLimits = rateLimits;
@@ -550,6 +544,7 @@ async function parseCodexUsageFilesWithRipgrep(
     files: string[],
     timeZone: string,
     warnings: string[],
+    commands = defaultRipgrepCommands(),
 ): Promise<ParsedCodexUsageFile[] | null> {
     const args = [
         '--null',
@@ -562,8 +557,6 @@ async function parseCodexUsageFilesWithRipgrep(
         '"type":"session_meta"',
         ...files,
     ];
-    const packagedBinary = join(projectPath(), 'tools', 'unpacked', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    const commands = [...new Set(['rg', packagedBinary])];
     const failures: string[] = [];
 
     for (const command of commands) {
@@ -571,9 +564,9 @@ async function parseCodexUsageFilesWithRipgrep(
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
         });
-        const exitPromise = new Promise<number>((resolveExit, reject) => {
-            child.once('error', reject);
-            child.once('close', (code) => resolveExit(code ?? 1));
+        const exitPromise = new Promise<{ code: number; error?: Error }>((resolveExit) => {
+            child.once('error', (error) => resolveExit({ code: 1, error }));
+            child.once('close', (code) => resolveExit({ code: code ?? 1 }));
         });
         const accumulators = new Map<string, CodexUsageFileAccumulator>();
         let stderr = '';
@@ -601,8 +594,11 @@ async function parseCodexUsageFilesWithRipgrep(
                 addCodexUsageLine(accumulator, line.slice(separator + 1), filePath, timeZone);
                 accumulators.set(filePath, accumulator);
             }
-            const exitCode = await exitPromise;
-            if (exitCode <= 1) {
+            const result = await exitPromise;
+            if (result.error) {
+                throw result.error;
+            }
+            if (result.code <= 1) {
                 return [...accumulators.entries()].map(([filePath, accumulator]) => ({
                     filePath,
                     events: accumulator.events,
@@ -619,7 +615,7 @@ async function parseCodexUsageFilesWithRipgrep(
                     latestRateLimitsTime: accumulator.latestRateLimitsTime,
                 }));
             }
-            failures.push(`${command} exited ${exitCode}: ${stderr.trim()}`);
+            failures.push(`${command} exited ${result.code}: ${stderr.trim()}`);
         } catch (error) {
             failures.push(`${command}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -734,6 +730,7 @@ async function parseCodexUsageFiles(
     files: string[],
     timeZone: string,
     warnings: string[],
+    ripgrepCommands?: string[],
 ): Promise<ParsedCodexUsageFile[]> {
     const totalBytes = (await Promise.all(files.map(async (filePath) => {
         try {
@@ -743,7 +740,7 @@ async function parseCodexUsageFiles(
         }
     }))).reduce((total, size) => total + size, 0);
     if (totalBytes >= 16 * 1024 * 1024) {
-        const ripgrepResults = await parseCodexUsageFilesWithRipgrep(files, timeZone, warnings);
+        const ripgrepResults = await parseCodexUsageFilesWithRipgrep(files, timeZone, warnings, ripgrepCommands);
         if (ripgrepResults) {
             return ripgrepResults;
         }
@@ -816,6 +813,11 @@ function hasUsableRateLimits(rateLimits: CodexUsageRateLimits | undefined): rate
         || typeof rateLimits?.secondary?.usedPercent === 'number';
 }
 
+function defaultRipgrepCommands(): string[] {
+    const packagedBinary = join(projectPath(), 'tools', 'unpacked', process.platform === 'win32' ? 'rg.exe' : 'rg');
+    return [...new Set(['rg', packagedBinary])];
+}
+
 export async function collectCodexUsageSnapshot(options: CollectCodexUsageOptions = {}): Promise<CodexUsageSnapshot> {
     const now = options.now || new Date();
     const timeZone = options.timeZone || getTimeZone();
@@ -825,7 +827,14 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
     const warnings: string[] = [];
     const dateKeys = recentLocalDateKeys(now, timeZone, maxDays);
     const recentFiles = await listRecentCodexSessionFiles(codexHome, sessionsDir, dateKeys, warnings);
-    const files = await expandCodexFilesWithReplayParents(codexHome, sessionsDir, recentFiles, dateKeys[0], warnings);
+    const files = await expandCodexFilesWithReplayParents(
+        codexHome,
+        sessionsDir,
+        recentFiles,
+        dateKeys[0],
+        warnings,
+        options.ripgrepCommands,
+    );
     const byDate = new Map<string, SessionUsageAccumulator>();
     const firstDateKey = dateKeys[0];
     const todayKey = dateKeys.at(-1)!;
@@ -835,7 +844,7 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
     let latestRateLimits: CodexUsageRateLimits | undefined;
     let latestRateLimitsTime = 0;
 
-    const parsedFiles = await parseCodexUsageFiles(files, timeZone, warnings);
+    const parsedFiles = await parseCodexUsageFiles(files, timeZone, warnings, options.ripgrepCommands);
     const usageEvents = dedupeCodexUsageEvents(parsedFiles);
     for (const event of usageEvents) {
         if (event.localDate < firstDateKey || event.localDate > todayKey) {
