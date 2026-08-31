@@ -50,6 +50,7 @@ export interface CodexUsageSnapshot {
         lastTokenUsage: CodexUsageTokenTotals;
         sessionTotalTokenUsage?: CodexUsageTokenTotals;
         rateLimits?: CodexUsageRateLimits;
+        rateLimitsTimestamp?: string;
     } | null;
     warnings: string[];
 }
@@ -415,7 +416,11 @@ async function parseCodexUsageFile(
         events: accumulator.events,
         metadata: accumulator.metadata,
         latestEvent: accumulator.latestEvent && accumulator.latestRateLimits
-            ? { ...accumulator.latestEvent, rateLimits: accumulator.latestRateLimits }
+            ? {
+                ...accumulator.latestEvent,
+                rateLimits: accumulator.latestRateLimits,
+                rateLimitsTimestamp: new Date(accumulator.latestRateLimitsTime).toISOString(),
+            }
             : accumulator.latestEvent,
         latestEventTime: accumulator.latestEventTime,
         latestRateLimits: accumulator.latestRateLimits,
@@ -513,6 +518,11 @@ function addCodexUsageLine(
             lastTokenUsage: lastTokenUsage || subtractUsage(sessionTotalTokenUsage!, accumulator.previousTotals),
             sessionTotalTokenUsage: sessionTotalTokenUsage || undefined,
             rateLimits: hasUsableRateLimits(rateLimits) ? rateLimits : accumulator.latestRateLimits,
+            rateLimitsTimestamp: hasUsableRateLimits(rateLimits)
+                ? timestamp
+                : accumulator.latestRateLimitsTime > 0
+                    ? new Date(accumulator.latestRateLimitsTime).toISOString()
+                    : undefined,
         };
     }
 
@@ -598,7 +608,11 @@ async function parseCodexUsageFilesWithRipgrep(
                     events: accumulator.events,
                     metadata: accumulator.metadata,
                     latestEvent: accumulator.latestEvent && accumulator.latestRateLimits
-                        ? { ...accumulator.latestEvent, rateLimits: accumulator.latestRateLimits }
+                        ? {
+                            ...accumulator.latestEvent,
+                            rateLimits: accumulator.latestRateLimits,
+                            rateLimitsTimestamp: new Date(accumulator.latestRateLimitsTime).toISOString(),
+                        }
                         : accumulator.latestEvent,
                     latestEventTime: accumulator.latestEventTime,
                     latestRateLimits: accumulator.latestRateLimits,
@@ -847,7 +861,11 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
         }
     }
     if (latestEvent && latestRateLimits) {
-        latestEvent = { ...latestEvent, rateLimits: latestRateLimits };
+        latestEvent = {
+            ...latestEvent,
+            rateLimits: latestRateLimits,
+            rateLimitsTimestamp: new Date(latestRateLimitsTime).toISOString(),
+        };
     }
 
     const days = [...byDate.values()]

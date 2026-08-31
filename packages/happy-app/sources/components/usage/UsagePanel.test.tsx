@@ -16,26 +16,19 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
+    Platform: {
+        OS: 'web',
+        select: (values: Record<string, unknown>) => values.web ?? values.default,
+    },
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     View: 'View',
 }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
-vi.mock('react-native-unistyles', () => {
-    const theme = {
-        colors: {
-            accent: '#00ff88',
-            divider: '#333333',
-            status: { error: '#ff4757' },
-            surface: '#131316',
-            surfaceHigh: '#1b1b20',
-            surfacePressed: '#292932',
-            surfaceSelected: '#24242b',
-            text: '#e5e5e7',
-            textSecondary: '#6b6b76',
-        },
-    };
+vi.mock('react-native-unistyles', async () => {
+    const { appThemes } = await vi.importActual<typeof import('@/themePacks')>('@/themePacks');
+    const theme = appThemes.ginghamDark;
     return {
         StyleSheet: {
             create: (factory: unknown) => typeof factory === 'function'
@@ -323,6 +316,52 @@ describe('UsagePanel', () => {
         act(() => renderer.unmount());
     });
 
+    it('compares the source timestamps of retained quotas across machines', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 300,
+                        latestEvent: {
+                            timestamp: '2026-08-30T05:00:00.000Z',
+                            rateLimitsTimestamp: '2026-08-30T03:00:00.000Z',
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: { usedPercent: 83, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 200,
+                        latestEvent: {
+                            timestamp: '2026-08-30T04:00:00.000Z',
+                            rateLimitsTimestamp: '2026-08-30T04:00:00.000Z',
+                            rateLimits: {
+                                planType: 'plus',
+                                primary: { usedPercent: 49, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('51%');
+        expect(texts).toContain('PLUS');
+
+        act(() => renderer.unmount());
+    });
+
     it('prioritizes the Codex balance and hides empty API usage metrics', async () => {
         mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
         mocks.machines = [{
@@ -442,8 +481,8 @@ describe('UsagePanel', () => {
         expect(typeof selected.props.style).toBe('function');
         const selectedStyles = selected.props.style({ pressed: false });
         const pressedStyles = selected.props.style({ pressed: true });
-        expect(selectedStyles.some((style: any) => style?.backgroundColor === '#24242b')).toBe(true);
-        expect(pressedStyles.some((style: any) => style?.backgroundColor === '#292932')).toBe(true);
+        expect(selectedStyles.some((style: any) => style?.backgroundColor === '#283544')).toBe(true);
+        expect(pressedStyles.some((style: any) => style?.backgroundColor === '#1F2A38')).toBe(true);
 
         act(() => renderer.unmount());
     });

@@ -73,6 +73,7 @@ async function registerUsageMachine(request: APIRequestContext): Promise<() => P
             ],
             latestEvent: {
                 timestamp: '2026-08-31T11:18:00.000Z',
+                rateLimitsTimestamp: '2026-08-31T11:18:00.000Z',
                 rateLimits: {
                     planType: 'plus',
                     primary: { usedPercent: 37, windowMinutes: 300, resetsAt: 1788170400 },
@@ -99,10 +100,20 @@ test('[CODEX-USAGE-EVIDENCE] quota and activity presentation', async ({ page, re
     test.setTimeout(120_000);
     const deleteMachine = await registerUsageMachine(request);
     try {
+        await page.addInitScript(() => {
+            window.localStorage.setItem(
+                'mmkv.default\\local-settings',
+                JSON.stringify({ themePreference: 'dark', themePack: 'gingham' }),
+            );
+        });
+        await page.emulateMedia({ colorScheme: 'dark' });
         await page.setViewportSize({ width: 1280, height: 900 });
         const usageUrl = new URL('/settings/usage', authenticatedWebUrl);
         usageUrl.search = new URL(authenticatedWebUrl).search;
         await page.goto(usageUrl.toString());
+        await expect.poll(() => page.locator('body').evaluate((element) => (
+            window.getComputedStyle(element).backgroundColor
+        ))).toBe('rgb(18, 24, 33)');
         if (evidencePhase === 'after') {
             await expect(page.getByText('Codex Usage', { exact: true })).toBeVisible({ timeout: 30_000 });
             await expect(page.getByText('63%', { exact: true })).toBeVisible();
@@ -119,8 +130,16 @@ test('[CODEX-USAGE-EVIDENCE] quota and activity presentation', async ({ page, re
             const activeDay = page.getByTestId('codex-usage-day-2026-08-27');
             await activeDay.click();
             await expect(page.getByText('2026-08-27: 1.12M tokens · 14 sessions', { exact: true })).toBeVisible();
+            await expect(activeDay).toHaveCSS('background-color', 'rgb(40, 53, 68)');
+            const pressedDay = page.getByTestId('codex-usage-day-2026-08-29');
+            await pressedDay.hover();
+            await page.mouse.down();
+            await expect(pressedDay).toHaveCSS('background-color', 'rgb(31, 42, 56)');
         }
         await page.screenshot({ path: evidencePath(testInfo, 2), fullPage: true });
+        if (evidencePhase === 'after') {
+            await page.mouse.up();
+        }
     } finally {
         await deleteMachine();
     }

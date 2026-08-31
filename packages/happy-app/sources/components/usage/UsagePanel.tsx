@@ -27,6 +27,7 @@ interface CodexUsageSnapshot {
     days?: CodexUsageDay[];
     latestEvent?: {
         timestamp?: string;
+        rateLimitsTimestamp?: string;
         rateLimits?: {
             planType?: string;
             primary?: CodexRateLimitWindow;
@@ -79,11 +80,17 @@ function getLatestCodexUsageSnapshot(
         if (!snapshot || (requireRateLimits && !hasUsableRateLimits(snapshot))) {
             return latest;
         }
-        const snapshotEventTime = snapshot.latestEvent?.timestamp
-            ? Date.parse(snapshot.latestEvent.timestamp)
+        const snapshotTimestamp = requireRateLimits
+            ? snapshot.latestEvent?.rateLimitsTimestamp || snapshot.latestEvent?.timestamp
+            : snapshot.latestEvent?.timestamp;
+        const latestTimestamp = requireRateLimits
+            ? latest?.latestEvent?.rateLimitsTimestamp || latest?.latestEvent?.timestamp
+            : latest?.latestEvent?.timestamp;
+        const snapshotEventTime = snapshotTimestamp
+            ? Date.parse(snapshotTimestamp)
             : snapshot.scannedAt;
-        const latestEventTime = latest?.latestEvent?.timestamp
-            ? Date.parse(latest.latestEvent.timestamp)
+        const latestEventTime = latestTimestamp
+            ? Date.parse(latestTimestamp)
             : latest?.scannedAt;
         if (latest && (latestEventTime || 0) >= (snapshotEventTime || 0)) {
             return latest;

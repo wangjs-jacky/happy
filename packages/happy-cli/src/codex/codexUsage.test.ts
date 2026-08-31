@@ -181,6 +181,7 @@ describe('collectCodexUsageSnapshot', () => {
         });
 
         expect(snapshot.latestEvent?.timestamp).toBe('2026-07-05T05:10:00.000Z');
+        expect(snapshot.latestEvent?.rateLimitsTimestamp).toBe('2026-07-05T05:00:00.000Z');
         expect(snapshot.latestEvent?.rateLimits?.primary?.usedPercent).toBe(25);
     });
 
