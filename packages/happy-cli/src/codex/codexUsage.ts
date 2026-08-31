@@ -71,6 +71,8 @@ interface ParsedCodexUsageFile {
     metadata: CodexSessionMetadata;
     latestEvent: CodexUsageSnapshot['latestEvent'];
     latestEventTime: number;
+    latestRateLimits?: CodexUsageRateLimits;
+    latestRateLimitsTime: number;
 }
 
 interface ParsedCodexUsageEvent {
@@ -93,6 +95,8 @@ interface CodexUsageFileAccumulator {
     previousTotals?: CodexUsageTokenTotals;
     latestEvent: CodexUsageSnapshot['latestEvent'];
     latestEventTime: number;
+    latestRateLimits?: CodexUsageRateLimits;
+    latestRateLimitsTime: number;
 }
 
 const localDateFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -391,6 +395,7 @@ async function parseCodexUsageFile(
         metadata: {},
         latestEvent: null,
         latestEventTime: 0,
+        latestRateLimitsTime: 0,
     };
     try {
         const lines = createInterface({
@@ -409,8 +414,12 @@ async function parseCodexUsageFile(
         filePath,
         events: accumulator.events,
         metadata: accumulator.metadata,
-        latestEvent: accumulator.latestEvent,
+        latestEvent: accumulator.latestEvent && accumulator.latestRateLimits
+            ? { ...accumulator.latestEvent, rateLimits: accumulator.latestRateLimits }
+            : accumulator.latestEvent,
         latestEventTime: accumulator.latestEventTime,
+        latestRateLimits: accumulator.latestRateLimits,
+        latestRateLimitsTime: accumulator.latestRateLimitsTime,
     };
 }
 
@@ -491,6 +500,11 @@ function addCodexUsageLine(
     }
 
     const dateKey = localDateKeyForTimestamp(timestamp, date, timeZone);
+    const rateLimits = toRateLimits(record.payload.rate_limits);
+    if (hasUsableRateLimits(rateLimits) && eventTime > accumulator.latestRateLimitsTime) {
+        accumulator.latestRateLimits = rateLimits;
+        accumulator.latestRateLimitsTime = eventTime;
+    }
     if (eventTime > accumulator.latestEventTime) {
         accumulator.latestEventTime = eventTime;
         accumulator.latestEvent = {
@@ -498,7 +512,7 @@ function addCodexUsageLine(
             localDate: dateKey,
             lastTokenUsage: lastTokenUsage || subtractUsage(sessionTotalTokenUsage!, accumulator.previousTotals),
             sessionTotalTokenUsage: sessionTotalTokenUsage || undefined,
-            rateLimits: toRateLimits(record.payload.rate_limits),
+            rateLimits: hasUsableRateLimits(rateLimits) ? rateLimits : accumulator.latestRateLimits,
         };
     }
 
@@ -572,6 +586,7 @@ async function parseCodexUsageFilesWithRipgrep(
                     metadata: {},
                     latestEvent: null,
                     latestEventTime: 0,
+                    latestRateLimitsTime: 0,
                 };
                 addCodexUsageLine(accumulator, line.slice(separator + 1), filePath, timeZone);
                 accumulators.set(filePath, accumulator);
@@ -582,8 +597,12 @@ async function parseCodexUsageFilesWithRipgrep(
                     filePath,
                     events: accumulator.events,
                     metadata: accumulator.metadata,
-                    latestEvent: accumulator.latestEvent,
+                    latestEvent: accumulator.latestEvent && accumulator.latestRateLimits
+                        ? { ...accumulator.latestEvent, rateLimits: accumulator.latestRateLimits }
+                        : accumulator.latestEvent,
                     latestEventTime: accumulator.latestEventTime,
+                    latestRateLimits: accumulator.latestRateLimits,
+                    latestRateLimitsTime: accumulator.latestRateLimitsTime,
                 }));
             }
             failures.push(`${command} exited ${exitCode}: ${stderr.trim()}`);
@@ -736,11 +755,7 @@ function addUsage(day: SessionUsageAccumulator, usage: CodexUsageTokenTotals, fi
     day.tokenCountEvents += 1;
     day.sessionFiles.add(filePath);
 
-    const splitTotal = usage.inputTokens + usage.outputTokens;
-    day.totalTokens += splitTotal > 0 ? splitTotal : usage.totalTokens;
-    if (splitTotal === 0 && usage.totalTokens > 0) {
-        day.totalOnlyTokens += usage.totalTokens;
-    }
+    day.totalTokens += usage.totalTokens;
 }
 
 function toUsageDay(day: SessionUsageAccumulator): CodexUsageDay {
@@ -782,6 +797,11 @@ function toRateLimits(rateLimits: unknown): CodexUsageRateLimits | undefined {
     };
 }
 
+function hasUsableRateLimits(rateLimits: CodexUsageRateLimits | undefined): rateLimits is CodexUsageRateLimits {
+    return typeof rateLimits?.primary?.usedPercent === 'number'
+        || typeof rateLimits?.secondary?.usedPercent === 'number';
+}
+
 export async function collectCodexUsageSnapshot(options: CollectCodexUsageOptions = {}): Promise<CodexUsageSnapshot> {
     const now = options.now || new Date();
     const timeZone = options.timeZone || getTimeZone();
@@ -798,6 +818,8 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
     const yesterdayKey = dateKeys.at(-2) || todayKey;
     let latestEvent: CodexUsageSnapshot['latestEvent'] = null;
     let latestEventTime = 0;
+    let latestRateLimits: CodexUsageRateLimits | undefined;
+    let latestRateLimitsTime = 0;
 
     const parsedFiles = await parseCodexUsageFiles(files, timeZone, warnings);
     const usageEvents = dedupeCodexUsageEvents(parsedFiles);
@@ -810,6 +832,10 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
         byDate.set(event.localDate, day);
     }
     for (const parsedFile of parsedFiles) {
+        if (parsedFile.latestRateLimits && parsedFile.latestRateLimitsTime > latestRateLimitsTime) {
+            latestRateLimits = parsedFile.latestRateLimits;
+            latestRateLimitsTime = parsedFile.latestRateLimitsTime;
+        }
         if (
             parsedFile.latestEvent
             && parsedFile.latestEvent.localDate >= firstDateKey
@@ -819,6 +845,9 @@ export async function collectCodexUsageSnapshot(options: CollectCodexUsageOption
             latestEventTime = parsedFile.latestEventTime;
             latestEvent = parsedFile.latestEvent;
         }
+    }
+    if (latestEvent && latestRateLimits) {
+        latestEvent = { ...latestEvent, rateLimits: latestRateLimits };
     }
 
     const days = [...byDate.values()]

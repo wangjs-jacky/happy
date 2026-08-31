@@ -29,6 +29,9 @@ vi.mock('react-native-unistyles', () => {
             divider: '#333333',
             status: { error: '#ff4757' },
             surface: '#131316',
+            surfaceHigh: '#1b1b20',
+            surfacePressed: '#292932',
+            surfaceSelected: '#24242b',
             text: '#e5e5e7',
             textSecondary: '#6b6b76',
         },
@@ -121,6 +124,59 @@ describe('UsagePanel', () => {
         expect(tabs).toHaveLength(0);
         expect(texts).toContain('machine.codexUsageWaitingForDaemon');
         expect(texts).not.toContain('usage.noData');
+
+        act(() => renderer.unmount());
+    });
+
+    it('shows Codex data while the API usage request is still loading', async () => {
+        mocks.getUsageForPeriod.mockReturnValue(new Promise(() => {}));
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: 200,
+                    latestEvent: {
+                        rateLimits: {
+                            planType: 'pro',
+                            primary: { usedPercent: 49, windowMinutes: 10080 },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('51%');
+        expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(1);
+
+        act(() => renderer.unmount());
+    });
+
+    it('keeps Codex data visible when the API usage request fails', async () => {
+        consoleErrorSpy.mockImplementation(() => {});
+        mocks.getUsageForPeriod.mockRejectedValue(new Error('offline'));
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: 200,
+                    latestEvent: {
+                        rateLimits: {
+                            planType: 'pro',
+                            primary: { usedPercent: 49, windowMinutes: 10080 },
+                        },
+                    },
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('51%');
+        expect(texts).toContain('Failed to load usage data');
 
         act(() => renderer.unmount());
     });
@@ -229,6 +285,44 @@ describe('UsagePanel', () => {
         act(() => renderer.unmount());
     });
 
+    it('uses an older valid quota when the newest machine event has no rate limits', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 300,
+                        latestEvent: { timestamp: '2026-08-30T04:00:00.000Z' },
+                    },
+                },
+            },
+            {
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 200,
+                        latestEvent: {
+                            timestamp: '2026-08-30T03:00:00.000Z',
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: { usedPercent: 83, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('17%');
+        expect(texts).toContain('PRO');
+
+        act(() => renderer.unmount());
+    });
+
     it('prioritizes the Codex balance and hides empty API usage metrics', async () => {
         mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
         mocks.machines = [{
@@ -309,8 +403,47 @@ describe('UsagePanel', () => {
         expect(cells).toHaveLength(14);
         expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-18')).toBe(true);
         expect(cells.some((cell: any) => cell.props.testID === 'codex-usage-day-2026-08-19')).toBe(true);
-        expect(cells.every((cell: any) => cell.props.style.some((style: any) => style?.flex === 1))).toBe(true);
+        expect(cells.every((cell: any) => {
+            const styles = typeof cell.props.style === 'function'
+                ? cell.props.style({ pressed: false })
+                : cell.props.style;
+            return styles.some((style: any) => style?.flex === 1);
+        })).toBe(true);
         expect(texts.some((text: string) => text.startsWith('machine.codexUsageHeatmapDay:'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('uses theme selected and pressed surfaces for heatmap buttons', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: Date.UTC(2026, 7, 30, 12),
+                    days: [{
+                        date: '2026-08-30',
+                        inputTokens: 500,
+                        cachedInputTokens: 0,
+                        outputTokens: 80,
+                        reasoningOutputTokens: 40,
+                        totalTokens: 580,
+                        tokenCountEvents: 2,
+                        sessions: 2,
+                        totalOnlyTokens: 0,
+                    }],
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const selected = renderer.root.find((node: any) => node.props.testID === 'codex-usage-day-2026-08-30');
+
+        expect(typeof selected.props.style).toBe('function');
+        const selectedStyles = selected.props.style({ pressed: false });
+        const pressedStyles = selected.props.style({ pressed: true });
+        expect(selectedStyles.some((style: any) => style?.backgroundColor === '#24242b')).toBe(true);
+        expect(pressedStyles.some((style: any) => style?.backgroundColor === '#292932')).toBe(true);
 
         act(() => renderer.unmount());
     });

@@ -64,10 +64,19 @@ function getCodexUsageSnapshot(daemonState: unknown): CodexUsageSnapshot | null 
     return candidate as CodexUsageSnapshot;
 }
 
-function getLatestCodexUsageSnapshot(machines: Array<{ daemonState: unknown }>): CodexUsageSnapshot | null {
+function hasUsableRateLimits(snapshot: CodexUsageSnapshot): boolean {
+    const rateLimits = snapshot.latestEvent?.rateLimits;
+    return typeof rateLimits?.primary?.usedPercent === 'number'
+        || typeof rateLimits?.secondary?.usedPercent === 'number';
+}
+
+function getLatestCodexUsageSnapshot(
+    machines: Array<{ daemonState: unknown }>,
+    requireRateLimits = false,
+): CodexUsageSnapshot | null {
     return machines.reduce<CodexUsageSnapshot | null>((latest, machine) => {
         const snapshot = getCodexUsageSnapshot(machine.daemonState);
-        if (!snapshot) {
+        if (!snapshot || (requireRateLimits && !hasUsableRateLimits(snapshot))) {
             return latest;
         }
         const snapshotEventTime = snapshot.latestEvent?.timestamp
@@ -312,8 +321,12 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: theme.colors.accent,
     },
     heatmapCellSelected: {
+        backgroundColor: theme.colors.surfaceSelected,
         borderColor: theme.colors.text,
         borderWidth: 1,
+    },
+    heatmapCellPressed: {
+        backgroundColor: theme.colors.surfacePressed,
     },
     heatmapSelection: {
         color: theme.colors.textSecondary,
@@ -416,14 +429,18 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         .map((machine) => getCodexUsageSnapshot(machine.daemonState))
         .filter((snapshot): snapshot is CodexUsageSnapshot => !!snapshot), [machines]);
     const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
+    const codexQuotaUsage = React.useMemo(
+        () => getLatestCodexUsageSnapshot(machines, true),
+        [machines],
+    );
     const codexRateLimits = React.useMemo(() => {
-        const rateLimits = codexUsage?.latestEvent?.rateLimits;
+        const rateLimits = codexQuotaUsage?.latestEvent?.rateLimits;
         if (!rateLimits) return [];
         return [
             getCodexRateLimitSummary(rateLimits.primary),
             getCodexRateLimitSummary(rateLimits.secondary),
         ].filter((limit): limit is CodexRateLimitSummary => !!limit);
-    }, [codexUsage]);
+    }, [codexQuotaUsage]);
     const primaryCodexRateLimit = codexRateLimits[0];
     const codexActivity = React.useMemo(() => {
         const latestScan = codexUsageSnapshots.reduce<CodexUsageSnapshot | null>((latest, snapshot) => (
@@ -506,23 +523,6 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         '30days': t('usage.last30Days')
     };
     
-    if (loading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.colors.accent} />
-            </View>
-        );
-    }
-    
-    if (error) {
-        return (
-            <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle-outline" size={48} color={theme.colors.status.error} />
-                <Text style={styles.errorText}>{error}</Text>
-            </View>
-        );
-    }
-    
     // Get top models by usage
     const topModels = Object.entries(totals.tokensByModel)
         .sort(([, a], [, b]) => b - a)
@@ -535,10 +535,10 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
             <View style={styles.codexCard} accessibilityLiveRegion="polite">
                 <View style={styles.codexHeader}>
                     <Text style={styles.codexTitle}>{t('machine.codexUsage')}</Text>
-                    {!!codexUsage?.latestEvent?.rateLimits?.planType && (
+                    {!!codexQuotaUsage?.latestEvent?.rateLimits?.planType && (
                         <View style={styles.planBadge}>
                             <Text style={styles.planBadgeText}>
-                                {codexUsage.latestEvent.rateLimits.planType.toUpperCase()}
+                                {codexQuotaUsage.latestEvent.rateLimits.planType.toUpperCase()}
                             </Text>
                         </View>
                     )}
@@ -564,7 +564,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                             {t('machine.codexUsageResetsAt', { time: primaryCodexRateLimit.resetAt })}
                         </Text>
                         <Text style={styles.quotaScannedAt}>
-                            {`${t('machine.codexUsageScannedAt')}: ${new Date(codexUsage!.scannedAt).toLocaleString()}`}
+                            {`${t('machine.codexUsageScannedAt')}: ${new Date(codexQuotaUsage!.scannedAt).toLocaleString()}`}
                         </Text>
                     </>
                 ) : (
@@ -591,11 +591,12 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                 <Pressable
                                     key={day.date}
                                     testID={`codex-usage-day-${day.date}`}
-                                    style={[
+                                    style={({ pressed }) => [
                                         styles.heatmapCell,
                                         isActive ? styles.heatmapCellActive : styles.heatmapCellInactive,
                                         isActive && { opacity },
                                         isSelected && styles.heatmapCellSelected,
+                                        pressed && styles.heatmapCellPressed,
                                     ]}
                                     onPress={() => setSelectedCodexUsageDate(day.date)}
                                     accessibilityRole="button"
@@ -618,6 +619,19 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                             })}
                         </Text>
                     )}
+                </View>
+            )}
+
+            {loading && (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={theme.colors.accent} />
+                </View>
+            )}
+
+            {!!error && (
+                <View style={styles.errorContainer}>
+                    <Ionicons name="alert-circle-outline" size={48} color={theme.colors.status.error} />
+                    <Text style={styles.errorText}>{error}</Text>
                 </View>
             )}
 

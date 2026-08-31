@@ -122,7 +122,7 @@ describe('collectCodexUsageSnapshot', () => {
         expect(snapshot.latestEvent?.sessionTotalTokenUsage?.totalTokens).toBe(398182);
     });
 
-    it('matches ccusage by deriving normal event totals from input plus output', async () => {
+    it('matches ccusage by aggregating the event total_tokens field', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
         created.push(codexHome);
 
@@ -141,7 +141,47 @@ describe('collectCodexUsageSnapshot', () => {
             timeZone: 'Asia/Shanghai',
         });
 
-        expect(snapshot.yesterday?.totalTokens).toBe(120);
+        expect(snapshot.yesterday?.totalTokens).toBe(999);
+    });
+
+    it('keeps the freshest known rate limits when a newer token event omits them', async () => {
+        const codexHome = mkdtempSync(join(tmpdir(), 'codex-usage-home-'));
+        created.push(codexHome);
+
+        writeJsonl(join(codexHome, 'sessions', '2026', '07', '05', 'rollout.jsonl'), [
+            tokenCount('2026-07-05T05:00:00.000Z', {
+                input_tokens: 100,
+                cached_input_tokens: 40,
+                output_tokens: 20,
+                total_tokens: 120,
+            }, {
+                plan_type: 'pro',
+                primary: { used_percent: 25, window_minutes: 300, resets_at: 1783167726 },
+            }),
+            tokenCount('2026-07-05T05:05:00.000Z', {
+                input_tokens: 10,
+                cached_input_tokens: 2,
+                output_tokens: 3,
+                total_tokens: 13,
+            }),
+        ]);
+        writeJsonl(join(codexHome, 'sessions', '2026', '07', '05', 'rollout-newer.jsonl'), [
+            tokenCount('2026-07-05T05:10:00.000Z', {
+                input_tokens: 8,
+                cached_input_tokens: 1,
+                output_tokens: 2,
+                total_tokens: 10,
+            }),
+        ]);
+
+        const snapshot = await collectCodexUsageSnapshot({
+            codexHome,
+            now: new Date('2026-07-06T01:00:00.000+08:00'),
+            timeZone: 'Asia/Shanghai',
+        });
+
+        expect(snapshot.latestEvent?.timestamp).toBe('2026-07-05T05:10:00.000Z');
+        expect(snapshot.latestEvent?.rateLimits?.primary?.usedPercent).toBe(25);
     });
 
     it('limits usage to the latest calendar window and includes archived sessions', async () => {
