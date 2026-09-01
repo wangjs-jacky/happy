@@ -2,7 +2,7 @@
 
 > **Goal:** Prevent healthy slow session starts from failing at 60 seconds while publishing the already-merged daemon ownership fix in a new CLI release.
 
-**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary App calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 120-second startup timeout. The server forwards ordinary RPCs with a 30-second target timeout and the two startup methods with a 100-second target timeout, leaving the daemon's 90-second internal startup webhook budget below both upstream limits. Bump the CLI package to `1.2.5` so the existing main-branch workflow publishes the daemon fix that is already in source.
+**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary App calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 120-second startup timeout. The server forwards ordinary RPCs with a 30-second target timeout and the two startup methods with a 100-second target timeout, leaving the daemon's 90-second internal startup webhook budget below both upstream limits. Bump the CLI package to `1.3.0` so the existing main-branch workflow publishes the daemon fix that is already in source.
 
 **Tech Stack:** TypeScript, React Native/Expo, Socket.IO client, Vitest, pnpm, GitHub Actions, npm.
 
@@ -69,8 +69,8 @@
 - Verify: `.github/workflows/cli-npm-publish.yml`
 - Verify: `packages/happy-cli/src/daemon/controlClient.test.ts`
 
-1. Query npm for `@wangjs-jacky/paws@1.2.5` immediately before editing and confirm the exact version is absent.
-2. Change the package version from `1.2.4` to `1.2.5`.
+1. Query npm for `@wangjs-jacky/paws@1.3.0` immediately before editing and confirm the exact version is absent.
+2. Change the package version from `1.2.4` to `1.3.0`.
 3. Run the daemon ownership regression test to confirm a live PID survives a transient HTTP failure and a dead PID is cleaned up.
 4. Run CLI typecheck and build; pack to a temporary directory and inspect the tarball metadata without publishing locally.
 
@@ -95,7 +95,7 @@
 
 ## Task 8: Post-merge release and Macmini2 deployment
 
-1. After merge approval, verify the `CLI npm publish` workflow completes and npm reports `1.2.5`.
+1. After merge approval, verify the `CLI npm publish` workflow completes and npm reports `1.3.0`.
 2. Verify the repository-required production OTA and Web workflows and report their URLs/status.
 3. Install the exact new package on Macmini2 and verify its binary path/version/bundle before touching the daemon.
 4. Coordinate a safe daemon restart because active sessions can be affected, then run a real mobile spawn/resume probe under load.

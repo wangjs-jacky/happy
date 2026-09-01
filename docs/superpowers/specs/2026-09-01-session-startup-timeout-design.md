@@ -51,7 +51,7 @@ The observed incident completed its first CLI startup and session webhook in abo
 
 ### CLI release
 
-The CLI package version will change from `1.2.4` to `1.2.5`. On merge to `main`, `.github/workflows/cli-npm-publish.yml` watches `packages/happy-cli/**`, builds and packs the package, publishes only when the exact version is absent, and verifies that npm reports the new version.
+The CLI package version will change from `1.2.4` to `1.3.0`. On merge to `main`, `.github/workflows/cli-npm-publish.yml` watches `packages/happy-cli/**`, tests, builds, and packs the package, publishes only when the exact version is absent, and verifies that npm reports the new version.
 
 This release carries the already-merged daemon ownership behavior. No additional daemon ownership logic is necessary for this incident.
 
