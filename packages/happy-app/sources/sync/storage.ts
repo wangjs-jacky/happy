@@ -726,7 +726,7 @@ export const storage = create<StorageState>()((set, get) => {
                 // IMPORTANT: We extract latestUsage from the mutable reducerState and copy it to the Session object
                 // This ensures latestUsage is available immediately on load, even before messages are fully loaded
                 let updatedSessions = state.sessions;
-                const needsUpdate = (reducerResult.todos !== undefined || existingSession.reducerState.latestUsage || shouldEnterPlanMode) && session;
+                const needsUpdate = (reducerResult.todos !== undefined || existingSession.reducerState.latestUsage || shouldEnterPlanMode || hasReadyEvent) && session;
 
                 if (needsUpdate) {
                     updatedSessions = {
@@ -739,7 +739,10 @@ export const storage = create<StorageState>()((set, get) => {
                                 ...existingSession.reducerState.latestUsage
                             } : session.latestUsage,
                             // Auto-switch to plan mode when EnterPlanMode tool call is detected
-                            ...(shouldEnterPlanMode && { permissionMode: 'plan' })
+                            ...(shouldEnterPlanMode && { permissionMode: 'plan' }),
+                            // 终止事件可能由补拉消息而非实时 Socket 到达；这里也同步
+                            // 会话状态，避免界面永远停留在“执行中”。
+                            ...(hasReadyEvent && { thinking: false })
                         }
                     };
                 }
