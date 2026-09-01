@@ -93,12 +93,13 @@ jobs:
           SMOKE_DIR="$(mktemp -d)"
           npm install --prefix "$SMOKE_DIR" --ignore-scripts "${{ steps.pack.outputs.tarball }}"
           VERSION_OUTPUT="$("$SMOKE_DIR/node_modules/.bin/paws" --version 2>&1)"
+          EXPECTED_VERSION="happy version: ${{ steps.pkg.outputs.version }}"
           printf '%s\n' "$VERSION_OUTPUT"
-          if [[ "$VERSION_OUTPUT" != *"${{ steps.pkg.outputs.version }}"* ]]; then
-            echo "::error::Installed paws version did not contain ${{ steps.pkg.outputs.version }}."
+          if [ "$VERSION_OUTPUT" != "$EXPECTED_VERSION" ]; then
+            echo "::error::Installed paws reported '$VERSION_OUTPUT'; expected '$EXPECTED_VERSION'."
             exit 1
           fi
-          echo "Verified installed paws reports ${{ steps.pkg.outputs.version }}."
+          echo "Verified installed paws reports '$EXPECTED_VERSION'."
 
       - name: Publish package
         if: steps.npm.outputs.exists == 'false'

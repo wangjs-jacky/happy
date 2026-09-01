@@ -72,7 +72,7 @@
 1. Query npm for `@wangjs-jacky/paws@1.3.0` immediately before editing and confirm the exact version is absent.
 2. Change the package version from `1.2.4` to `1.3.0`.
 3. Run the daemon ownership regression test to confirm a live PID survives a transient HTTP failure and a dead PID is cleaned up.
-4. Update the publish job to run the full `pnpm --filter @wangjs-jacky/paws test` gate, pack the generated tarball, install that tarball into a `mktemp -d` prefix with `--ignore-scripts`, run the installed `.bin/paws --version`, and require the exact candidate version before publish.
+4. Update the publish job to run the full `pnpm --filter @wangjs-jacky/paws test` gate, pack the generated tarball, install that tarball into a `mktemp -d` prefix with `--ignore-scripts`, run the installed `.bin/paws --version`, and require output exactly equal to `happy version: <candidate version>` before publish.
 
 ## Task 6: Run verification and review the diff
 
