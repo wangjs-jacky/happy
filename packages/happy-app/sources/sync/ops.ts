@@ -9,6 +9,8 @@ import type { MachineMetadata, Metadata, Session } from './storageTypes';
 import { markSessionArchiveRequested, markSessionRestored } from '@/utils/sessionLifecycle';
 import { updateEncryptedSessionMetadata } from './sessionMetadata';
 
+export const SESSION_START_RPC_TIMEOUT_MS = 120_000;
+
 // Strict type definitions for all operations
 
 // Permission operation types
@@ -296,7 +298,8 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         }>(
             machineId,
             'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId }
+            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
         return normalizeSpawnSessionResult(result);
     } catch (error) {
@@ -474,6 +477,7 @@ export async function machineResumeSession(
             machineId,
             'resume-happy-session',
             { sessionId, model, permissionMode, effort },
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
         return result;
     } catch (error) {
