@@ -82,7 +82,7 @@ function subagentInspectorScreenshotPath(
 
 function messageHoverScreenshotPath(
     testInfo: { outputPath: (filename: string) => string },
-    caseId: 1 | 2 = 1,
+    caseId: 1 | 2 | 3 = 1,
 ): string {
     const filename = `case-${caseId}-${messageHoverEvidencePhase}.png`;
     if (!messageHoverEvidenceDirectory) return testInfo.outputPath(filename);
@@ -1069,6 +1069,7 @@ async function createConnectedE2EWorkingDirectorySession(
         reconnect: () => Promise<void>;
     };
     currentPath: string;
+    failNextMessageFork: (errorMessage: string) => void;
     invalidPath: string;
     outsidePath: string;
     recentPath: string;
@@ -1137,6 +1138,7 @@ async function createConnectedE2EWorkingDirectorySession(
             resumeCodexThreadId?: string;
         } | null;
     }> = [];
+    let nextMessageForkError: string | null = null;
     const headers = {
         Authorization: `Bearer ${token}`,
         'X-Happy-Client': 'playwright-cwd-e2e',
@@ -1256,7 +1258,12 @@ async function createConnectedE2EWorkingDirectorySession(
                 if (options.messageForkDelayMs) {
                     await new Promise((resolve) => setTimeout(resolve, options.messageForkDelayMs));
                 }
-                result = { type: 'success', points: rewindPoints };
+                if (nextMessageForkError !== null) {
+                    result = { type: 'error', errorMessage: nextMessageForkError };
+                    nextMessageForkError = null;
+                } else {
+                    result = { type: 'success', points: rewindPoints };
+                }
             } else if (data.method === `${machineId}:codex-duplicate-thread`
                 && params?.codexThreadId === sourceCodexThreadId
                 && params.directory === currentPath
@@ -1379,6 +1386,9 @@ async function createConnectedE2EWorkingDirectorySession(
             },
         },
         currentPath,
+        failNextMessageFork: (errorMessage: string) => {
+            nextMessageForkError = errorMessage;
+        },
         forkedCodexThreadId,
         invalidPath,
         outsidePath,
@@ -1901,10 +1911,10 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         }
         await expect(secondResponseText).toBeVisible({ timeout: 120_000 });
 
+        const responseContainer = secondResponseText.locator(
+            'xpath=ancestor::*[starts-with(@data-testid, "message-agent-")]',
+        ).first();
         if (messageHoverEvidencePhase === 'before') {
-            const responseContainer = secondResponseText.locator(
-                'xpath=ancestor::*[starts-with(@data-testid, "message-agent-")]',
-            ).first();
             await responseContainer.hover();
             await expect(responseContainer.getByRole('button', { name: 'Copy' })).toHaveCount(0);
             await expect(responseContainer.getByRole('button', { name: 'Fork from here' })).toHaveCount(0);
@@ -1915,24 +1925,25 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             return;
         }
 
-        // This case uses a fixed 1280x720 viewport. Native mouse input avoids the
-        // expensive Playwright actionability loop while RN Web is settling.
-        await page.mouse.move(640, 520);
+        // Follow the same continuous pointer path as a user moving from the
+        // response text down to its action row. This catches dead hover gaps.
+        const forkButton = responseContainer.getByRole('button', { name: 'Fork from here' });
+        await secondResponseText.hover();
         await pauseForRecordedReview(page, 400);
-        const forkButtonCenter = await page.evaluate(() => {
-            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
-            if (!forkButton) return null;
-            const bounds = forkButton.getBoundingClientRect();
-            return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
-        });
-        expect(forkButtonCenter).not.toBeNull();
-        await page.mouse.move(forkButtonCenter!.x, forkButtonCenter!.y);
+        await expect(forkButton).toBeVisible();
+        const forkButtonBounds = await forkButton.boundingBox();
+        expect(forkButtonBounds).not.toBeNull();
+        await page.mouse.move(
+            forkButtonBounds!.x + forkButtonBounds!.width / 2,
+            forkButtonBounds!.y + forkButtonBounds!.height / 2,
+            { steps: 12 },
+        );
         await pauseForRecordedReview(page, 1_100);
-        const forkTooltipAlignment = await page.evaluate(() => {
-            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
-            const forkTooltip = document.querySelector<HTMLElement>(
-                '[data-testid^="message-agent-fork-tooltip-"]',
-            );
+        const forkTooltip = responseContainer.locator('[data-testid^="message-agent-fork-tooltip-"]');
+        await expect(forkTooltip).toBeVisible();
+        const forkTooltipAlignment = await responseContainer.evaluate((message) => {
+            const forkButton = message.querySelector<HTMLElement>('[aria-label="Fork from here"]');
+            const forkTooltip = message.querySelector<HTMLElement>('[data-testid^="message-agent-fork-tooltip-"]');
             if (!forkButton || !forkTooltip) return null;
             const buttonBounds = forkButton.getBoundingClientRect();
             const tooltipBounds = forkTooltip.getBoundingClientRect();
@@ -1945,9 +1956,9 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         expect(Math.abs(
             forkTooltipAlignment!.tooltipCenterX - forkTooltipAlignment!.buttonCenterX,
         )).toBeLessThanOrEqual(1);
-        const actionHitTargets = await page.evaluate(() => {
+        const actionHitTargets = await responseContainer.evaluate((message) => {
             const inspectButton = (label: string) => {
-                const button = document.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+                const button = message.querySelector<HTMLElement>(`[aria-label="${label}"]`);
                 if (!button) return null;
                 const bounds = button.getBoundingClientRect();
                 const inset = 3;
@@ -1971,9 +1982,8 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             copy: [true, true, true, true, true],
             fork: [true, true, true, true, true],
         });
-        const hoverBoundary = await page.evaluate(() => {
-            const message = document.querySelector<HTMLElement>('[data-testid^="message-agent-"]');
-            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
+        const hoverBoundary = await responseContainer.evaluate((message) => {
+            const forkButton = message.querySelector<HTMLElement>('[aria-label="Fork from here"]');
             if (!message || !forkButton) return null;
             const messageBounds = message.getBoundingClientRect();
             const buttonBounds = forkButton.getBoundingClientRect();
@@ -1989,17 +1999,11 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             animations: 'disabled',
         });
 
-        const forkClicked = await page.evaluate(() => {
-            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
-            if (!forkButton) return false;
-            forkButton.click();
-            return true;
-        });
-        expect(forkClicked).toBe(true);
+        await forkButton.evaluate((button: HTMLElement) => button.click());
         await expect(page.getByRole('dialog')).toHaveCount(0);
-        const forkLoading = page.locator('[data-testid^="message-agent-fork-loading-"]');
+        const forkLoading = responseContainer.locator('[data-testid^="message-agent-fork-loading-"]');
         await expect(forkLoading).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Loading' })).toBeDisabled();
+        await expect(responseContainer.getByRole('button', { name: 'Loading' })).toBeDisabled();
         await expect.poll(
             () => fixture.rpcCalls.some((call) => call.method.endsWith(':codex-list-rewind-points')),
             { timeout: 15_000 },
@@ -2039,6 +2043,29 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         expect(spawnCall?.params?.forkedFromMessageId).toEqual(expect.any(String));
         await page.screenshot({
             path: messageHoverScreenshotPath(testInfo, 2),
+            animations: 'disabled',
+        });
+
+        fixture.failNextMessageFork('');
+        await page.goto(authenticatedRoute(`/session/${fixture.sessionId}`), {
+            waitUntil: 'commit',
+            timeout: 30_000,
+        });
+        fixture.client.pulse();
+        await expect(secondResponseText).toBeVisible({ timeout: 120_000 });
+        const errorResponseContainer = secondResponseText.locator(
+            'xpath=ancestor::*[starts-with(@data-testid, "message-agent-")]',
+        ).first();
+        await errorResponseContainer.hover();
+        const errorForkButton = errorResponseContainer.getByRole('button', { name: 'Fork from here' });
+        await expect(errorForkButton).toBeVisible();
+        await errorForkButton.evaluate((button: HTMLElement) => button.click());
+        await expect(errorResponseContainer.locator('[data-testid^="message-agent-fork-loading-"]')).toBeVisible();
+        const errorDialog = page.getByRole('dialog', { name: 'Error' });
+        await expect(errorDialog).toBeVisible({ timeout: 15_000 });
+        await expect(errorDialog).toContainText('Failed to fork the session.');
+        await page.screenshot({
+            path: messageHoverScreenshotPath(testInfo, 3),
             animations: 'disabled',
         });
     } finally {

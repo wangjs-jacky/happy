@@ -111,4 +111,39 @@ describe('useHappyAction', () => {
 
         act(() => renderer.unmount());
     });
+
+    it('synchronously rejects a second invocation while the first action is pending', async () => {
+        const pendingAction = deferred();
+        const action = vi.fn(() => pendingAction.promise);
+        let runAction: (() => boolean) | undefined;
+
+        function Harness() {
+            const [, doAction] = useHappyAction(action);
+            runAction = doAction;
+            return null;
+        }
+
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<Harness />);
+        });
+
+        let firstAccepted: boolean | undefined;
+        let secondAccepted: boolean | undefined;
+        act(() => {
+            firstAccepted = runAction?.();
+            secondAccepted = runAction?.();
+        });
+
+        expect(firstAccepted).toBe(true);
+        expect(secondAccepted).toBe(false);
+        expect(action).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            pendingAction.resolve();
+            await pendingAction.promise;
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+    });
 });

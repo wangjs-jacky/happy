@@ -461,10 +461,10 @@ export function useSessionQuickActions(
     const forkFromMessage = React.useCallback((
         target: MessageForkTarget & { retainSelectedTurn?: boolean },
     ) => {
-        if (forkingFromMessage) return;
-        setForkingFromMessageId(target.messageId);
-        performForkFromMessage(target);
-    }, [forkingFromMessage, performForkFromMessage]);
+        if (performForkFromMessage(target)) {
+            setForkingFromMessageId(target.messageId);
+        }
+    }, [performForkFromMessage]);
 
     const openDuplicateSheet = React.useCallback(() => {
         if (!canFork) return;

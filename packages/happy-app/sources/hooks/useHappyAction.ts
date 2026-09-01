@@ -20,7 +20,7 @@ export function useHappyAction<TArgs extends unknown[]>(
 
     const doAction = React.useCallback((...args: TArgs) => {
         if (!mountedRef.current || loadingRef.current) {
-            return;
+            return false;
         }
         loadingRef.current = true;
         setLoading(true);
@@ -61,6 +61,7 @@ export function useHappyAction<TArgs extends unknown[]>(
                 if (mountedRef.current) setLoading(false);
             }
         })();
+        return true;
     }, [action, options.fallbackErrorMessage]);
     return [loading, doAction] as const;
 }
