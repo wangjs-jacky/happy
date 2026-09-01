@@ -51,7 +51,7 @@ The observed incident completed its first CLI startup and session webhook in abo
 
 ### CLI release
 
-The CLI package version will change from `1.2.4` to `1.3.0`. On merge to `main`, `.github/workflows/cli-npm-publish.yml` watches `packages/happy-cli/**`, tests, builds, and packs the package, publishes only when the exact version is absent, and verifies that npm reports the new version.
+The CLI package version will change from `1.2.4` to `1.3.0`. On merge to `main`, `.github/workflows/cli-npm-publish.yml` watches `packages/happy-cli/**`, runs the full package test gate, packs the package, installs the just-generated tarball into an isolated temporary prefix, executes the installed `.bin/paws --version`, and requires the exact candidate version before publishing. It publishes only when the exact version is absent and verifies that npm reports the new version afterward.
 
 This release carries the already-merged daemon ownership behavior. No additional daemon ownership logic is necessary for this incident.
 
@@ -70,6 +70,7 @@ This release carries the already-merged daemon ownership behavior. No additional
 - Test server RPC forwarding timeout selection, including a fake-timer 90-second startup ACK that is not cut off by the 100-second startup budget.
 - Keep the existing daemon ownership regression tests green.
 - Run targeted App and CLI tests, App typecheck, CLI typecheck/build, and the relevant package tests.
+- Treat the publish workflow's packed-tarball install and exact `.bin/paws --version` check as a release quality gate before npm publish.
 - Open a pull request and verify the PR checks.
 - After merge, verify the npm publish workflow and registry version before updating Macmini2. Installing the new CLI and restarting its daemon are separate deployment actions because a restart can affect active sessions.
 
