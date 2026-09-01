@@ -98,9 +98,13 @@ export function useSessionWorkingDirectory(
                 };
             }
 
-            const hydrated = await sync.refreshSession(result.sessionId);
-            if (!hydrated) {
-                await sync.refreshSessions();
+            // forkAndSpawn already hydrates context continuations. Fresh
+            // sessions still need the targeted sync here before navigation.
+            if (switchStrategy === 'new-session') {
+                const hydrated = await sync.refreshSession(result.sessionId);
+                if (!hydrated) {
+                    await sync.refreshSessions();
+                }
             }
 
             const sessionStorage = storage.getState();

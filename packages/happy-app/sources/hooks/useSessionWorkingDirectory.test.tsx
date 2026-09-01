@@ -157,6 +157,39 @@ describe('useSessionWorkingDirectory continuation safety', () => {
         hook.unmount();
     });
 
+    it.each([
+        ['codex', 'codexThreadId', 'codex-thread-1'],
+        ['claude', 'claudeSessionId', 'claude-session-1'],
+    ] as const)('does not hydrate twice after a successful %s context continuation', async (
+        flavor,
+        providerIdKey,
+        providerId,
+    ) => {
+        const session = makeSession(flavor);
+        session.metadata![providerIdKey] = providerId;
+        mocks.forkAndSpawn.mockResolvedValue({ type: 'success', sessionId: 'session-continued' });
+        const hook = renderHook(session);
+        let result;
+
+        await act(async () => {
+            result = await hook.current().switchDirectory('/Users/test/next');
+        });
+
+        expect(result).toEqual({
+            success: true,
+            changed: true,
+            path: '/Users/test/next',
+        });
+        expect(mocks.forkAndSpawn).toHaveBeenCalledWith(
+            expect.objectContaining({ kind: flavor }),
+            { targetDirectory: '/Users/test/next' },
+        );
+        expect(mocks.refreshSession).not.toHaveBeenCalled();
+        expect(mocks.refreshSessions).not.toHaveBeenCalled();
+        expect(mocks.navigateToSession).toHaveBeenCalledWith('session-continued');
+        hook.unmount();
+    });
+
     it('keeps same-type fresh-session switching for Agents without provider continuation support', async () => {
         mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'session-next' });
         const hook = renderHook(makeSession('gemini'));
