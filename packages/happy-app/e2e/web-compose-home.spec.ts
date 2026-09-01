@@ -33,6 +33,7 @@ const titleTooltipEvidencePhase = process.env.HAPPY_TITLE_TOOLTIP_EVIDENCE_PHASE
 const subagentInspectorEvidenceDirectory = process.env.HAPPY_SUBAGENT_INSPECTOR_EVIDENCE_DIR;
 const messageHoverEvidenceDirectory = process.env.HAPPY_MESSAGE_HOVER_EVIDENCE_DIR;
 const messageHoverEvidencePhase = process.env.HAPPY_MESSAGE_HOVER_EVIDENCE_PHASE ?? 'after';
+const messageHoverSuccessOnlyRecording = process.env.HAPPY_MESSAGE_HOVER_SUCCESS_ONLY_RECORDING === '1';
 const forkTranscriptEvidenceDirectory = process.env.HAPPY_FORK_TRANSCRIPT_EVIDENCE_DIR;
 const motionPhotoEvidenceDirectory = process.env.HAPPY_MOTION_PHOTO_EVIDENCE_DIR;
 const motionPhotoEvidencePhase = process.env.HAPPY_MOTION_PHOTO_EVIDENCE_PHASE === 'before' ? 'before' : 'after';
@@ -2060,6 +2061,13 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             },
         });
         expect(spawnCall?.params?.forkedFromMessageId).toEqual(expect.any(String));
+
+        if (messageHoverSuccessOnlyRecording) {
+            await expect(page.getByText('No messages yet', { exact: true })).toBeVisible({ timeout: 15_000 });
+            await pauseForRecordedReview(page, 2_000);
+            return;
+        }
+
         fixture.failNextMessageFork('');
         await page.goto(authenticatedRoute(`/session/${fixture.sessionId}`), {
             waitUntil: 'commit',

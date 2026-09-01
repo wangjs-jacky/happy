@@ -32,4 +32,6 @@ When the server returns an empty error message, the dialog now explains that the
 
 Automated coverage: `pnpm test:e2e:web -- e2e/web-compose-home.spec.ts --grep MESSAGE-HOVER-ACTIONS --trace=off` passed against both the base commit and this branch in isolated local environments. The after run also verifies the complete pointer path, tooltip alignment, action hit targets, hover containment, pending accessibility state, RPC sequence, session spawn/navigation, and the blank-error fallback.
 
-Recorded acceptance: [53.76-second MP4](./message-fork-feedback-acceptance.mp4), `1280 x 720`, H.264/yuv420p. Mobile playback has not been independently confirmed.
+Primary acceptance: [34.60-second successful-fork MP4](./message-fork-feedback-acceptance.mp4), `1280 x 720`, H.264/yuv420p. It ends on the newly created session (`No messages yet / Created just now`) after the loading state and successful navigation.
+
+Failure handling: [53.76-second negative-path MP4](./message-fork-feedback-failure-handling.mp4). This separate run first completes a successful fork, then deliberately injects a blank backend error to prove the readable fallback in Case 3. Mobile playback has not been independently confirmed.
