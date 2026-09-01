@@ -90,6 +90,21 @@ describe('codex fork ops', () => {
         });
     });
 
+    it('normalizes a legacy RPC error envelope when resuming a session', async () => {
+        machineRPC.mockResolvedValue({ error: 'Session webhook timeout after 90 seconds' });
+
+        const { machineResumeSession } = await import('./ops');
+        const result = await machineResumeSession({
+            machineId: 'machine-1',
+            sessionId: 'happy-source',
+        });
+
+        expect(result).toEqual({
+            type: 'error',
+            errorMessage: 'Session webhook timeout after 90 seconds',
+        });
+    });
+
     it('forks a full Codex thread and spawns a Codex session resumed to the new thread', async () => {
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {

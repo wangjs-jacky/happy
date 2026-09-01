@@ -479,7 +479,7 @@ export async function machineResumeSession(
             { sessionId, model, permissionMode, effort },
             { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
-        return result;
+        return normalizeSpawnSessionResult(result);
     } catch (error) {
         return {
             type: 'error',
