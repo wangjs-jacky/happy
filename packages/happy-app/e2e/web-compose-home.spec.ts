@@ -2015,6 +2015,7 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             animations: 'disabled',
         });
 
+        const forkNavigationStartedAt = Date.now();
         await forkButton.evaluate((button: HTMLElement) => button.click());
         await expect(page.getByRole('dialog')).toHaveCount(0);
         const forkLoading = responseContainer.locator('[data-testid^="message-agent-fork-loading-"]');
@@ -2034,6 +2035,9 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         ).toBe(true);
         await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 })
             .not.toBe(`/session/${fixture.sessionId}`);
+        const forkNavigationMs = Date.now() - forkNavigationStartedAt;
+        expect(forkNavigationMs).toBeLessThan(15_000);
+        console.log(`[MESSAGE-HOVER-ACTIONS] fork-navigation-ms=${forkNavigationMs}`);
 
         const duplicateCall = fixture.rpcCalls.find((call) => call.method.endsWith(':codex-duplicate-thread'));
         expect(duplicateCall).toMatchObject({
