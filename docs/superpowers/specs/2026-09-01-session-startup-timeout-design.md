@@ -36,18 +36,18 @@ The daemon ownership fix is already present in the repository: a live daemon PID
 The timeout is layered across the request path:
 
 - App ordinary RPC calls use a 60-second acknowledgement timeout.
-- App session startup calls use a 120-second acknowledgement timeout.
+- App session startup calls use a 140-second acknowledgement timeout.
 - Server ordinary RPC forwarding uses a 30-second target timeout; startup methods use a 100-second target timeout.
 - The daemon's internal startup webhook budget is 90 seconds.
 
-This keeps ordinary operations bounded while leaving the server and daemon enough room for a slow but healthy startup: the App budget is 120 seconds, the server downstream budget is 100 seconds, and the daemon budget is 90 seconds.
+This keeps ordinary operations bounded while leaving the server and daemon enough room for a slow but healthy startup: the App budget is 140 seconds, the server downstream budget is 100 seconds, and the daemon budget is 90 seconds. The App budget covers the initial 2-second lookup, a strictly capped 15-second reconnect grace window, the 100-second server target budget, and transport margin.
 
-Session startup operations use a dedicated 120-second App timeout:
+Session startup operations use a dedicated 140-second App timeout:
 
 - `spawn-happy-session`
 - `resume-happy-session`
 
-The observed incident completed its first CLI startup and session webhook in about 63 seconds. A 120-second bound covers that measured path with substantial margin without making a genuinely stuck request indefinite.
+The observed incident completed its first CLI startup and session webhook in about 63 seconds. A 140-second bound covers the lookup/grace and downstream budgets with transport margin without making a genuinely stuck request indefinite.
 
 ### CLI release
 
@@ -59,10 +59,11 @@ This release carries the already-merged daemon ownership behavior. No additional
 
 - A disconnected socket fails immediately and emits no RPC.
 - Ordinary RPC calls fail after 60 seconds if no acknowledgement arrives.
-- Session spawn/resume calls fail after 120 seconds if no acknowledgement arrives.
+- Session spawn/resume calls fail after 140 seconds if no acknowledgement arrives.
 - Server-declared RPC errors are returned without attempting response decryption.
 - A live daemon whose HTTP health probe times out keeps its state file and ownership lock.
 - The server forwards ordinary methods with a 30-second target timeout and startup methods with a 100-second target timeout.
+- The server reconnect grace window is strictly capped at 15 seconds after the initial 2-second lookup; each fetch and sleep is limited by its remaining deadline.
 
 ## Verification
 

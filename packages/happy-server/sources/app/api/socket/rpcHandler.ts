@@ -30,8 +30,8 @@ const RPC_PRESENCE_FETCH_TIMEOUT_MS = 500;
 // How long an rpc-call waits for the daemon socket to appear in the room when
 // the room is empty at call time (e.g. brief daemon reconnect window). With
 // exponential backoff (2s, 4s, 8s) + 200ms sleep, iterations take 2.2s, 4.2s,
-// 8.2s. 15s gives ~3 iterations with increasing timeouts — fewer requests
-// under load while still catching a daemon mid-reconnect.
+// 8.2s. The deadline caps the final fetch/sleep so the grace window never
+// starts a wait that extends beyond its 15-second budget.
 const RPC_RECONNECT_GRACE_MS = 15_000;
 const RPC_RECONNECT_POLL_MS = 200;
 
@@ -118,18 +118,26 @@ async function waitForRoomMember(io: Server, room: string, maxMs: number, metric
     const deadline = Date.now() + maxMs;
     let polls = 0;
     while (true) {
-        const timeoutMs = RPC_LOOKUP_FETCH_TIMEOUTS_MS[Math.min(polls, RPC_LOOKUP_FETCH_TIMEOUTS_MS.length - 1)];
+        const remainingBeforeFetch = deadline - Date.now();
+        if (remainingBeforeFetch <= 0) {
+            rpcLookupRetries.observe({ method: metricMethod }, polls);
+            return [];
+        }
+
+        const backoffTimeoutMs = RPC_LOOKUP_FETCH_TIMEOUTS_MS[Math.min(polls, RPC_LOOKUP_FETCH_TIMEOUTS_MS.length - 1)];
+        const timeoutMs = Math.min(backoffTimeoutMs, remainingBeforeFetch);
         const sockets = await fetchRoomSockets(io, room, timeoutMs);
         if (sockets.length > 0) {
             rpcLookupRetries.observe({ method: metricMethod }, polls);
             return sockets;
         }
-        if (Date.now() >= deadline) {
+        const remainingAfterFetch = deadline - Date.now();
+        if (remainingAfterFetch <= 0) {
             rpcLookupRetries.observe({ method: metricMethod }, polls);
             return sockets;
         }
         polls++;
-        await sleep(RPC_RECONNECT_POLL_MS);
+        await sleep(Math.min(RPC_RECONNECT_POLL_MS, remainingAfterFetch));
     }
 }
 

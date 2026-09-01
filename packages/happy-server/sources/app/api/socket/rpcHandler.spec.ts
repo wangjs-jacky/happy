@@ -63,6 +63,35 @@ function createIo(target: FakeTargetSocket) {
     };
 }
 
+function createNoTargetIo(fetchTimeouts: number[]) {
+    return {
+        in: vi.fn(() => ({
+            timeout: vi.fn((timeoutMs: number) => ({
+                fetchSockets: vi.fn(() => new Promise<never>((_, reject) => {
+                    fetchTimeouts.push(timeoutMs);
+                    setTimeout(() => reject(new Error('fetch timed out')), timeoutMs);
+                })),
+            })),
+        })),
+    };
+}
+
+function createDelayedIo(steps: Array<{ delayMs: number; sockets: FakeTargetSocket[] }>) {
+    let stepIndex = 0;
+    return {
+        in: vi.fn(() => ({
+            timeout: vi.fn(() => ({
+                fetchSockets: vi.fn(() => {
+                    const step = steps[Math.min(stepIndex++, steps.length - 1)];
+                    return new Promise<FakeTargetSocket[]>((resolve) => {
+                        setTimeout(() => resolve(step.sockets), step.delayMs);
+                    });
+                }),
+            })),
+        })),
+    };
+}
+
 async function callRpc(
     method: string,
     target: FakeTargetSocket,
@@ -87,6 +116,71 @@ describe('rpcHandler', () => {
 
         expect(target.timeout).toHaveBeenCalledWith(30_000);
         expect(acknowledge).toHaveBeenCalledWith({ ok: true, result: 'encrypted-response' });
+    });
+
+    it('stops an empty lookup within the initial 2 seconds plus the 15-second grace window', async () => {
+        vi.useFakeTimers();
+        try {
+            const fetchTimeouts: number[] = [];
+            const caller = new FakeCallerSocket();
+            const io = createNoTargetIo(fetchTimeouts);
+            rpcHandler('user-1', caller as any, io as any);
+            const requestStart = Date.now();
+            let acknowledgedAt: number | undefined;
+            const acknowledge = vi.fn(() => {
+                acknowledgedAt = Date.now();
+            });
+
+            const request = caller.receive('rpc-call', {
+                method: 'machine-1:spawn-happy-session',
+                params: {},
+            }, acknowledge);
+            await vi.advanceTimersByTimeAsync(17_000);
+            const acknowledgementsAtDeadline = acknowledge.mock.calls.length;
+            const lastFetchTimeout = fetchTimeouts.at(-1);
+
+            await vi.advanceTimersByTimeAsync(30_000);
+            await request;
+
+            expect(acknowledgedAt).toBeDefined();
+            expect(acknowledgedAt! - requestStart).toBeLessThanOrEqual(17_000);
+            expect(acknowledgementsAtDeadline).toBe(1);
+            expect(acknowledge).toHaveBeenCalledWith({ ok: false, error: 'RPC method not available' });
+            expect(lastFetchTimeout).toBeDefined();
+            expect(lastFetchTimeout).toBeLessThan(8_000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('forwards a delayed startup acknowledgement after a delayed daemon reconnect', async () => {
+        vi.useFakeTimers();
+        try {
+            const target = new FakeTargetSocket();
+            target.ack = () => new Promise<string>((resolve) => {
+                setTimeout(() => resolve('encrypted-response'), 90_000);
+            });
+            const caller = new FakeCallerSocket();
+            const io = createDelayedIo([
+                { delayMs: 2_000, sockets: [] },
+                { delayMs: 2_000, sockets: [] },
+                { delayMs: 4_000, sockets: [target] },
+            ]);
+            rpcHandler('user-1', caller as any, io as any);
+            const acknowledge = vi.fn();
+
+            const request = caller.receive('rpc-call', {
+                method: 'machine-1:spawn-happy-session',
+                params: {},
+            }, acknowledge);
+            await vi.advanceTimersByTimeAsync(99_000);
+            await request;
+
+            expect(target.timeout).toHaveBeenCalledWith(100_000);
+            expect(acknowledge).toHaveBeenCalledWith({ ok: true, result: 'encrypted-response' });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it.each([

@@ -9,7 +9,7 @@ import type { MachineMetadata, Metadata, Session } from './storageTypes';
 import { markSessionArchiveRequested, markSessionRestored } from '@/utils/sessionLifecycle';
 import { updateEncryptedSessionMetadata } from './sessionMetadata';
 
-export const SESSION_START_RPC_TIMEOUT_MS = 120_000;
+export const SESSION_START_RPC_TIMEOUT_MS = 140_000;
 
 // Strict type definitions for all operations
 

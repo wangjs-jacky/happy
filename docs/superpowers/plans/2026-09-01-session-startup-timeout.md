@@ -2,7 +2,7 @@
 
 > **Goal:** Prevent healthy slow session starts from failing at 60 seconds while publishing the already-merged daemon ownership fix in a new CLI release.
 
-**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary App calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 120-second startup timeout. The server forwards ordinary RPCs with a 30-second target timeout and the two startup methods with a 100-second target timeout, leaving the daemon's 90-second internal startup webhook budget below both upstream limits. Bump the CLI package to `1.3.0` so the existing main-branch workflow publishes the daemon fix that is already in source.
+**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary App calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 140-second startup timeout. The server forwards ordinary RPCs with a 30-second target timeout and the two startup methods with a 100-second target timeout, leaving the daemon's 90-second internal startup webhook budget below both upstream limits. The App budget covers the initial 2-second lookup, a strictly capped 15-second reconnect grace window, the server's 100-second startup budget, and transport margin. Bump the CLI package to `1.3.0` so the existing main-branch workflow publishes the daemon fix that is already in source.
 
 **Tech Stack:** TypeScript, React Native/Expo, Socket.IO client, Vitest, pnpm, GitHub Actions, npm.
 
@@ -42,9 +42,9 @@
 - Modify: `packages/happy-app/sources/sync/ops.ts`
 - Modify: `packages/happy-app/sources/sync/ops.codexFork.test.ts`
 
-1. First update the spawn/resume operation tests to expect a fourth RPC argument containing `timeoutMs: 120_000`.
+1. First update the spawn/resume operation tests to expect a fourth RPC argument containing `timeoutMs: 140_000`.
 2. Run `pnpm --filter happy-app exec vitest run sources/sync/ops.codexFork.test.ts` and confirm the expectations fail.
-3. Add a named `SESSION_START_RPC_TIMEOUT_MS = 120_000` constant in `ops.ts`.
+3. Add a named `SESSION_START_RPC_TIMEOUT_MS = 140_000` constant in `ops.ts`.
 4. Pass the timeout options only from `machineSpawnNewSession` and `machineResumeSession`; leave ordinary machine and session operations on the default timeout.
 5. Run both targeted App test files and confirm they pass.
 
@@ -58,7 +58,7 @@
 1. Add a named startup timeout budget of `100_000` milliseconds and select it from `baseMethodName(method)` only for `spawn-happy-session` and `resume-happy-session`; keep ordinary methods at `30_000` milliseconds.
 2. Extend the RPC duration histogram buckets through 60, 90, and 100 seconds so slow startup behavior remains observable.
 3. Test target forwarding for ordinary, spawn, and resume methods, including a fake-timer 90-second startup acknowledgement that succeeds before the 100-second target timeout.
-4. Leave presence polling and reconnect grace behavior unchanged.
+4. Cap every reconnect-grace fetch and sleep by the remaining deadline so the initial 2-second lookup plus grace never exceeds 17 seconds total; leave presence polling semantics unchanged.
 5. Run the server spec and server build.
 
 ## Task 5: Prepare the CLI package release

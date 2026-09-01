@@ -22,7 +22,7 @@ describe('codex fork ops', () => {
     it('forwards effort when resuming a Happy session', async () => {
         machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-resumed' });
 
-        const { machineResumeSession, SESSION_START_RPC_TIMEOUT_MS } = await import('./ops');
+        const { machineResumeSession } = await import('./ops');
         const result = await machineResumeSession({
             machineId: 'machine-1',
             sessionId: 'happy-source',
@@ -41,7 +41,7 @@ describe('codex fork ops', () => {
                 permissionMode: 'yolo',
                 effort: 'xhigh',
             },
-            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+            { timeoutMs: 140_000 },
         );
     });
 
