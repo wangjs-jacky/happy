@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["build.paws.health.HuaweiHealthProbeModule"]
+  }
+}

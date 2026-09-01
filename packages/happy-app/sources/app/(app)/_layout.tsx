@@ -267,6 +267,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="dev/huawei-health"
+                options={{
+                    headerTitle: 'HUAWEI Health diagnostics',
+                }}
+            />
+            <Stack.Screen
                 name="dev/typography"
                 options={{
                     headerTitle: t('devTools.typography'),

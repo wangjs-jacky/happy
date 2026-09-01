@@ -117,6 +117,8 @@ export default {
                 "android.permission.MODIFY_AUDIO_SETTINGS",
                 "android.permission.ACCESS_NETWORK_STATE",
                 "android.permission.POST_NOTIFICATIONS",
+                "android.permission.health.READ_SLEEP",
+                "android.permission.health.READ_HEART_RATE",
             ],
             blockedPermissions: [
                 "android.permission.ACTIVITY_RECOGNITION",
@@ -141,6 +143,16 @@ export default {
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withCleartextTraffic.js"),
             require("./plugins/withSelfHostedServerTrust.js"),
+            require("./plugins/withHuaweiHealthProbe.js"),
+            require("./plugins/withHealthConnect.js"),
+            [
+                "expo-build-properties",
+                {
+                    android: {
+                        minSdkVersion: 26,
+                    },
+                },
+            ],
             [
                 "expo-router",
                 {
