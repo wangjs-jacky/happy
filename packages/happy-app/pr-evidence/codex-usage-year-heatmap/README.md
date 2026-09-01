@@ -13,7 +13,7 @@
 | Case | User-visible contract | Before | After |
 | --- | --- | --- | --- |
 | CU-YEAR-01 | Replace the 14-day strip with a 365-day calendar: seven rows, 53 week columns, month labels, and four discrete intensity levels. | `case-1-before.png` (1280×900) | `case-1-after.png` (1280×900) |
-| CU-YEAR-03 | Keep day selection readable while preserving distinct selected and pressed surfaces. | `case-2-before.png` (1280×900) | `case-2-after.png` (1280×900) |
+| CU-YEAR-03 | Keep day selection readable while preserving distinct selected and pressed surfaces. The pair uses the same 920×210 crop from the 1280×900 Case viewport. | `case-2-before.png` (920×210) | `case-2-after.png` (920×210) |
 | CU-YEAR-02 | At 390×844, start at the latest dates, allow horizontal browsing to the oldest date, and keep date selection usable. | Base behavior is represented by the 14-day desktop capture; no comparable narrow-screen baseline was available. | `case-3-after.png` plus the mobile segment of `cu-year-acceptance.mp4` |
 
 `cu-year-acceptance.mp4` is the trimmed recording of the same passing E2E Cases: desktop overview and interaction first, then narrow-screen latest-date and backward-browse behavior. `cu-year-contact-sheet.png` samples the full delivered duration for visual inspection.
