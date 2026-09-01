@@ -1916,10 +1916,25 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         ).first();
         if (messageHoverEvidencePhase === 'before') {
             await responseContainer.hover();
-            await expect(responseContainer.getByRole('button', { name: 'Copy' })).toHaveCount(0);
-            await expect(responseContainer.getByRole('button', { name: 'Fork from here' })).toHaveCount(0);
+            const beforeForkButton = responseContainer.getByRole('button', { name: 'Fork from here' });
+            await expect(beforeForkButton).toBeVisible();
             await page.screenshot({
                 path: messageHoverScreenshotPath(testInfo),
+                animations: 'disabled',
+            });
+
+            await beforeForkButton.hover();
+            await expect(responseContainer.locator('[data-testid^="message-agent-fork-tooltip-"]')).toBeVisible();
+            await page.screenshot({
+                path: messageHoverScreenshotPath(testInfo, 2),
+                animations: 'disabled',
+            });
+
+            fixture.failNextMessageFork('');
+            await beforeForkButton.evaluate((button: HTMLElement) => button.click());
+            await expect(page.getByRole('dialog', { name: 'Error' })).toBeVisible({ timeout: 15_000 });
+            await page.screenshot({
+                path: messageHoverScreenshotPath(testInfo, 3),
                 animations: 'disabled',
             });
             return;
@@ -2004,6 +2019,10 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         const forkLoading = responseContainer.locator('[data-testid^="message-agent-fork-loading-"]');
         await expect(forkLoading).toBeVisible();
         await expect(responseContainer.getByRole('button', { name: 'Loading' })).toBeDisabled();
+        await page.screenshot({
+            path: messageHoverScreenshotPath(testInfo, 2),
+            animations: 'disabled',
+        });
         await expect.poll(
             () => fixture.rpcCalls.some((call) => call.method.endsWith(':codex-list-rewind-points')),
             { timeout: 15_000 },
@@ -2041,11 +2060,6 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             },
         });
         expect(spawnCall?.params?.forkedFromMessageId).toEqual(expect.any(String));
-        await page.screenshot({
-            path: messageHoverScreenshotPath(testInfo, 2),
-            animations: 'disabled',
-        });
-
         fixture.failNextMessageFork('');
         await page.goto(authenticatedRoute(`/session/${fixture.sessionId}`), {
             waitUntil: 'commit',
