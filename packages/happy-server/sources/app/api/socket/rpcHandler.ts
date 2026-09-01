@@ -15,6 +15,8 @@ import { Counter, Histogram, register } from 'prom-client';
 
 const RPC_ROOM_PREFIX = 'rpc:';
 const RPC_CALL_TIMEOUT_MS = 30_000;
+const RPC_STARTUP_TIMEOUT_MS = 100_000;
+const RPC_STARTUP_METHODS = new Set(['spawn-happy-session', 'resume-happy-session']);
 const RPC_PRESENCE_POLL_MS = 2_000;
 // Timeouts for cross-replica fetchSockets during the reconnect grace window.
 // Exponential backoff: 2s → 4s → 8s. Reduces stream pressure under load
@@ -44,7 +46,7 @@ const rpcCallDuration = new Histogram({
     name: 'rpc_call_duration_seconds',
     help: 'RPC call duration from receipt to response',
     labelNames: ['method', 'result'] as const,
-    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30],
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30, 60, 90, 100],
     registers: [register]
 });
 
@@ -75,6 +77,12 @@ function rpcRoom(userId: string, method: string): string {
 function baseMethodName(prefixedMethod: string): string {
     const lastColon = prefixedMethod.lastIndexOf(':');
     return lastColon >= 0 ? prefixedMethod.substring(lastColon + 1) : prefixedMethod;
+}
+
+function rpcCallTimeoutMs(prefixedMethod: string): number {
+    return RPC_STARTUP_METHODS.has(baseMethodName(prefixedMethod))
+        ? RPC_STARTUP_TIMEOUT_MS
+        : RPC_CALL_TIMEOUT_MS;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -209,14 +217,14 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
             // when the daemon's pod gets killed mid-call, the cluster adapter's
             // outgoing BROADCAST request is queued waiting for a BROADCAST_ACK
             // that will never come, and the request only times out at the user-
-            // set RPC_CALL_TIMEOUT_MS (30s). Heartbeat-based pod liveness
+            // set RPC_CALL_TIMEOUT_MS (30s) for ordinary calls. Heartbeat-based pod liveness
             // detection in the adapter takes ~10s and doesn't proactively
             // cancel pending broadcasts. Polling fetchSockets is the only way
             // to detect "the target socket is gone" and abort fast (~2-4s).
             //
             // Requires 2 consecutive empty polls before declaring disconnect
             // to avoid false positives from transient Redis/adapter timeouts.
-            const ackPromise = target.timeout(RPC_CALL_TIMEOUT_MS)
+            const ackPromise = target.timeout(rpcCallTimeoutMs(method))
                 .emitWithAck('rpc-request', { method, params });
 
             let presenceAlive = true;

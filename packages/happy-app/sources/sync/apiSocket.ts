@@ -56,8 +56,8 @@ export interface RpcCallOptions {
 }
 
 interface RawEncryption {
-    encryptRaw(data: any): Promise<string>;
-    decryptRaw(encrypted: string): Promise<any>;
+    encryptRaw(data: unknown): Promise<string>;
+    decryptRaw(encrypted: string): Promise<unknown>;
 }
 
 //

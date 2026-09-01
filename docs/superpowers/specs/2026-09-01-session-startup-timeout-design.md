@@ -33,9 +33,16 @@ The daemon ownership fix is already present in the repository: a live daemon PID
 4. uses Socket.IO's acknowledgement timeout;
 5. validates and decrypts a successful result.
 
-The default acknowledgement timeout is 60 seconds. This keeps ordinary operations bounded and retains the behavior expected by the pending connection-error work.
+The timeout is layered across the request path:
 
-Session startup operations use a dedicated 120-second timeout:
+- App ordinary RPC calls use a 60-second acknowledgement timeout.
+- App session startup calls use a 120-second acknowledgement timeout.
+- Server ordinary RPC forwarding uses a 30-second target timeout; startup methods use a 100-second target timeout.
+- The daemon's internal startup webhook budget is 90 seconds.
+
+This keeps ordinary operations bounded while leaving the server and daemon enough room for a slow but healthy startup: the App budget is 120 seconds, the server downstream budget is 100 seconds, and the daemon budget is 90 seconds.
+
+Session startup operations use a dedicated 120-second App timeout:
 
 - `spawn-happy-session`
 - `resume-happy-session`
@@ -55,10 +62,12 @@ This release carries the already-merged daemon ownership behavior. No additional
 - Session spawn/resume calls fail after 120 seconds if no acknowledgement arrives.
 - Server-declared RPC errors are returned without attempting response decryption.
 - A live daemon whose HTTP health probe times out keeps its state file and ownership lock.
+- The server forwards ordinary methods with a 30-second target timeout and startup methods with a 100-second target timeout.
 
 ## Verification
 
 - Unit-test the shared encrypted RPC path, immediate disconnected failure, ordinary timeout, startup timeout override, successful decryption, and server error handling.
+- Test server RPC forwarding timeout selection, including a fake-timer 90-second startup ACK that is not cut off by the 100-second startup budget.
 - Keep the existing daemon ownership regression tests green.
 - Run targeted App and CLI tests, App typecheck, CLI typecheck/build, and the relevant package tests.
 - Open a pull request and verify the PR checks.

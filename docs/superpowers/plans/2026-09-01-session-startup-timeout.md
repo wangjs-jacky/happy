@@ -2,7 +2,7 @@
 
 > **Goal:** Prevent healthy slow session starts from failing at 60 seconds while publishing the already-merged daemon ownership fix in a new CLI release.
 
-**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 120-second startup timeout. Bump the CLI package to `1.2.5` so the existing main-branch workflow publishes the daemon fix that is already in source.
+**Architecture:** Centralize encrypted Socket.IO RPC handling in `ApiSocket`, give ordinary App calls a 60-second default ACK timeout, and let callers override it. The two App operations that create a CLI process pass a 120-second startup timeout. The server forwards ordinary RPCs with a 30-second target timeout and the two startup methods with a 100-second target timeout, leaving the daemon's 90-second internal startup webhook budget below both upstream limits. Bump the CLI package to `1.2.5` so the existing main-branch workflow publishes the daemon fix that is already in source.
 
 **Tech Stack:** TypeScript, React Native/Expo, Socket.IO client, Vitest, pnpm, GitHub Actions, npm.
 
@@ -48,7 +48,20 @@
 4. Pass the timeout options only from `machineSpawnNewSession` and `machineResumeSession`; leave ordinary machine and session operations on the default timeout.
 5. Run both targeted App test files and confirm they pass.
 
-## Task 4: Prepare the CLI package release
+## Task 4: Apply the server downstream startup budget
+
+**Files:**
+
+- Modify: `packages/happy-server/sources/app/api/socket/rpcHandler.ts`
+- Create: `packages/happy-server/sources/app/api/socket/rpcHandler.spec.ts`
+
+1. Add a named startup timeout budget of `100_000` milliseconds and select it from `baseMethodName(method)` only for `spawn-happy-session` and `resume-happy-session`; keep ordinary methods at `30_000` milliseconds.
+2. Extend the RPC duration histogram buckets through 60, 90, and 100 seconds so slow startup behavior remains observable.
+3. Test target forwarding for ordinary, spawn, and resume methods, including a fake-timer 90-second startup acknowledgement that succeeds before the 100-second target timeout.
+4. Leave presence polling and reconnect grace behavior unchanged.
+5. Run the server spec and server build.
+
+## Task 5: Prepare the CLI package release
 
 **Files:**
 
@@ -61,7 +74,7 @@
 3. Run the daemon ownership regression test to confirm a live PID survives a transient HTTP failure and a dead PID is cleaned up.
 4. Run CLI typecheck and build; pack to a temporary directory and inspect the tarball metadata without publishing locally.
 
-## Task 5: Run verification and review the diff
+## Task 6: Run verification and review the diff
 
 **Files:** all changed files.
 
@@ -71,7 +84,7 @@
 4. Run `git diff --check`, inspect `git diff --stat`, and confirm the old dirty checkout under `happy-study/happy` is unchanged.
 5. Request an independent code review and resolve any correctness findings.
 
-## Task 6: Submit and verify the pull request
+## Task 7: Submit and verify the pull request
 
 **Files:** no additional source files expected.
 
@@ -80,7 +93,7 @@
 3. Verify all PR checks and the preview OTA workflow triggered by the App change.
 4. Do not merge automatically; report the PR and preview status for approval.
 
-## Task 7: Post-merge release and Macmini2 deployment
+## Task 8: Post-merge release and Macmini2 deployment
 
 1. After merge approval, verify the `CLI npm publish` workflow completes and npm reports `1.2.5`.
 2. Verify the repository-required production OTA and Web workflows and report their URLs/status.
