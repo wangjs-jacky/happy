@@ -451,13 +451,20 @@ export function useSessionQuickActions(
         }
         hapticsSuccess();
         navigateToSession(result.sessionId);
-    });
+    }, { fallbackErrorMessage: t('session.forkErrorGeneric') });
+    const [forkingFromMessageId, setForkingFromMessageId] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        if (!forkingFromMessage) setForkingFromMessageId(null);
+    }, [forkingFromMessage]);
 
     const forkFromMessage = React.useCallback((
         target: MessageForkTarget & { retainSelectedTurn?: boolean },
     ) => {
+        if (forkingFromMessage) return;
+        setForkingFromMessageId(target.messageId);
         performForkFromMessage(target);
-    }, [performForkFromMessage]);
+    }, [forkingFromMessage, performForkFromMessage]);
 
     const openDuplicateSheet = React.useCallback(() => {
         if (!canFork) return;
@@ -567,6 +574,7 @@ export function useSessionQuickActions(
         forking,
         forkFromMessage,
         forkingFromMessage,
+        forkingFromMessageId,
         openDetails,
         openDuplicateSheet,
         regenerateTitle,

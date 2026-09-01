@@ -1058,7 +1058,10 @@ async function createConnectedE2EComposerModeSession(request: APIRequestContext)
     };
 }
 
-async function createConnectedE2EWorkingDirectorySession(request: APIRequestContext): Promise<{
+async function createConnectedE2EWorkingDirectorySession(
+    request: APIRequestContext,
+    options: { messageForkDelayMs?: number } = {},
+): Promise<{
     client: {
         close: () => Promise<void>;
         goOffline: () => Promise<void>;
@@ -1250,6 +1253,9 @@ async function createConnectedE2EWorkingDirectorySession(request: APIRequestCont
             } else if (data.method === `${machineId}:codex-list-rewind-points`
                 && params?.codexThreadId === sourceCodexThreadId
                 && params.directory === currentPath) {
+                if (options.messageForkDelayMs) {
+                    await new Promise((resolve) => setTimeout(resolve, options.messageForkDelayMs));
+                }
                 result = { type: 'success', points: rewindPoints };
             } else if (data.method === `${machineId}:codex-duplicate-thread`
                 && params?.codexThreadId === sourceCodexThreadId
@@ -1818,7 +1824,7 @@ test('[R10-02][CWD-03-01] 工作目录拒绝越界并在 Agent 离线重连后�
 test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分叉', async ({ page, request }, testInfo) => {
     test.slow();
     test.setTimeout(1_200_000);
-    const fixture = await createConnectedE2EWorkingDirectorySession(request);
+    const fixture = await createConnectedE2EWorkingDirectorySession(request, { messageForkDelayMs: 1_200 });
     const firstResponse = 'The first checkpoint is complete and preserved in this turn.';
     const secondResponse = 'The second checkpoint includes browser assertions, a screenshot, and the recorded RPC boundary.';
     fixture.rewindPoints[0].text = fixture.rewindPoints[1].text;
@@ -1965,6 +1971,19 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
             copy: [true, true, true, true, true],
             fork: [true, true, true, true, true],
         });
+        const hoverBoundary = await page.evaluate(() => {
+            const message = document.querySelector<HTMLElement>('[data-testid^="message-agent-"]');
+            const forkButton = document.querySelector<HTMLElement>('[aria-label="Fork from here"]');
+            if (!message || !forkButton) return null;
+            const messageBounds = message.getBoundingClientRect();
+            const buttonBounds = forkButton.getBoundingClientRect();
+            return {
+                messageBottom: messageBounds.bottom,
+                buttonBottom: buttonBounds.bottom,
+            };
+        });
+        expect(hoverBoundary).not.toBeNull();
+        expect(hoverBoundary!.buttonBottom).toBeLessThanOrEqual(hoverBoundary!.messageBottom);
         await page.screenshot({
             path: messageHoverScreenshotPath(testInfo),
             animations: 'disabled',
@@ -1978,6 +1997,9 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         });
         expect(forkClicked).toBe(true);
         await expect(page.getByRole('dialog')).toHaveCount(0);
+        const forkLoading = page.locator('[data-testid^="message-agent-fork-loading-"]');
+        await expect(forkLoading).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Loading' })).toBeDisabled();
         await expect.poll(
             () => fixture.rpcCalls.some((call) => call.method.endsWith(':codex-list-rewind-points')),
             { timeout: 15_000 },

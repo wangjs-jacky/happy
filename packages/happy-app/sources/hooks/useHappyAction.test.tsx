@@ -30,6 +30,12 @@ vi.mock('react', async (importOriginal) => {
 vi.mock('@/modal', () => ({
     Modal: { alert: mocks.alert },
 }));
+vi.mock('@/text', () => ({
+    t: (key: string) => ({
+        'common.error': '错误',
+        'errors.unknownError': '发生未知错误',
+    })[key] ?? key,
+}));
 
 function deferred() {
     let resolve!: () => void;
@@ -74,5 +80,35 @@ describe('useHappyAction', () => {
 
         expect(mocks.stateUpdates).toEqual([true]);
         expect(mocks.alert).not.toHaveBeenCalled();
+    });
+
+    it('shows a localized non-empty fallback when an action throws a blank HappyError', async () => {
+        let runAction: (() => void) | undefined;
+
+        function Harness() {
+            const [, action] = useHappyAction(async () => {
+                throw new (await import('@/utils/errors')).HappyError('   ', false);
+            }, { fallbackErrorMessage: '分叉会话失败' });
+            runAction = action;
+            return null;
+        }
+
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<Harness />);
+        });
+        await act(async () => {
+            runAction?.();
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(mocks.alert).toHaveBeenCalledWith(
+            '错误',
+            '分叉会话失败',
+            [{ text: 'OK', style: 'cancel' }],
+        );
+
+        act(() => renderer.unmount());
     });
 });
