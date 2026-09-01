@@ -86,4 +86,36 @@ describe('storage session lifecycle', () => {
         expect(result.hasReadyEvent).toBe(true);
         expect(storage.getState().sessions['session-1']?.thinking).toBe(false);
     });
+
+    it('keeps thinking when a fetched ready event predates the current turn', () => {
+        storage.getState().applySessions([{
+            id: 'session-1',
+            seq: 3,
+            createdAt: 1,
+            updatedAt: 10,
+            active: true,
+            activeAt: 10,
+            metadata: null,
+            metadataVersion: 1,
+            agentState: {
+                turnStatus: { status: 'running', updatedAt: 10, turnId: 'turn-2' },
+            },
+            agentStateVersion: 3,
+            thinking: true,
+            thinkingAt: 10,
+            presence: 'online',
+        }], { replace: true });
+
+        const result = storage.getState().applyMessages('session-1', [{
+            id: 'turn-end-1',
+            localId: null,
+            createdAt: 3,
+            role: 'event',
+            content: { type: 'ready' },
+            isSidechain: false,
+        }]);
+
+        expect(result.hasReadyEvent).toBe(true);
+        expect(storage.getState().sessions['session-1']?.thinking).toBe(true);
+    });
 });
