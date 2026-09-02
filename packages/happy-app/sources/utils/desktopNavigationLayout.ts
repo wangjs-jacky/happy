@@ -1,10 +1,13 @@
 export const WEB_TABLET_MIN_WIDTH = 800;
-export const DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH = 1100;
+export const DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH = 1280;
 export const DESKTOP_SESSION_HEADER_COMPACT_WINDOW_WIDTH = 1180;
 export const DESKTOP_MAIN_MIN_WIDTH = 480;
-export const DESKTOP_LEFT_PANEL_MIN_WIDTH = 250;
-export const DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 360;
-export const DESKTOP_LEFT_PANEL_MAX_WIDTH = 480;
+export const DESKTOP_LEFT_PANEL_MIN_WIDTH = 500;
+export const DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 580;
+export const DESKTOP_LEFT_PANEL_MAX_WIDTH = 760;
+export const DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH = 176;
+export const DESKTOP_SIDEBAR_ORGANIZATION_DEFAULT_WIDTH = 220;
+export const DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH = 320;
 export const DESKTOP_RIGHT_PANEL_MIN_WIDTH = 280;
 export const DESKTOP_RIGHT_PANEL_DEFAULT_WIDTH = 320;
 export const DESKTOP_RIGHT_PANEL_MAX_WIDTH = 480;
@@ -63,6 +66,13 @@ export function getDesktopRightPanelWidth(windowWidth: number): number {
 }
 
 export type DesktopPanelSide = 'left' | 'right';
+
+export function clampDesktopSidebarOrganizationWidth(width: number): number {
+    return Math.round(Math.min(
+        Math.max(width, DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH),
+        DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+    ));
+}
 
 function getDesktopPanelMinimum(side: DesktopPanelSide): number {
     return side === 'left' ? DESKTOP_LEFT_PANEL_MIN_WIDTH : DESKTOP_RIGHT_PANEL_MIN_WIDTH;

@@ -3,6 +3,7 @@ import {
     DESKTOP_LEFT_PANEL_MAX_WIDTH,
     DESKTOP_MAIN_MIN_WIDTH,
     DESKTOP_RIGHT_PANEL_MAX_WIDTH,
+    clampDesktopSidebarOrganizationWidth,
     getDesktopPanelResizeWidth,
     getDesktopPanelShortcutPresentation,
     getDesktopSidebarWidth,
@@ -53,7 +54,8 @@ describe('desktopNavigationLayout', () => {
 
     it.each([
         { width: 1099, expected: 0 },
-        { width: 1100, expected: 280 },
+        { width: 1100, expected: 0 },
+        { width: 1279, expected: 0 },
         { width: 1280, expected: 307 },
         { width: 1500, expected: 360 },
     ])('calculates a compact desktop right panel width at $width px', ({ width, expected }) => {
@@ -71,7 +73,7 @@ describe('desktopNavigationLayout', () => {
 
         expect(widths.left + widths.main + widths.right).toBe(1280);
         expect(widths.main).toBe(DESKTOP_MAIN_MIN_WIDTH);
-        expect(widths.left).toBeGreaterThanOrEqual(250);
+        expect(widths.left).toBeGreaterThanOrEqual(500);
         expect(widths.right).toBeGreaterThanOrEqual(280);
     });
 
@@ -83,10 +85,16 @@ describe('desktopNavigationLayout', () => {
             rightVisible: false,
             windowWidth: 1280,
         })).toEqual({
-            left: DESKTOP_LEFT_PANEL_MAX_WIDTH,
-            main: 1280 - DESKTOP_LEFT_PANEL_MAX_WIDTH,
+            left: 640,
+            main: 640,
             right: 0,
         });
+    });
+
+    it('keeps the internal list-navigation pane within a useful desktop range', () => {
+        expect(clampDesktopSidebarOrganizationWidth(120)).toBe(176);
+        expect(clampDesktopSidebarOrganizationWidth(247.6)).toBe(248);
+        expect(clampDesktopSidebarOrganizationWidth(400)).toBe(320);
     });
 
     it('clamps the actively resized panel to its fixed maximum and the available workspace', () => {
@@ -152,12 +160,17 @@ describe('desktopNavigationLayout', () => {
             isTablet: true,
             supportsPersistentPanel: true,
             windowWidth: 1100,
-        })).toBe(true);
+        })).toBe(false);
         expect(isDesktopRightPanelAvailable({
             isTablet: true,
             supportsPersistentPanel: true,
             windowWidth: 1099,
         })).toBe(false);
+        expect(isDesktopRightPanelAvailable({
+            isTablet: true,
+            supportsPersistentPanel: true,
+            windowWidth: 1280,
+        })).toBe(true);
         expect(isDesktopRightPanelAvailable({
             isTablet: false,
             supportsPersistentPanel: true,
