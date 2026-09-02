@@ -236,7 +236,7 @@ export function registerMcpAppRpcHandlers(options: {
             if (!validChunkRequest(request)) return failure('MCP_APP_RESOURCE_NOT_FOUND', false);
         const resource = resources.get(request.resourceId);
         if (!resource || resource.expiresAt <= now() || !options.bindingRegistry.has(resource.callId)) {
-            if (resource) resources.delete(resource.resourceId);
+            if (resource) removeResource(resource.resourceId);
             return failure('MCP_APP_RESOURCE_NOT_FOUND', false);
         }
         if (request.offset >= resource.bytes.byteLength) {

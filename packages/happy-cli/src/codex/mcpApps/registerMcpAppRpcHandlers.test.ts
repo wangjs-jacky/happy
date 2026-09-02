@@ -267,6 +267,31 @@ describe('registerMcpAppRpcHandlers', () => {
         }
     });
 
+    it.each(['expired', 'missing binding'] as const)(
+        'clears the scheduled expiry timer when chunk access finds a %s resource',
+        async (state) => {
+            vi.useFakeTimers();
+            try {
+                let now = 100;
+                const { handlers, registry } = createHarness({ now: () => now });
+                bind(registry);
+                const resource = opened(await open(handlers.get('mcpAppResourceOpen')!));
+                expect(vi.getTimerCount()).toBe(1);
+
+                if (state === 'expired') {
+                    now += MCP_APP_RESOURCE_TTL_MS;
+                } else {
+                    registry.clear();
+                }
+                await chunk(handlers.get('mcpAppResourceChunk')!, resource.resourceId, 0);
+
+                expect(vi.getTimerCount()).toBe(0);
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+    );
+
     it('moves registered RPC methods to a replacement session manager', async () => {
         const { handlers, registration, registry } = createHarness();
         const replacementHandlers = new Map<string, Handler>();
