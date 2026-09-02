@@ -55,6 +55,11 @@ describe('public session share queue', () => {
     it('drops unsafe fresh cover fields before persistence and execution', async () => {
         const unsafeSelections: unknown[] = [
             {
+                kind: 'existing',
+                assetId: '51515151-5151-4515-8515-515151515151',
+                uri: 'https://attacker.invalid/cover.webp',
+            },
+            {
                 kind: 'pexels',
                 photoId: 123,
                 previewUrl: 'https://images.pexels.com/private-candidate.jpg',
@@ -103,6 +108,27 @@ describe('public session share queue', () => {
                 expect.any(Object),
             );
         }
+    });
+
+    it('persists an existing active-cover reference with no client metadata', () => {
+        const { storage, read } = createStorage();
+        const queue = createPublicSessionShareQueue({
+            storage,
+            createId: () => 'job-existing',
+            execute: vi.fn(async () => ({ publicId: 'public-id', publishedAt: 300 })),
+            notify: vi.fn(async () => undefined),
+        });
+
+        const job = queue.enqueue({
+            ...input,
+            coverSelection: { kind: 'existing', assetId: '51515151-5151-4515-8515-515151515151' },
+        });
+
+        expect(job.coverSelection).toEqual({
+            kind: 'existing',
+            assetId: '51515151-5151-4515-8515-515151515151',
+        });
+        expect(read()[0].coverSelection).toEqual(job.coverSelection);
     });
 
     it('resumes an interrupted running job and records the ready link', async () => {

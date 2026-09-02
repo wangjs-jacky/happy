@@ -9,6 +9,7 @@ import { normalizeRawMessage } from './typesRaw';
 import { getServerUrl } from './serverConfig';
 import { downloadEncryptedAttachment, requestAttachmentDownloadSource } from './apiAttachments';
 import {
+    clonePublicSessionCover,
     createPublicSessionShareDraft,
     importPublicSessionPexelsCover,
     preparePublicSessionShareAsset,
@@ -95,6 +96,12 @@ const queue = createPublicSessionShareQueue({
                     const { readFileBytes } = await import('@/utils/readFileBytes');
                     return readFileBytes(selection.uri, 100 * 1024 * 1024);
                 },
+                cloneExistingCover: (generation, assetId) => clonePublicSessionCover(
+                    credentials,
+                    job.sessionId,
+                    generation,
+                    assetId,
+                ),
                 prepareAsset: (generation, asset, sha256) => (
                     preparePublicSessionShareAsset(credentials, job.sessionId, generation, asset, sha256)
                 ),

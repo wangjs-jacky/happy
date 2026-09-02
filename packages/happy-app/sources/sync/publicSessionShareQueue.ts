@@ -4,6 +4,7 @@ import { z } from 'zod';
 export type PublicSessionShareJobStatus = 'queued' | 'running' | 'ready' | 'failed';
 
 export type PublicSessionCoverSelection =
+    | { kind: 'existing'; assetId: string }
     | { kind: 'pexels'; photoId: number }
     | {
         kind: 'upload';
@@ -18,6 +19,10 @@ export type PublicSessionCoverSelection =
     };
 
 export const publicSessionCoverSelectionSchema: z.ZodType<PublicSessionCoverSelection> = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('existing'),
+        assetId: z.string().uuid(),
+    }).strict(),
     z.object({
         kind: z.literal('pexels'),
         photoId: z.number().int().positive(),

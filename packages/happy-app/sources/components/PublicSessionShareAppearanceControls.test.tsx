@@ -5,6 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
 
+type MockPickedImage = {
+    id: string;
+    uri: string;
+    width: number;
+    height: number;
+    mimeType: string;
+    size: number;
+    name: string;
+    thumbhash?: string;
+};
+
 const mocks = vi.hoisted(() => ({
     candidate: {
         provider: 'pexels' as const,
@@ -22,18 +33,9 @@ const mocks = vi.hoisted(() => ({
     getRandomCover: vi.fn(),
     setLastThemePack: vi.fn(),
     mutableSettingNames: [] as string[],
-    pickImages: vi.fn(async () => undefined),
+    pickImages: vi.fn<() => Promise<MockPickedImage[]>>(async () => []),
     clearImages: vi.fn(),
-    selectedImages: [] as Array<{
-        id: string;
-        uri: string;
-        width: number;
-        height: number;
-        mimeType: string;
-        size: number;
-        name: string;
-        thumbhash?: string;
-    }>,
+    selectedImages: [] as MockPickedImage[],
     pickerOptions: [] as Array<{ maxAttachments?: number; maxImageSizeBytes?: number }>,
     openUrl: vi.fn(),
     uuid: vi.fn(() => '11111111-1111-4111-8111-111111111111'),
@@ -129,11 +131,23 @@ function deferred<T>() {
 }
 
 describe('PublicSessionShareAppearanceControls', () => {
+    const pickedImage = {
+        id: 'picker-preview-id',
+        uri: 'file:///tmp/cover.webp',
+        width: 1600,
+        height: 900,
+        mimeType: 'image/webp',
+        size: 2048,
+        name: 'cover.webp',
+        thumbhash: 'thumb',
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.mutableSettingNames.length = 0;
         mocks.pickerOptions.length = 0;
         mocks.selectedImages = [];
+        mocks.pickImages.mockResolvedValue([]);
         mocks.getRandomCover.mockResolvedValue(mocks.candidate);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     });
@@ -235,30 +249,13 @@ describe('PublicSessionShareAppearanceControls', () => {
         act(() => renderer.unmount());
     });
 
-    it('turns one normalized picker image into a local-only upload selection', () => {
+    it('turns one normalized picker image into a local-only upload selection', async () => {
         const onCoverSelectionChange = vi.fn();
+        mocks.pickImages.mockResolvedValueOnce([pickedImage]);
         const { renderer } = renderControls({ onCoverSelectionChange });
 
-        mocks.selectedImages = [{
-            id: 'picker-preview-id',
-            uri: 'file:///tmp/cover.webp',
-            width: 1600,
-            height: 900,
-            mimeType: 'image/webp',
-            size: 2048,
-            name: 'cover.webp',
-            thumbhash: 'thumb',
-        }];
-        act(() => {
-            renderer.update(
-                <PublicSessionShareAppearanceControls
-                    sessionId="session-1"
-                    themePack="caramel"
-                    coverSelection={undefined}
-                    onThemePackChange={vi.fn()}
-                    onCoverSelectionChange={onCoverSelectionChange}
-                />,
-            );
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
         });
 
         expect(onCoverSelectionChange).toHaveBeenCalledWith({
@@ -273,6 +270,163 @@ describe('PublicSessionShareAppearanceControls', () => {
             thumbhash: 'thumb',
         });
         act(() => renderer.unmount());
+    });
+
+    it('keeps remove as the last action when an older upload finishes late', async () => {
+        const pending = deferred<typeof mocks.selectedImages>();
+        mocks.pickImages.mockReturnValueOnce(pending.promise);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange });
+
+        let uploadPromise!: Promise<void>;
+        act(() => {
+            uploadPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+        act(() => renderer.root.findByProps({ testID: 'public-share-cover-remove' }).props.onPress());
+        mocks.selectedImages = [pickedImage];
+        await act(async () => {
+            pending.resolve([pickedImage]);
+            renderer.update(
+                <PublicSessionShareAppearanceControls
+                    sessionId="session-1"
+                    themePack="caramel"
+                    coverSelection={undefined}
+                    onThemePackChange={vi.fn()}
+                    onCoverSelectionChange={onCoverSelectionChange}
+                />,
+            );
+            await uploadPromise;
+        });
+
+        expect(onCoverSelectionChange).toHaveBeenLastCalledWith(undefined);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps random as the last action when an older upload finishes late', async () => {
+        const pending = deferred<typeof mocks.selectedImages>();
+        mocks.pickImages.mockReturnValueOnce(pending.promise);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange });
+
+        let uploadPromise!: Promise<void>;
+        act(() => {
+            uploadPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'public-share-cover-random' }).props.onPress();
+        });
+        mocks.selectedImages = [pickedImage];
+        await act(async () => {
+            pending.resolve([pickedImage]);
+            renderer.update(
+                <PublicSessionShareAppearanceControls
+                    sessionId="session-1"
+                    themePack="caramel"
+                    coverSelection={{ kind: 'pexels', photoId: 731889 }}
+                    onThemePackChange={vi.fn()}
+                    onCoverSelectionChange={onCoverSelectionChange}
+                />,
+            );
+            await uploadPromise;
+        });
+
+        expect(onCoverSelectionChange).toHaveBeenLastCalledWith({ kind: 'pexels', photoId: 731889 });
+        act(() => renderer.unmount());
+    });
+
+    it('keeps a newer upload when an older picker finishes late', async () => {
+        const pending = deferred<typeof mocks.selectedImages>();
+        const newerImage = {
+            ...pickedImage,
+            id: 'newer-picker-id',
+            uri: 'file:///tmp/newer-cover.webp',
+            name: 'newer-cover.webp',
+        };
+        mocks.pickImages
+            .mockReturnValueOnce(pending.promise)
+            .mockResolvedValueOnce([newerImage]);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange });
+
+        let olderPromise!: Promise<void>;
+        act(() => {
+            olderPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+        pending.resolve([pickedImage]);
+        await olderPromise;
+
+        expect(onCoverSelectionChange).toHaveBeenCalledOnce();
+        expect(onCoverSelectionChange).toHaveBeenLastCalledWith(expect.objectContaining({
+            kind: 'upload',
+            uri: newerImage.uri,
+            name: newerImage.name,
+        }));
+        act(() => renderer.unmount());
+    });
+
+    it('reports a picker rejection without replacing the current cover', async () => {
+        mocks.pickImages.mockRejectedValueOnce(new Error('picker failed'));
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({
+            coverSelection: { kind: 'existing', assetId: '51515151-5151-4515-8515-515151515151' },
+            existingCover: {
+                assetId: '51515151-5151-4515-8515-515151515151',
+                mimeType: 'image/webp',
+                size: 5,
+                width: 1200,
+                height: 600,
+                uri: 'https://paws.test/cover',
+            },
+            onCoverSelectionChange,
+        });
+
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-upload-state' }).props.accessibilityRole)
+            .toBe('alert');
+        expect(onCoverSelectionChange).not.toHaveBeenCalled();
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-preview' }).props.source)
+            .toEqual({ uri: 'https://paws.test/cover' });
+        act(() => renderer.unmount());
+    });
+
+    it('ignores a deferred upload result after unmount', async () => {
+        const pending = deferred<typeof mocks.selectedImages>();
+        mocks.pickImages.mockReturnValueOnce(pending.promise);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange });
+
+        let uploadPromise!: Promise<void>;
+        act(() => {
+            uploadPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+            renderer.unmount();
+        });
+        pending.resolve([pickedImage]);
+        await uploadPromise;
+
+        expect(onCoverSelectionChange).not.toHaveBeenCalled();
+    });
+
+    it('ignores a deferred random result after unmount', async () => {
+        const pending = deferred<typeof mocks.candidate>();
+        mocks.getRandomCover.mockReturnValueOnce(pending.promise);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange });
+
+        let randomPromise!: Promise<void>;
+        act(() => {
+            randomPromise = renderer.root.findByProps({ testID: 'public-share-cover-random' }).props.onPress();
+            renderer.unmount();
+        });
+        pending.resolve(mocks.candidate);
+        await randomPromise;
+
+        expect(onCoverSelectionChange).not.toHaveBeenCalled();
     });
 
     it('keeps the current cover selection when a replacement upload is cancelled', async () => {

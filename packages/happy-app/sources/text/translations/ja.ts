@@ -827,6 +827,7 @@ export const ja: TranslationStructure = {
         uploadCover: '画像をアップロード',
         removeCover: 'カバーを削除',
         coverProviderUnavailable: 'Pexelsを利用できません。画像のアップロードやカバーなしの共有は引き続き利用できます。',
+        coverUploadFailed: '画像を選択できませんでした。もう一度お試しください。',
         themeColor: 'テーマカラー',
         themeColorOption: ({ theme }: { theme: string }) => `テーマカラー：${theme}`,
         appearanceLight: 'ライト',

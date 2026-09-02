@@ -826,6 +826,7 @@ export const ca: TranslationStructure = {
         uploadCover: 'Puja una imatge',
         removeCover: 'Elimina la portada',
         coverProviderUnavailable: 'Pexels no està disponible. Encara podeu pujar una imatge o compartir sense portada.',
+        coverUploadFailed: 'No s\'ha pogut seleccionar la imatge. Torneu-ho a provar.',
         themeColor: 'Color del tema',
         themeColorOption: ({ theme }: { theme: string }) => `Color del tema: ${theme}`,
         appearanceLight: 'Clar',

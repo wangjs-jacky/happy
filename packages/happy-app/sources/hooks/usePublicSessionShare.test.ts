@@ -171,6 +171,75 @@ describe('public session share publishing', () => {
         expect(JSON.stringify(publishedSnapshot)).not.toContain('images.pexels.com');
     });
 
+    it('clones a cross-device active cover after draft creation and publishes only the canonical response', async () => {
+        const events: string[] = [];
+        const existingCover = {
+            assetId: '51515151-5151-4515-8515-515151515151',
+            mimeType: 'image/jpeg',
+            size: 5,
+            width: 1200,
+            height: 600,
+        } as const;
+        let publishedSnapshot: unknown;
+        const deps: PublicSessionPublishDependencies = {
+            loadMessages: vi.fn(async () => []),
+            createDraft: vi.fn(async () => {
+                events.push('draft');
+                return { generation: 'generation-1', publicId: 'public-id' };
+            }),
+            loadAttachmentBytes: vi.fn(),
+            prepareAsset: vi.fn(),
+            uploadAsset: vi.fn(),
+            cloneExistingCover: vi.fn(async (generation, assetId) => {
+                events.push('clone');
+                expect({ generation, assetId }).toEqual({
+                    generation: 'generation-1',
+                    assetId: existingCover.assetId,
+                });
+                return existingCover;
+            }),
+            publishDraft: vi.fn(async (_generation, snapshot) => {
+                events.push('publish');
+                publishedSnapshot = snapshot;
+                return { publicId: 'public-id', publishedAt: 123 };
+            }),
+        };
+
+        await publishPublicSessionSnapshot({
+            sessionId: 'session-1',
+            title: 'Title',
+            sharedAt: 123,
+            themePack: 'gingham',
+            coverSelection: { kind: 'existing', assetId: existingCover.assetId },
+        }, deps);
+
+        expect(events).toEqual(['draft', 'clone', 'publish']);
+        expect(publishedSnapshot).toMatchObject({
+            appearance: { themePack: 'gingham', cover: existingCover },
+        });
+    });
+
+    it('stops before publish when preserving an existing cover fails', async () => {
+        const publishDraft = vi.fn();
+        const deps: PublicSessionPublishDependencies = {
+            loadMessages: vi.fn(async () => []),
+            createDraft: vi.fn(async () => ({ generation: 'generation-1', publicId: 'public-id' })),
+            loadAttachmentBytes: vi.fn(),
+            prepareAsset: vi.fn(),
+            uploadAsset: vi.fn(),
+            cloneExistingCover: vi.fn(async () => { throw new Error('clone failed'); }),
+            publishDraft,
+        };
+
+        await expect(publishPublicSessionSnapshot({
+            sessionId: 'session-1',
+            title: 'Title',
+            sharedAt: 123,
+            coverSelection: { kind: 'existing', assetId: '51515151-5151-4515-8515-515151515151' },
+        }, deps)).rejects.toThrow('clone failed');
+        expect(publishDraft).not.toHaveBeenCalled();
+    });
+
     it('reads and uploads a local cover through the asset path and counts it in progress', async () => {
         const events: string[] = [];
         const progress: Array<[number, number]> = [];

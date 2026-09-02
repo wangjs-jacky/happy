@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
     listeners: new Set<() => void>(),
     enqueue: vi.fn(),
     cancel: vi.fn(),
-    getShare: vi.fn(async () => ({ active: false, publicId: null, publishedAt: null })),
+    getShare: vi.fn<() => Promise<any>>(async () => ({ active: false, publicId: null, publishedAt: null })),
     revoke: vi.fn(async () => undefined),
     alert: vi.fn(),
     platformOS: 'android',
@@ -76,6 +76,24 @@ describe('usePublicSessionShare', () => {
     });
 
     it('queues publication immediately and follows the persisted job to its ready link', async () => {
+        const canonicalState = {
+            active: true,
+            publicId: 'public-id',
+            publishedAt: 300,
+            appearance: {
+                themePack: 'sakura' as const,
+                cover: {
+                    assetId: '51515151-5151-4515-8515-515151515151',
+                    mimeType: 'image/webp',
+                    size: 4321,
+                    width: 2400,
+                    height: 900,
+                },
+            },
+        };
+        mocks.getShare
+            .mockResolvedValueOnce({ active: false, publicId: null, publishedAt: null })
+            .mockResolvedValueOnce(canonicalState);
         let latest: ReturnType<typeof usePublicSessionShare> | null = null;
         function Harness() {
             latest = usePublicSessionShare('session-1', 'Release notes');
@@ -103,15 +121,17 @@ describe('usePublicSessionShare', () => {
         }));
         expect(current().publishing).toBe(true);
 
-        act(() => {
+        await act(async () => {
             mocks.job = {
                 ...mocks.job, status: 'ready', publicId: 'public-id', publishedAt: 300,
                 progress: { completed: 2, total: 2 }, updatedAt: 300,
             };
             for (const listener of mocks.listeners) listener();
+            await vi.waitFor(() => expect(mocks.getShare).toHaveBeenCalledTimes(2));
         });
 
-        expect(current().shareState).toEqual({ active: true, publicId: 'public-id', publishedAt: 300 });
+        await vi.waitFor(() => expect(current().shareState).toEqual(canonicalState));
+        expect(mocks.getShare).toHaveBeenCalledTimes(2);
         expect(current().shareUrl).toBe('https://paws.test/share/public-id');
         expect(current().publishing).toBe(false);
         act(() => renderer.unmount());

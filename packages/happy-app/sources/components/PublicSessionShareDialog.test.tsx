@@ -178,7 +178,7 @@ describe('PublicSessionShareDialog', () => {
         expect(controls.props).toMatchObject({
             sessionId: 'session-1',
             themePack: 'sage',
-            coverSelection: { kind: 'pexels', photoId: 731889 },
+            coverSelection: { kind: 'existing', assetId: '11111111-1111-4111-8111-111111111111' },
             existingCover: {
                 uri: 'https://paws.example/share/public-id/11111111-1111-4111-8111-111111111111',
             },
@@ -186,9 +186,42 @@ describe('PublicSessionShareDialog', () => {
         act(() => renderer.root.findByProps({ testID: 'public-session-share-update' }).props.onPress());
         expect(mocks.publish).toHaveBeenCalledWith({
             themePack: 'sage',
-            coverSelection: { kind: 'pexels', photoId: 731889 },
+            coverSelection: { kind: 'existing', assetId: '11111111-1111-4111-8111-111111111111' },
         });
 
+        act(() => renderer.unmount());
+    });
+
+    it('resets a revoked share to the remembered theme and a coverless new-share state', () => {
+        mocks.share.shareState = {
+            active: true,
+            publicId: 'public-id',
+            publishedAt: 1_788_000_000_000,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '11111111-1111-4111-8111-111111111111',
+                    mimeType: 'image/webp',
+                    size: 2048,
+                    width: 1600,
+                    height: 900,
+                },
+            },
+        };
+        mocks.share.shareUrl = 'https://paws.example/share/public-id';
+        const renderer = renderDialog();
+
+        mocks.share.shareState = { active: false, publicId: null, publishedAt: null };
+        mocks.share.shareUrl = null;
+        mocks.lastPublicShareThemePack = 'grape';
+        act(() => renderer.update(
+            <PublicSessionShareDialog sessionId="session-1" title="Release notes" onClose={vi.fn()} />,
+        ));
+
+        const controls = renderer.root.findByType('PublicSessionShareAppearanceControls');
+        expect(controls.props).toMatchObject({ themePack: 'grape', coverSelection: undefined });
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-create' }).props.onPress());
+        expect(mocks.publish).toHaveBeenLastCalledWith({ themePack: 'grape', coverSelection: undefined });
         act(() => renderer.unmount());
     });
 

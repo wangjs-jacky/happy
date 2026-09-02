@@ -74,6 +74,7 @@ export type PublicSessionPublishDependencies = {
     prepareAsset: (generation: string, asset: PublicSessionAttachmentJob, sha256: string) => Promise<PreparedPublicSessionShareAsset>;
     uploadAsset: (upload: PreparedPublicSessionShareAsset, bytes: Uint8Array) => Promise<void>;
     importPexelsCover?: (generation: string, assetId: string, photoId: number) => Promise<PublicSessionCover>;
+    cloneExistingCover?: (generation: string, assetId: string) => Promise<PublicSessionCover>;
     publishDraft: (generation: string, snapshot: PublicSessionSnapshotV2) => Promise<{ publicId: string; publishedAt: number }>;
     cleanupPublishedShare?: () => Promise<void>;
     createAttachmentId?: () => string;
@@ -127,7 +128,16 @@ export async function publishPublicSessionSnapshot(
     let completed = 0;
     deps.onProgress?.(completed, total);
 
-    if (input.coverSelection?.kind === 'pexels') {
+    if (input.coverSelection?.kind === 'existing') {
+        if (!deps.cloneExistingCover) throw new Error('Public session existing cover clone is unavailable');
+        snapshot.appearance.cover = await deps.cloneExistingCover(
+            draft.generation,
+            input.coverSelection.assetId,
+        );
+        if (deps.isCancelled?.()) throw new Error('Public session share cancelled');
+        completed += 1;
+        deps.onProgress?.(completed, total);
+    } else if (input.coverSelection?.kind === 'pexels') {
         if (!input.jobId) throw new Error('Public session share job ID is unavailable');
         if (!deps.importPexelsCover) throw new Error('Public session Pexels cover import is unavailable');
         snapshot.appearance.cover = await deps.importPexelsCover(

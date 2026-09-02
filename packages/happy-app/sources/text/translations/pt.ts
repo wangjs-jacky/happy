@@ -825,6 +825,7 @@ export const pt: TranslationStructure = {
         uploadCover: 'Enviar imagem',
         removeCover: 'Remover capa',
         coverProviderUnavailable: 'Pexels está indisponível. Você ainda pode enviar uma imagem ou compartilhar sem capa.',
+        coverUploadFailed: 'Não foi possível selecionar a imagem. Tente novamente.',
         themeColor: 'Cor do tema',
         themeColorOption: ({ theme }: { theme: string }) => `Cor do tema: ${theme}`,
         appearanceLight: 'Claro',

@@ -872,6 +872,7 @@ export const en = {
         uploadCover: 'Upload image',
         removeCover: 'Remove cover',
         coverProviderUnavailable: 'Pexels is unavailable. You can still upload an image or share without a cover.',
+        coverUploadFailed: 'The image could not be selected. Try again.',
         themeColor: 'Theme color',
         themeColorOption: ({ theme }: { theme: string }) => `Theme color: ${theme}`,
         appearanceLight: 'Light',

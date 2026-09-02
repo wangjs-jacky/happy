@@ -842,6 +842,7 @@ export const pl: TranslationStructure = {
         uploadCover: 'Prześlij obraz',
         removeCover: 'Usuń okładkę',
         coverProviderUnavailable: 'Pexels jest niedostępny. Nadal możesz przesłać obraz lub udostępnić bez okładki.',
+        coverUploadFailed: 'Nie udało się wybrać obrazu. Spróbuj ponownie.',
         themeColor: 'Kolor motywu',
         themeColorOption: ({ theme }: { theme: string }) => `Kolor motywu: ${theme}`,
         appearanceLight: 'Jasny',

@@ -5,7 +5,7 @@ import { randomUUID } from 'expo-crypto';
 import { Image } from 'expo-image';
 import { StyleSheet } from 'react-native-unistyles';
 import type { PublicSessionCover, PublicSessionThemePack } from '@slopus/happy-wire';
-import { MAX_FILE_SIZE, useImagePicker } from '@/hooks/useImagePicker';
+import { MAX_FILE_SIZE, useImagePicker, type AttachmentPreview } from '@/hooks/useImagePicker';
 import { getRandomPublicSessionCover, type PublicSessionCoverCandidate } from '@/sync/apiPublicSessionShares';
 import type { PublicSessionCoverSelection } from '@/sync/publicSessionShareQueue';
 import { useLocalSettingMutable } from '@/sync/storage';
@@ -35,42 +35,33 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
     onCoverSelectionChange,
 }: PublicSessionShareAppearanceControlsProps) {
     const [, setLastPublicShareThemePack] = useLocalSettingMutable('lastPublicShareThemePack');
-    const { selectedImages, pickImages, clearImages } = useImagePicker({
+    const { pickImages, clearImages } = useImagePicker({
         maxAttachments: 1,
         maxImageSizeBytes: MAX_FILE_SIZE,
     });
     const [candidate, setCandidate] = React.useState<PublicSessionCoverCandidate | null>(null);
     const [providerUnavailable, setProviderUnavailable] = React.useState(false);
     const [randomLoading, setRandomLoading] = React.useState(false);
-    const [existingRemoved, setExistingRemoved] = React.useState(false);
-    const requestSequence = React.useRef(0);
+    const [uploadPreview, setUploadPreview] = React.useState<AttachmentPreview | null>(null);
+    const [uploadLoading, setUploadLoading] = React.useState(false);
+    const [uploadFailed, setUploadFailed] = React.useState(false);
+    const actionEpoch = React.useRef(0);
+    const mountedRef = React.useRef(true);
     const randomLoadingRef = React.useRef(false);
-    const processedUploadId = React.useRef<string | null>(null);
 
-    React.useEffect(() => () => {
-        requestSequence.current += 1;
+    React.useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            actionEpoch.current += 1;
+            randomLoadingRef.current = false;
+        };
     }, []);
 
     React.useEffect(() => {
-        const image = selectedImages[0];
-        if (!image || processedUploadId.current === image.id) return;
-        processedUploadId.current = image.id;
-        requestSequence.current += 1;
-        setCandidate(null);
-        setProviderUnavailable(false);
-        setExistingRemoved(true);
-        onCoverSelectionChange({
-            kind: 'upload',
-            attachmentId: randomUUID(),
-            uri: image.uri,
-            name: image.name,
-            mimeType: image.mimeType,
-            size: image.size,
-            width: image.width,
-            height: image.height,
-            ...(image.thumbhash ? { thumbhash: image.thumbhash } : {}),
-        });
-    }, [onCoverSelectionChange, selectedImages]);
+        if (coverSelection?.kind !== 'pexels') setCandidate(null);
+        if (coverSelection?.kind !== 'upload') setUploadPreview(null);
+    }, [coverSelection]);
 
     const selectThemePack = React.useCallback((nextThemePack: PublicSessionThemePack) => {
         setLastPublicShareThemePack(nextThemePack);
@@ -84,58 +75,87 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
             setProviderUnavailable(true);
             return;
         }
-        const sequence = requestSequence.current + 1;
-        requestSequence.current = sequence;
+        const sequence = actionEpoch.current + 1;
+        actionEpoch.current = sequence;
         randomLoadingRef.current = true;
         setRandomLoading(true);
+        setUploadLoading(false);
+        setUploadFailed(false);
         setProviderUnavailable(false);
         try {
             const nextCandidate = await getRandomPublicSessionCover(credentials, sessionId);
-            if (requestSequence.current !== sequence) return;
+            if (!mountedRef.current || actionEpoch.current !== sequence) return;
             clearImages();
-            processedUploadId.current = null;
-            setExistingRemoved(true);
+            setUploadPreview(null);
             setCandidate(nextCandidate);
             onCoverSelectionChange({ kind: 'pexels', photoId: nextCandidate.photoId });
         } catch {
-            if (requestSequence.current === sequence) setProviderUnavailable(true);
+            if (mountedRef.current && actionEpoch.current === sequence) setProviderUnavailable(true);
         } finally {
-            if (requestSequence.current === sequence) {
+            if (mountedRef.current && actionEpoch.current === sequence) {
                 randomLoadingRef.current = false;
                 setRandomLoading(false);
             }
         }
     }, [clearImages, disabled, onCoverSelectionChange, sessionId]);
 
-    const selectUploadCover = React.useCallback(() => {
+    const selectUploadCover = React.useCallback(async () => {
         if (disabled) return;
-        requestSequence.current += 1;
+        const sequence = actionEpoch.current + 1;
+        actionEpoch.current = sequence;
         randomLoadingRef.current = false;
         setRandomLoading(false);
+        setUploadLoading(true);
+        setUploadFailed(false);
+        setProviderUnavailable(false);
         clearImages();
-        processedUploadId.current = null;
-        void pickImages();
-    }, [clearImages, disabled, pickImages]);
+        try {
+            const image = (await pickImages())[0];
+            if (!mountedRef.current || actionEpoch.current !== sequence || !image) return;
+            setCandidate(null);
+            setUploadPreview(image);
+            onCoverSelectionChange({
+                kind: 'upload',
+                attachmentId: randomUUID(),
+                uri: image.uri,
+                name: image.name,
+                mimeType: image.mimeType,
+                size: image.size,
+                width: image.width,
+                height: image.height,
+                ...(image.thumbhash ? { thumbhash: image.thumbhash } : {}),
+            });
+        } catch {
+            if (mountedRef.current && actionEpoch.current === sequence) setUploadFailed(true);
+        } finally {
+            if (mountedRef.current && actionEpoch.current === sequence) setUploadLoading(false);
+        }
+    }, [clearImages, disabled, onCoverSelectionChange, pickImages]);
 
     const removeCover = React.useCallback(() => {
         if (disabled) return;
-        requestSequence.current += 1;
+        actionEpoch.current += 1;
         randomLoadingRef.current = false;
         setRandomLoading(false);
+        setUploadLoading(false);
+        setUploadFailed(false);
         clearImages();
-        processedUploadId.current = null;
+        setUploadPreview(null);
         setCandidate(null);
         setProviderUnavailable(false);
-        setExistingRemoved(true);
         onCoverSelectionChange(undefined);
     }, [clearImages, disabled, onCoverSelectionChange]);
 
-    const uploadPreview = selectedImages[0];
-    const selectedUploadUri = coverSelection?.kind === 'upload' ? coverSelection.uri : undefined;
-    const existingPreview = !existingRemoved ? existingCover : undefined;
-    const previewUri = candidate?.previewUrl ?? uploadPreview?.uri ?? selectedUploadUri ?? existingPreview?.uri;
-    const attribution = candidate?.attribution ?? existingPreview?.attribution;
-    const hasCover = Boolean(previewUri || coverSelection);
+    const selectedUploadUri = uploadPreview?.uri
+        ?? (coverSelection?.kind === 'upload' ? coverSelection.uri : undefined);
+    const selectedCandidate = candidate;
+    const selectedExisting = coverSelection?.kind === 'existing'
+        && existingCover?.assetId === coverSelection.assetId
+        ? existingCover
+        : undefined;
+    const previewUri = selectedCandidate?.previewUrl ?? selectedUploadUri ?? selectedExisting?.uri;
+    const attribution = selectedCandidate?.attribution ?? selectedExisting?.attribution;
+    const hasCover = Boolean(coverSelection || candidate || uploadPreview);
 
     return (
         <View accessibilityLabel={t('sessionShare.appearance')} style={styles.container} testID="public-share-appearance-controls">
@@ -208,6 +228,11 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
                         {t('sessionShare.coverProviderUnavailable')}
                     </Text>
                 ) : null}
+                {uploadFailed ? (
+                    <Text accessibilityRole="alert" style={styles.providerState} testID="public-share-cover-upload-state">
+                        {t('sessionShare.coverUploadFailed')}
+                    </Text>
+                ) : null}
                 <View style={styles.coverActions}>
                     <CoverAction
                         disabled={disabled || randomLoading}
@@ -221,6 +246,7 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
                         disabled={disabled}
                         icon="cloud-upload-outline"
                         label={t('sessionShare.uploadCover')}
+                        loading={uploadLoading}
                         onPress={selectUploadCover}
                         testID="public-share-cover-upload"
                     />

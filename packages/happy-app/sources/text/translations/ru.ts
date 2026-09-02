@@ -763,6 +763,7 @@ export const ru: TranslationStructure = {
         uploadCover: 'Загрузить изображение',
         removeCover: 'Удалить обложку',
         coverProviderUnavailable: 'Pexels недоступен. Можно загрузить изображение или опубликовать без обложки.',
+        coverUploadFailed: 'Не удалось выбрать изображение. Попробуйте ещё раз.',
         themeColor: 'Цвет темы',
         themeColorOption: ({ theme }: { theme: string }) => `Цвет темы: ${theme}`,
         appearanceLight: 'Светлая',

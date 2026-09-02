@@ -25,6 +25,13 @@ describe('parsePublicSessionShareJobs', () => {
     it('round-trips theme and discriminated cover selections through persisted JSON', () => {
         const jobs = [
             {
+                id: 'job-existing', sessionId: 'session-existing', title: 'Existing', requestedAt: 50,
+                cutoffSeq: 21, ownerId: 'owner-1', serverUrl: 'https://paws.test',
+                groupToolCalls: true, themePack: 'sage',
+                coverSelection: { kind: 'existing', assetId: '51515151-5151-4515-8515-515151515151' },
+                status: 'queued', progress: { completed: 0, total: 1 }, notificationPending: false, updatedAt: 60,
+            },
+            {
                 id: 'job-pexels', sessionId: 'session-pexels', title: 'Pexels', requestedAt: 100,
                 cutoffSeq: 42, ownerId: 'owner-1', serverUrl: 'https://paws.test',
                 groupToolCalls: true, themePack: 'sakura', coverSelection: { kind: 'pexels', photoId: 123 },

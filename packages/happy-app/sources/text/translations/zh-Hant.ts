@@ -826,6 +826,7 @@ export const zhHant: TranslationStructure = {
         uploadCover: '上傳圖片',
         removeCover: '移除封面',
         coverProviderUnavailable: 'Pexels 暫時無法使用。你仍可上傳圖片或不使用封面。',
+        coverUploadFailed: '無法選擇圖片，請再試一次。',
         themeColor: '主題顏色',
         themeColorOption: ({ theme }: { theme: string }) => `主題顏色：${theme}`,
         appearanceLight: '淺色',

@@ -38,7 +38,7 @@ export function usePublicSessionShare(sessionId: string, title: string) {
     );
 
     const credentials = sync.getCredentials();
-    const refresh = React.useCallback(async () => {
+    const refreshState = React.useCallback(async (preserveCurrentOnError: boolean) => {
         if (!credentials) {
             setChecking(false);
             return;
@@ -46,20 +46,28 @@ export function usePublicSessionShare(sessionId: string, title: string) {
         try {
             setShareState(await getPublicSessionShare(credentials, sessionId));
         } catch {
-            setShareState({ active: false, publicId: null, publishedAt: null });
+            if (!preserveCurrentOnError) {
+                setShareState({ active: false, publicId: null, publishedAt: null });
+            }
         } finally {
             setChecking(false);
         }
     }, [credentials, sessionId]);
 
     React.useEffect(() => {
-        void refresh();
-    }, [refresh]);
+        void refreshState(false);
+    }, [refreshState]);
 
+    const refreshedReadyJob = React.useRef<string | null>(null);
     React.useEffect(() => {
         if (queuedJob?.status !== 'ready' || !queuedJob.publicId || !queuedJob.publishedAt) return;
-        setShareState({ active: true, publicId: queuedJob.publicId, publishedAt: queuedJob.publishedAt });
-    }, [queuedJob?.publicId, queuedJob?.publishedAt, queuedJob?.status]);
+        const identity = `${queuedJob.id}:${queuedJob.publishedAt}`;
+        if (refreshedReadyJob.current === identity) return;
+        refreshedReadyJob.current = identity;
+        void refreshState(true);
+    }, [queuedJob?.id, queuedJob?.publicId, queuedJob?.publishedAt, queuedJob?.status, refreshState]);
+
+    const refresh = React.useCallback(() => refreshState(false), [refreshState]);
 
     const reportedWebFailureAt = React.useRef<number | null>(null);
     React.useEffect(() => {

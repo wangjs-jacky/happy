@@ -42,14 +42,23 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         themePack: PublicSessionThemePack;
         coverSelection?: PublicSessionCoverSelection;
     }>(() => resolveInitialAppearance(shareState, lastPublicShareThemePack));
-    const initializedAppearanceFor = React.useRef(checking ? null : sessionId);
+    const appearanceIdentity = checking
+        ? null
+        : shareState.active
+            ? `active:${shareState.publicId ?? ''}:${shareState.publishedAt ?? ''}`
+            : 'inactive';
+    const initializedAppearanceFor = React.useRef(
+        appearanceIdentity ? `${sessionId}:${appearanceIdentity}` : null,
+    );
     const wasPublishing = React.useRef(false);
 
     React.useEffect(() => {
-        if (checking || initializedAppearanceFor.current === sessionId) return;
-        initializedAppearanceFor.current = sessionId;
+        if (!appearanceIdentity) return;
+        const identity = `${sessionId}:${appearanceIdentity}`;
+        if (initializedAppearanceFor.current === identity) return;
+        initializedAppearanceFor.current = identity;
         setAppearance(resolveInitialAppearance(shareState, lastPublicShareThemePack));
-    }, [checking, lastPublicShareThemePack, sessionId, shareState]);
+    }, [appearanceIdentity, lastPublicShareThemePack, sessionId, shareState]);
 
     const copyLink = React.useCallback(async () => {
         if (!shareUrl) return;
@@ -293,10 +302,12 @@ function resolveInitialAppearance(
 ): { themePack: PublicSessionThemePack; coverSelection?: PublicSessionCoverSelection } {
     if (!shareState.active) return { themePack: lastPublicShareThemePack };
     const themePack = shareState.appearance?.themePack ?? 'caramel';
-    const photoId = shareState.appearance?.cover?.attribution?.photoId;
+    const cover = shareState.appearance?.cover;
     return {
         themePack,
-        ...(photoId ? { coverSelection: { kind: 'pexels' as const, photoId } } : {}),
+        ...(cover ? {
+            coverSelection: { kind: 'existing' as const, assetId: cover.assetId },
+        } : {}),
     };
 }
 
