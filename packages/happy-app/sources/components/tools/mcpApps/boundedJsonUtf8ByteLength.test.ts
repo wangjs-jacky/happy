@@ -74,4 +74,58 @@ describe('boundedJsonUtf8ByteLength', () => {
         expect(elementDescriptorVisits).toBeGreaterThan(0);
         expect(elementDescriptorVisits).toBeLessThan(100);
     });
+
+    it('rejects cyclic prototype traps with one bounded lookup', () => {
+        let prototypeLookups = 0;
+        let cyclicPrototype: object;
+        cyclicPrototype = new Proxy({}, {
+            getPrototypeOf() {
+                prototypeLookups += 1;
+                if (prototypeLookups > 4) {
+                    throw new Error('legacy prototype walk did not terminate');
+                }
+                return cyclicPrototype;
+            },
+        });
+
+        expect(boundedJsonUtf8ByteLength(cyclicPrototype, { maxBytes: 1_024 })).toBeNull();
+        expect(prototypeLookups).toBe(1);
+        expect(boundedJsonUtf8ByteLength(Object.create({ inherited: true }), {
+            maxBytes: 1_024,
+        })).toBeNull();
+    });
+
+    it('rejects sparse arrays with custom prototypes and inherited indexed values', () => {
+        const sparse: unknown[] = [];
+        sparse.length = 1;
+        const customPrototype = Object.create(Array.prototype) as Record<number, unknown>;
+        customPrototype[0] = 'must-not-be-counted-as-null';
+        Object.setPrototypeOf(sparse, customPrototype);
+
+        expect(boundedJsonUtf8ByteLength(sparse, { maxBytes: 1_024 })).toBeNull();
+    });
+
+    it('rejects serialization hooks and non-JSON container prototypes without invoking hooks', () => {
+        let toJsonCalls = 0;
+        const ownToJson = {
+            toJSON() {
+                toJsonCalls += 1;
+                return { secret: true };
+            },
+        };
+        const accessorToJson = Object.defineProperty({}, 'toJSON', {
+            get() {
+                toJsonCalls += 1;
+                return () => null;
+            },
+        });
+
+        expect(boundedJsonUtf8ByteLength(ownToJson, { maxBytes: 1_024 })).toBeNull();
+        expect(boundedJsonUtf8ByteLength(accessorToJson, { maxBytes: 1_024 })).toBeNull();
+        expect(toJsonCalls).toBe(0);
+        expect(boundedJsonUtf8ByteLength(new Date(0), { maxBytes: 1_024 })).toBeNull();
+        expect(boundedJsonUtf8ByteLength(new Map(), { maxBytes: 1_024 })).toBeNull();
+        expect(boundedJsonUtf8ByteLength(new Uint8Array([1]), { maxBytes: 1_024 })).toBeNull();
+        expect(boundedJsonUtf8ByteLength(() => 'omitted', { maxBytes: 1_024 })).toBeNull();
+    });
 });

@@ -181,3 +181,45 @@ exit 0
 - The bounded helper returns only a number or `null`; it never returns, logs, or sends input content. Changed logging/capture grep is empty.
 - Full response validation still uses the existing serializer because that is the authority-neutral bridge-size enforcement path, not telemetry. Only the former duplicate telemetry serialization was replaced.
 - Generated Host Shell and OTA runtime contract files remain byte-for-byte unchanged. The two untracked Task 14 E2E paths remain untouched and excluded from staging.
+
+## Fix round 3
+
+### Residual addressed
+
+- Removed the telemetry counter's open-ended prototype-chain walk. Each input object now receives exactly one caught `getPrototypeOf` lookup and is accepted only with the exact safe prototype: `Array.prototype` for arrays, and `Object.prototype` or `null` for ordinary objects.
+- Arrays with custom prototypes are rejected before slot traversal, so inherited indexed values cannot be mistaken for JSON null holes. Dates, maps, typed arrays, functions, and other non-JSON container prototypes remain `unknown`.
+- Own `toJSON` data properties and accessors are rejected through descriptors without invocation. Direct hooks on the two accepted standard prototypes are also rejected, and their standard parent relationship is checked with a fixed number of trusted-prototype operations rather than a caller-controlled walk.
+- A cyclic Proxy prototype trap is now bounded to one call and returns `unknown`; throwing prototype and descriptor traps remain contained.
+
+### RED / GREEN
+
+- Regression RED: the expanded helper suite ran 6 tests with 2 intended failures. The cyclic prototype Proxy reached its test guard after 5 trap calls instead of the required one, and a custom-prototype sparse array was incorrectly counted as six bytes instead of `unknown`.
+- Focused GREEN: helper plus App Host Controller passed 2/2 files and 32/32 tests. The cyclic Proxy records exactly one prototype lookup; custom/inherited sparse arrays, serialization hooks, and non-JSON containers all resolve safely to `unknown`.
+- Final fresh App GREEN: the prescribed security matrix passed 11/11 files and 124/124 tests.
+
+### Exact verification
+
+```text
+pnpm --filter happy-app exec vitest run sources/components/tools/mcpApps sources/components/tools/McpAppHost.test.tsx sources/sync/ops.mcpApps.test.ts sources/sync/apiSocket.test.ts sources/utils/otaRuntimeConfig.test.ts
+Test Files  11 passed (11)
+Tests       124 passed (124)
+
+pnpm --filter happy-app typecheck
+exit 0
+
+node packages/happy-app/scripts/build-mcp-app-host-shell.cjs --check
+exit 0
+
+git diff --check
+exit 0
+
+git diff --exit-code dc06ee85 -- packages/happy-app/sources/components/tools/mcpApps/generated/hostShellBundle.ts packages/happy-app/ota-runtime-versions.json packages/happy-app/scripts/ota-runtime-config.js
+exit 0
+```
+
+### Sensitive-value search and self-review
+
+- The exact five-event/six-key canary telemetry tests remain green. The counter still returns only a bounded number or `null`, never input content.
+- Production telemetry-module banned-field grep and changed logging/capture grep remain empty. The helper contains no `JSON.stringify`, `TextEncoder`, or full-buffer UTF-8 call.
+- The prototype policy intentionally favors safe `unknown` telemetry over executing or following caller-controlled serialization behavior. It changes observation only; validated bridge data, authority, cancellation, deadlines, envelopes, and errors are untouched.
+- Generated Host Shell and OTA runtime files remain unchanged. The two untracked Task 14 E2E paths remain untouched and excluded from staging.

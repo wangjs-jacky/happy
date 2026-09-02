@@ -76,21 +76,6 @@ export function boundedJsonUtf8ByteLength(
         addBytes(1);
     };
 
-    const hasToJson = (object: object): boolean | null => {
-        let current: object | null = object;
-        try {
-            while (current !== null) {
-                if (Object.getOwnPropertyDescriptor(current, 'toJSON') !== undefined) {
-                    return true;
-                }
-                current = Object.getPrototypeOf(current) as object | null;
-            }
-            return false;
-        } catch {
-            return null;
-        }
-    };
-
     const countValue = (current: unknown, depth: number): CountResult => {
         if (capped) {
             return 'counted';
@@ -140,8 +125,35 @@ export function boundedJsonUtf8ByteLength(
         } catch {
             return 'unknown';
         }
-        const toJson = hasToJson(object);
-        if (toJson === null || toJson) {
+
+        let prototype: object | null;
+        try {
+            prototype = Object.getPrototypeOf(object) as object | null;
+        } catch {
+            return 'unknown';
+        }
+        if (isArray ? prototype !== Array.prototype : prototype !== null && prototype !== Object.prototype) {
+            return 'unknown';
+        }
+
+        try {
+            if (prototype !== null && Object.getPrototypeOf(Object.prototype) !== null) {
+                return 'unknown';
+            }
+            if (isArray && Object.getPrototypeOf(Array.prototype) !== Object.prototype) {
+                return 'unknown';
+            }
+            const ownToJson = Object.getOwnPropertyDescriptor(object, 'toJSON');
+            const arrayPrototypeToJson = isArray
+                ? Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON')
+                : undefined;
+            const objectPrototypeToJson = prototype !== null
+                ? Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON')
+                : undefined;
+            if (ownToJson !== undefined || arrayPrototypeToJson !== undefined || objectPrototypeToJson !== undefined) {
+                return 'unknown';
+            }
+        } catch {
             return 'unknown';
         }
 
@@ -191,16 +203,6 @@ export function boundedJsonUtf8ByteLength(
                 }
                 addBytes(1);
                 return 'counted';
-            }
-
-            let prototype: object | null;
-            try {
-                prototype = Object.getPrototypeOf(object) as object | null;
-            } catch {
-                return 'unknown';
-            }
-            if (prototype !== null && prototype !== Object.prototype) {
-                return 'unknown';
             }
 
             addBytes(1);
