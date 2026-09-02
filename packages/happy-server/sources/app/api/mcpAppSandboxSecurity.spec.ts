@@ -140,9 +140,22 @@ describe('development loopback origin spelling', () => {
         'http://user@localhost:3005',
         'http://localhost:3005/path',
         'http://localhost:3005?query=1',
+        'http://localhost:3005?',
         'http://localhost:3005#fragment',
+        'http://localhost:3005#',
     ])('rejects the non-canonical or unsafe authority %s', (raw) => {
         expect(normalizeSandboxOrigin(raw, true)).toBeNull();
+    });
+});
+
+describe('raw origin delimiters', () => {
+    it.each([
+        'https://sandbox.paws.example?mode=1',
+        'https://sandbox.paws.example?',
+        'https://sandbox.paws.example#host',
+        'https://sandbox.paws.example#',
+    ])('rejects query and fragment delimiters before URL normalization: %s', (raw) => {
+        expect(normalizeSandboxOrigin(raw, false)).toBeNull();
     });
 });
 
@@ -180,7 +193,9 @@ describe('sandbox CSP metadata', () => {
         ['credentials', 'https://user:secret@api.example'],
         ['a path', 'https://api.example/v1'],
         ['a query', 'https://api.example/?v=1'],
+        ['an empty query delimiter', 'https://api.example?'],
         ['a fragment', 'https://api.example/#v1'],
+        ['an empty fragment delimiter', 'https://api.example#'],
         ['a wildcard', 'https://*.api.example'],
         ['plain HTTP', 'http://api.example'],
         ['a directive separator', 'https://api.example;script-src.example'],

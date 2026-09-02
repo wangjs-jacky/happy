@@ -1,11 +1,13 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import pino, { type Logger } from 'pino';
-import { afterEach, describe, expect, it } from 'vitest';
+import { runInNewContext } from 'node:vm';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Fastify } from '@/app/api/types';
 import { encodeSandboxCspMetadata } from '@/app/api/mcpAppSandboxSecurity';
 import { mcpAppSandboxRoutes } from './mcpAppSandboxRoutes';
+import { MCP_APP_SANDBOX_HOST_JAVASCRIPT } from '../generated/mcpAppHostShellAssets';
 
 const sandboxOrigin = 'https://sandbox.paws.example';
 const parentOrigin = 'https://paws.example';
@@ -37,6 +39,37 @@ describe('mcpAppSandboxRoutes', () => {
     afterEach(async () => {
         await app?.close();
         app = undefined;
+    });
+
+    it.each([
+        'https://paws.example?mode=1',
+        'https://paws.example?',
+        'https://paws.example#section',
+        'https://paws.example#',
+    ])('generated proxy rejects a raw parent-origin delimiter before announcing ready: %s', (rawParentOrigin) => {
+        const postMessage = vi.fn();
+        const parent = { postMessage };
+        const proxyWindow: Record<string, unknown> = {
+            location: {
+                href: `https://sandbox.paws.example/mcp-app-sandbox/host?parentOrigin=${encodeURIComponent(rawParentOrigin)}`,
+            },
+            parent,
+            top: parent,
+            console,
+        };
+
+        runInNewContext(MCP_APP_SANDBOX_HOST_JAVASCRIPT, {
+            window: proxyWindow,
+            document: { referrer: 'https://paws.example/tool' },
+            URL,
+            TextEncoder,
+            console,
+            setTimeout,
+            clearTimeout,
+        });
+
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(proxyWindow).not.toHaveProperty('ReactNativeWebView');
     });
 
     it('serves the external Host Shell only for the exact sandbox and parent origins', async () => {

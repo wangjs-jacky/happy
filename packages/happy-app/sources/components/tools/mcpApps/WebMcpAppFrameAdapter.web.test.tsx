@@ -75,6 +75,10 @@ describe('resolveWebMcpAppSandbox', () => {
         ['credentials', 'https://user:secret@sandbox.paws.example', 'https://paws.example', false],
         ['path', 'https://sandbox.paws.example/path', 'https://paws.example', false],
         ['wildcard', 'https://*.paws.example', 'https://paws.example', false],
+        ['query', 'https://sandbox.paws.example?mode=1', 'https://paws.example', false],
+        ['empty query delimiter', 'https://sandbox.paws.example?', 'https://paws.example', false],
+        ['fragment', 'https://sandbox.paws.example#host', 'https://paws.example', false],
+        ['empty fragment delimiter', 'https://sandbox.paws.example#', 'https://paws.example', false],
         ['non-canonical localhost', 'http://LOCALHOST:3005', 'http://localhost:8081', true],
     ])('fails closed for %s', (_label, sandboxOrigin, appOrigin, development) => {
         expect(resolveWebMcpAppSandbox({ sandboxOrigin, appOrigin, development })).toEqual({
@@ -94,6 +98,11 @@ describe('resolveWebMcpAppSandbox', () => {
             appOrigin: 'http://localhost:8081',
             development: true,
         })).toEqual({ enabled: true, sandboxOrigin: 'http://localhost:3005', appOrigin: 'http://localhost:8081' });
+        expect(resolveWebMcpAppSandbox({
+            sandboxOrigin: 'http://[::1]:3005',
+            appOrigin: 'http://[::1]:8081',
+            development: true,
+        })).toEqual({ enabled: true, sandboxOrigin: 'http://[::1]:3005', appOrigin: 'http://[::1]:8081' });
     });
 });
 
@@ -186,7 +195,6 @@ describe('WebMcpAppFrameAdapter', () => {
     });
 
     it.each([
-        ['wrong source', { source: {} as MessageEventSource, origin: 'https://sandbox.paws.example', data: JSON.stringify({ type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' }) }],
         ['wrong origin', { source: null, origin: 'https://lookalike.paws.example', data: JSON.stringify({ type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' }) }],
         ['wrong referrer acknowledgement', { source: null, origin: 'https://sandbox.paws.example', data: JSON.stringify({ type: 'sandbox-proxy-ready', parentOrigin: 'https://other.example' }) }],
         ['malformed data', { source: null, origin: 'https://sandbox.paws.example', data: '{bad' }],
@@ -205,6 +213,94 @@ describe('WebMcpAppFrameAdapter', () => {
 
         await expect(mounted).rejects.toMatchObject({ code: 'MCP_APP_BRIDGE_PROTOCOL' });
         expect(adapter.getSnapshot().visible).toBe(false);
+        expect(eventWindow.listeners).toHaveLength(0);
+    });
+
+    it('ignores unrelated WindowProxy messages but still rejects a wrong origin from its owned source', async () => {
+        const eventWindow = new FakeWindow();
+        const adapter = new WebMcpAppFrameAdapter({
+            config: { enabled: true, sandboxOrigin: 'https://sandbox.paws.example', appOrigin: 'https://paws.example' },
+            eventWindow,
+            createInstanceId: () => 'frame-1',
+        });
+        const child = { postMessage: vi.fn() };
+        adapter.attachFrame({ contentWindow: child });
+        const mounted = adapter.mount(mountInput());
+
+        eventWindow.dispatch({
+            source: { postMessage: vi.fn() } as unknown as MessageEventSource,
+            origin: 'https://unrelated.example',
+            data: '{malformed-but-unowned',
+        });
+        expect(adapter.getSnapshot().visible).toBe(true);
+        expect(eventWindow.listeners).toHaveLength(1);
+
+        eventWindow.dispatch({
+            source: child as unknown as MessageEventSource,
+            origin: 'https://lookalike.paws.example',
+            data: JSON.stringify({ type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' }),
+        });
+        await expect(mounted).rejects.toMatchObject({ code: 'MCP_APP_BRIDGE_PROTOCOL' });
+        expect(adapter.getSnapshot().visible).toBe(false);
+        expect(eventWindow.listeners).toHaveLength(0);
+    });
+
+    it('routes simultaneous iframe messages only to their owning adapter', async () => {
+        const eventWindow = new FakeWindow();
+        const createAdapter = (instanceId: string) => new WebMcpAppFrameAdapter({
+            config: { enabled: true, sandboxOrigin: 'https://sandbox.paws.example', appOrigin: 'https://paws.example' },
+            eventWindow,
+            createInstanceId: () => instanceId,
+        });
+        const adapterA = createAdapter('frame-a');
+        const adapterB = createAdapter('frame-b');
+        const childA = { postMessage: vi.fn() };
+        const childB = { postMessage: vi.fn() };
+        adapterA.attachFrame({ contentWindow: childA });
+        adapterB.attachFrame({ contentWindow: childB });
+        const inputA = mountInput();
+        const inputB = mountInput();
+        const mountedA = adapterA.mount(inputA);
+        const mountedB = adapterB.mount(inputB);
+
+        const dispatchOwned = (source: typeof childA, data: unknown) => eventWindow.dispatch({
+            source: source as unknown as MessageEventSource,
+            origin: 'https://sandbox.paws.example',
+            data: JSON.stringify(data),
+        });
+        dispatchOwned(childA, { type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' });
+        expect(adapterB.getSnapshot().visible).toBe(true);
+        expect(childA.postMessage).toHaveBeenCalledTimes(1);
+        expect(childB.postMessage).not.toHaveBeenCalled();
+        dispatchOwned(childB, { type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' });
+        expect(adapterA.getSnapshot().visible).toBe(true);
+
+        dispatchOwned(childA, { type: 'sandbox-ready', instanceId: 'frame-a' });
+        expect(inputA.onSandboxReady).toHaveBeenCalledTimes(1);
+        expect(inputB.onSandboxReady).not.toHaveBeenCalled();
+        dispatchOwned(childB, { type: 'sandbox-ready', instanceId: 'frame-b' });
+        dispatchOwned(childA, { type: 'initialized', instanceId: 'frame-a' });
+        dispatchOwned(childB, { type: 'initialized', instanceId: 'frame-b' });
+        const frameA = await mountedA;
+        const frameB = await mountedB;
+        frameA.sendToolInput({ owner: 'a' });
+        frameB.sendToolInput({ owner: 'b' });
+
+        expect(JSON.parse(childA.postMessage.mock.calls.at(-1)?.[0])).toMatchObject({
+            type: 'tool-input', instanceId: 'frame-a', input: { owner: 'a' },
+        });
+        expect(JSON.parse(childB.postMessage.mock.calls.at(-1)?.[0])).toMatchObject({
+            type: 'tool-input', instanceId: 'frame-b', input: { owner: 'b' },
+        });
+
+        const tearingDownA = frameA.teardown();
+        dispatchOwned(childA, { type: 'teardown-complete', instanceId: 'frame-a' });
+        await tearingDownA;
+        expect(adapterB.getSnapshot().visible).toBe(true);
+        expect(eventWindow.listeners).toHaveLength(1);
+        const tearingDownB = frameB.teardown();
+        dispatchOwned(childB, { type: 'teardown-complete', instanceId: 'frame-b' });
+        await tearingDownB;
         expect(eventWindow.listeners).toHaveLength(0);
     });
 
@@ -330,5 +426,22 @@ describe('WebMcpAppFrameAdapter', () => {
         } }))).rejects.toMatchObject({ code: 'MCP_APP_SANDBOX_UNAVAILABLE' });
         expect(MCP_APP_SANDBOX_MAX_CSP_BYTES).toBe(8 * 1024);
         expect(eventWindow.listeners).toHaveLength(0);
+    });
+
+    it.each([
+        'https://api.example?mode=1',
+        'https://api.example?',
+        'https://api.example#section',
+        'https://api.example#',
+    ])('rejects raw CSP query or fragment delimiters before URL normalization: %s', async (domain) => {
+        const adapter = new WebMcpAppFrameAdapter({
+            config: { enabled: true, sandboxOrigin: 'https://sandbox.paws.example', appOrigin: 'https://paws.example' },
+            eventWindow: new FakeWindow(),
+        });
+        await expect(adapter.mount(mountInput({ resource: {
+            ...resource,
+            ui: { csp: { connectDomains: [domain] } },
+        } }))).rejects.toMatchObject({ code: 'MCP_APP_SANDBOX_UNAVAILABLE' });
+        expect(adapter.getSnapshot().visible).toBe(false);
     });
 });

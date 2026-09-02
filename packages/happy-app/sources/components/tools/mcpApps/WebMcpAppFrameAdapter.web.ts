@@ -40,7 +40,7 @@ function canonicalDevelopmentHttp(raw: string): boolean {
 }
 
 function normalizeExactOrigin(raw: string | undefined, development: boolean): string | null {
-    if (!raw || raw.trim() !== raw || /[\s;'"\\]/u.test(raw)) return null;
+    if (!raw || raw.trim() !== raw || /[\s;'"\\?#]/u.test(raw)) return null;
     const withoutRootSlash = raw.endsWith('/') ? raw.slice(0, -1) : raw;
     const separator = withoutRootSlash.indexOf('://');
     if (separator <= 0 || withoutRootSlash.slice(separator + 3).includes('/')) return null;
@@ -201,8 +201,8 @@ export class WebMcpAppFrameAdapter implements McpAppFrameAdapter {
 
     private onMessage = (event: MessageEvent): void => {
         if (!this.bridge.getSnapshot().visible) return;
-        if (!this.frameWindow || event.source !== this.frameWindow as unknown as MessageEventSource
-            || event.origin !== this.config.sandboxOrigin
+        if (!this.frameWindow || event.source !== this.frameWindow as unknown as MessageEventSource) return;
+        if (event.origin !== this.config.sandboxOrigin
             || typeof event.data !== 'string'
             || utf8ByteLength(event.data) > MCP_APP_MAX_BRIDGE_MESSAGE_BYTES) {
             this.bridge.fail(protocolError());

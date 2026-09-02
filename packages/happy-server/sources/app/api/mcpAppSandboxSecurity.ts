@@ -46,7 +46,7 @@ function hasCanonicalDevelopmentHttpHost(raw: string): boolean {
 }
 
 export function normalizeSandboxOrigin(raw: string, development: boolean): string | null {
-    if (!raw || raw.trim() !== raw || /[\s;'"\\]/u.test(raw)) return null;
+    if (!raw || raw.trim() !== raw || /[\s;'"\\?#]/u.test(raw)) return null;
     const withoutRootSlash = raw.endsWith('/') ? raw.slice(0, -1) : raw;
     const schemeSeparator = withoutRootSlash.indexOf('://');
     if (schemeSeparator <= 0 || withoutRootSlash.slice(schemeSeparator + 3).includes('/')) return null;
