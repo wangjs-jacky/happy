@@ -11,8 +11,8 @@ Visible UI cases: 2
 
 | Case | Problem | Before | After |
 | --- | --- | --- | --- |
-| THREE-NAV-01 | Relationship Advisor opened directly into chat with no dedicated conversation index. | ![Before: advisor opens without its own index](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-before.png) | ![After: dedicated advisor conversation index](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-after.png) |
-| THREE-NAV-02 | The organization pane had no title-side collapse control or independent resize behavior. | ![Before: fixed organization and session panes](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-before.png) | ![After: resizable three-level navigation](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-after.png) |
+| THREE-NAV-01 | Relationship Advisor opened directly into chat with no dedicated conversation index. | ![Before: advisor opens without its own index](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-1-before.png) | ![After: dedicated advisor conversation index](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-1-after.png) |
+| THREE-NAV-02 | The organization pane had no title-side collapse control or independent resize behavior. | ![Before: fixed organization and session panes](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-2-before.png) | ![After: resizable three-level navigation](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-2-after.png) |
 
 Visual evidence waiver: not requested
 
@@ -20,8 +20,8 @@ Visual evidence waiver: not requested
 
 | Case | Result | Spec / rerun | Mobile video | Report / Trace |
 | --- | --- | --- | --- | --- |
-| THREE-NAV-01 | Passed ordinary and recording modes | `[RELATIONSHIP-ADVISOR-HISTORY]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-e2e.mp4) | Isolated local report; environment removed after run |
-| THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
+| THREE-NAV-01 | Passed ordinary and recording modes | `[RELATIONSHIP-ADVISOR-HISTORY]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-1-e2e.mp4) | Isolated local report; environment removed after run |
+| THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
 
 - Environment and side effects: isolated Server/Web environments; no production account, daemon, or model call; runner removed every environment.
 - Mobile playback: not yet confirmed on a separate mobile device.
