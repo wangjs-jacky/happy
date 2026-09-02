@@ -201,22 +201,25 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
             },
         },
     ];
-    const response = await request.post(
-        new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, e2eServerUrl).toString(),
-        {
-            data: {
-                messages: envelopes.map((envelope, index) => ({
-                    content: encodeBase64(encryptLegacy(envelope, auth.encryptionKey)),
-                    localId: `public-session-share-${index}-${now}`,
-                })),
+    for (const [index, envelope] of envelopes.entries()) {
+        const response = await request.post(
+            new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, e2eServerUrl).toString(),
+            {
+                data: {
+                    messages: [{
+                        content: encodeBase64(encryptLegacy(envelope, auth.encryptionKey)),
+                        localId: `public-session-share-${index}-${now}`,
+                    }],
+                },
+                headers: {
+                    Authorization: `Bearer ${auth.token}`,
+                    'X-Happy-Client': 'playwright-public-session-share',
+                },
             },
-            headers: {
-                Authorization: `Bearer ${auth.token}`,
-                'X-Happy-Client': 'playwright-public-session-share',
-            },
-        },
-    );
-    expect(response.ok()).toBe(true);
+        );
+        expect(response.ok()).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+    }
 }
 
 async function proxyPublicRequests(route: Route): Promise<void> {
@@ -425,7 +428,7 @@ test('PUBLIC-SESSION-SHARE owner publishes a complete snapshot and anonymous vie
     await expect(page.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
     await expect(page.getByTestId('public-session-compact-header')).toBeVisible();
     await expect(page.getByRole('heading', { name: '[PUBLIC-SESSION-SHARE] 产品发布检查清单' }))
-        .toHaveCSS('font-size', evidencePhase === 'before' ? '15px' : '22px');
+        .toHaveCSS('font-size', '22px');
     const codeScroll = page.getByTestId('markdown-code-scroll').filter({ hasText: 'pnpm test -- --grep public-session-share' });
     if (evidencePhase === 'before') {
         await codeScroll.hover();
