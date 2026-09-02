@@ -76,6 +76,12 @@ test('fails closed for missing, same-origin, non-HTTPS, and incomplete managed s
         source.replace('    header X-Existing "preserved"', '    respond "placeholder"'),
         { sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'] },
     ), /unmanaged request handlers/i);
+    for (const handler of ['reverse_proxy localhost:9999', 'handle_errors {', 'request_body {', 'import hidden_routes']) {
+        const dangerous = source.replace('    header X-Existing "preserved"', `    header X-Quoted "quoted } \\" still text" # } comment\n    ${handler}`);
+        assert.throws(() => configureProductionMcpAppSandboxCaddy(dangerous, {
+            sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+        }), /unmanaged request handlers|unbalanced/i);
+    }
 });
 
 test('does not create or mutate the output file when validation fails', async () => {

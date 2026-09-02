@@ -38,8 +38,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore main branch for release guard
-        run: git checkout -B main "$GITHUB_SHA"
+      - name: Guard exact merged main revision before external mutation
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git checkout -B main "$GITHUB_SHA"
 
       - name: Guard deployment configuration
         run: |

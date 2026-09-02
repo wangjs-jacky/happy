@@ -56,19 +56,28 @@ function assertHtmlSecurity(response, parentOrigin) {
     const contentType = response.headers.get('content-type') ?? '';
     if (!/^text\/html\b/iu.test(contentType)) throw new Error('accepted host content-type must be HTML');
     const csp = response.headers.get('content-security-policy') ?? '';
-    const directives = csp.split(';').map((directive) => directive.trim()).filter(Boolean);
-    const frameAncestors = directives.filter((directive) => directive.startsWith('frame-ancestors '));
-    if (frameAncestors.length !== 1 || frameAncestors[0] !== `frame-ancestors ${parentOrigin}`) {
-        throw new Error('accepted host CSP frame-ancestors must name only the exact parent origin');
+    const directives = new Map();
+    for (const raw of csp.split(';').map((directive) => directive.trim()).filter(Boolean)) {
+        const [name, ...values] = raw.split(/\s+/u);
+        if (directives.has(name)) throw new Error(`accepted host CSP duplicates ${name}`);
+        directives.set(name, values.join(' '));
     }
-    for (const required of ["default-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'"]) {
-        if (!directives.includes(required)) throw new Error(`accepted host CSP is missing ${required}`);
+    const expected = new Map([
+        ['default-src', "'none'"], ['script-src', "'self' 'unsafe-inline'"], ['style-src', "'unsafe-inline'"],
+        ['img-src', 'data: blob:'], ['media-src', 'blob:'], ['font-src', 'data:'], ['connect-src', "'none'"],
+        ['frame-src', "'self'"], ['object-src', "'none'"], ['base-uri', "'none'"], ['form-action', "'none'"],
+        ['frame-ancestors', parentOrigin],
+    ]);
+    if (directives.size !== expected.size) throw new Error('accepted host CSP has missing or extra directives');
+    for (const [name, value] of expected) {
+        if (directives.get(name) !== value) throw new Error(`accepted host CSP ${name} does not match the exact policy`);
     }
     const permissions = response.headers.get('permissions-policy') ?? '';
-    for (const directive of ['camera=()', 'microphone=()', 'geolocation=()', 'clipboard-write=()']) {
-        if (!permissions.split(',').map((part) => part.trim()).includes(directive)) {
-            throw new Error(`accepted host permissions-policy is missing ${directive}`);
-        }
+    const permissionParts = permissions.split(',').map((part) => part.trim()).filter(Boolean);
+    const exactPermissions = ['camera=()', 'microphone=()', 'geolocation=()', 'clipboard-write=()'];
+    if (permissionParts.length !== exactPermissions.length || new Set(permissionParts).size !== permissionParts.length
+        || exactPermissions.some((directive) => !permissionParts.includes(directive))) {
+        throw new Error('accepted host permissions-policy does not match the exact policy');
     }
     assertExactHeader('accepted host', response, 'x-content-type-options', 'nosniff');
     assertExactHeader('accepted host', response, 'referrer-policy', 'no-referrer');
@@ -82,17 +91,45 @@ function assertScriptSecurity(response) {
     assertExactHeader('host script', response, 'cross-origin-resource-policy', 'same-origin');
 }
 
-export async function verifyProductionMcpAppSandbox({ sandboxOrigin: rawSandbox, parentOrigin: rawParent, fetchImpl = fetch }) {
+async function fetchWithDeadline(fetchImpl, url, options, timeoutMs, overallSignal) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    overallSignal.addEventListener('abort', abort, { once: true });
+    let timer;
+    try {
+        return await Promise.race([
+            fetchImpl(url, { ...options, signal: controller.signal }),
+            new Promise((_resolve, reject) => {
+                timer = setTimeout(() => { controller.abort(); reject(new Error('MCP App sandbox verification timed out')); }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+        overallSignal.removeEventListener('abort', abort);
+    }
+}
+
+export async function verifyProductionMcpAppSandbox({ sandboxOrigin: rawSandbox, parentOrigin: rawParent, fetchImpl = fetch, requestTimeoutMs = 5_000, overallTimeoutMs = 15_000 }) {
     const sandboxOrigin = normalizeHttpsOrigin(rawSandbox, 'Sandbox origin');
     const parentOrigin = normalizeHttpsOrigin(rawParent, 'Parent origin');
     if (sandboxOrigin === parentOrigin) throw new Error('Sandbox origin must use a different origin from the Paws parent origin');
     const urls = buildMcpAppSandboxVerificationUrls(sandboxOrigin, parentOrigin);
-    const [acceptedHost, rejectedParent, unknownPath, hostScript] = await Promise.all([
-        fetchImpl(urls.acceptedHost, { redirect: 'error' }),
-        fetchImpl(urls.rejectedParent, { redirect: 'error' }),
-        fetchImpl(urls.unknownPath, { redirect: 'error' }),
-        fetchImpl(urls.hostScript, { redirect: 'error' }),
-    ]);
+    if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0 || !Number.isFinite(overallTimeoutMs) || overallTimeoutMs <= 0) {
+        throw new Error('Verification deadlines must be positive');
+    }
+    const overall = new AbortController();
+    const overallTimer = setTimeout(() => overall.abort(), overallTimeoutMs);
+    let responses;
+    try {
+        responses = await Promise.race([
+            Promise.all(Object.values(urls).map((url) => fetchWithDeadline(fetchImpl, url, { redirect: 'error' }, requestTimeoutMs, overall.signal))),
+            new Promise((_resolve, reject) => overall.signal.addEventListener('abort', () => reject(new Error('MCP App sandbox verification timed out')), { once: true })),
+        ]);
+    } finally {
+        clearTimeout(overallTimer);
+        overall.abort();
+    }
+    const [acceptedHost, rejectedParent, unknownPath, hostScript] = responses;
     assertStatus('accepted host', acceptedHost, 200);
     assertStatus('rejected parent', rejectedParent, 404);
     assertStatus('unknown sandbox path', unknownPath, 404);

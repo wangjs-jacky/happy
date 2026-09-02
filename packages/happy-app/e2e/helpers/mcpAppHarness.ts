@@ -7,6 +7,7 @@ export type McpAppE2eEnvironment = {
     webOrigin: string;
     sandboxOrigin: string;
     sessionId: string;
+    storageState: string;
 };
 
 export type McpAppFrames = { proxy: Frame; view: Frame };
@@ -32,14 +33,19 @@ export function requireMcpAppE2eEnvironment(): McpAppE2eEnvironment {
     const authenticatedWebUrl = requiredEnvironment('HAPPY_E2E_WEB_URL');
     const sandboxRaw = requiredEnvironment('HAPPY_MCP_APP_SANDBOX_ORIGIN');
     const sessionId = requiredEnvironment('HAPPY_MCP_APP_E2E_SESSION_ID');
+    const storageState = path.resolve(requiredEnvironment('HAPPY_E2E_STORAGE_STATE'));
     const webOrigin = exactOrigin(authenticatedWebUrl, 'HAPPY_E2E_WEB_URL');
     const sandboxOrigin = exactOrigin(sandboxRaw, 'HAPPY_MCP_APP_SANDBOX_ORIGIN');
+    const webUrl = new URL(authenticatedWebUrl);
+    if (webUrl.search || webUrl.hash) throw new Error('HAPPY_E2E_WEB_URL must not contain query authentication or a fragment');
     if (sandboxRaw !== sandboxOrigin && sandboxRaw !== `${sandboxOrigin}/`) {
         throw new Error('HAPPY_MCP_APP_SANDBOX_ORIGIN must be an exact origin');
     }
     if (sandboxOrigin === webOrigin) throw new Error('MCP App sandbox origin must differ from the Paws Web origin');
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(sessionId)) throw new Error('HAPPY_MCP_APP_E2E_SESSION_ID is invalid');
-    return { authenticatedWebUrl, webOrigin, sandboxOrigin, sessionId };
+    const state = fs.statSync(storageState, { throwIfNoEntry: false });
+    if (!state?.isFile() || (state.mode & 0o077) !== 0) throw new Error('HAPPY_E2E_STORAGE_STATE must be a protected 0600 file');
+    return { authenticatedWebUrl, webOrigin, sandboxOrigin, sessionId, storageState };
 }
 
 export function sessionUrl(environment: McpAppE2eEnvironment): string {
@@ -48,7 +54,8 @@ export function sessionUrl(environment: McpAppE2eEnvironment): string {
     return url.toString();
 }
 
-export async function findMcpAppFrames(page: Page, sandboxOrigin: string): Promise<McpAppFrames> {
+export async function findMcpAppFrames(page: Page, sandboxOrigin: string, webOrigin: string): Promise<McpAppFrames> {
+    expect(new URL(page.url()).origin).toBe(webOrigin);
     let result: McpAppFrames | undefined;
     await expect.poll(async () => {
         const proxies = page.frames().filter((frame) => {
@@ -79,7 +86,7 @@ export async function findMcpAppFrames(page: Page, sandboxOrigin: string): Promi
         innerCount: document.querySelectorAll('iframe').length,
     }));
     expect(proxyState.origin).toBe(sandboxOrigin);
-    expect(new URL(proxyState.referrer).origin).toBe(new URL(page.url()).origin);
+    expect(new URL(proxyState.referrer).origin).toBe(webOrigin);
     expect(proxyState.innerCount).toBe(1);
     const inner = result!.proxy.locator('iframe');
     await expect(inner).toHaveAttribute('sandbox', 'allow-scripts');
@@ -112,7 +119,9 @@ export async function injectUnexpectedSourceMessage(page: Page, sandboxOrigin: s
                 type: 'sandbox-proxy-ready',
                 parentOrigin: parent.location.origin,
             }), sandboxOrigin);
+            return new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         }, { sandboxOrigin });
+        await page.waitForTimeout(100);
     } finally {
         await page.evaluate(({ attackerName }) => {
             document.querySelector(`iframe[name="${attackerName}"]`)?.remove();

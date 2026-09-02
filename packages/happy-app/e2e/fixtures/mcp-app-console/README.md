@@ -40,16 +40,20 @@ cases can assert the exact structured result:
 }
 ```
 
-Then run:
+The fixture itself is fully executable with the commands above. The complete
+five-case console run is intentionally not presented as a copy-paste local
+command yet: this repository has no public/dev command that can both create a
+new live Codex-backed session with a per-test MCP server configuration and
+submit the deterministic tool call. `happy attach --json` only resumes an
+already-existing Codex thread, while `scripts/run-web-e2e.ts` creates a fresh
+ephemeral auth/server environment. The programmatic start/turn APIs are
+internal agent adapters, not supported public/dev APIs. Adding a test-only
+session or RPC injection would bypass the origin binding being tested.
 
-```bash
-HAPPY_E2E_WEB_URL='http://localhost:<web-port>/<authenticated-query>' \
-HAPPY_MCP_APP_SANDBOX_ORIGIN='http://localhost:<server-port>' \
-HAPPY_MCP_APP_E2E_SESSION_ID='<prepared-live-session-id>' \
-HAPPY_E2E_RECORD=1 \
-HAPPY_MCP_APP_EVIDENCE_DIR="$PWD/artifacts/mcp-apps-web" \
-pnpm --filter happy-app exec playwright test e2e/mcp-app-host-evidence.spec.ts
-```
-
-The same command is the production gate with the approved HTTPS origins. A
-local pass does not replace the post-merge production-origin run.
+Evidence runs additionally require a clean `HAPPY_E2E_WEB_URL` with no query or
+fragment and a protected `0600` Playwright storage-state file supplied through
+`HAPPY_E2E_STORAGE_STATE`; the repository ignores
+`packages/happy-app/.mcp-app-e2e-auth/`. Authentication bootstrap must run with
+recording disabled. This is a deliberate remaining runtime gate, not a passing
+local runbook. A local pass would not replace the post-merge production-origin
+run.

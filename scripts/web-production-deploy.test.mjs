@@ -23,6 +23,23 @@ test('production workflow switches verified OSS content before Caddy and guarded
     assert.ok(position('Roll back failed Web activation') > position('Remove guarded legacy Web files'));
 });
 
+test('guards the exact origin/main revision before every external production mutation', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const names = workflow.jobs.deploy.steps.map((step) => step.name);
+    const guardIndex = names.indexOf('Guard exact merged main revision before external mutation');
+    assert.ok(guardIndex > names.indexOf('Checkout merged main revision'));
+    for (const mutation of ['Install Aliyun CLI', 'Configure MCP App sandbox route', 'Upload and verify immutable Web release', 'Atomically switch OSS Web entry']) {
+        assert.ok(names.indexOf(mutation) > guardIndex);
+    }
+    const guard = workflow.jobs.deploy.steps[guardIndex];
+    assert.match(guard.run, /GITHUB_REF.*refs\/heads\/main/);
+    assert.match(guard.run, /git fetch --no-tags origin main/);
+    assert.match(guard.run, /rev-parse origin\/main/);
+    assert.match(guard.run, /GITHUB_SHA/);
+    const syntax = spawnSync('bash', ['-n'], { input: guard.run, encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+});
+
 test('MCP App sandbox rollout is disabled by default and verified before Web export or activation', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
     const job = workflow.jobs.deploy;

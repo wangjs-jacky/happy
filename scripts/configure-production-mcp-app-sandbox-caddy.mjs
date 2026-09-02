@@ -18,8 +18,28 @@ function normalizeHttpsOrigin(raw, label) {
     return url.origin;
 }
 
+function structuralContent(line) {
+    let content = '';
+    let quote = null;
+    let escaped = false;
+    for (const character of line) {
+        if (escaped) { escaped = false; content += ' '; continue; }
+        if (quote) {
+            if (character === '\\') { escaped = true; content += ' '; continue; }
+            if (character === quote) quote = null;
+            content += ' ';
+            continue;
+        }
+        if (character === '#') break;
+        if (character === '"' || character === "'") { quote = character; content += ' '; continue; }
+        content += character;
+    }
+    if (quote || escaped) throw new Error('Caddyfile contains an unterminated quoted value');
+    return content;
+}
+
 function braceDelta(line) {
-    const content = line.split('#', 1)[0];
+    const content = structuralContent(line);
     return (content.match(/{/g) ?? []).length - (content.match(/}/g) ?? []).length;
 }
 
@@ -76,7 +96,7 @@ export function configureProductionMcpAppSandboxCaddy(source, options) {
     const sandboxHost = new URL(sandboxOrigin).host;
     const acceptedSiteLabels = new Set([sandboxHost, sandboxOrigin]);
     const siteStarts = lines.flatMap((line, index) => {
-        const match = /^\s*(\S+)\s*\{\s*$/u.exec(line);
+        const match = /^\s*(\S+)\s*\{\s*$/u.exec(structuralContent(line));
         return match && acceptedSiteLabels.has(match[1]) ? [index] : [];
     });
     if (siteStarts.length !== 1) {
@@ -97,7 +117,7 @@ export function configureProductionMcpAppSandboxCaddy(source, options) {
         return absoluteIndex < globalManagedRange.start || absoluteIndex > globalManagedRange.end;
     });
     const requestHandler = unmanagedSiteLines.find((line) => (
-        /^\s*(?:handle|handle_path|route|respond|reverse_proxy|rewrite|redir|file_server|php_fastcgi|import)\b/u.test(line)
+        /^\s*(?:handle|handle_path|handle_errors|route|respond|reverse_proxy|rewrite|redir|file_server|php_fastcgi|request_body|error|abort|invoke|import|\()[\s{]/u.test(structuralContent(line))
     ));
     if (requestHandler) {
         throw new Error('Provisioned sandbox site must not contain unmanaged request handlers');

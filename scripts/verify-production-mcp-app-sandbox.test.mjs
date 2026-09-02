@@ -19,7 +19,7 @@ function validFetch(overrides = {}) {
         if (url === urls.acceptedHost) return response(200, {
             'cache-control': 'no-store',
             'content-type': 'text/html; charset=utf-8',
-            'content-security-policy': `default-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${parentOrigin}`,
+            'content-security-policy': `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob:; font-src data:; connect-src 'none'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${parentOrigin}`,
             'permissions-policy': 'camera=(), microphone=(), geolocation=(), clipboard-write=()',
             'x-content-type-options': 'nosniff',
             'referrer-policy': 'no-referrer',
@@ -54,7 +54,7 @@ test('fails closed for same origins or non-HTTPS production origins before fetch
 
 for (const [label, overrides, pattern] of [
     ['cache', { accepted: { 'cache-control': 'public' } }, /no-store/i],
-    ['CSP parent', { accepted: { 'content-security-policy': "default-src 'none'; frame-ancestors https://evil.example" } }, /frame-ancestors/i],
+    ['CSP parent', { accepted: { 'content-security-policy': "default-src 'none'; frame-ancestors https://evil.example" } }, /CSP|frame-ancestors/i],
     ['permissions', { accepted: { 'permissions-policy': 'camera=()' } }, /permissions-policy/i],
     ['nosniff', { accepted: { 'x-content-type-options': 'open' } }, /nosniff/i],
     ['referrer', { accepted: { 'referrer-policy': 'origin' } }, /referrer/i],
@@ -82,4 +82,22 @@ test('rejects an accepted-parent 404, rejected-parent 200, unknown 200, or scrip
                 Object.fromEntries((await base(url)).headers), await (await base(url)).text()),
         }), /HTTP/i);
     }
+});
+
+test('rejects permissive or duplicate CSP and Permissions-Policy values', async () => {
+    for (const accepted of [
+        { 'content-security-policy': `default-src 'none'; script-src * 'unsafe-eval'; frame-ancestors ${parentOrigin}` },
+        { 'content-security-policy': `default-src 'none'; default-src *; frame-ancestors ${parentOrigin}` },
+        { 'permissions-policy': 'camera=(), camera=*, microphone=(), geolocation=(), clipboard-write=()' },
+    ]) {
+        await assert.rejects(verifyProductionMcpAppSandbox({ sandboxOrigin, parentOrigin, fetchImpl: validFetch({ accepted }) }), /CSP|permissions-policy/i);
+    }
+});
+
+test('bounds every request even when fetch never settles', async () => {
+    const started = Date.now();
+    await assert.rejects(verifyProductionMcpAppSandbox({
+        sandboxOrigin, parentOrigin, fetchImpl: () => new Promise(() => {}), requestTimeoutMs: 10, overallTimeoutMs: 50,
+    }), /timed out/i);
+    assert.ok(Date.now() - started < 500);
 });
