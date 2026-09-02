@@ -1182,9 +1182,7 @@ export async function runCodex(opts: {
                 const envelopes = mapCodexThreadToSessionEnvelopes(thread, {
                     omitPawsUserMessagesFromOriginToken: codexPawsOriginToken,
                 });
-                for (const envelope of envelopes) {
-                    session.sendSessionProtocolMessage(envelope);
-                }
+                await session.sendSessionProtocolHistoryAndAwait(envelopes);
                 session.updateMetadata((currentMetadata) => ({
                     ...currentMetadata,
                     codexThreadId: forkCodexThreadId,

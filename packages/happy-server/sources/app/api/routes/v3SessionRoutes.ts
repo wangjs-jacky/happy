@@ -1,6 +1,6 @@
 import { buildNewMessageUpdate, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
-import { allocateSessionSeqBatch, allocateUserSeq } from "@/storage/seq";
+import { allocateSessionSeqBatch, allocateUserSeqBatch } from "@/storage/seq";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { z } from "zod";
 import { type Fastify } from "../types";
@@ -181,19 +181,17 @@ export function v3SessionRoutes(app: Fastify) {
             const newMessages = uniqueMessages.filter((message) => !existingByLocalId.has(message.localId));
             const seqs = await allocateSessionSeqBatch(sessionId, newMessages.length, tx);
 
-            const createdMessages: Omit<SelectedMessage, 'content'>[] = [];
-            for (let i = 0; i < newMessages.length; i += 1) {
-                const message = newMessages[i];
-                const createdMessage = await tx.sessionMessage.create({
-                    data: {
+            const createdMessages = newMessages.length > 0
+                ? await tx.sessionMessage.createManyAndReturn({
+                    data: newMessages.map((message, index) => ({
                         sessionId,
-                        seq: seqs[i],
+                        seq: seqs[index],
                         content: {
                             t: 'encrypted',
                             c: message.content
                         },
                         localId: message.localId
-                    },
+                    })),
                     select: {
                         id: true,
                         seq: true,
@@ -202,9 +200,9 @@ export function v3SessionRoutes(app: Fastify) {
                         createdAt: true,
                         updatedAt: true
                     }
-                });
-                createdMessages.push(createdMessage);
-            }
+                })
+                : [];
+            createdMessages.sort((a, b) => a.seq - b.seq);
 
             const responseMessages = [...existing, ...createdMessages].sort((a, b) => a.seq - b.seq);
 
@@ -214,25 +212,30 @@ export function v3SessionRoutes(app: Fastify) {
             };
         });
 
-        for (const message of txResult.createdMessages) {
+        // One notification for the newest message is enough to invalidate the
+        // clients' session cursor. Emitting every imported history row floods
+        // the account socket and can delay the fork RPC response/navigation by
+        // tens of seconds even though the database write already completed.
+        const newestCreatedMessage = txResult.createdMessages.at(-1);
+        if (newestCreatedMessage) {
+            const [updateSeq] = await allocateUserSeqBatch(userId, 1);
+            const message = newestCreatedMessage;
             const content = message.localId ? contentByLocalId.get(message.localId) : null;
-            if (!content) {
-                continue;
-            }
-            const updSeq = await allocateUserSeq(userId);
-            const updatePayload = buildNewMessageUpdate({
-                ...message,
-                content: {
-                    t: 'encrypted',
-                    c: content
-                }
-            }, sessionId, updSeq, randomKeyNaked(12));
+            if (content) {
+                const updatePayload = buildNewMessageUpdate({
+                    ...message,
+                    content: {
+                        t: 'encrypted',
+                        c: content
+                    }
+                }, sessionId, updateSeq, randomKeyNaked(12));
 
-            eventRouter.emitUpdate({
-                userId,
-                payload: updatePayload,
-                recipientFilter: { type: 'all-interested-in-session', sessionId }
-            });
+                eventRouter.emitUpdate({
+                    userId,
+                    payload: updatePayload,
+                    recipientFilter: { type: 'all-interested-in-session', sessionId }
+                });
+            }
         }
 
         return reply.send({

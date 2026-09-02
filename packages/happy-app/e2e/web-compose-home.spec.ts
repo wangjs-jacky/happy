@@ -96,7 +96,7 @@ function subagentInspectorScreenshotPath(
 
 function messageHoverScreenshotPath(
     testInfo: { outputPath: (filename: string) => string },
-    caseId: 1 | 2 | 3 = 1,
+    caseId: 1 | 2 | 3 | 4 = 1,
 ): string {
     const filename = `case-${caseId}-${messageHoverEvidencePhase}.png`;
     if (!messageHoverEvidenceDirectory) return testInfo.outputPath(filename);
@@ -447,25 +447,28 @@ async function appendE2ESessionEnvelopes(
     }
 
     const encryptionKey = new Uint8Array(Buffer.from(secret, 'base64url'));
-    const response = await request.post(
-        new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, e2eServerUrl).toString(),
-        {
-            data: {
-                messages: envelopes.map((envelope, index) => ({
-                    content: encodeBase64(encryptLegacy({
-                        role: 'session',
-                        content: envelope,
-                    }, encryptionKey)),
-                    localId: `subagent-inspector-${index}-${Date.now()}-${Math.random()}`,
-                })),
+    const uploadId = `${Date.now()}-${Math.random()}`;
+    for (let offset = 0; offset < envelopes.length; offset += 100) {
+        const response = await request.post(
+            new URL(`/v3/sessions/${encodeURIComponent(sessionId)}/messages`, e2eServerUrl).toString(),
+            {
+                data: {
+                    messages: envelopes.slice(offset, offset + 100).map((envelope, index) => ({
+                        content: encodeBase64(encryptLegacy({
+                            role: 'session',
+                            content: envelope,
+                        }, encryptionKey)),
+                        localId: `e2e-envelope-${uploadId}-${offset + index}`,
+                    })),
+                },
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'X-Happy-Client': 'playwright-session-envelope',
+                },
             },
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'X-Happy-Client': 'playwright-subagent-inspector',
-            },
-        },
-    );
-    expect(response.ok()).toBe(true);
+        );
+        expect(response.ok()).toBe(true);
+    }
 }
 
 async function createE2EUserMessage(
@@ -1074,7 +1077,7 @@ async function createConnectedE2EComposerModeSession(request: APIRequestContext)
 
 async function createConnectedE2EWorkingDirectorySession(
     request: APIRequestContext,
-    options: { messageForkDelayMs?: number } = {},
+    options: { forkHistoryTurnCount?: number; messageForkDelayMs?: number } = {},
 ): Promise<{
     client: {
         close: () => Promise<void>;
@@ -1105,6 +1108,10 @@ async function createConnectedE2EWorkingDirectorySession(
     sessionId: string;
     sourceCodexThreadId: string;
     forkedCodexThreadId: string;
+    forkHistory: {
+        envelopeCount: number;
+        latestAgentText: string;
+    } | null;
     workspace: string;
 }> {
     const authUrl = new URL(authenticatedWebUrl);
@@ -1126,6 +1133,30 @@ async function createConnectedE2EWorkingDirectorySession(
     const machineId = `cwd-e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const sourceCodexThreadId = `cwd-source-thread-${Date.now()}`;
     const forkedCodexThreadId = `cwd-forked-thread-${Date.now()}`;
+    const forkHistory = options.forkHistoryTurnCount
+        ? {
+            envelopeCount: options.forkHistoryTurnCount * 2,
+            latestAgentText: `Fork history latest agent ${options.forkHistoryTurnCount}`,
+            envelopes: Array.from({ length: options.forkHistoryTurnCount }, (_, index) => {
+                const turnNumber = index + 1;
+                const turnId = `fork-history-turn-${turnNumber}`;
+                const time = Date.now() - ((options.forkHistoryTurnCount! - turnNumber) * 1_000);
+                return [{
+                    id: `fork-history-user-${turnNumber}`,
+                    time,
+                    role: 'user',
+                    turn: turnId,
+                    ev: { t: 'text', text: `Fork history oldest user ${turnNumber}` },
+                }, {
+                    id: `fork-history-agent-${turnNumber}`,
+                    time: time + 500,
+                    role: 'agent',
+                    turn: turnId,
+                    ev: { t: 'text', text: `Fork history latest agent ${turnNumber}` },
+                }];
+            }).flat(),
+        }
+        : null;
     const rewindPoints = [
         {
             itemId: 'message-hover-turn-1',
@@ -1300,6 +1331,9 @@ async function createConnectedE2EWorkingDirectorySession(
                     parentSessionId: params.parentSessionId,
                     codexThreadId: params.resumeCodexThreadId,
                 });
+                if (forkHistory) {
+                    await appendE2ESessionEnvelopes(request, spawnedSessionId, forkHistory.envelopes);
+                }
                 result = { type: 'success', sessionId: spawnedSessionId };
             } else {
                 result = { success: false, error: 'Unknown working directory E2E RPC request.' };
@@ -1404,6 +1438,12 @@ async function createConnectedE2EWorkingDirectorySession(
             nextMessageForkError = errorMessage;
         },
         forkedCodexThreadId,
+        forkHistory: forkHistory
+            ? {
+                envelopeCount: forkHistory.envelopeCount,
+                latestAgentText: forkHistory.latestAgentText,
+            }
+            : null,
         invalidPath,
         outsidePath,
         recentPath,
@@ -1848,7 +1888,10 @@ test('[R10-02][CWD-03-01] 工作目录拒绝越界并在 Agent 离线重连后�
 test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分叉', async ({ page, request }, testInfo) => {
     test.slow();
     test.setTimeout(1_200_000);
-    const fixture = await createConnectedE2EWorkingDirectorySession(request, { messageForkDelayMs: 1_200 });
+    const fixture = await createConnectedE2EWorkingDirectorySession(request, {
+        forkHistoryTurnCount: 334,
+        messageForkDelayMs: 1_200,
+    });
     const firstResponse = 'The first checkpoint is complete and preserved in this turn.';
     const secondResponse = 'The second checkpoint includes browser assertions, a screenshot, and the recorded RPC boundary.';
     fixture.rewindPoints[0].text = fixture.rewindPoints[1].text;
@@ -2081,6 +2124,70 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         expect(forkNavigationMs).toBeLessThan(15_000);
         console.log(`[MESSAGE-HOVER-ACTIONS] fork-navigation-ms=${forkNavigationMs}`);
 
+        expect(fixture.forkHistory).not.toBeNull();
+        await expect(page.getByText(fixture.forkHistory!.latestAgentText, { exact: true }))
+            .toBeVisible({ timeout: 15_000 });
+
+        const forkedSessionId = new URL(page.url()).pathname.split('/').filter(Boolean).at(-1);
+        expect(forkedSessionId).toBeTruthy();
+        const authUrl = new URL(authenticatedWebUrl);
+        const historyMessages: Array<{ seq: number }> = [];
+        let afterSeq = 0;
+        while (true) {
+            const historyResponse = await request.get(
+                new URL(
+                    `/v3/sessions/${encodeURIComponent(forkedSessionId!)}/messages?after_seq=${afterSeq}&limit=500`,
+                    e2eServerUrl,
+                ).toString(),
+                {
+                    headers: {
+                        Authorization: `Bearer ${authUrl.searchParams.get('dev_token')}`,
+                        'X-Happy-Client': 'playwright-fork-history-check',
+                    },
+                },
+            );
+            expect(historyResponse.ok()).toBe(true);
+            const historyBody = await historyResponse.json() as {
+                messages: Array<{ seq: number }>;
+                hasMore: boolean;
+            };
+            historyMessages.push(...historyBody.messages);
+            if (!historyBody.hasMore) break;
+            afterSeq = historyBody.messages.at(-1)?.seq ?? afterSeq;
+        }
+        expect(historyMessages).toHaveLength(fixture.forkHistory!.envelopeCount);
+        expect(historyMessages.map((message) => message.seq)).toEqual(
+            Array.from({ length: fixture.forkHistory!.envelopeCount }, (_, index) => index + 1),
+        );
+
+        const transcript = page.getByTestId('conversation-transcript-list');
+        const olderPageCursors: number[] = [];
+        page.on('response', (response) => {
+            const responseUrl = new URL(response.url());
+            if (!responseUrl.pathname.endsWith(`/sessions/${forkedSessionId}/messages`)) return;
+            const beforeSeq = responseUrl.searchParams.get('before_seq');
+            if (beforeSeq) olderPageCursors.push(Number(beforeSeq));
+        });
+        const olderPageCount = Math.ceil(Math.max(0, fixture.forkHistory!.envelopeCount - 100) / 100);
+        for (let pageIndex = 0; pageIndex < olderPageCount + 2; pageIndex += 1) {
+            await transcript.evaluate((element) => {
+                element.scrollTop = element.scrollHeight;
+                element.dispatchEvent(new Event('scroll', { bubbles: true }));
+            });
+            await page.waitForTimeout(500);
+        }
+        await transcript.evaluate((element) => {
+            element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        await expect.poll(
+            () => olderPageCursors.length > 0 ? Math.min(...olderPageCursors) : Number.POSITIVE_INFINITY,
+            { timeout: 15_000 },
+        ).toBeLessThanOrEqual(101);
+        await page.screenshot({
+            path: messageHoverScreenshotPath(testInfo, 4),
+            animations: 'disabled',
+        });
+
         const duplicateCall = fixture.rpcCalls.find((call) => call.method.endsWith(':codex-duplicate-thread'));
         expect(duplicateCall).toMatchObject({
             params: {
@@ -2109,7 +2216,6 @@ test('[MESSAGE-HOVER-ACTIONS] PC Agent 回复悬浮后直接从所属回合分�
         expect(spawnCall?.params?.forkedFromMessageId).toEqual(expect.any(String));
 
         if (messageHoverSuccessOnlyRecording) {
-            await expect(page.getByText('No messages yet', { exact: true })).toBeVisible({ timeout: 15_000 });
             await pauseForRecordedReview(page, 2_000);
             return;
         }
