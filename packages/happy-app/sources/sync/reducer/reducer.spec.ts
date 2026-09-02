@@ -442,12 +442,26 @@ describe('reducer', () => {
         it('retains MCP App metadata for matching sidechain tool calls only', () => {
             const state = createReducer();
             reducer(state, [{
+                id: 'sidechain-mcp-app',
+                localId: null,
+                createdAt: 900,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: 'sidechain-mcp-app-owner',
+                    name: 'Task',
+                    input: { prompt: 'Show demo' },
+                    description: 'Show demo',
+                    uuid: 'sidechain-mcp-app-owner-uuid',
+                    parentUUID: null,
+                }],
+            }, {
                 id: 'sidechain-mcp-app-start',
                 localId: null,
                 createdAt: 1000,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-mcp-app',
                 content: [{
                     type: 'tool-call',
                     id: 'sidechain-mcp-app-call',
@@ -460,7 +474,7 @@ describe('reducer', () => {
                         resourceUri: 'ui://demo/index.html',
                     },
                     uuid: 'sidechain-mcp-app-start-uuid',
-                    parentUUID: 'sidechain-mcp-app',
+                    parentUUID: 'sidechain-mcp-app-owner',
                 }],
             }, {
                 id: 'sidechain-mcp-app-other-result',
@@ -468,7 +482,6 @@ describe('reducer', () => {
                 createdAt: 1500,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-mcp-app',
                 content: [{
                     type: 'tool-result',
                     tool_use_id: 'unrelated-call',
@@ -480,7 +493,7 @@ describe('reducer', () => {
                         content: [],
                     },
                     uuid: 'sidechain-mcp-app-other-result-uuid',
-                    parentUUID: 'sidechain-mcp-app',
+                    parentUUID: 'sidechain-mcp-app-owner',
                 }],
             }, {
                 id: 'sidechain-mcp-app-result',
@@ -488,7 +501,6 @@ describe('reducer', () => {
                 createdAt: 2000,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-mcp-app',
                 content: [{
                     type: 'tool-result',
                     tool_use_id: 'sidechain-mcp-app-call',
@@ -501,7 +513,7 @@ describe('reducer', () => {
                         structuredContent: { count: 1 },
                     },
                     uuid: 'sidechain-mcp-app-result-uuid',
-                    parentUUID: 'sidechain-mcp-app',
+                    parentUUID: 'sidechain-mcp-app-owner',
                 }],
             }]);
 
@@ -520,13 +532,14 @@ describe('reducer', () => {
 
         it('retains result-first MCP App metadata per sidechain call across replay', () => {
             const state = createReducer();
+            const sidechainAParentId = '11111111-1111-4111-8111-111111111111';
+            const sidechainBParentId = '22222222-2222-4222-8222-222222222222';
             const messages: NormalizedMessage[] = [{
                 id: 'sidechain-a-shared-result',
                 localId: null,
                 createdAt: 1000,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-a',
                 content: [{
                     type: 'tool-result',
                     tool_use_id: 'shared-call',
@@ -539,7 +552,7 @@ describe('reducer', () => {
                         structuredContent: { source: 'sidechain-a' },
                     },
                     uuid: 'sidechain-a-shared-result-uuid',
-                    parentUUID: 'sidechain-a',
+                    parentUUID: sidechainAParentId,
                 }],
             }, {
                 id: 'sidechain-a-unrelated-result',
@@ -547,7 +560,6 @@ describe('reducer', () => {
                 createdAt: 1100,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-a',
                 content: [{
                     type: 'tool-result',
                     tool_use_id: 'unrelated-call',
@@ -560,7 +572,7 @@ describe('reducer', () => {
                         structuredContent: { source: 'unrelated' },
                     },
                     uuid: 'sidechain-a-unrelated-result-uuid',
-                    parentUUID: 'sidechain-a',
+                    parentUUID: sidechainAParentId,
                 }],
             }, {
                 id: 'sidechain-b-shared-result',
@@ -568,7 +580,6 @@ describe('reducer', () => {
                 createdAt: 1200,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-b',
                 content: [{
                     type: 'tool-result',
                     tool_use_id: 'shared-call',
@@ -581,7 +592,7 @@ describe('reducer', () => {
                         structuredContent: { source: 'sidechain-b' },
                     },
                     uuid: 'sidechain-b-shared-result-uuid',
-                    parentUUID: 'sidechain-b',
+                    parentUUID: sidechainBParentId,
                 }],
             }, {
                 id: 'sidechain-a-shared-start',
@@ -589,7 +600,6 @@ describe('reducer', () => {
                 createdAt: 2000,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-a',
                 content: [{
                     type: 'tool-call',
                     id: 'shared-call',
@@ -597,7 +607,7 @@ describe('reducer', () => {
                     input: {},
                     description: 'Show sidechain A demo',
                     uuid: 'sidechain-a-shared-start-uuid',
-                    parentUUID: 'sidechain-a',
+                    parentUUID: sidechainAParentId,
                 }],
             }, {
                 id: 'sidechain-b-shared-start',
@@ -605,7 +615,6 @@ describe('reducer', () => {
                 createdAt: 2100,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-b',
                 content: [{
                     type: 'tool-call',
                     id: 'shared-call',
@@ -613,7 +622,7 @@ describe('reducer', () => {
                     input: {},
                     description: 'Show sidechain B demo',
                     uuid: 'sidechain-b-shared-start-uuid',
-                    parentUUID: 'sidechain-b',
+                    parentUUID: sidechainBParentId,
                 }],
             }, {
                 id: 'sidechain-a-unrelated-start',
@@ -621,7 +630,6 @@ describe('reducer', () => {
                 createdAt: 2200,
                 role: 'agent',
                 isSidechain: true,
-                sidechainId: 'sidechain-a',
                 content: [{
                     type: 'tool-call',
                     id: 'unrelated-call',
@@ -629,7 +637,37 @@ describe('reducer', () => {
                     input: {},
                     description: 'Show unrelated demo',
                     uuid: 'sidechain-a-unrelated-start-uuid',
-                    parentUUID: 'sidechain-a',
+                    parentUUID: sidechainAParentId,
+                }],
+            }, {
+                id: 'sidechain-a',
+                localId: null,
+                createdAt: 2300,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: sidechainAParentId,
+                    name: 'Task',
+                    input: { prompt: 'Show sidechain A demo' },
+                    description: 'Show sidechain A demo',
+                    uuid: 'sidechain-a-owner-uuid',
+                    parentUUID: null,
+                }],
+            }, {
+                id: 'sidechain-b',
+                localId: null,
+                createdAt: 2400,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: sidechainBParentId,
+                    name: 'Task',
+                    input: { prompt: 'Show sidechain B demo' },
+                    description: 'Show sidechain B demo',
+                    uuid: 'sidechain-b-owner-uuid',
+                    parentUUID: null,
                 }],
             }];
 
