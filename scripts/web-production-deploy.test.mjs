@@ -64,3 +64,14 @@ test('production workflow has rollback outputs and no active server deploy path'
     const syntax = spawnSync('bash', ['-n'], { input: rollbackStep.run, encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
 });
+
+test('Caddy activation and rollback enqueue reloads without waiting on old connections', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const caddyStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const rollbackStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Roll back failed Web activation');
+
+    assert.match(caddyStep.run, /systemctl --no-block reload caddy/);
+    assert.match(rollbackStep.run, /systemctl --no-block reload caddy/);
+    assert.doesNotMatch(caddyStep.run, /systemctl reload caddy/);
+    assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
+});

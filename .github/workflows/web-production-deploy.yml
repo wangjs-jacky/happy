@@ -151,10 +151,10 @@ jobs:
             cp -p -- "$backup" "$config"
             exit 1
           fi
-          if ! systemctl reload caddy; then
+          if ! systemctl --no-block reload caddy; then
             cp -p -- "$backup" "$config"
             caddy validate --config "$config"
-            systemctl reload caddy
+            systemctl --no-block reload caddy
             exit 1
           fi
           REMOTE_SCRIPT
@@ -216,7 +216,7 @@ jobs:
           test -f "$backup"
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
-          systemctl reload caddy
+          systemctl --no-block reload caddy
           REMOTE_SCRIPT
             caddy_rollback_status=$?
           fi
