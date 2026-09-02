@@ -18,6 +18,7 @@ import {
     type McpAppTelemetryInput,
     type McpAppTelemetrySink,
 } from './mcpAppTelemetry';
+import { boundedJsonUtf8ByteLength } from './boundedJsonUtf8ByteLength';
 
 export const MCP_APP_SANDBOX_READY_TIMEOUT_MS = 10_000;
 export const MCP_APP_INITIALIZE_TIMEOUT_MS = 10_000;
@@ -137,16 +138,11 @@ function validateBridgeResponse(value: unknown, method: McpAppBridgeRequest['met
 }
 
 function telemetrySerializedByteLength(value: unknown): number {
-    try {
-        const serialized = JSON.stringify(value);
-        if (serialized === undefined) return Number.NaN;
-        return Math.min(
-            utf8ByteLength(serialized),
-            MCP_APP_MAX_BRIDGE_MESSAGE_BYTES + 1,
-        );
-    } catch {
-        return Number.NaN;
-    }
+    return boundedJsonUtf8ByteLength(value, {
+        maxBytes: MCP_APP_MAX_BRIDGE_MESSAGE_BYTES + 1,
+        maxDepth: 32,
+        maxNodes: MCP_APP_MAX_BRIDGE_MESSAGE_BYTES + 1,
+    }) ?? Number.NaN;
 }
 
 export function createMcpAppHostController(options: {
