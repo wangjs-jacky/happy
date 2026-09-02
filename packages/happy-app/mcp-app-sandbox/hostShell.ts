@@ -128,6 +128,14 @@ function isReservedOfficialRequestId(requestId: unknown): boolean {
     return requestId === OFFICIAL_ZERO_REQUEST_ID || requestId === OFFICIAL_EMPTY_REQUEST_ID;
 }
 
+function hasReservedOfficialInboundId(envelope: Record<string, unknown>): boolean {
+    if (hasOwn(envelope, 'id') && isReservedOfficialRequestId(envelope.id)) return true;
+    if (envelope.method !== 'notifications/cancelled'
+        || !envelope.params || typeof envelope.params !== 'object'
+        || Array.isArray(envelope.params)) return false;
+    return isReservedOfficialRequestId((envelope.params as Record<string, unknown>).requestId);
+}
+
 type OfficialTransportMessage = Parameters<PostMessageTransport['send']>[0];
 type OfficialTransportOptions = Parameters<PostMessageTransport['send']>[1];
 
@@ -412,10 +420,14 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             return;
         }
         const envelope = event.data as Record<string, unknown>;
+        if (hasReservedOfficialInboundId(envelope)) {
+            event.stopImmediatePropagation();
+            protocolFailure();
+            return;
+        }
         if (isViewRequestAttempt(envelope)) {
             const key = officialRequestIdKey(envelope.id);
-            if (!key || isReservedOfficialRequestId(envelope.id)
-                || activeOfficialRequestIds.has(key) || retiredOfficialRequestIds.has(key)) {
+            if (!key || activeOfficialRequestIds.has(key) || retiredOfficialRequestIds.has(key)) {
                 event.stopImmediatePropagation();
                 protocolFailure();
                 return;

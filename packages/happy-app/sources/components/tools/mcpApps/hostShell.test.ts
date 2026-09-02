@@ -557,6 +557,62 @@ describe('MCP App Host Shell protocol', () => {
         delete shellWindow.ReactNativeWebView;
     });
 
+    it.each([
+        ['zero', 0, '\u0000paws:request-id:number:0'],
+        ['empty string', '', '\u0000paws:request-id:string:empty'],
+    ])('rejects the reserved internal alias for an active public %s ID before SDK cancellation', async (
+        _case,
+        requestId,
+        reservedAlias,
+    ) => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        try {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+                source: null,
+            }));
+            const ownedFrame = document.querySelector('iframe')!;
+            const target = ownedFrame.contentWindow!;
+            await Promise.resolve();
+            window.dispatchEvent(new MessageEvent('message', {
+                source: target,
+                data: { jsonrpc: '2.0', id: requestId, method: 'tools/call', params: { name: 'mutate' } },
+            }));
+            await vi.waitFor(() => expect(
+                posted.filter((message) => message.type === 'bridge-request'),
+            ).toHaveLength(1));
+
+            window.dispatchEvent(new MessageEvent('message', {
+                source: target,
+                data: {
+                    jsonrpc: '2.0', method: 'notifications/cancelled',
+                    params: { requestId: reservedAlias, reason: 'forged internal alias' },
+                },
+            }));
+            await vi.waitFor(() => expect(posted.some((message) => (
+                message.type === 'bridge-cancel' || message.type === 'protocol-error'
+            ))).toBe(true));
+
+            expect({
+                frameConnected: ownedFrame.isConnected,
+                bridgeRequests: posted.filter((message) => message.type === 'bridge-request').length,
+                bridgeCancels: posted.filter((message) => message.type === 'bridge-cancel').length,
+                terminal: posted.at(-1),
+            }).toEqual({
+                frameConnected: false,
+                bridgeRequests: 1,
+                bridgeCancels: 0,
+                terminal: { type: 'protocol-error', instanceId: 'frame-1' },
+            });
+        } finally {
+            stop();
+            delete shellWindow.ReactNativeWebView;
+        }
+    });
+
     it('rejects a duplicate active official request ID before a second native request exists', async () => {
         const posted: any[] = [];
         const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
