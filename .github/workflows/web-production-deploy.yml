@@ -174,8 +174,8 @@ jobs:
           legacy_path="$1"
           test "$legacy_path" = '/var/www/happy-web'
           if grep -Fq -- "$legacy_path" /etc/caddy/Caddyfile; then
-            echo "错误：active Caddyfile 仍引用 $legacy_path，拒绝删除。" >&2
-            exit 1
+            echo "::warning::active Caddyfile 仍引用 $legacy_path；安全保留 legacy Web files。"
+            exit 0
           fi
           for target in "$legacy_path" "${legacy_path}.backup-"* "${legacy_path}.next-"*; do
             [[ -e "$target" ]] || continue

@@ -54,6 +54,9 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.equal(cleanupStep.id, 'cleanup');
     assert.match(cleanupStep.run, /test "\$legacy_path" = '\/var\/www\/happy-web'/);
     assert.match(cleanupStep.run, /Caddyfile/);
+    assert.match(cleanupStep.run, /::warning::active Caddyfile/);
+    assert.match(cleanupStep.run, /安全保留 legacy Web files/);
+    assert.match(cleanupStep.run, /grep -Fq[\s\S]*exit 0/);
     assert.match(rollbackStep.if, /failure\(\)/);
     assert.match(rollbackStep.if, /live_verify\.outcome != 'success'/);
     assert.match(rollbackStep.run, /deploy-web\.sh --rollback/);
