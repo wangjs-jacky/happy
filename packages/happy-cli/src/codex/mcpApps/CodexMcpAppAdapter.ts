@@ -24,6 +24,7 @@ export interface NormalizedCodexMcpAppCall {
     server: string;
     tool: string;
     input: Record<string, unknown>;
+    connectorId?: string;
     presentation?: McpAppPresentationV1;
     result?: McpAppResultV1;
 }
@@ -45,6 +46,10 @@ export class CodexMcpAppAdapter {
             ?? item.mcpAppResourceUri;
         const appName = optionalDisplayName(item.appContext?.appName, 160);
         const actionName = optionalDisplayName(item.appContext?.actionName, 160);
+        const connectorId = typeof item.appContext?.connectorId === 'string'
+            && item.appContext.connectorId.length > 0
+            ? item.appContext.connectorId
+            : undefined;
         const presentationCandidate = {
             version: 1 as const,
             server: item.server,
@@ -57,6 +62,9 @@ export class CodexMcpAppAdapter {
             return normalized;
         }
 
+        if (connectorId) {
+            normalized.connectorId = connectorId;
+        }
         normalized.presentation = parsedPresentation.data;
         const rawResult = item.result;
         if (!rawResult || typeof rawResult !== 'object' || Array.isArray(rawResult)) {

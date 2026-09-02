@@ -15,9 +15,12 @@ import {
     CodexMcpAppAdapter,
     type NormalizedCodexMcpAppCall,
 } from '../mcpApps/CodexMcpAppAdapter';
+import type { McpAppBindingRegistry } from '../mcpApps/McpAppBindingRegistry';
 
 export type CodexTurnState = {
     currentTurnId: string | null;
+    threadId?: string;
+    mcpAppBindingRegistry?: McpAppBindingRegistry;
     startedSubagents?: Set<string>;
     activeSubagents?: Set<string>;
     providerSubagentToSessionSubagent?: Map<string, string>;
@@ -46,6 +49,67 @@ type LegacyToolLikeMessage = {
 type TurnEndStatus = 'completed' | 'failed' | 'cancelled';
 
 const codexMcpAppAdapter = new CodexMcpAppAdapter();
+
+function bindNormalizedMcpAppCall(
+    registry: McpAppBindingRegistry | undefined,
+    threadId: string | undefined,
+    call: NormalizedCodexMcpAppCall,
+): boolean {
+    if (!registry || !threadId || !call.presentation) {
+        return false;
+    }
+    registry.bindStarted({
+        callId: call.callId,
+        threadId,
+        server: call.server,
+        resourceUri: call.presentation.resourceUri,
+        input: call.input,
+        ...(call.connectorId ? { connectorId: call.connectorId } : {}),
+        ...(call.presentation.appName ? { appName: call.presentation.appName } : {}),
+        ...(call.presentation.actionName ? { actionName: call.presentation.actionName } : {}),
+    });
+    return true;
+}
+
+function historicalMcpCallSucceeded(item: Extract<ThreadItem, { type: 'mcpToolCall' }>): boolean | null {
+    const status = item.status;
+    if (status === 'completed') {
+        return true;
+    }
+    if (status === 'failed' || status === 'cancelled' || status === 'canceled'
+        || status === 'aborted' || status === 'interrupted') {
+        return false;
+    }
+    if (item.error !== undefined && item.error !== null) {
+        return false;
+    }
+    return item.result !== undefined && item.result !== null ? true : null;
+}
+
+export function rebuildCodexMcpAppBindings(
+    thread: Pick<Thread, 'turns'>,
+    opts: {
+        threadId: string;
+        mcpAppBindingRegistry: McpAppBindingRegistry;
+    },
+): void {
+    for (const turn of thread.turns ?? []) {
+        for (const item of turn.items ?? []) {
+            if (item.type !== 'mcpToolCall') {
+                continue;
+            }
+            const mcpItem = item as Extract<ThreadItem, { type: 'mcpToolCall' }>;
+            const normalized = codexMcpAppAdapter.normalizeItem(mcpItem);
+            if (!bindNormalizedMcpAppCall(opts.mcpAppBindingRegistry, opts.threadId, normalized)) {
+                continue;
+            }
+            const succeeded = historicalMcpCallSucceeded(mcpItem);
+            if (succeeded !== null) {
+                opts.mcpAppBindingRegistry.complete(normalized.callId, normalized.result, succeeded);
+            }
+        }
+    }
+}
 
 function getStartedSubagents(state: CodexTurnState): Set<string> {
     return state.startedSubagents ?? new Set<string>();
@@ -948,6 +1012,18 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
                 providerSubagentToSessionSubagent,
                 envelopes: [],
             };
+        }
+        const isBound = bindNormalizedMcpAppCall(
+            state.mcpAppBindingRegistry,
+            state.threadId,
+            call,
+        );
+        if (type === 'mcp_tool_call_end' && isBound) {
+            state.mcpAppBindingRegistry?.complete(
+                call.callId,
+                call.result,
+                pickTurnEndStatus(message, type) === 'completed',
+            );
         }
         const itemId = typeof message.item_id === 'string' ? message.item_id : undefined;
         const envelopeOpts = {

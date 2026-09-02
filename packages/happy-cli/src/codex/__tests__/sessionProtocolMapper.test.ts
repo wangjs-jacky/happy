@@ -5,6 +5,7 @@ import {
     mapCodexMcpMessageToSessionEnvelopes,
     mapCodexProcessorMessageToSessionEnvelopes,
     mapCodexThreadToSessionEnvelopes,
+    rebuildCodexMcpAppBindings,
 } from '../utils/sessionProtocolMapper';
 import {
     buildCodexTurnPrompt,
@@ -12,12 +13,65 @@ import {
     CODEX_HAPPY_SYSTEM_PROMPT_START,
     markPawsTurnOrigin,
 } from '../codexPrompt';
+import { McpAppBindingRegistry } from '../mcpApps/McpAppBindingRegistry';
 
 function stripEnvelopeIdentity(envelopes: ReturnType<typeof mapCodexThreadToSessionEnvelopes>) {
     return envelopes.map(({ id: _id, time: _time, ...envelope }) => envelope);
 }
 
 describe('mapCodexMcpMessageToSessionEnvelopes', () => {
+    it('binds live MCP App start and successful completion to the current thread', () => {
+        const registry = new McpAppBindingRegistry();
+        const normalizedCall = {
+            callId: 'call-live-app',
+            server: 'demo',
+            tool: 'show_dashboard',
+            input: { period: 'week' },
+            connectorId: 'connector-live',
+            presentation: {
+                version: 1 as const,
+                server: 'demo',
+                resourceUri: 'ui://demo/dashboard.html',
+                appName: 'Demo Dashboard',
+            },
+            result: {
+                version: 1 as const,
+                state: 'available' as const,
+                content: [{ type: 'text', text: 'done' }],
+            },
+        };
+
+        const started = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_begin',
+            mcp_call: normalizedCall,
+        }, {
+            currentTurnId: 'turn-live',
+            threadId: 'thread-live',
+            mcpAppBindingRegistry: registry,
+        });
+        mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_end',
+            status: 'completed',
+            mcp_call: normalizedCall,
+        }, {
+            ...started,
+            threadId: 'thread-live',
+            mcpAppBindingRegistry: registry,
+        });
+
+        expect(registry.get('call-live-app')).toEqual({
+            callId: 'call-live-app',
+            threadId: 'thread-live',
+            server: 'demo',
+            resourceUri: 'ui://demo/dashboard.html',
+            input: { period: 'week' },
+            connectorId: 'connector-live',
+            appName: 'Demo Dashboard',
+            result: normalizedCall.result,
+            trustedOriginCallId: 'call-live-app',
+        });
+    });
+
     it('maps live MCP App items to the same structured event pair as replay', () => {
         const normalizedCall = {
             callId: 'call-mcp-app',
@@ -657,6 +711,47 @@ describe('mapCodexProcessorMessageToSessionEnvelopes', () => {
 });
 
 describe('mapCodexThreadToSessionEnvelopes', () => {
+    it('rebuilds bindings from the full thread snapshot independently of replay filtering', () => {
+        const registry = new McpAppBindingRegistry();
+        const thread = {
+            turns: [{
+                id: 'turn-old',
+                status: 'completed',
+                items: [{
+                    id: 'call-history-app',
+                    type: 'mcpToolCall' as const,
+                    server: 'history-demo',
+                    tool: 'show_history',
+                    status: 'completed',
+                    arguments: { range: 'all' },
+                    result: { content: [{ type: 'text', text: 'history' }] },
+                    appContext: {
+                        resourceUri: 'ui://history-demo/view.html',
+                        connectorId: 'connector-history',
+                    },
+                }],
+            }],
+        };
+
+        rebuildCodexMcpAppBindings(thread, {
+            threadId: 'thread-history',
+            mcpAppBindingRegistry: registry,
+        });
+        const replay = mapCodexThreadToSessionEnvelopes(thread, { dialogueOnly: true });
+
+        expect(replay.some((envelope) => envelope.ev.t === 'tool-call-start')).toBe(false);
+        expect(registry.get('call-history-app')).toMatchObject({
+            threadId: 'thread-history',
+            connectorId: 'connector-history',
+            trustedOriginCallId: 'call-history-app',
+            result: {
+                version: 1,
+                state: 'available',
+                content: [{ type: 'text', text: 'history' }],
+            },
+        });
+    });
+
     it('omits a replayed Paws user message only for the opaque origin that stored it', () => {
         const thread = {
             turns: [{

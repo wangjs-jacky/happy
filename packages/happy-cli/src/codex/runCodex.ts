@@ -43,7 +43,9 @@ import {
     mapCodexMcpMessageToSessionEnvelopes,
     mapCodexProcessorMessageToSessionEnvelopes,
     mapCodexThreadToSessionEnvelopes,
+    rebuildCodexMcpAppBindings,
 } from './utils/sessionProtocolMapper';
+import { McpAppBindingRegistry } from './mcpApps/McpAppBindingRegistry';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText } from './codexClearCommand';
@@ -419,6 +421,7 @@ export async function runCodex(opts: {
     let client!: CodexAppServerClient;
     let reasoningProcessor!: ReasoningProcessor;
     let abortInProgress: Promise<void> | null = null;
+    const mcpAppBindingRegistry = new McpAppBindingRegistry();
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
     const syncQueuedMessageCount = (targetSession: ApiSessionClient): Promise<void> => (
         updateQueuedMessageCount(targetSession, messageQueue.size())
@@ -794,6 +797,7 @@ export async function runCodex(opts: {
         logger.debug('[Codex] Kill session requested - terminating process');
         await handleAbort();
         logger.debug('[Codex] Abort completed, proceeding with termination');
+        mcpAppBindingRegistry.clear();
 
         try {
             // Update lifecycle state to archived before closing
@@ -1044,6 +1048,8 @@ export async function runCodex(opts: {
         if (msg.type !== 'agent_reasoning_delta' && msg.type !== 'agent_reasoning' && msg.type !== 'agent_reasoning_section_break' && msg.type !== 'turn_diff') {
             const mapped = mapCodexMcpMessageToSessionEnvelopes(msg, {
                 currentTurnId,
+                ...(client.threadId ? { threadId: client.threadId } : {}),
+                mcpAppBindingRegistry,
                 startedSubagents: codexStartedSubagents,
                 activeSubagents: codexActiveSubagents,
                 providerSubagentToSessionSubagent: codexProviderSubagentToSessionSubagent,
@@ -1147,6 +1153,7 @@ export async function runCodex(opts: {
                 cwd: process.cwd(),
                 mcpServers,
                 historyMode: reconnectSessionId ? 'after-cursor' : 'full',
+                mcpAppBindingRegistry,
             });
             if (resumedThread.activeTurnId) {
                 currentTurnId = resumedThread.activeTurnId;
@@ -1178,6 +1185,10 @@ export async function runCodex(opts: {
                 const { thread } = await client.readThread({
                     threadId: forkCodexThreadId,
                     includeTurns: true,
+                });
+                rebuildCodexMcpAppBindings(thread, {
+                    threadId: forkCodexThreadId,
+                    mcpAppBindingRegistry,
                 });
                 const envelopes = mapCodexThreadToSessionEnvelopes(thread, {
                     omitPawsUserMessagesFromOriginToken: codexPawsOriginToken,
@@ -1711,6 +1722,12 @@ export async function runCodex(opts: {
         // Clean up resources when main loop exits
         logger.debug('[codex]: Final cleanup start');
         messageQueue.close();
+        if (abortInProgress) {
+            await abortInProgress;
+            abortInProgress = null;
+        }
+        permissionHandler.abortAll();
+        mcpAppBindingRegistry.clear();
         let queueClearTimeout: ReturnType<typeof setTimeout> | undefined;
         try {
             await Promise.race([

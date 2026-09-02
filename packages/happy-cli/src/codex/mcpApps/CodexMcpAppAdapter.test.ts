@@ -54,12 +54,13 @@ const deprecatedCodexFixture = {
 describe('CodexMcpAppAdapter', () => {
     const adapter = new CodexMcpAppAdapter();
 
-    it('normalizes the local Codex templateId fixture without exposing additive metadata', () => {
+    it('normalizes the local Codex templateId fixture with internal connector authority', () => {
         expect(adapter.normalizeItem(localCodexFixture)).toEqual({
             callId: 'call-local',
             server: 'demo',
             tool: 'show_dashboard',
             input: { period: 'week' },
+            connectorId: 'connector-local',
             presentation: {
                 version: 1,
                 server: 'demo',
