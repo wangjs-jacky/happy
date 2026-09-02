@@ -180,6 +180,7 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await projectRow.click({ button: 'right' });
         await expect(page.getByText('Pin Session', { exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
+        await expect(page.getByText('Pin Session', { exact: true })).toHaveCount(0);
         await page.getByTestId(`session-row-${sessionId}`).hover();
         const sessionActions = page.getByTestId(`session-row-actions-${sessionId}`);
         await expect(page.getByTestId(`organize-session-${sessionId}`)).toBeVisible();
@@ -188,6 +189,7 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await expect(page.getByText('Archive Session', { exact: true })).toBeVisible();
         await expect(page.getByText('Delete Session', { exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
+        await expect(page.getByText('Pin Session', { exact: true })).toHaveCount(0);
         await evidence(page, testInfo, 'pc-01-five-columns-and-history');
 
         await createFolder(page, 'Desktop Work');
