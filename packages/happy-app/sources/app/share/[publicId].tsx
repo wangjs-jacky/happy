@@ -80,6 +80,18 @@ export default function PublicSessionSharePage() {
             </View>
         );
     }
+    if (!appearance.isReady) {
+        return (
+            <View
+                accessibilityLabel={t('sessionShare.preparing')}
+                style={styles.centered}
+                testID="public-session-share-appearance-loading"
+            >
+                <Stack.Screen options={{ title: state.snapshot.title }} />
+                <ActivityIndicator size="small" color={styles.loadingIcon.color} />
+            </View>
+        );
+    }
     return (
         <>
             <Stack.Screen options={{ title: state.snapshot.title }} />

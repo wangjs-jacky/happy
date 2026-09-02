@@ -243,7 +243,7 @@ describe('PublicSessionTranscript', () => {
         act(() => renderer.unmount());
     });
 
-    it('offers an accessible three-mode visitor control without exposing theme-pack selection', () => {
+    it('offers three ordinary accessible mode buttons without promising radio arrow-key behavior', () => {
         const setAppearanceMode = vi.fn();
         let renderer: any;
         act(() => {
@@ -259,20 +259,20 @@ describe('PublicSessionTranscript', () => {
         });
 
         const group = renderer.root.findByProps({ testID: 'public-session-appearance-mode' });
-        expect(group.props.accessibilityRole).toBe('radiogroup');
+        expect(group.props.accessibilityRole).toBeUndefined();
         expect(group.props.accessibilityLabel).toBe('sessionShare.appearance');
-        const radios = renderer.root.findAll((node: any) => node.props.accessibilityRole === 'radio');
-        expect(radios.map((radio: any) => radio.props.accessibilityLabel)).toEqual([
+        const buttons = renderer.root.findAll((node: any) => node.props.accessibilityRole === 'button');
+        expect(buttons.map((button: any) => button.props.accessibilityLabel)).toEqual([
             'sessionShare.appearanceLight',
             'sessionShare.appearanceDark',
             'sessionShare.appearanceSystem',
         ]);
-        expect(radios.map((radio: any) => radio.props.accessibilityState)).toEqual([
-            { checked: false },
-            { checked: false },
-            { checked: true },
+        expect(buttons.map((button: any) => button.props.accessibilityState)).toEqual([
+            { selected: false },
+            { selected: false },
+            { selected: true },
         ]);
-        act(() => radios[1].props.onPress());
+        act(() => buttons[1].props.onPress());
         expect(setAppearanceMode).toHaveBeenCalledWith('dark');
         expect(renderer.root.findAllByProps({ testID: 'public-session-theme-pack-picker' })).toHaveLength(0);
 

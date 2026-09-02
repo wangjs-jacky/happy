@@ -1,11 +1,12 @@
 import * as React from 'react';
 import { UnistylesRuntime } from 'react-native-unistyles';
-import { appThemes, resolveThemeName, type ThemePackId } from '@/themePacks';
+import { appThemes, resolveThemeName, type AppThemeName, type ThemePackId } from '@/themePacks';
 
 export type PublicSessionAppearanceMode = 'light' | 'dark' | 'system';
 
 const STORAGE_KEY = 'paws.public-share.appearance-mode';
 const DARK_MODE_QUERY = '(prefers-color-scheme: dark)';
+const useClientLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;
 
 function browserWindow(): Window | null {
     return typeof window === 'undefined' ? null : window;
@@ -28,15 +29,39 @@ function writeStoredMode(mode: PublicSessionAppearanceMode): void {
     }
 }
 
+function darkModeMediaQuery(): MediaQueryList | null {
+    try {
+        return browserWindow()?.matchMedia?.(DARK_MODE_QUERY) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function subscribeToMediaQuery(mediaQuery: MediaQueryList, listener: (event: MediaQueryListEvent) => void): () => void {
+    if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', listener);
+        return () => mediaQuery.removeEventListener('change', listener);
+    }
+    mediaQuery.addListener(listener);
+    return () => mediaQuery.removeListener(listener);
+}
+
+function applyPublicTheme(themeName: AppThemeName): void {
+    UnistylesRuntime.setTheme(themeName);
+    UnistylesRuntime.setRootViewBackgroundColor(appThemes[themeName].colors.groupped.background);
+}
+
 export function usePublicSessionAppearance(themePack: ThemePackId): {
+    isReady: boolean;
     mode: PublicSessionAppearanceMode;
-    setMode: React.Dispatch<React.SetStateAction<PublicSessionAppearanceMode>>;
+    setMode: (mode: PublicSessionAppearanceMode) => void;
 } {
     const [mode, setMode] = React.useState<PublicSessionAppearanceMode>('system');
     const [systemIsDark, setSystemIsDark] = React.useState(false);
-    const [storageReady, setStorageReady] = React.useState(false);
+    const [browserReady, setBrowserReady] = React.useState(false);
+    const [appliedThemeName, setAppliedThemeName] = React.useState<AppThemeName | null>(null);
 
-    React.useEffect(() => {
+    useClientLayoutEffect(() => {
         const previousThemeName = UnistylesRuntime.themeName;
         const previousBackground = UnistylesRuntime.getTheme().colors.groupped.background;
         return () => {
@@ -45,34 +70,45 @@ export function usePublicSessionAppearance(themePack: ThemePackId): {
         };
     }, []);
 
-    React.useEffect(() => {
-        setMode(readStoredMode());
-        setStorageReady(true);
+    useClientLayoutEffect(() => {
+        const storedMode = readStoredMode();
+        const mediaQuery = darkModeMediaQuery();
+        setMode(storedMode);
+        setSystemIsDark(mediaQuery?.matches ?? false);
+        setBrowserReady(true);
     }, []);
 
     React.useEffect(() => {
-        if (storageReady) writeStoredMode(mode);
-    }, [mode, storageReady]);
+        if (browserReady) writeStoredMode(mode);
+    }, [browserReady, mode]);
 
-    React.useEffect(() => {
-        if (mode !== 'system') return;
-        const mediaQuery = browserWindow()?.matchMedia?.(DARK_MODE_QUERY);
-        if (!mediaQuery) {
-            setSystemIsDark(false);
-            return;
-        }
+    useClientLayoutEffect(() => {
+        if (!browserReady || mode !== 'system') return;
+        const mediaQuery = darkModeMediaQuery();
+        if (!mediaQuery) return;
         setSystemIsDark(mediaQuery.matches);
         const handleChange = (event: MediaQueryListEvent) => setSystemIsDark(event.matches);
-        mediaQuery.addEventListener('change', handleChange);
-        return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [mode]);
+        return subscribeToMediaQuery(mediaQuery, handleChange);
+    }, [browserReady, mode]);
 
     const isDark = mode === 'dark' || (mode === 'system' && systemIsDark);
-    React.useEffect(() => {
-        const themeName = resolveThemeName(themePack, isDark);
-        UnistylesRuntime.setTheme(themeName);
-        UnistylesRuntime.setRootViewBackgroundColor(appThemes[themeName].colors.groupped.background);
-    }, [isDark, themePack]);
+    const desiredThemeName = browserReady ? resolveThemeName(themePack, isDark) : null;
+    useClientLayoutEffect(() => {
+        if (!desiredThemeName) return;
+        applyPublicTheme(desiredThemeName);
+        setAppliedThemeName(desiredThemeName);
+    }, [desiredThemeName]);
 
-    return { mode, setMode };
+    const selectMode = React.useCallback((nextMode: PublicSessionAppearanceMode) => {
+        if (nextMode === 'system') {
+            setSystemIsDark(darkModeMediaQuery()?.matches ?? false);
+        }
+        setMode(nextMode);
+    }, []);
+
+    return {
+        isReady: desiredThemeName !== null && appliedThemeName === desiredThemeName,
+        mode,
+        setMode: selectMode,
+    };
 }

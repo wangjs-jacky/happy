@@ -41,6 +41,21 @@ function createMediaQuery(initialMatches: boolean) {
     };
 }
 
+function createLegacyMediaQuery(initialMatches: boolean) {
+    const listeners = new Set<MediaListener>();
+    return {
+        addListener: vi.fn((listener: MediaListener) => listeners.add(listener)),
+        dispatch(matches: boolean) {
+            this.matches = matches;
+            for (const listener of listeners) listener({ matches });
+        },
+        listeners,
+        matches: initialMatches,
+        media: '(prefers-color-scheme: dark)',
+        removeListener: vi.fn((listener: MediaListener) => listeners.delete(listener)),
+    };
+}
+
 function createLocalStorage(initial: Record<string, string> = {}) {
     const values = new Map(Object.entries(initial));
     return {
@@ -93,6 +108,7 @@ describe('usePublicSessionAppearance', () => {
     it('defaults to system mode and applies the owner-fixed pack with its semantic background', () => {
         const hook = renderAppearance('gingham');
 
+        expect(hook.current().isReady).toBe(true);
         expect(hook.current().mode).toBe('system');
         expect(runtime.setTheme).toHaveBeenCalledWith('ginghamLight');
         expect(runtime.setRootViewBackgroundColor).toHaveBeenCalledWith('#F4F7FA');
@@ -111,8 +127,9 @@ describe('usePublicSessionAppearance', () => {
         });
         const firstShare = renderAppearance('sakura');
 
+        expect(firstShare.current().isReady).toBe(true);
         expect(firstShare.current().mode).toBe('dark');
-        expect(runtime.setTheme).toHaveBeenLastCalledWith('sakuraDark');
+        expect(runtime.setTheme.mock.calls.map(([themeName]) => themeName)).toEqual(['sakuraDark']);
 
         act(() => firstShare.current().setMode('light'));
         expect(runtime.setTheme).toHaveBeenLastCalledWith('sakuraLight');
@@ -134,19 +151,18 @@ describe('usePublicSessionAppearance', () => {
         const hook = renderAppearance('acorn');
 
         expect(mediaQuery.listeners.size).toBe(1);
-        act(() => mediaQuery.dispatch(true));
-        expect(runtime.setTheme).toHaveBeenLastCalledWith('acornDark');
-
         act(() => hook.current().setMode('light'));
         expect(mediaQuery.listeners.size).toBe(0);
         expect(runtime.setTheme).toHaveBeenLastCalledWith('acornLight');
-        act(() => mediaQuery.dispatch(false));
+        act(() => mediaQuery.dispatch(true));
         expect(runtime.setTheme).toHaveBeenLastCalledWith('acornLight');
 
+        runtime.setTheme.mockClear();
         act(() => hook.current().setMode('system'));
         expect(mediaQuery.listeners.size).toBe(1);
-        act(() => mediaQuery.dispatch(true));
-        expect(runtime.setTheme).toHaveBeenLastCalledWith('acornDark');
+        expect(runtime.setTheme.mock.calls.map(([themeName]) => themeName)).toEqual(['acornDark']);
+        act(() => mediaQuery.dispatch(false));
+        expect(runtime.setTheme).toHaveBeenLastCalledWith('acornLight');
 
         hook.unmount();
         expect(mediaQuery.listeners.size).toBe(0);
@@ -164,5 +180,25 @@ describe('usePublicSessionAppearance', () => {
         hook.unmount();
         expect(runtime.setTheme).toHaveBeenLastCalledWith('caramelDark');
         expect(runtime.setRootViewBackgroundColor).toHaveBeenLastCalledWith('#1A1512');
+    });
+
+    it('supports legacy media-query listeners and removes them on explicit selection', () => {
+        const legacyMediaQuery = createLegacyMediaQuery(true);
+        vi.stubGlobal('window', {
+            localStorage: createLocalStorage(),
+            matchMedia: vi.fn(() => legacyMediaQuery),
+        });
+
+        const hook = renderAppearance('gingham');
+        expect(hook.current().isReady).toBe(true);
+        expect(runtime.setTheme).toHaveBeenLastCalledWith('ginghamDark');
+        expect(legacyMediaQuery.addListener).toHaveBeenCalledOnce();
+        expect(legacyMediaQuery.listeners.size).toBe(1);
+
+        act(() => hook.current().setMode('light'));
+        expect(legacyMediaQuery.removeListener).toHaveBeenCalledOnce();
+        expect(legacyMediaQuery.listeners.size).toBe(0);
+
+        hook.unmount();
     });
 });

@@ -173,7 +173,6 @@ function PublicAppearanceModeControl({
     return (
         <View
             accessibilityLabel={t('sessionShare.appearance')}
-            accessibilityRole="radiogroup"
             style={styles.modeControl}
             testID="public-session-appearance-mode"
         >
@@ -182,8 +181,8 @@ function PublicAppearanceModeControl({
                 return (
                     <Pressable
                         accessibilityLabel={t(option.label)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ checked: selected }}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
                         hitSlop={4}
                         key={option.mode}
                         onPress={() => onChange(option.mode)}
