@@ -5,7 +5,7 @@ description: Export local Codex or Claude Code conversations as self-contained o
 
 # Share Session
 
-Use `npx --yes @wangjs-jacky/paws-share@latest` as the transcript parser, uploader, and capability manager. This works without a global install. Do not parse provider JSONL, read the local share-management store, handle management tokens, or upload attachments yourself.
+Use `npx --yes @wangjs-jacky/paws-share@beta` as the transcript parser, uploader, and capability manager. This works without a global install. Do not parse provider JSONL, read the local share-management store, handle management tokens, or upload attachments yourself.
 
 ## Select the transcript
 
@@ -22,7 +22,7 @@ Use the same selector for inspection and publication.
 When the user asks for a local, offline, private, or single-file copy, use `export-html`; do not create a server draft or public link:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest export-html --source codex --session "$session_path" --output ./paws-session.html --json
+npx --yes @wangjs-jacky/paws-share@beta export-html --source codex --session "$session_path" --output ./paws-session.html --json
 ```
 
 The file contains the standardized snapshot, inline CSS and JavaScript, and resolved attachments as data URLs. It needs no server or network connection when opened. It is read-only, searchable, responsive, and keeps thinking and tool blocks collapsible.
@@ -34,7 +34,7 @@ Do not overwrite an existing file unless the user explicitly approves replacemen
 1. Inspect before uploading. For an exact Codex transcript, run:
 
    ```bash
-   npx --yes @wangjs-jacky/paws-share@latest inspect --source codex --session "$session_path" --json
+   npx --yes @wangjs-jacky/paws-share@beta inspect --source codex --session "$session_path" --json
    ```
 
    When using directory discovery, replace the selector with `--current`.
@@ -44,7 +44,7 @@ Do not overwrite an existing file unless the user explicitly approves replacemen
 4. An explicit request to share, publish, or create the public link authorizes publication after a clean inspection. A request only to inspect, explain, or preview does not. Publish with the identical selector:
 
    ```bash
-   npx --yes @wangjs-jacky/paws-share@latest share --source codex --session "$session_path" --yes --json
+   npx --yes @wangjs-jacky/paws-share@beta share --source codex --session "$session_path" --yes --json
    ```
 
 5. Return `publicUrl`, `expiresAt`, and a short confirmation that it is a read-only snapshot. Never return the local transcript path, management record path, or any management capability.
@@ -56,8 +56,8 @@ Never add `--allow-sensitive` merely to complete the task. Use it only after rep
 For Claude Code, use the same inspect-then-share workflow with `--source claude-code` and its explicit JSONL path:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest inspect --source claude-code --session /path/to/session.jsonl --json
-npx --yes @wangjs-jacky/paws-share@latest share --source claude-code --session /path/to/session.jsonl --yes --json
+npx --yes @wangjs-jacky/paws-share@beta inspect --source claude-code --session /path/to/session.jsonl --json
+npx --yes @wangjs-jacky/paws-share@beta share --source claude-code --session /path/to/session.jsonl --yes --json
 ```
 
 ## Manage links
@@ -65,11 +65,11 @@ npx --yes @wangjs-jacky/paws-share@latest share --source claude-code --session /
 Run management commands on the same machine that created the link so the local capability remains private:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest list --json
-npx --yes @wangjs-jacky/paws-share@latest status <public-id> --json
-npx --yes @wangjs-jacky/paws-share@latest renew <public-id> --json
-npx --yes @wangjs-jacky/paws-share@latest replace <public-id> --current --yes --json
-npx --yes @wangjs-jacky/paws-share@latest revoke <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta list --json
+npx --yes @wangjs-jacky/paws-share@beta status <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta renew <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta replace <public-id> --current --yes --json
+npx --yes @wangjs-jacky/paws-share@beta revoke <public-id> --json
 ```
 
 Inspect the replacement transcript first and use the same exact selector for `replace`. Replacing preserves the public URL. Revocation is terminal for that link. Losing the local management record is intentionally unrecoverable without an account.

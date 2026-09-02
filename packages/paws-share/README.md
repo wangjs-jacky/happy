@@ -3,8 +3,8 @@
 Publish complete Codex and Claude Code conversations as read-only Paws snapshots without a Paws account.
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest inspect --current --json
-npx --yes @wangjs-jacky/paws-share@latest share --current --yes --json
+npx --yes @wangjs-jacky/paws-share@beta inspect --current --json
+npx --yes @wangjs-jacky/paws-share@beta share --current --yes --json
 ```
 
 The CLI uploads only a validated snapshot and resolved structured attachments. It stores a per-link management capability in `${PAWS_SHARE_HOME:-~/.paws-share}/shares.json` with owner-only permissions; the public URL and command output never contain that capability.
@@ -14,7 +14,7 @@ The CLI uploads only a validated snapshot and resolved structured attachments. I
 Create one self-contained HTML file without uploading anything:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest export-html --current --output ./paws-session.html --json
+npx --yes @wangjs-jacky/paws-share@beta export-html --current --output ./paws-session.html --json
 ```
 
 The HTML uses the same standardized snapshot preparation as public sharing. CSS, interaction code, images, audio, video, and downloadable file attachments are embedded in the output, so it opens offline. Existing files are preserved unless `--force` is explicit. High-confidence secrets and unresolved attachments remain blocked by default.
@@ -31,11 +31,11 @@ The local exporter has no server client or management-record dependency. Provide
 Manage links locally:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest list --json
-npx --yes @wangjs-jacky/paws-share@latest status <public-id> --json
-npx --yes @wangjs-jacky/paws-share@latest renew <public-id> --json
-npx --yes @wangjs-jacky/paws-share@latest replace <public-id> --current --yes --json
-npx --yes @wangjs-jacky/paws-share@latest revoke <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta list --json
+npx --yes @wangjs-jacky/paws-share@beta status <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta renew <public-id> --json
+npx --yes @wangjs-jacky/paws-share@beta replace <public-id> --current --yes --json
+npx --yes @wangjs-jacky/paws-share@beta revoke <public-id> --json
 ```
 
 Use `--source codex|claude-code --session /path/to/session.jsonl` when current-directory discovery is ambiguous. Public snapshots expire after 90 days unless renewed.
@@ -45,7 +45,7 @@ Use `--source codex|claude-code --session /path/to/session.jsonl` when current-d
 Install the bundled `share-session` skill for Codex, Claude Code, or both:
 
 ```bash
-npx --yes @wangjs-jacky/paws-share@latest install-skill --target all --json
+npx --yes @wangjs-jacky/paws-share@beta install-skill --target all --json
 ```
 
 Start a new agent session so it discovers the skill, then ask naturally, for example:

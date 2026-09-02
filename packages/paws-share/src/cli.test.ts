@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import packageMetadata from '../package.json' with { type: 'json' };
 import { runCli, type CliDependencies, type CliIo } from './cli';
 
 function capture(): { io: CliIo; stdout: string[]; stderr: string[] } {
@@ -22,7 +23,7 @@ describe('paws-share CLI', () => {
         const exitCode = await runCli(['node', 'paws-share', '--version'], output.io);
 
         expect(exitCode).toBe(0);
-        expect(output.stdout.join('')).toBe('0.1.0-beta.0\n');
+        expect(output.stdout.join('')).toBe(`${packageMetadata.version}\n`);
         expect(output.stderr).toEqual([]);
     });
 

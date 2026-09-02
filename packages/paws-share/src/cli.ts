@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { Command, CommanderError, Option } from 'commander';
+import packageMetadata from '../package.json' with { type: 'json' };
 import { discoverCurrentTranscript } from './adapters/discover';
 import type { TranscriptCandidate } from './adapters/types';
 import { installSkill, type InstallSkillResult, type InstallSkillTarget } from './installSkill';
@@ -23,7 +24,6 @@ import {
     type ShareSessionResult,
 } from './share';
 
-const VERSION = '0.1.0-beta.0';
 const DEFAULT_SERVER_URL = 'https://47.115.228.20:8443';
 
 export type CliIo = {
@@ -124,7 +124,7 @@ function createProgram(io: CliIo, dependencies: CliDependencies) {
     const program = new Command()
         .name('paws-share')
         .description('Publish Codex and Claude Code sessions as read-only Paws snapshots')
-        .version(VERSION)
+        .version(packageMetadata.version)
         .configureOutput({ writeOut: io.stdout, writeErr: io.stderr })
         .exitOverride();
 
