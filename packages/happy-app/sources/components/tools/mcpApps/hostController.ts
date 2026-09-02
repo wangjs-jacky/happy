@@ -1,15 +1,23 @@
 import type { McpAppPresentationV1, McpAppResultV1 } from '@slopus/happy-wire';
 import {
     McpAppHostError,
+    type McpAppBridgeRequest,
     type McpAppFrame,
     type McpAppFrameAdapter,
     type McpAppHostContext,
     type McpAppRemotePort,
     type McpAppToolResult,
 } from './types';
+import {
+    MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
+    utf8ByteLength,
+} from '../../../../mcp-app-sandbox/protocol';
 
 export const MCP_APP_SANDBOX_READY_TIMEOUT_MS = 10_000;
 export const MCP_APP_INITIALIZE_TIMEOUT_MS = 10_000;
+export const MCP_APP_MAX_CONCURRENT_BRIDGE_REQUESTS = 8;
+export const MCP_APP_MAX_REQUESTS_PER_MINUTE = 30;
+export const MCP_APP_BRIDGE_REQUEST_TIMEOUT_MS = 30_000;
 
 export type McpAppHostState =
     | { type: 'fallback' }
@@ -35,6 +43,14 @@ function safeInternalError(): McpAppHostError {
         'MCP_APP_INTERNAL',
         true,
         'The App could not be loaded.',
+    );
+}
+
+function safeRequestInternalError(): McpAppHostError {
+    return new McpAppHostError(
+        'MCP_APP_INTERNAL',
+        false,
+        'The App request could not be completed.',
     );
 }
 
@@ -93,6 +109,27 @@ function createStageDeadline(controller: AbortController) {
     };
 }
 
+function responseTooLarge(method: McpAppBridgeRequest['method']): McpAppHostError {
+    return new McpAppHostError(
+        method === 'resources/read' ? 'MCP_APP_RESOURCE_TOO_LARGE' : 'MCP_APP_RESULT_TOO_LARGE',
+        false,
+        method === 'resources/read' ? 'The App resource is too large.' : 'The App result is too large.',
+    );
+}
+
+function validateBridgeResponse(value: unknown, method: McpAppBridgeRequest['method']): unknown {
+    try {
+        const serialized = JSON.stringify({ ok: true, value });
+        if (serialized === undefined || utf8ByteLength(serialized) > MCP_APP_MAX_BRIDGE_MESSAGE_BYTES) {
+            throw responseTooLarge(method);
+        }
+        return value;
+    } catch (error) {
+        if (error instanceof McpAppHostError) throw error;
+        throw safeRequestInternalError();
+    }
+}
+
 export function createMcpAppHostController(options: {
     callId: string;
     presentation: McpAppPresentationV1;
@@ -101,6 +138,8 @@ export function createMcpAppHostController(options: {
     hostContext: McpAppHostContext;
     remotePort: McpAppRemotePort;
     frameAdapter: McpAppFrameAdapter;
+    openExternalLink(url: string, signal: AbortSignal): Promise<Record<string, never>>;
+    now?: () => number;
     onStateChange?: (state: McpAppHostState) => void;
 }) {
     let state: McpAppHostState = { type: 'fallback' };
@@ -119,6 +158,9 @@ export function createMcpAppHostController(options: {
     let userRetryUsed = false;
     let inputSent = false;
     let terminalSent = false;
+    const now = options.now ?? Date.now;
+    const requestControllers = new Set<AbortController>();
+    const requestTimestamps: number[] = [];
     const resultIsUnavailable = (): boolean => currentResult?.state === 'unavailable';
 
     const setState = (next: McpAppHostState): void => {
@@ -127,6 +169,9 @@ export function createMcpAppHostController(options: {
     };
 
     const teardownFrame = async (): Promise<void> => {
+        for (const controller of requestControllers) controller.abort(cancellationError());
+        requestControllers.clear();
+        requestTimestamps.length = 0;
         const ownedFrame = frame;
         frame = undefined;
         if (ownedFrame) {
@@ -140,6 +185,78 @@ export function createMcpAppHostController(options: {
         activeController = undefined;
         inputSent = false;
         terminalSent = false;
+    };
+
+    const handleBridgeRequest = async (
+        request: McpAppBridgeRequest,
+        frameSignal?: AbortSignal,
+    ): Promise<unknown> => {
+        if (disposed || activeController?.signal.aborted) throw cancellationError();
+        const currentTime = now();
+        while (requestTimestamps.length > 0
+            && requestTimestamps[0] <= currentTime - 60_000) {
+            requestTimestamps.shift();
+        }
+        if (requestTimestamps.length >= MCP_APP_MAX_REQUESTS_PER_MINUTE) {
+            throw timeoutError();
+        }
+        requestTimestamps.push(currentTime);
+        if (requestControllers.size >= MCP_APP_MAX_CONCURRENT_BRIDGE_REQUESTS) {
+            throw timeoutError();
+        }
+
+        const operation = new AbortController();
+        requestControllers.add(operation);
+        const abortFromFrame = () => operation.abort(cancellationError());
+        frameSignal?.addEventListener('abort', abortFromFrame, { once: true });
+        if (frameSignal?.aborted) abortFromFrame();
+        const timer = setTimeout(
+            () => operation.abort(timeoutError()),
+            MCP_APP_BRIDGE_REQUEST_TIMEOUT_MS,
+        );
+        try {
+            let result: unknown;
+            switch (request.method) {
+                case 'ping':
+                    result = {};
+                    break;
+                case 'resources/read':
+                    result = await raceAbort(options.remotePort.readSecondaryResource({
+                        callId: options.callId,
+                        uri: request.params.uri,
+                        signal: operation.signal,
+                    }), operation.signal);
+                    break;
+                case 'tools/call':
+                    result = await raceAbort(options.remotePort.callTool({
+                        callId: options.callId,
+                        tool: request.params.name,
+                        ...(request.params.arguments !== undefined
+                            ? { arguments: request.params.arguments }
+                            : {}),
+                        ...(request.params._meta !== undefined ? { _meta: request.params._meta } : {}),
+                        signal: operation.signal,
+                    }), operation.signal);
+                    break;
+                case 'ui/open-link':
+                    result = await raceAbort(
+                        options.openExternalLink(request.params.url, operation.signal),
+                        operation.signal,
+                    );
+                    break;
+            }
+            if (disposed || operation.signal.aborted || !requestControllers.has(operation)) {
+                throw abortReason(operation.signal);
+            }
+            return validateBridgeResponse(result, request.method);
+        } catch (error) {
+            if (error instanceof McpAppHostError) throw error;
+            throw safeRequestInternalError();
+        } finally {
+            clearTimeout(timer);
+            frameSignal?.removeEventListener('abort', abortFromFrame);
+            requestControllers.delete(operation);
+        }
     };
 
     const deliverPending = (): void => {
@@ -193,6 +310,7 @@ export function createMcpAppHostController(options: {
                     deadline.arm(MCP_APP_INITIALIZE_TIMEOUT_MS);
                 },
                 onFailure: (error) => handleFrameFailure(ownedGeneration, error),
+                onRequest: handleBridgeRequest,
             });
             const mounted = await raceAbort(mountPromise, operation.signal);
             mountAccepted = true;

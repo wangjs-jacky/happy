@@ -7,9 +7,12 @@ import {
 import {
     McpAppHostError,
     type CallMcpAppToolInput,
+    type McpAppReadResourceResult,
     type McpAppRemotePort,
     type McpAppResource,
+    type McpAppToolResult,
     type ReadMcpAppResourceInput,
+    type ReadSecondaryMcpAppResourceInput,
 } from './types';
 
 const MCP_APP_MAX_HTML_BYTES = 5 * 1024 * 1024;
@@ -38,6 +41,39 @@ function verificationUnavailable(): McpAppHostError {
         true,
         'The App resource could not be verified.',
     );
+}
+
+function invalidInteractiveResponse(): McpAppHostError {
+    return new McpAppHostError(
+        'MCP_APP_INTERNAL',
+        false,
+        'The App request could not be completed.',
+    );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeResourceResult(value: unknown): McpAppReadResourceResult {
+    if (!isRecord(value) || !Array.isArray(value.contents)) throw invalidInteractiveResponse();
+    return {
+        contents: value.contents,
+        ...(value._meta !== undefined ? { _meta: value._meta } : {}),
+    };
+}
+
+function normalizeToolResult(value: unknown): McpAppToolResult {
+    if (!isRecord(value) || !Array.isArray(value.content)
+        || (value.isError !== undefined && typeof value.isError !== 'boolean')) {
+        throw invalidInteractiveResponse();
+    }
+    return {
+        content: value.content,
+        ...(value.structuredContent !== undefined ? { structuredContent: value.structuredContent } : {}),
+        ...(value._meta !== undefined ? { _meta: value._meta } : {}),
+        ...(value.isError !== undefined ? { isError: value.isError } : {}),
+    };
 }
 
 function validOpenResponse(
@@ -131,12 +167,22 @@ export function createMcpAppRemotePort(options: {
             return { ...open, html };
         },
 
-        async callTool(_input: CallMcpAppToolInput): Promise<never> {
-            throw new McpAppHostError(
-                'MCP_APP_UNSUPPORTED',
-                false,
-                'This App action is not supported.',
-            );
+        async readSecondaryResource(input: ReadSecondaryMcpAppResourceInput): Promise<McpAppReadResourceResult> {
+            const result = await rpc.readSecondaryResource(options.sessionId, {
+                callId: input.callId,
+                uri: input.uri,
+            }, input.signal);
+            return normalizeResourceResult(result);
+        },
+
+        async callTool(input: CallMcpAppToolInput): Promise<McpAppToolResult> {
+            const result = await rpc.callTool(options.sessionId, {
+                callId: input.callId,
+                tool: input.tool,
+                ...(input.arguments !== undefined ? { arguments: input.arguments } : {}),
+                ...(input._meta !== undefined ? { _meta: input._meta } : {}),
+            }, input.signal);
+            return normalizeToolResult(result);
         },
     };
 }

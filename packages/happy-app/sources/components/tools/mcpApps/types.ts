@@ -35,6 +35,11 @@ export type McpAppToolResult = {
     isError?: boolean;
 };
 
+export type McpAppReadResourceResult = {
+    contents: unknown[];
+    _meta?: unknown;
+};
+
 export type McpAppResource = {
     resourceId: string;
     uri: string;
@@ -64,8 +69,17 @@ export type CallMcpAppToolInput = {
     signal?: AbortSignal;
 };
 
+export type ReadSecondaryMcpAppResourceInput = {
+    callId: string;
+    uri: string;
+    signal?: AbortSignal;
+};
+
+export type { McpAppBridgeRequest, McpAppBridgeResponse } from '../../../../mcp-app-sandbox/protocol';
+
 export interface McpAppRemotePort {
     readResource(input: ReadMcpAppResourceInput): Promise<McpAppResource>;
+    readSecondaryResource(input: ReadSecondaryMcpAppResourceInput): Promise<McpAppReadResourceResult>;
     callTool(input: CallMcpAppToolInput): Promise<McpAppToolResult>;
 }
 
@@ -88,6 +102,11 @@ export type FrameMountInput = {
     onSandboxReady(): void;
     /** Called if an already-mounted frame later loses protocol or WebView integrity. */
     onFailure(error: McpAppHostError): void;
+    /** Handles one validated, authority-free request from the owned View instance. */
+    onRequest(
+        request: import('../../../../mcp-app-sandbox/protocol').McpAppBridgeRequest,
+        signal?: AbortSignal,
+    ): Promise<unknown>;
 };
 
 export interface McpAppFrame {

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpAppPresentationV1, McpAppResultV1 } from '@slopus/happy-wire';
 import {
+    MCP_APP_MAX_CONCURRENT_BRIDGE_REQUESTS,
+    MCP_APP_MAX_REQUESTS_PER_MINUTE,
     MCP_APP_INITIALIZE_TIMEOUT_MS,
     MCP_APP_SANDBOX_READY_TIMEOUT_MS,
     createMcpAppHostController,
@@ -10,9 +12,11 @@ import {
     type FrameMountInput,
     type McpAppFrame,
     type McpAppFrameAdapter,
+    type McpAppBridgeRequest,
     type McpAppHostContext,
     type McpAppRemotePort,
     type McpAppResource,
+    type McpAppToolResult,
 } from './types';
 
 const presentation: McpAppPresentationV1 = {
@@ -63,8 +67,14 @@ function deferred<T>() {
 class MemoryRemotePort implements McpAppRemotePort {
     reads = 0;
     readonly readInputs: unknown[] = [];
+    readonly secondaryInputs: unknown[] = [];
+    readonly toolInputs: unknown[] = [];
 
-    constructor(private readonly read: () => Promise<McpAppResource>) {}
+    constructor(
+        private readonly read: () => Promise<McpAppResource>,
+        private readonly secondary: (input: unknown) => Promise<{ contents: unknown[] }> = async () => ({ contents: [] }),
+        private readonly tool: (input: unknown) => Promise<McpAppToolResult> = async () => ({ content: [] }),
+    ) {}
 
     async readResource(input: unknown): Promise<McpAppResource> {
         this.reads += 1;
@@ -72,8 +82,14 @@ class MemoryRemotePort implements McpAppRemotePort {
         return this.read();
     }
 
-    async callTool(): Promise<never> {
-        throw new McpAppHostError('MCP_APP_UNSUPPORTED', false, 'unsupported');
+    async readSecondaryResource(input: unknown): Promise<{ contents: unknown[] }> {
+        this.secondaryInputs.push(input);
+        return this.secondary(input);
+    }
+
+    async callTool(input: unknown): Promise<McpAppToolResult> {
+        this.toolInputs.push(input);
+        return this.tool(input);
     }
 }
 
@@ -103,6 +119,7 @@ class MemoryFrame implements McpAppFrame {
 
 class MemoryFrameAdapter implements McpAppFrameAdapter {
     mounts = 0;
+    lastMountInput?: FrameMountInput;
 
     constructor(
         private readonly events: string[],
@@ -111,12 +128,18 @@ class MemoryFrameAdapter implements McpAppFrameAdapter {
 
     async mount(input: FrameMountInput): Promise<McpAppFrame> {
         this.mounts += 1;
+        this.lastMountInput = input;
         this.events.push(`mount:${input.resource.html}`);
         input.onSandboxReady();
         this.events.push('sandbox-ready');
         await this.initialize(input);
         this.events.push('initialized');
         return new MemoryFrame(this.events);
+    }
+
+    request(request: McpAppBridgeRequest): Promise<unknown> {
+        if (!this.lastMountInput) throw new Error('frame has not mounted');
+        return this.lastMountInput.onRequest(request);
     }
 }
 
@@ -125,6 +148,8 @@ function makeController(options: {
     frameAdapter?: McpAppFrameAdapter;
     result?: McpAppResultV1;
     events?: string[];
+    openExternalLink?: (url: string, signal: AbortSignal) => Promise<Record<string, never>>;
+    now?: () => number;
 }) {
     const events = options.events ?? [];
     const remotePort = options.remotePort ?? new MemoryRemotePort(async () => {
@@ -140,6 +165,8 @@ function makeController(options: {
         hostContext: context,
         remotePort,
         frameAdapter,
+        openExternalLink: options.openExternalLink ?? (async () => ({})),
+        now: options.now,
         onStateChange: (state) => events.push(`state:${state.type}`),
     });
     return { controller, events, remotePort, frameAdapter };
@@ -420,6 +447,177 @@ describe('MCP App host controller', () => {
         reportFailure!(new McpAppHostError('MCP_APP_SANDBOX_UNAVAILABLE', true, 'late failure'));
         await Promise.resolve();
 
+        expect(controller.getState()).toEqual({ type: 'fallback' });
+    });
+
+    it('correlates resource, tool, ping, and link requests through immutable call authority', async () => {
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async () => ({ contents: [{ uri: 'ui://demo/detail', text: 'detail' }] }),
+            async () => ({ content: [{ type: 'text', text: 'refreshed' }] }),
+        );
+        const openExternalLink = vi.fn(async () => ({}));
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({
+            remotePort: remote,
+            frameAdapter: adapter,
+            openExternalLink,
+        });
+        await controller.start();
+
+        await expect(adapter.request({
+            method: 'resources/read',
+            params: { uri: 'ui://demo/detail' },
+        })).resolves.toEqual({ contents: [{ uri: 'ui://demo/detail', text: 'detail' }] });
+        await expect(adapter.request({
+            method: 'tools/call',
+            params: {
+                name: 'refresh',
+                arguments: { id: 1 },
+                _meta: { progressToken: 'view-token' },
+            },
+        })).resolves.toEqual({ content: [{ type: 'text', text: 'refreshed' }] });
+        await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+        await expect(adapter.request({
+            method: 'ui/open-link', params: { url: 'https://example.com/path' },
+        })).resolves.toEqual({});
+
+        expect(remote.secondaryInputs).toEqual([expect.objectContaining({
+            callId: 'call-1', uri: 'ui://demo/detail', signal: expect.any(AbortSignal),
+        })]);
+        expect(remote.toolInputs).toEqual([expect.objectContaining({
+            callId: 'call-1',
+            tool: 'refresh',
+            arguments: { id: 1 },
+            _meta: { progressToken: 'view-token' },
+            signal: expect.any(AbortSignal),
+        })]);
+        expect(openExternalLink).toHaveBeenCalledWith(
+            'https://example.com/path', expect.any(AbortSignal),
+        );
+        for (const input of [...remote.secondaryInputs, ...remote.toolInputs]) {
+            expect(input).not.toHaveProperty('threadId');
+            expect(input).not.toHaveProperty('server');
+            expect(input).not.toHaveProperty('connectorId');
+            expect(input).not.toHaveProperty('originCallId');
+        }
+    });
+
+    it('preserves stable permission denial without leaking raw tool context', async () => {
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async () => {
+                throw new McpAppHostError(
+                    'MCP_APP_PERMISSION_DENIED', false, 'Permission was denied.',
+                );
+            },
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter });
+        await controller.start();
+
+        await expect(adapter.request({
+            method: 'tools/call',
+            params: { name: 'dangerous', arguments: { secret: 'CANARY_ARGUMENT' } },
+        })).rejects.toEqual(expect.objectContaining({
+            code: 'MCP_APP_PERMISSION_DENIED',
+            retryable: false,
+            summary: 'Permission was denied.',
+        }));
+    });
+
+    it('limits each View to eight concurrent requests and thirty requests per minute', async () => {
+        expect(MCP_APP_MAX_CONCURRENT_BRIDGE_REQUESTS).toBe(8);
+        expect(MCP_APP_MAX_REQUESTS_PER_MINUTE).toBe(30);
+        let now = 1_000;
+        const pendingReads: Array<ReturnType<typeof deferred<{ contents: unknown[] }>>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async () => {
+                const gate = deferred<{ contents: unknown[] }>();
+                pendingReads.push(gate);
+                return gate.promise;
+            },
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter, now: () => now });
+        await controller.start();
+
+        const firstEight = Array.from({ length: 8 }, (_, index) => adapter.request({
+            method: 'resources/read' as const,
+            params: { uri: `ui://demo/${index}` },
+        }));
+        await vi.waitFor(() => expect(pendingReads).toHaveLength(8));
+        await expect(adapter.request({
+            method: 'resources/read', params: { uri: 'ui://demo/overflow' },
+        })).rejects.toMatchObject({ code: 'MCP_APP_TIMEOUT', retryable: true });
+        pendingReads.forEach((gate) => gate.resolve({ contents: [] }));
+        await Promise.all(firstEight);
+
+        for (let index = 9; index < 30; index += 1) {
+            await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+        }
+        await expect(adapter.request({ method: 'ping', params: {} })).rejects.toMatchObject({
+            code: 'MCP_APP_TIMEOUT', retryable: true,
+        });
+
+        now += 60_001;
+        await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+    });
+
+    it('rejects a serialized bridge response over 256 KiB with a stable safe code', async () => {
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async () => ({
+                contents: [{ uri: 'ui://demo/large', text: 'x'.repeat(256 * 1024) }],
+            }),
+            async () => ({
+                content: [{ type: 'text', text: 'x'.repeat(256 * 1024) }],
+            }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter });
+        await controller.start();
+
+        await expect(adapter.request({
+            method: 'resources/read', params: { uri: 'ui://demo/large' },
+        })).rejects.toMatchObject({
+            code: 'MCP_APP_RESOURCE_TOO_LARGE', retryable: false,
+        });
+        await expect(adapter.request({
+            method: 'tools/call', params: { name: 'large' },
+        })).rejects.toMatchObject({
+            code: 'MCP_APP_RESULT_TOO_LARGE', retryable: false,
+        });
+    });
+
+    it('aborts in-flight requests and makes late completions inert after disposal', async () => {
+        const gate = deferred<{ contents: unknown[] }>();
+        let requestSignal: AbortSignal | undefined;
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async (input) => {
+                requestSignal = (input as { signal: AbortSignal }).signal;
+                return gate.promise;
+            },
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter });
+        await controller.start();
+
+        const pending = adapter.request({
+            method: 'resources/read', params: { uri: 'ui://demo/late' },
+        });
+        await vi.waitFor(() => expect(requestSignal).toEqual(expect.any(AbortSignal)));
+        await controller.dispose();
+
+        expect(requestSignal?.aborted).toBe(true);
+        await expect(pending).rejects.toMatchObject({
+            code: 'MCP_APP_SESSION_OFFLINE', retryable: true,
+        });
+        gate.resolve({ contents: [{ uri: 'ui://demo/late', text: 'CANARY_LATE_RESULT' }] });
+        await Promise.resolve();
         expect(controller.getState()).toEqual({ type: 'fallback' });
     });
 });

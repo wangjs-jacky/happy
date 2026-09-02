@@ -3,6 +3,12 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { App } from '@modelcontextprotocol/ext-apps';
+import {
+    EmptyResultSchema,
+    ListPromptsResultSchema,
+    ListResourceTemplatesResultSchema,
+    ListToolsResultSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
@@ -36,6 +42,21 @@ describe('MCP App Host Shell protocol', () => {
             { type: 'tool-result', instanceId: 'frame-1', result: { content: [] } },
             { type: 'tool-cancelled', instanceId: 'frame-1', reason: 'Stopped' },
             { type: 'host-context', instanceId: 'frame-1', context },
+            {
+                type: 'bridge-response', instanceId: 'frame-1', requestId: 'request-1',
+                response: { ok: true, value: {} },
+            },
+            {
+                type: 'bridge-response', instanceId: 'frame-1', requestId: 'request-2',
+                response: {
+                    ok: false,
+                    error: {
+                        code: 'MCP_APP_PERMISSION_DENIED',
+                        retryable: false,
+                        summary: 'Permission was denied.',
+                    },
+                },
+            },
             { type: 'teardown', instanceId: 'frame-1' },
         ];
 
@@ -51,6 +72,10 @@ describe('MCP App Host Shell protocol', () => {
             { type: 'sandbox-ready', instanceId: 'frame-1' },
             { type: 'initialized', instanceId: 'frame-1' },
             { type: 'resize', instanceId: 'frame-1', height: 320 },
+            {
+                type: 'bridge-request', instanceId: 'frame-1', requestId: 'request-1',
+                request: { method: 'ping', params: {} },
+            },
             { type: 'teardown-complete', instanceId: 'frame-1' },
             { type: 'protocol-error', instanceId: 'frame-1' },
         ]) {
@@ -129,6 +154,213 @@ describe('MCP App Host Shell protocol', () => {
         window.dispatchEvent(new MessageEvent('message', { data: '{malformed-native', source: null }));
         await vi.waitFor(() => expect(document.querySelector('iframe')).toBeNull());
         expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+
+        await app.close();
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('relays official requests with correlation and returns stable success or error responses', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = {
+            postMessage: (value) => {
+                const message = JSON.parse(value);
+                posted.push(message);
+                if (message.type !== 'bridge-request') return;
+                if (message.request.params?.name === 'late') return;
+                const values: Record<string, unknown> = {
+                    'resources/read': {
+                        contents: [{ uri: 'ui://demo/detail', text: 'detail' }],
+                    },
+                    'tools/call': {
+                        content: [{ type: 'text', text: 'done' }],
+                    },
+                    ping: {},
+                    'ui/open-link': {},
+                };
+                queueMicrotask(() => window.dispatchEvent(new MessageEvent('message', {
+                    source: null,
+                    data: JSON.stringify({
+                        type: 'bridge-response',
+                        instanceId: message.instanceId,
+                        requestId: message.requestId,
+                        response: message.request.params?.name === 'denied'
+                            ? {
+                                ok: false,
+                                error: {
+                                    code: 'MCP_APP_PERMISSION_DENIED',
+                                    retryable: false,
+                                    summary: 'Permission was denied.',
+                                },
+                            }
+                            : { ok: true, value: values[message.request.method] },
+                    }),
+                })));
+            },
+        };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const target = document.querySelector('iframe')!.contentWindow!;
+        const viewTransport: any = {
+            async start() {},
+            async close() {},
+            async send(message: unknown) {
+                window.dispatchEvent(new MessageEvent('message', { data: message, source: target }));
+            },
+        };
+        vi.spyOn(target, 'postMessage').mockImplementation((message: unknown) => {
+            viewTransport.onmessage?.(message);
+        });
+        const app = new App({ name: 'Fixture View', version: '1.0.0' }, {}, { autoResize: false });
+        await app.connect(viewTransport);
+
+        await expect(app.readServerResource({ uri: 'ui://demo/detail' })).resolves.toEqual({
+            contents: [{ uri: 'ui://demo/detail', text: 'detail' }],
+        });
+        await expect(app.callServerTool({ name: 'refresh', arguments: { id: 1 } })).resolves.toEqual({
+            content: [{ type: 'text', text: 'done' }],
+        });
+        await expect((app as any).request(
+            { method: 'ping', params: {} },
+            EmptyResultSchema,
+        )).resolves.toEqual({});
+        await expect(app.openLink({ url: 'https://example.com/path' })).resolves.toEqual({});
+        await expect(app.callServerTool({
+            name: 'denied', arguments: { secret: 'CANARY_ARGUMENT' },
+        })).rejects.toMatchObject({
+            data: expect.objectContaining({ code: 'MCP_APP_PERMISSION_DENIED' }),
+        });
+
+        const requests = posted.filter((message) => message.type === 'bridge-request');
+        expect(requests.map((message) => message.request)).toEqual([
+            { method: 'resources/read', params: { uri: 'ui://demo/detail' } },
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'refresh',
+                    arguments: { id: 1 },
+                    _meta: { progressToken: expect.any(Number) },
+                },
+            },
+            { method: 'ping', params: {} },
+            { method: 'ui/open-link', params: { url: 'https://example.com/path' } },
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'denied',
+                    arguments: { secret: 'CANARY_ARGUMENT' },
+                    _meta: { progressToken: expect.any(Number) },
+                },
+            },
+        ]);
+        expect(new Set(requests.map((message) => message.requestId)).size).toBe(requests.length);
+        for (const request of requests) {
+            expect(request).not.toHaveProperty('threadId');
+            expect(request).not.toHaveProperty('server');
+            expect(request).not.toHaveProperty('connectorId');
+            expect(request).not.toHaveProperty('callId');
+        }
+        const logged = JSON.stringify([
+            ...debug.mock.calls,
+            ...warn.mock.calls,
+            ...error.mock.calls,
+        ]);
+        expect(logged).not.toContain('CANARY_ARGUMENT');
+        expect(logged).not.toContain('ui://demo/detail');
+        expect(logged).not.toContain('Fixture View');
+
+        const abortController = new AbortController();
+        const late = app.callServerTool(
+            { name: 'late' },
+            { signal: abortController.signal },
+        );
+        await vi.waitFor(() => expect(posted.some((message) => (
+            message.type === 'bridge-request' && message.request.params?.name === 'late'
+        ))).toBe(true));
+        const lateRequest = posted.find((message) => (
+            message.type === 'bridge-request' && message.request.params?.name === 'late'
+        ));
+        abortController.abort();
+        await expect(late).rejects.toBeTruthy();
+        window.dispatchEvent(new MessageEvent('message', {
+            source: null,
+            data: JSON.stringify({
+                type: 'bridge-response',
+                instanceId: lateRequest.instanceId,
+                requestId: lateRequest.requestId,
+                response: { ok: true, value: { content: [] } },
+            }),
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(document.querySelector('iframe')).toBeTruthy();
+        expect(posted.at(-1)).not.toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+
+        await app.close();
+        stop();
+        delete shellWindow.ReactNativeWebView;
+        debug.mockRestore();
+        warn.mockRestore();
+        error.mockRestore();
+    });
+
+    it('returns method-not-found for unsupported fullscreen, download, model, sampling, prompt, list, and event methods', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const target = document.querySelector('iframe')!.contentWindow!;
+        const viewTransport: any = {
+            async start() {}, async close() {},
+            async send(message: unknown) {
+                window.dispatchEvent(new MessageEvent('message', { data: message, source: target }));
+            },
+        };
+        vi.spyOn(target, 'postMessage').mockImplementation((message: unknown) => viewTransport.onmessage?.(message));
+        const app = new App({ name: 'Fixture View', version: '1.0.0' }, {}, { autoResize: false });
+        await app.connect(viewTransport);
+
+        const unsupported = [
+            () => app.requestDisplayMode({ mode: 'fullscreen' }),
+            () => app.requestDisplayMode({ mode: 'pip' }),
+            () => app.downloadFile({ contents: [] }),
+            () => app.updateModelContext({ structuredContent: { canary: true } }),
+            () => app.createSamplingMessage({ messages: [], maxTokens: 1 }),
+            () => app.listServerResources({}),
+            () => app.sendMessage({ role: 'user', content: [{ type: 'text', text: 'hello' }] }),
+            () => (app as any).request({ method: 'tools/list', params: {} }, ListToolsResultSchema),
+            () => (app as any).request(
+                { method: 'resources/templates/list', params: {} },
+                ListResourceTemplatesResultSchema,
+            ),
+            () => (app as any).request({ method: 'prompts/list', params: {} }, ListPromptsResultSchema),
+            () => (app as any).request(
+                { method: 'ui/request-device-permission', params: { permission: 'camera' } },
+                EmptyResultSchema,
+            ),
+            () => (app as any).request(
+                { method: 'notifications/tools/list_changed', params: {} },
+                EmptyResultSchema,
+            ),
+            () => (app as any).request(
+                { method: 'ui/events/subscribe', params: { event: 'all' } },
+                EmptyResultSchema,
+            ),
+        ];
+        for (const request of unsupported) {
+            await expect(request()).rejects.toMatchObject({ code: -32601 });
+        }
+        expect(posted.filter((message) => message.type === 'bridge-request')).toEqual([]);
 
         await app.close();
         stop();

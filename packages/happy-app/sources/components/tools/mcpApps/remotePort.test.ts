@@ -6,6 +6,8 @@ import type {
     McpAppResourceOpenRequest,
     McpAppResourceOpenResponse,
     McpAppResourceRpcClient,
+    McpAppResourceReadRequest,
+    McpAppToolCallRequest,
 } from '@/sync/ops.mcpApps';
 import { createMcpAppRemotePort } from './remotePort';
 
@@ -20,6 +22,8 @@ const validOpen: McpAppResourceOpenResponse = {
 
 class InMemoryResourceRpc implements McpAppResourceRpcClient {
     readonly chunkRequests: McpAppResourceChunkRequest[] = [];
+    readonly secondaryRequests: McpAppResourceReadRequest[] = [];
+    readonly toolRequests: McpAppToolCallRequest[] = [];
 
     constructor(
         private readonly open: McpAppResourceOpenResponse,
@@ -38,6 +42,22 @@ class InMemoryResourceRpc implements McpAppResourceRpcClient {
         const response = this.chunks.shift();
         if (!response) throw new Error('unexpected chunk read');
         return response;
+    }
+
+    async readSecondaryResource(
+        _sessionId: string,
+        input: McpAppResourceReadRequest,
+    ): Promise<{ contents: unknown[] }> {
+        this.secondaryRequests.push(input);
+        return { contents: [{ uri: input.uri, text: 'detail' }] };
+    }
+
+    async callTool(
+        _sessionId: string,
+        input: McpAppToolCallRequest,
+    ): Promise<{ content: unknown[] }> {
+        this.toolRequests.push(input);
+        return { content: [{ type: 'text', text: 'done' }] };
     }
 }
 
@@ -171,16 +191,30 @@ describe('MCP App verified remote port', () => {
         });
     });
 
-    it('reports tool calls as unsupported until the interactive bridge is enabled', async () => {
-        const port = portFor(validOpen, []);
+    it('forwards secondary resources and tool calls through the typed encrypted RPC only', async () => {
+        const rpc = new InMemoryResourceRpc(validOpen, []);
+        const port = createMcpAppRemotePort({
+            sessionId: 'session-1',
+            rpc,
+            hashBytes: async (bytes) => createHash('sha256').update(bytes).digest('hex'),
+        });
 
+        await expect(port.readSecondaryResource({
+            callId: 'call-1',
+            uri: 'ui://demo/detail',
+        })).resolves.toEqual({
+            contents: [{ uri: 'ui://demo/detail', text: 'detail' }],
+        });
         await expect(port.callTool({
             callId: 'call-1',
             tool: 'refresh',
-            arguments: {},
-        })).rejects.toMatchObject({
-            code: 'MCP_APP_UNSUPPORTED',
-            retryable: false,
+            arguments: { id: 1 },
+        })).resolves.toEqual({
+            content: [{ type: 'text', text: 'done' }],
         });
+        expect(rpc.secondaryRequests).toEqual([{ callId: 'call-1', uri: 'ui://demo/detail' }]);
+        expect(rpc.toolRequests).toEqual([{
+            callId: 'call-1', tool: 'refresh', arguments: { id: 1 },
+        }]);
     });
 });

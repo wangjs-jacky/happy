@@ -28,6 +28,11 @@ type PendingMount = {
     mountSent: boolean;
     abortListener: () => void;
 };
+type ActiveFrame = {
+    input: FrameMountInput;
+    acceptingRequests: boolean;
+    requests: Map<string, AbortController>;
+};
 
 function byteLength(value: string): number {
     let bytes = 0;
@@ -47,6 +52,39 @@ function protocolError(): McpAppHostError {
     return new McpAppHostError('MCP_APP_BRIDGE_PROTOCOL', false, 'The App bridge protocol failed.');
 }
 
+const SAFE_ERROR_SUMMARIES: Record<McpAppHostError['code'], string> = {
+    MCP_APP_UNSUPPORTED: 'This App is not supported.',
+    MCP_APP_SESSION_OFFLINE: 'The session is no longer available.',
+    MCP_APP_BINDING_NOT_FOUND: 'This App resource is no longer available.',
+    MCP_APP_ORIGIN_MISMATCH: 'Waiting for the trusted App origin.',
+    MCP_APP_RESOURCE_NOT_FOUND: 'The App resource was not found.',
+    MCP_APP_INVALID_RESOURCE: 'The App resource is invalid.',
+    MCP_APP_RESOURCE_TOO_LARGE: 'The App resource is too large.',
+    MCP_APP_RESULT_TOO_LARGE: 'The App result is too large.',
+    MCP_APP_TOOL_NOT_ALLOWED: 'This App action is not allowed.',
+    MCP_APP_PERMISSION_DENIED: 'Permission was denied.',
+    MCP_APP_SANDBOX_UNAVAILABLE: 'The App sandbox is unavailable.',
+    MCP_APP_BRIDGE_PROTOCOL: 'The App bridge protocol failed.',
+    MCP_APP_TIMEOUT: 'The App request timed out.',
+    MCP_APP_INTERNAL: 'The App request could not be completed.',
+};
+
+function safeBridgeFailure(error: unknown) {
+    const normalized = error instanceof McpAppHostError
+        ? error
+        : new McpAppHostError(
+            'MCP_APP_INTERNAL', false, 'The App request could not be completed.',
+        );
+    return {
+        ok: false as const,
+        error: {
+            code: normalized.code,
+            retryable: normalized.retryable,
+            summary: SAFE_ERROR_SUMMARIES[normalized.code],
+        },
+    };
+}
+
 let nextInstanceId = 0;
 
 export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
@@ -55,7 +93,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
     private readonly createInstanceId: () => string;
     private handle?: WebViewHandle;
     private pending?: PendingMount;
-    private active?: { onFailure(error: McpAppHostError): void };
+    private active?: ActiveFrame;
     private navigationAvailable = false;
     private resizeTimer?: ReturnType<typeof setTimeout>;
     private pendingHeight?: number;
@@ -147,8 +185,14 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
             pending.initialized = true;
             pending.input.signal.removeEventListener('abort', pending.abortListener);
             this.pending = undefined;
-            this.active = { onFailure: pending.input.onFailure };
+            this.active = {
+                input: pending.input,
+                acceptingRequests: true,
+                requests: new Map(),
+            };
             pending.resolve(this.createFrame(message.instanceId));
+        } else if (message.type === 'bridge-request') {
+            this.handleBridgeRequest(message.instanceId, message.requestId, message.request);
         } else if (message.type === 'resize') {
             this.queueResize(message.height);
         } else if (message.type === 'teardown-complete') {
@@ -156,6 +200,56 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
             this.finishTeardown();
         }
     };
+
+    private handleBridgeRequest(
+        instanceId: string,
+        requestId: string,
+        request: Parameters<FrameMountInput['onRequest']>[0],
+    ): void {
+        const active = this.active;
+        if (!active || !active.acceptingRequests || active.requests.has(requestId)) {
+            this.fail(protocolError());
+            return;
+        }
+        const operation = new AbortController();
+        active.requests.set(requestId, operation);
+        void active.input.onRequest(request, operation.signal).then(
+            (value) => this.finishBridgeRequest(active, instanceId, requestId, {
+                ok: true,
+                value,
+            }),
+            (error) => this.finishBridgeRequest(
+                active,
+                instanceId,
+                requestId,
+                safeBridgeFailure(error),
+            ),
+        );
+    }
+
+    private finishBridgeRequest(
+        owned: ActiveFrame,
+        instanceId: string,
+        requestId: string,
+        response: { ok: true; value: unknown } | ReturnType<typeof safeBridgeFailure>,
+    ): void {
+        if (this.active !== owned || !owned.acceptingRequests
+            || !owned.requests.delete(requestId)
+            || this.snapshot.instanceId !== instanceId) return;
+        try {
+            this.send({ type: 'bridge-response', instanceId, requestId, response });
+        } catch {
+            // send() already revokes the frame and reports its protocol failure.
+        }
+    }
+
+    private revokeActiveRequests(): void {
+        const active = this.active;
+        if (!active) return;
+        active.acceptingRequests = false;
+        for (const operation of active.requests.values()) operation.abort();
+        active.requests.clear();
+    }
 
     private createFrame(instanceId: string): McpAppFrame {
         return {
@@ -198,6 +292,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
     private teardown(instanceId: string): Promise<void> {
         if (!this.snapshot.visible || this.snapshot.instanceId !== instanceId) return Promise.resolve();
         if (this.teardownResolve) return Promise.resolve();
+        this.revokeActiveRequests();
         return new Promise<void>((resolve) => {
             this.teardownResolve = resolve;
             try { this.send({ type: 'teardown', instanceId }); } catch { this.finishTeardown(); return; }
@@ -218,6 +313,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
     private fail(error: McpAppHostError): void {
         const pending = this.pending;
         const active = this.active;
+        this.revokeActiveRequests();
         this.pending = undefined;
         this.active = undefined;
         if (pending) {
@@ -227,7 +323,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         this.clearOwnedState();
         this.teardownResolve?.();
         this.teardownResolve = undefined;
-        if (!pending && active) active.onFailure(error);
+        if (!pending && active) active.input.onFailure(error);
     }
 
     onWebViewFailure = (): void => {

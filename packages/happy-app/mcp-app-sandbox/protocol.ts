@@ -25,12 +25,69 @@ const mcpAppToolResultSchema = z.object({
     isError: z.boolean().optional(),
 }).strict();
 
+const mcpAppErrorCodeSchema = z.enum([
+    'MCP_APP_UNSUPPORTED',
+    'MCP_APP_SESSION_OFFLINE',
+    'MCP_APP_BINDING_NOT_FOUND',
+    'MCP_APP_ORIGIN_MISMATCH',
+    'MCP_APP_RESOURCE_NOT_FOUND',
+    'MCP_APP_INVALID_RESOURCE',
+    'MCP_APP_RESOURCE_TOO_LARGE',
+    'MCP_APP_RESULT_TOO_LARGE',
+    'MCP_APP_TOOL_NOT_ALLOWED',
+    'MCP_APP_PERMISSION_DENIED',
+    'MCP_APP_SANDBOX_UNAVAILABLE',
+    'MCP_APP_BRIDGE_PROTOCOL',
+    'MCP_APP_TIMEOUT',
+    'MCP_APP_INTERNAL',
+]);
+
+export const mcpAppBridgeRequestSchema = z.discriminatedUnion('method', [
+    z.object({ method: z.literal('ping'), params: z.object({}).strict() }).strict(),
+    z.object({
+        method: z.literal('resources/read'),
+        params: z.object({ uri: z.string().min(1).max(8_192) }).strict(),
+    }).strict(),
+    z.object({
+        method: z.literal('tools/call'),
+        params: z.object({
+            name: z.string().min(1).max(256),
+            arguments: z.record(z.string(), z.unknown()).optional(),
+            _meta: z.unknown().optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        method: z.literal('ui/open-link'),
+        params: z.object({ url: z.string().min(1).max(8_192) }).strict(),
+    }).strict(),
+]);
+
+export const mcpAppBridgeResponseSchema = z.discriminatedUnion('ok', [
+    z.object({ ok: z.literal(true), value: z.unknown() }).strict(),
+    z.object({
+        ok: z.literal(false),
+        error: z.object({
+            code: mcpAppErrorCodeSchema,
+            retryable: z.boolean(),
+            summary: z.string().min(1).max(280),
+        }).strict(),
+    }).strict(),
+]);
+
+const bridgeRequestIdSchema = z.string().min(1).max(128);
+
 export const hostCommandSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('mount'), instanceId: z.string().min(1), html: z.string(), context: hostContextSchema }).strict(),
     z.object({ type: z.literal('tool-input'), instanceId: z.string().min(1), input: z.record(z.string(), z.unknown()) }).strict(),
     z.object({ type: z.literal('tool-result'), instanceId: z.string().min(1), result: mcpAppToolResultSchema }).strict(),
     z.object({ type: z.literal('tool-cancelled'), instanceId: z.string().min(1), reason: z.string().max(280) }).strict(),
     z.object({ type: z.literal('host-context'), instanceId: z.string().min(1), context: hostContextSchema }).strict(),
+    z.object({
+        type: z.literal('bridge-response'),
+        instanceId: z.string().min(1),
+        requestId: bridgeRequestIdSchema,
+        response: mcpAppBridgeResponseSchema,
+    }).strict(),
     z.object({ type: z.literal('teardown'), instanceId: z.string().min(1) }).strict(),
 ]);
 
@@ -38,12 +95,20 @@ export const nativeMessages = z.discriminatedUnion('type', [
     z.object({ type: z.literal('sandbox-ready'), instanceId: z.string().min(1) }).strict(),
     z.object({ type: z.literal('initialized'), instanceId: z.string().min(1) }).strict(),
     z.object({ type: z.literal('resize'), instanceId: z.string().min(1), height: z.number() }).strict(),
+    z.object({
+        type: z.literal('bridge-request'),
+        instanceId: z.string().min(1),
+        requestId: bridgeRequestIdSchema,
+        request: mcpAppBridgeRequestSchema,
+    }).strict(),
     z.object({ type: z.literal('teardown-complete'), instanceId: z.string().min(1) }).strict(),
     z.object({ type: z.literal('protocol-error'), instanceId: z.string().min(1) }).strict(),
 ]);
 
 export type HostCommand = z.infer<typeof hostCommandSchema>;
 export type NativeMessage = z.infer<typeof nativeMessages>;
+export type McpAppBridgeRequest = z.infer<typeof mcpAppBridgeRequestSchema>;
+export type McpAppBridgeResponse = z.infer<typeof mcpAppBridgeResponseSchema>;
 
 export function utf8ByteLength(value: string): number {
     return new TextEncoder().encode(value).byteLength;

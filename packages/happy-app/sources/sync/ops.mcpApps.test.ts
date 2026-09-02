@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS,
+    MCP_APP_INTERACTIVE_TIMEOUT_MS,
     MCP_APP_RESOURCE_START_TIMEOUT_MS,
     createMcpAppResourceRpcClient,
 } from './ops.mcpApps';
@@ -45,6 +46,75 @@ describe('MCP App RPC operations', () => {
         ]);
         expect(MCP_APP_RESOURCE_START_TIMEOUT_MS).toBe(30_000);
         expect(MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS).toBe(15_000);
+    });
+
+    it('uses exact encrypted interactive RPC methods and immutable call authority', async () => {
+        const calls: Array<{ sessionId: string; method: string; params: unknown; timeoutMs?: number }> = [];
+        const client = createMcpAppResourceRpcClient(async (sessionId, method, params, options) => {
+            calls.push({ sessionId, method, params, timeoutMs: options?.timeoutMs });
+            if (method === 'mcpAppResourceRead') {
+                return { ok: true, value: { contents: [{ uri: 'ui://demo/detail', text: 'detail' }] } };
+            }
+            return { ok: true, value: { content: [{ type: 'text', text: 'done' }] } };
+        });
+
+        await client.readSecondaryResource('session-1', {
+            callId: 'call-1',
+            uri: 'ui://demo/detail',
+        });
+        await client.callTool('session-1', {
+            callId: 'call-1',
+            tool: 'refresh',
+            arguments: { id: 1 },
+            _meta: { progressToken: 'view-token' },
+        });
+
+        expect(calls).toEqual([
+            {
+                sessionId: 'session-1',
+                method: 'mcpAppResourceRead',
+                params: { callId: 'call-1', uri: 'ui://demo/detail' },
+                timeoutMs: MCP_APP_INTERACTIVE_TIMEOUT_MS,
+            },
+            {
+                sessionId: 'session-1',
+                method: 'mcpAppToolCall',
+                params: {
+                    callId: 'call-1',
+                    tool: 'refresh',
+                    arguments: { id: 1 },
+                    _meta: { progressToken: 'view-token' },
+                },
+                timeoutMs: MCP_APP_INTERACTIVE_TIMEOUT_MS,
+            },
+        ]);
+        for (const call of calls) {
+            expect(call.params).not.toHaveProperty('threadId');
+            expect(call.params).not.toHaveProperty('server');
+            expect(call.params).not.toHaveProperty('connectorId');
+            expect(call.params).not.toHaveProperty('originCallId');
+        }
+        expect(MCP_APP_INTERACTIVE_TIMEOUT_MS).toBe(30_000);
+    });
+
+    it('preserves permission denial as a stable display-safe error', async () => {
+        const client = createMcpAppResourceRpcClient(async () => ({
+            ok: false,
+            error: {
+                code: 'MCP_APP_PERMISSION_DENIED',
+                retryable: false,
+                summary: 'Permission was denied.',
+            },
+        }));
+
+        await expect(client.callTool('session-1', {
+            callId: 'call-1',
+            tool: 'delete_everything',
+        })).rejects.toMatchObject({
+            code: 'MCP_APP_PERMISSION_DENIED',
+            retryable: false,
+            summary: 'Permission was denied.',
+        });
     });
 
     it('maps transport timeouts to a safe retryable timeout error', async () => {

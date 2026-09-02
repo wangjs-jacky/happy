@@ -67,7 +67,7 @@ describe('NativeMcpAppFrameAdapter', () => {
         const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
-        act(() => { void adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn() }); });
+        act(() => { void adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn(), onRequest: vi.fn() }); });
         const webView = renderer.root.findByType('WebView');
 
         expect(webView.props.testID).toBe('mcp-app-sandbox-frame');
@@ -108,7 +108,7 @@ describe('NativeMcpAppFrameAdapter', () => {
         act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
         const ready = vi.fn();
         let mounted!: Promise<any>;
-        act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: ready, onFailure: vi.fn() }); });
+        act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: ready, onFailure: vi.fn(), onRequest: vi.fn() }); });
         const webView = renderer.root.findByType('WebView');
         act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
         act(() => webView.props.onLoadEnd());
@@ -166,7 +166,7 @@ describe('NativeMcpAppFrameAdapter', () => {
             let renderer: any;
             act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
             let mounted!: Promise<any>;
-            act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn() }); });
+            act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn(), onRequest: vi.fn() }); });
             const webView = renderer.root.findByType('WebView');
             act(() => webView.props.onMessage({ nativeEvent: { data } }));
 
@@ -194,7 +194,7 @@ describe('NativeMcpAppFrameAdapter', () => {
             act(() => {
                 mounted = adapter.mount({
                     resource, context, signal: new AbortController().signal,
-                    onSandboxReady: vi.fn(), onFailure,
+                    onSandboxReady: vi.fn(), onFailure, onRequest: vi.fn(),
                 });
             });
             const webView = renderer.root.findByType('WebView');
@@ -231,7 +231,7 @@ describe('NativeMcpAppFrameAdapter', () => {
             act(() => {
                 mounted = adapter.mount({
                     resource, context, signal: new AbortController().signal,
-                    onSandboxReady: vi.fn(), onFailure,
+                    onSandboxReady: vi.fn(), onFailure, onRequest: vi.fn(),
                 });
             });
             const webView = renderer.root.findByType('WebView');
@@ -254,5 +254,126 @@ describe('NativeMcpAppFrameAdapter', () => {
             expect(renderer.root.findAllByType('WebView')).toHaveLength(0);
             act(() => renderer.unmount());
         }
+    });
+
+    it('correlates a validated bridge request with a safe response', async () => {
+        const posted: string[] = [];
+        const onRequest = vi.fn(async () => ({
+            content: [{ type: 'text', text: 'done' }],
+        }));
+        const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+        let mounted!: Promise<any>;
+        act(() => {
+            mounted = adapter.mount({
+                resource, context, signal: new AbortController().signal,
+                onSandboxReady: vi.fn(), onFailure: vi.fn(), onRequest,
+            });
+        });
+        const webView = renderer.root.findByType('WebView');
+        act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
+        act(() => webView.props.onLoadEnd());
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'sandbox-ready', instanceId: 'frame-1',
+        }) } }));
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'initialized', instanceId: 'frame-1',
+        }) } }));
+        await mounted;
+
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-request',
+            instanceId: 'frame-1',
+            requestId: 'request-7',
+            request: {
+                method: 'tools/call',
+                params: { name: 'refresh', arguments: { id: 1 } },
+            },
+        }) } }));
+
+        await vi.waitFor(() => expect(onRequest).toHaveBeenCalledWith(
+            {
+                method: 'tools/call',
+                params: { name: 'refresh', arguments: { id: 1 } },
+            },
+            expect.any(AbortSignal),
+        ));
+        await vi.waitFor(() => expect(posted.map((message) => JSON.parse(message))).toContainEqual({
+            type: 'bridge-response',
+            instanceId: 'frame-1',
+            requestId: 'request-7',
+            response: {
+                ok: true,
+                value: { content: [{ type: 'text', text: 'done' }] },
+            },
+        }));
+        expect(JSON.stringify(posted)).not.toContain('call-1');
+        expect(JSON.stringify(posted)).not.toContain('connector');
+
+        act(() => renderer.unmount());
+    });
+
+    it('normalizes raw request errors and never posts a late response after teardown', async () => {
+        let resolveLate!: (value: unknown) => void;
+        let requestCount = 0;
+        const onRequest = vi.fn(() => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                return Promise.reject(new Error('CANARY ui://secret raw error'));
+            }
+            return new Promise<unknown>((resolve) => { resolveLate = resolve; });
+        });
+        const posted: string[] = [];
+        const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+        let mounted!: Promise<any>;
+        act(() => {
+            mounted = adapter.mount({
+                resource, context, signal: new AbortController().signal,
+                onSandboxReady: vi.fn(), onFailure: vi.fn(), onRequest,
+            });
+        });
+        const webView = renderer.root.findByType('WebView');
+        act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
+        act(() => webView.props.onLoadEnd());
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'sandbox-ready', instanceId: 'frame-1' }) } }));
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'initialized', instanceId: 'frame-1' }) } }));
+        const frame = await mounted;
+
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-request', instanceId: 'frame-1', requestId: 'request-error',
+            request: { method: 'ping', params: {} },
+        }) } }));
+        await vi.waitFor(() => expect(posted.map((message) => JSON.parse(message))).toContainEqual({
+            type: 'bridge-response', instanceId: 'frame-1', requestId: 'request-error',
+            response: {
+                ok: false,
+                error: {
+                    code: 'MCP_APP_INTERNAL',
+                    retryable: false,
+                    summary: 'The App request could not be completed.',
+                },
+            },
+        }));
+        expect(JSON.stringify(posted)).not.toContain('CANARY');
+        expect(JSON.stringify(posted)).not.toContain('ui://secret');
+
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-request', instanceId: 'frame-1', requestId: 'request-late',
+            request: { method: 'ping', params: {} },
+        }) } }));
+        await vi.waitFor(() => expect(onRequest).toHaveBeenCalledTimes(2));
+        const disposing = frame.teardown();
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'teardown-complete', instanceId: 'frame-1',
+        }) } }));
+        await disposing;
+        resolveLate({ canary: 'CANARY_LATE_RESPONSE' });
+        await Promise.resolve();
+        expect(JSON.stringify(posted)).not.toContain('CANARY_LATE_RESPONSE');
+
+        act(() => renderer.unmount());
     });
 });

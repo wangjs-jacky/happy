@@ -31,6 +31,8 @@ vi.mock('react-native-unistyles', () => {
     };
 });
 vi.mock('@/sync/storage', () => ({ useSession: () => ({ presence: mocks.presence }) }));
+vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn(async () => false) } }));
+vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn(async () => {}) }));
 vi.mock('@/text', () => ({
     getCurrentLanguage: () => 'en',
     t: (key: string) => key,
@@ -45,6 +47,7 @@ vi.mock('./mcpApps/remotePort', () => ({
                 byteLength: 17, sha256: 'a'.repeat(64), encoding: 'utf8', html: '<main>safe</main>',
             };
         },
+        readSecondaryResource: async () => ({ contents: [] }),
         callTool: async () => { throw new Error('not supported'); },
     }),
 }));

@@ -1,11 +1,17 @@
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
+import { ErrorCode, McpError, PingRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
     MCP_APP_MAX_FRAME_HEIGHT,
+    MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
     MCP_APP_MIN_FRAME_HEIGHT,
     hostContextSchema,
+    mcpAppBridgeRequestSchema,
+    nativeMessages,
     parseHostCommand,
+    utf8ByteLength,
     type HostCommand,
+    type McpAppBridgeRequest,
     type NativeMessage,
 } from './protocol';
 
@@ -56,20 +62,73 @@ function officialHostContext(context: z.infer<typeof hostContextSchema>) {
     };
 }
 
+type AppBridgeRequestExtra = Parameters<Parameters<AppBridge['setRequestHandler']>[1]>[1];
+
+class PawsAppBridge extends AppBridge {
+    replacePingHandler(
+        handler: (
+            request: z.infer<typeof PingRequestSchema>,
+            extra: AppBridgeRequestExtra,
+        ) => Promise<Record<string, never>>,
+    ): void {
+        this.replaceRequestHandler(PingRequestSchema, handler);
+    }
+}
+
 /** Starts the browser-only shell. The inner opaque-origin View never receives the native bridge object. */
 export function startHostShell(shellWindow: ShellWindow = window as ShellWindow): () => void {
     const native = shellWindow.ReactNativeWebView;
     if (!native) return () => {};
 
+    // The official transport logs complete JSON-RPC envelopes by default. This
+    // shell carries HTML, tool arguments/results, resource URIs, and App names,
+    // so its isolated console must stay silent rather than becoming a data sink.
+    const shellConsole = (shellWindow as Window & { console: Console }).console;
+    const originalConsole = {
+        debug: shellConsole.debug,
+        info: shellConsole.info,
+        log: shellConsole.log,
+        warn: shellConsole.warn,
+        error: shellConsole.error,
+    };
+    const silent = () => {};
+    shellConsole.debug = silent;
+    shellConsole.info = silent;
+    shellConsole.log = silent;
+    shellConsole.warn = silent;
+    shellConsole.error = silent;
+
     let instanceId: string | undefined;
     let iframe: HTMLIFrameElement | undefined;
-    let bridge: AppBridge | undefined;
+    let bridge: PawsAppBridge | undefined;
     let disposed = false;
+    let nextRequestId = 0;
+    const pendingBridgeRequests = new Map<string, {
+        resolve(value: unknown): void;
+        reject(error: Error): void;
+        removeAbortListener(): void;
+    }>();
+    const abandonedBridgeRequestIds = new Set<string>();
 
-    const post = (message: NativeMessage) => {
-        if (!disposed || message.type === 'teardown-complete' || message.type === 'protocol-error') {
-            native.postMessage(JSON.stringify(message));
+    const rememberAbandonedRequest = (requestId: string): void => {
+        while (abandonedBridgeRequestIds.size >= 64) {
+            const oldest = abandonedBridgeRequestIds.values().next().value as string | undefined;
+            if (!oldest) break;
+            abandonedBridgeRequestIds.delete(oldest);
         }
+        abandonedBridgeRequestIds.add(requestId);
+    };
+
+    const post = (message: NativeMessage): boolean => {
+        if (!disposed || message.type === 'teardown-complete' || message.type === 'protocol-error') {
+            const parsed = nativeMessages.safeParse(message);
+            if (!parsed.success) return false;
+            const serialized = JSON.stringify(parsed.data);
+            if (utf8ByteLength(serialized) > MCP_APP_MAX_BRIDGE_MESSAGE_BYTES) return false;
+            native.postMessage(serialized);
+            return true;
+        }
+        return false;
     };
     const emitResize = createResizeEmitter((height) => {
         if (instanceId) post({ type: 'resize', instanceId, height });
@@ -79,6 +138,12 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         const ownedId = instanceId;
         const ownedBridge = bridge;
         bridge = undefined;
+        for (const pending of pendingBridgeRequests.values()) {
+            pending.removeAbortListener();
+            pending.reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
+        }
+        pendingBridgeRequests.clear();
+        abandonedBridgeRequestIds.clear();
         if (graceful && ownedBridge) {
             try {
                 await Promise.race([
@@ -107,6 +172,47 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         });
     };
 
+    const relay = (request: McpAppBridgeRequest, signal?: AbortSignal): Promise<unknown> => {
+        if (!instanceId || disposed || signal?.aborted) {
+            return Promise.reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
+        }
+        const parsed = mcpAppBridgeRequestSchema.safeParse(request);
+        if (!parsed.success) {
+            protocolFailure();
+            return Promise.reject(new McpError(ErrorCode.InvalidParams, 'Invalid App request.'));
+        }
+        const requestId = `request-${++nextRequestId}`;
+        return new Promise((resolve, reject) => {
+            const onAbort = () => {
+                const pending = pendingBridgeRequests.get(requestId);
+                if (!pending) return;
+                pendingBridgeRequests.delete(requestId);
+                pending.removeAbortListener();
+                rememberAbandonedRequest(requestId);
+                reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
+            };
+            const removeAbortListener = () => signal?.removeEventListener('abort', onAbort);
+            pendingBridgeRequests.set(requestId, { resolve, reject, removeAbortListener });
+            signal?.addEventListener('abort', onAbort, { once: true });
+            const sent = post({
+                type: 'bridge-request',
+                instanceId: instanceId!,
+                requestId,
+                request: parsed.data,
+            });
+            if (!sent) {
+                pendingBridgeRequests.delete(requestId);
+                removeAbortListener();
+                protocolFailure();
+                reject(new McpError(ErrorCode.InvalidRequest, 'Invalid App request.'));
+            }
+        });
+    };
+
+    const unsupported = async (): Promise<never> => {
+        throw new McpError(ErrorCode.MethodNotFound, 'Method not found');
+    };
+
     const handleCommand = async (raw: unknown) => {
         let command: HostCommand;
         try {
@@ -129,12 +235,40 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
                 protocolFailure();
                 return;
             }
-            bridge = new AppBridge(
+            bridge = new PawsAppBridge(
                 null,
                 { name: 'Paws', version: '1.0.0' },
-                {},
+                { openLinks: {}, serverTools: {}, serverResources: {} },
                 { hostContext: officialHostContext(command.context) },
             );
+            bridge.onreadresource = async ({ uri }, extra) => relay({
+                method: 'resources/read', params: { uri },
+            }, extra.signal) as ReturnType<NonNullable<AppBridge['onreadresource']>>;
+            bridge.oncalltool = async (params, extra) => relay({
+                method: 'tools/call',
+                params: {
+                    name: params.name,
+                    ...(params.arguments !== undefined ? { arguments: params.arguments } : {}),
+                    ...(params._meta !== undefined ? { _meta: params._meta } : {}),
+                },
+            }, extra.signal) as ReturnType<NonNullable<AppBridge['oncalltool']>>;
+            bridge.onopenlink = async ({ url }, extra) => relay({
+                method: 'ui/open-link', params: { url },
+            }, extra.signal) as ReturnType<NonNullable<AppBridge['onopenlink']>>;
+            bridge.replacePingHandler(async (_request, extra) => relay({
+                method: 'ping', params: {},
+            }, extra.signal) as Promise<Record<string, never>>);
+            bridge.onrequestdisplaymode = async ({ mode }) => {
+                if (mode === 'inline') return { mode: 'inline' };
+                return unsupported();
+            };
+            bridge.ondownloadfile = unsupported;
+            bridge.onmessage = unsupported;
+            bridge.onupdatemodelcontext = unsupported;
+            bridge.oncreatesamplingmessage = unsupported;
+            bridge.onlistresources = unsupported;
+            bridge.onlistresourcetemplates = unsupported;
+            bridge.onlistprompts = unsupported;
             bridge.oninitialized = () => {
                 if (instanceId === command.instanceId) post({ type: 'initialized', instanceId: command.instanceId });
             };
@@ -163,6 +297,29 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
                 ); break;
                 case 'tool-cancelled': await bridge.sendToolCancelled({ reason: command.reason }); break;
                 case 'host-context': bridge.setHostContext(officialHostContext(command.context)); break;
+                case 'bridge-response': {
+                    const pending = pendingBridgeRequests.get(command.requestId);
+                    if (!pending) {
+                        if (abandonedBridgeRequestIds.delete(command.requestId)) break;
+                        protocolFailure();
+                        return;
+                    }
+                    pendingBridgeRequests.delete(command.requestId);
+                    pending.removeAbortListener();
+                    if (command.response.ok) {
+                        pending.resolve(command.response.value);
+                    } else {
+                        pending.reject(new McpError(
+                            ErrorCode.InternalError,
+                            command.response.error.summary,
+                            {
+                                code: command.response.error.code,
+                                retryable: command.response.error.retryable,
+                            },
+                        ));
+                    }
+                    break;
+                }
                 case 'teardown': await release(true); break;
             }
         } catch {
@@ -183,6 +340,11 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         shellWindow.removeEventListener('message', listener);
         shellWindow.document.removeEventListener('message', listener as EventListener);
         void release(false, false);
+        shellConsole.debug = originalConsole.debug;
+        shellConsole.info = originalConsole.info;
+        shellConsole.log = originalConsole.log;
+        shellConsole.warn = originalConsole.warn;
+        shellConsole.error = originalConsole.error;
     };
 }
 

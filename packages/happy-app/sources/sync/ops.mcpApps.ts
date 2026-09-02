@@ -3,6 +3,7 @@ import type { RpcCallOptions } from './apiSocket';
 
 export const MCP_APP_RESOURCE_START_TIMEOUT_MS = 30_000;
 export const MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS = 15_000;
+export const MCP_APP_INTERACTIVE_TIMEOUT_MS = 30_000;
 
 export type McpAppResourceOpenRequest = {
     callId: string;
@@ -33,6 +34,30 @@ export type McpAppResourceChunkResponse = {
     nextOffset?: number;
 };
 
+export type McpAppResourceReadRequest = {
+    callId: string;
+    uri: string;
+};
+
+export type McpAppResourceReadResponse = {
+    contents: unknown[];
+    _meta?: unknown;
+};
+
+export type McpAppToolCallRequest = {
+    callId: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+    _meta?: unknown;
+};
+
+export type McpAppToolCallResponse = {
+    content: unknown[];
+    structuredContent?: unknown;
+    _meta?: unknown;
+    isError?: boolean;
+};
+
 export type McpAppRpcResponse<T> =
     | { ok: true; value: T }
     | { ok: false; error: { code: McpAppErrorCode; retryable: boolean; summary: string } };
@@ -55,6 +80,16 @@ export interface McpAppResourceRpcClient {
         input: McpAppResourceChunkRequest,
         signal?: AbortSignal,
     ): Promise<McpAppResourceChunkResponse>;
+    readSecondaryResource(
+        sessionId: string,
+        input: McpAppResourceReadRequest,
+        signal?: AbortSignal,
+    ): Promise<McpAppResourceReadResponse>;
+    callTool(
+        sessionId: string,
+        input: McpAppToolCallRequest,
+        signal?: AbortSignal,
+    ): Promise<McpAppToolCallResponse>;
 }
 
 const ERROR_CODES = new Set<McpAppErrorCode>([
@@ -172,6 +207,20 @@ export function createMcpAppResourceRpcClient(sessionRPC: McpAppSessionRpc): Mcp
             'mcpAppResourceChunk',
             input,
             MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS,
+            signal,
+        ),
+        readSecondaryResource: (sessionId, input, signal) => request<McpAppResourceReadResponse>(
+            sessionId,
+            'mcpAppResourceRead',
+            input,
+            MCP_APP_INTERACTIVE_TIMEOUT_MS,
+            signal,
+        ),
+        callTool: (sessionId, input, signal) => request<McpAppToolCallResponse>(
+            sessionId,
+            'mcpAppToolCall',
+            input,
+            MCP_APP_INTERACTIVE_TIMEOUT_MS,
             signal,
         ),
     };

@@ -6,7 +6,10 @@ import type { McpAppPresentationV1, McpAppResultV1 } from '@slopus/happy-wire';
 import { useSession } from '@/sync/storage';
 import type { ToolCall } from '@/sync/typesMessage';
 import { getCurrentLanguage, t } from '@/text';
+import { Modal } from '@/modal';
+import { openExternalUrl } from '@/utils/openExternalUrl';
 import { createMcpAppHostController, type McpAppHostState } from './mcpApps/hostController';
+import { createMcpAppExternalLinkHandler } from './mcpApps/linkPolicy';
 import { createMcpAppRemotePort } from './mcpApps/remotePort';
 import { createMcpAppFrameAdapter, McpAppFrameView } from './mcpApps/NativeMcpAppFrameAdapter';
 import type { McpAppHostContext } from './mcpApps/types';
@@ -41,6 +44,18 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
         displayMode: 'inline',
     }), [dimensions.height, dimensions.width, insets.bottom, insets.left, insets.right, insets.top, theme.dark]);
 
+    const openExternalLink = React.useMemo(() => createMcpAppExternalLinkHandler({
+        development: typeof __DEV__ !== 'undefined' && __DEV__,
+        confirm: (title, message, options) => Modal.confirm(title, message, options),
+        open: openExternalUrl,
+        copy: {
+            title: t('mcpApps.openLinkTitle'),
+            message: t('mcpApps.openLinkMessage'),
+            confirm: t('mcpApps.openLinkConfirm'),
+            cancel: t('mcpApps.openLinkCancel'),
+        },
+    }), [hostContext.locale]);
+
     React.useEffect(() => {
         if (!online || unavailable) {
             setHostState({ type: 'fallback' });
@@ -54,6 +69,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
             hostContext,
             remotePort,
             frameAdapter,
+            openExternalLink,
             onStateChange: setHostState,
         });
         controllerRef.current = controller;
@@ -64,7 +80,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
         };
         // A call ID identifies one immutable tool invocation; live state/context updates use the effects below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameAdapter, online, presentation.resourceUri, remotePort, toolCall.callId, unavailable]);
+    }, [frameAdapter, online, openExternalLink, presentation.resourceUri, remotePort, toolCall.callId, unavailable]);
 
     React.useEffect(() => {
         controllerRef.current?.updateHostContext(hostContext);
