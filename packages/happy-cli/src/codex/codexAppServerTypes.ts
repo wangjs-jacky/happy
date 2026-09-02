@@ -70,13 +70,46 @@ export type ResumeConversationParams = {
 
 export type ResumeConversationResponse = NewConversationResponse;
 
+export type McpToolCallAppContext = {
+    resourceUri?: string | null;
+    resource_uri?: string | null;
+    templateId?: string | null;
+    appName?: string | null;
+    actionName?: string | null;
+    connectorId?: string | null;
+    [key: string]: unknown;
+};
+
+export type McpToolCallResult = {
+    content?: unknown[];
+    structuredContent?: unknown;
+    _meta?: unknown;
+    [key: string]: unknown;
+};
+
+export type McpToolCallItem = {
+    type: 'mcpToolCall';
+    id: string;
+    server: string;
+    tool: string;
+    status?: string;
+    arguments?: unknown;
+    result?: McpToolCallResult | null;
+    error?: unknown;
+    durationMs?: number | null;
+    appContext?: McpToolCallAppContext | null;
+    mcpAppResourceUri?: string | null;
+    readOnlyHint?: boolean | null;
+    [key: string]: unknown;
+};
+
 export type ThreadItem =
     | { type: "userMessage"; id: string; content: InputItem[] }
     | { type: "agentMessage"; id: string; text: string; phase?: string | null; memoryCitation?: unknown | null }
     | { type: "reasoning"; id: string; summary?: string[]; content?: string[] }
     | { type: "commandExecution"; id: string; command: string; cwd?: string; status?: string; aggregatedOutput?: string | null; exitCode?: number | null; durationMs?: number | null }
     | { type: "fileChange"; id: string; changes: unknown[]; status?: string }
-    | { type: "mcpToolCall"; id: string; server: string; tool: string; status?: string; arguments?: unknown; result?: unknown; error?: unknown; durationMs?: number | null }
+    | McpToolCallItem
     | ({ type: string; id: string } & Record<string, unknown>);
 
 export type ThreadTurn = {

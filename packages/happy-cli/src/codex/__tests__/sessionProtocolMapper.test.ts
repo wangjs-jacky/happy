@@ -13,7 +13,89 @@ import {
     markPawsTurnOrigin,
 } from '../codexPrompt';
 
+function stripEnvelopeIdentity(envelopes: ReturnType<typeof mapCodexThreadToSessionEnvelopes>) {
+    return envelopes.map(({ id: _id, time: _time, ...envelope }) => envelope);
+}
+
 describe('mapCodexMcpMessageToSessionEnvelopes', () => {
+    it('maps live MCP App items to the same structured event pair as replay', () => {
+        const normalizedCall = {
+            callId: 'call-mcp-app',
+            server: 'demo',
+            tool: 'show_dashboard',
+            input: { period: 'week' },
+            presentation: {
+                version: 1 as const,
+                server: 'demo',
+                resourceUri: 'ui://demo/dashboard.html',
+                appName: 'Demo Dashboard',
+            },
+            result: {
+                version: 1 as const,
+                state: 'available' as const,
+                content: [{ type: 'text', text: 'done' }],
+                structuredContent: { count: 1 },
+                _meta: { privateViewState: 'opaque' },
+            },
+        };
+        const liveStart = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_begin',
+            turn_id: 'turn-mcp-app',
+            item_id: 'call-mcp-app',
+            call_id: 'call-mcp-app',
+            mcp_call: normalizedCall,
+        }, { currentTurnId: 'turn-mcp-app' });
+        const liveEnd = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_end',
+            turn_id: 'turn-mcp-app',
+            item_id: 'call-mcp-app',
+            call_id: 'call-mcp-app',
+            status: 'completed',
+            mcp_call: normalizedCall,
+        }, liveStart);
+        const liveEnvelopes = [...liveStart.envelopes, ...liveEnd.envelopes];
+
+        const replayEnvelopes = mapCodexThreadToSessionEnvelopes({
+            turns: [{
+                id: 'turn-mcp-app',
+                startedAt: 100,
+                completedAt: 101,
+                status: 'completed',
+                items: [{
+                    id: 'call-mcp-app',
+                    type: 'mcpToolCall',
+                    server: 'demo',
+                    tool: 'show_dashboard',
+                    status: 'completed',
+                    arguments: { period: 'week' },
+                    result: {
+                        content: [{ type: 'text', text: 'done' }],
+                        structuredContent: { count: 1 },
+                        _meta: { privateViewState: 'opaque' },
+                    },
+                    appContext: {
+                        resourceUri: 'ui://demo/dashboard.html',
+                        templateId: 'dashboard-template',
+                        appName: 'Demo Dashboard',
+                    },
+                }],
+            }],
+        }).filter((envelope) => envelope.ev.t === 'tool-call-start' || envelope.ev.t === 'tool-call-end');
+
+        expect(stripEnvelopeIdentity(liveEnvelopes)).toEqual(stripEnvelopeIdentity(replayEnvelopes));
+        expect(liveEnvelopes.map((envelope) => envelope.ev.t)).toEqual(['tool-call-start', 'tool-call-end']);
+        const end = liveEnvelopes[1];
+        expect(end.ev.t).toBe('tool-call-end');
+        if (end.ev.t === 'tool-call-end') {
+            expect(end.ev.mcpAppResult).toEqual({
+                version: 1,
+                state: 'available',
+                content: [{ type: 'text', text: 'done' }],
+                structuredContent: { count: 1 },
+                _meta: { privateViewState: 'opaque' },
+            });
+        }
+    });
     it('maps a Codex Desktop user item into a root user envelope', () => {
         const result = mapCodexMcpMessageToSessionEnvelopes({
             type: 'user_message',

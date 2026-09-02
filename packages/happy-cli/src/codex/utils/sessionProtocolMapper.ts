@@ -11,6 +11,10 @@ import {
     readPawsTurnOrigin,
     stripPawsTurnOrigin,
 } from '../codexPrompt';
+import {
+    CodexMcpAppAdapter,
+    type NormalizedCodexMcpAppCall,
+} from '../mcpApps/CodexMcpAppAdapter';
 
 export type CodexTurnState = {
     currentTurnId: string | null;
@@ -40,6 +44,8 @@ type LegacyToolLikeMessage = {
 };
 
 type TurnEndStatus = 'completed' | 'failed' | 'cancelled';
+
+const codexMcpAppAdapter = new CodexMcpAppAdapter();
 
 function getStartedSubagents(state: CodexTurnState): Set<string> {
     return state.startedSubagents ?? new Set<string>();
@@ -450,6 +456,42 @@ function emitHistoricalToolCall(
     }));
 }
 
+function createMcpToolCallStartEnvelope(
+    call: NormalizedCodexMcpAppCall,
+    opts: CreateEnvelopeOptions,
+): SessionEnvelope {
+    const title = `${call.server}.${call.tool}`;
+    return createEnvelope('agent', {
+        t: 'tool-call-start',
+        call: call.callId,
+        name: 'McpTool',
+        title,
+        description: title,
+        args: {
+            server: call.server,
+            tool: call.tool,
+            arguments: call.input,
+        },
+        ...(call.presentation ? { mcpApp: call.presentation } : {}),
+    }, { ...opts, id: `${call.callId}:start` });
+}
+
+function createMcpToolCallEndEnvelope(
+    call: NormalizedCodexMcpAppCall,
+    statusSource: Record<string, unknown>,
+    opts: CreateEnvelopeOptions,
+): SessionEnvelope {
+    const status = pickTurnEndStatus(statusSource, 'mcp_tool_call_end');
+    const failure = getToolFailure(statusSource, status);
+    return createEnvelope('agent', {
+        t: 'tool-call-end',
+        call: call.callId,
+        status,
+        ...(failure ? { error: failure } : {}),
+        ...(call.result ? { mcpAppResult: call.result } : {}),
+    }, { ...opts, id: `${call.callId}:end` });
+}
+
 export function mapCodexThreadToSessionEnvelopes(
     thread: Pick<Thread, 'turns'>,
     opts?: {
@@ -586,23 +628,19 @@ export function mapCodexThreadToSessionEnvelopes(
                     break;
                 }
                 case 'mcpToolCall': {
-                    const title = `${item.server}.${item.tool}`;
-                    const output = item.error !== undefined && item.error !== null
-                        ? String(item.error)
-                        : (item.result !== undefined && item.result !== null ? String(item.result) : null);
-                    emitHistoricalToolCall(
-                        envelopes,
-                        turn,
-                        item,
-                        'McpTool',
-                        title,
-                        {
-                            server: item.server,
-                            tool: item.tool,
-                            arguments: item.arguments,
-                        },
-                        output,
-                    );
+                    const mcpItem = item as Extract<ThreadItem, { type: 'mcpToolCall' }>;
+                    const normalized = codexMcpAppAdapter.normalizeItem(mcpItem);
+                    const opts = {
+                        turn: turn.id,
+                        time: startedAt,
+                        codexItemId: item.id,
+                    } satisfies CreateEnvelopeOptions;
+                    envelopes.push(createMcpToolCallStartEnvelope(normalized, opts));
+                    envelopes.push(createMcpToolCallEndEnvelope(
+                        normalized,
+                        mcpItem as unknown as Record<string, unknown>,
+                        { ...opts, time: completedAt },
+                    ));
                     break;
                 }
             }
@@ -899,6 +937,34 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
         subagent ? (getSubagentTurn(providerSubagentToSessionSubagent, subagent) ?? rootTurnId) : rootTurnId,
         subagent,
     );
+
+    if (type === 'mcp_tool_call_begin' || type === 'mcp_tool_call_end') {
+        const call = message.mcp_call as NormalizedCodexMcpAppCall | undefined;
+        if (!call || typeof call.callId !== 'string') {
+            return {
+                currentTurnId: state.currentTurnId,
+                startedSubagents,
+                activeSubagents,
+                providerSubagentToSessionSubagent,
+                envelopes: [],
+            };
+        }
+        const itemId = typeof message.item_id === 'string' ? message.item_id : undefined;
+        const envelopeOpts = {
+            ...opts,
+            ...(itemId ? { codexItemId: itemId } : {}),
+        };
+        const envelope = type === 'mcp_tool_call_begin'
+            ? createMcpToolCallStartEnvelope(call, envelopeOpts)
+            : createMcpToolCallEndEnvelope(call, message, envelopeOpts);
+        return {
+            currentTurnId: state.currentTurnId,
+            startedSubagents,
+            activeSubagents,
+            providerSubagentToSessionSubagent,
+            envelopes: [envelope],
+        };
+    }
 
     if (type === 'user_message') {
         const text = textFromInputItems(message.content);

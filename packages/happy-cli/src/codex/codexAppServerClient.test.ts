@@ -1420,6 +1420,114 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('forwards live MCP tool items as normalized start and end events', async () => {
+        const proc = createMockProcess({
+            pid: 3010,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => pushJsonLine(stdout, {
+                        id: msg.id,
+                        result: {
+                            thread: { id: 'thread-mcp-app', path: '/tmp/thread-mcp-app' },
+                            model: 'gpt-test',
+                            modelProvider: 'openai',
+                            cwd: '/tmp/project',
+                            approvalPolicy: 'never',
+                            sandbox: { type: 'dangerFullAccess' },
+                            reasoningEffort: null,
+                        },
+                    }), 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => events.push(msg as Record<string, unknown>));
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        const item = {
+            type: 'mcpToolCall',
+            id: 'call-live-app',
+            server: 'demo',
+            tool: 'show_dashboard',
+            status: 'inProgress',
+            arguments: { period: 'week' },
+            appContext: {
+                resourceUri: 'ui://demo/dashboard.html',
+                templateId: 'dashboard-template',
+                appName: 'Demo Dashboard',
+            },
+        };
+        pushJsonLine(proc.stdout, {
+            method: 'item/started',
+            params: { threadId: 'thread-mcp-app', turnId: 'turn-mcp-app', item },
+        });
+        pushJsonLine(proc.stdout, {
+            method: 'item/completed',
+            params: {
+                threadId: 'thread-mcp-app',
+                turnId: 'turn-mcp-app',
+                item: {
+                    ...item,
+                    status: 'completed',
+                    result: {
+                        content: [{ type: 'text', text: 'done' }],
+                        structuredContent: { count: 1 },
+                        _meta: { privateViewState: 'opaque' },
+                    },
+                },
+            },
+        });
+
+        await waitFor(() => events.some((event) => event.type === 'mcp_tool_call_end'));
+        expect(events.filter((event) => String(event.type).startsWith('mcp_tool_call_'))).toEqual([
+            expect.objectContaining({
+                type: 'mcp_tool_call_begin',
+                call_id: 'call-live-app',
+                item_id: 'call-live-app',
+                turn_id: 'turn-mcp-app',
+                mcp_call: expect.objectContaining({
+                    callId: 'call-live-app',
+                    input: { period: 'week' },
+                    presentation: {
+                        version: 1,
+                        server: 'demo',
+                        resourceUri: 'ui://demo/dashboard.html',
+                        appName: 'Demo Dashboard',
+                    },
+                }),
+            }),
+            expect.objectContaining({
+                type: 'mcp_tool_call_end',
+                call_id: 'call-live-app',
+                item_id: 'call-live-app',
+                turn_id: 'turn-mcp-app',
+                status: 'completed',
+                mcp_call: expect.objectContaining({
+                    result: {
+                        version: 1,
+                        state: 'available',
+                        content: [{ type: 'text', text: 'done' }],
+                        structuredContent: { count: 1 },
+                        _meta: { privateViewState: 'opaque' },
+                    },
+                }),
+            }),
+        ]);
+
+        await client.disconnect();
+    });
+
     it('uses the authoritative turn ID to suppress only the Paws-originated user item', async () => {
         const proc = createMockProcess({
             pid: 3003,

@@ -61,10 +61,12 @@ import type {
     ReasoningEffort,
     McpServerElicitationRequestResponse,
     ThreadSettings,
+    ThreadItem,
 } from './codexAppServerTypes';
 import type { SandboxConfig } from '@/persistence';
 import { initializeSandbox, wrapForMcpTransport } from '@/sandbox/manager';
 import packageJson from '../../package.json';
+import { CodexMcpAppAdapter } from './mcpApps/CodexMcpAppAdapter';
 
 type PendingRequest = {
     resolve: (result: unknown) => void;
@@ -76,6 +78,7 @@ type PendingRequest = {
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
 
 const JSON_RPC_INVALID_PARAMS = -32602;
+const codexMcpAppAdapter = new CodexMcpAppAdapter();
 
 enum InitializeAttempt {
     McpUi = 'mcpUi',
@@ -573,6 +576,23 @@ export class CodexAppServerClient {
             ...this.childEventScope(params),
             ...(rootTurnId ? { turn_id: rootTurnId } : {}),
         };
+
+        if (item.type === 'mcpToolCall' && (method === 'item/started' || method === 'item/completed')) {
+            const normalized = codexMcpAppAdapter.normalizeItem(
+                item as Extract<ThreadItem, { type: 'mcpToolCall' }>,
+            );
+            this.eventHandler?.({
+                type: method === 'item/started' ? 'mcp_tool_call_begin' : 'mcp_tool_call_end',
+                call_id: normalized.callId,
+                callId: normalized.callId,
+                item_id: item.id,
+                mcp_call: normalized,
+                status: item.status,
+                error: item.error,
+                ...eventScope,
+            });
+            return true;
+        }
 
         if (method === 'item/completed' && item.type === 'userMessage') {
             // A turn submitted through this Bridge already exists in Paws as the
