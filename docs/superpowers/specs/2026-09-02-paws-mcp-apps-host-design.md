@@ -1,6 +1,6 @@
 # Paws MCP Apps Host Technical Design
 
-**Status:** Proposed
+**Status:** Approved
 
 **Date:** 2026-09-02
 
