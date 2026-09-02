@@ -363,7 +363,37 @@ describe('CodexAppServerClient sandbox integration', () => {
             },
         });
         expect(requestsByProcess[1][0].params.capabilities.extensions).toBeUndefined();
-        expect(client.mcpUiCapability).toBe('legacy');
+        expect(client.mcpUiCapability).toBeNull();
+    });
+
+    it('leaves MCP UI capability unset without retrying a non-invalid-params initialize failure', async () => {
+        const requests: MockRpcMessage[] = [];
+        const process = createMockProcess({
+            autoInitialize: false,
+            onRequest: (message, stdout) => {
+                requests.push(message);
+                if (message.method === 'initialize' && message.id !== undefined) {
+                    pushJsonLine(stdout, {
+                        id: message.id,
+                        error: { code: -32603, message: 'initialize failed' },
+                    });
+                }
+            },
+        });
+        mockSpawn.mockImplementationOnce(() => process);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await expect(client.connect()).rejects.toThrow('initialize: initialize failed (code=-32603)');
+
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+        expect(requests.filter((message) => message.method === 'initialize')).toHaveLength(1);
+        expect(requests[0].params.capabilities.extensions).toEqual({
+            'io.modelcontextprotocol/ui': {
+                mimeTypes: ['text/html;profile=mcp-app'],
+            },
+        });
+        expect(client.mcpUiCapability).toBeNull();
     });
 
     it('wraps transport when sandbox is enabled', async () => {

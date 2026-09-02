@@ -278,7 +278,7 @@ export class CodexAppServerClient {
     private sandboxCleanup: (() => Promise<void>) | null = null;
     public sandboxEnabled = false;
     private serviceTier: 'standard' | 'fast' = 'standard';
-    public mcpUiCapability: 'enabled' | 'legacy' = 'legacy';
+    public mcpUiCapability: 'enabled' | 'legacy' | null = null;
 
     // Session state
     private _threadId: string | null = null;
@@ -793,6 +793,7 @@ export class CodexAppServerClient {
 
     async connect(): Promise<void> {
         if (this.connected) return;
+        this.mcpUiCapability = null;
 
         if (this.connection.type === 'spawn' && !isAppServerAvailable()) {
             throw new Error(
