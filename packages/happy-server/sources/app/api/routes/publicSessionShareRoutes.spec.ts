@@ -231,7 +231,12 @@ const snapshot = (attachmentId?: string) => ({
             : [{ type: 'text', markdown: 'Hello' }],
     }],
 });
-const coverSnapshot = (assetId: string) => ({
+const coverSnapshot = (assetId: string, cover: Partial<{
+    mimeType: string;
+    size: number;
+    width: number;
+    height: number;
+}> = {}) => ({
     version: 2,
     title: 'Shared session',
     sharedAt: 1_777_777_777_777,
@@ -243,6 +248,7 @@ const coverSnapshot = (assetId: string) => ({
             size: 5,
             width: 1_200,
             height: 600,
+            ...cover,
         },
     },
     messages: [{
@@ -419,6 +425,43 @@ describe('publicSessionShareRoutes', () => {
 
         expect(publish.statusCode).toBe(409);
         expect(publish.json()).toEqual({ error: 'Shared attachment upload incomplete' });
+    });
+
+    it.each([
+        ['different MIME type', { kind: 'image', mimeType: 'image/jpeg', size: 5 }, { mimeType: 'image/png' }],
+        ['different size', { kind: 'image', mimeType: 'image/jpeg', size: 5 }, { size: 6 }],
+        ['non-image asset kind', { kind: 'file', mimeType: 'application/octet-stream', size: 5 }, { mimeType: 'application/octet-stream' }],
+    ] as const)('rejects a cover with a %s from its registered asset', async (_reason, preparedAsset, cover) => {
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: crypto.randomUUID(),
+                name: 'cover.jpg',
+                mimeType: preparedAsset.mimeType,
+                kind: preparedAsset.kind,
+                size: preparedAsset.size,
+                sha256: HELLO_SHA256,
+            },
+        })).json();
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: Buffer.from('hello'),
+        });
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(asset.assetId, cover) },
+        });
+
+        expect(publish.statusCode).toBe(409);
+        expect(publish.json()).toEqual({ error: 'Shared attachment metadata mismatch' });
     });
 
     it('returns the active version-two appearance snapshot to its owner', async () => {
