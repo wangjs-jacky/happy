@@ -122,3 +122,25 @@ exit 0
 - Regenerated server asset: 362,825-byte TypeScript export / 350,638-byte external JavaScript. VM smoke emits one ready message to exact `https://paws.example` and zero for raw `http://LOCALHOST:8081`.
 - Real deployed two-origin browser/Caddy behavior remains the Task 14 gate; no same-origin, wildcard, or permissive logging/CORS fallback was introduced.
 - The two pre-existing untracked Task 14 E2E paths remain untouched and excluded from staging.
+
+## Fix round 2 — malformed URL containment before routing
+
+### Finding addressed
+
+- Fastify rejects malformed percent encoding before route matching. A request such as `/mcp-app-sandbox/%zz?parentOrigin=…&csp=…` therefore bypassed the route-local silent logger and shared static 404, allowing the framework's generic 400 response and request logger to echo the raw URL.
+- Added a raw, non-decoding namespace boundary helper. It accepts only exact `/mcp-app-sandbox`, its query form, and literal `/mcp-app-sandbox/` descendants. It deliberately rejects `/mcp-app-sandbox-evil`, encoded `%2F` lookalikes, unrelated paths, and empty input.
+- The Fastify framework-error hook now checks that literal raw namespace before its generic response and uses the same shared no-store 404 responder as ordinary sandbox routes. The responder dynamically removes every `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, and `Access-Control-Max-Age` header.
+- A root `childLoggerFactory` gives only requests inside that raw namespace a silent child logger. This acts before routing, covers malformed URLs, and leaves unrelated request/error logging unchanged. Existing route-local silence remains in place for successfully parsed sandbox requests.
+
+### RED / GREEN evidence
+
+- Real `createApiApp` RED: 1/2 integration tests failed because malformed literal sandbox descendants returned 400 rather than 404.
+- Real `createApiApp` GREEN: GET, HEAD, OPTIONS, and POST malformed descendants return the shared 404 contract with `Cache-Control: no-store`, no Access-Control response headers, and no parent-origin/CSP/query material in body or captured logs.
+- The same integration proves `/unrelated/%zz`, `/mcp-app-sandbox-evil/%zz`, and `/mcp-app-sandbox%2F%zz` retain Fastify's generic `FST_ERR_BAD_URL` 400 and ordinary captured logging. The guard does not broaden the namespace by decoding or normalization.
+- Final server matrix: 6 files, 90/90 tests, including 9 raw-boundary tests, 54 origin/CSP tests, 19 direct route tests, 2 real production-builder tests, 4 SPA/static regressions, and 2 generic error-handler regressions.
+- Server typecheck, native Host Shell 20/20, deterministic generator build/check, native and server generated-asset parity against `f270403b`, leak grep, and `git diff --check` all pass.
+
+### Self-review
+
+- The pre-router branch never logs the error or request URL and never serializes the framework error. Its body is the same static object used by invalid exact, wrong-method, base, and unknown descendant routes.
+- No wildcard CORS, global logging disable, configuration exposure, URL decoding, or lookalike-prefix match was introduced. The two Task 14 untracked paths remain untouched and excluded from staging.

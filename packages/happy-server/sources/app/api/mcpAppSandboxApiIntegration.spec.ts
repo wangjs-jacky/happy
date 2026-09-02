@@ -88,4 +88,73 @@ describe('startApi MCP App sandbox registration', () => {
         expect(captured).not.toContain('/mcp-app-sandbox/unknown?');
         expect(captured).toContain('/conversation/session-id');
     });
+
+    it('contains malformed percent URLs only inside the literal sandbox namespace', async () => {
+        process.env.NODE_ENV = 'production';
+        process.env.HAPPY_MCP_APP_SANDBOX_ORIGIN = 'https://sandbox.paws.example';
+        process.env.HAPPY_MCP_APP_PARENT_ORIGINS = 'https://paws.example';
+        const logs: string[] = [];
+        const loggerInstance = pino({ level: 'trace' }, {
+            write(chunk: string) { logs.push(chunk); },
+        });
+        const csp = encodeSandboxCspMetadata({
+            connectDomains: ['https://framework.internal.example'],
+            resourceDomains: [],
+            frameDomains: [],
+        }, false)!;
+        app = await createApiApp({ loggerInstance });
+        const sandboxQuery = `parentOrigin=https%3A%2F%2Fsandbox-framework-secret.example&csp=${csp}`;
+
+        const sandboxResponses = await Promise.all(['GET', 'HEAD', 'OPTIONS', 'POST'].map((method) => (
+            app!.inject({
+                method: method as 'GET',
+                url: `/mcp-app-sandbox/%zz?${sandboxQuery}`,
+                headers: {
+                    host: 'sandbox.paws.example',
+                    origin: 'https://attacker.example',
+                    'access-control-request-method': 'GET',
+                },
+            })
+        )));
+
+        for (const [index, response] of sandboxResponses.entries()) {
+            expect(response.statusCode).toBe(404);
+            expect(response.headers['cache-control']).toBe('no-store');
+            expect(Object.keys(response.headers).filter((name) => name.startsWith('access-control-'))).toEqual([]);
+            if (index !== 1) expect(response.json()).toEqual({ error: 'Not found' });
+            expect(response.body).not.toContain('sandbox-framework-secret');
+            expect(response.body).not.toContain(csp);
+        }
+
+        const unrelated = await app.inject({
+            method: 'GET',
+            url: '/unrelated/%zz?canary=unrelated-framework-canary',
+            headers: { host: 'sandbox.paws.example' },
+        });
+        const dashLookalike = await app.inject({
+            method: 'GET',
+            url: '/mcp-app-sandbox-evil/%zz?canary=dash-lookalike-canary',
+            headers: { host: 'sandbox.paws.example' },
+        });
+        const encodedSlashLookalike = await app.inject({
+            method: 'GET',
+            url: '/mcp-app-sandbox%2F%zz?canary=encoded-lookalike-canary',
+            headers: { host: 'sandbox.paws.example' },
+        });
+
+        for (const response of [unrelated, dashLookalike, encodedSlashLookalike]) {
+            expect(response.statusCode).toBe(400);
+            expect(response.headers['cache-control']).toBeUndefined();
+            expect(response.json().code).toBe('FST_ERR_BAD_URL');
+        }
+
+        const captured = logs.join('');
+        expect(captured).not.toContain('sandbox-framework-secret.example');
+        expect(captured).not.toContain('framework.internal.example');
+        expect(captured).not.toContain(csp);
+        expect(captured).not.toContain('/mcp-app-sandbox/%zz?');
+        expect(captured).toContain('unrelated-framework-canary');
+        expect(captured).toContain('dash-lookalike-canary');
+        expect(captured).toContain('encoded-lookalike-canary');
+    });
 });

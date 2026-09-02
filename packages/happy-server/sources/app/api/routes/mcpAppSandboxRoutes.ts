@@ -1,5 +1,4 @@
 import type { Fastify } from '@/app/api/types';
-import type { FastifyReply } from 'fastify';
 import {
     parseSandboxCspMetadata,
     parseSandboxOriginList,
@@ -10,14 +9,16 @@ import {
     MCP_APP_SANDBOX_HOST_HTML,
     MCP_APP_SANDBOX_HOST_JAVASCRIPT,
 } from '@/app/api/generated/mcpAppHostShellAssets';
+import {
+    mcpAppSandboxNotFound,
+    removeMcpAppSandboxCorsHeaders,
+} from '@/app/api/mcpAppSandboxHttp';
 
 export interface McpAppSandboxRouteOptions {
     sandboxOrigin: string | undefined;
     allowedParentOrigins: readonly string[];
     development: boolean;
 }
-
-const NO_STORE_NOT_FOUND = { error: 'Not found' } as const;
 
 function environmentOptions(): McpAppSandboxRouteOptions {
     const development = process.env.NODE_ENV === 'development';
@@ -29,22 +30,6 @@ function environmentOptions(): McpAppSandboxRouteOptions {
         ) ?? [],
         development,
     };
-}
-
-function removeCorsHeaders(reply: FastifyReply): void {
-    for (const name of Object.keys(reply.getHeaders())) {
-        const lower = name.toLowerCase();
-        if (lower.startsWith('access-control-allow-') || lower === 'access-control-expose-headers'
-            || lower === 'access-control-max-age') reply.removeHeader(name);
-    }
-}
-
-function notFound(reply: FastifyReply) {
-    removeCorsHeaders(reply);
-    return reply
-        .header('Cache-Control', 'no-store')
-        .code(404)
-        .send(NO_STORE_NOT_FOUND);
 }
 
 function origins(values: readonly string[]): string {
@@ -80,8 +65,8 @@ export function mcpAppSandboxRoutes(
     const routeConfig = { cors: false };
     const silentRoute = { config: routeConfig, logLevel: 'silent' as const };
 
-    app.options('/mcp-app-sandbox/host', silentRoute, async (_request, reply) => notFound(reply));
-    app.options('/mcp-app-sandbox/host.js', silentRoute, async (_request, reply) => notFound(reply));
+    app.options('/mcp-app-sandbox/host', silentRoute, async (_request, reply) => mcpAppSandboxNotFound(reply));
+    app.options('/mcp-app-sandbox/host.js', silentRoute, async (_request, reply) => mcpAppSandboxNotFound(reply));
 
     app.get('/mcp-app-sandbox/host', { ...silentRoute, exposeHeadRoute: false }, async (request, reply) => {
         const query = request.query as Record<string, unknown>;
@@ -95,9 +80,9 @@ export function mcpAppSandboxRoutes(
             development: options.development,
         });
         const metadata = parseSandboxCspMetadata(csp, options.development);
-        if (!resolved.ok || !metadata) return notFound(reply);
+        if (!resolved.ok || !metadata) return mcpAppSandboxNotFound(reply);
 
-        removeCorsHeaders(reply);
+        removeMcpAppSandboxCorsHeaders(reply);
         return reply.headers({
             'Cache-Control': 'no-store',
             'Content-Type': 'text/html; charset=utf-8',
@@ -118,9 +103,9 @@ export function mcpAppSandboxRoutes(
             allowedParentOrigins: options.allowedParentOrigins,
             development: options.development,
         });
-        if (!resolved.ok) return notFound(reply);
+        if (!resolved.ok) return mcpAppSandboxNotFound(reply);
 
-        removeCorsHeaders(reply);
+        removeMcpAppSandboxCorsHeaders(reply);
         return reply.headers({
             'Cache-Control': 'no-store',
             'Content-Type': 'text/javascript; charset=utf-8',
@@ -129,6 +114,6 @@ export function mcpAppSandboxRoutes(
         }).send(MCP_APP_SANDBOX_HOST_JAVASCRIPT);
     });
 
-    app.all('/mcp-app-sandbox', silentRoute, async (_request, reply) => notFound(reply));
-    app.all('/mcp-app-sandbox/*', silentRoute, async (_request, reply) => notFound(reply));
+    app.all('/mcp-app-sandbox', silentRoute, async (_request, reply) => mcpAppSandboxNotFound(reply));
+    app.all('/mcp-app-sandbox/*', silentRoute, async (_request, reply) => mcpAppSandboxNotFound(reply));
 }

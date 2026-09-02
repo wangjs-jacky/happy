@@ -34,6 +34,7 @@ import { pluginRoutes } from "@/app/api/routes/pluginRoutes";
 import { publicSessionShareRoutes } from "./routes/publicSessionShareRoutes";
 import { externalSessionShareRoutes } from "./routes/externalSessionShareRoutes";
 import { mcpAppSandboxRoutes } from "./routes/mcpAppSandboxRoutes";
+import { isLiteralMcpAppSandboxRequestUrl } from './mcpAppSandboxHttp';
 import * as path from "path";
 import * as fs from "fs";
 
@@ -102,6 +103,12 @@ export async function createApiApp(opts: StartApiOptions = {}): Promise<Fastify>
         bodyLimit: 1024 * 1024 * 100, // 100MB
         trustProxy: resolveTrustProxySetting(),
         frameworkErrors: handleFrameworkError,
+        childLoggerFactory(parentLogger, bindings, loggerOptions, rawRequest) {
+            const options = isLiteralMcpAppSandboxRequestUrl(rawRequest.url)
+                ? { ...loggerOptions, level: 'silent' }
+                : loggerOptions;
+            return parentLogger.child(bindings, options);
+        },
     });
     app.register(import('@fastify/cors'), {
         origin: '*',
