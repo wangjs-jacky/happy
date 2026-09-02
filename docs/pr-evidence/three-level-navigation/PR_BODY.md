@@ -11,8 +11,8 @@ Visible UI cases: 2
 
 | Case | Problem | Before | After |
 | --- | --- | --- | --- |
-| THREE-NAV-01 | Relationship Advisor opened directly into chat with no dedicated conversation index. | ![Before: advisor opens without its own index](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-1-before.png) | ![After: dedicated advisor conversation index](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-1-after.png) |
-| THREE-NAV-02 | The organization pane had no title-side collapse control or independent resize behavior. | ![Before: fixed organization and session panes](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-2-before.png) | ![After: resizable three-level navigation](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-2-after.png) |
+| THREE-NAV-01 | Relationship Advisor opened directly into chat with no dedicated conversation index. | ![Before: advisor opens without its own index](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-before.png) | ![After: dedicated advisor conversation index](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-after.png) |
+| THREE-NAV-02 | The organization pane had no title-side collapse control or independent resize behavior. | ![Before: fixed organization and session panes](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-before.png) | ![After: resizable three-level navigation](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-after.png) |
 
 Visual evidence waiver: not requested
 
@@ -20,8 +20,8 @@ Visual evidence waiver: not requested
 
 | Case | Result | Spec / rerun | Mobile video | Report / Trace |
 | --- | --- | --- | --- | --- |
-| THREE-NAV-01 | Passed ordinary and recording modes | `[RELATIONSHIP-ADVISOR-HISTORY]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-1-e2e.mp4) | Isolated local report; environment removed after run |
-| THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/<COMMIT_SHA>/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
+| THREE-NAV-01 | Passed ordinary and recording modes | `[RELATIONSHIP-ADVISOR-HISTORY]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-e2e.mp4) | Isolated local report; environment removed after run |
+| THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
 
 - Environment and side effects: `authenticated-empty` isolated Server/Web; no production account, daemon, or model call; runner removed the environment.
 - Mobile playback: not yet confirmed on a separate mobile device.
@@ -34,7 +34,7 @@ Visual evidence waiver: not requested
 - [x] Both requested Web E2E cases passed in ordinary and recording modes.
 - [x] Recorded MP4 files are H.264/yuv420p and passed `ffprobe`, full decode, and contact-sheet review.
 - [x] The declared visible Case count equals the two unique before/after screenshot groups embedded above.
-- [x] Every visual Case uses stable commit-SHA URLs after `<COMMIT_SHA>` replacement.
+- [x] Every visual Case uses stable commit-SHA URLs.
 - [x] Requested E2E videos use stable commit-SHA URLs and disclose mobile playback status.
 - [ ] An independent reviewer checked the rendered PR body and code.
 - [ ] Every CI check triggered for the current head passed.
