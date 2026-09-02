@@ -87,24 +87,36 @@ export function usePublicSessionAppearance(themePack: ThemePackId): {
         const mediaQuery = darkModeMediaQuery();
         if (!mediaQuery) return;
         setSystemIsDark(mediaQuery.matches);
-        const handleChange = (event: MediaQueryListEvent) => setSystemIsDark(event.matches);
+        const handleChange = (event: MediaQueryListEvent) => {
+            const themeName = resolveThemeName(themePack, event.matches);
+            applyPublicTheme(themeName);
+            setAppliedThemeName(themeName);
+            setSystemIsDark(event.matches);
+        };
         return subscribeToMediaQuery(mediaQuery, handleChange);
-    }, [browserReady, mode]);
+    }, [browserReady, mode, themePack]);
 
     const isDark = mode === 'dark' || (mode === 'system' && systemIsDark);
     const desiredThemeName = browserReady ? resolveThemeName(themePack, isDark) : null;
     useClientLayoutEffect(() => {
-        if (!desiredThemeName) return;
+        if (!desiredThemeName || appliedThemeName === desiredThemeName) return;
         applyPublicTheme(desiredThemeName);
         setAppliedThemeName(desiredThemeName);
-    }, [desiredThemeName]);
+    }, [appliedThemeName, desiredThemeName]);
 
     const selectMode = React.useCallback((nextMode: PublicSessionAppearanceMode) => {
-        if (nextMode === 'system') {
-            setSystemIsDark(darkModeMediaQuery()?.matches ?? false);
+        const nextSystemIsDark = nextMode === 'system'
+            ? darkModeMediaQuery()?.matches ?? false
+            : systemIsDark;
+        if (browserReady) {
+            const nextIsDark = nextMode === 'dark' || (nextMode === 'system' && nextSystemIsDark);
+            const themeName = resolveThemeName(themePack, nextIsDark);
+            applyPublicTheme(themeName);
+            setAppliedThemeName(themeName);
         }
+        if (nextMode === 'system') setSystemIsDark(nextSystemIsDark);
         setMode(nextMode);
-    }, []);
+    }, [browserReady, systemIsDark, themePack]);
 
     return {
         isReady: desiredThemeName !== null && appliedThemeName === desiredThemeName,

@@ -70,8 +70,10 @@ function createLocalStorage(initial: Record<string, string> = {}) {
 
 function renderAppearance(themePack: ThemePackId) {
     let latest: ReturnType<typeof usePublicSessionAppearance> | null = null;
+    const renderHistory: Array<{ isReady: boolean; pack: ThemePackId }> = [];
     function Harness(props: { pack: ThemePackId }) {
         latest = usePublicSessionAppearance(props.pack);
+        renderHistory.push({ isReady: latest.isReady, pack: props.pack });
         return null;
     }
     let renderer: any;
@@ -80,6 +82,7 @@ function renderAppearance(themePack: ThemePackId) {
     });
     return {
         current: () => latest as ReturnType<typeof usePublicSessionAppearance>,
+        renderHistory,
         rerender: (pack: ThemePackId) => act(() => renderer.update(<Harness pack={pack} />)),
         unmount: () => act(() => renderer.unmount()),
     };
@@ -108,6 +111,7 @@ describe('usePublicSessionAppearance', () => {
     it('defaults to system mode and applies the owner-fixed pack with its semantic background', () => {
         const hook = renderAppearance('gingham');
 
+        expect(hook.renderHistory[0]).toEqual({ isReady: false, pack: 'gingham' });
         expect(hook.current().isReady).toBe(true);
         expect(hook.current().mode).toBe('system');
         expect(runtime.setTheme).toHaveBeenCalledWith('ginghamLight');
@@ -117,6 +121,19 @@ describe('usePublicSessionAppearance', () => {
             'system',
         );
 
+        hook.unmount();
+    });
+
+    it('gates an owner-pack transition until the exact new pack theme is applied', () => {
+        const hook = renderAppearance('gingham');
+        const transitionStart = hook.renderHistory.length;
+
+        hook.rerender('grape');
+
+        const transition = hook.renderHistory.slice(transitionStart);
+        expect(transition[0]).toEqual({ isReady: false, pack: 'grape' });
+        expect(transition.at(-1)).toEqual({ isReady: true, pack: 'grape' });
+        expect(runtime.setTheme).toHaveBeenLastCalledWith('grapeLight');
         hook.unmount();
     });
 
