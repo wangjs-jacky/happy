@@ -88,9 +88,15 @@ const pexelsCoverClaimSchema = z.object({
     token: z.string().uuid(),
     leaseUntil: z.number().int().positive(),
 }).strict();
+const cloneCoverClaimSchema = z.object({
+    token: z.string().uuid(),
+    leaseUntil: z.number().int().positive(),
+}).strict();
 const PEXELS_COVER_METADATA_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}pexels-cover-v1:`;
 const PEXELS_COVER_CLAIM_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}pexels-claim-v1:`;
+const CLONE_COVER_CLAIM_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}clone-claim-v1:`;
 const PEXELS_COVER_CLAIM_LEASE_MS = 2 * 60 * 1000;
+const CLONE_COVER_CLAIM_LEASE_MS = 2 * 60 * 1000;
 const MAX_INTERNAL_ASSET_NAME_BYTES = 4 * 1024;
 const PEXELS_PENDING_SHA256 = '0'.repeat(64);
 
@@ -160,6 +166,16 @@ function encodePexelsCoverClaim(photoId: number, token: string, leaseUntil: numb
 
 function decodePexelsCoverClaim(name: string): z.infer<typeof pexelsCoverClaimSchema> | null {
     return decodeInternalAssetName(name, PEXELS_COVER_CLAIM_PREFIX, pexelsCoverClaimSchema);
+}
+
+function encodeCloneCoverClaim(token: string, leaseUntil: number): string {
+    const name = encodeInternalAssetName(CLONE_COVER_CLAIM_PREFIX, { token, leaseUntil });
+    if (!name) throw new Error('Clone cover claim exceeds internal metadata limit');
+    return name;
+}
+
+function decodeCloneCoverClaim(name: string): z.infer<typeof cloneCoverClaimSchema> | null {
+    return decodeInternalAssetName(name, CLONE_COVER_CLAIM_PREFIX, cloneCoverClaimSchema);
 }
 
 function canonicalImportedCoverResponse(
@@ -579,11 +595,78 @@ export function publicSessionShareRoutes(app: Fastify) {
             return reply.code(409).send({ error: 'Active shared-session cover is unavailable' });
         }
 
-        const destinationPath = buildPublicShareStoragePath(share.id, draft.id, activeCover.assetId);
-        let destinationComplete = false;
-        let destinationPending = false;
+        const claimToken = crypto.randomUUID();
+        const claimName = encodeCloneCoverClaim(
+            claimToken,
+            Date.now() + CLONE_COVER_CLAIM_LEASE_MS,
+        );
+        const claimStoragePath = buildPublicShareStoragePath(
+            share.id,
+            draft.id,
+            `${activeCover.assetId}_${claimToken}`,
+        );
+        const destinationWhere = {
+            id: activeCover.assetId,
+            shareId: share.id,
+            generation: draft.id,
+        };
+        const matchesCompletedDestination = (asset: typeof source | null): boolean => Boolean(
+            asset?.uploadedAt
+            && asset.name === source.name
+            && asset.kind === source.kind
+            && asset.mimeType === source.mimeType
+            && asset.size === source.size
+            && asset.sha256 === source.sha256,
+        );
+        const readCompletedDestination = async (): Promise<typeof source | null> => {
+            const asset = await db.publicSessionShareAsset.findFirst({ where: destinationWhere });
+            if (!asset || !matchesCompletedDestination(asset)) return null;
+            return await publicShareAssetExists(asset.storagePath, asset.size) ? asset : null;
+        };
+        const waitForCompletedDestination = async (): Promise<typeof source | null> => {
+            for (let attempt = 0; attempt < 50; attempt += 1) {
+                const completed = await readCompletedDestination();
+                if (completed) return completed;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            return null;
+        };
+        const deleteUnreferencedClaimObject = async (storagePath: string): Promise<void> => {
+            const referenced = await db.publicSessionShareAsset.findFirst({
+                where: { ...destinationWhere, storagePath },
+            });
+            if (referenced) return;
+            await deletePublicShareAsset(storagePath).catch((error) => {
+                log({
+                    module: 'public-session-cover-clone-cleanup',
+                    level: 'error',
+                    shareId: share.id,
+                    generation: draft.id,
+                    assetId: activeCover.assetId,
+                    error,
+                }, 'Failed to clean unreferenced cloned cover object');
+            });
+        };
+        const releaseOwnedClaim = async (): Promise<boolean> => {
+            const released = await db.publicSessionShareAsset.deleteMany({
+                where: {
+                    ...destinationWhere,
+                    name: claimName,
+                    storagePath: claimStoragePath,
+                    uploadedAt: null,
+                },
+            }).catch(() => ({ count: 0 }));
+            if (released.count !== 1) return false;
+            await deleteUnreferencedClaimObject(claimStoragePath);
+            return true;
+        };
+
+        let claimState: 'owned' | 'waiting' | 'completed' | null = null;
+        let replacedStoragePath: string | null = null;
         try {
             await serializableTransaction(async (tx) => {
+                claimState = null;
+                replacedStoragePath = null;
                 const now = new Date();
                 const currentShare = await tx.publicSessionShare.findFirst({
                     where: {
@@ -636,20 +719,43 @@ export function publicSessionShareRoutes(app: Fastify) {
                     throw new StaleShareDraftError();
                 }
 
-                const existing = await tx.publicSessionShareAsset.findFirst({
-                    where: { id: activeCover.assetId, shareId: share.id, generation: draft.id },
-                });
+                const existing = await tx.publicSessionShareAsset.findFirst({ where: destinationWhere });
                 if (existing) {
-                    if (existing.name !== source.name
-                        || existing.kind !== source.kind
-                        || existing.mimeType !== source.mimeType
-                        || existing.size !== source.size
-                        || existing.sha256 !== source.sha256
-                        || existing.storagePath !== destinationPath) {
+                    if (matchesCompletedDestination(existing)) {
+                        claimState = 'completed';
+                        return;
+                    }
+                    const existingClaim = existing.uploadedAt ? null : decodeCloneCoverClaim(existing.name);
+                    const metadataMatches = existing.kind === source.kind
+                        && existing.mimeType === source.mimeType
+                        && existing.size === source.size
+                        && existing.sha256 === source.sha256;
+                    if (!metadataMatches) {
                         throw new PublicShareRequestError(409, 'Shared attachment already exists');
                     }
-                    destinationComplete = Boolean(existing.uploadedAt);
-                    destinationPending = !existing.uploadedAt;
+                    if (existingClaim && existingClaim.leaseUntil > Date.now()) {
+                        claimState = 'waiting';
+                        return;
+                    }
+                    const takenOver = await tx.publicSessionShareAsset.updateMany({
+                        where: {
+                            ...destinationWhere,
+                            name: existing.name,
+                            storagePath: existing.storagePath,
+                            uploadedAt: null,
+                        },
+                        data: {
+                            name: claimName,
+                            mimeType: source.mimeType,
+                            kind: source.kind,
+                            size: source.size,
+                            sha256: source.sha256,
+                            storagePath: claimStoragePath,
+                        },
+                    });
+                    if (takenOver.count !== 1) throw new StaleShareDraftError();
+                    replacedStoragePath = existing.storagePath;
+                    claimState = 'owned';
                     return;
                 }
 
@@ -675,15 +781,15 @@ export function publicSessionShareRoutes(app: Fastify) {
                         id: activeCover.assetId,
                         shareId: share.id,
                         generation: draft.id,
-                        name: source.name,
+                        name: claimName,
                         mimeType: source.mimeType,
                         kind: source.kind,
                         size: source.size,
                         sha256: source.sha256,
-                        storagePath: destinationPath,
+                        storagePath: claimStoragePath,
                     },
                 });
-                destinationPending = true;
+                claimState = 'owned';
             });
         } catch (error) {
             if (error instanceof StaleShareDraftError) {
@@ -693,101 +799,125 @@ export function publicSessionShareRoutes(app: Fastify) {
                 return reply.code(error.statusCode).send({ error: error.message });
             }
             if ((error as { code?: string })?.code === 'P2002') {
+                const completed = await readCompletedDestination() ?? await waitForCompletedDestination();
+                if (completed) return reply.send(activeCover);
                 return reply.code(409).send({ error: 'Shared attachment already exists' });
             }
             throw error;
         }
 
-        if (destinationComplete && await publicShareAssetExists(destinationPath, source.size)) {
-            return reply.send(activeCover);
+        if (claimState === 'completed') {
+            const completed = await readCompletedDestination();
+            if (completed) return reply.send(activeCover);
+            return reply.code(409).send({ error: 'Shared attachment upload incomplete' });
+        }
+        if (claimState === 'waiting') {
+            const completed = await waitForCompletedDestination();
+            if (completed) return reply.send(activeCover);
+            return reply.code(409).send({ error: 'Shared attachment already exists' });
+        }
+        if (claimState !== 'owned') {
+            return reply.code(409).send({ error: 'Shared attachment already exists' });
+        }
+        if (replacedStoragePath) await deleteUnreferencedClaimObject(replacedStoragePath);
+
+        const ownsClaim = async (): Promise<boolean> => Boolean(await db.publicSessionShareAsset.findFirst({
+            where: {
+                ...destinationWhere,
+                name: claimName,
+                storagePath: claimStoragePath,
+                uploadedAt: null,
+            },
+        }));
+        if (!await ownsClaim()) {
+            const completed = await readCompletedDestination() ?? await waitForCompletedDestination();
+            await deleteUnreferencedClaimObject(claimStoragePath);
+            if (completed) return reply.send(activeCover);
+            return reply.code(409).send({ error: 'Shared attachment already exists' });
         }
         try {
-            await copyPublicShareAsset(source.storagePath, destinationPath);
+            await copyPublicShareAsset(source.storagePath, claimStoragePath);
         } catch {
-            await deletePublicShareAsset(destinationPath).catch((error) => {
-                log({
-                    module: 'public-session-cover-clone-cleanup',
-                    level: 'error',
-                    shareId: share.id,
-                    generation: draft.id,
-                    assetId: activeCover.assetId,
-                    error,
-                }, 'Failed to clean cloned cover object');
-            });
-            if (destinationPending) {
-                await db.publicSessionShareAsset.deleteMany({
-                    where: {
-                        id: activeCover.assetId,
-                        shareId: share.id,
-                        generation: draft.id,
-                        storagePath: destinationPath,
-                        uploadedAt: null,
-                    },
-                }).catch(() => undefined);
+            const completed = await readCompletedDestination();
+            if (completed) {
+                await deleteUnreferencedClaimObject(claimStoragePath);
+                return reply.send(activeCover);
             }
+            if (await ownsClaim()) {
+                await releaseOwnedClaim();
+                return reply.code(503).send({ error: 'Cover storage is unavailable' });
+            }
+            const peerCompleted = await waitForCompletedDestination();
+            if (peerCompleted) {
+                await deleteUnreferencedClaimObject(claimStoragePath);
+                return reply.send(activeCover);
+            }
+            await deleteUnreferencedClaimObject(claimStoragePath);
             return reply.code(503).send({ error: 'Cover storage is unavailable' });
         }
 
-        if (destinationPending) {
-            try {
-                await serializableTransaction(async (tx) => {
-                    const now = new Date();
-                    const currentShare = await tx.publicSessionShare.findFirst({
-                        where: {
-                            id: share.id,
-                            sessionId: request.params.sessionId,
-                            accountId: request.userId,
-                            activeGeneration: share.activeGeneration,
-                            lifecycleVersion: share.lifecycleVersion,
-                            revokedAt: null,
-                        },
-                    });
-                    const currentDraft = await tx.publicSessionShareDraft.findFirst({
-                        where: {
-                            id: draft.id,
-                            shareId: share.id,
-                            lifecycleVersion: share.lifecycleVersion,
-                            status: 'pending',
-                            expiresAt: { gt: now },
-                        },
-                    });
-                    if (!currentShare || !currentDraft) throw new StaleShareDraftError();
-                    const finalized = await tx.publicSessionShareAsset.updateMany({
-                        where: {
-                            id: activeCover.assetId,
-                            shareId: share.id,
-                            generation: draft.id,
-                            storagePath: destinationPath,
-                            uploadedAt: null,
-                        },
-                        data: { uploadedAt: now },
-                    });
-                    if (finalized.count !== 1) throw new StaleShareDraftError();
+        try {
+            await serializableTransaction(async (tx) => {
+                const now = new Date();
+                const currentShare = await tx.publicSessionShare.findFirst({
+                    where: {
+                        id: share.id,
+                        sessionId: request.params.sessionId,
+                        accountId: request.userId,
+                        activeGeneration: share.activeGeneration,
+                        lifecycleVersion: share.lifecycleVersion,
+                        revokedAt: null,
+                    },
                 });
-            } catch (error) {
-                if (error instanceof StaleShareDraftError) {
-                    await deletePublicShareAsset(destinationPath).catch(() => undefined);
-                    await db.publicSessionShareAsset.deleteMany({
-                        where: {
-                            id: activeCover.assetId,
-                            shareId: share.id,
-                            generation: draft.id,
-                            storagePath: destinationPath,
-                            uploadedAt: null,
-                        },
-                    }).catch(() => undefined);
+                const currentDraft = await tx.publicSessionShareDraft.findFirst({
+                    where: {
+                        id: draft.id,
+                        shareId: share.id,
+                        lifecycleVersion: share.lifecycleVersion,
+                        status: 'pending',
+                        expiresAt: { gt: now },
+                    },
+                });
+                if (!currentShare || !currentDraft) throw new StaleShareDraftError();
+                const finalized = await tx.publicSessionShareAsset.updateMany({
+                    where: {
+                        ...destinationWhere,
+                        name: claimName,
+                        storagePath: claimStoragePath,
+                        uploadedAt: null,
+                    },
+                    data: { name: source.name, uploadedAt: now },
+                });
+                if (finalized.count !== 1) throw new StaleShareDraftError();
+            });
+        } catch (error) {
+            if (error instanceof StaleShareDraftError) {
+                const completed = await readCompletedDestination();
+                if (completed) {
+                    await deleteUnreferencedClaimObject(claimStoragePath);
+                    return reply.send(activeCover);
+                }
+                if (await ownsClaim()) {
+                    await releaseOwnedClaim();
                     return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
                 }
-                log({
-                    module: 'public-session-cover-clone-finalize',
-                    level: 'error',
-                    shareId: share.id,
-                    generation: draft.id,
-                    assetId: activeCover.assetId,
-                    error,
-                }, 'Cover clone finalization was ambiguous; retaining the draft asset and object for retry');
-                throw error;
+                const peerCompleted = await waitForCompletedDestination();
+                if (peerCompleted) {
+                    await deleteUnreferencedClaimObject(claimStoragePath);
+                    return reply.send(activeCover);
+                }
+                await deleteUnreferencedClaimObject(claimStoragePath);
+                return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
             }
+            log({
+                module: 'public-session-cover-clone-finalize',
+                level: 'error',
+                shareId: share.id,
+                generation: draft.id,
+                assetId: activeCover.assetId,
+                error,
+            }, 'Cover clone finalization was ambiguous; retaining the leased claim and object for retry');
+            throw error;
         }
         return reply.send(activeCover);
     });

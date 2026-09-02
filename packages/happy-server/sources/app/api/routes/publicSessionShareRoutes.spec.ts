@@ -301,6 +301,16 @@ const coverSnapshot = (assetId: string, cover: Partial<{
 });
 const HELLO_SHA256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
 
+function deferred<T = void>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((promiseResolve, promiseReject) => {
+        resolve = promiseResolve;
+        reject = promiseReject;
+    });
+    return { promise, reject, resolve };
+}
+
 describe('publicSessionShareRoutes', () => {
     let app: Awaited<ReturnType<typeof createApp>>;
 
@@ -497,6 +507,172 @@ describe('publicSessionShareRoutes', () => {
         expect(retry.json()).toEqual(first.json());
         expect(storageMock.copyPublicShareAsset).toHaveBeenCalledTimes(1);
         expect(state.assets.filter((asset) => asset.generation === draft.generation)).toHaveLength(1);
+    });
+
+    it('lets overlapping clone requests share one completed copy without deleting it', async () => {
+        const active = seedActiveCover();
+        const draft = (await createDraft()).json();
+        const copyEntered = deferred();
+        const releaseCopy = deferred();
+        let copyCalls = 0;
+        const request = {
+            method: 'POST' as const,
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        };
+
+        await storageMock.copyPublicShareAsset.withImplementation(async (source: string, destination: string) => {
+            copyCalls += 1;
+            if (copyCalls === 1) {
+                copyEntered.resolve();
+                await releaseCopy.promise;
+            }
+            const bytes = state.bytes.get(source);
+            if (!bytes) throw new Error('missing');
+            state.bytes.set(destination, bytes);
+        }, async () => {
+            const firstPromise = app.inject(request);
+            await copyEntered.promise;
+            const secondPromise = app.inject(request);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            releaseCopy.resolve();
+            const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+            expect(first.statusCode).toBe(200);
+            expect(second.statusCode).toBe(200);
+        });
+
+        expect(copyCalls).toBe(1);
+        const completed = state.assets.find((asset) => asset.generation === draft.generation);
+        expect(completed?.uploadedAt).toBeInstanceOf(Date);
+        expect(state.bytes.get(completed!.storagePath)).toEqual(Buffer.from('hello'));
+        expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalledWith(completed!.storagePath);
+    });
+
+    it.each(['storage', 'finalization'] as const)(
+        'does not delete a peer-completed clone when an expired claimant loses during %s',
+        async (failure) => {
+            const initialNow = Date.now();
+            const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+            try {
+                const active = seedActiveCover();
+                const draft = (await createDraft()).json();
+                const firstCopyEntered = deferred();
+                const releaseFirstCopy = deferred();
+                let copyCalls = 0;
+                const request = {
+                    method: 'POST' as const,
+                    url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+                    headers: { 'x-user-id': 'owner-1' },
+                    payload: { assetId: active.assetId },
+                };
+
+                await storageMock.copyPublicShareAsset.withImplementation(async (source: string, destination: string) => {
+                    copyCalls += 1;
+                    if (copyCalls === 1) {
+                        firstCopyEntered.resolve();
+                        if (failure === 'finalization') {
+                            const bytes = state.bytes.get(source);
+                            if (!bytes) throw new Error('missing');
+                            state.bytes.set(destination, bytes);
+                        }
+                        await releaseFirstCopy.promise;
+                        if (failure === 'storage') throw new Error('first copy failed late');
+                        return;
+                    }
+                    const bytes = state.bytes.get(source);
+                    if (!bytes) throw new Error('missing');
+                    state.bytes.set(destination, bytes);
+                }, async () => {
+                    const firstPromise = app.inject(request);
+                    await firstCopyEntered.promise;
+                    now.mockReturnValue(initialNow + 3 * 60 * 1000);
+                    const second = await app.inject(request);
+                    expect(second.statusCode).toBe(200);
+                    releaseFirstCopy.resolve();
+                    const first = await firstPromise;
+                    expect(first.statusCode).toBe(200);
+                });
+
+                expect(copyCalls).toBe(2);
+                const completed = state.assets.find((asset) => asset.generation === draft.generation);
+                expect(completed?.uploadedAt).toBeInstanceOf(Date);
+                expect(state.bytes.get(completed!.storagePath)).toEqual(Buffer.from('hello'));
+                expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalledWith(completed!.storagePath);
+            } finally {
+                now.mockRestore();
+            }
+        },
+    );
+
+    it('re-reads a canonical peer completion after a unique-claim collision', async () => {
+        const active = seedActiveCover();
+        const draft = (await createDraft()).json();
+        const originalCreate = dbMock.publicSessionShareAsset.create.getMockImplementation();
+        dbMock.publicSessionShareAsset.create.mockImplementationOnce(async ({ data }: any) => {
+            const completed = {
+                createdAt: new Date(),
+                ...data,
+                name: state.assets[0].name,
+                uploadedAt: new Date(),
+            } as AssetRow;
+            state.assets.push(completed);
+            state.bytes.set(completed.storagePath, Buffer.from('hello'));
+            throw Object.assign(new Error('unique collision'), { code: 'P2002' });
+        });
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(storageMock.copyPublicShareAsset).not.toHaveBeenCalled();
+        const completed = state.assets.find((asset) => asset.generation === draft.generation);
+        expect(state.bytes.get(completed!.storagePath)).toEqual(Buffer.from('hello'));
+        expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalledWith(completed!.storagePath);
+        if (originalCreate) dbMock.publicSessionShareAsset.create.mockImplementation(originalCreate);
+    });
+
+    it('recovers an ambiguous clone finalization after the bounded claim lease', async () => {
+        const initialNow = Date.now();
+        const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+        try {
+            const active = seedActiveCover();
+            const draft = (await createDraft()).json();
+            let transactionCall = 0;
+            dbMock.$transaction.mockImplementation(async (callback: any) => {
+                transactionCall += 1;
+                if (transactionCall === 2) throw new Error('clone finalization result unknown');
+                return callback(dbMock);
+            });
+            const request = {
+                method: 'POST' as const,
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: active.assetId },
+            };
+
+            const ambiguous = await app.inject(request);
+            expect(ambiguous.statusCode).toBe(500);
+            const retained = state.assets.find((asset) => asset.generation === draft.generation);
+            expect(retained?.uploadedAt).toBeNull();
+            expect(state.bytes.get(retained!.storagePath)).toEqual(Buffer.from('hello'));
+
+            dbMock.$transaction.mockImplementation(async (callback: any) => callback(dbMock));
+            now.mockReturnValue(initialNow + 3 * 60 * 1000);
+            const recovered = await app.inject(request);
+
+            expect(recovered.statusCode).toBe(200);
+            const completed = state.assets.find((asset) => asset.generation === draft.generation);
+            expect(completed?.uploadedAt).toBeInstanceOf(Date);
+            expect(state.bytes.get(completed!.storagePath)).toEqual(Buffer.from('hello'));
+        } finally {
+            now.mockRestore();
+        }
     });
 
     it('keeps the active publication unchanged and the destination unpublished when clone storage fails', async () => {
