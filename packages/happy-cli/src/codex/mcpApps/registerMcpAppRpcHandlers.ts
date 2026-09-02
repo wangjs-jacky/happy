@@ -373,6 +373,11 @@ export function registerMcpAppRpcHandlers(options: {
         for (const resourceId of [...resources.keys()]) removeResource(resourceId);
         allowedSecondarySchemes.clear();
     };
+    const expireOperation = (operation: ActiveOperation): void => {
+        if (operation.timedOut || operation.controller.signal.aborted) return;
+        operation.timedOut = true;
+        operation.controller.abort();
+    };
     const abortInFlightOperations = (): void => {
         operationEpoch += 1;
         for (const operation of inFlightOperations) operation.controller.abort();
@@ -388,8 +393,7 @@ export function registerMcpAppRpcHandlers(options: {
             timeout: undefined as unknown as ReturnType<typeof setTimeout>,
         };
         operation.timeout = setTimeout(() => {
-            operation.timedOut = true;
-            operation.controller.abort();
+            expireOperation(operation);
         }, MCP_APP_OPERATION_TIMEOUT_MS);
         operation.timeout.unref?.();
         inFlightOperations.add(operation);
@@ -399,17 +403,27 @@ export function registerMcpAppRpcHandlers(options: {
         clearTimeout(operation.timeout);
         inFlightOperations.delete(operation);
     };
-    const operationIsCurrent = (operation: ActiveOperation): boolean => !disposed
-        && operation.epoch === operationEpoch
-        && inFlightOperations.has(operation)
-        && !operation.controller.signal.aborted;
+    const operationIsCurrent = (operation: ActiveOperation): boolean => {
+        if (disposed || operation.epoch !== operationEpoch
+            || !inFlightOperations.has(operation) || operation.controller.signal.aborted) return false;
+        if (Date.now() >= operation.deadlineAt) {
+            expireOperation(operation);
+            return false;
+        }
+        return true;
+    };
     const ensureOperationIsCurrent = (operation: ActiveOperation): void => {
         if (!operationIsCurrent(operation)) throw new McpAppOperationInterrupted();
     };
-    const remainingOperationMs = (operation: ActiveOperation): number => Math.max(
-        1,
-        operation.deadlineAt - Date.now(),
-    );
+    const remainingOperationMs = (operation: ActiveOperation): number => {
+        ensureOperationIsCurrent(operation);
+        const remaining = operation.deadlineAt - Date.now();
+        if (remaining <= 0) {
+            expireOperation(operation);
+            throw new McpAppOperationInterrupted();
+        }
+        return remaining;
+    };
     const awaitOperation = <T>(operation: ActiveOperation, promise: Promise<T>): Promise<T> => {
         ensureOperationIsCurrent(operation);
         return new Promise<T>((resolve, reject) => {

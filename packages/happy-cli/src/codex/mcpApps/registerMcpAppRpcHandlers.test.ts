@@ -619,6 +619,104 @@ describe('registerMcpAppRpcHandlers', () => {
         }
     });
 
+    it('does not start permission when the absolute deadline passes before its timer callback', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(0);
+        try {
+            const catalog = deferred<any>();
+            const listMcpServerStatus = vi.fn((_params: unknown, _options?: { signal?: AbortSignal }) => catalog.promise);
+            const handleToolCall = vi.fn(async () => ({ decision: 'approved' as const }));
+            const { client, handlers, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+            bind(registry);
+
+            const pending = callTool(handlers.get('mcpAppToolCall')!, 'mutate');
+            const operationSignal = listMcpServerStatus.mock.calls[0][1]?.signal;
+            const onAbort = vi.fn();
+            operationSignal?.addEventListener('abort', onAbort);
+            vi.setSystemTime(30_000);
+            expect(operationSignal?.aborted).toBe(false);
+
+            catalog.resolve({
+                data: [{
+                    name: 'demo',
+                    runtimeStatus: 'connected',
+                    tools: {
+                        mutate: {
+                            name: 'mutate',
+                            enabled: true,
+                            annotations: { readOnlyHint: false },
+                        },
+                    },
+                }],
+            });
+
+            await expect(pending).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+            });
+            expect(operationSignal?.aborted).toBe(true);
+            expect(onAbort).toHaveBeenCalledTimes(1);
+            expect(handleToolCall).not.toHaveBeenCalled();
+            expect(client.callMcpTool).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not start direct execution when permission resolves after the absolute deadline', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(0);
+        try {
+            const permission = deferred<{ decision: 'approved' }>();
+            const handleToolCall = vi.fn((
+                _permissionId: string,
+                _tool: string,
+                _arguments: unknown,
+                _options?: { signal?: AbortSignal },
+            ) => permission.promise);
+            const listMcpServerStatus = vi.fn(async () => ({
+                data: [{
+                    name: 'demo',
+                    runtimeStatus: 'connected',
+                    tools: {
+                        mutate: {
+                            name: 'mutate',
+                            enabled: true,
+                            annotations: { readOnlyHint: false },
+                        },
+                    },
+                }],
+            }));
+            const { client, handlers, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+            bind(registry);
+
+            const pending = callTool(handlers.get('mcpAppToolCall')!, 'mutate');
+            for (let index = 0; index < 6 && handleToolCall.mock.calls.length === 0; index += 1) {
+                await Promise.resolve();
+            }
+            expect(handleToolCall).toHaveBeenCalledTimes(1);
+            const operationSignal = handleToolCall.mock.calls[0][3]?.signal;
+            const onAbort = vi.fn();
+            operationSignal?.addEventListener('abort', onAbort);
+            vi.setSystemTime(30_000);
+            expect(operationSignal?.aborted).toBe(false);
+
+            permission.resolve({ decision: 'approved' });
+
+            await expect(pending).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+            });
+            expect(operationSignal?.aborted).toBe(true);
+            expect(onAbort).toHaveBeenCalledTimes(1);
+            expect(client.callMcpTool).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('maps a Codex transport timeout to the safe App timeout envelope', async () => {
         const listMcpServerStatus = vi.fn(async () => {
             throw new CodexAppServerRequestTimeoutError('mcpServerStatus/list', 30_000);
