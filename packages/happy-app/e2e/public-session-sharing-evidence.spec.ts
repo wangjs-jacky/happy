@@ -29,6 +29,16 @@ function evidencePath(testInfo: TestInfo, name: string): string {
     return evidenceDirectory ? `${evidenceDirectory}/${filename}` : testInfo.outputPath(filename);
 }
 
+async function waitForNextWallClockMillisecond(after: number): Promise<void> {
+    const deadline = after + 1_000;
+    while (Date.now() <= after) {
+        if (Date.now() >= deadline) {
+            throw new Error('Timed out waiting for the next wall-clock millisecond while seeding the public-share fixture.');
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+}
+
 async function createSession(request: APIRequestContext): Promise<string> {
     const auth = credentials();
     const title = '[PUBLIC-SESSION-SHARE] 产品发布检查清单';
@@ -218,7 +228,8 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
             },
         );
         expect(response.ok()).toBe(true);
-        await new Promise((resolve) => setTimeout(resolve, 2));
+        const responseCompletedAt = Date.now();
+        await waitForNextWallClockMillisecond(responseCompletedAt);
     }
 }
 
