@@ -1,4 +1,4 @@
 interface:
-  display_name: "Share Coding Session"
-  short_description: "Publish local coding sessions as public Paws snapshots"
-  default_prompt: "Use $share-session to inspect this coding session and create a safe public snapshot link."
+  display_name: "Share Session with Paws"
+  short_description: "Publish coding sessions as public read-only snapshots"
+  default_prompt: "Use $share-session to safely publish this coding session as a public read-only Paws snapshot."

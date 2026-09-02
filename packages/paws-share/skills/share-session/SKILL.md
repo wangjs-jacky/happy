@@ -1,53 +1,65 @@
 ---
 name: share-session
-description: Inspect and publish local Codex or Claude Code conversations as complete, read-only Paws snapshots. Use when a user asks to share, publish, export, or create a public link for the current coding-agent session, including its structured attachments, or asks to list, query, replace, renew, or revoke links previously created with Paws Share.
+description: Publish local Codex or Claude Code conversations as complete, read-only Paws snapshots, including structured attachments. Use when a user asks to inspect or share a coding-agent session, create a public conversation link, or list, check, replace, renew, or revoke a link managed by Paws Share.
 ---
 
 # Share Session
 
-Use the `paws-share` CLI as the only transcript parser, uploader, and capability manager. Do not parse provider JSONL, read `~/.paws-share/shares.json`, handle management tokens, or upload attachments yourself.
+Use `npx --yes @wangjs-jacky/paws-share@latest` as the transcript parser, uploader, and capability manager. This works without a global install. Do not parse provider JSONL, read the local share-management store, handle management tokens, or upload attachments yourself.
+
+## Select the transcript
+
+Prefer the most specific identity available:
+
+1. If the user supplied a provider and JSONL path, use them exactly.
+2. In Codex, when `CODEX_THREAD_ID` is set, use `rg --files "${CODEX_HOME:-$HOME/.codex}/sessions"` to resolve the single JSONL filename containing that exact thread ID. Then use `--source codex --session "$session_path"`. Do not read the transcript to identify it.
+3. Otherwise use `--current`. If it reports no match or multiple matches, stop and ask the user to choose an explicit session. Never select the newest or an unrelated session as a guess.
+
+Use the same selector for inspection and publication.
 
 ## Create a public link
 
-1. Inspect the current session:
+1. Inspect before uploading. For an exact Codex transcript, run:
 
    ```bash
-   paws-share inspect --current --json
+   npx --yes @wangjs-jacky/paws-share@latest inspect --source codex --session "$session_path" --json
    ```
 
-2. Show the user the provider, title, message count, attachment count and bytes, unresolved attachment count, blocking secret count, privacy-warning count, and the 90-day public expiry policy.
-3. Stop if the CLI reports an ambiguous session, an unresolved attachment, or a blocking secret. Resolve ambiguity with an explicit `--source` and `--session` path. Never guess which conversation to publish.
-4. After the user explicitly requests the public link and accepts the disclosure, publish:
+   When using directory discovery, replace the selector with `--current`.
+
+2. Report the provider, title, message count, attachment count and bytes, unresolved attachment count, blocking finding count, warning finding count, and 90-day expiry. State that the result is a public, read-only snapshot available to anyone with the link and that resolved structured attachments are included.
+3. Do not publish if `unresolvedAttachmentCount` or `blockingFindingCount` is nonzero. Resolve transcript ambiguity with an explicit provider and path; never guess.
+4. An explicit request to share, publish, or create the public link authorizes publication after a clean inspection. A request only to inspect, explain, or preview does not. Publish with the identical selector:
 
    ```bash
-   paws-share share --current --yes --json
+   npx --yes @wangjs-jacky/paws-share@latest share --source codex --session "$session_path" --yes --json
    ```
 
-5. Return only `publicUrl`, `expiresAt`, and a short confirmation that the link is a read-only snapshot.
+5. Return `publicUrl`, `expiresAt`, and a short confirmation that it is a read-only snapshot. Never return the local transcript path, management record path, or any management capability.
 
-Never add `--allow-sensitive` merely to finish the task. Use it only after reporting the blocking findings and receiving a separate, explicit instruction to publish sensitive content. Do not claim success until the command returns `publicUrl`.
+Never add `--allow-sensitive` merely to complete the task. Use it only after reporting the blocking findings and receiving a separate, explicit instruction to publish despite them. Do not claim success unless the command returns `publicUrl`.
 
-## Use an explicit transcript
+## Other providers
 
-When `--current` is ambiguous, run the same inspect-then-share sequence with one provider and one JSONL path:
+For Claude Code, use the same inspect-then-share workflow with `--source claude-code` and its explicit JSONL path:
 
 ```bash
-paws-share inspect --source codex --session /path/to/session.jsonl --json
-paws-share share --source codex --session /path/to/session.jsonl --yes --json
+npx --yes @wangjs-jacky/paws-share@latest inspect --source claude-code --session /path/to/session.jsonl --json
+npx --yes @wangjs-jacky/paws-share@latest share --source claude-code --session /path/to/session.jsonl --yes --json
 ```
-
-Use `--source claude-code` for Claude Code transcripts. Do not expose the local transcript path in the final response.
 
 ## Manage links
 
-Use only the CLI so the local capability remains private:
+Run management commands on the same machine that created the link so the local capability remains private:
 
 ```bash
-paws-share list --json
-paws-share status <public-id> --json
-paws-share renew <public-id> --json
-paws-share replace <public-id> --current --yes --json
-paws-share revoke <public-id> --json
+npx --yes @wangjs-jacky/paws-share@latest list --json
+npx --yes @wangjs-jacky/paws-share@latest status <public-id> --json
+npx --yes @wangjs-jacky/paws-share@latest renew <public-id> --json
+npx --yes @wangjs-jacky/paws-share@latest replace <public-id> --current --yes --json
+npx --yes @wangjs-jacky/paws-share@latest revoke <public-id> --json
 ```
 
-Revocation is terminal for that public link. Losing the local management record is intentionally unrecoverable without an account.
+Inspect the replacement transcript first and use the same exact selector for `replace`. Replacing preserves the public URL. Revocation is terminal for that link. Losing the local management record is intentionally unrecoverable without an account.
+
+If a command fails, report the error and do not invent or infer a public URL. Do not retry a mutating command automatically when its outcome is unknown. Use `list` and `status` to establish the recorded state first. Use a custom `--server` only when the user explicitly supplies a trusted Paws Share server.

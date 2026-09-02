@@ -33,8 +33,8 @@ describe('installSkill', () => {
         const codexSkill = await readFile(join(codexHome, 'skills', 'share-session', 'SKILL.md'), 'utf8');
         const claudeSkill = await readFile(join(claudeHome, 'skills', 'share-session', 'SKILL.md'), 'utf8');
         expect(codexSkill).toBe(claudeSkill);
-        expect(codexSkill).toContain('paws-share inspect --current --json');
-        expect(codexSkill).toContain('paws-share share --current --yes --json');
+        expect(codexSkill).toContain('npx --yes @wangjs-jacky/paws-share@latest inspect');
+        expect(codexSkill).toContain('npx --yes @wangjs-jacky/paws-share@latest share');
         expect(await readFile(join(codexHome, 'skills', 'unrelated', 'SKILL.md'), 'utf8')).toBe('keep me');
     });
 
