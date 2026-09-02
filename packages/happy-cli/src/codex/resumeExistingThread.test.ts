@@ -307,26 +307,45 @@ describe('resumeExistingThread', () => {
             }),
             readThread: vi.fn().mockResolvedValue({
                 thread: {
-                    turns: [{
-                        id: 'turn-after-cursor',
-                        status: 'completed',
-                        items: [{
-                            type: 'agentMessage',
-                            id: 'agent-after-cursor',
-                            text: 'reply while disconnected',
-                        }, {
-                            type: 'reasoning',
-                            id: 'reasoning-after-cursor',
-                            summary: ['reasoning that must survive retry'],
-                            content: [],
-                        }, {
-                            type: 'commandExecution',
-                            id: 'command-after-cursor',
-                            command: 'pwd',
-                            cwd: '/tmp/project',
-                            aggregatedOutput: '/tmp/project',
-                        }],
-                    }],
+                    turns: [
+                        {
+                            id: 'turn-after-cursor',
+                            status: 'completed',
+                            items: [{
+                                type: 'agentMessage',
+                                id: 'agent-after-cursor',
+                                text: 'reply while disconnected',
+                            }, {
+                                type: 'reasoning',
+                                id: 'reasoning-after-cursor',
+                                summary: ['reasoning that must survive retry'],
+                                content: [],
+                            }, {
+                                type: 'commandExecution',
+                                id: 'command-after-cursor',
+                                command: 'pwd',
+                                cwd: '/tmp/project',
+                                aggregatedOutput: '/tmp/project',
+                            }],
+                        },
+                        {
+                            id: 'turn-still-active',
+                            status: 'inProgress',
+                            items: [{
+                                type: 'userMessage',
+                                id: 'user-still-active',
+                                content: [{ type: 'text', text: 'active request' }],
+                            }, {
+                                type: 'agentMessage',
+                                id: 'agent-still-active',
+                                text: 'partial response that live sync owns',
+                            }, {
+                                type: 'commandExecution',
+                                id: 'command-still-active',
+                                command: 'sleep 10',
+                            }],
+                        },
+                    ],
                 },
             }),
         };
@@ -383,6 +402,13 @@ describe('resumeExistingThread', () => {
         expect(sendSessionProtocolHistoryAndAwait.mock.calls[0][0].some(
             (envelope: SessionEnvelope) => envelope.ev.t === 'text' && envelope.ev.thinking === true,
         )).toBe(true);
+        expect(sendSessionProtocolHistoryAndAwait.mock.calls[0][0].some(
+            (envelope: SessionEnvelope) => envelope.codexItemId === 'agent-still-active',
+        )).toBe(false);
+        expect(sendSessionProtocolHistoryAndAwait.mock.calls[0][0].some(
+            (envelope: SessionEnvelope) => envelope.ev.t === 'tool-call-start'
+                && envelope.ev.call === 'command-still-active',
+        )).toBe(false);
         expect(sendSessionProtocolHistoryAndAwait.mock.calls[1][0].map((envelope: SessionEnvelope) => envelope.id)).toEqual(
             sendSessionProtocolHistoryAndAwait.mock.calls[0][0].map((envelope: SessionEnvelope) => envelope.id),
         );

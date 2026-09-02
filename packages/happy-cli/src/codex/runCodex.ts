@@ -1182,6 +1182,9 @@ export async function runCodex(opts: {
                 });
                 const envelopes = mapCodexThreadToSessionEnvelopes(thread, {
                     omitPawsUserMessagesFromOriginToken: codexPawsOriginToken,
+                    // Match the normal resume path so a durable retry rebuilds
+                    // the exact same envelope set for an in-progress Turn.
+                    activeTurnsUserOnly: true,
                 });
                 await session.updateMetadataAndAwait((currentMetadata) => ({
                     ...currentMetadata,
