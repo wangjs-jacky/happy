@@ -54,11 +54,19 @@ describe('paws-share CLI', () => {
         const exitCode = await runCli([
             'node', 'paws-share', 'export-html', '--source', 'codex', '--session', '/tmp/session.jsonl',
             '--output', '/tmp/review.html', '--force', '--json',
-        ], output.io, { exportSessionHtml });
+        ], output.io, {
+            exportSessionHtml,
+            cwd: () => '/tmp/project',
+            environment: { HAPPY_HOME_DIR: '/tmp/happy' },
+        });
 
         expect(exitCode).toBe(0);
         expect(exportSessionHtml).toHaveBeenCalledWith({
-            candidate: { provider: 'codex', path: '/tmp/session.jsonl' },
+            candidate: {
+                provider: 'codex',
+                path: '/tmp/session.jsonl',
+                attachmentRoots: ['/tmp/project', '/tmp/happy/attachments'],
+            },
             outputPath: '/tmp/review.html',
             allowSensitive: false,
             overwrite: true,

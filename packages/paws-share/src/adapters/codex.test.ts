@@ -125,6 +125,50 @@ describe('codexAdapter', () => {
         expect(serialized).not.toContain('private host settings');
     });
 
+    it('converts Happy local-file notices into attachments without exposing local paths', async () => {
+        const directory = await createTemporaryDirectory('paws-share-codex-media-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'sessions');
+        const attachmentDirectory = join(directory, '.happy', 'attachments');
+        await mkdir(sessionDirectory);
+        await mkdir(attachmentDirectory, { recursive: true });
+        const transcript = join(sessionDirectory, 'session.jsonl');
+        const audioPath = join(attachmentDirectory, 'voice.mp3');
+        const documentPath = join(attachmentDirectory, 'plan.pdf');
+        await writeFile(audioPath, Buffer.from('audio'));
+        await writeFile(documentPath, Buffer.from('%PDF'));
+        const notice = [
+            'Happy attached 2 user-uploaded local files to this turn:',
+            `- Audio 1: ${audioPath} (audio/mpeg, 5B)`,
+            `- File 2: ${documentPath} (application/pdf, 4B)`,
+            'Use the exact local file path above to read or process the PDF according to the user request.',
+            'Audio/video content is available at the exact paths above; use command-line tools such as ffmpeg or whisper when needed.',
+            'Do not scan ~/.happy/attachments or guess which file the user intended.',
+            '',
+            'Summarize both attachments.',
+        ].join('\n');
+        await writeFile(transcript, `${JSON.stringify({
+            type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+            payload: { id: 'message-1', type: 'message', role: 'user', content: [{ type: 'input_text', text: notice }] },
+        })}\n`);
+
+        const converted = await codexAdapter.convert({
+            provider: 'codex',
+            path: transcript,
+            attachmentRoots: [attachmentDirectory],
+        });
+        const serialized = JSON.stringify(converted.snapshot);
+
+        expect(converted.attachments).toEqual(expect.arrayContaining([
+            expect.objectContaining({ name: 'voice.mp3', kind: 'audio', mimeType: 'audio/mpeg' }),
+            expect.objectContaining({ name: 'plan.pdf', kind: 'file', mimeType: 'application/pdf' }),
+        ]));
+        expect(converted.unresolvedAttachments).toEqual([]);
+        expect(serialized).toContain('Summarize both attachments.');
+        expect(serialized).not.toContain(attachmentDirectory);
+        expect(serialized).not.toContain('Happy attached');
+    });
+
     it('removes Paws host envelopes and synthetic configuration from public content', async () => {
         const directory = await createTemporaryDirectory('paws-share-codex-envelope-');
         temporaryDirectories.push(directory);

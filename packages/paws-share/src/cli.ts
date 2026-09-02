@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Command, CommanderError, Option } from 'commander';
 import packageMetadata from '../package.json' with { type: 'json' };
 import { discoverCurrentTranscript } from './adapters/discover';
@@ -103,14 +104,19 @@ type SourceOptions = {
 };
 
 async function candidateFromOptions(options: SourceOptions, dependencies: CliDependencies): Promise<TranscriptCandidate> {
+    const cwd = resolve(dependencies.cwd());
+    const configuredHappyHome = dependencies.environment.HAPPY_HOME_DIR?.replace(/^~/, homedir());
+    const happyHome = resolve(configuredHappyHome ?? join(homedir(), '.happy'));
+    const attachmentRoots = [cwd, join(happyHome, 'attachments')];
     if (options.current) {
         if (options.source || options.session) throw new CliExpectedError('--current cannot be combined with --source or --session', 2);
-        return dependencies.discoverCurrentTranscript({ cwd: dependencies.cwd() });
+        const candidate = await dependencies.discoverCurrentTranscript({ cwd });
+        return { ...candidate, attachmentRoots: [...new Set([...(candidate.attachmentRoots ?? []), ...attachmentRoots])] };
     }
     if (!options.source || !options.session) {
         throw new CliExpectedError('Use --current or provide both --source and --session', 2);
     }
-    return { provider: options.source, path: resolve(options.session) };
+    return { provider: options.source, path: resolve(options.session), attachmentRoots };
 }
 
 function addSourceOptions(command: Command): Command {

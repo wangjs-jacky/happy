@@ -70,6 +70,85 @@ describe('local HTML session export', () => {
         expect(html).toContain('<details class="tool"');
     });
 
+    it('embeds an exact Happy-staged attachment from an explicitly trusted root', async () => {
+        const directory = await createTemporaryDirectory('paws-share-html-happy-root-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'sessions');
+        const attachmentDirectory = join(directory, '.happy', 'attachments');
+        await mkdir(sessionDirectory);
+        await mkdir(attachmentDirectory, { recursive: true });
+        const transcriptPath = join(sessionDirectory, 'session.jsonl');
+        const attachmentPath = join(attachmentDirectory, 'current-upload.png');
+        const outputPath = join(directory, 'session.html');
+        const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+        await writeFile(attachmentPath, png);
+        await writeFile(transcriptPath, [
+            JSON.stringify({ type: 'session_meta', payload: { cwd: '/' } }),
+            JSON.stringify({
+                type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+                payload: {
+                    id: 'message-1', type: 'message', role: 'user', content: [
+                        { type: 'input_text', text: 'Export this Happy attachment.' },
+                        { type: 'input_image', path: attachmentPath },
+                    ],
+                },
+            }),
+        ].join('\n'));
+
+        const result = await exportSessionHtml({
+            candidate: { provider: 'codex', path: transcriptPath, attachmentRoots: [attachmentDirectory] },
+            outputPath,
+        });
+
+        expect(result.attachmentCount).toBe(1);
+        expect(await readFile(outputPath, 'utf8')).toContain(`data:image/png;base64,${png.toString('base64')}`);
+    });
+
+    it('renders Happy audio, video, and file notices as offline media and downloads', async () => {
+        const directory = await createTemporaryDirectory('paws-share-html-media-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'sessions');
+        const attachmentDirectory = join(directory, '.happy', 'attachments');
+        await mkdir(sessionDirectory);
+        await mkdir(attachmentDirectory, { recursive: true });
+        const transcriptPath = join(sessionDirectory, 'session.jsonl');
+        const outputPath = join(directory, 'session.html');
+        const audioPath = join(attachmentDirectory, 'voice.mp3');
+        const videoPath = join(attachmentDirectory, 'demo.mp4');
+        const documentPath = join(attachmentDirectory, 'plan.pdf');
+        await writeFile(audioPath, Buffer.from('audio'));
+        await writeFile(videoPath, Buffer.from('video'));
+        await writeFile(documentPath, Buffer.from('%PDF'));
+        const notice = [
+            'Happy attached 3 user-uploaded local files to this turn:',
+            `- Audio 1: ${audioPath} (audio/mpeg, 5B)`,
+            `- Video 2: ${videoPath} (video/mp4, 5B)`,
+            `- File 3: ${documentPath} (application/pdf, 4B)`,
+            'Use the exact local file path above to read or process the PDF according to the user request.',
+            'Audio/video content is available at the exact paths above; use command-line tools such as ffmpeg or whisper when needed.',
+            'Do not scan ~/.happy/attachments or guess which file the user intended.',
+            '',
+            'Review all three attachments.',
+        ].join('\n');
+        await writeFile(transcriptPath, `${JSON.stringify({
+            type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+            payload: { id: 'message-1', type: 'message', role: 'user', content: [{ type: 'input_text', text: notice }] },
+        })}\n`);
+
+        const result = await exportSessionHtml({
+            candidate: { provider: 'codex', path: transcriptPath, attachmentRoots: [attachmentDirectory] },
+            outputPath,
+        });
+        const html = await readFile(outputPath, 'utf8');
+
+        expect(result.attachmentCount).toBe(3);
+        expect(html).toContain('<audio controls');
+        expect(html).toContain('<video controls');
+        expect(html).toContain('download="plan.pdf"');
+        expect(html).toContain('Review all three attachments.');
+        expect(html).not.toContain(attachmentDirectory);
+    });
+
     it('escapes active HTML and rejects unsafe markdown link protocols', () => {
         const html = renderSessionHtml({
             version: 1,
