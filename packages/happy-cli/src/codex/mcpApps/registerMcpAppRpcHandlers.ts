@@ -25,6 +25,8 @@ export const MCP_APP_OPERATION_TIMEOUT_MS = 30_000;
 export const MCP_APP_MAX_CALL_ID_BYTES = 256;
 export const MCP_APP_MAX_TOOL_NAME_BYTES = 256;
 export const MCP_APP_MAX_OPERATION_ID_BYTES = 128;
+const MCP_APP_MAX_PRE_CANCEL_TOMBSTONES = 64;
+const MCP_APP_PRE_CANCEL_TTL_MS = MCP_APP_OPERATION_TIMEOUT_MS;
 
 export type McpAppResourceOpenRequest = {
     callId: string;
@@ -370,6 +372,8 @@ export function registerMcpAppRpcHandlers(options: {
     const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const inFlightOperations = new Set<ActiveOperation>();
     const interactiveOperations = new Map<string, ActiveOperation>();
+    const preCancelledOperations = new Map<string, number>();
+    let preCancelExpiryTimer: ReturnType<typeof setTimeout> | undefined;
     let rpcHandlerManager = options.rpcHandlerManager;
     let disposed = false;
     let requestSequence = 0;
@@ -405,10 +409,59 @@ export function registerMcpAppRpcHandlers(options: {
         operation.timedOut = true;
         operation.controller.abort();
     };
+    const schedulePreCancelExpiry = (): void => {
+        if (preCancelExpiryTimer) clearTimeout(preCancelExpiryTimer);
+        preCancelExpiryTimer = undefined;
+        const earliestExpiry = preCancelledOperations.values().next().value as number | undefined;
+        if (earliestExpiry === undefined) return;
+        preCancelExpiryTimer = setTimeout(() => {
+            preCancelExpiryTimer = undefined;
+            const currentTime = Date.now();
+            for (const [key, expiresAt] of preCancelledOperations) {
+                if (expiresAt > currentTime) break;
+                preCancelledOperations.delete(key);
+            }
+            schedulePreCancelExpiry();
+        }, Math.max(0, earliestExpiry - Date.now()));
+        preCancelExpiryTimer.unref?.();
+    };
+    const prunePreCancelledOperations = (): void => {
+        const currentTime = Date.now();
+        let changed = false;
+        for (const [key, expiresAt] of preCancelledOperations) {
+            if (expiresAt > currentTime) break;
+            preCancelledOperations.delete(key);
+            changed = true;
+        }
+        if (changed) schedulePreCancelExpiry();
+    };
+    const clearPreCancelledOperations = (): void => {
+        if (preCancelExpiryTimer) clearTimeout(preCancelExpiryTimer);
+        preCancelExpiryTimer = undefined;
+        preCancelledOperations.clear();
+    };
+    const rememberPreCancelledOperation = (key: string): void => {
+        prunePreCancelledOperations();
+        if (preCancelledOperations.has(key)) return;
+        while (preCancelledOperations.size >= MCP_APP_MAX_PRE_CANCEL_TOMBSTONES) {
+            const oldest = preCancelledOperations.keys().next().value as string | undefined;
+            if (!oldest) break;
+            preCancelledOperations.delete(oldest);
+        }
+        preCancelledOperations.set(key, Date.now() + MCP_APP_PRE_CANCEL_TTL_MS);
+        schedulePreCancelExpiry();
+    };
+    const consumePreCancelledOperation = (key: string): boolean => {
+        prunePreCancelledOperations();
+        if (!preCancelledOperations.delete(key)) return false;
+        schedulePreCancelExpiry();
+        return true;
+    };
     const abortInFlightOperations = (): void => {
         operationEpoch += 1;
         for (const operation of inFlightOperations) operation.controller.abort();
         interactiveOperations.clear();
+        clearPreCancelledOperations();
     };
     const interactiveKey = (callId: string, operationId: string): string => (
         JSON.stringify([callId, operationId])
@@ -616,6 +669,10 @@ export function registerMcpAppRpcHandlers(options: {
                 return failure('MCP_APP_INVALID_RESOURCE', false);
             }
 
+            if (consumePreCancelledOperation(interactiveKey(request.callId, request.operationId))) {
+                return failure('MCP_APP_SESSION_OFFLINE', true);
+            }
+
             const operation = beginOperation({
                 callId: request.callId,
                 operationId: request.operationId,
@@ -658,6 +715,10 @@ export function registerMcpAppRpcHandlers(options: {
             }
             if (!requestConnectorMatches(request._meta, binding.connectorId)) {
                 return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
+            }
+
+            if (consumePreCancelledOperation(interactiveKey(request.callId, request.operationId))) {
+                return failure('MCP_APP_SESSION_OFFLINE', true);
             }
 
             const operation = beginOperation({
@@ -740,6 +801,8 @@ export function registerMcpAppRpcHandlers(options: {
             if (operation) {
                 interactiveOperations.delete(key);
                 operation.controller.abort();
+            } else if (options.bindingRegistry.has(request.callId)) {
+                rememberPreCancelledOperation(key);
             }
             return { ok: true, value: {} };
         } catch {

@@ -185,11 +185,23 @@ describe('MCP App RPC operations', () => {
     });
 
     it('sends one authenticated cancellation for the exact interactive operation before settling abort', async () => {
-        const calls: Array<{ method: string; params: any; timeoutMs?: number }> = [];
+        const calls: Array<{
+            method: string;
+            params: any;
+            timeoutMs?: number;
+            overallTimeoutMs?: number;
+        }> = [];
         let settleOperation!: (value: unknown) => void;
         const operation = new Promise<unknown>((resolve) => { settleOperation = resolve; });
         const client = createMcpAppResourceRpcClient(async (_sessionId, method, params, options) => {
-            calls.push({ method, params, timeoutMs: options?.timeoutMs });
+            calls.push({
+                method,
+                params,
+                timeoutMs: options?.timeoutMs,
+                ...(options?.overallTimeoutMs !== undefined
+                    ? { overallTimeoutMs: options.overallTimeoutMs }
+                    : {}),
+            });
             if (method === 'mcpAppOperationCancel') return { ok: true, value: {} };
             return operation;
         }, { createOperationId: () => '00000000-0000-4000-8000-000000000007' });
@@ -222,9 +234,48 @@ describe('MCP App RPC operations', () => {
                     operationId: '00000000-0000-4000-8000-000000000007',
                 },
                 timeoutMs: 5_000,
+                overallTimeoutMs: 5_000,
             },
         ]);
         settleOperation({ ok: true, value: { content: [{ type: 'text', text: 'CANARY_LATE' }] } });
         await Promise.resolve();
+    });
+
+    it('settles an authenticated cancellation at the five-second wall-clock deadline', async () => {
+        vi.useFakeTimers();
+        try {
+            const calls: Array<{ method: string; options: unknown }> = [];
+            const never = new Promise<unknown>(() => {});
+            const client = createMcpAppResourceRpcClient(async (_sessionId, method, _params, options) => {
+                calls.push({ method, options });
+                return never;
+            }, { createOperationId: () => '00000000-0000-4000-8000-000000000008' });
+            const controller = new AbortController();
+            const pending = client.callTool('session-1', {
+                callId: 'call-1', tool: 'mutate', arguments: { id: 1 },
+            }, controller.signal);
+            await vi.waitFor(() => expect(calls).toHaveLength(1));
+            let rejection: unknown;
+            void pending.catch((error) => { rejection = error; });
+
+            controller.abort();
+            await vi.advanceTimersByTimeAsync(4_999);
+            expect(rejection).toBeUndefined();
+            await vi.advanceTimersByTimeAsync(1);
+
+            expect(rejection).toMatchObject({
+                code: 'MCP_APP_SESSION_OFFLINE', retryable: true,
+            });
+            expect(calls).toEqual([
+                { method: 'mcpAppToolCall', options: { timeoutMs: 30_000 } },
+                {
+                    method: 'mcpAppOperationCancel',
+                    options: { timeoutMs: 5_000, overallTimeoutMs: 5_000 },
+                },
+            ]);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

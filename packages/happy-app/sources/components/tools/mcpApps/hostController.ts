@@ -221,14 +221,14 @@ export function createMcpAppHostController(options: {
                     result = {};
                     break;
                 case 'resources/read':
-                    result = await raceAbort(options.remotePort.readSecondaryResource({
+                    result = await options.remotePort.readSecondaryResource({
                         callId: options.callId,
                         uri: request.params.uri,
                         signal: operation.signal,
-                    }), operation.signal);
+                    });
                     break;
                 case 'tools/call':
-                    result = await raceAbort(options.remotePort.callTool({
+                    result = await options.remotePort.callTool({
                         callId: options.callId,
                         tool: request.params.name,
                         ...(request.params.arguments !== undefined
@@ -236,7 +236,7 @@ export function createMcpAppHostController(options: {
                             : {}),
                         ...(request.params._meta !== undefined ? { _meta: request.params._meta } : {}),
                         signal: operation.signal,
-                    }), operation.signal);
+                    });
                     break;
                 case 'ui/open-link':
                     result = await raceAbort(

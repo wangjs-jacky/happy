@@ -109,27 +109,96 @@ function officialRequestIdKey(requestId: unknown): string | undefined {
         : undefined;
 }
 
+const OFFICIAL_ZERO_REQUEST_ID = '\u0000paws:request-id:number:0';
+const OFFICIAL_EMPTY_REQUEST_ID = '\u0000paws:request-id:string:empty';
+
+function internalOfficialRequestId(requestId: unknown): unknown {
+    if (requestId === 0) return OFFICIAL_ZERO_REQUEST_ID;
+    if (requestId === '') return OFFICIAL_EMPTY_REQUEST_ID;
+    return requestId;
+}
+
+function externalOfficialRequestId(requestId: unknown): unknown {
+    if (requestId === OFFICIAL_ZERO_REQUEST_ID) return 0;
+    if (requestId === OFFICIAL_EMPTY_REQUEST_ID) return '';
+    return requestId;
+}
+
+function isReservedOfficialRequestId(requestId: unknown): boolean {
+    return requestId === OFFICIAL_ZERO_REQUEST_ID || requestId === OFFICIAL_EMPTY_REQUEST_ID;
+}
+
 type OfficialTransportMessage = Parameters<PostMessageTransport['send']>[0];
 type OfficialTransportOptions = Parameters<PostMessageTransport['send']>[1];
 
-class TrackedPostMessageTransport extends PostMessageTransport {
+function rewriteOfficialInbound(message: OfficialTransportMessage): OfficialTransportMessage {
+    if ('method' in message && 'id' in message && (message.id === 0 || message.id === '')) {
+        return { ...message, id: internalOfficialRequestId(message.id) } as OfficialTransportMessage;
+    }
+    if ('method' in message && message.method === 'notifications/cancelled'
+        && 'params' in message && message.params && typeof message.params === 'object'
+        && !Array.isArray(message.params)) {
+        const params = message.params as Record<string, unknown>;
+        if (params.requestId === 0 || params.requestId === '') {
+            return {
+                ...message,
+                params: { ...params, requestId: internalOfficialRequestId(params.requestId) },
+            } as OfficialTransportMessage;
+        }
+    }
+    return message;
+}
+
+function rewriteOfficialOutbound(message: OfficialTransportMessage): OfficialTransportMessage {
+    if ('id' in message && ('result' in message || 'error' in message)
+        && isReservedOfficialRequestId(message.id)) {
+        return { ...message, id: externalOfficialRequestId(message.id) } as OfficialTransportMessage;
+    }
+    return message;
+}
+
+class TrackedPostMessageTransport {
+    private readonly transport: PostMessageTransport;
+    onclose?: PostMessageTransport['onclose'];
+    onerror?: PostMessageTransport['onerror'];
+    onmessage?: PostMessageTransport['onmessage'];
+    sessionId?: string;
+
     constructor(
         target: Window,
         source: Window,
         private readonly onTerminalResponse: (requestId: string | number) => void,
     ) {
-        super(target, source);
+        this.transport = new PostMessageTransport(target, source);
     }
 
-    override async send(
+    async start(): Promise<void> {
+        this.transport.onclose = () => this.onclose?.();
+        this.transport.onerror = (error) => this.onerror?.(error);
+        this.transport.onmessage = (message, extra) => {
+            this.onmessage?.(rewriteOfficialInbound(message), extra);
+        };
+        await this.transport.start();
+    }
+
+    async send(
         message: OfficialTransportMessage,
         options?: OfficialTransportOptions,
     ): Promise<void> {
-        if ('id' in message && (typeof message.id === 'string' || typeof message.id === 'number')
-            && ('result' in message || 'error' in message)) {
-            this.onTerminalResponse(message.id);
+        const outgoing = rewriteOfficialOutbound(message);
+        if ('id' in outgoing && (typeof outgoing.id === 'string' || typeof outgoing.id === 'number')
+            && ('result' in outgoing || 'error' in outgoing)) {
+            this.onTerminalResponse(outgoing.id);
         }
-        await super.send(message, options);
+        await this.transport.send(outgoing, options);
+    }
+
+    async close(): Promise<void> {
+        await this.transport.close();
+    }
+
+    setProtocolVersion(version: string): void {
+        this.transport.setProtocolVersion?.(version);
     }
 }
 
@@ -345,7 +414,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         const envelope = event.data as Record<string, unknown>;
         if (isViewRequestAttempt(envelope)) {
             const key = officialRequestIdKey(envelope.id);
-            if (!key || activeOfficialRequestIds.has(key) || retiredOfficialRequestIds.has(key)) {
+            if (!key || isReservedOfficialRequestId(envelope.id)
+                || activeOfficialRequestIds.has(key) || retiredOfficialRequestIds.has(key)) {
                 event.stopImmediatePropagation();
                 protocolFailure();
                 return;

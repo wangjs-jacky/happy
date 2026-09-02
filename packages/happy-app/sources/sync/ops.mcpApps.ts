@@ -237,24 +237,35 @@ export function createMcpAppResourceRpcClient(
         let removeAbortListener = () => {};
         try {
             const response = await new Promise<unknown>((resolve, reject) => {
+                let cancellationTimer: ReturnType<typeof setTimeout> | undefined;
                 const finishCancellation = () => {
                     if (finished) return;
                     finished = true;
+                    if (cancellationTimer) clearTimeout(cancellationTimer);
+                    cancellationTimer = undefined;
                     reject(cancellationError());
                 };
                 const onAbort = () => {
                     if (finished || cancelled) return;
                     cancelled = true;
                     removeAbortListener();
-                    void sessionRPC(
-                        sessionId,
-                        'mcpAppOperationCancel',
-                        { callId: input.callId, operationId } satisfies McpAppOperationCancelRequest,
-                        { timeoutMs: MCP_APP_CANCEL_TIMEOUT_MS },
-                    ).then(
-                        () => finishCancellation(),
-                        () => finishCancellation(),
-                    );
+                    cancellationTimer = setTimeout(finishCancellation, MCP_APP_CANCEL_TIMEOUT_MS);
+                    try {
+                        void sessionRPC(
+                            sessionId,
+                            'mcpAppOperationCancel',
+                            { callId: input.callId, operationId } satisfies McpAppOperationCancelRequest,
+                            {
+                                timeoutMs: MCP_APP_CANCEL_TIMEOUT_MS,
+                                overallTimeoutMs: MCP_APP_CANCEL_TIMEOUT_MS,
+                            },
+                        ).then(
+                            finishCancellation,
+                            finishCancellation,
+                        );
+                    } catch {
+                        finishCancellation();
+                    }
                 };
                 removeAbortListener = () => signal?.removeEventListener('abort', onAbort);
                 signal?.addEventListener('abort', onAbort, { once: true });

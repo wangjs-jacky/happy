@@ -221,6 +221,80 @@ describe('registerMcpAppRpcHandlers', () => {
         await expect(callTool(handlers.get('mcpAppToolCall')!, 'refresh')).resolves.toMatchObject({ ok: true });
     });
 
+    it('consumes reordered cancellation before independently encrypted resource and tool requests', async () => {
+        const { client, handlers, permissionHandler, registry } = createHarness();
+        bind(registry);
+        const resourceOperationId = '00000000-0000-4000-8000-000000000101';
+        const toolOperationId = '00000000-0000-4000-8000-000000000102';
+
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId: resourceOperationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId: toolOperationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+
+        await expect(handlers.get('mcpAppResourceRead')!({
+            callId: 'call-1', operationId: resourceOperationId, uri: 'ui://demo/detail',
+        })).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+        });
+        await expect(handlers.get('mcpAppToolCall')!({
+            callId: 'call-1', operationId: toolOperationId, tool: 'refresh', arguments: { id: 1 },
+        })).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+        });
+
+        expect(client.readMcpResource).not.toHaveBeenCalled();
+        expect(client.listMcpServerStatus).not.toHaveBeenCalled();
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+        await expect(callTool(handlers.get('mcpAppToolCall')!, 'refresh')).resolves.toMatchObject({ ok: true });
+    });
+
+    it('bounds pre-cancel memory and expires tombstones within one operation lifetime', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(0);
+        try {
+            const { client, handlers, registration, registry } = createHarness();
+            bind(registry);
+            const operationIds = Array.from({ length: 65 }, (_, index) => (
+                `00000000-0000-4000-8000-${String(index + 201).padStart(12, '0')}`
+            ));
+            for (const operationId of operationIds) {
+                await handlers.get('mcpAppOperationCancel')!({ callId: 'call-1', operationId });
+            }
+
+            await expect(handlers.get('mcpAppToolCall')!({
+                callId: 'call-1', operationId: operationIds[0], tool: 'refresh', arguments: {},
+            })).resolves.toMatchObject({ ok: true });
+            await expect(handlers.get('mcpAppToolCall')!({
+                callId: 'call-1', operationId: operationIds.at(-1), tool: 'refresh', arguments: {},
+            })).resolves.toMatchObject({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE' }),
+            });
+            expect(client.callMcpTool).toHaveBeenCalledTimes(1);
+
+            const expiringOperationId = '00000000-0000-4000-8000-000000000999';
+            await handlers.get('mcpAppOperationCancel')!({
+                callId: 'call-1', operationId: expiringOperationId,
+            });
+            await vi.advanceTimersByTimeAsync(30_001);
+            await expect(handlers.get('mcpAppToolCall')!({
+                callId: 'call-1', operationId: expiringOperationId, tool: 'refresh', arguments: {},
+            })).resolves.toMatchObject({ ok: true });
+            expect(client.callMcpTool).toHaveBeenCalledTimes(2);
+
+            registration.dispose();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('returns a safe not-found envelope for an unknown binding', async () => {
         const { handlers } = createHarness();
 

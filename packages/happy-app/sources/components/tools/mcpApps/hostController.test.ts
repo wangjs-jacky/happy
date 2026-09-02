@@ -566,7 +566,7 @@ describe('MCP App host controller', () => {
         await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
     });
 
-    it('promptly releases a concurrent slot when the owned View request is cancelled', async () => {
+    it('holds a cancelled slot until the remote authenticated cancellation settles', async () => {
         const pendingReads: Array<ReturnType<typeof deferred<{ contents: unknown[] }>>> = [];
         const remote = new MemoryRemotePort(
             async () => resource,
@@ -589,11 +589,64 @@ describe('MCP App host controller', () => {
         })).rejects.toMatchObject({ code: 'MCP_APP_TIMEOUT' });
 
         signals[0].abort();
-        await expect(requests[0]).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+        let firstSettled = false;
+        void requests[0].finally(() => { firstSettled = true; }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(firstSettled).toBe(false);
         expect((remote.secondaryInputs[0] as { signal: AbortSignal }).signal.aborted).toBe(true);
+        await expect(adapter.request({ method: 'ping', params: {} })).rejects.toMatchObject({
+            code: 'MCP_APP_TIMEOUT',
+        });
+
+        pendingReads[0].reject(new McpAppHostError(
+            'MCP_APP_SESSION_OFFLINE', true, 'The session is no longer available.',
+        ));
+        await expect(requests[0]).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
         await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
 
-        pendingReads.forEach((gate) => gate.resolve({ contents: [] }));
+        pendingReads.slice(1).forEach((gate) => gate.resolve({ contents: [] }));
+        await Promise.all(requests.slice(1));
+    });
+
+    it('releases the held cancellation slot at the remote five-second wall-clock deadline', async () => {
+        vi.useFakeTimers();
+        const pendingReads: Array<ReturnType<typeof deferred<{ contents: unknown[] }>>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async (input) => {
+                const gate = deferred<{ contents: unknown[] }>();
+                const signal = (input as { signal: AbortSignal }).signal;
+                signal.addEventListener('abort', () => {
+                    setTimeout(() => gate.reject(new McpAppHostError(
+                        'MCP_APP_SESSION_OFFLINE', true, 'The session is no longer available.',
+                    )), 5_000);
+                }, { once: true });
+                pendingReads.push(gate);
+                return gate.promise;
+            },
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter });
+        await controller.start();
+        const signals = Array.from({ length: 8 }, () => new AbortController());
+        const requests = signals.map((signal, index) => adapter.request({
+            method: 'resources/read', params: { uri: `ui://demo/deadline-${index}` },
+        }, signal.signal));
+        await vi.waitFor(() => expect(pendingReads).toHaveLength(8));
+
+        const firstRejected = expect(requests[0]).rejects.toMatchObject({
+            code: 'MCP_APP_SESSION_OFFLINE',
+        });
+        signals[0].abort();
+        await vi.advanceTimersByTimeAsync(4_999);
+        await expect(adapter.request({ method: 'ping', params: {} })).rejects.toMatchObject({
+            code: 'MCP_APP_TIMEOUT',
+        });
+        await vi.advanceTimersByTimeAsync(1);
+
+        await firstRejected;
+        await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+        pendingReads.slice(1).forEach((gate) => gate.resolve({ contents: [] }));
         await Promise.all(requests.slice(1));
     });
 
@@ -644,10 +697,14 @@ describe('MCP App host controller', () => {
         await controller.dispose();
 
         expect(requestSignal?.aborted).toBe(true);
+        let requestSettled = false;
+        void pending.finally(() => { requestSettled = true; }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(requestSettled).toBe(false);
+        gate.resolve({ contents: [{ uri: 'ui://demo/late', text: 'CANARY_LATE_RESULT' }] });
         await expect(pending).rejects.toMatchObject({
             code: 'MCP_APP_SESSION_OFFLINE', retryable: true,
         });
-        gate.resolve({ contents: [{ uri: 'ui://demo/late', text: 'CANARY_LATE_RESULT' }] });
         await Promise.resolve();
         expect(controller.getState()).toEqual({ type: 'fallback' });
     });

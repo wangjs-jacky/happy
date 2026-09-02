@@ -506,7 +506,11 @@ describe('MCP App Host Shell protocol', () => {
         delete shellWindow.ReactNativeWebView;
     });
 
-    it('propagates official request cancellation and ignores the correlated late response', async () => {
+    it.each([
+        ['ordinary numeric', 7],
+        ['zero', 0],
+        ['empty string', ''],
+    ])('propagates an official %s request ID cancellation exactly once', async (_case, requestId) => {
         const posted: any[] = [];
         const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
         shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
@@ -519,7 +523,7 @@ describe('MCP App Host Shell protocol', () => {
         await Promise.resolve();
         window.dispatchEvent(new MessageEvent('message', {
             source: target,
-            data: { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'late' } },
+            data: { jsonrpc: '2.0', id: requestId, method: 'tools/call', params: { name: 'late' } },
         }));
         await vi.waitFor(() => expect(posted.some((message) => message.type === 'bridge-request')).toBe(true));
         const pending = posted.find((message) => message.type === 'bridge-request');
@@ -528,7 +532,7 @@ describe('MCP App Host Shell protocol', () => {
             source: target,
             data: {
                 jsonrpc: '2.0', method: 'notifications/cancelled',
-                params: { requestId: 7, reason: 'View disposed' },
+                params: { requestId, reason: 'View disposed' },
             },
         }));
 
@@ -543,6 +547,10 @@ describe('MCP App Host Shell protocol', () => {
             }),
         }));
         await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(posted.filter((message) => message.type === 'bridge-request')).toHaveLength(1);
+        expect(posted.filter((message) => message.type === 'bridge-cancel')).toEqual([{
+            type: 'bridge-cancel', instanceId: 'frame-1', requestId: pending.requestId,
+        }]);
         expect(document.querySelector('iframe')).toBeTruthy();
         expect(posted.at(-1)).not.toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
         stop();
