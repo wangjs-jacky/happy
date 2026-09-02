@@ -111,6 +111,7 @@
  */
 
 import { Message, ToolCall } from "../typesMessage";
+import { McpAppResultV1 } from '@slopus/happy-wire';
 import { AgentEvent, NormalizedMessage, UsageData } from "../typesRaw";
 import { createTracer, traceMessages, TracerState } from "./reducerTracer";
 import { AgentState, TodoItem, TodoItemsSchema } from "../storageTypes";
@@ -153,6 +154,7 @@ type PendingToolResult = {
         summary: string;
         detail?: string;
     };
+    mcpAppResult?: McpAppResultV1;
     permissions?: {
         date: number;
         result: 'approved' | 'denied';
@@ -322,6 +324,7 @@ function applyToolResult(
     message.tool.state = result.status === 'failed' || result.isError ? 'error' : 'completed';
     message.tool.result = result.content;
     message.tool.failure = result.failure;
+    message.tool.mcpAppResult = result.mcpAppResult;
     message.tool.completedAt = result.createdAt;
 
     if (result.status === 'cancelled') {
@@ -835,6 +838,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             message.realID = msg.id;
                             message.tool.input = mergeToolInputs(message.tool.input, c.input);
                             message.tool.description = c.description;
+                            message.tool.mcpApp = c.mcpApp;
                             message.tool.startedAt = msg.createdAt;
                             // If permission was approved and shown as completed (no tool), now it's running
                             if (message.tool.permission?.status === 'approved' && message.tool.state === 'completed') {
@@ -864,6 +868,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             startedAt: msg.createdAt,
                             completedAt: null,
                             description: c.description,
+                            mcpApp: c.mcpApp,
                             result: undefined,
                         };
 
@@ -929,6 +934,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         isError: c.is_error,
                         status: c.status,
                         failure: c.failure,
+                        mcpAppResult: c.mcpAppResult,
                         permissions: c.permissions,
                         createdAt: msg.createdAt,
                     };
@@ -1033,6 +1039,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         startedAt: null,
                         completedAt: null,
                         description: c.description,
+                        mcpApp: c.mcpApp,
                         result: undefined
                     };
 
@@ -1077,6 +1084,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             sidechainMessage.tool.state = c.status === 'failed' || c.is_error ? 'error' : 'completed';
                             sidechainMessage.tool.result = c.content;
                             sidechainMessage.tool.failure = c.failure;
+                            sidechainMessage.tool.mcpAppResult = c.mcpAppResult;
                             sidechainMessage.tool.completedAt = msg.createdAt;
                             
                             // Update permission data if provided by backend
@@ -1122,6 +1130,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             permissionMessage.tool.state = c.status === 'failed' || c.is_error ? 'error' : 'completed';
                             permissionMessage.tool.result = c.content;
                             permissionMessage.tool.failure = c.failure;
+                            permissionMessage.tool.mcpAppResult = c.mcpAppResult;
                             permissionMessage.tool.completedAt = msg.createdAt;
                             
                             // Update permission data if provided by backend

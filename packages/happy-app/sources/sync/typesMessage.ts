@@ -1,4 +1,5 @@
 import { AgentEvent } from "./typesRaw";
+import { McpAppPresentationV1, McpAppResultV1 } from '@slopus/happy-wire';
 import { MessageMeta } from "./typesMessageMeta";
 
 export type ToolCall = {
@@ -24,6 +25,8 @@ export type ToolCall = {
         decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort';
         date?: number;
     };
+    mcpApp?: McpAppPresentationV1;
+    mcpAppResult?: McpAppResultV1;
 }
 
 // Flattened message types - each message represents a single block

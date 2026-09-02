@@ -302,6 +302,75 @@ describe('reducer', () => {
     });
 
     describe('tool call lifecycle ordering', () => {
+        it('retains matching MCP App metadata when a tool start is completed and replayed', () => {
+            const state = createReducer();
+            const messages: NormalizedMessage[] = [{
+                id: 'mcp-app-start',
+                localId: null,
+                createdAt: 1000,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: 'mcp-app-call',
+                    name: 'ShowDemo',
+                    input: {},
+                    description: 'Show demo',
+                    mcpApp: {
+                        version: 1,
+                        server: 'demo',
+                        resourceUri: 'ui://demo/index.html',
+                    },
+                    uuid: 'mcp-app-start-uuid',
+                    parentUUID: null,
+                }],
+            }, {
+                id: 'mcp-app-result',
+                localId: null,
+                createdAt: 2000,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'mcp-app-call',
+                    content: 'ok',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { count: 1 },
+                    },
+                    uuid: 'mcp-app-result-uuid',
+                    parentUUID: null,
+                }],
+            }];
+
+            const initial = reducer(state, messages);
+            expect(initial.messages[0]).toMatchObject({
+                kind: 'tool-call',
+                tool: {
+                    mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        structuredContent: { count: 1 },
+                    },
+                },
+            });
+
+            expect(reducer(state, messages).messages).toHaveLength(0);
+            const messageId = state.toolIdToMessageId.get('mcp-app-call');
+            expect(state.messages.get(messageId!)?.tool).toMatchObject({
+                mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
+                mcpAppResult: {
+                    version: 1,
+                    state: 'available',
+                    structuredContent: { count: 1 },
+                },
+            });
+        });
+
         it('completes a tool call when its result arrives before its start message', () => {
             const state = createReducer();
 
@@ -316,6 +385,12 @@ describe('reducer', () => {
                     tool_use_id: 'tool-1',
                     content: 'ok',
                     is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { count: 1 },
+                    },
                     uuid: 'tool-result-uuid',
                     parentUUID: null
                 }]
@@ -335,6 +410,11 @@ describe('reducer', () => {
                     name: 'Bash',
                     input: { command: 'happy attach --json' },
                     description: 'Attach current session to Paws mobile',
+                    mcpApp: {
+                        version: 1,
+                        server: 'demo',
+                        resourceUri: 'ui://demo/index.html',
+                    },
                     uuid: 'tool-start-uuid',
                     parentUUID: null
                 }]
@@ -348,7 +428,92 @@ describe('reducer', () => {
                 expect(result.messages[0].tool.state).toBe('completed');
                 expect(result.messages[0].tool.result).toBe('ok');
                 expect(result.messages[0].tool.completedAt).toBe(2000);
+                expect(result.messages[0].tool).toMatchObject({
+                    mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        structuredContent: { count: 1 },
+                    },
+                });
             }
+        });
+
+        it('retains MCP App metadata for matching sidechain tool calls only', () => {
+            const state = createReducer();
+            reducer(state, [{
+                id: 'sidechain-mcp-app-start',
+                localId: null,
+                createdAt: 1000,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-mcp-app',
+                content: [{
+                    type: 'tool-call',
+                    id: 'sidechain-mcp-app-call',
+                    name: 'ShowDemo',
+                    input: {},
+                    description: 'Show demo',
+                    mcpApp: {
+                        version: 1,
+                        server: 'demo',
+                        resourceUri: 'ui://demo/index.html',
+                    },
+                    uuid: 'sidechain-mcp-app-start-uuid',
+                    parentUUID: 'sidechain-mcp-app',
+                }],
+            }, {
+                id: 'sidechain-mcp-app-other-result',
+                localId: null,
+                createdAt: 1500,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-mcp-app',
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'unrelated-call',
+                    content: 'ignore',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                    },
+                    uuid: 'sidechain-mcp-app-other-result-uuid',
+                    parentUUID: 'sidechain-mcp-app',
+                }],
+            }, {
+                id: 'sidechain-mcp-app-result',
+                localId: null,
+                createdAt: 2000,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-mcp-app',
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'sidechain-mcp-app-call',
+                    content: 'ok',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { count: 1 },
+                    },
+                    uuid: 'sidechain-mcp-app-result-uuid',
+                    parentUUID: 'sidechain-mcp-app',
+                }],
+            }]);
+
+            const messageId = state.sidechainToolIdToMessageId.get('sidechain-mcp-app-call');
+            expect(state.messages.get(messageId!)?.tool).toMatchObject({
+                mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
+                mcpAppResult: {
+                    version: 1,
+                    state: 'available',
+                    structuredContent: { count: 1 },
+                },
+            });
         });
     });
 
