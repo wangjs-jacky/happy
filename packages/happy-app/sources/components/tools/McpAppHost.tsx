@@ -13,6 +13,12 @@ import { createMcpAppExternalLinkHandler } from './mcpApps/linkPolicy';
 import { createMcpAppRemotePort } from './mcpApps/remotePort';
 import { createMcpAppFrameAdapter, McpAppFrameView } from './mcpApps/NativeMcpAppFrameAdapter';
 import type { McpAppHostContext } from './mcpApps/types';
+import { tracking } from '@/track/tracking';
+import type { McpAppTelemetrySink } from './mcpApps/mcpAppTelemetry';
+
+const mcpAppProductTelemetrySink: McpAppTelemetrySink = (eventName, payload) => {
+    tracking?.capture(eventName, payload);
+};
 
 type Props = {
     sessionId?: string;
@@ -70,6 +76,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
             remotePort,
             frameAdapter,
             openExternalLink,
+            telemetry: mcpAppProductTelemetrySink,
             onStateChange: setHostState,
         });
         controllerRef.current = controller;

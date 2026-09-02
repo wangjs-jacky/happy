@@ -12,6 +12,12 @@ import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
     utf8ByteLength,
 } from '../../../../mcp-app-sandbox/protocol';
+import {
+    emitMcpAppTelemetry,
+    type McpAppTelemetryEventName,
+    type McpAppTelemetryInput,
+    type McpAppTelemetrySink,
+} from './mcpAppTelemetry';
 
 export const MCP_APP_SANDBOX_READY_TIMEOUT_MS = 10_000;
 export const MCP_APP_INITIALIZE_TIMEOUT_MS = 10_000;
@@ -141,6 +147,7 @@ export function createMcpAppHostController(options: {
     openExternalLink(url: string, signal: AbortSignal): Promise<Record<string, never>>;
     now?: () => number;
     onStateChange?: (state: McpAppHostState) => void;
+    telemetry?: McpAppTelemetrySink;
 }) {
     let state: McpAppHostState = { type: 'fallback' };
     let hostContext = options.hostContext;
@@ -162,6 +169,16 @@ export function createMcpAppHostController(options: {
     const requestControllers = new Set<AbortController>();
     const requestTimestamps: number[] = [];
     const resultIsUnavailable = (): boolean => currentResult?.state === 'unavailable';
+    const emitTelemetry = (
+        eventName: McpAppTelemetryEventName,
+        input: Omit<McpAppTelemetryInput, 'platform' | 'originScoped'>,
+    ): void => {
+        emitMcpAppTelemetry(eventName, {
+            ...input,
+            platform: hostContext.platform,
+            originScoped: false,
+        }, options.telemetry);
+    };
 
     const setState = (next: McpAppHostState): void => {
         state = next;
@@ -192,16 +209,36 @@ export function createMcpAppHostController(options: {
         frameSignal?: AbortSignal,
     ): Promise<unknown> => {
         if (disposed || activeController?.signal.aborted) throw cancellationError();
+        const telemetryStartedAt = Date.now();
+        const emitToolResolved = (code: McpAppTelemetryInput['code']): void => {
+            if (request.method !== 'tools/call') return;
+            emitTelemetry('mcp_app_tool_call_resolved', {
+                stage: 'tool_call',
+                durationMs: Math.max(0, Date.now() - telemetryStartedAt),
+                byteLength: 0,
+                code,
+            });
+        };
+        if (request.method === 'tools/call') {
+            emitTelemetry('mcp_app_tool_call_requested', {
+                stage: 'tool_call',
+                durationMs: 0,
+                byteLength: 0,
+                code: 'started',
+            });
+        }
         const currentTime = now();
         while (requestTimestamps.length > 0
             && requestTimestamps[0] <= currentTime - 60_000) {
             requestTimestamps.shift();
         }
         if (requestTimestamps.length >= MCP_APP_MAX_REQUESTS_PER_MINUTE) {
+            emitToolResolved('MCP_APP_TIMEOUT');
             throw timeoutError();
         }
         requestTimestamps.push(currentTime);
         if (requestControllers.size >= MCP_APP_MAX_CONCURRENT_BRIDGE_REQUESTS) {
+            emitToolResolved('MCP_APP_TIMEOUT');
             throw timeoutError();
         }
 
@@ -248,10 +285,13 @@ export function createMcpAppHostController(options: {
             if (disposed || operation.signal.aborted || !requestControllers.has(operation)) {
                 throw abortReason(operation.signal);
             }
-            return validateBridgeResponse(result, request.method);
+            const validated = validateBridgeResponse(result, request.method);
+            emitToolResolved('succeeded');
+            return validated;
         } catch (error) {
-            if (error instanceof McpAppHostError) throw error;
-            throw safeRequestInternalError();
+            const normalized = error instanceof McpAppHostError ? error : safeRequestInternalError();
+            emitToolResolved(normalized.code);
+            throw normalized;
         } finally {
             clearTimeout(timer);
             frameSignal?.removeEventListener('abort', abortFromFrame);
@@ -273,6 +313,12 @@ export function createMcpAppHostController(options: {
         if (disposed || generation !== ownedGeneration) return;
         generation += 1;
         const error = normalizeError(caught);
+        emitTelemetry('mcp_app_render_failed', {
+            stage: 'sandbox',
+            durationMs: 0,
+            byteLength: 0,
+            code: error.code,
+        });
         void teardownFrame().then(() => {
             if (!disposed && generation === ownedGeneration + 1) {
                 setState({ type: 'failed', error });
@@ -287,8 +333,17 @@ export function createMcpAppHostController(options: {
         activeController = operation;
         let mountPromise: Promise<McpAppFrame> | undefined;
         let mountAccepted = false;
+        let renderStage: McpAppTelemetryInput['stage'] = 'resource';
+        let resourceByteLength = 0;
+        const telemetryStartedAt = Date.now();
         const deadline = createStageDeadline(operation);
         try {
+            emitTelemetry('mcp_app_render_started', {
+                stage: 'resource',
+                durationMs: 0,
+                byteLength: 0,
+                code: 'started',
+            });
             setState({ type: 'loading-resource' });
             const resource = await raceAbort(options.remotePort.readResource({
                 callId: options.callId,
@@ -296,7 +351,9 @@ export function createMcpAppHostController(options: {
                 signal: operation.signal,
             }), operation.signal);
             if (disposed || ownedGeneration !== generation) return;
+            resourceByteLength = resource.byteLength;
 
+            renderStage = 'sandbox';
             setState({ type: 'loading-sandbox' });
             deadline.arm(MCP_APP_SANDBOX_READY_TIMEOUT_MS);
             mountPromise = options.frameAdapter.mount({
@@ -306,6 +363,7 @@ export function createMcpAppHostController(options: {
                 onSandboxReady: () => {
                     if (disposed || ownedGeneration !== generation || operation.signal.aborted
                         || state.type !== 'loading-sandbox') return;
+                    renderStage = 'initialize';
                     setState({ type: 'initializing' });
                     deadline.arm(MCP_APP_INITIALIZE_TIMEOUT_MS);
                 },
@@ -335,6 +393,12 @@ export function createMcpAppHostController(options: {
             inputSent = true;
             deliverPending();
             setState({ type: 'active' });
+            emitTelemetry('mcp_app_render_succeeded', {
+                stage: 'initialize',
+                durationMs: Math.max(0, Date.now() - telemetryStartedAt),
+                byteLength: resourceByteLength,
+                code: 'succeeded',
+            });
         } catch (caught) {
             deadline.clear();
             if (mountPromise && !mountAccepted) {
@@ -342,6 +406,12 @@ export function createMcpAppHostController(options: {
             }
             if (disposed || ownedGeneration !== generation) return;
             const error = normalizeError(caught);
+            emitTelemetry('mcp_app_render_failed', {
+                stage: renderStage,
+                durationMs: Math.max(0, Date.now() - telemetryStartedAt),
+                byteLength: resourceByteLength,
+                code: error.code,
+            });
             if (error.code === 'MCP_APP_ORIGIN_MISMATCH' && error.retryable && !originRetryUsed) {
                 operation.abort(error);
                 if (activeController === operation) activeController = undefined;

@@ -12,6 +12,11 @@ import { CodexAppServerRequestTimeoutError } from '../codexAppServerClient';
 import { CodexMcpAppAdapter, type McpAppErrorCode, type McpAppRpcResponse } from './CodexMcpAppAdapter';
 import type { McpAppBindingRegistry } from './McpAppBindingRegistry';
 import type { PermissionResult } from '../utils/permissionHandler';
+import {
+    emitMcpAppTelemetry,
+    type McpAppTelemetrySink,
+    type McpAppTelemetryOutcomeCode,
+} from './mcpAppTelemetry';
 
 export const MCP_APP_MAX_HTML_BYTES = 5 * 1024 * 1024;
 export const MCP_APP_CHUNK_BYTES = 256 * 1024;
@@ -343,6 +348,7 @@ type ActiveOperation = {
     epoch: number;
     interactiveKey?: string;
     timedOut: boolean;
+    cancelled: boolean;
     timeout: ReturnType<typeof setTimeout>;
 };
 
@@ -364,6 +370,7 @@ export function registerMcpAppRpcHandlers(options: {
     bindingRegistry: McpAppBindingRegistry;
     permissionHandler: McpAppPermissionHandler;
     now?: () => number;
+    telemetry?: McpAppTelemetrySink;
 }) {
     const now = options.now ?? (() => Date.now());
     const adapter = new CodexMcpAppAdapter();
@@ -479,6 +486,7 @@ export function registerMcpAppRpcHandlers(options: {
             epoch: operationEpoch,
             ...(ownedKey ? { interactiveKey: ownedKey } : {}),
             timedOut: false,
+            cancelled: false,
             timeout: undefined as unknown as ReturnType<typeof setTimeout>,
         };
         operation.timeout = setTimeout(() => {
@@ -710,14 +718,39 @@ export function registerMcpAppRpcHandlers(options: {
             if (!validToolCallRequest(request)) return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
             if (!options.bindingRegistry.has(request.callId)) return failure('MCP_APP_BINDING_NOT_FOUND', false);
             const binding = options.bindingRegistry.get(request.callId);
+            const telemetryStartedAt = Date.now();
+            const requestByteLength = serializedBytes(request) ?? 0;
+            const emitToolTelemetry = (
+                eventName: 'mcp_app_tool_call_requested' | 'mcp_app_tool_call_resolved',
+                code: McpAppTelemetryOutcomeCode,
+                byteLength = 0,
+            ): void => emitMcpAppTelemetry(eventName, {
+                platform: 'cli',
+                stage: 'tool_call',
+                durationMs: eventName === 'mcp_app_tool_call_requested'
+                    ? 0
+                    : Math.max(0, Date.now() - telemetryStartedAt),
+                byteLength,
+                originScoped: Boolean(binding.trustedOriginCallId),
+                code,
+            }, options.telemetry);
+            const failToolCall = (
+                code: McpAppErrorCode,
+                retryable: boolean,
+            ): McpAppRpcResponse<McpServerToolCallResponse> => {
+                emitToolTelemetry('mcp_app_tool_call_resolved', code);
+                return failure(code, retryable);
+            };
+            emitToolTelemetry('mcp_app_tool_call_requested', 'started', requestByteLength);
             if (binding.connectorId && !binding.trustedOriginCallId) {
-                return failure('MCP_APP_ORIGIN_MISMATCH', true);
+                return failToolCall('MCP_APP_ORIGIN_MISMATCH', true);
             }
             if (!requestConnectorMatches(request._meta, binding.connectorId)) {
-                return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
+                return failToolCall('MCP_APP_TOOL_NOT_ALLOWED', false);
             }
 
             if (consumePreCancelledOperation(interactiveKey(request.callId, request.operationId))) {
+                emitToolTelemetry('mcp_app_tool_call_resolved', 'cancelled');
                 return failure('MCP_APP_SESSION_OFFLINE', true);
             }
 
@@ -725,7 +758,7 @@ export function registerMcpAppRpcHandlers(options: {
                 callId: request.callId,
                 operationId: request.operationId,
             });
-            if (!operation) return failure('MCP_APP_TIMEOUT', true);
+            if (!operation) return failToolCall('MCP_APP_TIMEOUT', true);
             try {
                 const status = await awaitOperation(operation, options.client.listMcpServerStatus({
                     threadId: binding.threadId,
@@ -739,7 +772,7 @@ export function registerMcpAppRpcHandlers(options: {
                 const match = adapter.findCatalogTool(status, binding.server, request.tool);
                 if (!match || !match.serverEnabled || !match.toolEnabled || !match.appVisible
                     || (match.connectorId !== undefined && match.connectorId !== binding.connectorId)) {
-                    return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
+                    return failToolCall('MCP_APP_TOOL_NOT_ALLOWED', false);
                 }
 
                 const annotations = match.annotations;
@@ -760,7 +793,7 @@ export function registerMcpAppRpcHandlers(options: {
                         ),
                     );
                     if (decision.decision === 'denied' || decision.decision === 'abort') {
-                        return failure('MCP_APP_PERMISSION_DENIED', false);
+                        return failToolCall('MCP_APP_PERMISSION_DENIED', false);
                     }
                 }
 
@@ -777,11 +810,26 @@ export function registerMcpAppRpcHandlers(options: {
                 }));
                 const safeResult = safeToolResult(response);
                 if (!safeResult.ok) {
-                    return failure(safeResult.tooLarge ? 'MCP_APP_RESULT_TOO_LARGE' : 'MCP_APP_INTERNAL', false);
+                    return failToolCall(
+                        safeResult.tooLarge ? 'MCP_APP_RESULT_TOO_LARGE' : 'MCP_APP_INTERNAL',
+                        false,
+                    );
                 }
+                emitToolTelemetry(
+                    'mcp_app_tool_call_resolved',
+                    'succeeded',
+                    serializedBytes(safeResult.value) ?? 0,
+                );
                 return { ok: true, value: safeResult.value };
             } catch (error) {
-                return operationFailure(operation, error);
+                const response = operationFailure<McpServerToolCallResponse>(operation, error);
+                emitToolTelemetry(
+                    'mcp_app_tool_call_resolved',
+                    operation.cancelled
+                        ? 'cancelled'
+                        : response.ok ? 'MCP_APP_INTERNAL' : response.error.code,
+                );
+                return response;
             } finally {
                 endOperation(operation);
             }
@@ -800,6 +848,7 @@ export function registerMcpAppRpcHandlers(options: {
             const operation = interactiveOperations.get(key);
             if (operation) {
                 interactiveOperations.delete(key);
+                operation.cancelled = true;
                 operation.controller.abort();
             } else if (options.bindingRegistry.has(request.callId)) {
                 rememberPreCancelledOperation(key);

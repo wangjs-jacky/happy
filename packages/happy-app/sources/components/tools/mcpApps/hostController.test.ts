@@ -18,6 +18,7 @@ import {
     type McpAppResource,
     type McpAppToolResult,
 } from './types';
+import type { McpAppTelemetrySink } from './mcpAppTelemetry';
 
 const presentation: McpAppPresentationV1 = {
     version: 1,
@@ -150,6 +151,7 @@ function makeController(options: {
     events?: string[];
     openExternalLink?: (url: string, signal: AbortSignal) => Promise<Record<string, never>>;
     now?: () => number;
+    telemetry?: McpAppTelemetrySink;
 }) {
     const events = options.events ?? [];
     const remotePort = options.remotePort ?? new MemoryRemotePort(async () => {
@@ -167,6 +169,7 @@ function makeController(options: {
         frameAdapter,
         openExternalLink: options.openExternalLink ?? (async () => ({})),
         now: options.now,
+        telemetry: options.telemetry,
         onStateChange: (state) => events.push(`state:${state.type}`),
     });
     return { controller, events, remotePort, frameAdapter };
@@ -177,6 +180,94 @@ afterEach(() => {
 });
 
 describe('MCP App host controller', () => {
+    it('emits redacted render and action lifecycle events from real controller boundaries', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const telemetry: McpAppTelemetrySink = (eventName, payload) => {
+            telemetryEvents.push([eventName, payload]);
+        };
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async () => ({ content: [{ type: 'text', text: 'CANARY_RESULT' }] }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter, telemetry });
+
+        await controller.start();
+        await adapter.request({
+            method: 'tools/call',
+            params: { name: 'CANARY_TOOL', arguments: { secret: 'CANARY_ARGUMENT' } },
+        });
+
+        expect(telemetryEvents.map(([eventName]) => eventName)).toEqual([
+            'mcp_app_render_started',
+            'mcp_app_render_succeeded',
+            'mcp_app_tool_call_requested',
+            'mcp_app_tool_call_resolved',
+        ]);
+        expect(telemetryEvents[1]?.[1]).toMatchObject({
+            platform: 'web',
+            stage: 'initialize',
+            byteSizeBucket: 'under_1kb',
+            originScoped: false,
+            outcomeCode: 'succeeded',
+        });
+        expect(telemetryEvents[3]?.[1]).toMatchObject({
+            platform: 'web',
+            stage: 'tool_call',
+            originScoped: false,
+            outcomeCode: 'succeeded',
+        });
+        expect(JSON.stringify(telemetryEvents)).not.toMatch(/CANARY_(?:TOOL|ARGUMENT|RESULT)/);
+    });
+
+    it('emits a stable render failure outcome without raw errors', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const telemetry: McpAppTelemetrySink = (eventName, payload) => {
+            telemetryEvents.push([eventName, payload]);
+        };
+        const remote = new MemoryRemotePort(async () => {
+            throw new McpAppHostError(
+                'MCP_APP_INVALID_RESOURCE',
+                false,
+                'CANARY_RAW_ERROR_MUST_NOT_APPEAR',
+            );
+        });
+        const { controller } = makeController({ remotePort: remote, telemetry });
+
+        await controller.start();
+
+        expect(telemetryEvents.map(([eventName, payload]) => [eventName, payload.outcomeCode])).toEqual([
+            ['mcp_app_render_started', 'started'],
+            ['mcp_app_render_failed', 'MCP_APP_INVALID_RESOURCE'],
+        ]);
+        expect(JSON.stringify(telemetryEvents)).not.toContain('CANARY_RAW_ERROR_MUST_NOT_APPEAR');
+    });
+
+    it('resolves a rate-limited tool action with the stable timeout outcome', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const telemetry: McpAppTelemetrySink = (eventName, payload) => {
+            telemetryEvents.push([eventName, payload]);
+        };
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ frameAdapter: adapter, telemetry, now: () => 1_000 });
+        await controller.start();
+        telemetryEvents.length = 0;
+        for (let index = 0; index < 30; index += 1) {
+            await adapter.request({ method: 'ping', params: {} });
+        }
+
+        await expect(adapter.request({
+            method: 'tools/call', params: { name: 'CANARY_RATE_LIMITED_TOOL' },
+        })).rejects.toMatchObject({ code: 'MCP_APP_TIMEOUT' });
+
+        expect(telemetryEvents.map(([eventName, payload]) => [eventName, payload.outcomeCode])).toEqual([
+            ['mcp_app_tool_call_requested', 'started'],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_TIMEOUT'],
+        ]);
+        expect(JSON.stringify(telemetryEvents)).not.toContain('CANARY_RATE_LIMITED_TOOL');
+    });
+
     it('enforces resource, sandbox, initialize, input, buffered result, active ordering', async () => {
         const { controller, events } = makeController({ result: availableResult });
 

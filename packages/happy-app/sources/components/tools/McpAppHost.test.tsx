@@ -31,6 +31,7 @@ vi.mock('react-native-unistyles', () => {
     };
 });
 vi.mock('@/sync/storage', () => ({ useSession: () => ({ presence: mocks.presence }) }));
+vi.mock('@/track/tracking', () => ({ tracking: null }));
 vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn(async () => false) } }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn(async () => {}) }));
 vi.mock('@/text', () => ({
