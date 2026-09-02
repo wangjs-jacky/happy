@@ -92,14 +92,38 @@ async function enforcePublicReadRate(key: string, reply: any): Promise<boolean> 
     return false;
 }
 
-function attachmentIds(snapshot: PublicSessionSnapshot): Set<string> {
-    const ids = new Set<string>();
+type PublicSessionShareAssetDescriptor = {
+    assetId: string;
+    kind: string;
+    mimeType: string;
+    size: number;
+    name?: string;
+};
+
+export function collectPublicSessionShareAssetManifest(snapshot: PublicSessionSnapshot): PublicSessionShareAssetDescriptor[] {
+    const assets: PublicSessionShareAssetDescriptor[] = [];
     for (const message of snapshot.messages) {
         for (const block of message.blocks) {
-            if (block.type === 'attachment') ids.add(block.attachmentId);
+            if (block.type === 'attachment') {
+                assets.push({
+                    assetId: block.attachmentId,
+                    kind: block.kind,
+                    mimeType: block.mimeType,
+                    size: block.size,
+                    name: block.name,
+                });
+            }
         }
     }
-    return ids;
+    if (snapshot.version === 2 && snapshot.appearance.cover) {
+        assets.push({
+            assetId: snapshot.appearance.cover.assetId,
+            kind: 'image',
+            mimeType: snapshot.appearance.cover.mimeType,
+            size: snapshot.appearance.cover.size,
+        });
+    }
+    return assets;
 }
 
 function safeMimeType(kind: string, mimeType: string): string {
@@ -167,10 +191,14 @@ export function publicSessionShareRoutes(app: Fastify) {
         if (!session) return reply.code(404).send({ error: 'Session not found' });
         const share = await db.publicSessionShare.findUnique({ where: { sessionId: session.id } });
         const active = Boolean(share?.publishedAt && !share.revokedAt && share.snapshot);
+        const parsedSnapshot = active ? publicSessionSnapshotSchema.safeParse(share!.snapshot) : null;
         return reply.send({
             active,
             publicId: active ? share!.publicId : null,
             publishedAt: active ? share!.publishedAt!.getTime() : null,
+            ...(parsedSnapshot?.success && parsedSnapshot.data.version === 2
+                ? { appearance: parsedSnapshot.data.appearance }
+                : {}),
         });
     });
 
@@ -441,22 +469,20 @@ export function publicSessionShareRoutes(app: Fastify) {
         const assets = await db.publicSessionShareAsset.findMany({
             where: { shareId: share.id, generation: request.params.generation },
         });
-        const referencedIds = attachmentIds(request.body.snapshot);
+        const manifest = collectPublicSessionShareAssetManifest(request.body.snapshot);
+        const referencedIds = new Set(manifest.map((asset) => asset.assetId));
         if (assets.length !== referencedIds.size || assets.some((asset) => !referencedIds.has(asset.id))) {
             return reply.code(409).send({ error: 'Shared attachment manifest mismatch' });
         }
         const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-        for (const message of request.body.snapshot.messages) {
-            for (const block of message.blocks) {
-                if (block.type !== 'attachment') continue;
-                const asset = assetById.get(block.attachmentId);
-                if (!asset
-                    || block.name !== asset.name
-                    || block.mimeType !== asset.mimeType
-                    || block.kind !== asset.kind
-                    || block.size !== asset.size) {
-                    return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
-                }
+        for (const descriptor of manifest) {
+            const asset = assetById.get(descriptor.assetId);
+            if (!asset
+                || (descriptor.name !== undefined && descriptor.name !== asset.name)
+                || descriptor.mimeType !== asset.mimeType
+                || descriptor.kind !== asset.kind
+                || descriptor.size !== asset.size) {
+                return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
             }
         }
         for (const asset of assets) {

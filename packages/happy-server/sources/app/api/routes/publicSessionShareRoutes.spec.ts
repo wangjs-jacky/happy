@@ -231,6 +231,27 @@ const snapshot = (attachmentId?: string) => ({
             : [{ type: 'text', markdown: 'Hello' }],
     }],
 });
+const coverSnapshot = (assetId: string) => ({
+    version: 2,
+    title: 'Shared session',
+    sharedAt: 1_777_777_777_777,
+    appearance: {
+        themePack: 'sage',
+        cover: {
+            assetId,
+            mimeType: 'image/jpeg',
+            size: 5,
+            width: 1_200,
+            height: 600,
+        },
+    },
+    messages: [{
+        id: 'message-1',
+        role: 'assistant',
+        createdAt: 1_777_777_777_000,
+        blocks: [{ type: 'text', markdown: 'Hello' }],
+    }],
+});
 const HELLO_SHA256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
 
 describe('publicSessionShareRoutes', () => {
@@ -347,6 +368,90 @@ describe('publicSessionShareRoutes', () => {
         expect(publicResponse.json().snapshot).toEqual(snapshot(asset.assetId));
         expect(publicResponse.headers['cache-control']).toBe('no-store');
         expect(publicResponse.headers['x-robots-tag']).toContain('noindex');
+    });
+
+    it('publishes a cover that is the only asset in the manifest', async () => {
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: '55555555-5555-4555-8555-555555555555',
+                name: 'cover.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5, sha256: HELLO_SHA256,
+            },
+        })).json();
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: Buffer.from('hello'),
+        });
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(asset.assetId) },
+        });
+
+        expect(publish.statusCode).toBe(200);
+    });
+
+    it('rejects a cover whose registered asset object has not completed upload', async () => {
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: '66666666-6666-4666-8666-666666666666',
+                name: 'cover.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5, sha256: HELLO_SHA256,
+            },
+        })).json();
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(asset.assetId) },
+        });
+
+        expect(publish.statusCode).toBe(409);
+        expect(publish.json()).toEqual({ error: 'Shared attachment upload incomplete' });
+    });
+
+    it('returns the active version-two appearance snapshot to its owner', async () => {
+        const publishedAt = new Date();
+        state.shares.push({
+            id: 'share-appearance',
+            publicId: 'a'.repeat(43),
+            accountId: 'owner-1',
+            sessionId: 'session-1',
+            snapshot: {
+                ...snapshot(),
+                version: 2,
+                appearance: { themePack: 'sage' },
+            },
+            activeGeneration: '11111111-1111-4111-8111-111111111111',
+            publishedAt,
+            revokedAt: null,
+            lifecycleVersion: 1,
+            createdAt: publishedAt,
+            updatedAt: publishedAt,
+        });
+
+        const response = await app.inject({
+            method: 'GET',
+            url: '/v1/sessions/session-1/share',
+            headers: { 'x-user-id': 'owner-1' },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+            active: true,
+            appearance: { themePack: 'sage' },
+        });
     });
 
     it('updates the snapshot at the same public URL', async () => {
