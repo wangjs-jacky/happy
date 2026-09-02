@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { publicSessionSnapshotSchema } from '@slopus/happy-wire';
@@ -65,6 +65,66 @@ describe('codexAdapter', () => {
         expect(converted.unresolvedAttachments).toEqual([]);
     });
 
+    it('does not let transcript metadata authorize attachments outside caller roots', async () => {
+        const directory = await createTemporaryDirectory('paws-share-codex-root-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'session');
+        const privateDirectory = join(directory, 'private');
+        await mkdir(sessionDirectory);
+        await mkdir(privateDirectory);
+        const transcript = join(sessionDirectory, 'session.jsonl');
+        const sentinel = join(privateDirectory, 'sentinel');
+        await writeFile(sentinel, 'must not be exported');
+        const lines = [
+            { type: 'session_meta', payload: { cwd: '/' } },
+            {
+                type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+                payload: {
+                    id: 'message-1', type: 'message', role: 'user', content: [
+                        { type: 'input_text', text: 'Export this attachment.' },
+                        { type: 'input_image', path: sentinel },
+                    ],
+                },
+            },
+        ];
+        await writeFile(transcript, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+        const converted = await codexAdapter.convert({ provider: 'codex', path: transcript });
+
+        expect(converted.attachments).toEqual([]);
+        expect(converted.unresolvedAttachments).toEqual(['message-1:image:1']);
+        expect(JSON.stringify(converted.snapshot)).not.toContain('sentinel');
+    });
+
+    it('removes synthetic configuration from mixed content without discarding the attachment', async () => {
+        const directory = await createTemporaryDirectory('paws-share-codex-mixed-envelope-');
+        temporaryDirectories.push(directory);
+        const transcript = join(directory, 'session.jsonl');
+        const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+        const lines = [{
+            type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+            payload: {
+                id: 'message-1', type: 'message', role: 'user', content: [
+                    { type: 'input_text', text: '<environment_context>private host settings</environment_context>' },
+                    { type: 'input_image', image_url: `data:image/png;base64,${png.toString('base64')}` },
+                ],
+            },
+        }];
+        await writeFile(transcript, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+        const converted = await codexAdapter.convert({ provider: 'codex', path: transcript });
+        const serialized = JSON.stringify(converted.snapshot);
+
+        expect(converted.attachments).toHaveLength(1);
+        expect(converted.snapshot.messages).toHaveLength(1);
+        expect(converted.snapshot.messages[0].blocks).toEqual([
+            expect.objectContaining({ type: 'attachment', kind: 'image' }),
+        ]);
+        expect(converted.snapshot.title).toBe('Shared coding session');
+        expect(serialized).not.toContain('environment_context');
+        expect(serialized).not.toContain('private host settings');
+    });
+
     it('removes Paws host envelopes and synthetic configuration from public content', async () => {
         const directory = await createTemporaryDirectory('paws-share-codex-envelope-');
         temporaryDirectories.push(directory);
@@ -86,6 +146,8 @@ describe('codexAdapter', () => {
                     id: 'message-1', type: 'message', role: 'user', content: [{
                         type: 'input_text',
                         text: [
+                            '<image name=[Image #1] path="/Users/example/private.png">',
+                            '</image>',
                             'Happy attached 1 user-uploaded image to this Codex turn.',
                             'Use this exact localImage path.',
                             '- Image 1: /Users/example/private.png',

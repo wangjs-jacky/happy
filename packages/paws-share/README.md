@@ -17,7 +17,7 @@ Create one self-contained HTML file without uploading anything:
 npx --yes @wangjs-jacky/paws-share@beta export-html --current --output ./paws-session.html --json
 ```
 
-The HTML uses the same standardized snapshot preparation as public sharing. CSS, interaction code, images, audio, video, and downloadable file attachments are embedded in the output, so it opens offline. Existing files are preserved unless `--force` is explicit. High-confidence secrets and unresolved attachments remain blocked by default.
+The HTML uses the same standardized snapshot preparation as public sharing. CSS, interaction code, images, audio, video, and downloadable file attachments are embedded in the output, so it opens offline. Existing files are preserved unless `--force` is explicit. High-confidence secrets and unresolved attachments remain blocked by default. Transcript-recorded working directories are resolution hints only; attachment access stays limited to the caller-selected root and the session directory.
 
 The implementation keeps provider parsing and safety policy behind one shared snapshot-preparation module:
 

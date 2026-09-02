@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { exportSessionHtml, renderSessionHtml } from './localHtml';
@@ -45,6 +45,29 @@ describe('local HTML session export', () => {
         expect(html).not.toContain('desktop-right-panel');
         expect(html.indexOf('data-message-id="codex-user-1"'))
             .toBeLessThan(html.indexOf('data-message-id="codex-assistant-1"'));
+    });
+
+    it('exports a Claude Code snapshot and its attachment through the same local HTML seam', async () => {
+        const directory = await createTemporaryDirectory('paws-share-html-claude-');
+        temporaryDirectories.push(directory);
+        const outputPath = join(directory, 'claude-session.html');
+
+        const result = await exportSessionHtml({
+            candidate: { provider: 'claude-code', path: resolve('test/fixtures/claude-code-session.jsonl') },
+            outputPath,
+        });
+        const html = await readFile(outputPath, 'utf8');
+
+        expect(result).toMatchObject({
+            source: 'claude-code',
+            title: 'Review this Paws sharing illustration.',
+            messageCount: 3,
+            attachmentCount: 1,
+        });
+        expect(html).toContain('Claude Code');
+        expect(html).toContain('data:image/svg+xml;base64,');
+        expect(html).toContain('<details class="thinking"');
+        expect(html).toContain('<details class="tool"');
     });
 
     it('escapes active HTML and rejects unsafe markdown link protocols', () => {
@@ -123,5 +146,36 @@ describe('local HTML session export', () => {
             allowSensitive: true,
         });
         expect(await readFile(outputPath, 'utf8')).toContain('SERVICE_TOKEN=examplelongcredentialvalue123456789');
+    });
+
+    it('fails closed before writing when transcript metadata points outside trusted attachment roots', async () => {
+        const directory = await createTemporaryDirectory('paws-share-html-root-');
+        temporaryDirectories.push(directory);
+        const sessionDirectory = join(directory, 'session');
+        const privateDirectory = join(directory, 'private');
+        await mkdir(sessionDirectory);
+        await mkdir(privateDirectory);
+        const transcriptPath = join(sessionDirectory, 'session.jsonl');
+        const outputPath = join(directory, 'session.html');
+        const sentinel = join(privateDirectory, 'sentinel');
+        await writeFile(sentinel, 'must not be embedded');
+        await writeFile(transcriptPath, [
+            JSON.stringify({ type: 'session_meta', payload: { cwd: '/' } }),
+            JSON.stringify({
+                type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+                payload: {
+                    id: 'message-1', type: 'message', role: 'user', content: [
+                        { type: 'input_text', text: 'Export this attachment.' },
+                        { type: 'input_image', path: sentinel },
+                    ],
+                },
+            }),
+        ].join('\n'));
+
+        await expect(exportSessionHtml({
+            candidate: { provider: 'codex', path: transcriptPath },
+            outputPath,
+        })).rejects.toThrow('structured attachment(s) could not be resolved');
+        await expect(stat(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 });

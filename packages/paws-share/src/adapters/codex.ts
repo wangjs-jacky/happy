@@ -9,7 +9,7 @@ import {
     timestamp,
 } from './shared';
 import type { ConvertedSnapshot, ResolvedAttachment, TranscriptAdapter, TranscriptCandidate } from './types';
-import { isSyntheticPawsCodexMessage, visiblePawsCodexUserText } from './codexEnvelope';
+import { isSyntheticPawsCodexMessage, isSyntheticPawsCodexText, visiblePawsCodexUserText } from './codexEnvelope';
 
 type ToolBlock = Extract<PublicSessionBlock, { type: 'tool' }>;
 
@@ -86,6 +86,7 @@ export const codexAdapter: TranscriptAdapter = {
                 const block = recordValue(rawBlock);
                 if (!block) continue;
                 const rawText = stringValue(block.text);
+                if (rawText && payload.role === 'user' && isSyntheticPawsCodexText(rawText)) continue;
                 const text = rawText && payload.role === 'user' ? visiblePawsCodexUserText(rawText) : rawText;
                 if ((block.type === 'input_text' || block.type === 'output_text') && text) {
                     blocks.push({ type: 'text', markdown: text });

@@ -68,17 +68,23 @@ export async function resolveStructuredAttachment(
     recordedCwd?: string,
 ): Promise<ResolvedAttachment> {
     const sessionDirectory = dirname(candidate.path);
-    const cwd = recordedCwd
+    const trustedCwd = candidate.cwd
+        ? (isAbsolute(candidate.cwd) ? resolve(candidate.cwd) : resolve(sessionDirectory, candidate.cwd))
+        : undefined;
+    // Transcript metadata can help resolve a relative reference, but it must never
+    // expand the roots that the caller explicitly selected for attachment access.
+    const resolutionCwd = recordedCwd
         ? (isAbsolute(recordedCwd) ? resolve(recordedCwd) : resolve(sessionDirectory, recordedCwd))
-        : sessionDirectory;
+        : trustedCwd ?? sessionDirectory;
     const normalizedReference = reference.startsWith('file://') ? decodeURIComponent(new URL(reference).pathname) : reference;
-    const file = resolve(isAbsolute(normalizedReference) ? normalizedReference : resolve(cwd, normalizedReference));
-    const [canonicalCwd, canonicalSessionDirectory, canonicalFile] = await Promise.all([
-        realpath(cwd),
+    const file = resolve(isAbsolute(normalizedReference) ? normalizedReference : resolve(resolutionCwd, normalizedReference));
+    const [canonicalSessionDirectory, canonicalTrustedCwd, canonicalFile] = await Promise.all([
         realpath(sessionDirectory),
+        trustedCwd ? realpath(trustedCwd) : undefined,
         realpath(file),
     ]);
-    if (!isWithin(canonicalCwd, canonicalFile) && !isWithin(canonicalSessionDirectory, canonicalFile)) {
+    const trustedRoots = [canonicalSessionDirectory, canonicalTrustedCwd].filter((root): root is string => Boolean(root));
+    if (!trustedRoots.some((root) => isWithin(root, canonicalFile))) {
         throw new Error(`Attachment is outside the session root: ${basename(file)}`);
     }
     const metadata = await stat(canonicalFile);
