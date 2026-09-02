@@ -41,7 +41,7 @@ type AssetRow = {
     createdAt: Date;
 };
 
-const { state, dbMock, storageMock, providerMock, resetState } = vi.hoisted(() => {
+const { state, dbMock, storageMock, providerMock, logMock, resetState } = vi.hoisted(() => {
     const state = {
         sessions: [] as Array<{ id: string; accountId: string }>,
         shares: [] as ShareRow[],
@@ -198,7 +198,7 @@ const { state, dbMock, storageMock, providerMock, resetState } = vi.hoisted(() =
                 photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
             },
         })),
-        importPexelsCover: vi.fn(async () => ({
+        importPexelsCover: vi.fn(async (_photoId: number, _deps?: unknown) => ({
             bytes: Buffer.from('webp'),
             mimeType: 'image/webp' as const,
             size: 4,
@@ -214,6 +214,7 @@ const { state, dbMock, storageMock, providerMock, resetState } = vi.hoisted(() =
         PexelsConfigurationError: class PexelsConfigurationError extends Error {},
         PexelsProviderError: class PexelsProviderError extends Error {},
     };
+    const logMock = vi.fn();
 
     const resetState = () => {
         state.sessions = [];
@@ -225,12 +226,13 @@ const { state, dbMock, storageMock, providerMock, resetState } = vi.hoisted(() =
         delete process.env.PEXELS_API_KEY;
         vi.clearAllMocks();
     };
-    return { state, dbMock, storageMock, providerMock, resetState };
+    return { state, dbMock, storageMock, providerMock, logMock, resetState };
 });
 
 vi.mock('@/storage/db', () => ({ db: dbMock }));
 vi.mock('@/app/sessionSharing/publicSessionShareStorage', () => storageMock);
 vi.mock('@/app/sessionSharing/publicSessionCoverProvider', () => providerMock);
+vi.mock('@/utils/log', () => ({ log: logMock }));
 
 import { publicSessionShareRoutes } from './publicSessionShareRoutes';
 import { enableErrorHandlers } from '../utils/enableErrorHandlers';
@@ -464,12 +466,72 @@ describe('publicSessionShareRoutes', () => {
         };
 
         const first = await app.inject(request);
+        providerMock.importPexelsCover.mockClear();
+        storageMock.putPublicShareAsset.mockClear();
         const retry = await app.inject(request);
 
         expect(first.statusCode).toBe(200);
         expect(retry.statusCode).toBe(200);
         expect(retry.json()).toEqual(first.json());
         expect(state.assets).toHaveLength(1);
+        expect(providerMock.importPexelsCover).not.toHaveBeenCalled();
+        expect(storageMock.putPublicShareAsset).not.toHaveBeenCalled();
+    });
+
+    it('atomically claims an asset ID so a concurrent loser cannot overwrite or delete the winner object', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        let releaseProvider!: () => void;
+        let providerEntered!: () => void;
+        const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
+        const released = new Promise<void>((resolve) => { releaseProvider = resolve; });
+
+        await providerMock.importPexelsCover.withImplementation(async (photoId: number) => {
+            if (photoId === 2014422) {
+                providerEntered();
+                await released;
+                return {
+                    bytes: Buffer.from('webp'), mimeType: 'image/webp', size: 4, width: 2400, height: 900,
+                    attribution: {
+                        photoId: 2014422,
+                        photographer: 'Eberhard Grossgasteiger',
+                        photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                        photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                    },
+                };
+            }
+            return {
+                bytes: Buffer.from('other'), mimeType: 'image/webp', size: 5, width: 2400, height: 900,
+                attribution: {
+                    photoId: 417074,
+                    photographer: 'Pixabay',
+                    photographerUrl: 'https://www.pexels.com/@pixabay',
+                    photoUrl: 'https://www.pexels.com/photo/scenic-view-of-mountains-during-dawn-417074/',
+                },
+            };
+        }, async () => {
+            const url = `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`;
+            const firstPromise = app.inject({
+                method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 2014422 },
+            });
+            await entered;
+            const concurrent = await app.inject({
+                method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 417074 },
+            });
+            releaseProvider();
+            const first = await firstPromise;
+
+            expect(first.statusCode).toBe(200);
+            expect(concurrent.statusCode).toBe(409);
+        });
+
+        expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(1);
+        expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalled();
+        expect(state.assets).toHaveLength(1);
+        expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
+        expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
     });
 
     it.each(['provider', 'storage'] as const)('leaves the draft unpublished when %s work fails', async (failure) => {
@@ -497,6 +559,31 @@ describe('publicSessionShareRoutes', () => {
                 `private/session-shares/${state.shares[0].id}/${draft.generation}/99999999-9999-4999-8999-999999999999`,
             );
         }
+    });
+
+    it('retains a durable claim and logs when partial-object cleanup must be deferred', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        storageMock.putPublicShareAsset.mockRejectedValueOnce(new Error('object store unavailable'));
+        storageMock.deletePublicShareAsset.mockRejectedValueOnce(new Error('cleanup unavailable'));
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', photoId: 2014422 },
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(state.assets).toHaveLength(1);
+        expect(state.assets[0].uploadedAt).toBeNull();
+        expect(logMock).toHaveBeenCalledWith(expect.objectContaining({
+            module: 'public-session-cover-import-cleanup',
+            level: 'error',
+            shareId: state.shares[0].id,
+            generation: draft.generation,
+            assetId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        }), expect.stringContaining('retaining the draft asset for retry'));
     });
 
     it('retries a serializable quota transaction after a database write conflict', async () => {

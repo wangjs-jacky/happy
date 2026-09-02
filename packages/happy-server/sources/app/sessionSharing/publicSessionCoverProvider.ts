@@ -13,7 +13,9 @@ const MAX_INPUT_DIMENSION = 20_000;
 const COVER_WIDTH = 2400;
 const COVER_HEIGHT = 900;
 const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_REDIRECTS = 3;
 const ALLOWED_IMAGE_HOSTS = new Set(['images.pexels.com']);
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 const pexelsPhotoSchema = z.object({
     id: z.number().int().positive(),
@@ -107,6 +109,14 @@ function assertAllowedImageUrl(value: string): string {
     return url.toString();
 }
 
+function assertAllowedApiUrl(value: string): string {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.origin !== PEXELS_API_ORIGIN) {
+        throw new PexelsProviderError('Pexels returned an unsupported API host');
+    }
+    return url.toString();
+}
+
 function normalizePhoto(photo: z.infer<typeof pexelsPhotoSchema>): PublicSessionCoverCandidate {
     return {
         provider: 'pexels',
@@ -164,21 +174,45 @@ async function fetchBounded(
     init: RequestInit,
     expectedContentType: 'json' | 'image',
     maxBytes: number,
+    validateUrl: (value: string) => string,
 ): Promise<Buffer> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-        const requestInit = { ...init, signal: controller.signal } as Parameters<typeof fetch>[1];
-        const response = await fetchImpl(url, requestInit);
-        if (!response.ok) throw new PexelsProviderError(`Pexels request failed with status ${response.status}`);
-        const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? '';
-        if (expectedContentType === 'json' && contentType !== 'application/json') {
-            throw new PexelsProviderError('Pexels returned an invalid API content type');
+        let currentUrl = validateUrl(url);
+        for (let redirectCount = 0; ; redirectCount += 1) {
+            const requestInit = {
+                ...init,
+                redirect: 'manual',
+                signal: controller.signal,
+            } as Parameters<typeof fetch>[1];
+            const response = await fetchImpl(currentUrl, requestInit);
+            if (REDIRECT_STATUSES.has(response.status)) {
+                if (redirectCount >= MAX_REDIRECTS) {
+                    controller.abort();
+                    throw new PexelsProviderError('Pexels returned too many redirects');
+                }
+                const location = response.headers.get('location');
+                if (!location) throw new PexelsProviderError('Pexels returned an invalid redirect location');
+                let redirectedUrl: string;
+                try {
+                    redirectedUrl = new URL(location, currentUrl).toString();
+                } catch {
+                    throw new PexelsProviderError('Pexels returned an invalid redirect location');
+                }
+                currentUrl = validateUrl(redirectedUrl);
+                continue;
+            }
+            if (!response.ok) throw new PexelsProviderError(`Pexels request failed with status ${response.status}`);
+            const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? '';
+            if (expectedContentType === 'json' && contentType !== 'application/json') {
+                throw new PexelsProviderError('Pexels returned an invalid API content type');
+            }
+            if (expectedContentType === 'image' && !/^image\/(?:jpeg|png|webp)$/.test(contentType)) {
+                throw new PexelsProviderError('Pexels returned an invalid image content type');
+            }
+            return await readBoundedBody(response, maxBytes, controller);
         }
-        if (expectedContentType === 'image' && !/^image\/(?:jpeg|png|webp)$/.test(contentType)) {
-            throw new PexelsProviderError('Pexels returned an invalid image content type');
-        }
-        return await readBoundedBody(response, maxBytes, controller);
     } catch (error) {
         if (error instanceof PexelsProviderError) throw error;
         throw new PexelsProviderError('Pexels request failed');
@@ -194,7 +228,7 @@ async function fetchPexelsJson(
 ): Promise<unknown> {
     const body = await fetchBounded(fetchImpl, url, {
         headers: { Authorization: apiKey },
-    }, 'json', MAX_API_RESPONSE_SIZE);
+    }, 'json', MAX_API_RESPONSE_SIZE, assertAllowedApiUrl);
     try {
         return JSON.parse(body.toString('utf8'));
     } catch {
@@ -252,7 +286,14 @@ export async function importPexelsCover(
     }
     const photo = parsed.data;
     const imageUrl = assertAllowedImageUrl(photo.src.original);
-    const source = await fetchBounded(deps.fetchImpl, imageUrl, {}, 'image', MAX_IMAGE_RESPONSE_SIZE);
+    const source = await fetchBounded(
+        deps.fetchImpl,
+        imageUrl,
+        {},
+        'image',
+        MAX_IMAGE_RESPONSE_SIZE,
+        assertAllowedImageUrl,
+    );
 
     try {
         const sharp = (await import('sharp')).default;

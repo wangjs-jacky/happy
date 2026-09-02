@@ -162,6 +162,92 @@ describe('importPexelsCover', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
+    it('uses manual redirects and never follows a Pexels image redirect to an internal host', async () => {
+        const sharp = (await import('sharp')).default;
+        const source = await sharp({
+            create: { width: 3000, height: 1600, channels: 3, background: '#6E6353' },
+        }).jpeg().toBuffer();
+        const fetchedUrls: string[] = [];
+        const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+            const url = String(input);
+            fetchedUrls.push(url);
+            if (new URL(url).hostname === 'api.pexels.com') return jsonResponse(PHOTO);
+            if (new URL(url).hostname === 'images.pexels.com') {
+                if (init?.redirect === 'manual') {
+                    return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/admin' } });
+                }
+                return fetchImpl('http://127.0.0.1/admin', init);
+            }
+            return new Response(source, { headers: { 'content-type': 'image/jpeg' } });
+        });
+
+        await expect(importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        })).rejects.toThrow('image host');
+        expect(fetchedUrls).not.toContain('http://127.0.0.1/admin');
+    });
+
+    it('resolves a relative image redirect only on the allowlisted Pexels image host', async () => {
+        const sharp = (await import('sharp')).default;
+        const source = await sharp({
+            create: { width: 3000, height: 1600, channels: 3, background: '#6E6353' },
+        }).jpeg().toBuffer();
+        const redirectedUrl = 'https://images.pexels.com/redirected/cover.jpeg';
+        const fetchImpl = vi.fn(async (input: string | URL | Request): Promise<Response> => {
+            const url = String(input);
+            if (new URL(url).hostname === 'api.pexels.com') return jsonResponse(PHOTO);
+            if (url === PHOTO.src.original) {
+                return new Response(null, { status: 302, headers: { location: '/redirected/cover.jpeg' } });
+            }
+            if (url === redirectedUrl) {
+                return new Response(source, { headers: { 'content-type': 'image/jpeg' } });
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        });
+
+        const imported = await importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        });
+
+        expect(imported.mimeType).toBe('image/webp');
+        expect(fetchImpl.mock.calls.map(([url]) => String(url))).toContain(redirectedUrl);
+    });
+
+    it.each([
+        ['missing', undefined],
+        ['invalid', 'http://['],
+    ] as const)('fails closed on a %s redirect location', async (_reason, location) => {
+        const fetchImpl = vi.fn(async (input: string | URL | Request): Promise<Response> => {
+            if (new URL(String(input)).hostname === 'api.pexels.com') return jsonResponse(PHOTO);
+            return new Response(null, { status: 302, headers: location ? { location } : {} });
+        });
+
+        await expect(importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        })).rejects.toThrow('redirect location');
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects an image redirect chain beyond the bounded hop count', async () => {
+        const fetchImpl = vi.fn(async (input: string | URL | Request): Promise<Response> => {
+            const url = new URL(String(input));
+            if (url.hostname === 'api.pexels.com') return jsonResponse(PHOTO);
+            const hop = Number(url.searchParams.get('hop') ?? 0);
+            return new Response(null, {
+                status: 302,
+                headers: { location: `?hop=${hop + 1}` },
+            });
+        });
+
+        await expect(importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        })).rejects.toThrow('too many redirects');
+    });
+
     it('rejects a download that is not an image', async () => {
         const fetchImpl = vi.fn(async (input: string | URL | Request) => (
             new URL(String(input)).hostname === 'api.pexels.com'
