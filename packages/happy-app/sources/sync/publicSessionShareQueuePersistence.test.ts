@@ -52,6 +52,31 @@ describe('parsePublicSessionShareJobs', () => {
         expect(parsePublicSessionShareJobs(JSON.stringify(jobs))).toEqual(jobs);
     });
 
+    it.each([
+        'file:///tmp/cover.webp',
+        'content://media/external/images/123',
+        'blob:https://paws.test/11111111-1111-4111-8111-111111111111',
+    ])('round-trips the supported local upload URI %s', (uri) => {
+        const job = {
+            id: 'job-upload', sessionId: 'session-upload', title: 'Upload', requestedAt: 100,
+            cutoffSeq: 42, ownerId: 'owner-1', serverUrl: 'https://paws.test',
+            groupToolCalls: true, themePack: 'sage', status: 'queued', progress: { completed: 0, total: 1 },
+            notificationPending: false, updatedAt: 110,
+            coverSelection: {
+                kind: 'upload',
+                attachmentId: '11111111-1111-4111-8111-111111111111',
+                uri,
+                name: 'cover.webp',
+                mimeType: 'image/webp',
+                size: 321,
+                width: 1600,
+                height: 600,
+            },
+        };
+
+        expect(parsePublicSessionShareJobs(JSON.stringify([job]))).toEqual([job]);
+    });
+
     it('defaults historical appearance fields independently to caramel and no cover', () => {
         const historical = {
             id: 'job-old', sessionId: 'session-old', title: 'Historical', requestedAt: 100,

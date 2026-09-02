@@ -305,6 +305,42 @@ describe('public session share publishing', () => {
         expect(publishDraft).not.toHaveBeenCalled();
     });
 
+    it('rejects an empty local cover before asset preparation or publish', async () => {
+        const prepareAsset = vi.fn();
+        const uploadAsset = vi.fn();
+        const publishDraft = vi.fn();
+        const deps: PublicSessionPublishDependencies = {
+            loadMessages: vi.fn(async () => []),
+            createDraft: vi.fn(async () => ({ generation: 'generation-1', publicId: 'public-id' })),
+            loadAttachmentBytes: vi.fn(),
+            loadCoverBytes: vi.fn(async () => new Uint8Array()),
+            prepareAsset,
+            uploadAsset,
+            publishDraft,
+        };
+
+        await expect(publishPublicSessionSnapshot({
+            sessionId: 'session-1',
+            jobId: '11111111-1111-4111-8111-111111111111',
+            title: 'Title',
+            sharedAt: 123,
+            themePack: 'caramel',
+            coverSelection: {
+                kind: 'upload',
+                attachmentId: '22222222-2222-4222-8222-222222222222',
+                uri: 'file:///empty.webp',
+                name: 'empty.webp',
+                mimeType: 'image/webp',
+                size: 123,
+                width: 1600,
+                height: 600,
+            },
+        }, deps)).rejects.toThrow('Public session cover is empty');
+        expect(prepareAsset).not.toHaveBeenCalled();
+        expect(uploadAsset).not.toHaveBeenCalled();
+        expect(publishDraft).not.toHaveBeenCalled();
+    });
+
     it('keeps the resumed publication pinned to messages that existed when sharing was requested', async () => {
         const loadPage = vi.fn(async () => ({
             hasMore: false,

@@ -142,6 +142,7 @@ export async function publishPublicSessionSnapshot(
         if (!deps.loadCoverBytes) throw new Error('Public session cover bytes are unavailable');
         const selection = input.coverSelection;
         const bytes = await deps.loadCoverBytes(selection);
+        if (bytes.length === 0) throw new Error('Public session cover is empty');
         const asset: PublicSessionAttachmentJob = {
             attachmentId: selection.attachmentId,
             sourceRef: selection.uri,

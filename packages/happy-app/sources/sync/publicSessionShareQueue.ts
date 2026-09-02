@@ -1,4 +1,5 @@
 import type { PublicSessionThemePack } from '@slopus/happy-wire';
+import { z } from 'zod';
 
 export type PublicSessionShareJobStatus = 'queued' | 'running' | 'ready' | 'failed';
 
@@ -15,6 +16,29 @@ export type PublicSessionCoverSelection =
         height: number;
         thumbhash?: string;
     };
+
+export const publicSessionCoverSelectionSchema: z.ZodType<PublicSessionCoverSelection> = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('pexels'),
+        photoId: z.number().int().positive(),
+    }).strict(),
+    z.object({
+        kind: z.literal('upload'),
+        attachmentId: z.string().uuid(),
+        uri: z.string().regex(/^(?:file|content|ph|assets-library|blob):/i),
+        name: z.string().min(1).max(500),
+        mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+        size: z.number().int().positive().max(100 * 1024 * 1024),
+        width: z.number().int().positive().max(100_000),
+        height: z.number().int().positive().max(100_000),
+        thumbhash: z.string().max(1_000).optional(),
+    }).strict(),
+]);
+
+export function normalizePublicSessionCoverSelection(value: unknown): PublicSessionCoverSelection | undefined {
+    const parsed = publicSessionCoverSelectionSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
+}
 
 export type PublicSessionShareJob = {
     id: string;
@@ -176,9 +200,11 @@ export function createPublicSessionShareQueue(deps: PublicSessionShareQueueDepen
         enqueue(input: PublicSessionShareJobInput): PublicSessionShareJob {
             const existing = jobs.get(input.sessionId);
             if (existing?.status === 'queued' || existing?.status === 'running') return existing;
+            const coverSelection = normalizePublicSessionCoverSelection(input.coverSelection);
             const job = replace({
                 id: deps.createId(),
                 ...input,
+                coverSelection,
                 status: 'queued',
                 progress: { completed: 0, total: 0 },
                 notificationPending: false,
