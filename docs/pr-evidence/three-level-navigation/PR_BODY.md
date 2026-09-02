@@ -23,15 +23,16 @@ Visual evidence waiver: not requested
 | THREE-NAV-01 | Passed ordinary and recording modes | `[RELATIONSHIP-ADVISOR-HISTORY]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-1-e2e.mp4) | Isolated local report; environment removed after run |
 | THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/6b3ff7a3a30a2ba2fd737924f6f17b80f306f9b6/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
 
-- Environment and side effects: `authenticated-empty` isolated Server/Web; no production account, daemon, or model call; runner removed the environment.
+- Environment and side effects: isolated Server/Web environments; no production account, daemon, or model call; runner removed every environment.
 - Mobile playback: not yet confirmed on a separate mobile device.
-- Known gaps: the change is PC/Web-specific; existing mobile staged drawer behavior is covered by component tests and the existing mobile E2E case.
+- Visual comparability: all four screenshots use 1280×900, DPR 1, and Gingham dark; the two Before images were captured from `origin/main` with the same fixtures and theme.
+- Known gaps: the desktop layout changes are PC/Web-specific; existing mobile staged drawer behavior is covered by component tests and the existing mobile E2E case.
 
 ## Validation
 
-- [x] 101 targeted app tests passed.
+- [x] 83 targeted app tests passed.
 - [x] `pnpm --filter happy-app typecheck` passed.
-- [x] Both requested Web E2E cases passed in ordinary and recording modes.
+- [x] PC navigation and Relationship Advisor E2E passed in ordinary and recording modes; the 900px compact-width E2E passed in ordinary mode.
 - [x] Recorded MP4 files are H.264/yuv420p and passed `ffprobe`, full decode, and contact-sheet review.
 - [x] The declared visible Case count equals the two unique before/after screenshot groups embedded above.
 - [x] Every visual Case uses stable commit-SHA URLs.

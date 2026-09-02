@@ -98,7 +98,13 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
     });
 
     try {
-        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.addInitScript(() => {
+            const key = 'mmkv.default\\local-settings';
+            const current = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+            window.localStorage.setItem(key, JSON.stringify({ ...current, themePreference: 'dark', themePack: 'gingham' }));
+        });
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await page.setViewportSize({ width: 1280, height: 900 });
         await page.goto(authenticatedRoute(`/session/${sessionId}`));
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('Three level desktop conversation', { timeout: 120_000 });
 
@@ -129,6 +135,11 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await expect.poll(async () => (await page.getByTestId('sidebar-organization-pane').boundingBox())?.width ?? 0)
             .toBeGreaterThan(organizationBeforeResize!.width + 28);
         const resizedOrganizationWidth = Number(await organizationResize.getAttribute('aria-valuenow'));
+        await expect.poll(() => page.evaluate(() => {
+            const stored = window.localStorage.getItem('mmkv.default\\local-settings');
+            if (!stored) return null;
+            return JSON.parse(stored).desktopSidebarOrganizationWidth ?? null;
+        })).toBe(resizedOrganizationWidth);
 
         await page.reload();
         await expect(page.locator('[data-testid="session-header-title"]:visible')).toHaveText('Three level desktop conversation', { timeout: 120_000 });
@@ -144,6 +155,9 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await page.getByTestId('sidebar-organization-collapse-button').click();
         await expect(page.getByTestId('sidebar-organization-pane')).toBeVisible();
 
+        const rightPanelToggle = page.locator('[data-testid="desktop-right-panel-toggle-button"]:visible');
+        await rightPanelToggle.click();
+        await expect(page.locator('[data-testid="desktop-right-panel"]:visible')).toHaveCount(0);
         const wholeSidebar = page.getByTestId('desktop-left-sidebar');
         const wholeSidebarResize = page.getByTestId('desktop-left-panel-resize-handle');
         const wholeSidebarBeforeResize = await wholeSidebar.boundingBox();
@@ -156,6 +170,8 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await page.mouse.up();
         await expect.poll(async () => (await wholeSidebar.boundingBox())?.width ?? 0)
             .toBeGreaterThan(wholeSidebarBeforeResize!.width + 20);
+        await rightPanelToggle.click();
+        await expect(page.locator('[data-testid="desktop-right-panel"]:visible')).toBeVisible();
 
         for (const testID of [
             'sidebar-new-session-button',
@@ -180,6 +196,7 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await projectRow.click({ button: 'right' });
         await expect(page.getByText('Pin Session', { exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
+        await page.locator('[data-testid="session-header-title"]:visible').click();
         await expect(page.getByText('Pin Session', { exact: true })).toHaveCount(0);
         await page.getByTestId(`session-row-${sessionId}`).hover();
         const sessionActions = page.getByTestId(`session-row-actions-${sessionId}`);
@@ -189,6 +206,7 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await expect(page.getByText('Archive Session', { exact: true })).toBeVisible();
         await expect(page.getByText('Delete Session', { exact: true })).toBeVisible();
         await page.keyboard.press('Escape');
+        await page.locator('[data-testid="session-header-title"]:visible').click();
         await expect(page.getByText('Pin Session', { exact: true })).toHaveCount(0);
         await evidence(page, testInfo, 'pc-01-five-columns-and-history');
 
@@ -218,6 +236,21 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
         await page.close();
         await deleteSession(request, sessionId);
     }
+});
+
+test('[THREE-LEVEL-NAV-COMPACT-WEB] 800-979px preserves usable organization and session columns', async ({ page }) => {
+    page.setDefaultTimeout(120_000);
+    page.setDefaultNavigationTimeout(180_000);
+    await page.setViewportSize({ width: 900, height: 720 });
+    await page.goto(authenticatedRoute('/'));
+    await expect(page.getByRole('textbox')).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByTestId('desktop-sidebar-icon-rail')).toBeVisible();
+    await expect(page.getByTestId('sidebar-organization-pane')).toBeVisible();
+    await expect(page.getByTestId('sidebar-session-pane')).toBeVisible();
+    const organizationBox = await page.getByTestId('sidebar-organization-pane').boundingBox();
+    const sessionBox = await page.getByTestId('sidebar-session-pane').boundingBox();
+    expect(organizationBox?.width).toBeGreaterThanOrEqual(176);
+    expect(sessionBox?.width).toBeGreaterThanOrEqual(200);
 });
 
 test('[THREE-LEVEL-NAV-MOBILE] full-text drawer steps through organization, sessions, and chat', async ({ page, request }, testInfo) => {

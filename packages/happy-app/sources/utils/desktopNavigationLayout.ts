@@ -2,6 +2,7 @@ export const WEB_TABLET_MIN_WIDTH = 800;
 export const DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH = 1280;
 export const DESKTOP_SESSION_HEADER_COMPACT_WINDOW_WIDTH = 1180;
 export const DESKTOP_MAIN_MIN_WIDTH = 480;
+export const DESKTOP_MAIN_COMPACT_MIN_WIDTH = 300;
 export const DESKTOP_LEFT_PANEL_MIN_WIDTH = 500;
 export const DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 580;
 export const DESKTOP_LEFT_PANEL_MAX_WIDTH = 760;
@@ -82,6 +83,24 @@ function getDesktopPanelMaximum(side: DesktopPanelSide): number {
     return side === 'left' ? DESKTOP_LEFT_PANEL_MAX_WIDTH : DESKTOP_RIGHT_PANEL_MAX_WIDTH;
 }
 
+function getDesktopWorkspaceMainMinimum({
+    leftVisible,
+    rightVisible,
+    windowWidth,
+}: {
+    leftVisible: boolean;
+    rightVisible: boolean;
+    windowWidth: number;
+}): number {
+    const panelMinimum = (leftVisible ? DESKTOP_LEFT_PANEL_MIN_WIDTH : 0)
+        + (rightVisible ? DESKTOP_RIGHT_PANEL_MIN_WIDTH : 0);
+    return Math.min(
+        windowWidth,
+        DESKTOP_MAIN_MIN_WIDTH,
+        Math.max(DESKTOP_MAIN_COMPACT_MIN_WIDTH, windowWidth - panelMinimum),
+    );
+}
+
 export function clampDesktopPanelWidth(side: DesktopPanelSide, width: number): number {
     return Math.round(Math.min(
         Math.max(width, getDesktopPanelMinimum(side)),
@@ -102,7 +121,8 @@ export function getDesktopWorkspacePanelWidths({
     rightVisible: boolean;
     windowWidth: number;
 }): { left: number; main: number; right: number } {
-    const availableForPanels = Math.max(0, windowWidth - DESKTOP_MAIN_MIN_WIDTH);
+    const mainMinimum = getDesktopWorkspaceMainMinimum({ leftVisible, rightVisible, windowWidth });
+    const availableForPanels = Math.max(0, windowWidth - mainMinimum);
     let left = leftVisible ? clampDesktopPanelWidth('left', requestedLeftWidth) : 0;
     let right = rightVisible ? clampDesktopPanelWidth('right', requestedRightWidth) : 0;
 
@@ -131,7 +151,7 @@ export function getDesktopWorkspacePanelWidths({
 
     return {
         left,
-        main: Math.max(DESKTOP_MAIN_MIN_WIDTH, windowWidth - left - right),
+        main: Math.max(mainMinimum, windowWidth - left - right),
         right,
     };
 }
@@ -151,9 +171,14 @@ export function getDesktopPanelResizeWidth({
 }): number {
     const min = getDesktopPanelMinimum(side);
     const max = getDesktopPanelMaximum(side);
+    const mainMinimum = getDesktopWorkspaceMainMinimum({
+        leftVisible: side === 'left' || oppositePanelVisible,
+        rightVisible: side === 'right' || oppositePanelVisible,
+        windowWidth,
+    });
     const availableWidth = Math.max(
         0,
-        windowWidth - DESKTOP_MAIN_MIN_WIDTH - (oppositePanelVisible ? oppositePanelWidth : 0),
+        windowWidth - mainMinimum - (oppositePanelVisible ? oppositePanelWidth : 0),
     );
     if (availableWidth < min) return Math.round(availableWidth);
     return Math.round(Math.min(Math.max(desiredWidth, min), availableWidth, max));

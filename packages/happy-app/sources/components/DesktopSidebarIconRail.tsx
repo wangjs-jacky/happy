@@ -141,7 +141,7 @@ const styles = StyleSheet.create((theme) => ({
         right: 2,
         top: 2,
     },
-    badgeText: { color: '#FFFFFF', fontSize: 9, ...Typography.default('semiBold') },
+    badgeText: { color: theme.colors.button.destructive.tint, fontSize: 9, ...Typography.default('semiBold') },
     tooltip: {
         backgroundColor: theme.colors.text,
         borderRadius: 8,

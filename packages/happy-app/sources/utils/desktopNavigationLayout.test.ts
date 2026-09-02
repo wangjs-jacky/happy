@@ -91,6 +91,25 @@ describe('desktopNavigationLayout', () => {
         });
     });
 
+    it.each([
+        { windowWidth: 800, expectedMain: 300 },
+        { windowWidth: 900, expectedMain: 400 },
+        { windowWidth: 979, expectedMain: 479 },
+        { windowWidth: 980, expectedMain: 480 },
+    ])('keeps the three-level left navigation usable at $windowWidth px', ({ windowWidth, expectedMain }) => {
+        expect(getDesktopWorkspacePanelWidths({
+            leftVisible: true,
+            requestedLeftWidth: 580,
+            requestedRightWidth: 320,
+            rightVisible: false,
+            windowWidth,
+        })).toEqual({
+            left: 500,
+            main: expectedMain,
+            right: 0,
+        });
+    });
+
     it('keeps the internal list-navigation pane within a useful desktop range', () => {
         expect(clampDesktopSidebarOrganizationWidth(120)).toBe(176);
         expect(clampDesktopSidebarOrganizationWidth(247.6)).toBe(248);

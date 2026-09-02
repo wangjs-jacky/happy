@@ -233,6 +233,11 @@ describe('DesktopSidebarSessionsNavigation', () => {
         mocks.pinnedOrder = ['session-1'];
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<DesktopSidebarSessionsNavigation desktopDensity />); });
+
+        expect(renderer.root.findByProps({ testID: 'sidebar-organization-timeline' }).findAllByType('Text').at(-1)?.props.children).toBe(0);
+        expect(renderer.root.findByProps({ testID: 'sidebar-organization-pinned' }).findAllByType('Text').at(-1)?.props.children).toBe(1);
+        expect(renderer.root.findByProps({ testID: 'sidebar-list-happy' }).findAllByType('Text').at(-1)?.props.children).toBe(0);
+        expect(renderer.root.findByProps({ testID: 'sidebar-tag-product' }).findAllByType('Text').at(-1)?.props.children).toBe(0);
         act(() => renderer.root.findByProps({ testID: 'sidebar-organization-pinned' }).props.onPress());
 
         expect(renderer.root.findAllByProps({ testID: 'session-row-session-1' }).length).toBeGreaterThan(0);

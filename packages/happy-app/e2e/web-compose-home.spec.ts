@@ -2809,6 +2809,12 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
         const text = message.text();
         if (message.type() === 'error' && text.includes('cannot contain a nested')) nestedButtonErrors.push(text);
     });
+    await page.addInitScript(() => {
+        const key = 'mmkv.default\\local-settings';
+        const current = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+        window.localStorage.setItem(key, JSON.stringify({ ...current, themePreference: 'dark', themePack: 'gingham' }));
+    });
+    await page.emulateMedia({ colorScheme: 'dark' });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.route('**/v1/plugins', async (route) => {
         await route.fulfill({
@@ -2961,6 +2967,18 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
 
     await page.keyboard.press('Escape');
     await expect(darkDialog).toHaveCount(0);
+
+    await page.goto(darkAdvisorUrl.toString());
+    await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toBeVisible({ timeout: 120_000 });
+    await page.getByTestId(`relationship-advisor-delete-${firstId}`).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toHaveCount(0);
+    await page.getByTestId(`relationship-advisor-delete-${secondId}`).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page).toHaveURL((url) => url.pathname === '/relationship-advisor' && !url.searchParams.has('conversationId'));
+    await expect(page.getByTestId('relationship-advisor-conversation-selection')).toBeVisible();
+    await expect(history.locator('[data-testid^="relationship-advisor-history-"]')).toHaveCount(0);
+    await expect(advisorComposer).toHaveCount(0);
     expect(nestedButtonErrors).toEqual([]);
 });
 

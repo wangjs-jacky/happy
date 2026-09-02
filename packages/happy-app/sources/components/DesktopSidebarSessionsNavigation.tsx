@@ -683,6 +683,10 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
         selection,
         sessions,
     }), [organization, projects, selection, sessionManagement.preferences.pinnedOrder, sessions]);
+    const visibleSessionPartitions = React.useMemo(
+        () => partitionSessionsByPinnedOrder(sessions, sessionManagement.preferences.pinnedOrder),
+        [sessionManagement.preferences.pinnedOrder, sessions],
+    );
     const selectionList = selection.kind === 'list'
         ? organization.lists.find((list) => list.id === selection.id) ?? null
         : null;
@@ -755,7 +759,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
     const organizationPane = (
         <ScrollView contentContainerStyle={styles.organizationContent} style={styles.listsScroll} testID="sidebar-organization-pane">
             {renderOrganizationRow({
-                count: sessions.length,
+                count: visibleSessionPartitions.regular.length,
                 icon: <Feather color={theme.colors.textSecondary} name="clock" size={16} />,
                 onPress: () => chooseSelection({ kind: 'timeline' }),
                 selected: selection.kind === 'timeline',
@@ -763,7 +767,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
                 title: t('sidebar.timelineTab'),
             })}
             {renderOrganizationRow({
-                count: sessionManagement.preferences.pinnedOrder.length,
+                count: visibleSessionPartitions.pinned.length,
                 icon: <Feather color={theme.colors.textSecondary} name="bookmark" size={16} />,
                 onPress: () => chooseSelection({ kind: 'pinned' }),
                 selected: selection.kind === 'pinned',
@@ -844,7 +848,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
                             testID={`sidebar-drop-list-${list.id}`}
                         >
                             {renderOrganizationRow({
-                                count: sessions.filter((session) => organization.sessions[session.id]?.listId === list.id).length,
+                                count: visibleSessionPartitions.regular.filter((session) => organization.sessions[session.id]?.listId === list.id).length,
                                 icon: <View style={[styles.organizationColorDot, { backgroundColor: listColors[list.color] }]} />,
                                 nested: !!group.folderId,
                                 onPress: () => chooseSelection({ kind: 'list', id: list.id }),
@@ -870,7 +874,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
                     testID="sidebar-drop-list-unassigned"
                 >
                     {renderOrganizationRow({
-                        count: sessions.filter((session) => !organization.sessions[session.id]?.listId).length,
+                        count: visibleSessionPartitions.regular.filter((session) => !organization.sessions[session.id]?.listId).length,
                         icon: <Feather color={theme.colors.textSecondary} name="inbox" size={16} />,
                         onPress: () => chooseSelection({ kind: 'unassigned' }),
                         selected: selection.kind === 'unassigned',
@@ -897,7 +901,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
             {showTagRows ? organization.tags.map((tag) => (
                 <React.Fragment key={tag.id}>
                     {renderOrganizationRow({
-                        count: sessions.filter((session) => organization.sessions[session.id]?.tagIds.includes(tag.id)).length,
+                        count: visibleSessionPartitions.regular.filter((session) => organization.sessions[session.id]?.tagIds.includes(tag.id)).length,
                         icon: <View style={[styles.organizationColorDot, { backgroundColor: listColors[tag.color] }]} />,
                         onPress: () => chooseSelection({ kind: 'tag', id: tag.id }),
                         selected: selection.kind === 'tag' && selection.id === tag.id,

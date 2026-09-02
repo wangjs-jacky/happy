@@ -52,20 +52,17 @@ export const RelationshipAdvisorSidebarHistory = React.memo(function Relationshi
         );
         if (!confirmed) return;
 
-        let nextConversationId: string | undefined;
+        let nextPath = '/relationship-advisor';
         updateConversations((current) => {
             const remaining = removeRelationshipAdvisorConversation(current, conversationId);
             if (selectedId !== conversationId) return remaining;
             if (remaining[0]) {
-                nextConversationId = remaining[0].id;
-                return remaining;
+                nextPath = conversationPath(remaining[0].id);
             }
-            const next = createRelationshipAdvisorConversation(randomUUID(), t('relationshipAdvisor.newConversation'));
-            nextConversationId = next.id;
-            return [next];
+            return remaining;
         });
         if (selectedId !== conversationId) return;
-        if (nextConversationId) onNavigate(conversationPath(nextConversationId));
+        onNavigate(nextPath);
     }, [onNavigate, selectedId, updateConversations]);
 
     return (
@@ -118,6 +115,7 @@ export const RelationshipAdvisorSidebarHistory = React.memo(function Relationshi
                                     hitSlop={6}
                                     onPress={() => void deleteConversation(conversation.id)}
                                     style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
+                                    testID={`relationship-advisor-delete-${conversation.id}`}
                                 >
                                     <Ionicons name="trash-outline" size={14} color={theme.colors.textSecondary} />
                                 </Pressable>
