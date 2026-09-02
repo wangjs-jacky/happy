@@ -103,7 +103,10 @@ export async function resumeExistingThread(opts: {
             { turns: turnsToReplay },
             {
                 omitPawsUserMessagesFromOriginToken: opts.session.getMetadata()?.codexPawsOriginToken,
-                dialogueOnly: historyMode === 'after-cursor',
+                // A reconnect normally catches up durable dialogue only, but
+                // an interrupted full replay must reconstruct the exact full
+                // envelope set (tools, reasoning, and lifecycle included).
+                dialogueOnly: historyMode === 'after-cursor' && !interruptedReplay,
                 activeTurnsUserOnly: true,
             },
         );

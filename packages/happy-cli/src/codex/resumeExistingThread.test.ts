@@ -314,6 +314,17 @@ describe('resumeExistingThread', () => {
                             type: 'agentMessage',
                             id: 'agent-after-cursor',
                             text: 'reply while disconnected',
+                        }, {
+                            type: 'reasoning',
+                            id: 'reasoning-after-cursor',
+                            summary: ['reasoning that must survive retry'],
+                            content: [],
+                        }, {
+                            type: 'commandExecution',
+                            id: 'command-after-cursor',
+                            command: 'pwd',
+                            cwd: '/tmp/project',
+                            aggregatedOutput: '/tmp/project',
                         }],
                     }],
                 },
@@ -366,6 +377,12 @@ describe('resumeExistingThread', () => {
         });
 
         expect(sendSessionProtocolHistoryAndAwait).toHaveBeenCalledTimes(2);
+        expect(sendSessionProtocolHistoryAndAwait.mock.calls[0][0].some(
+            (envelope: SessionEnvelope) => envelope.ev.t === 'tool-call-start',
+        )).toBe(true);
+        expect(sendSessionProtocolHistoryAndAwait.mock.calls[0][0].some(
+            (envelope: SessionEnvelope) => envelope.ev.t === 'text' && envelope.ev.thinking === true,
+        )).toBe(true);
         expect(sendSessionProtocolHistoryAndAwait.mock.calls[1][0].map((envelope: SessionEnvelope) => envelope.id)).toEqual(
             sendSessionProtocolHistoryAndAwait.mock.calls[0][0].map((envelope: SessionEnvelope) => envelope.id),
         );
