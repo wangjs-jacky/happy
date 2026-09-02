@@ -21,9 +21,9 @@ const pexelsPhotoSchema = z.object({
     id: z.number().int().positive(),
     width: z.number().int().positive().max(100_000),
     height: z.number().int().positive().max(100_000),
-    url: z.string().url().max(2_000),
-    photographer: z.string().min(1).max(500),
-    photographer_url: z.string().url().max(2_000),
+    url: z.string().url().max(1_000),
+    photographer: z.string().min(1).max(200),
+    photographer_url: z.string().url().max(1_000),
     photographer_id: z.number().int().positive(),
     avg_color: z.string().max(100).nullable(),
     src: z.object({
@@ -188,6 +188,7 @@ async function fetchBounded(
             } as Parameters<typeof fetch>[1];
             const response = await fetchImpl(currentUrl, requestInit);
             if (REDIRECT_STATUSES.has(response.status)) {
+                await response.body?.cancel().catch(() => undefined);
                 if (redirectCount >= MAX_REDIRECTS) {
                     controller.abort();
                     throw new PexelsProviderError('Pexels returned too many redirects');

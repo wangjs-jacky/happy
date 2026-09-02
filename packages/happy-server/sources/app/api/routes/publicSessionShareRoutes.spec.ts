@@ -449,7 +449,9 @@ describe('publicSessionShareRoutes', () => {
 
         expect(response.statusCode).toBe(409);
         expect(storageMock.deletePublicShareAsset).toHaveBeenCalledWith(
-            `private/session-shares/${state.shares[0].id}/${draft.generation}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+            expect.stringContaining(
+                `private/session-shares/${state.shares[0].id}/${draft.generation}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa_`,
+            ),
         );
         expect(state.bytes.get(siblingPath)).toEqual(Buffer.from('attachment'));
         expect(state.assets).toHaveLength(0);
@@ -478,60 +480,194 @@ describe('publicSessionShareRoutes', () => {
         expect(storageMock.putPublicShareAsset).not.toHaveBeenCalled();
     });
 
-    it('atomically claims an asset ID so a concurrent loser cannot overwrite or delete the winner object', async () => {
-        process.env.PEXELS_API_KEY = 'server-secret';
-        const draft = (await createDraft()).json();
-        let releaseProvider!: () => void;
-        let providerEntered!: () => void;
-        const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
-        const released = new Promise<void>((resolve) => { releaseProvider = resolve; });
+    it('recovers an abandoned claim after its bounded lease and completes canonically', async () => {
+        const initialNow = Date.now();
+        const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+        try {
+            process.env.PEXELS_API_KEY = 'server-secret';
+            const draft = (await createDraft()).json();
+            let transactionCall = 0;
+            dbMock.$transaction.mockImplementation(async (callback: any) => {
+                transactionCall += 1;
+                if (transactionCall === 2) throw new Error('finalization result unknown');
+                return callback(dbMock);
+            });
+            const request = {
+                method: 'POST' as const,
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', photoId: 2014422 },
+            };
 
-        await providerMock.importPexelsCover.withImplementation(async (photoId: number) => {
-            if (photoId === 2014422) {
-                providerEntered();
-                await released;
+            const ambiguous = await app.inject(request);
+            expect(ambiguous.statusCode).toBe(500);
+            expect(state.assets).toHaveLength(1);
+            expect(state.assets[0].uploadedAt).toBeNull();
+
+            dbMock.$transaction.mockImplementation(async (callback: any) => callback(dbMock));
+            providerMock.importPexelsCover.mockClear();
+            now.mockReturnValue(initialNow + 3 * 60 * 1000);
+            const recovered = await app.inject(request);
+
+            expect(recovered.statusCode).toBe(200);
+            expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(1);
+            expect(state.assets).toHaveLength(1);
+            expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
+            expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
+        } finally {
+            now.mockRestore();
+        }
+    });
+
+    it('logs a failed claim release and recovers it after the bounded lease', async () => {
+        const initialNow = Date.now();
+        const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+        try {
+            process.env.PEXELS_API_KEY = 'server-secret';
+            const draft = (await createDraft()).json();
+            providerMock.importPexelsCover.mockRejectedValueOnce(new providerMock.PexelsProviderError('provider unavailable'));
+            dbMock.publicSessionShareAsset.deleteMany.mockRejectedValueOnce(new Error('database unavailable'));
+            const request = {
+                method: 'POST' as const,
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', photoId: 2014422 },
+            };
+
+            const failed = await app.inject(request);
+            expect(failed.statusCode).toBe(502);
+            expect(state.assets).toHaveLength(1);
+            expect(logMock).toHaveBeenCalledWith(expect.objectContaining({
+                module: 'public-session-cover-claim-release',
+                assetId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+            }), expect.stringContaining('lease recovery'));
+
+            now.mockReturnValue(initialNow + 3 * 60 * 1000);
+            const recovered = await app.inject(request);
+
+            expect(recovered.statusCode).toBe(200);
+            expect(state.assets).toHaveLength(1);
+            expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
+        } finally {
+            now.mockRestore();
+        }
+    });
+
+    it('atomically claims an asset ID so a concurrent loser cannot overwrite or delete the winner object', async () => {
+        const initialNow = Date.now();
+        const now = vi.spyOn(Date, 'now').mockReturnValue(initialNow);
+        try {
+            process.env.PEXELS_API_KEY = 'server-secret';
+            const draft = (await createDraft()).json();
+            let releaseProvider!: () => void;
+            let providerEntered!: () => void;
+            const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
+            const released = new Promise<void>((resolve) => { releaseProvider = resolve; });
+
+            await providerMock.importPexelsCover.withImplementation(async (photoId: number) => {
+                if (photoId === 2014422) {
+                    providerEntered();
+                    await released;
+                    return {
+                        bytes: Buffer.from('webp'), mimeType: 'image/webp', size: 4, width: 2400, height: 900,
+                        attribution: {
+                            photoId: 2014422,
+                            photographer: 'Eberhard Grossgasteiger',
+                            photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                            photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                        },
+                    };
+                }
                 return {
-                    bytes: Buffer.from('webp'), mimeType: 'image/webp', size: 4, width: 2400, height: 900,
+                    bytes: Buffer.from('other'), mimeType: 'image/webp', size: 5, width: 2400, height: 900,
                     attribution: {
-                        photoId: 2014422,
-                        photographer: 'Eberhard Grossgasteiger',
-                        photographerUrl: 'https://www.pexels.com/@eberhardgross',
-                        photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                        photoId: 417074,
+                        photographer: 'Pixabay',
+                        photographerUrl: 'https://www.pexels.com/@pixabay',
+                        photoUrl: 'https://www.pexels.com/photo/scenic-view-of-mountains-during-dawn-417074/',
                     },
                 };
-            }
-            return {
-                bytes: Buffer.from('other'), mimeType: 'image/webp', size: 5, width: 2400, height: 900,
-                attribution: {
-                    photoId: 417074,
-                    photographer: 'Pixabay',
-                    photographerUrl: 'https://www.pexels.com/@pixabay',
-                    photoUrl: 'https://www.pexels.com/photo/scenic-view-of-mountains-during-dawn-417074/',
-                },
-            };
-        }, async () => {
-            const url = `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`;
-            const firstPromise = app.inject({
-                method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
-                payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 2014422 },
-            });
-            await entered;
-            const concurrent = await app.inject({
-                method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
-                payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 417074 },
-            });
-            releaseProvider();
-            const first = await firstPromise;
+            }, async () => {
+                const url = `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`;
+                const firstPromise = app.inject({
+                    method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
+                    payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 2014422 },
+                });
+                await entered;
+                now.mockReturnValue(initialNow + 30_000);
+                const concurrent = await app.inject({
+                    method: 'POST', url, headers: { 'x-user-id': 'owner-1' },
+                    payload: { assetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', photoId: 417074 },
+                });
+                releaseProvider();
+                const first = await firstPromise;
 
-            expect(first.statusCode).toBe(200);
-            expect(concurrent.statusCode).toBe(409);
+                expect(first.statusCode).toBe(200);
+                expect(concurrent.statusCode).toBe(409);
+            });
+
+            expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(1);
+            expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalled();
+            expect(state.assets).toHaveLength(1);
+            expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
+            expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
+        } finally {
+            now.mockRestore();
+        }
+    });
+
+    it('rejects provider metadata that exceeds the internal byte bound even within field lengths', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const unicodeUrl = `https://www.pexels.com/${'界'.repeat(900)}`;
+        await providerMock.importPexelsCover.withImplementation(async () => ({
+            bytes: Buffer.from('webp'), mimeType: 'image/webp' as const, size: 4, width: 2400, height: 900,
+            attribution: {
+                photoId: 2014422,
+                photographer: 'x'.repeat(200),
+                photographerUrl: unicodeUrl,
+                photoUrl: unicodeUrl,
+            },
+        }), async () => {
+            const response = await app.inject({
+                method: 'POST',
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: '12121212-1212-4212-8212-121212121212', photoId: 2014422 },
+            });
+
+            expect(response.statusCode).toBe(502);
+        });
+        expect(storageMock.putPublicShareAsset).not.toHaveBeenCalled();
+        expect(state.assets).toHaveLength(0);
+    });
+
+    it('uses a fixed safe filename instead of internal Pexels metadata when serving a cover', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const imported = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '13131313-1313-4313-8313-131313131313', photoId: 2014422 },
+        })).json();
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(imported.assetId, { mimeType: imported.mimeType, size: imported.size }) },
+        });
+        expect(publish.statusCode).toBe(200);
+
+        const response = await app.inject({
+            method: 'GET',
+            url: `/v1/public/session-shares/${draft.publicId}/attachments/${imported.assetId}`,
         });
 
-        expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(1);
-        expect(storageMock.deletePublicShareAsset).not.toHaveBeenCalled();
-        expect(state.assets).toHaveLength(1);
-        expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
-        expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-disposition']).toContain('filename="cover.webp"');
+        expect(response.headers['content-disposition']).not.toContain('pexels-cover-v1');
+        expect(response.headers['content-disposition']).not.toContain('__paws_internal__');
     });
 
     it.each(['provider', 'storage'] as const)('leaves the draft unpublished when %s work fails', async (failure) => {
@@ -556,7 +692,9 @@ describe('publicSessionShareRoutes', () => {
         expect(state.assets).toHaveLength(0);
         if (failure === 'storage') {
             expect(storageMock.deletePublicShareAsset).toHaveBeenCalledWith(
-                `private/session-shares/${state.shares[0].id}/${draft.generation}/99999999-9999-4999-8999-999999999999`,
+                expect.stringContaining(
+                    `private/session-shares/${state.shares[0].id}/${draft.generation}/99999999-9999-4999-8999-999999999999_`,
+                ),
             );
         }
     });
@@ -626,6 +764,27 @@ describe('publicSessionShareRoutes', () => {
         });
         expect(upload.statusCode).toBe(400);
         expect(upload.json().error).toContain('checksum');
+    });
+
+    it('rejects client attachment names that use the reserved internal metadata prefix', async () => {
+        const draft = (await createDraft()).json();
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                name: '__paws_internal__:pexels-cover-v1:forged',
+                mimeType: 'image/webp',
+                kind: 'image',
+                size: 4,
+                sha256: 'a57bb082e728a0cdce930ecfcccf4510a3a247be5f322b09b3a971a3f5ed34f8',
+            },
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(state.assets).toHaveLength(0);
     });
 
     it('keeps drafts private and publishes only after every manifest asset exists', async () => {

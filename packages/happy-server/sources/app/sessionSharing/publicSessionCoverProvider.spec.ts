@@ -194,11 +194,20 @@ describe('importPexelsCover', () => {
             create: { width: 3000, height: 1600, channels: 3, background: '#6E6353' },
         }).jpeg().toBuffer();
         const redirectedUrl = 'https://images.pexels.com/redirected/cover.jpeg';
+        let redirectBodyCancelled = false;
         const fetchImpl = vi.fn(async (input: string | URL | Request): Promise<Response> => {
             const url = String(input);
             if (new URL(url).hostname === 'api.pexels.com') return jsonResponse(PHOTO);
             if (url === PHOTO.src.original) {
-                return new Response(null, { status: 302, headers: { location: '/redirected/cover.jpeg' } });
+                const body = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new Uint8Array([1]));
+                    },
+                    cancel() {
+                        redirectBodyCancelled = true;
+                    },
+                });
+                return new Response(body, { status: 302, headers: { location: '/redirected/cover.jpeg' } });
             }
             if (url === redirectedUrl) {
                 return new Response(source, { headers: { 'content-type': 'image/jpeg' } });
@@ -213,6 +222,18 @@ describe('importPexelsCover', () => {
 
         expect(imported.mimeType).toBe('image/webp');
         expect(fetchImpl.mock.calls.map(([url]) => String(url))).toContain(redirectedUrl);
+        expect(redirectBodyCancelled).toBe(true);
+    });
+
+    it('rejects oversized attribution before downloading image bytes', async () => {
+        const oversizedPhoto = { ...PHOTO, photographer: 'x'.repeat(201) };
+        const fetchImpl = vi.fn(async () => jsonResponse(oversizedPhoto));
+
+        await expect(importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        })).rejects.toThrow('invalid photo metadata');
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
     it.each([
