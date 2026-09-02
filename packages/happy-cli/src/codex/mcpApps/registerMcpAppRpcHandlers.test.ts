@@ -15,6 +15,13 @@ import {
 
 type Handler = (request: unknown) => Promise<unknown>;
 
+let nextOperationSequence = 0;
+
+function testOperationId(): string {
+    nextOperationSequence += 1;
+    return `00000000-0000-4000-8000-${String(nextOperationSequence).padStart(12, '0')}`;
+}
+
 function createHarness(options?: {
     now?: () => number;
     readMcpResource?: ReturnType<typeof vi.fn>;
@@ -91,7 +98,7 @@ function bind(registry: McpAppBindingRegistry, options?: { connectorId?: string;
 }
 
 async function readSecondary(handler: Handler, uri: string, callId = 'call-1') {
-    return await handler({ callId, uri }) as McpAppRpcResponse<unknown>;
+    return await handler({ callId, operationId: testOperationId(), uri }) as McpAppRpcResponse<unknown>;
 }
 
 async function callTool(
@@ -100,7 +107,13 @@ async function callTool(
     request: Record<string, unknown> = {},
     callId = 'call-1',
 ) {
-    return await handler({ callId, tool, arguments: { id: 1 }, ...request }) as McpAppRpcResponse<unknown>;
+    return await handler({
+        callId,
+        operationId: testOperationId(),
+        tool,
+        arguments: { id: 1 },
+        ...request,
+    }) as McpAppRpcResponse<unknown>;
 }
 
 async function open(
@@ -140,6 +153,72 @@ describe('registerMcpAppRpcHandlers', () => {
 
         expect(handlers.has('mcpAppResourceRead')).toBe(true);
         expect(handlers.has('mcpAppToolCall')).toBe(true);
+        expect(handlers.has('mcpAppOperationCancel')).toBe(true);
+    });
+
+    it('cancels only the exact binding-scoped operation and blocks late permission execution', async () => {
+        const permission = deferred<{ decision: 'approved' }>();
+        let permissionSignal: AbortSignal | undefined;
+        const handleToolCall = vi.fn((
+            _permissionId: string,
+            _toolName: string,
+            _input: unknown,
+            options?: { signal?: AbortSignal },
+        ) => {
+            permissionSignal = options?.signal;
+            return permission.promise;
+        });
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    mutate: {
+                        name: 'mutate',
+                        enabled: true,
+                        annotations: { readOnlyHint: false },
+                        _meta: { ui: { visibility: ['app'] } },
+                    },
+                    refresh: {
+                        name: 'refresh',
+                        enabled: true,
+                        annotations: { readOnlyHint: true },
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+        bind(registry);
+        const operationId = '00000000-0000-4000-8000-000000000077';
+        const pending = handlers.get('mcpAppToolCall')!({
+            callId: 'call-1', operationId, tool: 'mutate', arguments: { id: 1 },
+        }) as Promise<McpAppRpcResponse<unknown>>;
+        await vi.waitFor(() => expect(handleToolCall).toHaveBeenCalledTimes(1));
+
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId: '00000000-0000-4000-8000-000000000099',
+        })).resolves.toEqual({ ok: true, value: {} });
+        expect(permissionSignal?.aborted).toBe(false);
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'unknown-call', operationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+        expect(permissionSignal?.aborted).toBe(false);
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+
+        expect(permissionSignal?.aborted).toBe(true);
+        await expect(pending).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+        });
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+        permission.resolve({ decision: 'approved' });
+        await Promise.resolve();
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+        await expect(callTool(handlers.get('mcpAppToolCall')!, 'refresh')).resolves.toMatchObject({ ok: true });
     });
 
     it('returns a safe not-found envelope for an unknown binding', async () => {
@@ -838,7 +917,7 @@ describe('registerMcpAppRpcHandlers', () => {
         });
     });
 
-    it('caps concurrent App operations and cancels in-flight reads and calls on disconnect', async () => {
+    it('caps concurrent App operations, recovers an exact cancelled slot, and aborts the rest on disconnect', async () => {
         const signals: AbortSignal[] = [];
         const pending = (_params: unknown, options?: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
             if (!options?.signal) throw new Error('missing abort signal');
@@ -862,20 +941,36 @@ describe('registerMcpAppRpcHandlers', () => {
         bind(registry);
         await open(handlers.get('mcpAppResourceOpen')!);
 
-        const operations = [
-            readSecondary(handlers.get('mcpAppResourceRead')!, 'ui://demo/detail.txt'),
-            ...Array.from({ length: 7 }, () => callTool(handlers.get('mcpAppToolCall')!)),
-        ];
+        const cancelledOperationId = '00000000-0000-4000-8000-000000000088';
+        const cancelled = callTool(
+            handlers.get('mcpAppToolCall')!,
+            'refresh',
+            { operationId: cancelledOperationId },
+        );
+        const operations = [cancelled, ...Array.from(
+            { length: 7 },
+            () => callTool(handlers.get('mcpAppToolCall')!),
+        )];
         await vi.waitFor(() => expect(signals).toHaveLength(8));
         await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
             ok: false,
             error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
         });
+        await expect(handlers.get('mcpAppOperationCancel')!({
+            callId: 'call-1', operationId: cancelledOperationId,
+        })).resolves.toEqual({ ok: true, value: {} });
+        await expect(cancelled).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+        });
+        const replacement = callTool(handlers.get('mcpAppToolCall')!);
+        operations.push(replacement);
+        await vi.waitFor(() => expect(signals).toHaveLength(9));
 
         registration.dispose();
 
         await expect(Promise.all(operations)).resolves.toEqual(
-            expect.arrayContaining(Array.from({ length: 8 }, () => ({
+            expect.arrayContaining(Array.from({ length: 9 }, () => ({
                 ok: false,
                 error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE' }),
             }))),

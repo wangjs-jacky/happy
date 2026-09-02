@@ -24,6 +24,7 @@ export const MCP_APP_MAX_CONCURRENT_OPERATIONS = 8;
 export const MCP_APP_OPERATION_TIMEOUT_MS = 30_000;
 export const MCP_APP_MAX_CALL_ID_BYTES = 256;
 export const MCP_APP_MAX_TOOL_NAME_BYTES = 256;
+export const MCP_APP_MAX_OPERATION_ID_BYTES = 128;
 
 export type McpAppResourceOpenRequest = {
     callId: string;
@@ -51,14 +52,21 @@ export type McpAppResourceChunkResponse = {
 
 export type McpAppResourceReadRequest = {
     callId: string;
+    operationId: string;
     uri: string;
 };
 
 export type McpAppToolCallRequest = {
     callId: string;
+    operationId: string;
     tool: string;
     arguments?: Record<string, unknown>;
     _meta?: unknown;
+};
+
+export type McpAppOperationCancelRequest = {
+    callId: string;
+    operationId: string;
 };
 
 export type { McpAppRpcResponse } from './CodexMcpAppAdapter';
@@ -146,9 +154,25 @@ function hasOnlyKeys(candidate: Record<string, unknown>, allowed: ReadonlySet<st
 }
 
 function validResourceReadRequest(request: unknown): request is McpAppResourceReadRequest {
-    if (!isRecord(request) || !hasOnlyKeys(request, new Set(['callId', 'uri']))) return false;
+    if (!isRecord(request) || !hasOnlyKeys(request, new Set(['callId', 'operationId', 'uri']))) return false;
     return typeof request.callId === 'string' && request.callId.length > 0
+        && validOperationId(request.operationId)
         && typeof request.uri === 'string' && request.uri.length > 0 && request.uri.length <= 8_192;
+}
+
+function validOperationId(value: unknown): value is string {
+    return typeof value === 'string'
+        && Buffer.byteLength(value, 'utf8') <= MCP_APP_MAX_OPERATION_ID_BYTES
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function validCancelRequest(request: unknown): request is McpAppOperationCancelRequest {
+    return isRecord(request)
+        && hasOnlyKeys(request, new Set(['callId', 'operationId']))
+        && typeof request.callId === 'string'
+        && request.callId.length > 0
+        && Buffer.byteLength(request.callId, 'utf8') <= MCP_APP_MAX_CALL_ID_BYTES
+        && validOperationId(request.operationId);
 }
 
 function jsonDepthWithin(value: unknown, maxDepth: number): boolean {
@@ -187,9 +211,10 @@ function jsonWithinBounds(value: unknown, maxBytes: number): boolean {
 
 function validToolCallRequest(request: unknown): request is McpAppToolCallRequest {
     if (!isRecord(request)
-        || !hasOnlyKeys(request, new Set(['callId', 'tool', 'arguments', '_meta']))) return false;
+        || !hasOnlyKeys(request, new Set(['callId', 'operationId', 'tool', 'arguments', '_meta']))) return false;
     if (typeof request.callId !== 'string' || request.callId.length === 0
         || Buffer.byteLength(request.callId, 'utf8') > MCP_APP_MAX_CALL_ID_BYTES
+        || !validOperationId(request.operationId)
         || typeof request.tool !== 'string' || request.tool.length === 0
         || Buffer.byteLength(request.tool, 'utf8') > MCP_APP_MAX_TOOL_NAME_BYTES) return false;
     if (request.arguments !== undefined && !isRecord(request.arguments)) return false;
@@ -314,6 +339,7 @@ type ActiveOperation = {
     controller: AbortController;
     deadlineAt: number;
     epoch: number;
+    interactiveKey?: string;
     timedOut: boolean;
     timeout: ReturnType<typeof setTimeout>;
 };
@@ -343,6 +369,7 @@ export function registerMcpAppRpcHandlers(options: {
     const allowedSecondarySchemes = new Map<string, ReadonlySet<string>>();
     const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const inFlightOperations = new Set<ActiveOperation>();
+    const interactiveOperations = new Map<string, ActiveOperation>();
     let rpcHandlerManager = options.rpcHandlerManager;
     let disposed = false;
     let requestSequence = 0;
@@ -381,14 +408,23 @@ export function registerMcpAppRpcHandlers(options: {
     const abortInFlightOperations = (): void => {
         operationEpoch += 1;
         for (const operation of inFlightOperations) operation.controller.abort();
+        interactiveOperations.clear();
     };
-    const beginOperation = (): ActiveOperation | undefined => {
+    const interactiveKey = (callId: string, operationId: string): string => (
+        JSON.stringify([callId, operationId])
+    );
+    const beginOperation = (
+        identity?: { callId: string; operationId: string },
+    ): ActiveOperation | undefined => {
         if (inFlightOperations.size >= MCP_APP_MAX_CONCURRENT_OPERATIONS) return undefined;
+        const ownedKey = identity ? interactiveKey(identity.callId, identity.operationId) : undefined;
+        if (ownedKey && interactiveOperations.has(ownedKey)) return undefined;
         const controller = new AbortController();
         const operation = {
             controller,
             deadlineAt: Date.now() + MCP_APP_OPERATION_TIMEOUT_MS,
             epoch: operationEpoch,
+            ...(ownedKey ? { interactiveKey: ownedKey } : {}),
             timedOut: false,
             timeout: undefined as unknown as ReturnType<typeof setTimeout>,
         };
@@ -397,11 +433,16 @@ export function registerMcpAppRpcHandlers(options: {
         }, MCP_APP_OPERATION_TIMEOUT_MS);
         operation.timeout.unref?.();
         inFlightOperations.add(operation);
+        if (ownedKey) interactiveOperations.set(ownedKey, operation);
         return operation;
     };
     const endOperation = (operation: ActiveOperation): void => {
         clearTimeout(operation.timeout);
         inFlightOperations.delete(operation);
+        if (operation.interactiveKey
+            && interactiveOperations.get(operation.interactiveKey) === operation) {
+            interactiveOperations.delete(operation.interactiveKey);
+        }
     };
     const operationIsCurrent = (operation: ActiveOperation): boolean => {
         if (disposed || operation.epoch !== operationEpoch
@@ -575,7 +616,10 @@ export function registerMcpAppRpcHandlers(options: {
                 return failure('MCP_APP_INVALID_RESOURCE', false);
             }
 
-            const operation = beginOperation();
+            const operation = beginOperation({
+                callId: request.callId,
+                operationId: request.operationId,
+            });
             if (!operation) return failure('MCP_APP_TIMEOUT', true);
             try {
                 const response = await awaitOperation(operation, options.client.readMcpResource({
@@ -616,7 +660,10 @@ export function registerMcpAppRpcHandlers(options: {
                 return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
             }
 
-            const operation = beginOperation();
+            const operation = beginOperation({
+                callId: request.callId,
+                operationId: request.operationId,
+            });
             if (!operation) return failure('MCP_APP_TIMEOUT', true);
             try {
                 const status = await awaitOperation(operation, options.client.listMcpServerStatus({
@@ -682,17 +729,37 @@ export function registerMcpAppRpcHandlers(options: {
         }
     };
 
+    const operationCancel = async (
+        request: unknown,
+    ): Promise<McpAppRpcResponse<Record<string, never>>> => {
+        try {
+            if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+            if (!validCancelRequest(request)) return failure('MCP_APP_BRIDGE_PROTOCOL', false);
+            const key = interactiveKey(request.callId, request.operationId);
+            const operation = interactiveOperations.get(key);
+            if (operation) {
+                interactiveOperations.delete(key);
+                operation.controller.abort();
+            }
+            return { ok: true, value: {} };
+        } catch {
+            return failure('MCP_APP_INTERNAL', false);
+        }
+    };
+
     const register = (manager: McpAppRpcHandlerManager): void => {
         manager.registerHandler('mcpAppResourceOpen', resourceOpen);
         manager.registerHandler('mcpAppResourceChunk', resourceChunk);
         manager.registerHandler('mcpAppResourceRead', resourceRead);
         manager.registerHandler('mcpAppToolCall', toolCall);
+        manager.registerHandler('mcpAppOperationCancel', operationCancel);
     };
     const unregister = (manager: McpAppRpcHandlerManager): void => {
         manager.unregisterHandler('mcpAppResourceOpen');
         manager.unregisterHandler('mcpAppResourceChunk');
         manager.unregisterHandler('mcpAppResourceRead');
         manager.unregisterHandler('mcpAppToolCall');
+        manager.unregisterHandler('mcpAppOperationCancel');
     };
     register(rpcHandlerManager);
 
@@ -701,6 +768,7 @@ export function registerMcpAppRpcHandlers(options: {
         resourceChunk,
         resourceRead,
         toolCall,
+        operationCancel,
         rebind(nextRpcHandlerManager: McpAppRpcHandlerManager): void {
             if (disposed || nextRpcHandlerManager === rpcHandlerManager) return;
             unregister(rpcHandlerManager);

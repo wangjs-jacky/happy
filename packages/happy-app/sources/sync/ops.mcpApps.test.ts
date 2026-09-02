@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS,
     MCP_APP_INTERACTIVE_TIMEOUT_MS,
@@ -50,13 +50,17 @@ describe('MCP App RPC operations', () => {
 
     it('uses exact encrypted interactive RPC methods and immutable call authority', async () => {
         const calls: Array<{ sessionId: string; method: string; params: unknown; timeoutMs?: number }> = [];
+        const operationIds = [
+            '00000000-0000-4000-8000-000000000001',
+            '00000000-0000-4000-8000-000000000002',
+        ];
         const client = createMcpAppResourceRpcClient(async (sessionId, method, params, options) => {
             calls.push({ sessionId, method, params, timeoutMs: options?.timeoutMs });
             if (method === 'mcpAppResourceRead') {
                 return { ok: true, value: { contents: [{ uri: 'ui://demo/detail', text: 'detail' }] } };
             }
             return { ok: true, value: { content: [{ type: 'text', text: 'done' }] } };
-        });
+        }, { createOperationId: () => operationIds.shift()! });
 
         await client.readSecondaryResource('session-1', {
             callId: 'call-1',
@@ -73,7 +77,11 @@ describe('MCP App RPC operations', () => {
             {
                 sessionId: 'session-1',
                 method: 'mcpAppResourceRead',
-                params: { callId: 'call-1', uri: 'ui://demo/detail' },
+                params: {
+                    callId: 'call-1',
+                    operationId: '00000000-0000-4000-8000-000000000001',
+                    uri: 'ui://demo/detail',
+                },
                 timeoutMs: MCP_APP_INTERACTIVE_TIMEOUT_MS,
             },
             {
@@ -81,6 +89,7 @@ describe('MCP App RPC operations', () => {
                 method: 'mcpAppToolCall',
                 params: {
                     callId: 'call-1',
+                    operationId: '00000000-0000-4000-8000-000000000002',
                     tool: 'refresh',
                     arguments: { id: 1 },
                     _meta: { progressToken: 'view-token' },
@@ -105,7 +114,7 @@ describe('MCP App RPC operations', () => {
                 retryable: false,
                 summary: 'Permission was denied.',
             },
-        }));
+        }), { createOperationId: () => '00000000-0000-4000-8000-000000000003' });
 
         await expect(client.callTool('session-1', {
             callId: 'call-1',
@@ -141,6 +150,21 @@ describe('MCP App RPC operations', () => {
         });
     });
 
+    it('normalizes operation ID generation failures without exposing runtime details', async () => {
+        const client = createMcpAppResourceRpcClient(async () => ({ ok: true, value: {} }), {
+            createOperationId: () => { throw new Error('SECRET native crypto detail'); },
+        });
+
+        await expect(client.callTool('session-1', {
+            callId: 'call-1',
+            tool: 'refresh',
+        })).rejects.toMatchObject({
+            code: 'MCP_APP_INTERNAL',
+            retryable: false,
+            summary: 'The App request could not be completed.',
+        });
+    });
+
     it('cancels a pending call and ignores its later transport completion', async () => {
         let settle!: (value: unknown) => void;
         const transport = new Promise<unknown>((resolve) => {
@@ -157,6 +181,50 @@ describe('MCP App RPC operations', () => {
             retryable: true,
         });
         settle({ ok: false, error: { code: 'MCP_APP_INTERNAL', retryable: false, summary: 'late' } });
+        await Promise.resolve();
+    });
+
+    it('sends one authenticated cancellation for the exact interactive operation before settling abort', async () => {
+        const calls: Array<{ method: string; params: any; timeoutMs?: number }> = [];
+        let settleOperation!: (value: unknown) => void;
+        const operation = new Promise<unknown>((resolve) => { settleOperation = resolve; });
+        const client = createMcpAppResourceRpcClient(async (_sessionId, method, params, options) => {
+            calls.push({ method, params, timeoutMs: options?.timeoutMs });
+            if (method === 'mcpAppOperationCancel') return { ok: true, value: {} };
+            return operation;
+        }, { createOperationId: () => '00000000-0000-4000-8000-000000000007' });
+        const controller = new AbortController();
+        const pending = client.callTool('session-1', {
+            callId: 'call-1',
+            tool: 'mutate',
+            arguments: { secret: 'CANARY_ARGUMENT' },
+        }, controller.signal);
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+
+        controller.abort();
+
+        await expect(pending).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+        expect(calls).toEqual([
+            {
+                method: 'mcpAppToolCall',
+                params: {
+                    callId: 'call-1',
+                    operationId: '00000000-0000-4000-8000-000000000007',
+                    tool: 'mutate',
+                    arguments: { secret: 'CANARY_ARGUMENT' },
+                },
+                timeoutMs: MCP_APP_INTERACTIVE_TIMEOUT_MS,
+            },
+            {
+                method: 'mcpAppOperationCancel',
+                params: {
+                    callId: 'call-1',
+                    operationId: '00000000-0000-4000-8000-000000000007',
+                },
+                timeoutMs: 5_000,
+            },
+        ]);
+        settleOperation({ ok: true, value: { content: [{ type: 'text', text: 'CANARY_LATE' }] } });
         await Promise.resolve();
     });
 });

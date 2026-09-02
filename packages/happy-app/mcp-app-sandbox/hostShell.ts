@@ -103,6 +103,36 @@ function isViewRequestAttempt(value: unknown): boolean {
         && hasOwn(value, 'method') && hasOwn(value, 'id'));
 }
 
+function officialRequestIdKey(requestId: unknown): string | undefined {
+    return typeof requestId === 'string' || typeof requestId === 'number'
+        ? `${typeof requestId}:${String(requestId)}`
+        : undefined;
+}
+
+type OfficialTransportMessage = Parameters<PostMessageTransport['send']>[0];
+type OfficialTransportOptions = Parameters<PostMessageTransport['send']>[1];
+
+class TrackedPostMessageTransport extends PostMessageTransport {
+    constructor(
+        target: Window,
+        source: Window,
+        private readonly onTerminalResponse: (requestId: string | number) => void,
+    ) {
+        super(target, source);
+    }
+
+    override async send(
+        message: OfficialTransportMessage,
+        options?: OfficialTransportOptions,
+    ): Promise<void> {
+        if ('id' in message && (typeof message.id === 'string' || typeof message.id === 'number')
+            && ('result' in message || 'error' in message)) {
+            this.onTerminalResponse(message.id);
+        }
+        await super.send(message, options);
+    }
+}
+
 class PawsAppBridge extends AppBridge {
     replacePingHandler(
         handler: (
@@ -151,6 +181,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     }>();
     const abandonedBridgeRequestIds = new Set<string>();
     const viewRequestTimestamps: number[] = [];
+    const activeOfficialRequestIds = new Set<string>();
+    const retiredOfficialRequestIds = new Set<string>();
     let viewSource: Window | undefined;
 
     const rememberAbandonedRequest = (requestId: string): void => {
@@ -160,6 +192,17 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             abandonedBridgeRequestIds.delete(oldest);
         }
         abandonedBridgeRequestIds.add(requestId);
+    };
+
+    const retireOfficialRequestId = (requestId: unknown): void => {
+        const key = officialRequestIdKey(requestId);
+        if (!key || !activeOfficialRequestIds.delete(key)) return;
+        while (retiredOfficialRequestIds.size >= 64) {
+            const oldest = retiredOfficialRequestIds.values().next().value as string | undefined;
+            if (!oldest) break;
+            retiredOfficialRequestIds.delete(oldest);
+        }
+        retiredOfficialRequestIds.add(key);
     };
 
     const post = (message: NativeMessage): boolean => {
@@ -189,6 +232,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             viewSource = undefined;
         }
         viewRequestTimestamps.length = 0;
+        activeOfficialRequestIds.clear();
+        retiredOfficialRequestIds.clear();
         releasePromise = (async () => {
             for (const pending of pendingBridgeRequests.values()) {
                 pending.removeAbortListener();
@@ -295,6 +340,21 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             || !hasStrictJsonRpcEnvelope(event.data) || overRate) {
             event.stopImmediatePropagation();
             protocolFailure();
+            return;
+        }
+        const envelope = event.data as Record<string, unknown>;
+        if (isViewRequestAttempt(envelope)) {
+            const key = officialRequestIdKey(envelope.id);
+            if (!key || activeOfficialRequestIds.has(key) || retiredOfficialRequestIds.has(key)) {
+                event.stopImmediatePropagation();
+                protocolFailure();
+                return;
+            }
+            activeOfficialRequestIds.add(key);
+        } else if (envelope.method === 'notifications/cancelled'
+            && envelope.params && typeof envelope.params === 'object'
+            && !Array.isArray(envelope.params)) {
+            retireOfficialRequestId((envelope.params as Record<string, unknown>).requestId);
         }
         // Notifications and responses are schema/byte checked but deliberately
         // do not consume the budget; only envelopes with both method and ID are attempts.
@@ -325,6 +385,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             }
             viewSource = target;
             viewRequestTimestamps.length = 0;
+            activeOfficialRequestIds.clear();
+            retiredOfficialRequestIds.clear();
             shellWindow.addEventListener('message', viewIngressListener, true);
             bridge = new PawsAppBridge(
                 null,
@@ -369,7 +431,11 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
             bridge.onrequestteardown = () => { void release(true); };
             post({ type: 'sandbox-ready', instanceId: command.instanceId });
             try {
-                await bridge.connect(new PostMessageTransport(target, target));
+                await bridge.connect(new TrackedPostMessageTransport(
+                    target,
+                    target,
+                    retireOfficialRequestId,
+                ));
             } catch {
                 protocolFailure();
             }

@@ -4,6 +4,8 @@ import type { RpcCallOptions } from './apiSocket';
 export const MCP_APP_RESOURCE_START_TIMEOUT_MS = 30_000;
 export const MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS = 15_000;
 export const MCP_APP_INTERACTIVE_TIMEOUT_MS = 30_000;
+export const MCP_APP_CANCEL_TIMEOUT_MS = 5_000;
+export const MCP_APP_MAX_OPERATION_ID_BYTES = 128;
 
 export type McpAppResourceOpenRequest = {
     callId: string;
@@ -57,6 +59,10 @@ export type McpAppToolCallResponse = {
     _meta?: unknown;
     isError?: boolean;
 };
+
+type McpAppInteractiveResourceReadRequest = McpAppResourceReadRequest & { operationId: string };
+type McpAppInteractiveToolCallRequest = McpAppToolCallRequest & { operationId: string };
+type McpAppOperationCancelRequest = { callId: string; operationId: string };
 
 export type McpAppRpcResponse<T> =
     | { ok: true; value: T }
@@ -170,7 +176,26 @@ async function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
     }
 }
 
-export function createMcpAppResourceRpcClient(sessionRPC: McpAppSessionRpc): McpAppResourceRpcClient {
+export function createMcpAppResourceRpcClient(
+    sessionRPC: McpAppSessionRpc,
+    options: { createOperationId?: () => string | Promise<string> } = {},
+): McpAppResourceRpcClient {
+    const createOperationId = options.createOperationId ?? (async () => {
+        const { randomUUID } = await import('expo-crypto');
+        return randomUUID();
+    });
+    const validOperationId = (operationId: string): boolean => (
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)
+        && new TextEncoder().encode(operationId).byteLength <= MCP_APP_MAX_OPERATION_ID_BYTES
+    );
+    const normalizeCaught = (error: unknown, signal?: AbortSignal): never => {
+        if (error instanceof McpAppHostError) throw error;
+        if (signal?.aborted) throw cancellationError();
+        if (isTimeout(error)) {
+            throw new McpAppHostError('MCP_APP_TIMEOUT', true, 'The App request timed out.');
+        }
+        throw internalError();
+    };
     const request = async <T>(
         sessionId: string,
         method: string,
@@ -185,12 +210,75 @@ export function createMcpAppResourceRpcClient(sessionRPC: McpAppSessionRpc): Mcp
             );
             return normalizeResponse<T>(response);
         } catch (error) {
-            if (error instanceof McpAppHostError) throw error;
-            if (signal?.aborted) throw cancellationError();
-            if (isTimeout(error)) {
-                throw new McpAppHostError('MCP_APP_TIMEOUT', true, 'The App request timed out.');
-            }
+            return normalizeCaught(error, signal);
+        }
+    };
+
+    const interactiveRequest = async <T>(
+        sessionId: string,
+        method: 'mcpAppResourceRead' | 'mcpAppToolCall',
+        input: McpAppResourceReadRequest | McpAppToolCallRequest,
+        signal?: AbortSignal,
+    ): Promise<T> => {
+        if (signal?.aborted) throw cancellationError();
+        let operationId: string;
+        try {
+            operationId = await createOperationId();
+        } catch {
             throw internalError();
+        }
+        if (signal?.aborted) throw cancellationError();
+        if (!validOperationId(operationId)) throw internalError();
+        const params = { ...input, operationId } as
+            | McpAppInteractiveResourceReadRequest
+            | McpAppInteractiveToolCallRequest;
+        let cancelled = false;
+        let finished = false;
+        let removeAbortListener = () => {};
+        try {
+            const response = await new Promise<unknown>((resolve, reject) => {
+                const finishCancellation = () => {
+                    if (finished) return;
+                    finished = true;
+                    reject(cancellationError());
+                };
+                const onAbort = () => {
+                    if (finished || cancelled) return;
+                    cancelled = true;
+                    removeAbortListener();
+                    void sessionRPC(
+                        sessionId,
+                        'mcpAppOperationCancel',
+                        { callId: input.callId, operationId } satisfies McpAppOperationCancelRequest,
+                        { timeoutMs: MCP_APP_CANCEL_TIMEOUT_MS },
+                    ).then(
+                        () => finishCancellation(),
+                        () => finishCancellation(),
+                    );
+                };
+                removeAbortListener = () => signal?.removeEventListener('abort', onAbort);
+                signal?.addEventListener('abort', onAbort, { once: true });
+                sessionRPC(sessionId, method, params, { timeoutMs: MCP_APP_INTERACTIVE_TIMEOUT_MS }).then(
+                    (value) => {
+                        if (cancelled || finished) return;
+                        finished = true;
+                        removeAbortListener();
+                        resolve(value);
+                    },
+                    (error) => {
+                        if (cancelled || finished) return;
+                        finished = true;
+                        removeAbortListener();
+                        reject(error);
+                    },
+                );
+                if (signal?.aborted) onAbort();
+            });
+            return normalizeResponse<T>(response);
+        } catch (error) {
+            return normalizeCaught(error, signal);
+        } finally {
+            removeAbortListener();
         }
     };
 
@@ -209,18 +297,16 @@ export function createMcpAppResourceRpcClient(sessionRPC: McpAppSessionRpc): Mcp
             MCP_APP_CHUNK_INACTIVITY_TIMEOUT_MS,
             signal,
         ),
-        readSecondaryResource: (sessionId, input, signal) => request<McpAppResourceReadResponse>(
+        readSecondaryResource: (sessionId, input, signal) => interactiveRequest<McpAppResourceReadResponse>(
             sessionId,
             'mcpAppResourceRead',
             input,
-            MCP_APP_INTERACTIVE_TIMEOUT_MS,
             signal,
         ),
-        callTool: (sessionId, input, signal) => request<McpAppToolCallResponse>(
+        callTool: (sessionId, input, signal) => interactiveRequest<McpAppToolCallResponse>(
             sessionId,
             'mcpAppToolCall',
             input,
-            MCP_APP_INTERACTIVE_TIMEOUT_MS,
             signal,
         ),
     };

@@ -549,6 +549,36 @@ describe('MCP App Host Shell protocol', () => {
         delete shellWindow.ReactNativeWebView;
     });
 
+    it('rejects a duplicate active official request ID before a second native request exists', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
+        await Promise.resolve();
+        const request = {
+            jsonrpc: '2.0', id: 'same-id', method: 'tools/call',
+            params: { name: 'mutate', arguments: { id: 1 } },
+        };
+
+        window.dispatchEvent(new MessageEvent('message', { source: target, data: request }));
+        await vi.waitFor(() => expect(
+            posted.filter((message) => message.type === 'bridge-request'),
+        ).toHaveLength(1));
+        window.dispatchEvent(new MessageEvent('message', { source: target, data: request }));
+
+        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
+        expect(posted.filter((message) => message.type === 'bridge-request')).toHaveLength(1);
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
     it('makes View ingress inert as soon as teardown begins, before its await completes', async () => {
         const posted: any[] = [];
         const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
