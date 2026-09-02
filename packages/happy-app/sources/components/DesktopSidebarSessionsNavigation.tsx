@@ -6,6 +6,7 @@ import {
     ScrollView,
     TextInput,
     type GestureResponderEvent,
+    type LayoutChangeEvent,
     View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
@@ -69,7 +70,7 @@ import {
 import { buildSessionNavigationTimeGroups } from '@/utils/sessionNavigationGroups';
 import {
     clampDesktopSidebarOrganizationWidth,
-    DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+    getDesktopSidebarOrganizationMaxWidth,
     DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH,
 } from '@/utils/desktopNavigationLayout';
 
@@ -479,6 +480,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
     const [tagVisibility, setTagVisibility] = useLocalSettingMutable('sidebarTagsVisibility');
     const [organizationCollapsed, setOrganizationCollapsed] = useLocalSettingMutable('desktopSidebarOrganizationCollapsed');
     const [storedOrganizationWidth, setStoredOrganizationWidth] = useLocalSettingMutable('desktopSidebarOrganizationWidth');
+    const [navigationWidth, setNavigationWidth] = React.useState<number | undefined>();
     const [liveOrganizationWidth, setLiveOrganizationWidth] = React.useState(() => (
         clampDesktopSidebarOrganizationWidth(storedOrganizationWidth)
     ));
@@ -517,16 +519,27 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
     }, [liveOrganizationWidth]);
     React.useEffect(() => {
         if (!organizationResizeRef.current) {
-            setLiveOrganizationWidth(clampDesktopSidebarOrganizationWidth(storedOrganizationWidth));
+            const nextWidth = clampDesktopSidebarOrganizationWidth(storedOrganizationWidth, navigationWidth);
+            liveOrganizationWidthRef.current = nextWidth;
+            setLiveOrganizationWidth(nextWidth);
         }
-    }, [storedOrganizationWidth]);
+    }, [navigationWidth, storedOrganizationWidth]);
+
+    const organizationMaxWidth = getDesktopSidebarOrganizationMaxWidth(navigationWidth);
+    const handleNavigationLayout = React.useCallback((event: LayoutChangeEvent) => {
+        const nextWidth = Math.round(event.nativeEvent.layout.width);
+        setNavigationWidth((currentWidth) => currentWidth === nextWidth ? currentWidth : nextWidth);
+    }, []);
 
     const resizeOrganizationBy = React.useCallback((delta: number) => {
-        const nextWidth = clampDesktopSidebarOrganizationWidth(liveOrganizationWidthRef.current + delta);
+        const nextWidth = clampDesktopSidebarOrganizationWidth(
+            liveOrganizationWidthRef.current + delta,
+            navigationWidth,
+        );
         liveOrganizationWidthRef.current = nextWidth;
         setLiveOrganizationWidth(nextWidth);
         setStoredOrganizationWidth(nextWidth);
-    }, [setStoredOrganizationWidth]);
+    }, [navigationWidth, setStoredOrganizationWidth]);
     const beginOrganizationResize = React.useCallback((event: GestureResponderEvent) => {
         organizationResizeRef.current = {
             startPointerX: event.nativeEvent.pageX,
@@ -539,10 +552,11 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
         if (!resize) return;
         const nextWidth = clampDesktopSidebarOrganizationWidth(
             resize.startWidth + event.nativeEvent.pageX - resize.startPointerX,
+            navigationWidth,
         );
         liveOrganizationWidthRef.current = nextWidth;
         setLiveOrganizationWidth(nextWidth);
-    }, []);
+    }, [navigationWidth]);
     const endOrganizationResize = React.useCallback(() => {
         if (!organizationResizeRef.current) return;
         organizationResizeRef.current = null;
@@ -555,12 +569,12 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
         if (key === 'ArrowLeft') delta = -16;
         if (key === 'ArrowRight') delta = 16;
         if (key === 'Home') delta = DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH - liveOrganizationWidthRef.current;
-        if (key === 'End') delta = DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH - liveOrganizationWidthRef.current;
+        if (key === 'End') delta = organizationMaxWidth - liveOrganizationWidthRef.current;
         if (delta === undefined) return;
         event.preventDefault?.();
         event.stopPropagation?.();
         resizeOrganizationBy(delta);
-    }, [resizeOrganizationBy]);
+    }, [organizationMaxWidth, resizeOrganizationBy]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !resizingOrganization || typeof document === 'undefined') return;
@@ -962,7 +976,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
     );
 
     return (
-        <View style={[styles.libraryShell, !isDesktop && styles.libraryShellMobile]} testID="desktop-sidebar-session-navigation">
+        <View onLayout={isDesktop ? handleNavigationLayout : undefined} style={[styles.libraryShell, !isDesktop && styles.libraryShellMobile]} testID="desktop-sidebar-session-navigation">
             {((isDesktop && !organizationCollapsed) || (!isDesktop && mobileStage === 'organization')) ? (
                 <View
                     style={[
@@ -980,7 +994,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
                     accessibilityRole="adjustable"
                     accessibilityValue={{
                         min: DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH,
-                        max: DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+                        max: organizationMaxWidth,
                         now: liveOrganizationWidth,
                         text: `${liveOrganizationWidth} px`,
                     }}
@@ -992,7 +1006,7 @@ export const DesktopSidebarSessionsNavigation = React.memo(function DesktopSideb
                     onStartShouldSetResponder={() => true}
                     {...(Platform.OS === 'web' ? ({
                         'aria-orientation': 'vertical',
-                        'aria-valuemax': DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+                        'aria-valuemax': organizationMaxWidth,
                         'aria-valuemin': DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH,
                         'aria-valuenow': liveOrganizationWidth,
                         'aria-valuetext': `${liveOrganizationWidth} px`,

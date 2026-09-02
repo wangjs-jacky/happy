@@ -241,7 +241,16 @@ test('[THREE-LEVEL-NAV-PC] icon rail, organization, sessions, chat, and Capabili
 test('[THREE-LEVEL-NAV-COMPACT-WEB] 800-979px preserves usable organization and session columns', async ({ page }) => {
     page.setDefaultTimeout(120_000);
     page.setDefaultNavigationTimeout(180_000);
-    await page.setViewportSize({ width: 900, height: 720 });
+    await page.addInitScript(() => {
+        const key = 'mmkv.default\\local-settings';
+        const current = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+        window.localStorage.setItem(key, JSON.stringify({
+            ...current,
+            desktopSidebarOrganizationCollapsed: false,
+            desktopSidebarOrganizationWidth: 320,
+        }));
+    });
+    await page.setViewportSize({ width: 800, height: 720 });
     await page.goto(authenticatedRoute('/'));
     await expect(page.getByRole('textbox')).toBeVisible({ timeout: 120_000 });
     await expect(page.getByTestId('desktop-sidebar-icon-rail')).toBeVisible();
@@ -251,6 +260,13 @@ test('[THREE-LEVEL-NAV-COMPACT-WEB] 800-979px preserves usable organization and 
     const sessionBox = await page.getByTestId('sidebar-session-pane').boundingBox();
     expect(organizationBox?.width).toBeGreaterThanOrEqual(176);
     expect(sessionBox?.width).toBeGreaterThanOrEqual(200);
+
+    const resizeHandle = page.getByTestId('sidebar-organization-resize-handle');
+    await expect(resizeHandle).toHaveAttribute('aria-valuemax', '242');
+    await resizeHandle.press('End');
+    await expect(resizeHandle).toHaveAttribute('aria-valuenow', '242');
+    const resizedSessionBox = await page.getByTestId('sidebar-session-pane').boundingBox();
+    expect(resizedSessionBox?.width).toBeGreaterThanOrEqual(200);
 });
 
 test('[THREE-LEVEL-NAV-MOBILE] full-text drawer steps through organization, sessions, and chat', async ({ page, request }, testInfo) => {

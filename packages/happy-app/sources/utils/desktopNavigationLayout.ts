@@ -9,6 +9,7 @@ export const DESKTOP_LEFT_PANEL_MAX_WIDTH = 760;
 export const DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH = 176;
 export const DESKTOP_SIDEBAR_ORGANIZATION_DEFAULT_WIDTH = 220;
 export const DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH = 320;
+export const DESKTOP_SIDEBAR_SESSION_MIN_WIDTH = 200;
 export const DESKTOP_RIGHT_PANEL_MIN_WIDTH = 280;
 export const DESKTOP_RIGHT_PANEL_DEFAULT_WIDTH = 320;
 export const DESKTOP_RIGHT_PANEL_MAX_WIDTH = 480;
@@ -68,10 +69,21 @@ export function getDesktopRightPanelWidth(windowWidth: number): number {
 
 export type DesktopPanelSide = 'left' | 'right';
 
-export function clampDesktopSidebarOrganizationWidth(width: number): number {
+export function getDesktopSidebarOrganizationMaxWidth(navigationWidth?: number): number {
+    if (navigationWidth === undefined) return DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH;
+    return Math.max(
+        DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH,
+        Math.min(
+            DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+            Math.floor(navigationWidth - DESKTOP_SIDEBAR_SESSION_MIN_WIDTH),
+        ),
+    );
+}
+
+export function clampDesktopSidebarOrganizationWidth(width: number, navigationWidth?: number): number {
     return Math.round(Math.min(
         Math.max(width, DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH),
-        DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+        getDesktopSidebarOrganizationMaxWidth(navigationWidth),
     ));
 }
 

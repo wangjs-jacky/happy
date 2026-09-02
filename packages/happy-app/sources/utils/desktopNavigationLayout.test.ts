@@ -3,10 +3,12 @@ import {
     DESKTOP_LEFT_PANEL_MAX_WIDTH,
     DESKTOP_MAIN_MIN_WIDTH,
     DESKTOP_RIGHT_PANEL_MAX_WIDTH,
+    DESKTOP_SIDEBAR_SESSION_MIN_WIDTH,
     clampDesktopSidebarOrganizationWidth,
     getDesktopPanelResizeWidth,
     getDesktopPanelShortcutPresentation,
     getDesktopSidebarWidth,
+    getDesktopSidebarOrganizationMaxWidth,
     getDesktopRightPanelWidth,
     getDesktopRightPanelPresentation,
     getResponsiveRightPanelMode,
@@ -114,6 +116,15 @@ describe('desktopNavigationLayout', () => {
         expect(clampDesktopSidebarOrganizationWidth(120)).toBe(176);
         expect(clampDesktopSidebarOrganizationWidth(247.6)).toBe(248);
         expect(clampDesktopSidebarOrganizationWidth(400)).toBe(320);
+    });
+
+    it('dynamically reserves a usable session pane inside compact desktop navigation', () => {
+        const compactNavigationWidth = 500 - 58;
+        expect(getDesktopSidebarOrganizationMaxWidth(compactNavigationWidth)).toBe(242);
+        expect(clampDesktopSidebarOrganizationWidth(320, compactNavigationWidth)).toBe(242);
+        expect(compactNavigationWidth - clampDesktopSidebarOrganizationWidth(320, compactNavigationWidth))
+            .toBe(DESKTOP_SIDEBAR_SESSION_MIN_WIDTH);
+        expect(getDesktopSidebarOrganizationMaxWidth(702)).toBe(320);
     });
 
     it('clamps the actively resized panel to its fixed maximum and the available workspace', () => {

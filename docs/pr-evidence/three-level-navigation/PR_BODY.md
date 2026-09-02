@@ -24,6 +24,7 @@ Visual evidence waiver: not requested
 | THREE-NAV-02 | Passed ordinary and recording modes | `[THREE-LEVEL-NAV-PC]` | [H.264 recording](https://raw.githubusercontent.com/wangjs-jacky/happy/d5a94dad44bce755028d675b4779fecb23f6711e/docs/pr-evidence/three-level-navigation/case-2-e2e.mp4) | Isolated local report; environment removed after run |
 
 - Environment and side effects: isolated Server/Web environments; no production account, daemon, or model call; runner removed every environment.
+- Compact-width regression: `[THREE-LEVEL-NAV-COMPACT-WEB]` passed ordinary and recording modes at 800px with a persisted 320px organization width; the adaptive cap preserved a 200px session pane.
 - Mobile playback: not yet confirmed on a separate mobile device.
 - Visual comparability: all four screenshots use 1280×900, DPR 1, and Gingham dark; the two Before images were captured from `origin/main` with the same fixtures and theme.
 - Known gaps: the desktop layout changes are PC/Web-specific; existing mobile staged drawer behavior is covered by component tests and the existing mobile E2E case.
@@ -32,7 +33,7 @@ Visual evidence waiver: not requested
 
 - [x] 83 targeted app tests passed.
 - [x] `pnpm --filter happy-app typecheck` passed.
-- [x] PC navigation and Relationship Advisor E2E passed in ordinary and recording modes; the 900px compact-width E2E passed in ordinary mode.
+- [x] PC navigation, Relationship Advisor, and 800px persisted-width regression E2E passed in ordinary and recording modes.
 - [x] Recorded MP4 files are H.264/yuv420p and passed `ffprobe`, full decode, and contact-sheet review.
 - [x] The declared visible Case count equals the two unique before/after screenshot groups embedded above.
 - [x] Every visual Case uses stable commit-SHA URLs.

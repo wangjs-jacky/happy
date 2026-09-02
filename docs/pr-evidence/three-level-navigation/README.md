@@ -19,3 +19,5 @@ Visible UI cases: 2
 - Viewport/theme: desktop Web, 1280×900, DPR 1, Gingham dark.
 
 The recorded E2E cases also verify that the historical project, list, tag, session actions, settings, shortcuts, plugin, and Agent entry points remain available.
+
+The compact-width regression additionally restores a persisted 320px organization width at an 800px viewport, verifies that the rendered organization pane is capped at 242px, and confirms the session pane remains at least 200px after keyboard resize.
