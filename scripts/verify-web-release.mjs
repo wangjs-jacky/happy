@@ -39,7 +39,11 @@ for (const requiredPath of [
 }
 
 async function fetchRequired(label, url, init) {
-    const response = await fetch(url, { redirect: 'follow', ...init });
+    const response = await fetch(url, {
+        ...init,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(requestTimeoutMs),
+    });
     if (!response.ok) throw new Error(`${label} failed with HTTP ${response.status}: ${url}`);
     console.log(`OK ${response.status} ${label}`);
     return response;
@@ -55,6 +59,7 @@ function positiveDuration(name, fallback) {
 
 const healthTimeoutMs = positiveDuration('PAWS_WEB_HEALTH_TIMEOUT_MS', 30_000);
 const healthRetryIntervalMs = positiveDuration('PAWS_WEB_HEALTH_RETRY_INTERVAL_MS', 1_000);
+const requestTimeoutMs = positiveDuration('PAWS_WEB_REQUEST_TIMEOUT_MS', 30_000);
 const legacyWebOrigin = process.env.PAWS_LEGACY_WEB_ORIGIN?.replace(/\/+$/, '') ?? null;
 
 async function waitForHealthyServer() {

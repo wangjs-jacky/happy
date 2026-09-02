@@ -41,12 +41,16 @@ async function runVerifier({
     legacyRedirectLocation = 'canonical',
     legacyRedirectStatus = 308,
     healthTimeoutMs = 300,
+    requestTimeoutMs = 300,
+    assetNeverResponds = false,
+    entryNeverResponds = false,
 } = {}) {
     const directory = await createDist();
     let healthRequests = 0;
     const server = http.createServer((request, response) => {
         const origin = `http://127.0.0.1:${server.address().port}`;
         if (request.url?.endsWith('.ttf')) {
+            if (assetNeverResponds) return;
             response.statusCode = 200;
             response.setHeader('Content-Type', 'font/ttf');
             if (includeFontCors) response.setHeader('Access-Control-Allow-Origin', origin);
@@ -76,6 +80,7 @@ async function runVerifier({
             return;
         }
         if (request.url === '/' || request.url?.startsWith('/session/') || request.url?.startsWith('/share/')) {
+            if (entryNeverResponds && request.url === '/') return;
             response.statusCode = 200;
             response.setHeader('Content-Type', 'text/html; charset=utf-8');
             if (request.url?.startsWith('/share/')) {
@@ -137,6 +142,7 @@ async function runVerifier({
                     ...process.env,
                     PAWS_WEB_HEALTH_RETRY_INTERVAL_MS: '10',
                     PAWS_WEB_HEALTH_TIMEOUT_MS: String(healthTimeoutMs),
+                    PAWS_WEB_REQUEST_TIMEOUT_MS: String(requestTimeoutMs),
                     PAWS_LEGACY_WEB_ORIGIN: legacyOrigin,
                 },
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -212,6 +218,24 @@ test('enforces the health readiness deadline when a request never responds', asy
     assert.notEqual(result.status, 0);
     assert.ok(Date.now() - startedAt < 1_000, 'health verifier exceeded its hard deadline');
     assert.match(result.stderr, /health endpoint.*within 100ms/i);
+});
+
+test('bounds a Web asset request that never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ assetNeverResponds: true, requestTimeoutMs: 100 });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'asset verifier exceeded its hard deadline');
+    assert.match(result.stderr, /timeout|aborted/i);
+});
+
+test('bounds a canonical Web entry request that never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ entryNeverResponds: true, requestTimeoutMs: 100 });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'entry verifier exceeded its hard deadline');
+    assert.match(result.stderr, /timeout|aborted/i);
 });
 
 test('rejects an HTML SPA fallback at the backend health endpoint', async () => {
