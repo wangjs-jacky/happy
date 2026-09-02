@@ -1,9 +1,14 @@
 import * as React from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { StyleSheet } from 'react-native-unistyles';
 import { usePublicSessionShare } from '@/hooks/usePublicSessionShare';
+import { useLocalSetting } from '@/sync/storage';
+import { getPublicSessionAttachmentUrl } from '@/sync/publicSessionShareViewer';
+import type { PublicSessionCoverSelection } from '@/sync/publicSessionShareQueue';
+import type { PublicSessionThemePack } from '@slopus/happy-wire';
+import { PublicSessionShareAppearanceControls } from './PublicSessionShareAppearanceControls';
 import { t } from '@/text';
 
 export interface PublicSessionShareDialogProps {
@@ -27,11 +32,24 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         publish,
         revoke,
     } = usePublicSessionShare(sessionId, title);
-    const { width: windowWidth } = useWindowDimensions();
+    const lastPublicShareThemePack = useLocalSetting('lastPublicShareThemePack') as PublicSessionThemePack;
+    const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const dialogWidth = Math.min(520, Math.max(0, windowWidth - 32));
+    const dialogMaxHeight = Math.max(0, windowHeight - 32);
     const [copied, setCopied] = React.useState(false);
     const [confirmingRevoke, setConfirmingRevoke] = React.useState(false);
+    const [appearance, setAppearance] = React.useState<{
+        themePack: PublicSessionThemePack;
+        coverSelection?: PublicSessionCoverSelection;
+    }>(() => resolveInitialAppearance(shareState, lastPublicShareThemePack));
+    const initializedAppearanceFor = React.useRef(checking ? null : sessionId);
     const wasPublishing = React.useRef(false);
+
+    React.useEffect(() => {
+        if (checking || initializedAppearanceFor.current === sessionId) return;
+        initializedAppearanceFor.current = sessionId;
+        setAppearance(resolveInitialAppearance(shareState, lastPublicShareThemePack));
+    }, [checking, lastPublicShareThemePack, sessionId, shareState]);
 
     const copyLink = React.useCallback(async () => {
         if (!shareUrl) return;
@@ -61,9 +79,17 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
     }, [revoke]);
 
     const startPublish = React.useCallback(() => {
-        const accepted = publish();
+        const accepted = publish(appearance);
         if (accepted && Platform.OS !== 'web') onClose?.();
-    }, [onClose, publish]);
+    }, [appearance, onClose, publish]);
+
+    const setThemePack = React.useCallback((themePack: PublicSessionThemePack) => {
+        setAppearance((current) => ({ ...current, themePack }));
+    }, []);
+
+    const setCoverSelection = React.useCallback((coverSelection: PublicSessionCoverSelection | undefined) => {
+        setAppearance((current) => ({ ...current, coverSelection }));
+    }, []);
 
     const busy = publishing || revoking;
     const busyLabel = publishing
@@ -73,7 +99,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         : t('sessionShare.revokeSharing');
 
     return (
-        <View style={[styles.dialog, { width: dialogWidth }]} testID="public-session-share-dialog">
+        <View style={[styles.dialog, { width: dialogWidth, maxHeight: dialogMaxHeight }]} testID="public-session-share-dialog">
             <View style={styles.header}>
                 <View style={styles.titleRow}>
                     <View style={styles.iconWrap}>
@@ -102,123 +128,153 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                     <ActivityIndicator size="small" color={styles.icon.color} />
                     <Text style={styles.checkingText}>{t('sessionShare.preparing')}</Text>
                 </View>
-            ) : shareState.active && shareUrl && confirmingRevoke ? (
-                <View style={styles.body} testID="public-session-share-revoke-confirmation">
-                    <View style={styles.notice}>
-                        <Ionicons name="warning-outline" size={20} color={styles.warningIcon.color} />
-                        <View style={styles.confirmCopy}>
-                            <Text style={styles.confirmTitle}>{t('sessionShare.revokeTitle')}</Text>
-                            <Text style={styles.confirmMessage}>{t('sessionShare.revokeMessage')}</Text>
-                        </View>
-                    </View>
-                    <View style={styles.footerActions}>
-                        <Pressable
-                            accessibilityLabel={t('common.cancel')}
-                            accessibilityRole="button"
-                            onPress={() => setConfirmingRevoke(false)}
-                            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-                            testID="public-session-share-revoke-cancel"
-                        >
-                            <Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text>
-                        </Pressable>
-                        <Pressable
-                            accessibilityLabel={t('sessionShare.revokeAction')}
-                            accessibilityRole="button"
-                            onPress={confirmRevoke}
-                            style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
-                            testID="public-session-share-revoke-confirm"
-                        >
-                            <Text style={styles.destructiveButtonText}>{t('sessionShare.revokeAction')}</Text>
-                        </Pressable>
-                    </View>
-                </View>
-            ) : shareState.active && shareUrl ? (
-                <View style={styles.body}>
-                    <View style={styles.activeStatus}>
-                        <Ionicons name="checkmark-circle" size={18} color={styles.activeStatusIcon.color} />
-                        <View style={styles.statusCopy}>
-                            <Text style={styles.activeStatusText}>{t('sessionShare.shared')}</Text>
-                            {shareState.publishedAt ? (
-                                <Text style={styles.statusDate}>
-                                    {t('sessionShare.sharedOn', { date: new Date(shareState.publishedAt).toLocaleString() })}
-                                </Text>
-                            ) : null}
-                        </View>
-                    </View>
-
-                    <View style={styles.linkBox}>
-                        <Text style={styles.linkText} numberOfLines={1}>{shareUrl}</Text>
-                        <Pressable
-                            accessibilityLabel={t('sessionShare.copyLink')}
-                            accessibilityRole="button"
-                            disabled={busy}
-                            onPress={copyLink}
-                            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-                            testID="public-session-share-copy"
-                        >
-                            <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={18} color={styles.icon.color} />
-                        </Pressable>
-                    </View>
-                    {copied ? <Text style={styles.copiedText}>{t('sessionShare.linkCopied')}</Text> : null}
-
-                    <View style={styles.actionGrid}>
-                        <DialogButton
-                            icon="open-outline"
-                            label={t('sessionShare.openSharedPage')}
-                            onPress={openSharedPage}
-                            testID="public-session-share-open"
-                        />
-                        <DialogButton
-                            disabled={busy}
-                            icon="refresh-outline"
-                            label={t('sessionShare.updateSnapshot')}
-                            onPress={startPublish}
-                            testID="public-session-share-update"
-                        />
-                    </View>
-                    <Pressable
-                        accessibilityLabel={t('sessionShare.revokeSharing')}
-                        accessibilityRole="button"
-                        disabled={busy}
-                        onPress={() => setConfirmingRevoke(true)}
-                        style={({ pressed }) => [styles.revokeButton, pressed && styles.pressed, busy && styles.disabled]}
-                        testID="public-session-share-revoke"
-                    >
-                        <Ionicons name="link-outline" size={17} color={styles.revokeText.color} />
-                        <Text style={styles.revokeText}>{t('sessionShare.revokeSharing')}</Text>
-                    </Pressable>
-                </View>
             ) : (
-                <View style={styles.body}>
-                    <View style={styles.notice} testID="public-session-share-privacy-message">
-                        <Ionicons name="globe-outline" size={20} color={styles.noticeIcon.color} />
-                        <Text style={styles.noticeText}>{t('sessionShare.confirmMessage')}</Text>
-                    </View>
-                    <View style={styles.footerActions}>
-                        <Pressable
-                            accessibilityLabel={t('common.cancel')}
-                            accessibilityRole="button"
-                            disabled={busy}
-                            onPress={onClose}
-                            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-                        >
-                            <Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text>
-                        </Pressable>
-                        <Pressable
-                            accessibilityLabel={t('sessionShare.confirmAction')}
-                            accessibilityRole="button"
-                            disabled={busy}
-                            onPress={startPublish}
-                            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
-                            testID="public-session-share-create"
-                        >
-                            {publishing ? <ActivityIndicator size="small" color={styles.primaryButtonText.color} /> : null}
-                            <Text style={styles.primaryButtonText} numberOfLines={1}>
-                                {publishing ? busyLabel : t('sessionShare.confirmAction')}
-                            </Text>
-                        </Pressable>
-                    </View>
-                </View>
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    style={styles.scroll}
+                    testID="public-session-share-scroll"
+                >
+                    {shareState.active && shareUrl && confirmingRevoke ? (
+                        <View style={styles.body} testID="public-session-share-revoke-confirmation">
+                            <View style={styles.notice}>
+                                <Ionicons name="warning-outline" size={20} color={styles.warningIcon.color} />
+                                <View style={styles.confirmCopy}>
+                                    <Text style={styles.confirmTitle}>{t('sessionShare.revokeTitle')}</Text>
+                                    <Text style={styles.confirmMessage}>{t('sessionShare.revokeMessage')}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.footerActions}>
+                                <Pressable
+                                    accessibilityLabel={t('common.cancel')}
+                                    accessibilityRole="button"
+                                    onPress={() => setConfirmingRevoke(false)}
+                                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                                    testID="public-session-share-revoke-cancel"
+                                >
+                                    <Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text>
+                                </Pressable>
+                                <Pressable
+                                    accessibilityLabel={t('sessionShare.revokeAction')}
+                                    accessibilityRole="button"
+                                    onPress={confirmRevoke}
+                                    style={({ pressed }) => [styles.destructiveButton, pressed && styles.destructiveButtonPressed]}
+                                    testID="public-session-share-revoke-confirm"
+                                >
+                                    <Text style={styles.destructiveButtonText}>{t('sessionShare.revokeAction')}</Text>
+                                </Pressable>
+                            </View>
+                        </View>
+                    ) : shareState.active && shareUrl ? (
+                        <View style={styles.body}>
+                            <View style={styles.activeStatus}>
+                                <Ionicons name="checkmark-circle" size={18} color={styles.activeStatusIcon.color} />
+                                <View style={styles.statusCopy}>
+                                    <Text style={styles.activeStatusText}>{t('sessionShare.shared')}</Text>
+                                    {shareState.publishedAt ? (
+                                        <Text style={styles.statusDate}>
+                                            {t('sessionShare.sharedOn', { date: new Date(shareState.publishedAt).toLocaleString() })}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                            </View>
+
+                            <View style={styles.linkBox}>
+                                <Text style={styles.linkText} numberOfLines={1}>{shareUrl}</Text>
+                                <Pressable
+                                    accessibilityLabel={t('sessionShare.copyLink')}
+                                    accessibilityRole="button"
+                                    disabled={busy}
+                                    onPress={copyLink}
+                                    style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                                    testID="public-session-share-copy"
+                                >
+                                    <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={18} color={styles.icon.color} />
+                                </Pressable>
+                            </View>
+                            {copied ? <Text style={styles.copiedText}>{t('sessionShare.linkCopied')}</Text> : null}
+
+                            <PublicSessionShareAppearanceControls
+                                coverSelection={appearance.coverSelection}
+                                disabled={busy}
+                                existingCover={shareState.appearance?.cover && shareState.publicId ? {
+                                    ...shareState.appearance.cover,
+                                    uri: getPublicSessionAttachmentUrl(shareState.publicId, shareState.appearance.cover.assetId),
+                                } : undefined}
+                                onCoverSelectionChange={setCoverSelection}
+                                onThemePackChange={setThemePack}
+                                sessionId={sessionId}
+                                themePack={appearance.themePack}
+                            />
+
+                            <View style={styles.actionGrid}>
+                                <DialogButton
+                                    icon="open-outline"
+                                    label={t('sessionShare.openSharedPage')}
+                                    onPress={openSharedPage}
+                                    testID="public-session-share-open"
+                                />
+                                <DialogButton
+                                    disabled={busy}
+                                    icon="refresh-outline"
+                                    label={t('sessionShare.updateSnapshot')}
+                                    onPress={startPublish}
+                                    testID="public-session-share-update"
+                                />
+                            </View>
+                            <Pressable
+                                accessibilityLabel={t('sessionShare.revokeSharing')}
+                                accessibilityRole="button"
+                                disabled={busy}
+                                onPress={() => setConfirmingRevoke(true)}
+                                style={({ pressed }) => [styles.revokeButton, pressed && styles.pressed, busy && styles.disabled]}
+                                testID="public-session-share-revoke"
+                            >
+                                <Ionicons name="link-outline" size={17} color={styles.revokeText.color} />
+                                <Text style={styles.revokeText}>{t('sessionShare.revokeSharing')}</Text>
+                            </Pressable>
+                        </View>
+                    ) : (
+                        <View style={styles.body}>
+                            <View style={styles.notice} testID="public-session-share-privacy-message">
+                                <Ionicons name="globe-outline" size={20} color={styles.noticeIcon.color} />
+                                <Text style={styles.noticeText}>{t('sessionShare.confirmMessage')}</Text>
+                            </View>
+                            <PublicSessionShareAppearanceControls
+                                coverSelection={appearance.coverSelection}
+                                disabled={busy}
+                                onCoverSelectionChange={setCoverSelection}
+                                onThemePackChange={setThemePack}
+                                sessionId={sessionId}
+                                themePack={appearance.themePack}
+                            />
+                            <View style={styles.footerActions}>
+                                <Pressable
+                                    accessibilityLabel={t('common.cancel')}
+                                    accessibilityRole="button"
+                                    disabled={busy}
+                                    onPress={onClose}
+                                    style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                                >
+                                    <Text style={styles.secondaryButtonText}>{t('common.cancel')}</Text>
+                                </Pressable>
+                                <Pressable
+                                    accessibilityLabel={t('sessionShare.confirmAction')}
+                                    accessibilityRole="button"
+                                    disabled={busy}
+                                    onPress={startPublish}
+                                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
+                                    testID="public-session-share-create"
+                                >
+                                    {publishing ? <ActivityIndicator size="small" color={styles.primaryButtonText.color} /> : null}
+                                    <Text style={styles.primaryButtonText} numberOfLines={1}>
+                                        {publishing ? busyLabel : t('sessionShare.confirmAction')}
+                                    </Text>
+                                </Pressable>
+                            </View>
+                        </View>
+                    )}
+                </ScrollView>
             )}
 
             {busy && shareState.active ? (
@@ -230,6 +286,19 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         </View>
     );
 });
+
+function resolveInitialAppearance(
+    shareState: ReturnType<typeof usePublicSessionShare>['shareState'],
+    lastPublicShareThemePack: PublicSessionThemePack,
+): { themePack: PublicSessionThemePack; coverSelection?: PublicSessionCoverSelection } {
+    if (!shareState.active) return { themePack: lastPublicShareThemePack };
+    const themePack = shareState.appearance?.themePack ?? 'caramel';
+    const photoId = shareState.appearance?.cover?.attribution?.photoId;
+    return {
+        themePack,
+        ...(photoId ? { coverSelection: { kind: 'pexels' as const, photoId } } : {}),
+    };
+}
 
 function DialogButton({
     disabled,
@@ -266,6 +335,8 @@ const styles = StyleSheet.create((theme) => ({
         overflow: 'hidden',
         backgroundColor: theme.colors.surface,
     },
+    scroll: { flexShrink: 1 },
+    scrollContent: { flexGrow: 1 },
     header: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -18,6 +18,13 @@ import {
 } from '@/sync/publicSessionShareQueueRuntime';
 import { Modal } from '@/modal';
 import { t } from '@/text';
+import type { PublicSessionThemePack } from '@slopus/happy-wire';
+import type { PublicSessionCoverSelection } from '@/sync/publicSessionShareQueue';
+
+export type PublicSessionSharePublishInput = {
+    themePack: PublicSessionThemePack;
+    coverSelection?: PublicSessionCoverSelection;
+};
 
 export function usePublicSessionShare(sessionId: string, title: string) {
     const groupToolCalls = useSetting('groupToolCalls');
@@ -62,7 +69,7 @@ export function usePublicSessionShare(sessionId: string, title: string) {
         Modal.alert(t('common.error'), queuedJob.error || t('sessionShare.shareFailed'));
     }, [queuedJob?.error, queuedJob?.notificationPending, queuedJob?.status, queuedJob?.updatedAt]);
 
-    const performPublish = React.useCallback((): boolean => {
+    const performPublish = React.useCallback((appearance: PublicSessionSharePublishInput): boolean => {
         if (!credentials) {
             Modal.alert(t('common.error'), t('sessionShare.authenticationUnavailable'));
             return false;
@@ -82,6 +89,8 @@ export function usePublicSessionShare(sessionId: string, title: string) {
             requestedAt: Date.now(),
             cutoffSeq,
             groupToolCalls,
+            themePack: appearance.themePack,
+            coverSelection: appearance.coverSelection,
         });
         return true;
     }, [credentials, groupToolCalls, sessionId, title]);

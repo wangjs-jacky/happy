@@ -337,6 +337,7 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
     }, []);
 
     const clearImages = useCallback(() => {
+        selectedCountRef.current = 0;
         setSelectedImages([]);
     }, []);
 

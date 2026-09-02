@@ -89,11 +89,17 @@ describe('usePublicSessionShare', () => {
         await vi.waitFor(() => expect(current().checking).toBe(false));
 
         let accepted = false;
-        act(() => { accepted = latest!.publish(); });
+        act(() => {
+            accepted = latest!.publish({
+                themePack: 'sakura',
+                coverSelection: { kind: 'pexels', photoId: 731889 },
+            });
+        });
 
         expect(accepted).toBe(true);
         expect(mocks.enqueue).toHaveBeenCalledWith(expect.objectContaining({
             sessionId: 'session-1', title: 'Release notes', groupToolCalls: true, requestedAt: expect.any(Number),
+            themePack: 'sakura', coverSelection: { kind: 'pexels', photoId: 731889 },
         }));
         expect(current().publishing).toBe(true);
 
@@ -124,7 +130,7 @@ describe('usePublicSessionShare', () => {
         const current = () => latest as ReturnType<typeof usePublicSessionShare>;
         await vi.waitFor(() => expect(current().checking).toBe(false));
 
-        act(() => { current().publish(); });
+        act(() => { current().publish({ themePack: 'caramel', coverSelection: undefined }); });
         act(() => {
             mocks.job = {
                 ...mocks.job,
@@ -159,7 +165,7 @@ describe('usePublicSessionShare', () => {
         await vi.waitFor(() => expect(current().checking).toBe(false));
 
         let accepted = true;
-        act(() => { accepted = current().publish(); });
+        act(() => { accepted = current().publish({ themePack: 'caramel', coverSelection: undefined }); });
 
         expect(accepted).toBe(false);
         expect(mocks.enqueue).not.toHaveBeenCalled();

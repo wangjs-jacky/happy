@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     openUrl: vi.fn(),
     publish: vi.fn(),
     revoke: vi.fn(),
+    lastPublicShareThemePack: 'grape',
     share: {
         checking: false,
         progress: { completed: 0, total: 0 },
@@ -21,6 +22,22 @@ const mocks = vi.hoisted(() => ({
             active: boolean;
             publicId: string | null;
             publishedAt: number | null;
+            appearance?: {
+                themePack: 'caramel' | 'gingham' | 'terminal' | 'acorn' | 'sage' | 'sakura' | 'grape';
+                cover?: {
+                    assetId: string;
+                    mimeType: string;
+                    size: number;
+                    width: number;
+                    height: number;
+                    attribution?: {
+                        photoId: number;
+                        photographer: string;
+                        photographerUrl: string;
+                        photoUrl: string;
+                    };
+                };
+            };
         },
         shareUrl: null as string | null,
     },
@@ -34,6 +51,7 @@ vi.mock('react-native', () => ({
         select: (options: Record<string, unknown>) => options[mocks.platformOS] ?? options.default,
     },
     Pressable: 'Pressable',
+    ScrollView: 'ScrollView',
     Text: 'Text',
     useWindowDimensions: () => ({ width: mocks.windowWidth, height: 844, scale: 1, fontScale: 1 }),
     View: 'View',
@@ -46,6 +64,15 @@ vi.mock('@/hooks/usePublicSessionShare', () => ({
         publish: mocks.publish,
         revoke: mocks.revoke,
     }),
+}));
+vi.mock('@/sync/storage', () => ({
+    useLocalSetting: () => mocks.lastPublicShareThemePack,
+}));
+vi.mock('@/sync/publicSessionShareViewer', () => ({
+    getPublicSessionAttachmentUrl: (publicId: string, assetId: string) => `https://paws.example/share/${publicId}/${assetId}`,
+}));
+vi.mock('./PublicSessionShareAppearanceControls', () => ({
+    PublicSessionShareAppearanceControls: 'PublicSessionShareAppearanceControls',
 }));
 vi.mock('@/text', () => ({
     t: (key: string, params?: Record<string, unknown>) => {
@@ -103,6 +130,7 @@ describe('PublicSessionShareDialog', () => {
         mocks.share.revoking = false;
         mocks.share.shareState = { active: false, publicId: null, publishedAt: null };
         mocks.share.shareUrl = null;
+        mocks.lastPublicShareThemePack = 'grape';
         mocks.platformOS = 'web';
         mocks.windowWidth = 1440;
     });
@@ -116,7 +144,50 @@ describe('PublicSessionShareDialog', () => {
 
         expect(renderer.root.findAllByProps({ testID: 'public-session-share-privacy-message' })).toHaveLength(1);
         act(() => renderer.root.findByProps({ testID: 'public-session-share-create' }).props.onPress());
-        expect(mocks.publish).toHaveBeenCalledTimes(1);
+        expect(mocks.publish).toHaveBeenCalledWith({ themePack: 'grape', coverSelection: undefined });
+
+        act(() => renderer.unmount());
+    });
+
+    it('initializes an active update from its immutable snapshot instead of the last-used default', () => {
+        mocks.share.shareState = {
+            active: true,
+            publicId: 'public-id',
+            publishedAt: 1_788_000_000_000,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '11111111-1111-4111-8111-111111111111',
+                    mimeType: 'image/webp',
+                    size: 2048,
+                    width: 1600,
+                    height: 900,
+                    attribution: {
+                        photoId: 731889,
+                        photographer: 'Ada Stone',
+                        photographerUrl: 'https://www.pexels.com/@ada-stone',
+                        photoUrl: 'https://www.pexels.com/photo/731889',
+                    },
+                },
+            },
+        };
+        mocks.share.shareUrl = 'https://paws.example/share/public-id';
+        const renderer = renderDialog();
+
+        const controls = renderer.root.findByType('PublicSessionShareAppearanceControls');
+        expect(controls.props).toMatchObject({
+            sessionId: 'session-1',
+            themePack: 'sage',
+            coverSelection: { kind: 'pexels', photoId: 731889 },
+            existingCover: {
+                uri: 'https://paws.example/share/public-id/11111111-1111-4111-8111-111111111111',
+            },
+        });
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-update' }).props.onPress());
+        expect(mocks.publish).toHaveBeenCalledWith({
+            themePack: 'sage',
+            coverSelection: { kind: 'pexels', photoId: 731889 },
+        });
 
         act(() => renderer.unmount());
     });
@@ -151,6 +222,7 @@ describe('PublicSessionShareDialog', () => {
         const dialog = renderer.root.findByProps({ testID: 'public-session-share-dialog' });
         const dialogStyle = flattenStyle(dialog.props.style);
         expect(dialogStyle.width).toBe(328);
+        expect(dialogStyle.maxHeight).toBe(812);
         const checking = renderer.root.findByProps({ testID: 'public-session-share-checking' });
         expect(checking.findAllByType('Text').map((node: any) => node.props.children)).toContain('sessionShare.preparing');
 
