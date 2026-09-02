@@ -37,6 +37,8 @@ import type {
     RollbackConversationResponse,
     InjectItemsParams,
     InjectItemsResponse,
+    McpResourceReadParams,
+    McpResourceReadResponse,
     Thread,
     ThreadGoalClearResponse,
     ThreadGoalGetResponse,
@@ -1293,6 +1295,10 @@ export class CodexAppServerClient {
             items: opts.items,
         };
         return await this.request('thread/inject_items', params) as InjectItemsResponse;
+    }
+
+    async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
+        return await this.request('mcpServer/resource/read', params) as McpResourceReadResponse;
     }
 
     async setThreadGoal(opts: {

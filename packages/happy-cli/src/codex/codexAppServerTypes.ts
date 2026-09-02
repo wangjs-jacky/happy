@@ -213,6 +213,27 @@ export type InjectItemsParams = {
 
 export type InjectItemsResponse = Record<string, never>;
 
+// --- MCP resources ---
+
+export type McpResourceReadParams = {
+    threadId: string;
+    server: string;
+    uri: string;
+    originCallId?: string;
+};
+
+export type McpResourceReadResponse = {
+    contents: Array<{
+        uri: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+        _meta?: unknown;
+        [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+};
+
 export type ModelListParams = {
     cursor?: string | null;
     includeHidden?: boolean | null;

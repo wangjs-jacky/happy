@@ -1038,6 +1038,47 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('reads an MCP resource with optional origin authority through app-server RPC', async () => {
+        const requests: MockRpcMessage[] = [];
+        const resource = {
+            contents: [{
+                uri: 'ui://demo/index.html',
+                mimeType: 'text/html;profile=mcp-app',
+                text: '<main>App</main>',
+                futureCodexField: true,
+            }],
+            futureResponseField: 'retained',
+        };
+        const proc = createMockProcess({
+            onRequest: (msg, stdout) => {
+                requests.push(msg);
+                if (msg.method === 'mcpServer/resource/read' && msg.id != null) {
+                    setTimeout(() => pushJsonLine(stdout, { id: msg.id, result: resource }), 0);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+
+        await expect(client.readMcpResource({
+            threadId: 'thread-1',
+            server: 'demo',
+            uri: 'ui://demo/index.html',
+            originCallId: 'call-1',
+        })).resolves.toEqual(resource);
+        expect(requests.find((msg) => msg.method === 'mcpServer/resource/read')?.params).toEqual({
+            threadId: 'thread-1',
+            server: 'demo',
+            uri: 'ui://demo/index.html',
+            originCallId: 'call-1',
+        });
+
+        await client.disconnect();
+    });
+
     it('starts compact and review turns through app-server RPC', async () => {
         const requests: MockRpcMessage[] = [];
         const proc = createMockProcess({

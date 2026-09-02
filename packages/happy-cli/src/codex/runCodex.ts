@@ -46,6 +46,7 @@ import {
     rebuildCodexMcpAppBindings,
 } from './utils/sessionProtocolMapper';
 import { McpAppBindingRegistry } from './mcpApps/McpAppBindingRegistry';
+import { registerMcpAppRpcHandlers } from './mcpApps/registerMcpAppRpcHandlers';
 import { formatCodexEventForLog } from './codexEventLog';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
@@ -423,6 +424,7 @@ export async function runCodex(opts: {
     let reasoningProcessor!: ReasoningProcessor;
     let abortInProgress: Promise<void> | null = null;
     const mcpAppBindingRegistry = new McpAppBindingRegistry();
+    let mcpAppRpcHandlers: ReturnType<typeof registerMcpAppRpcHandlers> | null = null;
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
     const syncQueuedMessageCount = (targetSession: ApiSessionClient): Promise<void> => (
         updateQueuedMessageCount(targetSession, messageQueue.size())
@@ -798,6 +800,7 @@ export async function runCodex(opts: {
         logger.debug('[Codex] Kill session requested - terminating process');
         await handleAbort();
         logger.debug('[Codex] Abort completed, proceeding with termination');
+        mcpAppRpcHandlers?.dispose();
         mcpAppBindingRegistry.clear();
 
         try {
@@ -1126,6 +1129,11 @@ export async function runCodex(opts: {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
         logger.debug('[codex]: client.connect done');
+        mcpAppRpcHandlers = registerMcpAppRpcHandlers({
+            rpcHandlerManager: session.rpcHandlerManager,
+            client,
+            bindingRegistry: mcpAppBindingRegistry,
+        });
 
         try {
             const models: Model[] = [];
@@ -1728,6 +1736,7 @@ export async function runCodex(opts: {
             abortInProgress = null;
         }
         permissionHandler.abortAll();
+        mcpAppRpcHandlers?.dispose();
         mcpAppBindingRegistry.clear();
         let queueClearTimeout: ReturnType<typeof setTimeout> | undefined;
         try {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ThreadItem } from '../codexAppServerTypes';
-import { CodexMcpAppAdapter } from './CodexMcpAppAdapter';
+import { CodexMcpAppAdapter, normalizeMcpAppRpcResponse } from './CodexMcpAppAdapter';
 
 type McpToolCallItem = Extract<ThreadItem, { type: 'mcpToolCall' }>;
 
@@ -53,6 +53,17 @@ const deprecatedCodexFixture = {
 
 describe('CodexMcpAppAdapter', () => {
     const adapter = new CodexMcpAppAdapter();
+
+    it('turns legacy generic-RPC error strings into a safe internal envelope', () => {
+        expect(normalizeMcpAppRpcResponse({ error: 'connector secret: do not expose' })).toEqual({
+            ok: false,
+            error: {
+                code: 'MCP_APP_INTERNAL',
+                retryable: false,
+                summary: 'The App request could not be completed.',
+            },
+        });
+    });
 
     it('normalizes the local Codex templateId fixture with internal connector authority', () => {
         expect(adapter.normalizeItem(localCodexFixture)).toEqual({

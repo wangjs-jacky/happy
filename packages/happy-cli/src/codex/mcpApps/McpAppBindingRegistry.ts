@@ -105,6 +105,10 @@ export class McpAppBindingRegistry {
         return binding;
     }
 
+    has(callId: string): boolean {
+        return this.bindings.has(callId);
+    }
+
     clear(): void {
         this.bindings.clear();
         this.terminalCompletions.clear();
