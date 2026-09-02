@@ -46,6 +46,7 @@ import {
     rebuildCodexMcpAppBindings,
 } from './utils/sessionProtocolMapper';
 import { McpAppBindingRegistry } from './mcpApps/McpAppBindingRegistry';
+import { formatCodexEventForLog } from './codexEventLog';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText } from './codexClearCommand';
@@ -947,7 +948,7 @@ export async function runCodex(opts: {
     let bufferCodexEvents = Boolean(opts.resumeThreadId);
     const bufferedCodexEvents: any[] = [];
     const handleCodexEvent = (msg: any) => {
-        logger.debug(`[Codex] Event: ${JSON.stringify(msg)}`);
+        logger.debug(formatCodexEventForLog(msg));
 
         // Add messages to the ink UI buffer based on message type
         if (msg.type === 'agent_message') {

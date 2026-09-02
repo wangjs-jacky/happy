@@ -1495,6 +1495,7 @@ describe('CodexAppServerClient sandbox integration', () => {
                 type: 'mcp_tool_call_begin',
                 call_id: 'call-live-app',
                 item_id: 'call-live-app',
+                thread_id: 'thread-mcp-app',
                 turn_id: 'turn-mcp-app',
                 mcp_call: expect.objectContaining({
                     callId: 'call-live-app',
@@ -1511,6 +1512,7 @@ describe('CodexAppServerClient sandbox integration', () => {
                 type: 'mcp_tool_call_end',
                 call_id: 'call-live-app',
                 item_id: 'call-live-app',
+                thread_id: 'thread-mcp-app',
                 turn_id: 'turn-mcp-app',
                 status: 'completed',
                 mcp_call: expect.objectContaining({

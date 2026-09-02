@@ -71,19 +71,26 @@ function bindNormalizedMcpAppCall(
     return true;
 }
 
+function hasMcpCompletionError(error: unknown): boolean {
+    return error !== undefined
+        && error !== null
+        && !(typeof error === 'string' && error.trim().length === 0);
+}
+
+function isTrustedMcpCallCompletion(item: Record<string, unknown>): boolean {
+    return item.status === 'completed' && !hasMcpCompletionError(item.error);
+}
+
 function historicalMcpCallSucceeded(item: Extract<ThreadItem, { type: 'mcpToolCall' }>): boolean | null {
-    const status = item.status;
-    if (status === 'completed') {
+    if (isTrustedMcpCallCompletion(item)) {
         return true;
     }
-    if (status === 'failed' || status === 'cancelled' || status === 'canceled'
-        || status === 'aborted' || status === 'interrupted') {
+    const status = item.status;
+    if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'canceled'
+        || status === 'aborted' || status === 'interrupted' || hasMcpCompletionError(item.error)) {
         return false;
     }
-    if (item.error !== undefined && item.error !== null) {
-        return false;
-    }
-    return item.result !== undefined && item.result !== null ? true : null;
+    return null;
 }
 
 export function rebuildCodexMcpAppBindings(
@@ -1015,14 +1022,16 @@ export function mapCodexMcpMessageToSessionEnvelopes(message: Record<string, unk
         }
         const isBound = bindNormalizedMcpAppCall(
             state.mcpAppBindingRegistry,
-            state.threadId,
+            typeof message.thread_id === 'string' && message.thread_id.length > 0
+                ? message.thread_id
+                : state.threadId,
             call,
         );
         if (type === 'mcp_tool_call_end' && isBound) {
             state.mcpAppBindingRegistry?.complete(
                 call.callId,
                 call.result,
-                pickTurnEndStatus(message, type) === 'completed',
+                isTrustedMcpCallCompletion(message),
             );
         }
         const itemId = typeof message.item_id === 'string' ? message.item_id : undefined;

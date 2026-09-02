@@ -57,6 +57,55 @@ describe('McpAppBindingRegistry', () => {
         });
     });
 
+    it('clones and deeply freezes caller-owned input and completed result values', () => {
+        const registry = new McpAppBindingRegistry();
+        const sourceInput = {
+            filters: [{ period: 'week' }],
+        };
+        const sourceResult = {
+            version: 1 as const,
+            state: 'available' as const,
+            content: [{ type: 'text', text: 'original' }],
+            structuredContent: { rows: [{ count: 1 }] },
+        } satisfies McpAppResultV1;
+        registry.bindStarted({
+            callId: 'call-cloned',
+            threadId: 'thread-1',
+            server: 'demo',
+            resourceUri: 'ui://demo/index.html',
+            input: sourceInput,
+            connectorId: 'connector-1',
+        });
+        registry.complete('call-cloned', sourceResult, true);
+
+        sourceInput.filters[0].period = 'month';
+        sourceResult.content[0].text = 'mutated';
+        sourceResult.structuredContent.rows[0].count = 2;
+
+        const stored = registry.get('call-cloned');
+        expect(stored.input).toEqual({ filters: [{ period: 'week' }] });
+        expect(stored.result).toEqual({
+            version: 1,
+            state: 'available',
+            content: [{ type: 'text', text: 'original' }],
+            structuredContent: { rows: [{ count: 1 }] },
+        });
+        expect(() => {
+            (stored.input.filters as Array<{ period: string }>)[0].period = 'year';
+        }).toThrow(TypeError);
+        expect(() => {
+            const result = stored.result as typeof sourceResult;
+            result.structuredContent.rows[0].count = 3;
+        }).toThrow(TypeError);
+
+        expect(() => registry.complete('call-cloned', {
+            version: 1,
+            state: 'available',
+            content: [{ type: 'text', text: 'original' }],
+            structuredContent: { rows: [{ count: 1 }] },
+        }, true)).not.toThrow();
+    });
+
     it.each([
         ['threadId', { threadId: 'thread-2' }],
         ['server', { server: 'other' }],

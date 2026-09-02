@@ -25,6 +25,21 @@ type TerminalMcpAppCompletion = Readonly<{
     succeeded: boolean;
 }>;
 
+function cloneAndDeepFreezeJsonValue<T>(value: T): T {
+    const clone = structuredClone(value);
+    const freeze = (candidate: unknown): void => {
+        if (!candidate || typeof candidate !== 'object' || Object.isFrozen(candidate)) {
+            return;
+        }
+        for (const nested of Object.values(candidate)) {
+            freeze(nested);
+        }
+        Object.freeze(candidate);
+    };
+    freeze(clone);
+    return clone;
+}
+
 export class McpAppBindingError extends Error {
     readonly code = 'MCP_APP_ORIGIN_MISMATCH' as const;
 
@@ -51,14 +66,20 @@ export class McpAppBindingRegistry {
         if (!binding.resourceUri.startsWith('ui://')) {
             throw new McpAppBindingError(binding.callId);
         }
-        this.bindings.set(binding.callId, Object.freeze({ ...binding }));
+        this.bindings.set(binding.callId, Object.freeze({
+            ...binding,
+            input: cloneAndDeepFreezeJsonValue(binding.input),
+        }));
     }
 
     complete(callId: string, result: McpAppResultV1 | undefined, succeeded: boolean): void {
         const binding = this.get(callId);
+        const canonicalResult = result !== undefined
+            ? cloneAndDeepFreezeJsonValue(result)
+            : undefined;
         const completion = Object.freeze({
             succeeded,
-            ...(result !== undefined ? { result } : {}),
+            ...(canonicalResult !== undefined ? { result: canonicalResult } : {}),
         });
         const terminalCompletion = this.terminalCompletions.get(callId);
         if (terminalCompletion) {
@@ -70,7 +91,7 @@ export class McpAppBindingRegistry {
 
         this.bindings.set(callId, Object.freeze({
             ...binding,
-            ...(result !== undefined ? { result } : {}),
+            ...(canonicalResult !== undefined ? { result: canonicalResult } : {}),
             ...(succeeded && binding.connectorId ? { trustedOriginCallId: callId } : {}),
         }));
         this.terminalCompletions.set(callId, completion);

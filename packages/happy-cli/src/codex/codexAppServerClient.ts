@@ -581,11 +581,13 @@ export class CodexAppServerClient {
             const normalized = codexMcpAppAdapter.normalizeItem(
                 item as Extract<ThreadItem, { type: 'mcpToolCall' }>,
             );
+            const notificationThreadId = this.extractThreadId(params);
             this.eventHandler?.({
                 type: method === 'item/started' ? 'mcp_tool_call_begin' : 'mcp_tool_call_end',
                 call_id: normalized.callId,
                 callId: normalized.callId,
                 item_id: item.id,
+                ...(notificationThreadId ? { thread_id: notificationThreadId } : {}),
                 mcp_call: normalized,
                 status: item.status,
                 error: item.error,

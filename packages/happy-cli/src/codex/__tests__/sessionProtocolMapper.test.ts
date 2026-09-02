@@ -72,6 +72,87 @@ describe('mapCodexMcpMessageToSessionEnvelopes', () => {
         });
     });
 
+    it.each([
+        ['child', 'thread-child', 'thread-root', 'thread-child'],
+        ['root', 'thread-root', 'thread-root', 'thread-root'],
+    ])('binds a live %s MCP App event to its originating thread', (
+        _scope,
+        notificationThreadId,
+        rootThreadId,
+        expectedThreadId,
+    ) => {
+        const registry = new McpAppBindingRegistry();
+        const callId = `call-${_scope}`;
+        const normalizedCall = {
+            callId,
+            server: 'demo',
+            tool: 'show_dashboard',
+            input: {},
+            presentation: {
+                version: 1 as const,
+                server: 'demo',
+                resourceUri: 'ui://demo/dashboard.html',
+            },
+        };
+
+        const mapped = mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_begin',
+            thread_id: notificationThreadId,
+            mcp_call: normalizedCall,
+        }, {
+            currentTurnId: 'turn-live',
+            threadId: rootThreadId,
+            mcpAppBindingRegistry: registry,
+        });
+
+        expect(registry.get(callId).threadId).toBe(expectedThreadId);
+        expect(mapped.envelopes[0]).not.toHaveProperty('threadId');
+        expect(mapped.envelopes[0]).not.toHaveProperty('thread_id');
+        expect(mapped.envelopes[0].ev).not.toHaveProperty('threadId');
+        expect(mapped.envelopes[0].ev).not.toHaveProperty('thread_id');
+    });
+
+    it.each([
+        ['missing status', undefined, undefined, false],
+        ['completed with an error', 'completed', { message: 'connector failed' }, false],
+        ['failed', 'failed', undefined, false],
+        ['clean completed', 'completed', undefined, true],
+    ])('grants live trusted origin only for %s', (_case, status, error, trusted) => {
+        const registry = new McpAppBindingRegistry();
+        const callId = `call-live-${String(status ?? 'missing')}-${error ? 'error' : 'clean'}`;
+        const normalizedCall = {
+            callId,
+            server: 'demo',
+            tool: 'show_dashboard',
+            input: {},
+            connectorId: 'connector-live',
+            presentation: {
+                version: 1 as const,
+                server: 'demo',
+                resourceUri: 'ui://demo/dashboard.html',
+            },
+        };
+        const state = {
+            currentTurnId: 'turn-live',
+            threadId: 'thread-live',
+            mcpAppBindingRegistry: registry,
+        };
+        mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_begin',
+            mcp_call: normalizedCall,
+        }, state);
+        mapCodexMcpMessageToSessionEnvelopes({
+            type: 'mcp_tool_call_end',
+            ...(status !== undefined ? { status } : {}),
+            ...(error !== undefined ? { error } : {}),
+            mcp_call: normalizedCall,
+        }, state);
+
+        expect(registry.get(callId).trustedOriginCallId).toBe(
+            trusted ? callId : undefined,
+        );
+    });
+
     it('maps live MCP App items to the same structured event pair as replay', () => {
         const normalizedCall = {
             callId: 'call-mcp-app',
@@ -750,6 +831,41 @@ describe('mapCodexThreadToSessionEnvelopes', () => {
                 content: [{ type: 'text', text: 'history' }],
             },
         });
+    });
+
+    it.each([
+        ['missing status', undefined, undefined, false],
+        ['completed with an error', 'completed', { message: 'connector failed' }, false],
+        ['failed', 'failed', undefined, false],
+        ['clean completed', 'completed', undefined, true],
+    ])('grants historical trusted origin only for %s', (_case, status, error, trusted) => {
+        const registry = new McpAppBindingRegistry();
+        const callId = `call-history-${String(status ?? 'missing')}-${error ? 'error' : 'clean'}`;
+        const item = {
+            id: callId,
+            type: 'mcpToolCall' as const,
+            server: 'history-demo',
+            tool: 'show_history',
+            ...(status !== undefined ? { status } : {}),
+            ...(error !== undefined ? { error } : {}),
+            arguments: {},
+            result: { content: [] },
+            appContext: {
+                resourceUri: 'ui://history-demo/view.html',
+                connectorId: 'connector-history',
+            },
+        };
+
+        rebuildCodexMcpAppBindings({
+            turns: [{ id: 'turn-history', items: [item] }],
+        }, {
+            threadId: 'thread-history',
+            mcpAppBindingRegistry: registry,
+        });
+
+        expect(registry.get(callId).trustedOriginCallId).toBe(
+            trusted ? callId : undefined,
+        );
     });
 
     it('omits a replayed Paws user message only for the opaque origin that stored it', () => {
