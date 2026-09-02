@@ -21,6 +21,7 @@ jobs:
     environment: production-web
     env:
       PAWS_WEB_ORIGIN: https://47.115.228.20:8443
+      PAWS_LEGACY_WEB_ORIGIN: http://47.115.228.20:8080
       PAWS_DEPLOY_HOST: root@47.115.228.20
       PAWS_DEPLOY_PORT: '22'
       PAWS_LEGACY_WEB_PATH: /var/www/happy-web
@@ -47,6 +48,7 @@ jobs:
           test -n "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" || { echo '::error::Missing ALIYUN_OSS_ACCESS_KEY_SECRET secret.'; exit 1; }
           test -n "${{ secrets.PAWS_WEB_DEPLOY_SSH_PRIVATE_KEY }}" || { echo '::error::Missing PAWS_WEB_DEPLOY_SSH_PRIVATE_KEY secret.'; exit 1; }
           test "$PAWS_WEB_ORIGIN" = 'https://47.115.228.20:8443'
+          test "$PAWS_LEGACY_WEB_ORIGIN" = 'http://47.115.228.20:8080'
           test "$PAWS_WEB_OSS_ORIGIN" = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com'
           test "$PAWS_LEGACY_WEB_PATH" = '/var/www/happy-web'
 
