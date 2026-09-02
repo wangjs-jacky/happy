@@ -32,6 +32,7 @@ import { relationshipAdvisorRoutes } from "./routes/relationshipAdvisorRoutes";
 import { pluginRoutes } from "@/app/api/routes/pluginRoutes";
 import { publicSessionShareRoutes } from "./routes/publicSessionShareRoutes";
 import { externalSessionShareRoutes } from "./routes/externalSessionShareRoutes";
+import { mcpAppSandboxRoutes } from "./routes/mcpAppSandboxRoutes";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -65,6 +66,12 @@ const PUBLIC_SHARE_DOCUMENT_CSP = [
 export function isPublicShareDocumentUrl(url: string): boolean {
     const pathname = url.split('?', 1)[0];
     return /^\/share\/[^/]+\/?$/.test(pathname);
+}
+
+export function isSpaFallbackExcludedUrl(url: string): boolean {
+    return url.startsWith('/v1') || url.startsWith('/v3') || url.startsWith('/socket') ||
+        url.startsWith('/files/') || url.startsWith('/metrics') || url.startsWith('/health') ||
+        url.startsWith('/mcp-app-sandbox/');
 }
 
 export function getPublicShareDocumentHeaders(): Record<string, string> {
@@ -153,6 +160,7 @@ export async function startApi(opts: StartApiOptions = {}) {
     pluginRoutes(typed);
     publicSessionShareRoutes(typed);
     externalSessionShareRoutes(typed);
+    mcpAppSandboxRoutes(typed);
 
     // Static webapp (self-host mode)
     if (opts.staticDir) {
@@ -202,8 +210,7 @@ export async function startApi(opts: StartApiOptions = {}) {
             if (isPublicSessionShareApiUrl(url)) return publicSessionShareNotFound(reply);
             // Don't fall through for API/socket/files paths
             if (request.method !== 'GET') return reply.code(404).send({ error: 'Not found' });
-            if (url.startsWith('/v1') || url.startsWith('/v3') || url.startsWith('/socket') ||
-                url.startsWith('/files/') || url.startsWith('/metrics') || url.startsWith('/health')) {
+            if (isSpaFallbackExcludedUrl(url)) {
                 return reply.code(404).send({ error: 'Not found' });
             }
             const indexPath = path.join(opts.staticDir!, 'index.html');
