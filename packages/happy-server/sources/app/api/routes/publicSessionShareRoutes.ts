@@ -195,7 +195,7 @@ function coverMatchesPersistedAssetMetadata(
     assetName: string,
 ): boolean {
     const persisted = decodePersistedPexelsCoverMetadata(assetName);
-    if (!persisted) return cover.attribution === undefined;
+    if (!persisted) return !isReservedInternalAssetName(assetName) && cover.attribution === undefined;
     const attribution = cover.attribution;
     return Boolean(
         attribution

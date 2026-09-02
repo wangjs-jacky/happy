@@ -1234,6 +1234,44 @@ describe('publicSessionShareRoutes', () => {
         expect(publish.statusCode).toBe(200);
     });
 
+    it.each([
+        '__paws_internal__:pexels-cover-v1:not-base64!',
+        '__paws_internal__:pexels-claim-v1:not-base64!',
+        '__paws_internal__:clone-claim-v1:not-base64!',
+        'pexels-cover-v1:not-base64!',
+        'pexels-cover-pending:not-base64!',
+    ])('rejects a cover asset with malformed reserved metadata in %s', async (reservedName) => {
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: crypto.randomUUID(),
+                name: 'cover.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5, sha256: HELLO_SHA256,
+            },
+        })).json();
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: Buffer.from('hello'),
+        });
+        const storedAsset = state.assets.find((candidate) => candidate.id === asset.assetId);
+        if (!storedAsset) throw new Error('prepared cover asset is missing');
+        storedAsset.name = reservedName;
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(asset.assetId) },
+        });
+
+        expect(publish.statusCode).toBe(409);
+        expect(publish.json()).toEqual({ error: 'Shared attachment metadata mismatch' });
+    });
+
     it('rejects Pexels attribution attached to an ordinary uploaded cover', async () => {
         const draft = (await createDraft()).json();
         const asset = (await app.inject({
