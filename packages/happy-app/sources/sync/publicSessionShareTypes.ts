@@ -1,5 +1,6 @@
 import type {
     PublicSessionBlock,
+    PublicSessionSnapshot,
     PublicSessionSnapshotV1 as WirePublicSessionSnapshotV1,
     PublicSessionSnapshotV2,
     PublicShareAssetKind,
@@ -8,6 +9,7 @@ import type {
 export type PublicSessionAttachmentKind = PublicShareAssetKind;
 export type PublicSessionBlockV1 = PublicSessionBlock;
 export type PublicSessionSnapshotV1 = WirePublicSessionSnapshotV1;
+export type { PublicSessionSnapshot };
 export type PublicSessionMessageV1 = PublicSessionSnapshotV1['messages'][number];
 
 export type PublicSessionAttachmentJob = {
