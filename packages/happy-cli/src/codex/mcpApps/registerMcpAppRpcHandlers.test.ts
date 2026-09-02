@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { McpAppBindingRegistry } from './McpAppBindingRegistry';
+import { CodexAppServerRequestTimeoutError } from '../codexAppServerClient';
 import {
     MCP_APP_CHUNK_BYTES,
     MCP_APP_MAX_ACTIVE_RESOURCES,
@@ -121,6 +122,16 @@ function opened(response: McpAppRpcResponse<McpAppResourceOpenResponse>): McpApp
     expect(response.ok).toBe(true);
     if (!response.ok) throw new Error(response.error.code);
     return response.value;
+}
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
 }
 
 describe('registerMcpAppRpcHandlers', () => {
@@ -344,6 +355,48 @@ describe('registerMcpAppRpcHandlers', () => {
     });
 
     it.each([
+        ['unknown current status', { server: { runtimeStatus: 'mystery' }, tool: {} }],
+        ['malformed current status', { server: { runtimeStatus: 1 }, tool: {} }],
+        ['unknown deprecated status', { server: { status: 'mystery' }, tool: {} }],
+        ['conflicting status shapes', { server: { runtimeStatus: 'connected', status: 'disabled' }, tool: {} }],
+        ['malformed enabled flag', { server: {}, tool: { enabled: 'true' } }],
+        ['malformed current visibility', { server: {}, tool: { _meta: { ui: { visibility: 'app' } } } }],
+        ['unknown current visibility', { server: {}, tool: { _meta: { ui: { visibility: ['app', 'admin'] } } } }],
+        ['malformed deprecated visibility', { server: {}, tool: { _meta: { 'ui/visibility': 'app' } } }],
+        ['conflicting visibility shapes', {
+            server: {},
+            tool: { _meta: { ui: { visibility: ['app'] }, 'ui/visibility': ['model'] } },
+        }],
+        ['malformed risk annotations', {
+            server: {},
+            tool: { annotations: { readOnlyHint: true, destructiveHint: 'false' } },
+        }],
+    ])('fails closed for a present %s catalog control', async (_case, fixture) => {
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                ...fixture.server,
+                tools: {
+                    refresh: {
+                        name: 'refresh',
+                        inputSchema: {},
+                        annotations: { readOnlyHint: true },
+                        ...fixture.tool,
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TOOL_NOT_ALLOWED', retryable: false }),
+        });
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it.each([
         ['explicit model-only visibility', {
             catalog: { enabled: true, _meta: { ui: { visibility: ['model'] } } },
             request: {},
@@ -448,6 +501,24 @@ describe('registerMcpAppRpcHandlers', () => {
         expect(client.callMcpTool).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ['call ID', { callId: 'c'.repeat(257), tool: 'refresh' }],
+        ['tool name', { callId: 'call-1', tool: '界'.repeat(100) }],
+    ])('rejects an overlong %s before catalog refresh', async (_case, request) => {
+        const { client, handlers, registry } = createHarness();
+        bind(registry, { callId: request.callId });
+
+        await expect(handlers.get('mcpAppToolCall')!({
+            ...request,
+            arguments: {},
+        })).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TOOL_NOT_ALLOWED', retryable: false }),
+        });
+        expect(client.listMcpServerStatus).not.toHaveBeenCalled();
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
     it('strips caller connector and account metadata from an authorized tool call', async () => {
         const { client, handlers, registry } = createHarness();
         bind(registry, { connectorId: 'connector-1' });
@@ -497,7 +568,157 @@ describe('registerMcpAppRpcHandlers', () => {
             'mcp-app-call-1-1',
             'mcp__demo__mutate',
             { id: 1 },
+            expect.objectContaining({ signal: expect.any(AbortSignal) }),
         );
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it('uses one 30-second deadline across catalog, permission, and execution', async () => {
+        vi.useFakeTimers();
+        try {
+            const catalog = deferred<any>();
+            const permission = deferred<{ decision: 'approved' }>();
+            const execution = deferred<any>();
+            const listMcpServerStatus = vi.fn(() => catalog.promise);
+            const handleToolCall = vi.fn(() => permission.promise);
+            const callMcpTool = vi.fn(() => execution.promise);
+            const { handlers, registry } = createHarness({ listMcpServerStatus, handleToolCall, callMcpTool });
+            bind(registry);
+
+            const pending = callTool(handlers.get('mcpAppToolCall')!, 'mutate');
+            await vi.advanceTimersByTimeAsync(10_000);
+            catalog.resolve({
+                data: [{
+                    name: 'demo',
+                    runtimeStatus: 'connected',
+                    tools: {
+                        mutate: {
+                            name: 'mutate',
+                            enabled: true,
+                            annotations: { readOnlyHint: false },
+                            _meta: { ui: { visibility: ['app'] } },
+                        },
+                    },
+                }],
+            });
+            await vi.advanceTimersByTimeAsync(15_000);
+            permission.resolve({ decision: 'approved' });
+            await vi.advanceTimersByTimeAsync(4_999);
+            expect(callMcpTool).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(1);
+            await expect(pending).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+            });
+
+            execution.resolve({ content: [{ type: 'text', text: 'late' }] });
+            await Promise.resolve();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('maps a Codex transport timeout to the safe App timeout envelope', async () => {
+        const listMcpServerStatus = vi.fn(async () => {
+            throw new CodexAppServerRequestTimeoutError('mcpServerStatus/list', 30_000);
+        });
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+        });
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it('settles deferred permission calls on rebind, recovers slots, and blocks late execution', async () => {
+        const permissions = Array.from({ length: 8 }, () => deferred<{ decision: 'approved' }>());
+        let permissionIndex = 0;
+        const handleToolCall = vi.fn(() => permissions[permissionIndex++].promise);
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    mutate: {
+                        name: 'mutate',
+                        enabled: true,
+                        annotations: { readOnlyHint: false },
+                        _meta: { ui: { visibility: ['app'] } },
+                    },
+                    refresh: {
+                        name: 'refresh',
+                        enabled: true,
+                        annotations: { readOnlyHint: true },
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, registration, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+        bind(registry);
+        const oldHandler = handlers.get('mcpAppToolCall')!;
+        const operations = Array.from({ length: 8 }, () => callTool(oldHandler, 'mutate'));
+        await vi.waitFor(() => expect(handleToolCall).toHaveBeenCalledTimes(8));
+        await expect(callTool(oldHandler, 'refresh')).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+        });
+
+        const replacementHandlers = new Map<string, Handler>();
+        registration.rebind({
+            registerHandler(method: string, handler: Handler) {
+                replacementHandlers.set(method, handler);
+            },
+            unregisterHandler(method: string) {
+                replacementHandlers.delete(method);
+            },
+        });
+
+        await expect(Promise.all(operations)).resolves.toEqual(
+            Array.from({ length: 8 }, () => ({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+            })),
+        );
+        await expect(callTool(replacementHandlers.get('mcpAppToolCall')!, 'refresh')).resolves.toMatchObject({ ok: true });
+
+        for (const permission of permissions) permission.resolve({ decision: 'approved' });
+        await Promise.resolve();
+        expect(client.callMcpTool).toHaveBeenCalledTimes(1);
+        expect(client.callMcpTool.mock.calls[0][0]).toMatchObject({ tool: 'refresh' });
+    });
+
+    it('settles a deferred permission on dispose without allowing late execution', async () => {
+        const permission = deferred<{ decision: 'approved' }>();
+        const handleToolCall = vi.fn(() => permission.promise);
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    mutate: {
+                        name: 'mutate',
+                        enabled: true,
+                        annotations: { readOnlyHint: false },
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, registration, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+        bind(registry);
+        const pending = callTool(handlers.get('mcpAppToolCall')!, 'mutate');
+        await vi.waitFor(() => expect(handleToolCall).toHaveBeenCalledTimes(1));
+
+        registration.dispose();
+
+        await expect(pending).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+        });
+        permission.resolve({ decision: 'approved' });
+        await Promise.resolve();
         expect(client.callMcpTool).not.toHaveBeenCalled();
     });
 
@@ -739,6 +960,54 @@ describe('registerMcpAppRpcHandlers', () => {
         expect(handlers.has('mcpAppResourceOpen')).toBe(false);
         expect(handlers.has('mcpAppResourceChunk')).toBe(false);
         await expect(open(replacementHandlers.get('mcpAppResourceOpen')!)).resolves.toMatchObject({ ok: true });
+    });
+
+    it('does not restore primary resource authority after a resolved-before-rebind read', async () => {
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+        try {
+            const primary = deferred<any>();
+            const readMcpResource = vi.fn((params: { uri: string }) => params.uri.endsWith('index.html')
+                ? primary.promise
+                : Promise.resolve({ contents: [{ uri: params.uri, text: 'secondary' }] }));
+            const { client, handlers, registration, registry } = createHarness({ readMcpResource });
+            bind(registry);
+            const pendingOpen = open(handlers.get('mcpAppResourceOpen')!);
+            await vi.waitFor(() => expect(readMcpResource).toHaveBeenCalledTimes(1));
+
+            primary.resolve({
+                contents: [{
+                    uri: 'ui://demo/index.html',
+                    mimeType: 'text/html;profile=mcp-app',
+                    text: '<main>App</main>',
+                    _meta: { ui: { csp: { resourceDomains: ['https://cdn.example.test'] } } },
+                }],
+            });
+            const replacementHandlers = new Map<string, Handler>();
+            registration.rebind({
+                registerHandler(method: string, handler: Handler) {
+                    replacementHandlers.set(method, handler);
+                },
+                unregisterHandler(method: string) {
+                    replacementHandlers.delete(method);
+                },
+            });
+
+            await expect(pendingOpen).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE', retryable: true }),
+            });
+            await expect(readSecondary(
+                replacementHandlers.get('mcpAppResourceRead')!,
+                'https://cdn.example.test/data.json',
+            )).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_INVALID_RESOURCE', retryable: false }),
+            });
+            expect(client.readMcpResource).toHaveBeenCalledTimes(1);
+            expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === MCP_APP_RESOURCE_TTL_MS)).toBe(false);
+        } finally {
+            setTimeoutSpy.mockRestore();
+        }
     });
 
     it('unregisters and clears capabilities on session cleanup', async () => {

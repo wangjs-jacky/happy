@@ -9,7 +9,7 @@ import {
     type McpAppPresentationV1,
     type McpAppResultV1,
 } from '@slopus/happy-wire';
-import type { McpToolCatalogEntry, ThreadItem } from '../codexAppServerTypes';
+import type { McpToolAnnotations, McpToolCatalogEntry, ThreadItem } from '../codexAppServerTypes';
 
 const MAX_MCP_APP_RESULT_BYTES = 256 * 1024;
 
@@ -84,6 +84,9 @@ export interface NormalizedCodexMcpAppCall {
 export type NormalizedMcpToolCatalogMatch = {
     entry: McpToolCatalogEntry;
     serverEnabled: boolean;
+    toolEnabled: boolean;
+    appVisible: boolean;
+    annotations: McpToolAnnotations;
     connectorId?: string;
 };
 
@@ -125,13 +128,109 @@ function catalogEntries(server: Record<string, unknown>): McpToolCatalogEntry[] 
     return entries;
 }
 
-function catalogConnectorId(entry: McpToolCatalogEntry): string | undefined {
-    const meta = record(entry._meta);
-    const ui = record(meta?.ui);
-    for (const candidate of [meta?.connectorId, ui?.connectorId]) {
-        if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+function hasOwn(candidate: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(candidate, key);
+}
+
+const MCP_RUNTIME_STATUSES = new Set([
+    'notStarted',
+    'starting',
+    'connected',
+    'authenticationRequired',
+    'failed',
+    'cancelled',
+    'disabled',
+]);
+
+function normalizedServerEnabled(server: Record<string, unknown>): boolean | undefined {
+    const hasRuntimeStatus = hasOwn(server, 'runtimeStatus');
+    const hasDeprecatedStatus = hasOwn(server, 'status');
+    if (!hasRuntimeStatus && !hasDeprecatedStatus) return true;
+
+    const statuses = [
+        ...(hasRuntimeStatus ? [server.runtimeStatus] : []),
+        ...(hasDeprecatedStatus ? [server.status] : []),
+    ];
+    if (statuses.some((status) => status !== null
+        && (typeof status !== 'string' || !MCP_RUNTIME_STATUSES.has(status)))) return undefined;
+    if (statuses.length === 2 && statuses[0] !== statuses[1]) return undefined;
+    return statuses[0] === 'connected';
+}
+
+function normalizedVisibility(value: unknown): ReadonlySet<'app' | 'model'> | undefined {
+    if (!Array.isArray(value) || value.some((entry) => entry !== 'app' && entry !== 'model')) {
+        return undefined;
     }
-    return undefined;
+    return new Set(value as Array<'app' | 'model'>);
+}
+
+function sameVisibility(
+    left: ReadonlySet<'app' | 'model'>,
+    right: ReadonlySet<'app' | 'model'>,
+): boolean {
+    return left.size === right.size && [...left].every((entry) => right.has(entry));
+}
+
+type NormalizedCatalogControls = {
+    toolEnabled: boolean;
+    appVisible: boolean;
+    annotations: McpToolAnnotations;
+    connectorId?: string;
+};
+
+function normalizedCatalogControls(entry: McpToolCatalogEntry): NormalizedCatalogControls | undefined {
+    const rawEntry = entry as Record<string, unknown>;
+    const toolEnabled = hasOwn(rawEntry, 'enabled')
+        ? typeof rawEntry.enabled === 'boolean' ? rawEntry.enabled : undefined
+        : true;
+    if (toolEnabled === undefined) return undefined;
+
+    const hasAnnotations = hasOwn(rawEntry, 'annotations');
+    const rawAnnotations = rawEntry.annotations;
+    const annotations = hasAnnotations ? record(rawAnnotations) : {};
+    if (!annotations) return undefined;
+    for (const key of ['readOnlyHint', 'destructiveHint', 'openWorldHint']) {
+        if (hasOwn(annotations, key) && typeof annotations[key] !== 'boolean') return undefined;
+    }
+
+    const hasMeta = hasOwn(rawEntry, '_meta');
+    const rawMeta = rawEntry._meta;
+    const meta = hasMeta ? record(rawMeta) : undefined;
+    if (hasMeta && !meta) return undefined;
+    const hasUi = !!meta && hasOwn(meta, 'ui');
+    const rawUi = meta?.ui;
+    const ui = hasUi ? record(rawUi) : undefined;
+    if (hasUi && !ui) return undefined;
+
+    const hasCurrentVisibility = !!ui && hasOwn(ui, 'visibility');
+    const hasDeprecatedVisibility = !!meta && hasOwn(meta, 'ui/visibility');
+    const currentVisibility = hasCurrentVisibility ? normalizedVisibility(ui!.visibility) : undefined;
+    const deprecatedVisibility = hasDeprecatedVisibility
+        ? normalizedVisibility(meta!['ui/visibility'])
+        : undefined;
+    if ((hasCurrentVisibility && !currentVisibility)
+        || (hasDeprecatedVisibility && !deprecatedVisibility)
+        || (currentVisibility && deprecatedVisibility
+            && !sameVisibility(currentVisibility, deprecatedVisibility))) return undefined;
+    const visibility = currentVisibility ?? deprecatedVisibility;
+
+    const hasMetaConnector = !!meta && hasOwn(meta, 'connectorId');
+    const hasUiConnector = !!ui && hasOwn(ui, 'connectorId');
+    const connectorValues = [
+        ...(hasMetaConnector ? [meta!.connectorId] : []),
+        ...(hasUiConnector ? [ui!.connectorId] : []),
+    ];
+    if (connectorValues.some((value) => typeof value !== 'string'
+        || value.length === 0 || Buffer.byteLength(value, 'utf8') > 256)) return undefined;
+    if (connectorValues.length === 2 && connectorValues[0] !== connectorValues[1]) return undefined;
+    const connectorId = connectorValues[0] as string | undefined;
+
+    return {
+        toolEnabled,
+        appVisible: visibility === undefined || visibility.has('app'),
+        annotations: annotations as McpToolAnnotations,
+        ...(connectorId ? { connectorId } : {}),
+    };
 }
 
 export class CodexMcpAppAdapter {
@@ -140,34 +239,23 @@ export class CodexMcpAppAdapter {
         serverName: string,
         toolName: string,
     ): NormalizedMcpToolCatalogMatch | undefined {
-        const server = catalogServers(response)
+        const servers = catalogServers(response)
             .map(record)
-            .find((candidate) => candidate
+            .filter((candidate): candidate is Record<string, unknown> => candidate !== undefined
                 && (candidate.name === serverName || candidate.serverName === serverName));
-        if (!server) return undefined;
-        const entry = catalogEntries(server).find((candidate) => candidate.name === toolName);
-        if (!entry) return undefined;
-        const runtimeStatus = server.runtimeStatus ?? server.status;
-        const serverEnabled = runtimeStatus !== 'disabled'
-            && runtimeStatus !== 'failed'
-            && runtimeStatus !== 'cancelled';
-        const connectorId = catalogConnectorId(entry);
+        if (servers.length !== 1) return undefined;
+        const server = servers[0];
+        const entries = catalogEntries(server).filter((candidate) => candidate.name === toolName);
+        if (entries.length !== 1) return undefined;
+        const entry = entries[0];
+        const serverEnabled = normalizedServerEnabled(server);
+        const controls = normalizedCatalogControls(entry);
+        if (serverEnabled === undefined || !controls) return undefined;
         return {
             entry,
             serverEnabled,
-            ...(connectorId ? { connectorId } : {}),
+            ...controls,
         };
-    }
-
-    isAppVisible(entry: McpToolCatalogEntry): boolean {
-        const meta = record(entry._meta);
-        const ui = record(meta?.ui);
-        const visibility = Array.isArray(ui?.visibility)
-            ? ui.visibility
-            : Array.isArray(meta?.['ui/visibility'])
-                ? meta['ui/visibility']
-                : undefined;
-        return visibility === undefined || visibility.includes('app');
     }
 
     normalizeItem(item: Extract<ThreadItem, { type: 'mcpToolCall' }>): NormalizedCodexMcpAppCall {

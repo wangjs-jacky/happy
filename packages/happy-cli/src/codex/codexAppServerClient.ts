@@ -159,6 +159,13 @@ export type ApprovalHandler = (params: {
     message?: string;
 }) => Promise<ReviewDecision>;
 
+export class CodexAppServerRequestTimeoutError extends Error {
+    constructor(method: string, timeoutMs: number) {
+        super(`${method} timed out after ${timeoutMs}ms`);
+        this.name = 'CodexAppServerRequestTimeoutError';
+    }
+}
+
 /**
  * Check that `codex app-server` is available.
  */
@@ -1301,9 +1308,9 @@ export class CodexAppServerClient {
 
     async readMcpResource(
         params: McpResourceReadParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<McpResourceReadResponse> {
-        return await this.request('mcpServer/resource/read', params, undefined, options?.signal) as McpResourceReadResponse;
+        return await this.request('mcpServer/resource/read', params, options?.timeoutMs, options?.signal) as McpResourceReadResponse;
     }
 
     async setThreadGoal(opts: {
@@ -1349,7 +1356,7 @@ export class CodexAppServerClient {
 
     async listMcpServerStatus(
         opts?: ListMcpServerStatusParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<ListMcpServerStatusResponse> {
         const params: ListMcpServerStatusParams = {
             threadId: opts?.threadId ?? null,
@@ -1357,14 +1364,14 @@ export class CodexAppServerClient {
             cursor: opts?.cursor ?? null,
             limit: opts?.limit ?? null,
         };
-        return await this.request('mcpServerStatus/list', params, undefined, options?.signal) as ListMcpServerStatusResponse;
+        return await this.request('mcpServerStatus/list', params, options?.timeoutMs, options?.signal) as ListMcpServerStatusResponse;
     }
 
     async callMcpTool(
         params: McpServerToolCallParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<McpServerToolCallResponse> {
-        return await this.request('mcpServer/tool/call', params, undefined, options?.signal) as McpServerToolCallResponse;
+        return await this.request('mcpServer/tool/call', params, options?.timeoutMs, options?.signal) as McpServerToolCallResponse;
     }
 
     async startCompact(opts?: { threadId?: string }): Promise<ThreadCompactStartResponse> {
@@ -1784,7 +1791,7 @@ export class CodexAppServerClient {
             const timer = setTimeout(() => {
                 this.pending.delete(id);
                 cleanup();
-                reject(new Error(`${method} timed out after ${timeout}ms (id=${id})`));
+                reject(new CodexAppServerRequestTimeoutError(method, timeout));
             }, timeout);
 
             this.pending.set(id, {

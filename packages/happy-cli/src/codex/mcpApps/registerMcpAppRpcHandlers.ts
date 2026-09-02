@@ -8,6 +8,7 @@ import type {
     McpServerToolCallParams,
     McpServerToolCallResponse,
 } from '../codexAppServerTypes';
+import { CodexAppServerRequestTimeoutError } from '../codexAppServerClient';
 import { CodexMcpAppAdapter, type McpAppErrorCode, type McpAppRpcResponse } from './CodexMcpAppAdapter';
 import type { McpAppBindingRegistry } from './McpAppBindingRegistry';
 import type { PermissionResult } from '../utils/permissionHandler';
@@ -20,6 +21,9 @@ export const MCP_APP_MAX_SECONDARY_RESOURCE_BYTES = 512 * 1024;
 export const MCP_APP_MAX_TOOL_PAYLOAD_BYTES = 256 * 1024;
 export const MCP_APP_MAX_JSON_DEPTH = 32;
 export const MCP_APP_MAX_CONCURRENT_OPERATIONS = 8;
+export const MCP_APP_OPERATION_TIMEOUT_MS = 30_000;
+export const MCP_APP_MAX_CALL_ID_BYTES = 256;
+export const MCP_APP_MAX_TOOL_NAME_BYTES = 256;
 
 export type McpAppResourceOpenRequest = {
     callId: string;
@@ -75,20 +79,25 @@ export type McpAppRpcHandlerManager = {
 type McpResourceClient = {
     readMcpResource(
         params: McpResourceReadParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<McpResourceReadResponse>;
     listMcpServerStatus(
         params: ListMcpServerStatusParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<ListMcpServerStatusResponse>;
     callMcpTool(
         params: McpServerToolCallParams,
-        options?: { signal?: AbortSignal },
+        options?: { signal?: AbortSignal; timeoutMs?: number },
     ): Promise<McpServerToolCallResponse>;
 };
 
 type McpAppPermissionHandler = {
-    handleToolCall(toolCallId: string, toolName: string, input: unknown): Promise<PermissionResult>;
+    handleToolCall(
+        toolCallId: string,
+        toolName: string,
+        input: unknown,
+        options?: { signal?: AbortSignal },
+    ): Promise<PermissionResult>;
 };
 
 const summaries: Record<McpAppErrorCode, string> = {
@@ -180,12 +189,11 @@ function validToolCallRequest(request: unknown): request is McpAppToolCallReques
     if (!isRecord(request)
         || !hasOnlyKeys(request, new Set(['callId', 'tool', 'arguments', '_meta']))) return false;
     if (typeof request.callId !== 'string' || request.callId.length === 0
-        || typeof request.tool !== 'string' || request.tool.length === 0 || request.tool.length > 256) return false;
+        || Buffer.byteLength(request.callId, 'utf8') > MCP_APP_MAX_CALL_ID_BYTES
+        || typeof request.tool !== 'string' || request.tool.length === 0
+        || Buffer.byteLength(request.tool, 'utf8') > MCP_APP_MAX_TOOL_NAME_BYTES) return false;
     if (request.arguments !== undefined && !isRecord(request.arguments)) return false;
-    return jsonWithinBounds({
-        arguments: request.arguments ?? {},
-        ...(request._meta !== undefined ? { _meta: request._meta } : {}),
-    }, MCP_APP_MAX_TOOL_PAYLOAD_BYTES);
+    return jsonWithinBounds(request, MCP_APP_MAX_TOOL_PAYLOAD_BYTES);
 }
 
 function uriScheme(uri: string): string | undefined {
@@ -302,6 +310,21 @@ function safeToolResult(response: unknown): SafeToolResult {
     return { ok: true, value };
 }
 
+type ActiveOperation = {
+    controller: AbortController;
+    deadlineAt: number;
+    epoch: number;
+    timedOut: boolean;
+    timeout: ReturnType<typeof setTimeout>;
+};
+
+class McpAppOperationInterrupted extends Error {
+    constructor() {
+        super('MCP App operation interrupted');
+        this.name = 'McpAppOperationInterrupted';
+    }
+}
+
 function requestConnectorMatches(requestMeta: unknown, connectorId: string | undefined): boolean {
     if (!isRecord(requestMeta) || requestMeta.connectorId === undefined) return true;
     return typeof requestMeta.connectorId === 'string' && requestMeta.connectorId === connectorId;
@@ -319,10 +342,11 @@ export function registerMcpAppRpcHandlers(options: {
     const resources = new Map<string, BufferedResource>();
     const allowedSecondarySchemes = new Map<string, ReadonlySet<string>>();
     const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    const inFlightOperations = new Set<AbortController>();
+    const inFlightOperations = new Set<ActiveOperation>();
     let rpcHandlerManager = options.rpcHandlerManager;
     let disposed = false;
     let requestSequence = 0;
+    let operationEpoch = 0;
 
     const removeResource = (resourceId: string): void => {
         const timer = expiryTimers.get(resourceId);
@@ -350,17 +374,73 @@ export function registerMcpAppRpcHandlers(options: {
         allowedSecondarySchemes.clear();
     };
     const abortInFlightOperations = (): void => {
-        for (const controller of inFlightOperations) controller.abort();
-        inFlightOperations.clear();
+        operationEpoch += 1;
+        for (const operation of inFlightOperations) operation.controller.abort();
     };
-    const beginOperation = (): AbortController | undefined => {
+    const beginOperation = (): ActiveOperation | undefined => {
         if (inFlightOperations.size >= MCP_APP_MAX_CONCURRENT_OPERATIONS) return undefined;
         const controller = new AbortController();
-        inFlightOperations.add(controller);
-        return controller;
+        const operation = {
+            controller,
+            deadlineAt: Date.now() + MCP_APP_OPERATION_TIMEOUT_MS,
+            epoch: operationEpoch,
+            timedOut: false,
+            timeout: undefined as unknown as ReturnType<typeof setTimeout>,
+        };
+        operation.timeout = setTimeout(() => {
+            operation.timedOut = true;
+            operation.controller.abort();
+        }, MCP_APP_OPERATION_TIMEOUT_MS);
+        operation.timeout.unref?.();
+        inFlightOperations.add(operation);
+        return operation;
     };
-    const endOperation = (controller: AbortController): void => {
-        inFlightOperations.delete(controller);
+    const endOperation = (operation: ActiveOperation): void => {
+        clearTimeout(operation.timeout);
+        inFlightOperations.delete(operation);
+    };
+    const operationIsCurrent = (operation: ActiveOperation): boolean => !disposed
+        && operation.epoch === operationEpoch
+        && inFlightOperations.has(operation)
+        && !operation.controller.signal.aborted;
+    const ensureOperationIsCurrent = (operation: ActiveOperation): void => {
+        if (!operationIsCurrent(operation)) throw new McpAppOperationInterrupted();
+    };
+    const remainingOperationMs = (operation: ActiveOperation): number => Math.max(
+        1,
+        operation.deadlineAt - Date.now(),
+    );
+    const awaitOperation = <T>(operation: ActiveOperation, promise: Promise<T>): Promise<T> => {
+        ensureOperationIsCurrent(operation);
+        return new Promise<T>((resolve, reject) => {
+            const onAbort = () => reject(new McpAppOperationInterrupted());
+            operation.controller.signal.addEventListener('abort', onAbort, { once: true });
+            const cleanup = () => operation.controller.signal.removeEventListener('abort', onAbort);
+            promise.then(
+                (value) => {
+                    cleanup();
+                    try {
+                        ensureOperationIsCurrent(operation);
+                        resolve(value);
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                (error) => {
+                    cleanup();
+                    reject(error);
+                },
+            );
+        });
+    };
+    const operationFailure = <T>(operation: ActiveOperation, error: unknown): McpAppRpcResponse<T> => {
+        if (operation.timedOut || error instanceof CodexAppServerRequestTimeoutError) {
+            return failure('MCP_APP_TIMEOUT', true);
+        }
+        if (disposed || operation.epoch !== operationEpoch || operation.controller.signal.aborted) {
+            return failure('MCP_APP_SESSION_OFFLINE', true);
+        }
+        return failure('MCP_APP_INTERNAL', true);
     };
 
     const resourceOpen = async (request: unknown): Promise<McpAppRpcResponse<McpAppResourceOpenResponse>> => {
@@ -381,52 +461,55 @@ export function registerMcpAppRpcHandlers(options: {
             ...(binding.trustedOriginCallId ? { originCallId: request.callId } : {}),
         };
 
-        const abortController = beginOperation();
-        if (!abortController) return failure('MCP_APP_TIMEOUT', true);
-        let response: McpResourceReadResponse;
+        const operation = beginOperation();
+        if (!operation) return failure('MCP_APP_TIMEOUT', true);
         try {
-            response = await options.client.readMcpResource(params, { signal: abortController.signal });
-        } catch {
-            return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
-        } finally {
-            endOperation(abortController);
-        }
-        if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+            const response = await awaitOperation(operation, options.client.readMcpResource(params, {
+                signal: operation.controller.signal,
+                timeoutMs: remainingOperationMs(operation),
+            }));
 
-        const primary = primaryResourceBytes(response, binding.resourceUri);
-        if (!primary) return failure('MCP_APP_INVALID_RESOURCE', false);
-        if (primary.bytes.byteLength > MCP_APP_MAX_HTML_BYTES) {
-            return failure('MCP_APP_RESOURCE_TOO_LARGE', false);
-        }
-        allowedSecondarySchemes.set(binding.callId, primary.allowedSecondarySchemes);
+            const primary = primaryResourceBytes(response, binding.resourceUri);
+            if (!primary) return failure('MCP_APP_INVALID_RESOURCE', false);
+            if (primary.bytes.byteLength > MCP_APP_MAX_HTML_BYTES) {
+                return failure('MCP_APP_RESOURCE_TOO_LARGE', false);
+            }
+            ensureOperationIsCurrent(operation);
+            allowedSecondarySchemes.set(binding.callId, primary.allowedSecondarySchemes);
 
-        while (resources.size >= MCP_APP_MAX_ACTIVE_RESOURCES) {
-            const oldestResourceId = resources.keys().next().value as string | undefined;
-            if (!oldestResourceId) break;
-            removeResource(oldestResourceId);
-        }
-        const resourceId = randomBytes(32).toString('base64url');
-        const buffered: BufferedResource = {
-            resourceId,
-            callId: request.callId,
-            bytes: primary.bytes,
-            sha256: createHash('sha256').update(primary.bytes).digest('hex'),
-            expiresAt: now() + MCP_APP_RESOURCE_TTL_MS,
-        };
-        resources.set(resourceId, buffered);
-        scheduleExpiry(buffered);
-
-        return {
-            ok: true,
-            value: {
+            while (resources.size >= MCP_APP_MAX_ACTIVE_RESOURCES) {
+                const oldestResourceId = resources.keys().next().value as string | undefined;
+                if (!oldestResourceId) break;
+                removeResource(oldestResourceId);
+            }
+            const resourceId = randomBytes(32).toString('base64url');
+            const buffered: BufferedResource = {
                 resourceId,
-                uri: binding.resourceUri,
-                mimeType: 'text/html;profile=mcp-app',
-                byteLength: primary.bytes.byteLength,
-                sha256: buffered.sha256,
-                encoding: 'utf8',
-            },
-        };
+                callId: request.callId,
+                bytes: primary.bytes,
+                sha256: createHash('sha256').update(primary.bytes).digest('hex'),
+                expiresAt: now() + MCP_APP_RESOURCE_TTL_MS,
+            };
+            ensureOperationIsCurrent(operation);
+            resources.set(resourceId, buffered);
+            scheduleExpiry(buffered);
+
+            return {
+                ok: true,
+                value: {
+                    resourceId,
+                    uri: binding.resourceUri,
+                    mimeType: 'text/html;profile=mcp-app',
+                    byteLength: primary.bytes.byteLength,
+                    sha256: buffered.sha256,
+                    encoding: 'utf8',
+                },
+            };
+        } catch (error) {
+            return operationFailure(operation, error);
+        } finally {
+            endOperation(operation);
+        }
         } catch {
             return failure('MCP_APP_INTERNAL', true);
         }
@@ -478,28 +561,29 @@ export function registerMcpAppRpcHandlers(options: {
                 return failure('MCP_APP_INVALID_RESOURCE', false);
             }
 
-            const abortController = beginOperation();
-            if (!abortController) return failure('MCP_APP_TIMEOUT', true);
-            let response: McpResourceReadResponse;
+            const operation = beginOperation();
+            if (!operation) return failure('MCP_APP_TIMEOUT', true);
             try {
-                response = await options.client.readMcpResource({
+                const response = await awaitOperation(operation, options.client.readMcpResource({
                     threadId: binding.threadId,
                     server: binding.server,
                     uri: request.uri,
                     ...(binding.trustedOriginCallId ? { originCallId: binding.trustedOriginCallId } : {}),
                     ...(binding.connectorId ? { connectorId: binding.connectorId } : {}),
-                }, { signal: abortController.signal });
-            } catch {
-                return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
+                }, {
+                    signal: operation.controller.signal,
+                    timeoutMs: remainingOperationMs(operation),
+                }));
+                const safeResult = safeSecondaryResourceResult(response, request.uri);
+                if (!safeResult.ok) {
+                    return failure(safeResult.tooLarge ? 'MCP_APP_RESOURCE_TOO_LARGE' : 'MCP_APP_INVALID_RESOURCE', false);
+                }
+                return { ok: true, value: safeResult.value };
+            } catch (error) {
+                return operationFailure(operation, error);
             } finally {
-                endOperation(abortController);
+                endOperation(operation);
             }
-            if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
-            const safeResult = safeSecondaryResourceResult(response, request.uri);
-            if (!safeResult.ok) {
-                return failure(safeResult.tooLarge ? 'MCP_APP_RESOURCE_TOO_LARGE' : 'MCP_APP_INVALID_RESOURCE', false);
-            }
-            return { ok: true, value: safeResult.value };
         } catch {
             return failure('MCP_APP_INTERNAL', true);
         }
@@ -518,70 +602,66 @@ export function registerMcpAppRpcHandlers(options: {
                 return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
             }
 
-            const abortController = beginOperation();
-            if (!abortController) return failure('MCP_APP_TIMEOUT', true);
+            const operation = beginOperation();
+            if (!operation) return failure('MCP_APP_TIMEOUT', true);
             try {
-                let status: ListMcpServerStatusResponse;
-                try {
-                    status = await options.client.listMcpServerStatus({
-                        threadId: binding.threadId,
-                        detail: 'toolsAndAuthOnly',
-                        limit: 100,
-                    }, { signal: abortController.signal });
-                } catch {
-                    return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
-                }
-                if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+                const status = await awaitOperation(operation, options.client.listMcpServerStatus({
+                    threadId: binding.threadId,
+                    detail: 'toolsAndAuthOnly',
+                    limit: 100,
+                }, {
+                    signal: operation.controller.signal,
+                    timeoutMs: remainingOperationMs(operation),
+                }));
 
                 const match = adapter.findCatalogTool(status, binding.server, request.tool);
-                if (!match || !match.serverEnabled || match.entry.enabled === false
-                    || !adapter.isAppVisible(match.entry)
+                if (!match || !match.serverEnabled || !match.toolEnabled || !match.appVisible
                     || (match.connectorId !== undefined && match.connectorId !== binding.connectorId)) {
                     return failure('MCP_APP_TOOL_NOT_ALLOWED', false);
                 }
 
-                const annotations = isRecord(match.entry.annotations) ? match.entry.annotations : {};
+                const annotations = match.annotations;
                 const risky = annotations.readOnlyHint !== true
                     || annotations.destructiveHint === true
                     || annotations.openWorldHint === true;
+                ensureOperationIsCurrent(operation);
                 requestSequence += 1;
                 if (risky) {
-                    let decision: PermissionResult;
-                    try {
-                        decision = await options.permissionHandler.handleToolCall(
+                    ensureOperationIsCurrent(operation);
+                    const decision = await awaitOperation(
+                        operation,
+                        options.permissionHandler.handleToolCall(
                             `mcp-app-${binding.callId}-${requestSequence}`,
                             `mcp__${binding.server}__${request.tool}`,
                             request.arguments ?? {},
-                        );
-                    } catch {
-                        return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
-                    }
-                    if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+                            { signal: operation.controller.signal },
+                        ),
+                    );
                     if (decision.decision === 'denied' || decision.decision === 'abort') {
                         return failure('MCP_APP_PERMISSION_DENIED', false);
                     }
                 }
 
-                let response: McpServerToolCallResponse;
-                try {
-                    response = await options.client.callMcpTool({
-                        threadId: binding.threadId,
-                        server: binding.server,
-                        tool: request.tool,
-                        ...(request.arguments !== undefined ? { arguments: request.arguments } : {}),
-                        originCallId: binding.callId,
-                    }, { signal: abortController.signal });
-                } catch {
-                    return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
-                }
-                if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+                ensureOperationIsCurrent(operation);
+                const response = await awaitOperation(operation, options.client.callMcpTool({
+                    threadId: binding.threadId,
+                    server: binding.server,
+                    tool: request.tool,
+                    ...(request.arguments !== undefined ? { arguments: request.arguments } : {}),
+                    originCallId: binding.callId,
+                }, {
+                    signal: operation.controller.signal,
+                    timeoutMs: remainingOperationMs(operation),
+                }));
                 const safeResult = safeToolResult(response);
                 if (!safeResult.ok) {
                     return failure(safeResult.tooLarge ? 'MCP_APP_RESULT_TOO_LARGE' : 'MCP_APP_INTERNAL', false);
                 }
                 return { ok: true, value: safeResult.value };
+            } catch (error) {
+                return operationFailure(operation, error);
             } finally {
-                endOperation(abortController);
+                endOperation(operation);
             }
         } catch {
             return failure('MCP_APP_INTERNAL', true);
