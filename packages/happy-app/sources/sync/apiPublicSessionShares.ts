@@ -1,9 +1,9 @@
 import type { AuthCredentials } from '@/auth/tokenStorage';
+import type { PublicSessionCover, PublicSessionSnapshot } from '@slopus/happy-wire';
 import { getServerUrl } from './serverConfig';
 import type {
     PublicSessionAttachmentKind,
     PublicSessionShareState,
-    PublicSessionSnapshotV1,
 } from './publicSessionShareTypes';
 export {
     getPublicSessionAttachmentUrl,
@@ -15,6 +15,20 @@ export type PreparedPublicSessionShareAsset = {
     assetId: string;
     method: 'PUT';
     uploadUrl: string;
+};
+
+export type PublicSessionCoverCandidate = {
+    provider: 'pexels';
+    photoId: number;
+    previewUrl: string;
+    width: number;
+    height: number;
+    averageColor: string | null;
+    attribution: {
+        photographer: string;
+        photographerUrl: string;
+        photoUrl: string;
+    };
 };
 
 function ownerHeaders(credentials: AuthCredentials, json = false): Record<string, string> {
@@ -55,6 +69,35 @@ export async function createPublicSessionShareDraft(credentials: AuthCredentials
         headers: ownerHeaders(credentials),
     });
     return expectJson(response, 'Create public session share draft');
+}
+
+export async function getRandomPublicSessionCover(
+    credentials: AuthCredentials,
+    sessionId: string,
+): Promise<PublicSessionCoverCandidate> {
+    const response = await fetch(
+        `${getServerUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`,
+        { headers: ownerHeaders(credentials) },
+    );
+    return expectJson(response, 'Get random public session cover');
+}
+
+export async function importPublicSessionPexelsCover(
+    credentials: AuthCredentials,
+    sessionId: string,
+    generation: string,
+    assetId: string,
+    photoId: number,
+): Promise<PublicSessionCover> {
+    const response = await fetch(
+        `${getServerUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts/${encodeURIComponent(generation)}/covers/import`,
+        {
+            method: 'POST',
+            headers: ownerHeaders(credentials, true),
+            body: JSON.stringify({ assetId, photoId }),
+        },
+    );
+    return expectJson(response, 'Import public session Pexels cover');
 }
 
 export async function preparePublicSessionShareAsset(
@@ -108,7 +151,7 @@ export async function publishPublicSessionShareDraft(
     credentials: AuthCredentials,
     sessionId: string,
     generation: string,
-    snapshot: PublicSessionSnapshotV1,
+    snapshot: PublicSessionSnapshot,
 ): Promise<{ publicId: string; publishedAt: number }> {
     const response = await fetch(
         `${getServerUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts/${encodeURIComponent(generation)}/publish`,

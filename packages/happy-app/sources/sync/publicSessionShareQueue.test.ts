@@ -32,6 +32,7 @@ const input = {
     ownerId: 'owner-1',
     serverUrl: 'https://paws.test',
     groupToolCalls: true,
+    themePack: 'caramel' as const,
 };
 
 describe('public session share queue', () => {

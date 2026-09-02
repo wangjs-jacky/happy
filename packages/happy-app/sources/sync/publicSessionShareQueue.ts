@@ -1,4 +1,20 @@
+import type { PublicSessionThemePack } from '@slopus/happy-wire';
+
 export type PublicSessionShareJobStatus = 'queued' | 'running' | 'ready' | 'failed';
+
+export type PublicSessionCoverSelection =
+    | { kind: 'pexels'; photoId: number }
+    | {
+        kind: 'upload';
+        attachmentId: string;
+        uri: string;
+        name: string;
+        mimeType: string;
+        size: number;
+        width: number;
+        height: number;
+        thumbhash?: string;
+    };
 
 export type PublicSessionShareJob = {
     id: string;
@@ -9,6 +25,8 @@ export type PublicSessionShareJob = {
     ownerId: string;
     serverUrl: string;
     groupToolCalls: boolean;
+    themePack: PublicSessionThemePack;
+    coverSelection?: PublicSessionCoverSelection;
     status: PublicSessionShareJobStatus;
     progress: { completed: number; total: number };
     updatedAt: number;
@@ -25,7 +43,15 @@ export type PublicSessionShareQueueStorage = {
 
 type PublicSessionShareJobInput = Pick<
     PublicSessionShareJob,
-    'sessionId' | 'title' | 'requestedAt' | 'cutoffSeq' | 'ownerId' | 'serverUrl' | 'groupToolCalls'
+    | 'sessionId'
+    | 'title'
+    | 'requestedAt'
+    | 'cutoffSeq'
+    | 'ownerId'
+    | 'serverUrl'
+    | 'groupToolCalls'
+    | 'themePack'
+    | 'coverSelection'
 >;
 
 type PublicSessionShareJobResult = { publicId: string; publishedAt: number };

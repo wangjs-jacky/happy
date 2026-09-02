@@ -63,7 +63,15 @@ describe('public session share queue runtime', () => {
         await resumePublicSessionShareJobs();
 
         expect(mocks.publish).toHaveBeenCalledWith(
-            { sessionId: 'session-1', title: 'Release notes', sharedAt: 200, groupToolCalls: true },
+            {
+                sessionId: 'session-1',
+                jobId: queued.id,
+                title: 'Release notes',
+                sharedAt: 200,
+                themePack: 'caramel',
+                coverSelection: undefined,
+                groupToolCalls: true,
+            },
             expect.objectContaining({ isCancelled: expect.any(Function), onProgress: expect.any(Function) }),
         );
         expect(getPublicSessionShareJob('session-1')).toMatchObject({
