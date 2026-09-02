@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     reads: [] as unknown[],
     readError: null as McpAppHostError | null,
     frameMountInput: null as any,
+    adapterSupport: 'supported' as 'supported' | 'unsupported',
 }));
 
 vi.mock('react-native', () => ({
@@ -52,7 +53,7 @@ vi.mock('./mcpApps/remotePort', () => ({
         callTool: async () => { throw new Error('not supported'); },
     }),
 }));
-vi.mock('./mcpApps/NativeMcpAppFrameAdapter', () => {
+vi.mock('./mcpApps/frameAdapter', () => {
     class Frame implements McpAppFrame {
         sendToolInput() {}
         sendToolResult() {}
@@ -61,6 +62,7 @@ vi.mock('./mcpApps/NativeMcpAppFrameAdapter', () => {
         async teardown() {}
     }
     class Adapter implements McpAppFrameAdapter {
+        readonly support = mocks.adapterSupport;
         async mount(input: any) {
             mocks.frameMountInput = input;
             input.onSandboxReady();
@@ -97,6 +99,7 @@ describe('McpAppHost state presentation', () => {
         mocks.reads.length = 0;
         mocks.readError = null;
         mocks.frameMountInput = null;
+        mocks.adapterSupport = 'supported';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
@@ -126,6 +129,20 @@ describe('McpAppHost state presentation', () => {
         const fallback = renderer.root.findByProps({ testID: 'mcp-app-error' });
         expect(fallback.findByType('Text').props.children).toBe('mcpApps.offline');
         expect(mocks.reads).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('shows translated unsupported state without prefetching when the platform adapter is disabled', async () => {
+        mocks.adapterSupport = 'unsupported';
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(<McpAppHost sessionId="session-1" toolCall={toolCall} presentation={presentation} />);
+        });
+
+        expect(renderer.root.findByProps({ testID: 'mcp-app-error' }).findByType('Text').props.children)
+            .toBe('mcpApps.unsupported');
+        expect(mocks.reads).toEqual([]);
+        expect(mocks.frameMountInput).toBeNull();
         act(() => renderer.unmount());
     });
 

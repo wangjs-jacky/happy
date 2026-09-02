@@ -185,7 +185,7 @@ export function createMcpAppHostController(options: {
         emitMcpAppTelemetry(eventName, {
             ...input,
             platform: hostContext.platform,
-            originScoped: false,
+            originScoped: options.frameAdapter.originScoped === true,
         }, options.telemetry);
     };
 

@@ -11,7 +11,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { createMcpAppHostController, type McpAppHostState } from './mcpApps/hostController';
 import { createMcpAppExternalLinkHandler } from './mcpApps/linkPolicy';
 import { createMcpAppRemotePort } from './mcpApps/remotePort';
-import { createMcpAppFrameAdapter, McpAppFrameView } from './mcpApps/NativeMcpAppFrameAdapter';
+import { createMcpAppFrameAdapter, McpAppFrameView } from './mcpApps/frameAdapter';
 import type { McpAppHostContext } from './mcpApps/types';
 import { tracking } from '@/track/tracking';
 import type { McpAppTelemetrySink } from './mcpApps/mcpAppTelemetry';
@@ -37,6 +37,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
     const remotePort = React.useMemo(() => createMcpAppRemotePort({ sessionId: sessionId ?? '' }), [sessionId]);
     const controllerRef = React.useRef<ReturnType<typeof createMcpAppHostController> | undefined>(undefined);
     const unavailable = result?.state === 'unavailable' || !toolCall.callId;
+    const unsupported = frameAdapter.support === 'unsupported';
     const [hostState, setHostState] = React.useState<McpAppHostState>({ type: 'fallback' });
 
     const hostContext = React.useMemo<McpAppHostContext>(() => ({
@@ -63,7 +64,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
     }), [hostContext.locale]);
 
     React.useEffect(() => {
-        if (!online || unavailable) {
+        if (!online || unavailable || unsupported) {
             setHostState({ type: 'fallback' });
             return;
         }
@@ -87,7 +88,7 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
         };
         // A call ID identifies one immutable tool invocation; live state/context updates use the effects below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [frameAdapter, online, openExternalLink, presentation.resourceUri, remotePort, toolCall.callId, unavailable]);
+    }, [frameAdapter, online, openExternalLink, presentation.resourceUri, remotePort, toolCall.callId, unavailable, unsupported]);
 
     React.useEffect(() => {
         controllerRef.current?.updateHostContext(hostContext);
@@ -104,6 +105,9 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
     }
     if (unavailable) {
         return <SafeFallback message={t('mcpApps.unavailable')} />;
+    }
+    if (unsupported) {
+        return <SafeFallback message={t('mcpApps.unsupported')} />;
     }
     if (hostState.type === 'failed') {
         const message = hostState.error.code === 'MCP_APP_UNSUPPORTED'

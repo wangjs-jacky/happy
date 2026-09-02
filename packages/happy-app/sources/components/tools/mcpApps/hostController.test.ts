@@ -180,6 +180,21 @@ afterEach(() => {
 });
 
 describe('MCP App host controller', () => {
+    it('marks telemetry origin-scoped only for an exact-origin frame transport', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const adapter = new MemoryFrameAdapter([]);
+        Object.assign(adapter, { originScoped: true as const });
+        const { controller } = makeController({
+            frameAdapter: adapter,
+            telemetry: (eventName, payload) => { telemetryEvents.push([eventName, payload]); },
+        });
+
+        await controller.start();
+
+        expect(telemetryEvents.map(([, payload]) => payload.originScoped)).toEqual([true, true]);
+        expect(JSON.stringify(telemetryEvents)).not.toContain('ui://demo/index.html');
+    });
+
     it('emits redacted render and action lifecycle events from real controller boundaries', async () => {
         const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
         const telemetry: McpAppTelemetrySink = (eventName, payload) => {

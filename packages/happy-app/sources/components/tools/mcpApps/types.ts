@@ -118,6 +118,10 @@ export interface McpAppFrame {
 }
 
 export interface McpAppFrameAdapter {
+    /** Missing means supported for legacy/test adapters; production unsupported adapters set this explicitly. */
+    readonly support?: 'supported' | 'unsupported';
+    /** True only when the transport enforces a verified exact browser origin. */
+    readonly originScoped?: boolean;
     /** Resolves only after the View has completed initialization. */
     mount(input: FrameMountInput): Promise<McpAppFrame>;
 }
