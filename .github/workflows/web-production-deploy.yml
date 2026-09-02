@@ -217,8 +217,38 @@ jobs:
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
           systemctl --no-block reload caddy
+          reload_completed=0
+          for ((attempt=1; attempt<=30; attempt+=1)); do
+            pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+            active_state="$(systemctl show caddy --property=ActiveState --value)"
+            reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+            if [ -z "$pending_jobs" ]; then
+              if [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                reload_completed=1
+                break
+              fi
+              echo "错误：Caddy rollback reload 失败（state=$active_state, result=${reload_result:-unknown}）。" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$reload_completed" -ne 1 ]; then
+            echo '错误：Caddy rollback reload 未在 30 秒内完成。' >&2
+            exit 1
+          fi
           REMOTE_SCRIPT
             caddy_rollback_status=$?
+            if [ "$caddy_rollback_status" -eq 0 ]; then
+              caddy_rollback_status=1
+              for ((attempt=1; attempt<=30; attempt+=1)); do
+                if curl --fail --silent --show-error --output /dev/null "$PAWS_WEB_ORIGIN/" \
+                  && curl --fail --silent --show-error --output /dev/null "$PAWS_WEB_ORIGIN/health"; then
+                  caddy_rollback_status=0
+                  break
+                fi
+                sleep 1
+              done
+            fi
           fi
           set -e
           if [ "$oss_rollback_status" -ne 0 ] || [ "$caddy_rollback_status" -ne 0 ]; then

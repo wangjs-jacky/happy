@@ -61,7 +61,11 @@ async function waitForHealthyServer() {
     let lastError;
     do {
         try {
-            const response = await fetch(`${normalizedOrigin}/health`, { redirect: 'follow' });
+            const remainingMs = Math.max(1, deadline - Date.now());
+            const response = await fetch(`${normalizedOrigin}/health`, {
+                redirect: 'follow',
+                signal: AbortSignal.timeout(remainingMs),
+            });
             if (!response.ok) throw new Error(`health endpoint failed with HTTP ${response.status}: ${normalizedOrigin}/health`);
             const contentType = response.headers.get('content-type') ?? '';
             if (!/^application\/(?:[a-z0-9.+-]+\+)?json\b/i.test(contentType)) {
@@ -80,7 +84,9 @@ async function waitForHealthyServer() {
             await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(healthRetryIntervalMs, deadline - Date.now())));
         }
     } while (Date.now() <= deadline);
-    throw lastError;
+    throw new Error(`health endpoint did not become ready within ${healthTimeoutMs}ms: ${lastError?.message ?? 'unknown error'}`, {
+        cause: lastError,
+    });
 }
 
 function assertHtmlRevision(label, body) {

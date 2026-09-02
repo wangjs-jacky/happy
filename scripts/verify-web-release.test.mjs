@@ -32,6 +32,7 @@ async function runVerifier({
     healthBody = JSON.stringify({ status: 'ok', service: 'happy-server' }),
     healthContentType = 'application/json; charset=utf-8',
     healthFailuresBeforeReady = 0,
+    healthNeverResponds = false,
     liveRevision = revision,
     includeFontCors = true,
     mode = 'live',
@@ -93,6 +94,7 @@ async function runVerifier({
         }
         if (request.url === '/health') {
             healthRequests += 1;
+            if (healthNeverResponds) return;
             response.statusCode = 200;
             if (healthRequests <= healthFailuresBeforeReady) {
                 response.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -125,9 +127,13 @@ async function runVerifier({
             });
             let stdout = '';
             let stderr = '';
+            const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
             child.stdout.on('data', (chunk) => { stdout += chunk; });
             child.stderr.on('data', (chunk) => { stderr += chunk; });
-            child.on('close', (status) => resolve({ status, stdout, stderr }));
+            child.on('close', (status) => {
+                clearTimeout(killTimer);
+                resolve({ status, stdout, stderr });
+            });
         });
         return result;
     } finally {
@@ -165,6 +171,15 @@ test('waits for a transient SPA health fallback while Caddy reload finishes', as
 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /healthy happy-server JSON/i);
+});
+
+test('enforces the health readiness deadline when a request never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ healthNeverResponds: true });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'health verifier exceeded its hard deadline');
+    assert.match(result.stderr, /health endpoint.*within 100ms/i);
 });
 
 test('rejects an HTML SPA fallback at the backend health endpoint', async () => {
