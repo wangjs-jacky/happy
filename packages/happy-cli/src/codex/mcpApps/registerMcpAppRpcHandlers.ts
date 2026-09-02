@@ -43,13 +43,16 @@ type BufferedResource = {
     expiresAt: number;
 };
 
-type McpAppRpcHandlerManager = {
+export type McpAppRpcHandlerManager = {
     registerHandler(method: string, handler: (request: any) => any): void;
     unregisterHandler(method: string): void;
 };
 
 type McpResourceClient = {
-    readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse>;
+    readMcpResource(
+        params: McpResourceReadParams,
+        options?: { signal?: AbortSignal },
+    ): Promise<McpResourceReadResponse>;
 };
 
 const summaries: Record<McpAppErrorCode, string> = {
@@ -125,13 +128,45 @@ export function registerMcpAppRpcHandlers(options: {
 }) {
     const now = options.now ?? (() => Date.now());
     const resources = new Map<string, BufferedResource>();
+    const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const inFlightReads = new Set<AbortController>();
+    let rpcHandlerManager = options.rpcHandlerManager;
     let disposed = false;
+
+    const removeResource = (resourceId: string): void => {
+        const timer = expiryTimers.get(resourceId);
+        if (timer) clearTimeout(timer);
+        expiryTimers.delete(resourceId);
+        resources.delete(resourceId);
+    };
+    const scheduleExpiry = (resource: BufferedResource): void => {
+        const previous = expiryTimers.get(resource.resourceId);
+        if (previous) clearTimeout(previous);
+        const timer = setTimeout(() => {
+            const current = resources.get(resource.resourceId);
+            if (!current) return;
+            if (current.expiresAt <= now()) {
+                removeResource(current.resourceId);
+                return;
+            }
+            scheduleExpiry(current);
+        }, Math.max(0, resource.expiresAt - now()));
+        timer.unref?.();
+        expiryTimers.set(resource.resourceId, timer);
+    };
+    const clearBufferedResources = (): void => {
+        for (const resourceId of [...resources.keys()]) removeResource(resourceId);
+    };
+    const abortInFlightReads = (): void => {
+        for (const controller of inFlightReads) controller.abort();
+        inFlightReads.clear();
+    };
 
     const resourceOpen = async (request: unknown): Promise<McpAppRpcResponse<McpAppResourceOpenResponse>> => {
         try {
-        if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
-        if (!validOpenRequest(request)) return failure('MCP_APP_BINDING_NOT_FOUND', false);
-        if (!options.bindingRegistry.has(request.callId)) return failure('MCP_APP_BINDING_NOT_FOUND', false);
+            if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+            if (!validOpenRequest(request)) return failure('MCP_APP_BINDING_NOT_FOUND', false);
+            if (!options.bindingRegistry.has(request.callId)) return failure('MCP_APP_BINDING_NOT_FOUND', false);
 
         const binding = options.bindingRegistry.get(request.callId);
         if (binding.connectorId && !binding.trustedOriginCallId) {
@@ -145,11 +180,15 @@ export function registerMcpAppRpcHandlers(options: {
             ...(binding.trustedOriginCallId ? { originCallId: request.callId } : {}),
         };
 
+        const abortController = new AbortController();
+        inFlightReads.add(abortController);
         let response: McpResourceReadResponse;
         try {
-            response = await options.client.readMcpResource(params);
+            response = await options.client.readMcpResource(params, { signal: abortController.signal });
         } catch {
-            return failure('MCP_APP_INTERNAL', true);
+            return failure(disposed ? 'MCP_APP_SESSION_OFFLINE' : 'MCP_APP_INTERNAL', true);
+        } finally {
+            inFlightReads.delete(abortController);
         }
         if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
 
@@ -162,7 +201,7 @@ export function registerMcpAppRpcHandlers(options: {
         while (resources.size >= MCP_APP_MAX_ACTIVE_RESOURCES) {
             const oldestResourceId = resources.keys().next().value as string | undefined;
             if (!oldestResourceId) break;
-            resources.delete(oldestResourceId);
+            removeResource(oldestResourceId);
         }
         const resourceId = randomBytes(32).toString('base64url');
         const buffered: BufferedResource = {
@@ -173,6 +212,7 @@ export function registerMcpAppRpcHandlers(options: {
             expiresAt: now() + MCP_APP_RESOURCE_TTL_MS,
         };
         resources.set(resourceId, buffered);
+        scheduleExpiry(buffered);
 
         return {
             ok: true,
@@ -192,8 +232,8 @@ export function registerMcpAppRpcHandlers(options: {
 
     const resourceChunk = async (request: unknown): Promise<McpAppRpcResponse<McpAppResourceChunkResponse>> => {
         try {
-        if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
-        if (!validChunkRequest(request)) return failure('MCP_APP_RESOURCE_NOT_FOUND', false);
+            if (disposed) return failure('MCP_APP_SESSION_OFFLINE', true);
+            if (!validChunkRequest(request)) return failure('MCP_APP_RESOURCE_NOT_FOUND', false);
         const resource = resources.get(request.resourceId);
         if (!resource || resource.expiresAt <= now() || !options.bindingRegistry.has(resource.callId)) {
             if (resource) resources.delete(resource.resourceId);
@@ -204,6 +244,7 @@ export function registerMcpAppRpcHandlers(options: {
         }
 
         resource.expiresAt = now() + MCP_APP_RESOURCE_TTL_MS;
+        scheduleExpiry(resource);
         const bytes = resource.bytes.subarray(request.offset, request.offset + MCP_APP_CHUNK_BYTES);
         const nextOffset = request.offset + bytes.byteLength;
         return {
@@ -219,18 +260,33 @@ export function registerMcpAppRpcHandlers(options: {
         }
     };
 
-    options.rpcHandlerManager.registerHandler('mcpAppResourceOpen', resourceOpen);
-    options.rpcHandlerManager.registerHandler('mcpAppResourceChunk', resourceChunk);
+    const register = (manager: McpAppRpcHandlerManager): void => {
+        manager.registerHandler('mcpAppResourceOpen', resourceOpen);
+        manager.registerHandler('mcpAppResourceChunk', resourceChunk);
+    };
+    const unregister = (manager: McpAppRpcHandlerManager): void => {
+        manager.unregisterHandler('mcpAppResourceOpen');
+        manager.unregisterHandler('mcpAppResourceChunk');
+    };
+    register(rpcHandlerManager);
 
     return {
         resourceOpen,
         resourceChunk,
+        rebind(nextRpcHandlerManager: McpAppRpcHandlerManager): void {
+            if (disposed || nextRpcHandlerManager === rpcHandlerManager) return;
+            unregister(rpcHandlerManager);
+            abortInFlightReads();
+            clearBufferedResources();
+            rpcHandlerManager = nextRpcHandlerManager;
+            register(rpcHandlerManager);
+        },
         dispose(): void {
             if (disposed) return;
             disposed = true;
-            resources.clear();
-            options.rpcHandlerManager.unregisterHandler('mcpAppResourceOpen');
-            options.rpcHandlerManager.unregisterHandler('mcpAppResourceChunk');
+            abortInFlightReads();
+            clearBufferedResources();
+            unregister(rpcHandlerManager);
         },
     };
 }

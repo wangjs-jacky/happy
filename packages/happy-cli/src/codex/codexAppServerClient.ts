@@ -1297,8 +1297,11 @@ export class CodexAppServerClient {
         return await this.request('thread/inject_items', params) as InjectItemsResponse;
     }
 
-    async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
-        return await this.request('mcpServer/resource/read', params) as McpResourceReadResponse;
+    async readMcpResource(
+        params: McpResourceReadParams,
+        options?: { signal?: AbortSignal },
+    ): Promise<McpResourceReadResponse> {
+        return await this.request('mcpServer/resource/read', params, undefined, options?.signal) as McpResourceReadResponse;
     }
 
     async setThreadGoal(opts: {
@@ -1748,33 +1751,50 @@ export class CodexAppServerClient {
     /** Default timeout for RPC requests (ms). */
     private static readonly REQUEST_TIMEOUT_MS = 30_000;
 
-    private request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
+    private request(method: string, params?: unknown, timeoutMs?: number, signal?: AbortSignal): Promise<unknown> {
         const timeout = timeoutMs ?? CodexAppServerClient.REQUEST_TIMEOUT_MS;
         return new Promise((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new Error(`${method} aborted before sending`));
+                return;
+            }
             if (!this.canWriteToTransport()) {
                 reject(new Error(`Cannot send ${method}: Codex transport is not writable`));
                 return;
             }
             const id = this.nextId++;
 
+            let abortListener: (() => void) | undefined;
+            const cleanup = () => {
+                clearTimeout(timer);
+                if (abortListener) signal?.removeEventListener('abort', abortListener);
+            };
             const timer = setTimeout(() => {
                 this.pending.delete(id);
+                cleanup();
                 reject(new Error(`${method} timed out after ${timeout}ms (id=${id})`));
             }, timeout);
 
             this.pending.set(id, {
-                resolve: (result) => { clearTimeout(timer); resolve(result); },
-                reject: (err) => { clearTimeout(timer); reject(err); },
+                resolve: (result) => { cleanup(); resolve(result); },
+                reject: (err) => { cleanup(); reject(err); },
                 method,
                 epoch: this.processEpoch,
             });
+
+            abortListener = () => {
+                if (!this.pending.delete(id)) return;
+                cleanup();
+                reject(new Error(`${method} aborted`));
+            };
+            signal?.addEventListener('abort', abortListener, { once: true });
 
             const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
             logger.debug(`[CodexAppServer] → ${method} (id=${id})`);
             try {
                 this.writeTransportMessage(JSON.stringify(msg));
             } catch (error) {
-                clearTimeout(timer);
+                cleanup();
                 this.pending.delete(id);
                 reject(error instanceof Error ? error : new Error(String(error)));
             }

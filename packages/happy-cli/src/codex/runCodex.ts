@@ -47,6 +47,7 @@ import {
 } from './utils/sessionProtocolMapper';
 import { McpAppBindingRegistry } from './mcpApps/McpAppBindingRegistry';
 import { registerMcpAppRpcHandlers } from './mcpApps/registerMcpAppRpcHandlers';
+import { rebindMcpAppRpcHandlersOnSessionSwap } from './mcpApps/mcpAppRpcSessionLifecycle';
 import { formatCodexEventForLog } from './codexEventLog';
 import { resumeExistingThread } from './resumeExistingThread';
 import { emitReadyIfIdle } from './emitReadyIfIdle';
@@ -442,6 +443,7 @@ export async function runCodex(opts: {
             if (permissionHandler) {
                 permissionHandler.updateSession(newSession);
             }
+            rebindMcpAppRpcHandlersOnSessionSwap(mcpAppRpcHandlers, newSession);
         }
     });
     session = initialSession;
@@ -1129,12 +1131,6 @@ export async function runCodex(opts: {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
         logger.debug('[codex]: client.connect done');
-        mcpAppRpcHandlers = registerMcpAppRpcHandlers({
-            rpcHandlerManager: session.rpcHandlerManager,
-            client,
-            bindingRegistry: mcpAppBindingRegistry,
-        });
-
         try {
             const models: Model[] = [];
             let cursor: string | null = null;
@@ -1187,6 +1183,14 @@ export async function runCodex(opts: {
             first = false;
             appendSystemPromptInjected = true;
         }
+
+        // A resumed thread reconstructs immutable App bindings above; do not
+        // advertise resource RPCs until that authority state is available.
+        mcpAppRpcHandlers = registerMcpAppRpcHandlers({
+            rpcHandlerManager: session.rpcHandlerManager,
+            client,
+            bindingRegistry: mcpAppBindingRegistry,
+        });
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;
         if (!reconnectSessionId && forkCodexThreadId && !opts.resumeThreadId) {

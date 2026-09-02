@@ -113,7 +113,7 @@ describe('registerMcpAppRpcHandlers', () => {
         registry.complete('call-1', undefined, true);
 
         await expect(open(handlers.get('mcpAppResourceOpen')!)).resolves.toMatchObject({ ok: true });
-        expect(client.readMcpResource).toHaveBeenCalledWith({
+        expect(client.readMcpResource.mock.calls[0][0]).toEqual({
             threadId: 'thread-1',
             server: 'demo',
             uri: 'ui://demo/index.html',
@@ -127,7 +127,7 @@ describe('registerMcpAppRpcHandlers', () => {
         bind(registry);
 
         await expect(open(handlers.get('mcpAppResourceOpen')!)).resolves.toMatchObject({ ok: true });
-        expect(client.readMcpResource).toHaveBeenCalledWith({
+        expect(client.readMcpResource.mock.calls[0][0]).toEqual({
             threadId: 'thread-1',
             server: 'demo',
             uri: 'ui://demo/index.html',
@@ -249,6 +249,43 @@ describe('registerMcpAppRpcHandlers', () => {
         });
     });
 
+    it('destroys an unopened resource at the two-minute expiry boundary', async () => {
+        vi.useFakeTimers();
+        try {
+            const { handlers, registry } = createHarness();
+            bind(registry);
+            const resource = opened(await open(handlers.get('mcpAppResourceOpen')!));
+
+            await vi.advanceTimersByTimeAsync(MCP_APP_RESOURCE_TTL_MS);
+
+            await expect(chunk(handlers.get('mcpAppResourceChunk')!, resource.resourceId, 0)).resolves.toEqual({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_RESOURCE_NOT_FOUND' }),
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('moves registered RPC methods to a replacement session manager', async () => {
+        const { handlers, registration, registry } = createHarness();
+        const replacementHandlers = new Map<string, Handler>();
+        bind(registry);
+
+        registration.rebind({
+            registerHandler(method: string, handler: Handler) {
+                replacementHandlers.set(method, handler);
+            },
+            unregisterHandler(method: string) {
+                replacementHandlers.delete(method);
+            },
+        });
+
+        expect(handlers.has('mcpAppResourceOpen')).toBe(false);
+        expect(handlers.has('mcpAppResourceChunk')).toBe(false);
+        await expect(open(replacementHandlers.get('mcpAppResourceOpen')!)).resolves.toMatchObject({ ok: true });
+    });
+
     it('unregisters and clears capabilities on session cleanup', async () => {
         const { handlers, registration, registry } = createHarness();
         bind(registry);
@@ -265,24 +302,27 @@ describe('registerMcpAppRpcHandlers', () => {
     });
 
     it('aborts an in-flight resource open when the session disconnects', async () => {
-        let resolveRead: ((value: unknown) => void) | undefined;
-        const readMcpResource = vi.fn(() => new Promise((resolve) => { resolveRead = resolve; }));
+        let wasAborted = false;
+        const readMcpResource = vi.fn((_params: unknown, options?: { signal?: AbortSignal }) => {
+            if (!options?.signal) throw new Error('missing abort signal');
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => {
+                    wasAborted = true;
+                    reject(new Error('aborted'));
+                }, { once: true });
+            });
+        });
         const { handlers, registration, registry } = createHarness({ readMcpResource });
         bind(registry);
 
         const pending = open(handlers.get('mcpAppResourceOpen')!);
+        await vi.waitFor(() => expect(readMcpResource).toHaveBeenCalledTimes(1));
         registration.dispose();
-        resolveRead?.({
-            contents: [{
-                uri: 'ui://demo/index.html',
-                mimeType: 'text/html;profile=mcp-app',
-                text: '<main>late</main>',
-            }],
-        });
 
         await expect(pending).resolves.toEqual({
             ok: false,
             error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE' }),
         });
+        expect(wasAborted).toBe(true);
     });
 });
