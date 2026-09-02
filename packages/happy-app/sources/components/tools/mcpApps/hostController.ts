@@ -136,6 +136,19 @@ function validateBridgeResponse(value: unknown, method: McpAppBridgeRequest['met
     }
 }
 
+function telemetrySerializedByteLength(value: unknown): number {
+    try {
+        const serialized = JSON.stringify(value);
+        if (serialized === undefined) return Number.NaN;
+        return Math.min(
+            utf8ByteLength(serialized),
+            MCP_APP_MAX_BRIDGE_MESSAGE_BYTES + 1,
+        );
+    } catch {
+        return Number.NaN;
+    }
+}
+
 export function createMcpAppHostController(options: {
     callId: string;
     presentation: McpAppPresentationV1;
@@ -210,12 +223,16 @@ export function createMcpAppHostController(options: {
     ): Promise<unknown> => {
         if (disposed || activeController?.signal.aborted) throw cancellationError();
         const telemetryStartedAt = Date.now();
-        const emitToolResolved = (code: McpAppTelemetryInput['code']): void => {
+        const requestByteLength = telemetrySerializedByteLength(request);
+        const emitToolResolved = (
+            code: McpAppTelemetryInput['code'],
+            byteLength = Number.NaN,
+        ): void => {
             if (request.method !== 'tools/call') return;
             emitTelemetry('mcp_app_tool_call_resolved', {
                 stage: 'tool_call',
                 durationMs: Math.max(0, Date.now() - telemetryStartedAt),
-                byteLength: 0,
+                byteLength,
                 code,
             });
         };
@@ -223,7 +240,7 @@ export function createMcpAppHostController(options: {
             emitTelemetry('mcp_app_tool_call_requested', {
                 stage: 'tool_call',
                 durationMs: 0,
-                byteLength: 0,
+                byteLength: requestByteLength,
                 code: 'started',
             });
         }
@@ -243,12 +260,21 @@ export function createMcpAppHostController(options: {
         }
 
         const operation = new AbortController();
+        let localTerminationCode: 'cancelled' | 'MCP_APP_TIMEOUT' | undefined;
         requestControllers.add(operation);
-        const abortFromFrame = () => operation.abort(cancellationError());
+        const abortFromFrame = () => {
+            if (operation.signal.aborted) return;
+            localTerminationCode = 'cancelled';
+            operation.abort(cancellationError());
+        };
         frameSignal?.addEventListener('abort', abortFromFrame, { once: true });
         if (frameSignal?.aborted) abortFromFrame();
         const timer = setTimeout(
-            () => operation.abort(timeoutError()),
+            () => {
+                if (operation.signal.aborted) return;
+                localTerminationCode = 'MCP_APP_TIMEOUT';
+                operation.abort(timeoutError());
+            },
             MCP_APP_BRIDGE_REQUEST_TIMEOUT_MS,
         );
         try {
@@ -286,11 +312,11 @@ export function createMcpAppHostController(options: {
                 throw abortReason(operation.signal);
             }
             const validated = validateBridgeResponse(result, request.method);
-            emitToolResolved('succeeded');
+            emitToolResolved('succeeded', telemetrySerializedByteLength(validated));
             return validated;
         } catch (error) {
             const normalized = error instanceof McpAppHostError ? error : safeRequestInternalError();
-            emitToolResolved(normalized.code);
+            emitToolResolved(localTerminationCode ?? normalized.code);
             throw normalized;
         } finally {
             clearTimeout(timer);

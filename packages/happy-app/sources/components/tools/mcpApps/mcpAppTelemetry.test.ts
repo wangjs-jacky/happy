@@ -77,6 +77,52 @@ describe('MCP App App telemetry', () => {
         expect(sink).toHaveBeenCalledTimes(1);
     });
 
+    it('attaches an asynchronous rejection handler without awaiting the sink', async () => {
+        let rejectionHandlerAttached = false;
+        const thenable = {
+            then(_fulfilled: unknown, rejected?: (reason: unknown) => unknown) {
+                rejectionHandlerAttached = typeof rejected === 'function';
+                queueMicrotask(() => {
+                    rejected?.(new Error('async sink failed'));
+                });
+                return Promise.resolve();
+            },
+        } as unknown as PromiseLike<void>;
+
+        emitMcpAppTelemetry('mcp_app_render_started', {
+            platform: 'android',
+            stage: 'resource',
+            durationMs: 0,
+            byteLength: 0,
+            originScoped: false,
+            code: 'started',
+        }, () => thenable);
+        expect(rejectionHandlerAttached).toBe(false);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rejectionHandlerAttached).toBe(true);
+    });
+
+    it('contains a hostile thenable accessor without throwing', () => {
+        let thenAccesses = 0;
+        const hostile = Object.defineProperty({}, 'then', {
+            get() {
+                thenAccesses += 1;
+                throw new Error('hostile then getter');
+            },
+        }) as PromiseLike<void>;
+
+        expect(() => emitMcpAppTelemetry('mcp_app_render_failed', {
+            platform: 'web',
+            stage: 'sandbox',
+            durationMs: 0,
+            byteLength: 0,
+            originScoped: false,
+            code: 'MCP_APP_INTERNAL',
+        }, () => hostile)).not.toThrow();
+        expect(thenAccesses).toBe(1);
+    });
+
     it('drops unknown runtime event names instead of forwarding them to the sink', () => {
         const sink = vi.fn();
 

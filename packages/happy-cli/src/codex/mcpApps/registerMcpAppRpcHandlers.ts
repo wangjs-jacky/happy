@@ -720,6 +720,7 @@ export function registerMcpAppRpcHandlers(options: {
             const binding = options.bindingRegistry.get(request.callId);
             const telemetryStartedAt = Date.now();
             const requestByteLength = serializedBytes(request) ?? 0;
+            let originScoped = false;
             const emitToolTelemetry = (
                 eventName: 'mcp_app_tool_call_requested' | 'mcp_app_tool_call_resolved',
                 code: McpAppTelemetryOutcomeCode,
@@ -731,7 +732,7 @@ export function registerMcpAppRpcHandlers(options: {
                     ? 0
                     : Math.max(0, Date.now() - telemetryStartedAt),
                 byteLength,
-                originScoped: Boolean(binding.trustedOriginCallId),
+                originScoped,
                 code,
             }, options.telemetry);
             const failToolCall = (
@@ -798,15 +799,18 @@ export function registerMcpAppRpcHandlers(options: {
                 }
 
                 ensureOperationIsCurrent(operation);
+                const timeoutMs = remainingOperationMs(operation);
+                const originCallId = binding.callId;
+                originScoped = true;
                 const response = await awaitOperation(operation, options.client.callMcpTool({
                     threadId: binding.threadId,
                     server: binding.server,
                     tool: request.tool,
                     ...(request.arguments !== undefined ? { arguments: request.arguments } : {}),
-                    originCallId: binding.callId,
+                    originCallId,
                 }, {
                     signal: operation.controller.signal,
-                    timeoutMs: remainingOperationMs(operation),
+                    timeoutMs,
                 }));
                 const safeResult = safeToolResult(response);
                 if (!safeResult.ok) {

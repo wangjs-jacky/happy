@@ -151,7 +151,7 @@ function deferred<T>() {
 }
 
 describe('registerMcpAppRpcHandlers', () => {
-    it('emits redacted requested and resolved events for success, denial, cancellation, and timeout', async () => {
+    it('emits exact redacted pairs for success, denial, cancellation, timeout, and rate limit', async () => {
         const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
         const telemetry: McpAppTelemetrySink = (eventName, payload) => {
             telemetryEvents.push([eventName, payload]);
@@ -170,14 +170,15 @@ describe('registerMcpAppRpcHandlers', () => {
         expect(telemetryEvents[1]?.[1]).toMatchObject({
             platform: 'cli',
             stage: 'tool_call',
-            originScoped: false,
+            originScoped: true,
             outcomeCode: 'succeeded',
         });
+        expect(telemetryEvents.map(([, payload]) => payload.originScoped)).toEqual([false, true]);
         expect(JSON.stringify(telemetryEvents)).not.toContain('CANARY_ARGUMENT');
 
         const deniedEvents: Array<Parameters<McpAppTelemetrySink>> = [];
         const denied = createHarness({
-            telemetry: (eventName, payload) => deniedEvents.push([eventName, payload]),
+            telemetry: (eventName, payload) => { deniedEvents.push([eventName, payload]); },
             listMcpServerStatus: vi.fn(async () => ({
                 data: [{
                     name: 'demo',
@@ -198,12 +199,17 @@ describe('registerMcpAppRpcHandlers', () => {
             ok: false,
             error: { code: 'MCP_APP_PERMISSION_DENIED' },
         });
-        expect(deniedEvents.at(-1)?.[1].outcomeCode).toBe('MCP_APP_PERMISSION_DENIED');
+        expect(deniedEvents.map(([eventName, payload]) => [
+            eventName, payload.outcomeCode, payload.originScoped,
+        ])).toEqual([
+            ['mcp_app_tool_call_requested', 'started', false],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_PERMISSION_DENIED', false],
+        ]);
 
         const cancelledEvents: Array<Parameters<McpAppTelemetrySink>> = [];
         const execution = deferred<any>();
         const cancelled = createHarness({
-            telemetry: (eventName, payload) => cancelledEvents.push([eventName, payload]),
+            telemetry: (eventName, payload) => { cancelledEvents.push([eventName, payload]); },
             callMcpTool: vi.fn(() => execution.promise),
         });
         bind(cancelled.registry);
@@ -217,11 +223,16 @@ describe('registerMcpAppRpcHandlers', () => {
             ok: false,
             error: { code: 'MCP_APP_SESSION_OFFLINE' },
         });
-        expect(cancelledEvents.at(-1)?.[1].outcomeCode).toBe('cancelled');
+        expect(cancelledEvents.map(([eventName, payload]) => [
+            eventName, payload.outcomeCode, payload.originScoped,
+        ])).toEqual([
+            ['mcp_app_tool_call_requested', 'started', false],
+            ['mcp_app_tool_call_resolved', 'cancelled', true],
+        ]);
 
         const timeoutEvents: Array<Parameters<McpAppTelemetrySink>> = [];
         const timedOut = createHarness({
-            telemetry: (eventName, payload) => timeoutEvents.push([eventName, payload]),
+            telemetry: (eventName, payload) => { timeoutEvents.push([eventName, payload]); },
             listMcpServerStatus: vi.fn(async () => {
                 throw new CodexAppServerRequestTimeoutError('mcpServerStatus/list', 30_000);
             }),
@@ -231,7 +242,37 @@ describe('registerMcpAppRpcHandlers', () => {
             ok: false,
             error: { code: 'MCP_APP_TIMEOUT' },
         });
-        expect(timeoutEvents.at(-1)?.[1].outcomeCode).toBe('MCP_APP_TIMEOUT');
+        expect(timeoutEvents.map(([eventName, payload]) => [
+            eventName, payload.outcomeCode, payload.originScoped,
+        ])).toEqual([
+            ['mcp_app_tool_call_requested', 'started', false],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_TIMEOUT', false],
+        ]);
+
+        const rateEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const catalog = deferred<any>();
+        const rateLimited = createHarness({
+            telemetry: (eventName, payload) => { rateEvents.push([eventName, payload]); },
+            listMcpServerStatus: vi.fn(() => catalog.promise),
+        });
+        bind(rateLimited.registry);
+        const occupied = Array.from({ length: 8 }, () => (
+            callTool(rateLimited.handlers.get('mcpAppToolCall')!)
+        ));
+        await vi.waitFor(() => expect(rateLimited.client.listMcpServerStatus).toHaveBeenCalledTimes(8));
+        rateEvents.length = 0;
+        await expect(callTool(rateLimited.handlers.get('mcpAppToolCall')!)).resolves.toMatchObject({
+            ok: false,
+            error: { code: 'MCP_APP_TIMEOUT' },
+        });
+        expect(rateEvents.map(([eventName, payload]) => [
+            eventName, payload.outcomeCode, payload.originScoped,
+        ])).toEqual([
+            ['mcp_app_tool_call_requested', 'started', false],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_TIMEOUT', false],
+        ]);
+        rateLimited.registration.dispose();
+        await Promise.all(occupied);
     });
 
     it('registers bounded secondary resource and direct tool handlers', () => {

@@ -212,11 +212,13 @@ describe('MCP App host controller', () => {
             originScoped: false,
             outcomeCode: 'succeeded',
         });
+        expect(telemetryEvents[2]?.[1].byteSizeBucket).toBe('under_1kb');
         expect(telemetryEvents[3]?.[1]).toMatchObject({
             platform: 'web',
             stage: 'tool_call',
             originScoped: false,
             outcomeCode: 'succeeded',
+            byteSizeBucket: 'under_1kb',
         });
         expect(JSON.stringify(telemetryEvents)).not.toMatch(/CANARY_(?:TOOL|ARGUMENT|RESULT)/);
     });
@@ -266,6 +268,139 @@ describe('MCP App host controller', () => {
             ['mcp_app_tool_call_resolved', 'MCP_APP_TIMEOUT'],
         ]);
         expect(JSON.stringify(telemetryEvents)).not.toContain('CANARY_RATE_LIMITED_TOOL');
+    });
+
+    it('preserves a View cancellation as the local action outcome exactly once', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async (input) => new Promise((_resolve, reject) => {
+                const signal = (input as { signal: AbortSignal }).signal;
+                signal.addEventListener('abort', () => reject(new McpAppHostError(
+                    'MCP_APP_SESSION_OFFLINE', true, 'downstream normalized cancellation',
+                )), { once: true });
+            }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({
+            remotePort: remote,
+            frameAdapter: adapter,
+            telemetry: (eventName, payload) => { telemetryEvents.push([eventName, payload]); },
+        });
+        await controller.start();
+        telemetryEvents.length = 0;
+        const frameAbort = new AbortController();
+        const pending = adapter.request({
+            method: 'tools/call', params: { name: 'cancel-me' },
+        }, frameAbort.signal);
+        await vi.waitFor(() => expect(remote.toolInputs).toHaveLength(1));
+
+        frameAbort.abort();
+        await expect(pending).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+
+        expect(telemetryEvents.map(([eventName, payload]) => [eventName, payload.outcomeCode])).toEqual([
+            ['mcp_app_tool_call_requested', 'started'],
+            ['mcp_app_tool_call_resolved', 'cancelled'],
+        ]);
+    });
+
+    it('preserves the controller request deadline over a downstream offline error exactly once', async () => {
+        vi.useFakeTimers();
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async (input) => new Promise((_resolve, reject) => {
+                const signal = (input as { signal: AbortSignal }).signal;
+                signal.addEventListener('abort', () => reject(new McpAppHostError(
+                    'MCP_APP_SESSION_OFFLINE', true, 'downstream normalized deadline',
+                )), { once: true });
+            }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({
+            remotePort: remote,
+            frameAdapter: adapter,
+            telemetry: (eventName, payload) => { telemetryEvents.push([eventName, payload]); },
+        });
+        await controller.start();
+        telemetryEvents.length = 0;
+        const pending = adapter.request({ method: 'tools/call', params: { name: 'time-out' } });
+        await vi.waitFor(() => expect(remote.toolInputs).toHaveLength(1));
+
+        const rejected = expect(pending).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+        await vi.advanceTimersByTimeAsync(30_000);
+        await rejected;
+
+        expect(telemetryEvents.map(([eventName, payload]) => [eventName, payload.outcomeCode])).toEqual([
+            ['mcp_app_tool_call_requested', 'started'],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_TIMEOUT'],
+        ]);
+    });
+
+    it('keeps controller disposal distinct from View cancellation and local timeout', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async (input) => new Promise((_resolve, reject) => {
+                const signal = (input as { signal: AbortSignal }).signal;
+                signal.addEventListener('abort', () => reject(new McpAppHostError(
+                    'MCP_APP_SESSION_OFFLINE', true, 'session disposed',
+                )), { once: true });
+            }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({
+            remotePort: remote,
+            frameAdapter: adapter,
+            telemetry: (eventName, payload) => { telemetryEvents.push([eventName, payload]); },
+        });
+        await controller.start();
+        telemetryEvents.length = 0;
+        const pending = adapter.request({ method: 'tools/call', params: { name: 'offline' } });
+        const rejected = expect(pending).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+        await vi.waitFor(() => expect(remote.toolInputs).toHaveLength(1));
+
+        await controller.dispose();
+        await rejected;
+
+        expect(telemetryEvents.map(([eventName, payload]) => [eventName, payload.outcomeCode])).toEqual([
+            ['mcp_app_tool_call_requested', 'started'],
+            ['mcp_app_tool_call_resolved', 'MCP_APP_SESSION_OFFLINE'],
+        ]);
+    });
+
+    it('uses the unknown request byte bucket when telemetry serialization fails safely', async () => {
+        const telemetryEvents: Array<Parameters<McpAppTelemetrySink>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            undefined,
+            async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({
+            remotePort: remote,
+            frameAdapter: adapter,
+            telemetry: (eventName, payload) => { telemetryEvents.push([eventName, payload]); },
+        });
+        await controller.start();
+        telemetryEvents.length = 0;
+        const cyclic: Record<string, unknown> = {};
+        cyclic.self = cyclic;
+
+        await expect(adapter.request({
+            method: 'tools/call', params: { name: 'safe-size', arguments: cyclic },
+        })).resolves.toMatchObject({ content: expect.any(Array) });
+
+        expect(telemetryEvents.map(([eventName, payload]) => [
+            eventName,
+            payload.byteSizeBucket,
+        ])).toEqual([
+            ['mcp_app_tool_call_requested', 'unknown'],
+            ['mcp_app_tool_call_resolved', 'under_1kb'],
+        ]);
     });
 
     it('enforces resource, sandbox, initialize, input, buffered result, active ordering', async () => {

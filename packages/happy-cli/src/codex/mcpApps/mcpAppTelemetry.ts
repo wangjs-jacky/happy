@@ -51,7 +51,7 @@ export type McpAppTelemetryPayload = {
 export type McpAppTelemetrySink = (
     eventName: McpAppTelemetryEventName,
     payload: McpAppTelemetryPayload,
-) => void;
+) => void | PromiseLike<void>;
 
 const PLATFORMS = new Set<string>(['cli', 'web', 'android', 'ios', 'desktop']);
 const STAGES = new Set<string>(['resource', 'sandbox', 'initialize', 'tool_call']);
@@ -124,7 +124,10 @@ export function emitMcpAppTelemetry(
 ): void {
     if (!EVENT_NAMES.has(eventName)) return;
     try {
-        sink(eventName, buildMcpAppTelemetry(input));
+        const pending = sink(eventName, buildMcpAppTelemetry(input));
+        if (pending !== undefined) {
+            void Promise.resolve(pending).catch(() => {});
+        }
     } catch {
         // Diagnostics must never affect MCP App control flow.
     }
