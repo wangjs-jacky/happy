@@ -94,7 +94,14 @@ function assertScriptSecurity(response) {
 async function fetchWithDeadline(fetchImpl, url, options, timeoutMs, overallSignal) {
     const controller = new AbortController();
     const abort = () => controller.abort();
+    let rejectOverall;
+    const overallRejection = new Promise((_resolve, reject) => { rejectOverall = reject; });
+    const rejectOnOverall = () => {
+        controller.abort();
+        rejectOverall(new Error('MCP App sandbox verification timed out'));
+    };
     overallSignal.addEventListener('abort', abort, { once: true });
+    overallSignal.addEventListener('abort', rejectOnOverall, { once: true });
     let timer;
     try {
         return await Promise.race([
@@ -102,10 +109,12 @@ async function fetchWithDeadline(fetchImpl, url, options, timeoutMs, overallSign
             new Promise((_resolve, reject) => {
                 timer = setTimeout(() => { controller.abort(); reject(new Error('MCP App sandbox verification timed out')); }, timeoutMs);
             }),
+            overallRejection,
         ]);
     } finally {
         clearTimeout(timer);
         overallSignal.removeEventListener('abort', abort);
+        overallSignal.removeEventListener('abort', rejectOnOverall);
     }
 }
 

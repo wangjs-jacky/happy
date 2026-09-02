@@ -8,7 +8,9 @@ import {
 } from './helpers/mcpAppHarness';
 
 const environment = requireMcpAppE2eEnvironment();
-test.use({ storageState: environment.storageState });
+// Playwright traces retain request headers/storage. This authenticated evidence
+// spec records screenshots and video only; action traces are intentionally off.
+test.use({ storageState: environment.storageState, trace: 'off' });
 
 test.describe.serial('MCP App real-origin Web Host', () => {
     test.beforeEach(async ({ page }) => {

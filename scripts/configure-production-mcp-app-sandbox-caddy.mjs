@@ -31,7 +31,7 @@ function structuralContent(line) {
             continue;
         }
         if (character === '#') break;
-        if (character === '"' || character === "'") { quote = character; content += ' '; continue; }
+        if (character === '"' || character === "'" || character === '`') { quote = character; content += ' '; continue; }
         content += character;
     }
     if (quote || escaped) throw new Error('Caddyfile contains an unterminated quoted value');
