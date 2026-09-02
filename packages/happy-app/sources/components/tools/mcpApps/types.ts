@@ -86,6 +86,8 @@ export type FrameMountInput = {
     signal: AbortSignal;
     /** Called once the sandbox proxy is ready and View initialization begins. */
     onSandboxReady(): void;
+    /** Called if an already-mounted frame later loses protocol or WebView integrity. */
+    onFailure(error: McpAppHostError): void;
 };
 
 export interface McpAppFrame {

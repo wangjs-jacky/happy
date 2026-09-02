@@ -2,6 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { App } from '@modelcontextprotocol/ext-apps';
 import { describe, expect, it, vi } from 'vitest';
 import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
@@ -12,6 +13,7 @@ import {
     hostCommandSchema,
     nativeMessages,
     parseHostCommand,
+    startHostShell,
 } from '../../../../mcp-app-sandbox/hostShell';
 import { MCP_APP_HOST_SHELL_HTML } from './generated/hostShellBundle';
 
@@ -90,6 +92,47 @@ describe('MCP App Host Shell protocol', () => {
         emit(0);
         callbacks[1](16);
         expect(emitted).toEqual([MCP_APP_MAX_FRAME_HEIGHT, MCP_APP_MIN_FRAME_HEIGHT]);
+    });
+
+    it('keeps native commands separate from a real official App initialize flow', async () => {
+        const posted: Array<{ type: string; instanceId: string }> = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = {
+            postMessage: (value) => posted.push(JSON.parse(value)),
+        };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+
+        const iframe = document.querySelector('iframe')!;
+        expect(iframe).toBeTruthy();
+        const target = iframe.contentWindow!;
+        const viewTransport: any = {
+            async start() {},
+            async close() {},
+            async send(message: unknown) {
+                window.dispatchEvent(new MessageEvent('message', { data: message, source: target }));
+            },
+        };
+        vi.spyOn(target, 'postMessage').mockImplementation((message: unknown) => {
+            viewTransport.onmessage?.(message);
+        });
+        const app = new App({ name: 'Fixture View', version: '1.0.0' }, {}, { autoResize: false });
+        await app.connect(viewTransport);
+
+        expect(document.querySelector('iframe')).toBe(iframe);
+        expect(posted.map((message) => message.type)).toEqual(['sandbox-ready', 'initialized']);
+        expect(posted).not.toContainEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+
+        window.dispatchEvent(new MessageEvent('message', { data: '{malformed-native', source: null }));
+        await vi.waitFor(() => expect(document.querySelector('iframe')).toBeNull());
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+
+        await app.close();
+        stop();
+        delete shellWindow.ReactNativeWebView;
     });
 
     it('commits the deterministic minified IIFE generated from the official AppBridge entry', () => {

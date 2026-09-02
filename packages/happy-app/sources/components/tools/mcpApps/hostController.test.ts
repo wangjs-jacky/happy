@@ -374,4 +374,52 @@ describe('MCP App host controller', () => {
         expect(controller.getState()).toEqual({ type: 'fallback' });
         expect(vi.getTimerCount()).toBe(0);
     });
+
+    it('tears down and leaves active state when the mounted frame later fails', async () => {
+        const events: string[] = [];
+        let reportFailure: ((error: McpAppHostError) => void) | undefined;
+        const adapter: McpAppFrameAdapter = {
+            async mount(input) {
+                input.onSandboxReady();
+                reportFailure = input.onFailure;
+                return new MemoryFrame(events);
+            },
+        };
+        const { controller } = makeController({ events, frameAdapter: adapter });
+        await controller.start();
+        expect(controller.getState()).toEqual({ type: 'active' });
+        expect(reportFailure).toEqual(expect.any(Function));
+
+        reportFailure!(new McpAppHostError(
+            'MCP_APP_BRIDGE_PROTOCOL', false, 'sensitive protocol detail',
+        ));
+        await vi.waitFor(() => expect(controller.getState()).toMatchObject({
+            type: 'failed',
+            error: { code: 'MCP_APP_BRIDGE_PROTOCOL', retryable: false },
+        }));
+
+        expect(events.filter((event) => event === 'teardown' || event === 'state:failed')).toEqual([
+            'teardown',
+            'state:failed',
+        ]);
+    });
+
+    it('ignores a late frame failure after disposal', async () => {
+        let reportFailure: ((error: McpAppHostError) => void) | undefined;
+        const adapter: McpAppFrameAdapter = {
+            async mount(input) {
+                input.onSandboxReady();
+                reportFailure = input.onFailure;
+                return new MemoryFrame([]);
+            },
+        };
+        const { controller } = makeController({ frameAdapter: adapter });
+        await controller.start();
+        await controller.dispose();
+
+        reportFailure!(new McpAppHostError('MCP_APP_SANDBOX_UNAVAILABLE', true, 'late failure'));
+        await Promise.resolve();
+
+        expect(controller.getState()).toEqual({ type: 'fallback' });
+    });
 });

@@ -55,6 +55,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
     private readonly createInstanceId: () => string;
     private handle?: WebViewHandle;
     private pending?: PendingMount;
+    private active?: { onFailure(error: McpAppHostError): void };
     private navigationAvailable = false;
     private resizeTimer?: ReturnType<typeof setTimeout>;
     private pendingHeight?: number;
@@ -146,6 +147,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
             pending.initialized = true;
             pending.input.signal.removeEventListener('abort', pending.abortListener);
             this.pending = undefined;
+            this.active = { onFailure: pending.input.onFailure };
             pending.resolve(this.createFrame(message.instanceId));
         } else if (message.type === 'resize') {
             this.queueResize(message.height);
@@ -208,13 +210,16 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         this.teardownTimer = undefined;
         const resolve = this.teardownResolve;
         this.teardownResolve = undefined;
+        this.active = undefined;
         this.clearOwnedState();
         resolve?.();
     }
 
     private fail(error: McpAppHostError): void {
         const pending = this.pending;
+        const active = this.active;
         this.pending = undefined;
+        this.active = undefined;
         if (pending) {
             pending.input.signal.removeEventListener('abort', pending.abortListener);
             pending.reject(error);
@@ -222,7 +227,14 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         this.clearOwnedState();
         this.teardownResolve?.();
         this.teardownResolve = undefined;
+        if (!pending && active) active.onFailure(error);
     }
+
+    onWebViewFailure = (): void => {
+        this.fail(new McpAppHostError(
+            'MCP_APP_SANDBOX_UNAVAILABLE', true, 'The App sandbox stopped unexpectedly.',
+        ));
+    };
 
     private clearOwnedState(): void {
         if (this.resizeTimer) clearTimeout(this.resizeTimer);
@@ -247,7 +259,9 @@ export function NativeMcpAppFrameView({ adapter }: { adapter: NativeMcpAppFrameA
         ref: adapter.attachWebView,
         testID: 'mcp-app-sandbox-frame',
         source: { html: MCP_APP_HOST_SHELL_HTML, baseUrl: MCP_APP_HOST_BASE_URL },
-        originWhitelist: ['https://mcp-app-host.invalid'],
+        // Let the wrapper delegate every request to our callback; a narrower
+        // whitelist can invoke Linking.openURL before this policy runs.
+        originWhitelist: ['*'],
         javaScriptEnabled: true,
         javaScriptCanOpenWindowsAutomatically: false,
         setSupportMultipleWindows: false,
@@ -266,6 +280,10 @@ export function NativeMcpAppFrameView({ adapter }: { adapter: NativeMcpAppFrameA
         onShouldStartLoadWithRequest: adapter.onShouldStartLoadWithRequest,
         onMessage: adapter.onMessage,
         onLoadEnd: adapter.onLoadEnd,
+        onError: adapter.onWebViewFailure,
+        onHttpError: adapter.onWebViewFailure,
+        onContentProcessDidTerminate: adapter.onWebViewFailure,
+        onRenderProcessGone: adapter.onWebViewFailure,
         style: { ...styles.frame, height: snapshot.height },
     });
 }

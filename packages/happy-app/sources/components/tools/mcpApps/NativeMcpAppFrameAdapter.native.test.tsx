@@ -67,12 +67,14 @@ describe('NativeMcpAppFrameAdapter', () => {
         const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
-        act(() => { void adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn() }); });
+        act(() => { void adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn() }); });
         const webView = renderer.root.findByType('WebView');
 
         expect(webView.props.testID).toBe('mcp-app-sandbox-frame');
         expect(webView.props.source.baseUrl).toBe('https://mcp-app-host.invalid/');
-        expect(webView.props.originWhitelist).toEqual(['https://mcp-app-host.invalid']);
+        // The wrapper must not pre-emptively hand a non-whitelisted URL to Linking.openURL;
+        // every URL reaches our exact one-shot callback instead.
+        expect(webView.props.originWhitelist).toEqual(['*']);
         expect(webView.props.javaScriptCanOpenWindowsAutomatically).toBe(false);
         expect(webView.props.setSupportMultipleWindows).toBe(false);
         expect(webView.props.allowFileAccess).toBe(false);
@@ -91,6 +93,9 @@ describe('NativeMcpAppFrameAdapter', () => {
         expect(webView.props.onShouldStartLoadWithRequest({
             url: 'https://mcp-app-host.invalid/', isTopFrame: true,
         })).toBe(false);
+        expect(webView.props.onShouldStartLoadWithRequest({
+            url: 'https://mcp-app-host.invalid/child', isTopFrame: false,
+        })).toBe(false);
 
         act(() => renderer.unmount());
     });
@@ -103,7 +108,7 @@ describe('NativeMcpAppFrameAdapter', () => {
         act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
         const ready = vi.fn();
         let mounted!: Promise<any>;
-        act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: ready }); });
+        act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: ready, onFailure: vi.fn() }); });
         const webView = renderer.root.findByType('WebView');
         act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
         act(() => webView.props.onLoadEnd());
@@ -161,11 +166,91 @@ describe('NativeMcpAppFrameAdapter', () => {
             let renderer: any;
             act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
             let mounted!: Promise<any>;
-            act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn() }); });
+            act(() => { mounted = adapter.mount({ resource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn() }); });
             const webView = renderer.root.findByType('WebView');
             act(() => webView.props.onMessage({ nativeEvent: { data } }));
 
             await expect(mounted).rejects.toMatchObject({ code: 'MCP_APP_BRIDGE_PROTOCOL' });
+            expect(renderer.root.findAllByType('WebView')).toHaveLength(0);
+            act(() => renderer.unmount());
+        }
+    });
+
+    it('reports every post-active protocol failure and revokes the frame', async () => {
+        const failures = [
+            '{not-json',
+            JSON.stringify({ type: 'initialized', instanceId: 'other-frame' }),
+            'x'.repeat(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES + 1),
+            JSON.stringify({ type: 'initialized', instanceId: 'frame-1' }),
+            JSON.stringify({ type: 'protocol-error', instanceId: 'frame-1' }),
+        ];
+
+        for (const data of failures) {
+            const onFailure = vi.fn();
+            const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+            let renderer: any;
+            act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+            let mounted!: Promise<any>;
+            act(() => {
+                mounted = adapter.mount({
+                    resource, context, signal: new AbortController().signal,
+                    onSandboxReady: vi.fn(), onFailure,
+                });
+            });
+            const webView = renderer.root.findByType('WebView');
+            act(() => webView.props.forwardedRef({ postMessage: vi.fn() }));
+            act(() => webView.props.onLoadEnd());
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+                type: 'sandbox-ready', instanceId: 'frame-1',
+            }) } }));
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+                type: 'initialized', instanceId: 'frame-1',
+            }) } }));
+            await mounted;
+
+            act(() => webView.props.onMessage({ nativeEvent: { data } }));
+
+            expect(onFailure).toHaveBeenCalledTimes(1);
+            expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({
+                code: 'MCP_APP_BRIDGE_PROTOCOL', retryable: false,
+            }));
+            expect(renderer.root.findAllByType('WebView')).toHaveLength(0);
+            act(() => renderer.unmount());
+        }
+    });
+
+    it('reports post-active load and process termination as retryable sandbox failures', async () => {
+        for (const eventName of [
+            'onError', 'onHttpError', 'onContentProcessDidTerminate', 'onRenderProcessGone',
+        ]) {
+            const onFailure = vi.fn();
+            const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+            let renderer: any;
+            act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+            let mounted!: Promise<any>;
+            act(() => {
+                mounted = adapter.mount({
+                    resource, context, signal: new AbortController().signal,
+                    onSandboxReady: vi.fn(), onFailure,
+                });
+            });
+            const webView = renderer.root.findByType('WebView');
+            act(() => webView.props.forwardedRef({ postMessage: vi.fn() }));
+            act(() => webView.props.onLoadEnd());
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+                type: 'sandbox-ready', instanceId: 'frame-1',
+            }) } }));
+            act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+                type: 'initialized', instanceId: 'frame-1',
+            }) } }));
+            await mounted;
+
+            expect(webView.props[eventName]).toEqual(expect.any(Function));
+            act(() => webView.props[eventName]({ nativeEvent: {} }));
+
+            expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({
+                code: 'MCP_APP_SANDBOX_UNAVAILABLE', retryable: true,
+            }));
             expect(renderer.root.findAllByType('WebView')).toHaveLength(0);
             act(() => renderer.unmount());
         }

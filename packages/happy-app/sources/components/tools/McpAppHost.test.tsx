@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     presence: 'online' as string | number,
     reads: [] as unknown[],
     readError: null as McpAppHostError | null,
+    frameMountInput: null as any,
 }));
 
 vi.mock('react-native', () => ({
@@ -57,6 +58,7 @@ vi.mock('./mcpApps/NativeMcpAppFrameAdapter', () => {
     }
     class Adapter implements McpAppFrameAdapter {
         async mount(input: any) {
+            mocks.frameMountInput = input;
             input.onSandboxReady();
             return new Frame();
         }
@@ -90,6 +92,7 @@ describe('McpAppHost state presentation', () => {
         mocks.presence = 'online';
         mocks.reads.length = 0;
         mocks.readError = null;
+        mocks.frameMountInput = null;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
@@ -157,6 +160,52 @@ describe('McpAppHost state presentation', () => {
 
         expect(renderer.root.findByProps({ testID: 'mcp-app-error' }).findAllByType('Text')[0].props.children).toBe('mcpApps.unavailable');
         expect(renderer.root.findByProps({ testID: 'mcp-app-retry' }).findByType('Text').props.children).toBe('mcpApps.retry');
+        act(() => renderer.unmount());
+    });
+
+    it('replaces an active frame with a safe visible error after a post-mount failure', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <McpAppHost sessionId="session-1" toolCall={toolCall} presentation={presentation} />,
+            );
+        });
+        expect(renderer.root.findByType('Frame')).toBeTruthy();
+        expect(mocks.frameMountInput?.onFailure).toEqual(expect.any(Function));
+
+        await act(async () => {
+            mocks.frameMountInput.onFailure(new McpAppHostError(
+                'MCP_APP_BRIDGE_PROTOCOL', false, 'sensitive protocol detail',
+            ));
+        });
+
+        const fallback = renderer.root.findByProps({ testID: 'mcp-app-error' });
+        expect(fallback.findByType('Text').props.children).toBe('mcpApps.unavailable');
+        expect(renderer.root.findAllByType('Frame')).toHaveLength(0);
+        expect(renderer.root.findAllByProps({ testID: 'mcp-app-retry' })).toHaveLength(0);
+        expect(JSON.stringify(renderer.toJSON())).not.toContain('sensitive protocol detail');
+        act(() => renderer.unmount());
+    });
+
+    it('offers retry after a retryable post-active WebView termination', async () => {
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <McpAppHost sessionId="session-1" toolCall={toolCall} presentation={presentation} />,
+            );
+        });
+
+        await act(async () => {
+            mocks.frameMountInput.onFailure(new McpAppHostError(
+                'MCP_APP_SANDBOX_UNAVAILABLE', true, 'sensitive process detail',
+            ));
+        });
+
+        expect(renderer.root.findByProps({ testID: 'mcp-app-error' })).toBeTruthy();
+        expect(renderer.root.findByProps({ testID: 'mcp-app-retry' }).findByType('Text').props.children)
+            .toBe('mcpApps.retry');
+        expect(renderer.root.findAllByType('Frame')).toHaveLength(0);
+        expect(JSON.stringify(renderer.toJSON())).not.toContain('sensitive process detail');
         act(() => renderer.unmount());
     });
 });

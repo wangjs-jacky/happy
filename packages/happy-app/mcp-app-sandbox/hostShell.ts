@@ -170,7 +170,12 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         }
     };
 
-    const listener = (event: MessageEvent) => { void handleCommand(event.data); };
+    const listener = (event: MessageEvent) => {
+        // The owned View shares window.message with native WebView delivery.
+        // AppBridge exclusively owns messages from that exact inner window.
+        if (iframe?.contentWindow && event.source === iframe.contentWindow) return;
+        void handleCommand(event.data);
+    };
     shellWindow.addEventListener('message', listener);
     shellWindow.document.addEventListener('message', listener as EventListener);
     return () => {

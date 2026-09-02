@@ -152,6 +152,17 @@ export function createMcpAppHostController(options: {
         terminalSent = true;
     };
 
+    const handleFrameFailure = (ownedGeneration: number, caught: unknown): void => {
+        if (disposed || generation !== ownedGeneration) return;
+        generation += 1;
+        const error = normalizeError(caught);
+        void teardownFrame().then(() => {
+            if (!disposed && generation === ownedGeneration + 1) {
+                setState({ type: 'failed', error });
+            }
+        });
+    };
+
     const runLoad = async (): Promise<void> => {
         if (disposed || resultIsUnavailable()) return;
         const ownedGeneration = ++generation;
@@ -181,6 +192,7 @@ export function createMcpAppHostController(options: {
                     setState({ type: 'initializing' });
                     deadline.arm(MCP_APP_INITIALIZE_TIMEOUT_MS);
                 },
+                onFailure: (error) => handleFrameFailure(ownedGeneration, error),
             });
             const mounted = await raceAbort(mountPromise, operation.signal);
             mountAccepted = true;
