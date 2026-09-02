@@ -20,6 +20,12 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
         listObjects: vi.fn(),
         removeObjects: vi.fn(async () => undefined),
         removeObject: vi.fn(async (_bucket: string, key: string) => { state.objects.delete(key); }),
+        copyObject: vi.fn(async (_bucket: string, destination: string, source: string) => {
+            const sourceKey = source.replace(/^\/bucket\//, '');
+            const value = state.objects.get(sourceKey);
+            if (!value) throw new Error('missing');
+            state.objects.set(destination, value);
+        }),
     };
     const filesMock = {
         s3client,
@@ -35,6 +41,11 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
             }
         }),
         deleteFile: vi.fn(async (key: string) => { state.objects.delete(key); }),
+        copyFile: vi.fn(async (source: string, destination: string) => {
+            const value = state.objects.get(source);
+            if (!value) throw new Error('missing');
+            state.objects.set(destination, value);
+        }),
         __state: state,
     };
     const resetStorage = () => {
@@ -49,6 +60,7 @@ vi.mock('@/storage/files', () => filesMock);
 
 import {
     buildPublicShareStoragePath,
+    copyPublicShareAsset,
     deletePublicShareAsset,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
@@ -84,6 +96,18 @@ describe('publicSessionShareStorage', () => {
         expect(source.kind).toBe('stream');
         expect(filesMock.s3client.getObject).toHaveBeenCalledWith('bucket', storagePath);
         expect(filesMock.s3client.putObject).toHaveBeenCalledWith('bucket', storagePath, Buffer.from('hello'), 5);
+    });
+
+    it.each([true, false])('copies a share asset inside the configured storage backend (local=%s)', async (local) => {
+        filesMock.__state.local = local;
+        const source = buildPublicShareStoragePath('share_1', 'active-generation', 'cover_1');
+        const destination = buildPublicShareStoragePath('share_1', 'pending-generation', 'cover_1');
+        filesMock.__state.objects.set(source, Buffer.from('cover'));
+
+        await copyPublicShareAsset(source, destination);
+
+        expect(filesMock.__state.objects.get(destination)).toEqual(Buffer.from('cover'));
+        expect(filesMock.copyFile).toHaveBeenCalledWith(source, destination);
     });
 
     it('deletes only the requested generation prefix', async () => {

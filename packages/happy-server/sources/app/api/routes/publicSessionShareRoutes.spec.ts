@@ -182,6 +182,11 @@ const { state, dbMock, storageMock, providerMock, logMock, resetState } = vi.hoi
         }),
         deletePublicShareGeneration: vi.fn(async () => undefined),
         deletePublicShareAsset: vi.fn(async (path: string) => { state.bytes.delete(path); }),
+        copyPublicShareAsset: vi.fn(async (source: string, destination: string) => {
+            const bytes = state.bytes.get(source);
+            if (!bytes) throw new Error('missing');
+            state.bytes.set(destination, bytes);
+        }),
     };
 
     const providerMock = {
@@ -310,6 +315,50 @@ describe('publicSessionShareRoutes', () => {
         return app.inject({ method: 'POST', url: '/v1/sessions/session-1/share/drafts', headers: { 'x-user-id': userId } });
     }
 
+    function seedActiveCover(assetId = '51515151-5151-4515-8515-515151515151') {
+        const now = new Date();
+        const generation = '41414141-4141-4414-8414-414141414141';
+        const cover = coverSnapshot(assetId).appearance.cover;
+        state.shares.push({
+            id: 'share-active-cover',
+            publicId: 'a'.repeat(43),
+            accountId: 'owner-1',
+            sessionId: 'session-1',
+            snapshot: coverSnapshot(assetId),
+            activeGeneration: generation,
+            publishedAt: now,
+            revokedAt: null,
+            lifecycleVersion: 1,
+            createdAt: now,
+            updatedAt: now,
+        });
+        state.drafts.push({
+            id: generation,
+            shareId: 'share-active-cover',
+            lifecycleVersion: 1,
+            status: 'published',
+            expiresAt: new Date(now.getTime() + 60_000),
+            createdAt: now,
+            updatedAt: now,
+        });
+        const storagePath = `private/session-shares/share-active-cover/${generation}/${assetId}`;
+        state.assets.push({
+            id: assetId,
+            shareId: 'share-active-cover',
+            generation,
+            name: 'cover.jpg',
+            mimeType: cover.mimeType,
+            kind: 'image',
+            size: cover.size,
+            sha256: HELLO_SHA256,
+            uploadedAt: now,
+            storagePath,
+            createdAt: now,
+        });
+        state.bytes.set(storagePath, Buffer.from('hello'));
+        return { assetId, cover, generation, storagePath };
+    }
+
     it('allows only the session owner to create a draft', async () => {
         expect((await createDraft('other-user')).statusCode).toBe(404);
         const response = await createDraft();
@@ -340,6 +389,134 @@ describe('publicSessionShareRoutes', () => {
             photoId: 2014422,
             attribution: { photographer: 'Eberhard Grossgasteiger' },
         });
+    });
+
+    it('clones only the owner active snapshot cover into the current pending draft', async () => {
+        const active = seedActiveCover();
+        const draft = (await createDraft()).json();
+
+        const hidden = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'other-user' },
+            payload: { assetId: active.assetId },
+        });
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+
+        expect(hidden.statusCode).toBe(404);
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual(active.cover);
+        const cloned = state.assets.find((asset) => asset.generation === draft.generation);
+        expect(cloned).toMatchObject({
+            id: active.assetId,
+            shareId: 'share-active-cover',
+            generation: draft.generation,
+            mimeType: active.cover.mimeType,
+            size: active.cover.size,
+            uploadedAt: expect.any(Date),
+        });
+        expect(storageMock.copyPublicShareAsset).toHaveBeenCalledWith(active.storagePath, cloned?.storagePath);
+    });
+
+    it('rejects no-cover, non-snapshot assets, and stale destination drafts', async () => {
+        const active = seedActiveCover();
+        const siblingId = '61616161-6161-4616-8616-616161616161';
+        state.assets.push({
+            ...state.assets[0],
+            id: siblingId,
+            storagePath: `${state.assets[0].storagePath}-sibling`,
+        });
+        state.bytes.set(state.assets[1].storagePath, Buffer.from('hello'));
+        const draft = (await createDraft()).json();
+
+        const wrongSource = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: siblingId },
+        });
+        state.shares[0].snapshot = { ...snapshot(), version: 2, appearance: { themePack: 'sage' } };
+        const noCover = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+        state.shares[0].snapshot = coverSnapshot(active.assetId);
+        state.drafts.find((row) => row.id === draft.generation)!.status = 'superseded';
+        const stale = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+
+        expect(wrongSource.statusCode).toBe(409);
+        expect(noCover.statusCode).toBe(409);
+        expect(stale.statusCode).toBe(409);
+        expect(storageMock.copyPublicShareAsset).not.toHaveBeenCalled();
+    });
+
+    it.each(['pending-row', 'missing-object'] as const)('rejects an active cover with an incomplete %s source', async (failure) => {
+        const active = seedActiveCover();
+        if (failure === 'pending-row') state.assets[0].uploadedAt = null;
+        else state.bytes.delete(active.storagePath);
+        const draft = (await createDraft()).json();
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+
+        expect(response.statusCode).toBe(409);
+        expect(storageMock.copyPublicShareAsset).not.toHaveBeenCalled();
+    });
+
+    it('returns the canonical cloned cover on an idempotent retry without another storage copy', async () => {
+        const active = seedActiveCover();
+        const draft = (await createDraft()).json();
+        const request = {
+            method: 'POST' as const,
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        };
+
+        const first = await app.inject(request);
+        const retry = await app.inject(request);
+
+        expect(first.statusCode).toBe(200);
+        expect(retry.statusCode).toBe(200);
+        expect(retry.json()).toEqual(first.json());
+        expect(storageMock.copyPublicShareAsset).toHaveBeenCalledTimes(1);
+        expect(state.assets.filter((asset) => asset.generation === draft.generation)).toHaveLength(1);
+    });
+
+    it('keeps the active publication unchanged and the destination unpublished when clone storage fails', async () => {
+        const active = seedActiveCover();
+        const originalSnapshot = state.shares[0].snapshot;
+        const originalPublishedAt = state.shares[0].publishedAt;
+        const draft = (await createDraft()).json();
+        storageMock.copyPublicShareAsset.mockRejectedValueOnce(new Error('copy unavailable'));
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: active.assetId },
+        });
+
+        expect(response.statusCode).toBe(503);
+        expect(state.shares[0]).toMatchObject({ snapshot: originalSnapshot, publishedAt: originalPublishedAt });
+        expect(state.drafts.find((row) => row.id === draft.generation)?.status).toBe('pending');
+        expect(state.assets.filter((asset) => asset.generation === draft.generation)).toHaveLength(0);
     });
 
     it('returns 503 for an unconfigured random provider without disabling other share routes', async () => {

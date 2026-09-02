@@ -11,6 +11,7 @@ import {
 } from '@/app/sessionSharing/publicSessionShareSchemas';
 import {
     buildPublicShareStoragePath,
+    copyPublicShareAsset,
     deletePublicShareAsset,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
@@ -68,6 +69,9 @@ const prepareAssetBodySchema = z.object({
 const importCoverBodySchema = z.object({
     assetId: z.string().uuid(),
     photoId: z.number().int().positive(),
+}).strict();
+const cloneCoverBodySchema = z.object({
+    assetId: z.string().uuid(),
 }).strict();
 const persistedPexelsCoverMetadataSchema = z.object({
     width: z.number().int().positive().max(100_000),
@@ -528,6 +532,264 @@ export function publicSessionShareRoutes(app: Fastify) {
         const baseUrl = resolveBaseUrl(request);
         const localUrl = `${baseUrl}/v1/sessions/${request.params.sessionId}/share/drafts/${request.params.generation}/assets/${assetId}`;
         return reply.send({ assetId, method: 'PUT', uploadUrl: localUrl });
+    });
+
+    app.post('/v1/sessions/:sessionId/share/drafts/:generation/covers/clone', {
+        preHandler: app.authenticate,
+        schema: { params: draftParamsSchema, body: cloneCoverBodySchema },
+    }, async (request, reply) => {
+        const share = await db.publicSessionShare.findFirst({
+            where: { sessionId: request.params.sessionId, accountId: request.userId },
+        });
+        if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
+        if (!await enforceShareWriteRate(request.userId, reply)) return;
+        const activeSnapshot = publicSessionSnapshotSchema.safeParse(share.snapshot);
+        const activeCover = activeSnapshot.success && activeSnapshot.data.version === 2
+            ? activeSnapshot.data.appearance.cover
+            : undefined;
+        if (!share.publishedAt
+            || !share.activeGeneration
+            || !activeCover
+            || activeCover.assetId !== request.body.assetId) {
+            return reply.code(409).send({ error: 'Active shared-session cover is unavailable' });
+        }
+        const draft = await db.publicSessionShareDraft.findFirst({
+            where: {
+                id: request.params.generation,
+                shareId: share.id,
+                lifecycleVersion: share.lifecycleVersion,
+                status: 'pending',
+                expiresAt: { gt: new Date() },
+            },
+        });
+        if (!draft) return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
+        const source = await db.publicSessionShareAsset.findFirst({
+            where: {
+                id: activeCover.assetId,
+                shareId: share.id,
+                generation: share.activeGeneration,
+                uploadedAt: { not: null },
+            },
+        });
+        if (!source
+            || source.kind !== 'image'
+            || source.mimeType !== activeCover.mimeType
+            || source.size !== activeCover.size
+            || !await publicShareAssetExists(source.storagePath, source.size)) {
+            return reply.code(409).send({ error: 'Active shared-session cover is unavailable' });
+        }
+
+        const destinationPath = buildPublicShareStoragePath(share.id, draft.id, activeCover.assetId);
+        let destinationComplete = false;
+        let destinationPending = false;
+        try {
+            await serializableTransaction(async (tx) => {
+                const now = new Date();
+                const currentShare = await tx.publicSessionShare.findFirst({
+                    where: {
+                        id: share.id,
+                        sessionId: request.params.sessionId,
+                        accountId: request.userId,
+                        activeGeneration: share.activeGeneration,
+                        lifecycleVersion: share.lifecycleVersion,
+                        revokedAt: null,
+                    },
+                });
+                const currentSnapshot = currentShare
+                    ? publicSessionSnapshotSchema.safeParse(currentShare.snapshot)
+                    : null;
+                const currentCover = currentSnapshot?.success && currentSnapshot.data.version === 2
+                    ? currentSnapshot.data.appearance.cover
+                    : undefined;
+                if (!currentShare
+                    || !currentShare.publishedAt
+                    || !currentCover
+                    || currentCover.assetId !== activeCover.assetId
+                    || currentCover.mimeType !== activeCover.mimeType
+                    || currentCover.size !== activeCover.size) {
+                    throw new StaleShareDraftError();
+                }
+                const currentDraft = await tx.publicSessionShareDraft.findFirst({
+                    where: {
+                        id: draft.id,
+                        shareId: share.id,
+                        lifecycleVersion: share.lifecycleVersion,
+                        status: 'pending',
+                        expiresAt: { gt: now },
+                    },
+                });
+                if (!currentDraft) throw new StaleShareDraftError();
+                const currentSource = await tx.publicSessionShareAsset.findFirst({
+                    where: {
+                        id: activeCover.assetId,
+                        shareId: share.id,
+                        generation: share.activeGeneration!,
+                        uploadedAt: { not: null },
+                    },
+                });
+                if (!currentSource
+                    || currentSource.storagePath !== source.storagePath
+                    || currentSource.kind !== source.kind
+                    || currentSource.mimeType !== source.mimeType
+                    || currentSource.size !== source.size
+                    || currentSource.sha256 !== source.sha256) {
+                    throw new StaleShareDraftError();
+                }
+
+                const existing = await tx.publicSessionShareAsset.findFirst({
+                    where: { id: activeCover.assetId, shareId: share.id, generation: draft.id },
+                });
+                if (existing) {
+                    if (existing.name !== source.name
+                        || existing.kind !== source.kind
+                        || existing.mimeType !== source.mimeType
+                        || existing.size !== source.size
+                        || existing.sha256 !== source.sha256
+                        || existing.storagePath !== destinationPath) {
+                        throw new PublicShareRequestError(409, 'Shared attachment already exists');
+                    }
+                    destinationComplete = Boolean(existing.uploadedAt);
+                    destinationPending = !existing.uploadedAt;
+                    return;
+                }
+
+                const generationAssets = await tx.publicSessionShareAsset.findMany({
+                    where: { shareId: share.id, generation: draft.id },
+                });
+                const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + source.size;
+                if (generationAssets.length >= MAX_ASSET_COUNT || totalSize > MAX_TOTAL_ASSET_SIZE) {
+                    throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
+                }
+                const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
+                    where: {
+                        share: { accountId: request.userId },
+                        draft: { status: 'pending', expiresAt: { gt: now } },
+                    },
+                    _sum: { size: true },
+                });
+                if ((accountPendingSize._sum.size ?? 0) + source.size > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
+                    throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
+                }
+                await tx.publicSessionShareAsset.create({
+                    data: {
+                        id: activeCover.assetId,
+                        shareId: share.id,
+                        generation: draft.id,
+                        name: source.name,
+                        mimeType: source.mimeType,
+                        kind: source.kind,
+                        size: source.size,
+                        sha256: source.sha256,
+                        storagePath: destinationPath,
+                    },
+                });
+                destinationPending = true;
+            });
+        } catch (error) {
+            if (error instanceof StaleShareDraftError) {
+                return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
+            }
+            if (error instanceof PublicShareRequestError) {
+                return reply.code(error.statusCode).send({ error: error.message });
+            }
+            if ((error as { code?: string })?.code === 'P2002') {
+                return reply.code(409).send({ error: 'Shared attachment already exists' });
+            }
+            throw error;
+        }
+
+        if (destinationComplete && await publicShareAssetExists(destinationPath, source.size)) {
+            return reply.send(activeCover);
+        }
+        try {
+            await copyPublicShareAsset(source.storagePath, destinationPath);
+        } catch {
+            await deletePublicShareAsset(destinationPath).catch((error) => {
+                log({
+                    module: 'public-session-cover-clone-cleanup',
+                    level: 'error',
+                    shareId: share.id,
+                    generation: draft.id,
+                    assetId: activeCover.assetId,
+                    error,
+                }, 'Failed to clean cloned cover object');
+            });
+            if (destinationPending) {
+                await db.publicSessionShareAsset.deleteMany({
+                    where: {
+                        id: activeCover.assetId,
+                        shareId: share.id,
+                        generation: draft.id,
+                        storagePath: destinationPath,
+                        uploadedAt: null,
+                    },
+                }).catch(() => undefined);
+            }
+            return reply.code(503).send({ error: 'Cover storage is unavailable' });
+        }
+
+        if (destinationPending) {
+            try {
+                await serializableTransaction(async (tx) => {
+                    const now = new Date();
+                    const currentShare = await tx.publicSessionShare.findFirst({
+                        where: {
+                            id: share.id,
+                            sessionId: request.params.sessionId,
+                            accountId: request.userId,
+                            activeGeneration: share.activeGeneration,
+                            lifecycleVersion: share.lifecycleVersion,
+                            revokedAt: null,
+                        },
+                    });
+                    const currentDraft = await tx.publicSessionShareDraft.findFirst({
+                        where: {
+                            id: draft.id,
+                            shareId: share.id,
+                            lifecycleVersion: share.lifecycleVersion,
+                            status: 'pending',
+                            expiresAt: { gt: now },
+                        },
+                    });
+                    if (!currentShare || !currentDraft) throw new StaleShareDraftError();
+                    const finalized = await tx.publicSessionShareAsset.updateMany({
+                        where: {
+                            id: activeCover.assetId,
+                            shareId: share.id,
+                            generation: draft.id,
+                            storagePath: destinationPath,
+                            uploadedAt: null,
+                        },
+                        data: { uploadedAt: now },
+                    });
+                    if (finalized.count !== 1) throw new StaleShareDraftError();
+                });
+            } catch (error) {
+                if (error instanceof StaleShareDraftError) {
+                    await deletePublicShareAsset(destinationPath).catch(() => undefined);
+                    await db.publicSessionShareAsset.deleteMany({
+                        where: {
+                            id: activeCover.assetId,
+                            shareId: share.id,
+                            generation: draft.id,
+                            storagePath: destinationPath,
+                            uploadedAt: null,
+                        },
+                    }).catch(() => undefined);
+                    return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
+                }
+                log({
+                    module: 'public-session-cover-clone-finalize',
+                    level: 'error',
+                    shareId: share.id,
+                    generation: draft.id,
+                    assetId: activeCover.assetId,
+                    error,
+                }, 'Cover clone finalization was ambiguous; retaining the draft asset and object for retry');
+                throw error;
+            }
+        }
+        return reply.send(activeCover);
     });
 
     app.post('/v1/sessions/:sessionId/share/drafts/:generation/covers/import', {

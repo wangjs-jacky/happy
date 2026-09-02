@@ -1,4 +1,5 @@
 import {
+    copyFile,
     deleteFile,
     deleteFilePrefix,
     isLocalStorage,
@@ -27,6 +28,10 @@ export function buildPublicShareStoragePath(shareId: string, generation: string,
 export async function putPublicShareAsset(storagePath: string, data: Buffer): Promise<void> {
     if (isLocalStorage()) return putLocalFile(storagePath, data);
     await s3client.putObject(s3bucket, storagePath, data, data.length);
+}
+
+export async function copyPublicShareAsset(sourcePath: string, destinationPath: string): Promise<void> {
+    await copyFile(sourcePath, destinationPath);
 }
 
 export async function deletePublicShareAsset(storagePath: string): Promise<void> {
