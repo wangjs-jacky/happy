@@ -75,6 +75,31 @@ type PendingRequest = {
 
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
 
+const JSON_RPC_INVALID_PARAMS = -32602;
+
+enum InitializeAttempt {
+    McpUi = 'mcpUi',
+    Legacy = 'legacy',
+}
+
+class JsonRpcResponseError extends Error {
+    constructor(
+        readonly method: string,
+        readonly code: number,
+        message: string,
+        readonly data?: unknown,
+    ) {
+        super(`${method}: ${message} (code=${code})`);
+        this.name = 'JsonRpcResponseError';
+    }
+}
+
+function isInvalidInitializeParams(error: unknown): boolean {
+    return error instanceof JsonRpcResponseError
+        && error.method === 'initialize'
+        && error.code === JSON_RPC_INVALID_PARAMS;
+}
+
 export type CodexApprovalAuthority = 'desktop' | 'paws';
 
 export type CodexAppServerConnection =
@@ -253,6 +278,7 @@ export class CodexAppServerClient {
     private sandboxCleanup: (() => Promise<void>) | null = null;
     public sandboxEnabled = false;
     private serviceTier: 'standard' | 'fast' = 'standard';
+    public mcpUiCapability: 'enabled' | 'legacy' = 'legacy';
 
     // Session state
     private _threadId: string | null = null;
@@ -768,18 +794,7 @@ export class CodexAppServerClient {
     async connect(): Promise<void> {
         if (this.connected) return;
 
-        if (this.connection.type === 'unixSocket') {
-            try {
-                await this.connectUnixSocket(this.connection);
-                await this.initializeConnection();
-            } catch (error) {
-                await this.disconnectInternal();
-                throw error;
-            }
-            return;
-        }
-
-        if (!isAppServerAvailable()) {
+        if (this.connection.type === 'spawn' && !isAppServerAvailable()) {
             throw new Error(
                 'Codex CLI is not installed\n\n' +
                 'Please install Codex CLI using one of these methods:\n\n' +
@@ -789,6 +804,38 @@ export class CodexAppServerClient {
             );
         }
 
+        try {
+            await this.connectWithCapabilityFallback();
+        } catch (error) {
+            await this.disconnectInternal({ preserveThreadState: this._threadId !== null });
+            throw error;
+        }
+    }
+
+    private async connectWithCapabilityFallback(): Promise<void> {
+        try {
+            await this.openTransport();
+            await this.initializeConnection(InitializeAttempt.McpUi);
+            this.mcpUiCapability = 'enabled';
+        } catch (error) {
+            if (!isInvalidInitializeParams(error)) throw error;
+            await this.disconnectInternal({ preserveThreadState: true });
+            await this.openTransport();
+            await this.initializeConnection(InitializeAttempt.Legacy);
+            this.mcpUiCapability = 'legacy';
+        }
+    }
+
+    private async openTransport(): Promise<void> {
+        if (this.connection.type === 'unixSocket') {
+            await this.connectUnixSocket(this.connection);
+            return;
+        }
+
+        await this.openLocalProcessTransport();
+    }
+
+    private async openLocalProcessTransport(): Promise<void> {
         let command = 'codex';
         let args = ['app-server', '--listen', 'stdio://', '-c', `service_tier=\"${this.serviceTier}\"`];
         this.sandboxEnabled = false;
@@ -867,8 +914,6 @@ export class CodexAppServerClient {
             if (this.process !== proc || this.processEpoch !== epoch) return;
             this.handleLine(line, epoch);
         });
-
-        await this.initializeConnection();
     }
 
     private async connectUnixSocket(
@@ -937,7 +982,7 @@ export class CodexAppServerClient {
         logger.debug(`[CodexAppServer] Connected to shared Unix socket: ${connection.socketPath}`);
     }
 
-    private async initializeConnection(): Promise<void> {
+    private async initializeConnection(attempt: InitializeAttempt): Promise<void> {
         // Perform initialize handshake
         const initParams: InitializeParams = {
             clientInfo: {
@@ -945,9 +990,16 @@ export class CodexAppServerClient {
                 title: 'Happy Codex Client',
                 version: packageJson.version,
             },
-            capabilities: {
-                experimentalApi: true,
-            },
+            capabilities: attempt === InitializeAttempt.McpUi
+                ? {
+                    experimentalApi: true,
+                    extensions: {
+                        'io.modelcontextprotocol/ui': {
+                            mimeTypes: ['text/html;profile=mcp-app'],
+                        },
+                    },
+                }
+                : { experimentalApi: true },
         };
         await this.request('initialize', initParams);
         this.notify('initialized');
@@ -1754,7 +1806,12 @@ export class CodexAppServerClient {
                 }
                 this.pending.delete(msg.id);
                 if (msg.error) {
-                    pending.reject(new Error(`${pending.method}: ${msg.error.message} (code=${msg.error.code})`));
+                    pending.reject(new JsonRpcResponseError(
+                        pending.method,
+                        msg.error.code,
+                        msg.error.message,
+                        msg.error.data,
+                    ));
                 } else {
                     pending.resolve(msg.result);
                 }

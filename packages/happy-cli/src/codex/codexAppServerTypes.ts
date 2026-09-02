@@ -1,15 +1,24 @@
 /**
- * Cherry-picked types from `codex app-server generate-ts` (Codex 0.107.0).
- * Only the essential types needed for our integration.
+ * Compatibility subset for the Codex app-server versions supported by Paws
+ * (Codex 0.107.0 through 0.144.5). This is intentionally not a complete
+ * generated protocol surface.
  */
 
 export type ThreadId = string;
 
 // --- Initialize ---
 
+export type McpUiClientCapability = {
+    mimeTypes: Array<'text/html;profile=mcp-app'>;
+};
+
 export type InitializeParams = {
     clientInfo: { name: string; title: string | null; version: string };
-    capabilities: { experimentalApi: boolean; optOutNotificationMethods?: string[] | null } | null;
+    capabilities: {
+        experimentalApi: boolean;
+        optOutNotificationMethods?: string[] | null;
+        extensions?: { 'io.modelcontextprotocol/ui': McpUiClientCapability };
+    } | null;
 };
 
 export type InitializeResponse = { userAgent: string };

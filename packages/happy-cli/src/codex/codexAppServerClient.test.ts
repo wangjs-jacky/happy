@@ -1,4 +1,9 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { WebSocket, WebSocketServer } from 'ws';
 import type { SandboxConfig } from '@/persistence';
 
 const {
@@ -46,6 +51,7 @@ type MockRpcMessage = {
     method?: string;
     params?: any;
     result?: any;
+    error?: { code: number; message: string };
 };
 
 function pushJsonLine(stdout: NodeJS.ReadableStream & { push: (chunk: string) => void }, payload: unknown) {
@@ -56,6 +62,7 @@ function pushJsonLine(stdout: NodeJS.ReadableStream & { push: (chunk: string) =>
 function createMockProcess(opts?: {
     pid?: number;
     initializeDelayMs?: number;
+    autoInitialize?: boolean;
     onRequest?: (msg: MockRpcMessage, stdout: NodeJS.ReadableStream & { push: (chunk: string) => void }) => void;
 }) {
     const { Readable, Writable } = require('stream');
@@ -75,7 +82,7 @@ function createMockProcess(opts?: {
     stdin.write = (data: any, ...args: any[]) => {
         try {
             const msg = JSON.parse(typeof data === 'string' ? data : data.toString());
-            if (msg.method === 'initialize' && msg.id != null) {
+            if (opts?.autoInitialize !== false && msg.method === 'initialize' && msg.id != null) {
                 // Send response on next tick
                 setTimeout(() => {
                     pushJsonLine(stdout, { id: msg.id, result: { userAgent: 'test' } });
@@ -86,6 +93,60 @@ function createMockProcess(opts?: {
         return origWrite(data, ...args);
     };
     return proc;
+}
+
+async function createUnixSocketAppServer(
+    onInitialize: (
+        message: MockRpcMessage,
+        connection: WebSocket,
+        connectionIndex: number,
+    ) => void,
+): Promise<{
+    socketPath: string;
+    initializeRequests: MockRpcMessage[][];
+    cleanup: () => Promise<void>;
+}> {
+    const tempDir = await mkdtemp(join(tmpdir(), 'paws-codex-capability-'));
+    const socketPath = join(tempDir, 'app-server.sock');
+    const server: Server = createServer();
+    const webSocketServer = new WebSocketServer({ server });
+    const connections = new Set<WebSocket>();
+    const initializeRequests: MockRpcMessage[][] = [];
+
+    webSocketServer.on('connection', (connection) => {
+        const connectionIndex = initializeRequests.length;
+        initializeRequests.push([]);
+        connections.add(connection);
+        connection.on('close', () => connections.delete(connection));
+        connection.on('message', (data) => {
+            const message = JSON.parse(data.toString()) as MockRpcMessage;
+            if (message.method === 'initialize' && message.id !== undefined) {
+                initializeRequests[connectionIndex].push(message);
+                onInitialize(message, connection, connectionIndex);
+            }
+        });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(socketPath, () => {
+            server.off('error', reject);
+            resolve();
+        });
+    });
+
+    return {
+        socketPath,
+        initializeRequests,
+        cleanup: async () => {
+            for (const connection of connections) {
+                connection.terminate();
+            }
+            await new Promise<void>((resolve) => webSocketServer.close(() => resolve()));
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+            await rm(tempDir, { recursive: true, force: true });
+        },
+    };
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs: number = 1000): Promise<void> {
@@ -113,6 +174,7 @@ const sandboxConfig: SandboxConfig = {
 };
 
 describe('CodexAppServerClient sandbox integration', () => {
+    const cleanupTasks: Array<() => Promise<void>> = [];
     const originalRustLog = process.env.RUST_LOG;
     const proxyEnvKeys = [
         'HTTP_PROXY',
@@ -141,6 +203,7 @@ describe('CodexAppServerClient sandbox integration', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockSpawn.mockReset();
         process.env.RUST_LOG = originalRustLog;
         restoreProxyEnv();
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
@@ -149,9 +212,158 @@ describe('CodexAppServerClient sandbox integration', () => {
         mockSpawn.mockImplementation(() => createMockProcess());
     });
 
+    afterEach(async () => {
+        while (cleanupTasks.length > 0) {
+            await cleanupTasks.pop()?.();
+        }
+    });
+
     afterAll(() => {
         process.env.RUST_LOG = originalRustLog;
         restoreProxyEnv();
+    });
+
+    it('advertises the MCP UI extension during successful initialization', async () => {
+        const requests: MockRpcMessage[] = [];
+        mockSpawn.mockImplementation(() => createMockProcess({
+            onRequest: (message) => requests.push(message),
+        }));
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        const initialize = requests.find((message) => message.method === 'initialize');
+        expect(initialize?.params.capabilities).toEqual({
+            experimentalApi: true,
+            extensions: {
+                'io.modelcontextprotocol/ui': {
+                    mimeTypes: ['text/html;profile=mcp-app'],
+                },
+            },
+        });
+        expect(client.mcpUiCapability).toBe('enabled');
+
+        await client.disconnect();
+    });
+
+    it('reconnects a local process once without extensions after invalid initialize params', async () => {
+        const requestsByProcess: MockRpcMessage[][] = [[], []];
+        const firstProcess = createMockProcess({
+            autoInitialize: false,
+            onRequest: (message, stdout) => {
+                requestsByProcess[0].push(message);
+                if (message.method === 'initialize' && message.id !== undefined) {
+                    pushJsonLine(stdout, {
+                        id: message.id,
+                        error: { code: -32602, message: 'extensions are unsupported' },
+                    });
+                }
+            },
+        });
+        const secondProcess = createMockProcess({
+            onRequest: (message) => requestsByProcess[1].push(message),
+        });
+        mockSpawn
+            .mockImplementationOnce(() => firstProcess)
+            .mockImplementationOnce(() => secondProcess);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await client.connect();
+
+        const firstInitialize = requestsByProcess[0].find((message) => message.method === 'initialize');
+        const secondInitialize = requestsByProcess[1].find((message) => message.method === 'initialize');
+        expect(firstInitialize?.params.capabilities).toMatchObject({
+            experimentalApi: true,
+            extensions: {
+                'io.modelcontextprotocol/ui': {
+                    mimeTypes: ['text/html;profile=mcp-app'],
+                },
+            },
+        });
+        expect(secondInitialize?.params.capabilities.extensions).toBeUndefined();
+        expect(requestsByProcess[0].filter((message) => message.method === 'initialize')).toHaveLength(1);
+        expect(requestsByProcess[1].filter((message) => message.method === 'initialize')).toHaveLength(1);
+        expect(firstProcess.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(mockSpawn).toHaveBeenCalledTimes(2);
+        expect(client.mcpUiCapability).toBe('legacy');
+
+        await client.disconnect();
+    });
+
+    it('reconnects a shared Unix socket once without extensions after invalid initialize params', async () => {
+        const appServer = await createUnixSocketAppServer((message, connection, connectionIndex) => {
+            if (connectionIndex === 0) {
+                connection.send(JSON.stringify({
+                    id: message.id,
+                    error: { code: -32602, message: 'extensions are unsupported' },
+                }));
+                return;
+            }
+            connection.send(JSON.stringify({ id: message.id, result: { userAgent: 'test' } }));
+        });
+        cleanupTasks.push(appServer.cleanup);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient(undefined, {
+            type: 'unixSocket',
+            socketPath: appServer.socketPath,
+        });
+
+        await client.connect();
+
+        expect(appServer.initializeRequests).toHaveLength(2);
+        expect(appServer.initializeRequests[0]).toHaveLength(1);
+        expect(appServer.initializeRequests[1]).toHaveLength(1);
+        expect(appServer.initializeRequests[0][0].params.capabilities).toMatchObject({
+            experimentalApi: true,
+            extensions: {
+                'io.modelcontextprotocol/ui': {
+                    mimeTypes: ['text/html;profile=mcp-app'],
+                },
+            },
+        });
+        expect(appServer.initializeRequests[1][0].params.capabilities.extensions).toBeUndefined();
+        expect(client.mcpUiCapability).toBe('legacy');
+
+        await client.disconnect();
+    });
+
+    it('surfaces a second legacy initialize failure without opening a third process', async () => {
+        const requestsByProcess: MockRpcMessage[][] = [[], []];
+        const processes = requestsByProcess.map((requests, index) => createMockProcess({
+            autoInitialize: false,
+            onRequest: (message, stdout) => {
+                requests.push(message);
+                if (message.method === 'initialize' && message.id !== undefined) {
+                    pushJsonLine(stdout, {
+                        id: message.id,
+                        error: {
+                            code: index === 0 ? -32602 : -32603,
+                            message: index === 0 ? 'extensions are unsupported' : 'legacy initialize failed',
+                        },
+                    });
+                }
+            },
+        }));
+        mockSpawn
+            .mockImplementationOnce(() => processes[0])
+            .mockImplementationOnce(() => processes[1]);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await expect(client.connect()).rejects.toThrow('initialize: legacy initialize failed (code=-32603)');
+
+        expect(mockSpawn).toHaveBeenCalledTimes(2);
+        expect(requestsByProcess[0].filter((message) => message.method === 'initialize')).toHaveLength(1);
+        expect(requestsByProcess[1].filter((message) => message.method === 'initialize')).toHaveLength(1);
+        expect(requestsByProcess[0][0].params.capabilities.extensions).toEqual({
+            'io.modelcontextprotocol/ui': {
+                mimeTypes: ['text/html;profile=mcp-app'],
+            },
+        });
+        expect(requestsByProcess[1][0].params.capabilities.extensions).toBeUndefined();
+        expect(client.mcpUiCapability).toBe('legacy');
     });
 
     it('wraps transport when sandbox is enabled', async () => {
