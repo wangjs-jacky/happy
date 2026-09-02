@@ -23,6 +23,37 @@ test('production workflow switches verified OSS content before Caddy and guarded
     assert.ok(position('Roll back failed Web activation') > position('Remove guarded legacy Web files'));
 });
 
+test('MCP App sandbox rollout is disabled by default and verified before Web export or activation', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const job = workflow.jobs.deploy;
+    const names = job.steps.map((step) => step.name);
+    const position = (name) => names.indexOf(name);
+
+    assert.equal(job.env.PAWS_MCP_APP_SANDBOX_ORIGIN, '${{ vars.PAWS_MCP_APP_SANDBOX_ORIGIN }}');
+    assert.ok(position('Resolve MCP App sandbox rollout') >= 0);
+    assert.ok(position('Configure MCP App sandbox route') > position('Resolve MCP App sandbox rollout'));
+    assert.ok(position('Verify MCP App sandbox endpoint') > position('Configure MCP App sandbox route'));
+    assert.ok(position('Build and stamp Web from this main revision') > position('Verify MCP App sandbox endpoint'));
+    assert.ok(position('Atomically switch OSS Web entry') > position('Build and stamp Web from this main revision'));
+
+    const resolve = job.steps.find((step) => step.name === 'Resolve MCP App sandbox rollout');
+    const configure = job.steps.find((step) => step.name === 'Configure MCP App sandbox route');
+    const verify = job.steps.find((step) => step.name === 'Verify MCP App sandbox endpoint');
+    const build = job.steps.find((step) => step.name === 'Build and stamp Web from this main revision');
+    assert.match(resolve.run, /enabled=false/);
+    assert.match(resolve.run, /sandbox origin must differ/i);
+    assert.match(configure.if, /steps\.mcp_rollout\.outputs\.enabled == 'true'/);
+    assert.match(verify.if, /steps\.mcp_rollout\.outputs\.enabled == 'true'/);
+    assert.match(configure.run, /configure-production-mcp-app-sandbox-caddy\.mjs/);
+    assert.match(verify.run, /verify-production-mcp-app-sandbox\.mjs/);
+    assert.match(build.run, /unset EXPO_PUBLIC_MCP_APP_SANDBOX_ORIGIN/);
+    assert.match(build.run, /export EXPO_PUBLIC_MCP_APP_SANDBOX_ORIGIN/);
+    for (const step of [resolve, configure, build]) {
+        const syntax = spawnSync('bash', ['-n'], { input: step.run, encoding: 'utf8' });
+        assert.equal(syntax.status, 0, syntax.stderr);
+    }
+});
+
 test('production activation is serialized and cannot be cancelled mid-switch', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
 
@@ -51,6 +82,8 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.match(rollbackStep.run, /set \+e/);
     assert.match(rollbackStep.run, /oss_rollback_status/);
     assert.match(rollbackStep.run, /caddy_rollback_status/);
+    assert.match(rollbackStep.run, /Caddyfile\.paws-mcp-app\.previous-/);
+    assert.match(rollbackStep.run, /mcp_caddy_rollback_status/);
     assert.match(rollbackStep.run, /exit 1/);
     const syntax = spawnSync('bash', ['-n'], { input: rollbackStep.run, encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
