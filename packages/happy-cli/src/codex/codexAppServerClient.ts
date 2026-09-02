@@ -47,6 +47,8 @@ import type {
     GetAccountTokenUsageResponse,
     ListMcpServerStatusParams,
     ListMcpServerStatusResponse,
+    McpServerToolCallParams,
+    McpServerToolCallResponse,
     ReviewStartParams,
     ReviewStartResponse,
     ThreadCompactStartResponse,
@@ -1345,14 +1347,24 @@ export class CodexAppServerClient {
         return await this.request('account/usage/read') as GetAccountTokenUsageResponse;
     }
 
-    async listMcpServerStatus(opts?: ListMcpServerStatusParams): Promise<ListMcpServerStatusResponse> {
+    async listMcpServerStatus(
+        opts?: ListMcpServerStatusParams,
+        options?: { signal?: AbortSignal },
+    ): Promise<ListMcpServerStatusResponse> {
         const params: ListMcpServerStatusParams = {
             threadId: opts?.threadId ?? null,
             detail: opts?.detail ?? null,
             cursor: opts?.cursor ?? null,
             limit: opts?.limit ?? null,
         };
-        return await this.request('mcpServerStatus/list', params) as ListMcpServerStatusResponse;
+        return await this.request('mcpServerStatus/list', params, undefined, options?.signal) as ListMcpServerStatusResponse;
+    }
+
+    async callMcpTool(
+        params: McpServerToolCallParams,
+        options?: { signal?: AbortSignal },
+    ): Promise<McpServerToolCallResponse> {
+        return await this.request('mcpServer/tool/call', params, undefined, options?.signal) as McpServerToolCallResponse;
     }
 
     async startCompact(opts?: { threadId?: string }): Promise<ThreadCompactStartResponse> {

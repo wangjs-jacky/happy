@@ -220,6 +220,7 @@ export type McpResourceReadParams = {
     server: string;
     uri: string;
     originCallId?: string;
+    connectorId?: string;
 };
 
 export type McpResourceReadResponse = {
@@ -335,20 +336,40 @@ export type GetAccountTokenUsageResponse = {
 
 export type McpServerStatusDetail = "full" | "toolsAndAuthOnly";
 
-export type McpToolDefinition = {
+export type McpToolAnnotations = {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    openWorldHint?: boolean;
+    [key: string]: unknown;
+};
+
+export type McpToolCatalogEntry = {
     name: string;
+    enabled?: boolean;
     description?: string | null;
     title?: string | null;
-    inputSchema: unknown;
+    inputSchema?: unknown;
     outputSchema?: unknown;
+    annotations?: McpToolAnnotations;
+    _meta?: {
+        ui?: { visibility?: string[]; [key: string]: unknown };
+        'ui/visibility'?: string[];
+        connectorId?: string;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
 };
+
+export type McpToolDefinition = McpToolCatalogEntry;
 
 export type McpServerStatus = {
     name: string;
-    authStatus: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
-    tools: Record<string, McpToolDefinition>;
-    resources: unknown[];
-    resourceTemplates: unknown[];
+    authStatus?: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+    runtimeStatus?: "notStarted" | "starting" | "connected" | "authenticationRequired" | "failed" | "cancelled" | "disabled" | null;
+    pluginId?: string | null;
+    tools: Record<string, McpToolCatalogEntry> | McpToolCatalogEntry[];
+    resources?: unknown[];
+    resourceTemplates?: unknown[];
     serverInfo?: {
         name: string;
         title?: string | null;
@@ -368,6 +389,23 @@ export type ListMcpServerStatusParams = {
 export type ListMcpServerStatusResponse = {
     data: McpServerStatus[];
     nextCursor?: string | null;
+};
+
+export type McpServerToolCallParams = {
+    threadId: string;
+    server: string;
+    tool: string;
+    arguments?: Record<string, unknown>;
+    /** Additive Paws/Codex provenance binding for App-initiated calls. */
+    originCallId: string;
+};
+
+export type McpServerToolCallResponse = {
+    content: unknown[];
+    structuredContent?: unknown;
+    isError?: boolean;
+    _meta?: unknown;
+    [key: string]: unknown;
 };
 
 export type ThreadCompactStartResponse = Record<string, never>;

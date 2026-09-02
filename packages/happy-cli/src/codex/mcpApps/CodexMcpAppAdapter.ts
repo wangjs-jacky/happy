@@ -9,7 +9,7 @@ import {
     type McpAppPresentationV1,
     type McpAppResultV1,
 } from '@slopus/happy-wire';
-import type { ThreadItem } from '../codexAppServerTypes';
+import type { McpToolCatalogEntry, ThreadItem } from '../codexAppServerTypes';
 
 const MAX_MCP_APP_RESULT_BYTES = 256 * 1024;
 
@@ -81,7 +81,95 @@ export interface NormalizedCodexMcpAppCall {
     result?: McpAppResultV1;
 }
 
+export type NormalizedMcpToolCatalogMatch = {
+    entry: McpToolCatalogEntry;
+    serverEnabled: boolean;
+    connectorId?: string;
+};
+
+function record(value: unknown): Record<string, unknown> | undefined {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined;
+}
+
+function catalogServers(response: unknown): unknown[] {
+    if (Array.isArray(response)) return response;
+    const candidate = record(response);
+    if (!candidate) return [];
+    for (const key of ['data', 'servers', 'mcpServers']) {
+        if (Array.isArray(candidate[key])) return candidate[key];
+    }
+    return [];
+}
+
+function catalogEntries(server: Record<string, unknown>): McpToolCatalogEntry[] {
+    const tools = server.tools;
+    if (Array.isArray(tools)) {
+        return tools.filter((entry): entry is McpToolCatalogEntry => {
+            const candidate = record(entry);
+            return typeof candidate?.name === 'string' && candidate.name.length > 0;
+        });
+    }
+    const toolRecord = record(tools);
+    if (!toolRecord) return [];
+    const entries: McpToolCatalogEntry[] = [];
+    for (const [name, value] of Object.entries(toolRecord)) {
+        const candidate = record(value);
+        if (!candidate) continue;
+        const normalizedName = typeof candidate.name === 'string' && candidate.name.length > 0
+            ? candidate.name
+            : name;
+        entries.push({ ...candidate, name: normalizedName } as McpToolCatalogEntry);
+    }
+    return entries;
+}
+
+function catalogConnectorId(entry: McpToolCatalogEntry): string | undefined {
+    const meta = record(entry._meta);
+    const ui = record(meta?.ui);
+    for (const candidate of [meta?.connectorId, ui?.connectorId]) {
+        if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+    }
+    return undefined;
+}
+
 export class CodexMcpAppAdapter {
+    findCatalogTool(
+        response: unknown,
+        serverName: string,
+        toolName: string,
+    ): NormalizedMcpToolCatalogMatch | undefined {
+        const server = catalogServers(response)
+            .map(record)
+            .find((candidate) => candidate
+                && (candidate.name === serverName || candidate.serverName === serverName));
+        if (!server) return undefined;
+        const entry = catalogEntries(server).find((candidate) => candidate.name === toolName);
+        if (!entry) return undefined;
+        const runtimeStatus = server.runtimeStatus ?? server.status;
+        const serverEnabled = runtimeStatus !== 'disabled'
+            && runtimeStatus !== 'failed'
+            && runtimeStatus !== 'cancelled';
+        const connectorId = catalogConnectorId(entry);
+        return {
+            entry,
+            serverEnabled,
+            ...(connectorId ? { connectorId } : {}),
+        };
+    }
+
+    isAppVisible(entry: McpToolCatalogEntry): boolean {
+        const meta = record(entry._meta);
+        const ui = record(meta?.ui);
+        const visibility = Array.isArray(ui?.visibility)
+            ? ui.visibility
+            : Array.isArray(meta?.['ui/visibility'])
+                ? meta['ui/visibility']
+                : undefined;
+        return visibility === undefined || visibility.includes('app');
+    }
+
     normalizeItem(item: Extract<ThreadItem, { type: 'mcpToolCall' }>): NormalizedCodexMcpAppCall {
         const input = item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
             ? item.arguments as Record<string, unknown>

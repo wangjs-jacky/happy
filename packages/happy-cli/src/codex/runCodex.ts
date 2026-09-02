@@ -1190,6 +1190,7 @@ export async function runCodex(opts: {
             rpcHandlerManager: session.rpcHandlerManager,
             client,
             bindingRegistry: mcpAppBindingRegistry,
+            permissionHandler,
         });
 
         const forkCodexThreadId = process.env.HAPPY_FORK_CODEX_THREAD_ID;

@@ -17,6 +17,9 @@ type Handler = (request: unknown) => Promise<unknown>;
 function createHarness(options?: {
     now?: () => number;
     readMcpResource?: ReturnType<typeof vi.fn>;
+    listMcpServerStatus?: ReturnType<typeof vi.fn>;
+    callMcpTool?: ReturnType<typeof vi.fn>;
+    handleToolCall?: ReturnType<typeof vi.fn>;
 }) {
     const handlers = new Map<string, Handler>();
     const registry = new McpAppBindingRegistry();
@@ -28,6 +31,32 @@ function createHarness(options?: {
                 text: '<main>App</main>',
             }],
         })),
+        listMcpServerStatus: options?.listMcpServerStatus ?? vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                authStatus: 'unsupported',
+                runtimeStatus: 'connected',
+                pluginId: null,
+                serverInfo: null,
+                tools: {
+                    refresh: {
+                        name: 'refresh',
+                        inputSchema: {},
+                        annotations: { readOnlyHint: true },
+                    },
+                },
+                resources: [],
+                resourceTemplates: [],
+            }],
+            nextCursor: null,
+        })),
+        callMcpTool: options?.callMcpTool ?? vi.fn(async () => ({
+            content: [{ type: 'text', text: 'refreshed' }],
+            structuredContent: { refreshed: true },
+        })),
+    };
+    const permissionHandler = {
+        handleToolCall: options?.handleToolCall ?? vi.fn(async () => ({ decision: 'approved' as const })),
     };
     const registration = registerMcpAppRpcHandlers({
         rpcHandlerManager: {
@@ -40,10 +69,11 @@ function createHarness(options?: {
         },
         client,
         bindingRegistry: registry,
+        permissionHandler,
         now: options?.now,
     });
 
-    return { client, handlers, registration, registry };
+    return { client, handlers, permissionHandler, registration, registry };
 }
 
 function bind(registry: McpAppBindingRegistry, options?: { connectorId?: string; callId?: string }) {
@@ -57,6 +87,19 @@ function bind(registry: McpAppBindingRegistry, options?: { connectorId?: string;
         ...(options?.connectorId ? { connectorId: options.connectorId } : {}),
     });
     return callId;
+}
+
+async function readSecondary(handler: Handler, uri: string, callId = 'call-1') {
+    return await handler({ callId, uri }) as McpAppRpcResponse<unknown>;
+}
+
+async function callTool(
+    handler: Handler,
+    tool = 'refresh',
+    request: Record<string, unknown> = {},
+    callId = 'call-1',
+) {
+    return await handler({ callId, tool, arguments: { id: 1 }, ...request }) as McpAppRpcResponse<unknown>;
 }
 
 async function open(
@@ -81,6 +124,13 @@ function opened(response: McpAppRpcResponse<McpAppResourceOpenResponse>): McpApp
 }
 
 describe('registerMcpAppRpcHandlers', () => {
+    it('registers bounded secondary resource and direct tool handlers', () => {
+        const { handlers } = createHarness();
+
+        expect(handlers.has('mcpAppResourceRead')).toBe(true);
+        expect(handlers.has('mcpAppToolCall')).toBe(true);
+    });
+
     it('returns a safe not-found envelope for an unknown binding', async () => {
         const { handlers } = createHarness();
 
@@ -132,6 +182,386 @@ describe('registerMcpAppRpcHandlers', () => {
             server: 'demo',
             uri: 'ui://demo/index.html',
         });
+    });
+
+    it('reads secondary resources only through binding-derived authority and declared schemes', async () => {
+        const readMcpResource = vi.fn(async (params: { uri: string }) => params.uri === 'ui://demo/index.html'
+            ? {
+                contents: [{
+                    uri: params.uri,
+                    mimeType: 'text/html;profile=mcp-app',
+                    text: '<main>App</main>',
+                    _meta: {
+                        ui: {
+                            csp: { resourceDomains: ['https://cdn.example.test'] },
+                        },
+                    },
+                }],
+            }
+            : {
+                contents: [{ uri: params.uri, mimeType: 'application/json', text: '{"ok":true}' }],
+            });
+        const { client, handlers, registry } = createHarness({ readMcpResource });
+        bind(registry, { connectorId: 'connector-1' });
+        registry.complete('call-1', undefined, true);
+        await open(handlers.get('mcpAppResourceOpen')!);
+
+        await expect(readSecondary(
+            handlers.get('mcpAppResourceRead')!,
+            'https://cdn.example.test/data.json',
+        )).resolves.toEqual({
+            ok: true,
+            value: {
+                contents: [{
+                    uri: 'https://cdn.example.test/data.json',
+                    mimeType: 'application/json',
+                    text: '{"ok":true}',
+                }],
+            },
+        });
+        expect(client.readMcpResource.mock.calls[1][0]).toEqual({
+            threadId: 'thread-1',
+            server: 'demo',
+            uri: 'https://cdn.example.test/data.json',
+            originCallId: 'call-1',
+            connectorId: 'connector-1',
+        });
+        expect(client.readMcpResource.mock.calls[1][0]).not.toHaveProperty('accountId');
+
+        await expect(readSecondary(
+            handlers.get('mcpAppResourceRead')!,
+            'file:///private/secret',
+        )).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_INVALID_RESOURCE', retryable: false }),
+        });
+        await expect(readSecondary(
+            handlers.get('mcpAppResourceRead')!,
+            'ui:not-hierarchical',
+        )).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_INVALID_RESOURCE', retryable: false }),
+        });
+        expect(client.readMcpResource).toHaveBeenCalledTimes(2);
+    });
+
+    it('allows ui secondary reads without primary CSP metadata', async () => {
+        const readMcpResource = vi.fn(async (params: { uri: string }) => ({
+            contents: [{
+                uri: params.uri,
+                mimeType: params.uri.endsWith('index.html') ? 'text/html;profile=mcp-app' : 'text/plain',
+                text: params.uri.endsWith('index.html') ? '<main>App</main>' : 'detail',
+            }],
+        }));
+        const { handlers, registry } = createHarness({ readMcpResource });
+        bind(registry);
+        await open(handlers.get('mcpAppResourceOpen')!);
+
+        await expect(readSecondary(
+            handlers.get('mcpAppResourceRead')!,
+            'ui://demo/detail.txt',
+        )).resolves.toMatchObject({ ok: true });
+    });
+
+    it('rejects a secondary response over 512 KiB serialized without buffering it', async () => {
+        const readMcpResource = vi.fn(async (params: { uri: string }) => ({
+            contents: [{
+                uri: params.uri,
+                mimeType: params.uri.endsWith('index.html') ? 'text/html;profile=mcp-app' : 'text/plain',
+                text: params.uri.endsWith('index.html') ? '<main>App</main>' : 'x'.repeat(512 * 1024),
+            }],
+        }));
+        const { handlers, registry } = createHarness({ readMcpResource });
+        bind(registry);
+        await open(handlers.get('mcpAppResourceOpen')!);
+
+        await expect(readSecondary(
+            handlers.get('mcpAppResourceRead')!,
+            'ui://demo/large.txt',
+        )).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_RESOURCE_TOO_LARGE', retryable: false }),
+        });
+    });
+
+    it.each([
+        ['absent visibility', undefined],
+        ['explicit app visibility', { ui: { visibility: ['app'] } }],
+    ])('calls a current-catalog tool with %s using only immutable authority', async (_case, meta) => {
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    refresh: {
+                        name: 'refresh',
+                        enabled: true,
+                        inputSchema: {},
+                        annotations: { readOnlyHint: true },
+                        ...(meta ? { _meta: meta } : {}),
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, permissionHandler, registry } = createHarness({ listMcpServerStatus });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toMatchObject({ ok: true });
+        expect(client.listMcpServerStatus).toHaveBeenCalledWith({
+            threadId: 'thread-1',
+            detail: 'toolsAndAuthOnly',
+            limit: 100,
+        }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+        expect(client.callMcpTool.mock.calls[0][0]).toEqual({
+            threadId: 'thread-1',
+            server: 'demo',
+            tool: 'refresh',
+            arguments: { id: 1 },
+            originCallId: 'call-1',
+        });
+        expect(client.callMcpTool.mock.calls[0][0]).not.toHaveProperty('connectorId');
+        expect(client.callMcpTool.mock.calls[0][0]).not.toHaveProperty('accountId');
+        expect(client.callMcpTool.mock.calls[0][0]).not.toHaveProperty('_meta');
+        expect(permissionHandler.handleToolCall).not.toHaveBeenCalled();
+    });
+
+    it('normalizes the deprecated array tool catalog shape', async () => {
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                tools: [{
+                    name: 'refresh',
+                    enabled: true,
+                    annotations: { readOnlyHint: true },
+                    _meta: { 'ui/visibility': ['app'] },
+                }],
+            }],
+        }));
+        const { handlers, registry } = createHarness({ listMcpServerStatus });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toMatchObject({ ok: true });
+    });
+
+    it.each([
+        ['explicit model-only visibility', {
+            catalog: { enabled: true, _meta: { ui: { visibility: ['model'] } } },
+            request: {},
+        }],
+        ['disabled catalog entry', {
+            catalog: { enabled: false, _meta: { ui: { visibility: ['app'] } } },
+            request: {},
+        }],
+        ['cross-server authority field', {
+            catalog: { enabled: true, _meta: { ui: { visibility: ['app'] } } },
+            request: { server: 'other-server' },
+        }],
+        ['connector mismatch', {
+            catalog: {
+                enabled: true,
+                _meta: { ui: { visibility: ['app'] }, connectorId: 'connector-other' },
+            },
+            request: {},
+        }],
+    ])('rejects %s before direct execution', async (_case, fixture) => {
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    refresh: {
+                        name: 'refresh',
+                        inputSchema: {},
+                        annotations: { readOnlyHint: true },
+                        ...fixture.catalog,
+                    },
+                },
+            }],
+        }));
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus });
+        bind(registry, { connectorId: 'connector-1' });
+        registry.complete('call-1', undefined, true);
+
+        await expect(callTool(
+            handlers.get('mcpAppToolCall')!,
+            'refresh',
+            fixture.request,
+        )).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TOOL_NOT_ALLOWED', retryable: false }),
+        });
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it('refreshes the catalog for every call and rejects a tool removed from the new snapshot', async () => {
+        const listMcpServerStatus = vi.fn()
+            .mockResolvedValueOnce({
+                data: [{
+                    name: 'demo',
+                    runtimeStatus: 'connected',
+                    tools: {
+                        refresh: {
+                            name: 'refresh',
+                            enabled: true,
+                            inputSchema: {},
+                            annotations: { readOnlyHint: true },
+                        },
+                    },
+                }],
+            })
+            .mockResolvedValueOnce({
+                data: [{ name: 'demo', runtimeStatus: 'connected', tools: {} }],
+            });
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus });
+        bind(registry);
+        const handler = handlers.get('mcpAppToolCall')!;
+
+        await expect(callTool(handler)).resolves.toMatchObject({ ok: true });
+        await expect(callTool(handler)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TOOL_NOT_ALLOWED' }),
+        });
+        expect(listMcpServerStatus).toHaveBeenCalledTimes(2);
+        expect(client.callMcpTool).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['oversized arguments', { payload: 'x'.repeat(256 * 1024) }],
+        ['deep arguments', (() => {
+            let value: Record<string, unknown> = { leaf: true };
+            for (let index = 0; index < 33; index++) value = { nested: value };
+            return value;
+        })()],
+    ])('rejects %s before catalog refresh or execution', async (_case, args) => {
+        const { client, handlers, registry } = createHarness();
+        bind(registry);
+
+        await expect(callTool(
+            handlers.get('mcpAppToolCall')!,
+            'refresh',
+            { arguments: args },
+        )).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TOOL_NOT_ALLOWED', retryable: false }),
+        });
+        expect(client.listMcpServerStatus).not.toHaveBeenCalled();
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it('strips caller connector and account metadata from an authorized tool call', async () => {
+        const { client, handlers, registry } = createHarness();
+        bind(registry, { connectorId: 'connector-1' });
+        registry.complete('call-1', undefined, true);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!, 'refresh', {
+            _meta: {
+                connectorId: 'connector-1',
+                accountId: 'caller-account',
+                trace: { requestId: 'caller-trace' },
+            },
+        })).resolves.toMatchObject({ ok: true });
+        expect(client.callMcpTool.mock.calls[0][0]).toEqual({
+            threadId: 'thread-1',
+            server: 'demo',
+            tool: 'refresh',
+            arguments: { id: 1 },
+            originCallId: 'call-1',
+        });
+    });
+
+    it('prompts for risky tools and does not execute after denial', async () => {
+        const listMcpServerStatus = vi.fn(async () => ({
+            data: [{
+                name: 'demo',
+                runtimeStatus: 'connected',
+                tools: {
+                    mutate: {
+                        name: 'mutate',
+                        enabled: true,
+                        inputSchema: {},
+                        annotations: { readOnlyHint: false, destructiveHint: true },
+                        _meta: { ui: { visibility: ['app'] } },
+                    },
+                },
+            }],
+        }));
+        const handleToolCall = vi.fn(async () => ({ decision: 'denied' }));
+        const { client, handlers, registry } = createHarness({ listMcpServerStatus, handleToolCall });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!, 'mutate')).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_PERMISSION_DENIED', retryable: false }),
+        });
+        expect(handleToolCall).toHaveBeenCalledWith(
+            'mcp-app-call-1-1',
+            'mcp__demo__mutate',
+            { id: 1 },
+        );
+        expect(client.callMcpTool).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['oversized result', { content: [], structuredContent: { payload: 'x'.repeat(512 * 1024) } }],
+        ['deep result', (() => {
+            let value: Record<string, unknown> = { leaf: true };
+            for (let index = 0; index < 33; index++) value = { nested: value };
+            return { content: [], structuredContent: value };
+        })()],
+    ])('returns a safe result-too-large envelope for an %s', async (_case, result) => {
+        const callMcpTool = vi.fn(async () => result);
+        const { handlers, registry } = createHarness({ callMcpTool });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_RESULT_TOO_LARGE', retryable: false }),
+        });
+    });
+
+    it('caps concurrent App operations and cancels in-flight reads and calls on disconnect', async () => {
+        const signals: AbortSignal[] = [];
+        const pending = (_params: unknown, options?: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+            if (!options?.signal) throw new Error('missing abort signal');
+            signals.push(options.signal);
+            options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+        const readMcpResource = vi.fn(async (params: { uri: string }, options?: { signal?: AbortSignal }) => {
+            if (params.uri.endsWith('index.html')) {
+                return {
+                    contents: [{
+                        uri: params.uri,
+                        mimeType: 'text/html;profile=mcp-app',
+                        text: '<main>App</main>',
+                    }],
+                };
+            }
+            return await pending(params, options);
+        });
+        const callMcpTool = vi.fn(pending);
+        const { handlers, registration, registry } = createHarness({ readMcpResource, callMcpTool });
+        bind(registry);
+        await open(handlers.get('mcpAppResourceOpen')!);
+
+        const operations = [
+            readSecondary(handlers.get('mcpAppResourceRead')!, 'ui://demo/detail.txt'),
+            ...Array.from({ length: 7 }, () => callTool(handlers.get('mcpAppToolCall')!)),
+        ];
+        await vi.waitFor(() => expect(signals).toHaveLength(8));
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_TIMEOUT', retryable: true }),
+        });
+
+        registration.dispose();
+
+        await expect(Promise.all(operations)).resolves.toEqual(
+            expect.arrayContaining(Array.from({ length: 8 }, () => ({
+                ok: false,
+                error: expect.objectContaining({ code: 'MCP_APP_SESSION_OFFLINE' }),
+            }))),
+        );
+        expect(signals.every((signal) => signal.aborted)).toBe(true);
     });
 
     it.each([
