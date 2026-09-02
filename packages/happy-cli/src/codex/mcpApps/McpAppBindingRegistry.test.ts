@@ -101,6 +101,48 @@ describe('McpAppBindingRegistry', () => {
         });
     });
 
+    it('treats an identical terminal completion replay as a no-op', () => {
+        const registry = new McpAppBindingRegistry();
+        bindConnectorCall(registry);
+        registry.complete('call-1', availableResult, true);
+        const completed = registry.get('call-1');
+
+        registry.complete('call-1', { ...availableResult }, true);
+
+        expect(registry.get('call-1')).toBe(completed);
+    });
+
+    it('rejects promotion of a failed connector completion to trusted', () => {
+        const registry = new McpAppBindingRegistry();
+        bindConnectorCall(registry);
+        registry.complete('call-1', availableResult, false);
+        const failed = registry.get('call-1');
+
+        expect(() => registry.complete('call-1', availableResult, true)).toThrowError(
+            expect.objectContaining({ code: 'MCP_APP_ORIGIN_MISMATCH' }),
+        );
+        expect(registry.get('call-1')).toBe(failed);
+        expect(registry.get('call-1').trustedOriginCallId).toBeUndefined();
+    });
+
+    it('rejects overwriting the result of a terminal completion', () => {
+        const registry = new McpAppBindingRegistry();
+        bindConnectorCall(registry);
+        registry.complete('call-1', availableResult, true);
+        const completed = registry.get('call-1');
+        const replacement = {
+            version: 1,
+            state: 'available',
+            content: [{ type: 'text', text: 'replacement' }],
+        } satisfies McpAppResultV1;
+
+        expect(() => registry.complete('call-1', replacement, true)).toThrowError(
+            expect.objectContaining({ code: 'MCP_APP_ORIGIN_MISMATCH' }),
+        );
+        expect(registry.get('call-1')).toBe(completed);
+        expect(registry.get('call-1').result).toEqual(availableResult);
+    });
+
     it('keeps an ordinary configured MCP binding thread-scoped after success', () => {
         const registry = new McpAppBindingRegistry();
         registry.bindStarted({
@@ -128,14 +170,18 @@ describe('McpAppBindingRegistry', () => {
         }));
     });
 
-    it('removes every binding when the session is cleared', () => {
+    it('removes bindings and terminal completion state when the session is cleared', () => {
         const registry = new McpAppBindingRegistry();
         bindConnectorCall(registry);
+        registry.complete('call-1', availableResult, false);
 
         registry.clear();
 
         expect(() => registry.get('call-1')).toThrowError(expect.objectContaining({
             code: 'MCP_APP_ORIGIN_MISMATCH',
         }));
+        bindConnectorCall(registry);
+        expect(() => registry.complete('call-1', availableResult, true)).not.toThrow();
+        expect(registry.get('call-1').trustedOriginCallId).toBe('call-1');
     });
 });
