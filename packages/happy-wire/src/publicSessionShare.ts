@@ -48,11 +48,31 @@ export const publicSessionThemePackSchema = z.enum([
     'caramel', 'gingham', 'terminal', 'acorn', 'sage', 'sakura', 'grape',
 ]);
 
-const publicSessionCoverAttributionSchema = z.object({
+const PEXELS_ATTRIBUTION_HOSTS = new Set(['pexels.com', 'www.pexels.com']);
+
+function isCanonicalPexelsAttributionUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:'
+            && PEXELS_ATTRIBUTION_HOSTS.has(url.hostname.toLowerCase())
+            && !url.username
+            && !url.password
+            && !url.port;
+    } catch {
+        return false;
+    }
+}
+
+const publicSessionPexelsUrlSchema = z.string()
+    .url()
+    .max(2_000)
+    .refine(isCanonicalPexelsAttributionUrl, 'Expected a canonical HTTPS Pexels URL');
+
+export const publicSessionCoverAttributionSchema = z.object({
     photoId: z.number().int().positive(),
     photographer: z.string().min(1).max(500),
-    photographerUrl: z.string().url().max(2_000),
-    photoUrl: z.string().url().max(2_000),
+    photographerUrl: publicSessionPexelsUrlSchema,
+    photoUrl: publicSessionPexelsUrlSchema,
 }).strict();
 
 const publicSessionCoverSchema = z.object({

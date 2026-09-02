@@ -6,6 +6,7 @@ import type { Fastify } from '../types';
 import { db } from '@/storage/db';
 import {
     publicSessionSnapshotSchema,
+    publicSessionCoverAttributionSchema,
     publicShareAssetKindSchema,
     type PublicSessionSnapshot,
 } from '@/app/sessionSharing/publicSessionShareSchemas';
@@ -76,12 +77,7 @@ const cloneCoverBodySchema = z.object({
 const persistedPexelsCoverMetadataSchema = z.object({
     width: z.number().int().positive().max(100_000),
     height: z.number().int().positive().max(100_000),
-    attribution: z.object({
-        photoId: z.number().int().positive(),
-        photographer: z.string().min(1).max(200),
-        photographerUrl: z.string().url().max(1_000),
-        photoUrl: z.string().url().max(1_000),
-    }).strict(),
+    attribution: publicSessionCoverAttributionSchema,
 }).strict();
 const pexelsCoverClaimSchema = z.object({
     photoId: z.number().int().positive(),
@@ -192,6 +188,24 @@ function canonicalImportedCoverResponse(
         height: metadata.height,
         attribution: metadata.attribution,
     };
+}
+
+function coverMatchesPersistedAssetMetadata(
+    cover: NonNullable<Extract<PublicSessionSnapshot, { version: 2 }>['appearance']['cover']>,
+    assetName: string,
+): boolean {
+    const persisted = decodePersistedPexelsCoverMetadata(assetName);
+    if (!persisted) return cover.attribution === undefined;
+    const attribution = cover.attribution;
+    return Boolean(
+        attribution
+        && cover.width === persisted.width
+        && cover.height === persisted.height
+        && attribution.photoId === persisted.attribution.photoId
+        && attribution.photographer === persisted.attribution.photographer
+        && attribution.photographerUrl === persisted.attribution.photographerUrl
+        && attribution.photoUrl === persisted.attribution.photoUrl,
+    );
 }
 
 async function enforceShareWriteRate(userId: string, reply: any): Promise<boolean> {
@@ -591,6 +605,7 @@ export function publicSessionShareRoutes(app: Fastify) {
             || source.kind !== 'image'
             || source.mimeType !== activeCover.mimeType
             || source.size !== activeCover.size
+            || !coverMatchesPersistedAssetMetadata(activeCover, source.name)
             || !await publicShareAssetExists(source.storagePath, source.size)) {
             return reply.code(409).send({ error: 'Active shared-session cover is unavailable' });
         }
@@ -715,7 +730,8 @@ export function publicSessionShareRoutes(app: Fastify) {
                     || currentSource.kind !== source.kind
                     || currentSource.mimeType !== source.mimeType
                     || currentSource.size !== source.size
-                    || currentSource.sha256 !== source.sha256) {
+                    || currentSource.sha256 !== source.sha256
+                    || !coverMatchesPersistedAssetMetadata(currentCover, currentSource.name)) {
                     throw new StaleShareDraftError();
                 }
 
@@ -1315,6 +1331,15 @@ export function publicSessionShareRoutes(app: Fastify) {
                 || descriptor.mimeType !== asset.mimeType
                 || descriptor.kind !== asset.kind
                 || descriptor.size !== asset.size) {
+                return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
+            }
+        }
+        const cover = request.body.snapshot.version === 2
+            ? request.body.snapshot.appearance.cover
+            : undefined;
+        if (cover) {
+            const coverAsset = assetById.get(cover.assetId);
+            if (!coverAsset || !coverMatchesPersistedAssetMetadata(cover, coverAsset.name)) {
                 return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
             }
         }

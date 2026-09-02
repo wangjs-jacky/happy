@@ -36,6 +36,62 @@ describe('publicSessionSnapshotSchema', () => {
         })).toThrow();
     });
 
+    it('accepts canonical HTTPS Pexels cover attribution', () => {
+        const parsed = publicSessionSnapshotSchema.parse({
+            ...legacySnapshot,
+            version: 2,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '51515151-5151-4515-8515-515151515151',
+                    mimeType: 'image/webp',
+                    size: 4,
+                    width: 2400,
+                    height: 900,
+                    attribution: {
+                        photoId: 2014422,
+                        photographer: 'Eberhard Grossgasteiger',
+                        photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                        photoUrl: 'https://pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                    },
+                },
+            },
+        });
+
+        expect(parsed).toMatchObject({
+            appearance: { cover: { attribution: { photoId: 2014422 } } },
+        });
+    });
+
+    it.each([
+        ['arbitrary host', 'https://attacker.example/@photographer'],
+        ['plaintext Pexels', 'http://www.pexels.com/@photographer'],
+        ['credentialed Pexels', 'https://user:password@www.pexels.com/@photographer'],
+        ['non-default Pexels port', 'https://www.pexels.com:8443/@photographer'],
+        ['Pexels lookalike', 'https://www.pexels.com.attacker.example/@photographer'],
+    ])('rejects %s attribution URLs', (_case, photographerUrl) => {
+        expect(() => publicSessionSnapshotSchema.parse({
+            ...legacySnapshot,
+            version: 2,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '51515151-5151-4515-8515-515151515151',
+                    mimeType: 'image/webp',
+                    size: 4,
+                    width: 2400,
+                    height: 900,
+                    attribution: {
+                        photoId: 2014422,
+                        photographer: 'Eberhard Grossgasteiger',
+                        photographerUrl,
+                        photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                    },
+                },
+            },
+        })).toThrow();
+    });
+
     it.each(['paws', 'codex', 'claude-code'] as const)('accepts the display-safe %s provider label', (provider) => {
         expect(publicSessionSnapshotSchema.parse({
             ...legacySnapshot,

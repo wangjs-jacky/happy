@@ -272,11 +272,18 @@ const snapshot = (attachmentId?: string) => ({
             : [{ type: 'text', markdown: 'Hello' }],
     }],
 });
+const PEXELS_ATTRIBUTION = {
+    photoId: 2014422,
+    photographer: 'Eberhard Grossgasteiger',
+    photographerUrl: 'https://www.pexels.com/@eberhardgross',
+    photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+};
 const coverSnapshot = (assetId: string, cover: Partial<{
     mimeType: string;
     size: number;
     width: number;
     height: number;
+    attribution: typeof PEXELS_ATTRIBUTION;
 }> = {}) => ({
     version: 2,
     title: 'Shared session',
@@ -1008,7 +1015,15 @@ describe('publicSessionShareRoutes', () => {
             method: 'PUT',
             url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
             headers: { 'x-user-id': 'owner-1' },
-            payload: { snapshot: coverSnapshot(imported.assetId, { mimeType: imported.mimeType, size: imported.size }) },
+            payload: {
+                snapshot: coverSnapshot(imported.assetId, {
+                    mimeType: imported.mimeType,
+                    size: imported.size,
+                    width: imported.width,
+                    height: imported.height,
+                    attribution: imported.attribution,
+                }),
+            },
         });
         expect(publish.statusCode).toBe(200);
 
@@ -1217,6 +1232,139 @@ describe('publicSessionShareRoutes', () => {
         });
 
         expect(publish.statusCode).toBe(200);
+    });
+
+    it('rejects Pexels attribution attached to an ordinary uploaded cover', async () => {
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: '56565656-5656-4565-8565-565656565656',
+                name: 'cover.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5, sha256: HELLO_SHA256,
+            },
+        })).json();
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: Buffer.from('hello'),
+        });
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: coverSnapshot(asset.assetId, { attribution: PEXELS_ATTRIBUTION }) },
+        });
+
+        expect(publish.statusCode).toBe(409);
+    });
+
+    it('requires canonical attribution when publishing an imported Pexels cover', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const imported = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '57575757-5757-4575-8575-575757575757', photoId: 2014422 },
+        })).json();
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                snapshot: coverSnapshot(imported.assetId, {
+                    mimeType: imported.mimeType,
+                    size: imported.size,
+                    width: imported.width,
+                    height: imported.height,
+                }),
+            },
+        });
+
+        expect(publish.statusCode).toBe(409);
+    });
+
+    it.each([
+        ['photo URL', { attribution: { ...PEXELS_ATTRIBUTION, photoUrl: 'https://www.pexels.com/photo/another-photo-1/' } }],
+        ['photographer', { attribution: { ...PEXELS_ATTRIBUTION, photographer: 'Forged Photographer' } }],
+        ['width', { width: 2399, attribution: PEXELS_ATTRIBUTION }],
+        ['height', { height: 899, attribution: PEXELS_ATTRIBUTION }],
+    ] as const)('rejects forged imported Pexels %s metadata', async (_field, forged) => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const imported = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: crypto.randomUUID(), photoId: 2014422 },
+        })).json();
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                snapshot: coverSnapshot(imported.assetId, {
+                    mimeType: imported.mimeType,
+                    size: imported.size,
+                    width: imported.width,
+                    height: imported.height,
+                    ...forged,
+                }),
+            },
+        });
+
+        expect(publish.statusCode).toBe(409);
+    });
+
+    it('preserves canonical Pexels metadata through clone and republishes it', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const firstDraft = (await createDraft()).json();
+        const imported = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${firstDraft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '58585858-5858-4585-8585-585858585858', photoId: 2014422 },
+        })).json();
+        const canonicalSnapshot = coverSnapshot(imported.assetId, {
+            mimeType: imported.mimeType,
+            size: imported.size,
+            width: imported.width,
+            height: imported.height,
+            attribution: imported.attribution,
+        });
+        const firstPublish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${firstDraft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: canonicalSnapshot },
+        });
+        expect(firstPublish.statusCode).toBe(200);
+        const sourceName = state.assets.find((asset) => asset.generation === firstDraft.generation)?.name;
+
+        const nextDraft = (await createDraft()).json();
+        const clone = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${nextDraft.generation}/covers/clone`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: imported.assetId },
+        });
+        expect(clone.statusCode).toBe(200);
+        expect(clone.json()).toEqual(imported);
+        expect(state.assets.find((asset) => asset.generation === nextDraft.generation)?.name).toBe(sourceName);
+
+        const republish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${nextDraft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { snapshot: canonicalSnapshot },
+        });
+        expect(republish.statusCode).toBe(200);
     });
 
     it('rejects a cover whose registered asset object has not completed upload', async () => {

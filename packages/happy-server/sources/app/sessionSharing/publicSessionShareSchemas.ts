@@ -1,5 +1,6 @@
 export {
     publicSessionBlockSchema,
+    publicSessionCoverAttributionSchema,
     publicSessionSnapshotSchema,
     publicSessionSnapshotV1Schema,
     publicSessionSnapshotV2Schema,
