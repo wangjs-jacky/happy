@@ -845,20 +845,22 @@ export class ApiSessionClient extends EventEmitter {
         let timeout: NodeJS.Timeout | undefined;
         try {
             await Promise.race([
-                Promise.all([
-                    this.outboxLock.inLock(async () => {
-                        for (let offset = 0; offset < envelopes.length; offset += ApiSessionClient.MAX_HISTORY_BATCH_SIZE) {
-                            const batch = envelopes
-                                .slice(offset, offset + ApiSessionClient.MAX_HISTORY_BATCH_SIZE)
-                                .map((envelope) => this.encodeOutboxMessage(
-                                    this.createSessionProtocolContent(envelope),
-                                    `session-envelope:${envelope.id}`,
-                                ));
-                            await this.postOutboxBatch(batch);
-                        }
-                    }),
-                    this.persistFinalSessionProtocolHistoryStatus(envelopes),
-                ]).then(() => undefined),
+                this.outboxLock.inLock(async () => {
+                    for (let offset = 0; offset < envelopes.length; offset += ApiSessionClient.MAX_HISTORY_BATCH_SIZE) {
+                        const batch = envelopes
+                            .slice(offset, offset + ApiSessionClient.MAX_HISTORY_BATCH_SIZE)
+                            .map((envelope) => this.encodeOutboxMessage(
+                                this.createSessionProtocolContent(envelope),
+                                `session-envelope:${envelope.id}`,
+                            ));
+                        await this.postOutboxBatch(batch);
+                    }
+
+                    // Do not publish a terminal lifecycle state while the
+                    // transcript is only partially acknowledged. A failed
+                    // replay keeps its durable marker and retries on reconnect.
+                    await this.persistFinalSessionProtocolHistoryStatus(envelopes);
+                }),
                 new Promise<never>((_, reject) => {
                     timeout = setTimeout(() => {
                         reject(new Error(`Timed out waiting for session history replay after ${timeoutMs}ms`));

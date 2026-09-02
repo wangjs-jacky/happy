@@ -2,31 +2,37 @@
 
 Case: `FORK-HISTORY-01`
 
-The field report showed a forked Codex session taking a long time to appear and
-opening with a large blank/truncated history region. The Before image is that
-report, center-cropped from 1304x768 to 1280x720 so it can be compared at the
-same evidence size as the automated After capture.
+Both PNGs come from the same isolated Web E2E case, current PR head, 1280x720
+viewport, DPR 1, dark theme, and post-navigation checkpoint. `before`
+deterministically applies the legacy newest-first 50-envelope outbox order;
+`after` exercises the built CLI's `ApiSessionClient` chronological history
+replay against the isolated PGlite Server.
 
-The After image and MP4 come from the isolated Web E2E fixture with 334 turns
-(668 encrypted session envelopes). The acceptance run verifies:
+The case uses 334 turns (668 encrypted session envelopes) and verifies:
 
 - click-to-route stays below the 15-second regression ceiling;
 - the latest agent turn is visible after navigation;
-- the REST transcript contains exactly 668 messages with contiguous seq values
-  from 1 through 668;
+- the decrypted REST transcript contains the exact 668 expected envelope IDs
+  in chronological order, with contiguous seq values from 1 through 668;
+- a concurrently duplicated first upload batch is acknowledged idempotently;
 - backward UI pagination reaches the earliest history page (`before_seq <= 101`).
+
+Targeted CLI tests additionally interrupt the first replay, reconnect with the
+durable `codexHistoryReplay` marker, verify stable envelope IDs are reused, and
+confirm the final cursor is written only after the complete retry succeeds.
 
 Observed click-to-route timings:
 
-- ordinary E2E run: 3143 ms;
-- recording E2E run: 4391 ms.
+- legacy-order baseline: 6377 ms;
+- real-CLI ordinary run: 5651 ms;
+- real-CLI recording run: 5614 ms.
 
 Artifacts:
 
-- `case-1-before.png`: reported broken state, 1280x720;
-- `case-1-after.png`: repaired large-history state, 1280x720;
+- `case-1-before.png`: legacy-order baseline, 1280x720, DPR 1;
+- `case-1-after.png`: chronological real-CLI replay, 1280x720, DPR 1;
 - `fork-large-history-acceptance.mp4`: H.264/yuv420p, 1280x720,
-  66.92 seconds.
+  25 fps, 143.40 seconds, faststart.
 
 The test environment used isolated local Server/Web/session data and was fully
 stopped and removed after each run. Mobile playback was not requested.

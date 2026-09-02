@@ -479,6 +479,8 @@ describe('ApiSessionClient v3 messages API migration', () => {
         ]);
 
         expect(mockSocket.emitWithAck).toHaveBeenCalledTimes(1);
+        expect(mockAxiosPost.mock.invocationCallOrder.at(-1))
+            .toBeLessThan(mockSocket.emitWithAck.mock.invocationCallOrder[0]);
         expect(decrypt(
             session.encryptionKey,
             session.encryptionVariant,

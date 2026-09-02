@@ -1,5 +1,6 @@
 import { buildNewMessageUpdate, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
+import { afterTx, inTx } from "@/storage/inTx";
 import { allocateSessionSeqBatch, allocateUserSeqBatch } from "@/storage/seq";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { z } from "zod";
@@ -155,7 +156,16 @@ export function v3SessionRoutes(app: Fastify) {
         const uniqueMessages = Array.from(firstMessageByLocalId.values());
         const contentByLocalId = new Map(uniqueMessages.map((message) => [message.localId, message.content]));
 
-        const txResult = await db.$transaction(async (tx) => {
+        const responseMessages = await inTx(async (tx) => {
+            // Lock the per-session seq row before checking localIds. This makes
+            // concurrent retries for the same batch observe committed rows
+            // before allocating new seq values.
+            await tx.session.update({
+                where: { id: sessionId },
+                data: { seq: { increment: 0 } },
+                select: { id: true }
+            });
+
             const localIds = uniqueMessages.map((message) => message.localId);
             const existing = await tx.sessionMessage.findMany({
                 where: {
@@ -192,10 +202,10 @@ export function v3SessionRoutes(app: Fastify) {
                         },
                         localId: message.localId
                     })),
+                    skipDuplicates: true,
                     select: {
                         id: true,
                         seq: true,
-                        content: true,
                         localId: true,
                         createdAt: true,
                         updatedAt: true
@@ -204,42 +214,57 @@ export function v3SessionRoutes(app: Fastify) {
                 : [];
             createdMessages.sort((a, b) => a.seq - b.seq);
 
-            const responseMessages = [...existing, ...createdMessages].sort((a, b) => a.seq - b.seq);
+            // Re-read every requested localId so a concurrent retry returns the
+            // same idempotent acknowledgement even if skipDuplicates handled a
+            // uniqueness race inside createManyAndReturn.
+            const acknowledgedMessages = await tx.sessionMessage.findMany({
+                where: {
+                    sessionId,
+                    localId: { in: localIds }
+                },
+                select: {
+                    id: true,
+                    seq: true,
+                    localId: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+            acknowledgedMessages.sort((a, b) => a.seq - b.seq);
 
-            return {
-                responseMessages,
-                createdMessages
-            };
+            // Allocate the account update seq inside the same transaction as
+            // the message rows. Only the non-transactional socket delivery is
+            // deferred through afterTx.
+            const newestCreatedMessage = createdMessages.at(-1);
+            if (newestCreatedMessage) {
+                const content = newestCreatedMessage.localId
+                    ? contentByLocalId.get(newestCreatedMessage.localId)
+                    : null;
+                if (content) {
+                    const [updateSeq] = await allocateUserSeqBatch(userId, 1, tx);
+                    const updatePayload = buildNewMessageUpdate({
+                        ...newestCreatedMessage,
+                        content: {
+                            t: 'encrypted',
+                            c: content
+                        }
+                    }, sessionId, updateSeq, randomKeyNaked(12));
+
+                    afterTx(tx, () => {
+                        eventRouter.emitUpdate({
+                            userId,
+                            payload: updatePayload,
+                            recipientFilter: { type: 'all-interested-in-session', sessionId }
+                        });
+                    });
+                }
+            }
+
+            return acknowledgedMessages;
         });
 
-        // One notification for the newest message is enough to invalidate the
-        // clients' session cursor. Emitting every imported history row floods
-        // the account socket and can delay the fork RPC response/navigation by
-        // tens of seconds even though the database write already completed.
-        const newestCreatedMessage = txResult.createdMessages.at(-1);
-        if (newestCreatedMessage) {
-            const [updateSeq] = await allocateUserSeqBatch(userId, 1);
-            const message = newestCreatedMessage;
-            const content = message.localId ? contentByLocalId.get(message.localId) : null;
-            if (content) {
-                const updatePayload = buildNewMessageUpdate({
-                    ...message,
-                    content: {
-                        t: 'encrypted',
-                        c: content
-                    }
-                }, sessionId, updateSeq, randomKeyNaked(12));
-
-                eventRouter.emitUpdate({
-                    userId,
-                    payload: updatePayload,
-                    recipientFilter: { type: 'all-interested-in-session', sessionId }
-                });
-            }
-        }
-
         return reply.send({
-            messages: txResult.responseMessages.map(toSendResponseMessage)
+            messages: responseMessages.map(toSendResponseMessage)
         });
     });
 }
