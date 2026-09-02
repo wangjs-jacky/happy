@@ -31,6 +31,8 @@ describe('public share HTML security', () => {
     });
 
     it('never serves the Web SPA for unmatched MCP App sandbox paths', () => {
+        expect(isSpaFallbackExcludedUrl('/mcp-app-sandbox')).toBe(true);
+        expect(isSpaFallbackExcludedUrl('/mcp-app-sandbox?parentOrigin=secret')).toBe(true);
         expect(isSpaFallbackExcludedUrl('/mcp-app-sandbox/host/extra')).toBe(true);
         expect(isSpaFallbackExcludedUrl('/mcp-app-sandbox/unknown?parentOrigin=x')).toBe(true);
         expect(isSpaFallbackExcludedUrl('/conversation/session-id')).toBe(false);

@@ -90,3 +90,35 @@ exit 0
 - Canonical CSP JSON has fixed key order and rejects alternate encoding, unknown keys, duplicates that change canonical bytes, paths normalized by `URL`, directive separators, credentials, wildcard hosts, and over-limit input.
 - The checked-in native shell is unchanged; the new server asset is additive. Task 13 must consume the emitted `{ type: "sandbox-proxy-ready", parentOrigin }` handshake and keep exact source/origin targeting. Real two-origin browser/Caddy verification remains the Task 14 runtime gate.
 - The two pre-existing untracked Task 14 E2E paths remain untouched and are excluded from staging.
+
+## Fix round 1 — namespace logging, complete fallback, and raw loopback authority
+
+### Findings addressed
+
+- Added route-local `logLevel: 'silent'` to both exact GET routes, both exact OPTIONS deny routes, the base namespace catch-all, and the descendant namespace catch-all. This suppresses only sandbox request/completion logging; unrelated API and SPA route logging remains enabled.
+- Protected the complete namespace with exact routes first, followed by `app.all('/mcp-app-sandbox')` and `app.all('/mcp-app-sandbox/*')`. Exact GET routes disable Fastify's automatic HEAD exposure so HEAD, POST, PUT, and every other unsupported method reaches the static sandbox 404.
+- Every namespace route uses `cors: false`. The shared responder dynamically removes all `Access-Control-Allow-*`, `Access-Control-Expose-Headers`, and `Access-Control-Max-Age` headers before returning `Cache-Control: no-store` plus the static `{ "error": "Not found" }` body.
+- Extracted the production Fastify registration into `createApiApp`, which is the exact builder consumed by `startApi`. This allows injection tests to exercise the real global wildcard CORS hook, route ordering, logger, static plugin, and SPA fallback without listening or starting Socket.IO.
+- Added a real-API captured-log regression covering valid/invalid exact routes, wrong methods, unknown descendants, and unknown OPTIONS. Captured logs contain no raw parent origin, encoded CSP, internal domain, or sandbox query string; an ordinary conversation route still reaches the configured SPA canary.
+- Validated development HTTP before WHATWG normalization. Only literal lowercase `localhost`, `127.0.0.1`, or bracketed `[::1]` with no port or a canonical decimal port from 1–65535 is accepted in configured origins and the request Host. Short/integer/octal/hex IPv4, uppercase/percent spellings, empty/zero/leading-zero/out-of-range ports, userinfo, path, query, and fragment fail closed.
+- Applied the same raw development parent-origin rule to the generated Web proxy bootstrap. HTTPS/default-port behavior and the native generated Host Shell remain unchanged.
+- Hardened the SPA exclusion helper for the exact base namespace, its query form, and every descendant while preserving normal SPA paths.
+
+### RED / GREEN evidence
+
+- Review RED: the focused helper/route run executed 64 tests with 15 failures and 49 passes: 9 non-canonical development origins were accepted, 5 namespace/CORS requests missed the static response, and captured Fastify logs contained the full parent origin, base64url CSP, internal domain, and query.
+- Namespace/log GREEN: after route-local logging and catch-all implementation, helper tests passed 47/47 and route tests passed 16/17. The sole residual was a test assumption that Fastify injection would strip the explicit shared JSON body for HEAD; the expectation was corrected to the route's static response without weakening production behavior.
+- Production-builder RED: the real API integration failed 1/1 because `createApiApp` did not exist. GREEN uses the same builder as `startApi`, with global CORS and a live temporary SPA fallback.
+- Request-Host RED: the expanded 54-test helper suite had 7 failures because non-canonical raw Host spellings still normalized into loopback. GREEN validates the raw Host before URL parsing and passes 54/54.
+- SPA-base RED: the existing four-test API helper suite had 1 failure because `/mcp-app-sandbox?…` was not recognized by the fallback exclusion. GREEN compares the parsed pathname and passes 4/4.
+- Final fresh server GREEN: 4 files and 78/78 tests, including 54 pure security, 19 direct Fastify route, 1 production API builder/injection, and 4 static fallback regressions.
+- Native Host Shell regression remains 20/20; server typecheck, deterministic generator check, native byte-parity diff, and `git diff --check` pass.
+
+### Self-review / remaining gate
+
+- The sandbox routes contain no explicit logging calls and do not pass request URLs or query data to error messages. The captured production logger test proves ordinary Paws request logging remains active outside this namespace.
+- Exact invalid routes and unknown namespace routes have equal status, body, cache-control, content type, and absence of every Access-Control response header.
+- The generated server proxy asset changes only to reject non-canonical development HTTP parent origins. The checked-in native Host Shell remains byte-for-byte equal to commit `976e64b8`.
+- Regenerated server asset: 362,825-byte TypeScript export / 350,638-byte external JavaScript. VM smoke emits one ready message to exact `https://paws.example` and zero for raw `http://LOCALHOST:8081`.
+- Real deployed two-origin browser/Caddy behavior remains the Task 14 gate; no same-origin, wildcard, or permissive logging/CORS fallback was introduced.
+- The two pre-existing untracked Task 14 E2E paths remain untouched and excluded from staging.

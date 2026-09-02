@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
+import pino, { type Logger } from 'pino';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Fastify } from '@/app/api/types';
@@ -14,17 +15,20 @@ function buildHostUrl(csp: string, parent = parentOrigin): string {
     return `/mcp-app-sandbox/host?parentOrigin=${encodeURIComponent(parent)}&csp=${encodeURIComponent(csp)}`;
 }
 
-async function createApp(overrides: Partial<Parameters<typeof mcpAppSandboxRoutes>[1]> = {}) {
-    const app = fastify();
+async function createApp(
+    overrides: Partial<Parameters<typeof mcpAppSandboxRoutes>[1]> = {},
+    loggerInstance?: Logger,
+) {
+    const app = fastify(loggerInstance ? { loggerInstance } : {});
     await app.register(cors, { origin: '*' });
-    mcpAppSandboxRoutes(app as Fastify, {
+    mcpAppSandboxRoutes(app as unknown as Fastify, {
         sandboxOrigin,
         allowedParentOrigins,
         development: false,
         ...overrides,
     });
     await app.ready();
-    return app as Fastify;
+    return app as unknown as Fastify;
 }
 
 describe('mcpAppSandboxRoutes', () => {
@@ -203,5 +207,102 @@ describe('mcpAppSandboxRoutes', () => {
 
         expect(response.statusCode).toBe(404);
         expect(response.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it.each([
+        ['GET', '/mcp-app-sandbox'],
+        ['GET', '/mcp-app-sandbox/'],
+        ['GET', '/mcp-app-sandbox/unknown?parentOrigin=https%3A%2F%2Fsecret.example&csp=secret-csp'],
+        ['POST', '/mcp-app-sandbox/host?parentOrigin=https%3A%2F%2Fsecret.example&csp=secret-csp'],
+        ['PUT', '/mcp-app-sandbox/host.js?internal=secret.example'],
+        ['HEAD', '/mcp-app-sandbox/host?parentOrigin=https%3A%2F%2Fsecret.example&csp=secret-csp'],
+        ['OPTIONS', '/mcp-app-sandbox/unknown?internal=secret.example'],
+    ])('protects namespace request %s %s with the static no-store 404', async (method, url) => {
+        app = await createApp();
+
+        const response = await app.inject({
+            method: method as 'GET',
+            url,
+            headers: {
+                host: 'sandbox.paws.example',
+                origin: 'https://attacker.example',
+                'access-control-request-method': 'GET',
+            },
+        });
+
+        expect(response.statusCode).toBe(404);
+        expect(response.headers['cache-control']).toBe('no-store');
+        expect(Object.keys(response.headers).filter((name) => name.startsWith('access-control-'))).toEqual([]);
+        expect(response.json()).toEqual({ error: 'Not found' });
+        expect(response.body).not.toContain('secret');
+    });
+
+    it('makes an invalid exact route and unknown namespace route indistinguishable', async () => {
+        app = await createApp();
+        const exact = await app.inject({
+            method: 'GET',
+            url: '/mcp-app-sandbox/host?parentOrigin=https%3A%2F%2Fsecret.example&csp=bad',
+            headers: { host: 'sandbox.paws.example', origin: 'https://attacker.example' },
+        });
+        const unknown = await app.inject({
+            method: 'GET',
+            url: '/mcp-app-sandbox/unknown?parentOrigin=https%3A%2F%2Fsecret.example&csp=bad',
+            headers: { host: 'sandbox.paws.example', origin: 'https://attacker.example' },
+        });
+
+        expect({
+            statusCode: unknown.statusCode,
+            body: unknown.body,
+            cacheControl: unknown.headers['cache-control'],
+            contentType: unknown.headers['content-type'],
+            cors: Object.keys(unknown.headers).filter((name) => name.startsWith('access-control-')),
+        }).toEqual({
+            statusCode: exact.statusCode,
+            body: exact.body,
+            cacheControl: exact.headers['cache-control'],
+            contentType: exact.headers['content-type'],
+            cors: Object.keys(exact.headers).filter((name) => name.startsWith('access-control-')),
+        });
+    });
+
+    it('keeps valid, invalid, wrong-method, and unknown sandbox metadata out of request logs', async () => {
+        const logChunks: string[] = [];
+        const loggerInstance = pino({ level: 'trace' }, {
+            write(chunk: string) { logChunks.push(chunk); },
+        });
+        const csp = encodeSandboxCspMetadata({
+            connectDomains: ['https://api.internal.example'],
+            resourceDomains: [],
+            frameDomains: [],
+        }, false)!;
+        app = await createApp({}, loggerInstance);
+
+        await app.inject({
+            method: 'GET',
+            url: buildHostUrl(csp),
+            headers: { host: 'sandbox.paws.example' },
+        });
+        await app.inject({
+            method: 'GET',
+            url: `/mcp-app-sandbox/host?parentOrigin=https%3A%2F%2Fparent-secret.example&csp=${csp}`,
+            headers: { host: 'sandbox.paws.example' },
+        });
+        await app.inject({
+            method: 'POST',
+            url: `/mcp-app-sandbox/host?parentOrigin=https%3A%2F%2Fparent-secret.example&csp=${csp}`,
+            headers: { host: 'sandbox.paws.example' },
+        });
+        await app.inject({
+            method: 'GET',
+            url: `/mcp-app-sandbox/unknown?parentOrigin=https%3A%2F%2Fparent-secret.example&csp=${csp}`,
+            headers: { host: 'sandbox.paws.example' },
+        });
+
+        const logs = logChunks.join('');
+        expect(logs).not.toContain('parent-secret.example');
+        expect(logs).not.toContain('api.internal.example');
+        expect(logs).not.toContain(csp);
+        expect(logs).not.toContain('/mcp-app-sandbox/host?');
+        expect(logs).not.toContain('/mcp-app-sandbox/unknown?');
     });
 });

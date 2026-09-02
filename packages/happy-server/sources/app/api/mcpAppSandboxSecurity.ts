@@ -33,6 +33,18 @@ function isLoopbackHostname(hostname: string): boolean {
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
+function hasCanonicalDevelopmentHttpAuthority(raw: string): boolean {
+    const match = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?\/?$/u.exec(raw);
+    if (!match) return false;
+    return match[1] === undefined || Number(match[1]) <= 65_535;
+}
+
+function hasCanonicalDevelopmentHttpHost(raw: string): boolean {
+    const match = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?$/u.exec(raw);
+    if (!match) return false;
+    return match[1] === undefined || Number(match[1]) <= 65_535;
+}
+
 export function normalizeSandboxOrigin(raw: string, development: boolean): string | null {
     if (!raw || raw.trim() !== raw || /[\s;'"\\]/u.test(raw)) return null;
     const withoutRootSlash = raw.endsWith('/') ? raw.slice(0, -1) : raw;
@@ -48,7 +60,8 @@ export function normalizeSandboxOrigin(raw: string, development: boolean): strin
     if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
     if (!url.hostname || url.hostname.includes('*') || url.hostname.endsWith('.')) return null;
     if (url.protocol !== 'https:') {
-        if (url.protocol !== 'http:' || !development || !isLoopbackHostname(url.hostname)) return null;
+        if (url.protocol !== 'http:' || !development || !isLoopbackHostname(url.hostname)
+            || !hasCanonicalDevelopmentHttpAuthority(raw)) return null;
     }
     if (url.origin === 'null') return null;
     return url.origin;
@@ -56,6 +69,7 @@ export function normalizeSandboxOrigin(raw: string, development: boolean): strin
 
 function normalizeRequestHost(raw: string, protocol: 'http:' | 'https:'): string | null {
     if (!raw || raw.trim() !== raw || /[\s,@/\\?#]/u.test(raw)) return null;
+    if (protocol === 'http:' && !hasCanonicalDevelopmentHttpHost(raw)) return null;
     try {
         const url = new URL(`${protocol}//${raw}`);
         if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;

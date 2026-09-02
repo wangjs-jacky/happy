@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     encodeSandboxCspMetadata,
+    normalizeSandboxOrigin,
     parseSandboxCspMetadata,
     parseSandboxOriginList,
     resolveSandboxRequest,
@@ -92,9 +93,56 @@ describe('resolveSandboxRequest', () => {
         })).toEqual({ ok: false });
     });
 
+    it.each([
+        ['127.1:3005', 'http://127.0.0.1:3005'],
+        ['2130706433:3005', 'http://127.0.0.1:3005'],
+        ['0177.0.0.1:3005', 'http://127.0.0.1:3005'],
+        ['0x7f000001:3005', 'http://127.0.0.1:3005'],
+        ['LOCALHOST:3005', 'http://localhost:3005'],
+        ['localhost:', 'http://localhost'],
+        ['localhost:08080', 'http://localhost:8080'],
+    ])('rejects a normalized development request Host %s', (requestHost, sandboxOrigin) => {
+        expect(resolveSandboxRequest({
+            requestHost,
+            parentOrigin: 'http://localhost:8081',
+            sandboxOrigin,
+            allowedParentOrigins: ['http://localhost:8081'],
+            development: true,
+        })).toEqual({ ok: false });
+    });
+
     it('rejects missing and empty production configuration', () => {
         expect(resolveSandboxRequest({ ...productionRequest, sandboxOrigin: undefined })).toEqual({ ok: false });
         expect(resolveSandboxRequest({ ...productionRequest, allowedParentOrigins: [] })).toEqual({ ok: false });
+    });
+});
+
+describe('development loopback origin spelling', () => {
+    it.each([
+        ['http://localhost:3005', 'http://localhost:3005'],
+        ['http://127.0.0.1:3005/', 'http://127.0.0.1:3005'],
+        ['http://[::1]:3005', 'http://[::1]:3005'],
+    ])('accepts the literal authority %s', (raw, expected) => {
+        expect(normalizeSandboxOrigin(raw, true)).toBe(expected);
+    });
+
+    it.each([
+        'http://127.1:3005',
+        'http://2130706433:3005',
+        'http://0177.0.0.1:3005',
+        'http://0x7f000001:3005',
+        'http://LOCALHOST:3005',
+        'http://%6cocalhost:3005',
+        'http://localhost:',
+        'http://localhost:0',
+        'http://localhost:08080',
+        'http://localhost:65536',
+        'http://user@localhost:3005',
+        'http://localhost:3005/path',
+        'http://localhost:3005?query=1',
+        'http://localhost:3005#fragment',
+    ])('rejects the non-canonical or unsafe authority %s', (raw) => {
+        expect(normalizeSandboxOrigin(raw, true)).toBeNull();
     });
 });
 
