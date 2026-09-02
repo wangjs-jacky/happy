@@ -74,8 +74,8 @@ test('Caddy activation and rollback enqueue reloads without waiting on old conne
     assert.match(rollbackStep.run, /systemctl --no-block reload caddy/);
     assert.match(rollbackStep.run, /systemctl list-jobs/);
     assert.match(rollbackStep.run, /ReloadResult/);
-    assert.match(rollbackStep.run, /\$PAWS_WEB_ORIGIN\/health/);
-    assert.match(rollbackStep.run, /\$PAWS_WEB_ORIGIN\//);
+    assert.match(rollbackStep.run, /verify-web-rollback\.mjs "\$PAWS_WEB_ORIGIN"/);
+    assert.doesNotMatch(rollbackStep.run, /curl /);
     assert.doesNotMatch(caddyStep.run, /systemctl reload caddy/);
     assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
 });

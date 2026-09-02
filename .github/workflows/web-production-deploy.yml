@@ -239,15 +239,8 @@ jobs:
           REMOTE_SCRIPT
             caddy_rollback_status=$?
             if [ "$caddy_rollback_status" -eq 0 ]; then
-              caddy_rollback_status=1
-              for ((attempt=1; attempt<=30; attempt+=1)); do
-                if curl --fail --silent --show-error --output /dev/null "$PAWS_WEB_ORIGIN/" \
-                  && curl --fail --silent --show-error --output /dev/null "$PAWS_WEB_ORIGIN/health"; then
-                  caddy_rollback_status=0
-                  break
-                fi
-                sleep 1
-              done
+              node scripts/verify-web-rollback.mjs "$PAWS_WEB_ORIGIN"
+              caddy_rollback_status=$?
             fi
           fi
           set -e
