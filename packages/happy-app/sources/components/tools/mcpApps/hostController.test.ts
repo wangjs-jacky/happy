@@ -183,8 +183,43 @@ describe('MCP App host controller', () => {
         gate.resolve();
         await starting;
 
-        expect(events.indexOf('input:{"city":"Hangzhou"}')).toBeLessThan(events.indexOf('cancel:Stopped by user'));
+        expect(events.filter((event) => (
+            event === 'input:{"city":"Hangzhou"}' || event === 'cancel:Stopped by user'
+        ))).toEqual([
+            'input:{"city":"Hangzhou"}',
+            'cancel:Stopped by user',
+        ]);
         expect(events.filter((event) => event.startsWith('cancel:'))).toEqual(['cancel:Stopped by user']);
+    });
+
+    it('delivers repeated terminal result or cancellation updates at most once after activation', async () => {
+        const resultEvents: string[] = [];
+        const { controller: resultController } = makeController({ events: resultEvents });
+        await resultController.start();
+
+        await resultController.updateToolCall({ state: 'completed', result: availableResult });
+        await resultController.updateToolCall({ state: 'completed', result: availableResult });
+        await resultController.updateToolCall({ state: 'cancelled', cancellationReason: 'late cancellation' });
+
+        expect(resultEvents.filter((event) => (
+            event.startsWith('result:') || event.startsWith('cancel:')
+        ))).toEqual([
+            'result:[{"type":"text","text":"done"}]',
+        ]);
+
+        const cancellationEvents: string[] = [];
+        const { controller: cancellationController } = makeController({ events: cancellationEvents });
+        await cancellationController.start();
+
+        await cancellationController.updateToolCall({ state: 'cancelled', cancellationReason: 'Stopped by user' });
+        await cancellationController.updateToolCall({ state: 'cancelled', cancellationReason: 'Stopped by user' });
+        await cancellationController.updateToolCall({ state: 'completed', result: availableResult });
+
+        expect(cancellationEvents.filter((event) => (
+            event.startsWith('result:') || event.startsWith('cancel:')
+        ))).toEqual([
+            'cancel:Stopped by user',
+        ]);
     });
 
     it('waits without polling and retries origin once only after a new terminal update', async () => {
@@ -329,8 +364,13 @@ describe('MCP App host controller', () => {
 
         await controller.dispose();
 
-        expect(events.indexOf('teardown')).toBeLessThan(events.indexOf('listener-aborted'));
-        expect(events.indexOf('listener-aborted')).toBeLessThan(events.indexOf('state:fallback'));
+        expect(events.filter((event) => (
+            event === 'teardown' || event === 'listener-aborted' || event === 'state:fallback'
+        ))).toEqual([
+            'teardown',
+            'listener-aborted',
+            'state:fallback',
+        ]);
         expect(controller.getState()).toEqual({ type: 'fallback' });
         expect(vi.getTimerCount()).toBe(0);
     });
