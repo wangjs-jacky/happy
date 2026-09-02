@@ -350,6 +350,7 @@ describe('reducer', () => {
             expect(initial.messages[0]).toMatchObject({
                 kind: 'tool-call',
                 tool: {
+                    callId: 'mcp-app-call',
                     mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
                     mcpAppResult: {
                         version: 1,
@@ -362,6 +363,7 @@ describe('reducer', () => {
             expect(reducer(state, messages).messages).toHaveLength(0);
             const messageId = state.toolIdToMessageId.get('mcp-app-call');
             expect(state.messages.get(messageId!)?.tool).toMatchObject({
+                callId: 'mcp-app-call',
                 mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
                 mcpAppResult: {
                     version: 1,
@@ -429,6 +431,7 @@ describe('reducer', () => {
                 expect(result.messages[0].tool.result).toBe('ok');
                 expect(result.messages[0].tool.completedAt).toBe(2000);
                 expect(result.messages[0].tool).toMatchObject({
+                    callId: 'tool-1',
                     mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
                     mcpAppResult: {
                         version: 1,
@@ -521,6 +524,7 @@ describe('reducer', () => {
                 message.tool?.name === 'ShowDemo'
             ))?.tool;
             expect(tool).toMatchObject({
+                callId: 'sidechain-mcp-app-call',
                 mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
                 mcpAppResult: {
                     version: 1,
@@ -677,14 +681,17 @@ describe('reducer', () => {
                 state.sidechains.get(sidechainId)?.find((message) => message.tool?.description === description)?.tool
             );
             expect(toolFor('sidechain-a', 'Show sidechain A demo')).toMatchObject({
+                callId: 'shared-call',
                 result: 'sidechain a result',
                 mcpAppResult: { structuredContent: { source: 'sidechain-a' } },
             });
             expect(toolFor('sidechain-b', 'Show sidechain B demo')).toMatchObject({
+                callId: 'shared-call',
                 result: 'sidechain b result',
                 mcpAppResult: { structuredContent: { source: 'sidechain-b' } },
             });
             expect(toolFor('sidechain-a', 'Show unrelated demo')).toMatchObject({
+                callId: 'unrelated-call',
                 result: 'unrelated result',
                 mcpAppResult: { structuredContent: { source: 'unrelated' } },
             });

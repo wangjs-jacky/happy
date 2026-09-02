@@ -3,6 +3,8 @@ import { McpAppPresentationV1, McpAppResultV1 } from '@slopus/happy-wire';
 import { MessageMeta } from "./typesMessageMeta";
 
 export type ToolCall = {
+    /** Immutable protocol identifier used for MCP App RPC correlation. */
+    readonly callId?: string;
     name: string;
     state: 'running' | 'completed' | 'error';
     input: any;

@@ -535,6 +535,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                     // Create a new tool message for the permission request
                     let mid = allocateId();
                     let toolCall: ToolCall = {
+                        callId: permId,
                         name: request.tool,
                         state: 'running' as const,
                         input: request.arguments,
@@ -691,6 +692,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                     // Create a new message for completed permission without tool
                     let mid = allocateId();
                     let toolCall: ToolCall = {
+                        callId: permId,
                         name: completed.tool,
                         state: completed.status === 'approved' ? 'completed' : 'error',
                         input: completed.arguments,
@@ -863,6 +865,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         const permission = state.permissions.get(c.id);
 
                         let toolCall: ToolCall = {
+                            callId: c.id,
                             name: c.name,
                             state: 'running' as const,
                             input: permission ? mergeToolInputs(permission.arguments, c.input) : c.input,
@@ -1034,6 +1037,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
 
                     let mid = allocateId();
                     let toolCall: ToolCall = {
+                        callId: c.id,
                         name: c.name,
                         state: 'running' as const,
                         input: c.input,
