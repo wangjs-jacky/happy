@@ -505,14 +505,155 @@ describe('reducer', () => {
                 }],
             }]);
 
-            const messageId = state.sidechainToolIdToMessageId.get('sidechain-mcp-app-call');
-            expect(state.messages.get(messageId!)?.tool).toMatchObject({
+            const tool = state.sidechains.get('sidechain-mcp-app')?.find((message) => (
+                message.tool?.name === 'ShowDemo'
+            ))?.tool;
+            expect(tool).toMatchObject({
                 mcpApp: { version: 1, resourceUri: 'ui://demo/index.html' },
                 mcpAppResult: {
                     version: 1,
                     state: 'available',
                     structuredContent: { count: 1 },
                 },
+            });
+        });
+
+        it('retains result-first MCP App metadata per sidechain call across replay', () => {
+            const state = createReducer();
+            const messages: NormalizedMessage[] = [{
+                id: 'sidechain-a-shared-result',
+                localId: null,
+                createdAt: 1000,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-a',
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'shared-call',
+                    content: 'sidechain a result',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { source: 'sidechain-a' },
+                    },
+                    uuid: 'sidechain-a-shared-result-uuid',
+                    parentUUID: 'sidechain-a',
+                }],
+            }, {
+                id: 'sidechain-a-unrelated-result',
+                localId: null,
+                createdAt: 1100,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-a',
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'unrelated-call',
+                    content: 'unrelated result',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { source: 'unrelated' },
+                    },
+                    uuid: 'sidechain-a-unrelated-result-uuid',
+                    parentUUID: 'sidechain-a',
+                }],
+            }, {
+                id: 'sidechain-b-shared-result',
+                localId: null,
+                createdAt: 1200,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-b',
+                content: [{
+                    type: 'tool-result',
+                    tool_use_id: 'shared-call',
+                    content: 'sidechain b result',
+                    is_error: false,
+                    mcpAppResult: {
+                        version: 1,
+                        state: 'available',
+                        content: [],
+                        structuredContent: { source: 'sidechain-b' },
+                    },
+                    uuid: 'sidechain-b-shared-result-uuid',
+                    parentUUID: 'sidechain-b',
+                }],
+            }, {
+                id: 'sidechain-a-shared-start',
+                localId: null,
+                createdAt: 2000,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-a',
+                content: [{
+                    type: 'tool-call',
+                    id: 'shared-call',
+                    name: 'ShowDemo',
+                    input: {},
+                    description: 'Show sidechain A demo',
+                    uuid: 'sidechain-a-shared-start-uuid',
+                    parentUUID: 'sidechain-a',
+                }],
+            }, {
+                id: 'sidechain-b-shared-start',
+                localId: null,
+                createdAt: 2100,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-b',
+                content: [{
+                    type: 'tool-call',
+                    id: 'shared-call',
+                    name: 'ShowDemo',
+                    input: {},
+                    description: 'Show sidechain B demo',
+                    uuid: 'sidechain-b-shared-start-uuid',
+                    parentUUID: 'sidechain-b',
+                }],
+            }, {
+                id: 'sidechain-a-unrelated-start',
+                localId: null,
+                createdAt: 2200,
+                role: 'agent',
+                isSidechain: true,
+                sidechainId: 'sidechain-a',
+                content: [{
+                    type: 'tool-call',
+                    id: 'unrelated-call',
+                    name: 'ShowOther',
+                    input: {},
+                    description: 'Show unrelated demo',
+                    uuid: 'sidechain-a-unrelated-start-uuid',
+                    parentUUID: 'sidechain-a',
+                }],
+            }];
+
+            reducer(state, messages);
+
+            const toolFor = (sidechainId: string, description: string) => (
+                state.sidechains.get(sidechainId)?.find((message) => message.tool?.description === description)?.tool
+            );
+            expect(toolFor('sidechain-a', 'Show sidechain A demo')).toMatchObject({
+                result: 'sidechain a result',
+                mcpAppResult: { structuredContent: { source: 'sidechain-a' } },
+            });
+            expect(toolFor('sidechain-b', 'Show sidechain B demo')).toMatchObject({
+                result: 'sidechain b result',
+                mcpAppResult: { structuredContent: { source: 'sidechain-b' } },
+            });
+            expect(toolFor('sidechain-a', 'Show unrelated demo')).toMatchObject({
+                result: 'unrelated result',
+                mcpAppResult: { structuredContent: { source: 'unrelated' } },
+            });
+
+            expect(reducer(state, messages).messages).toHaveLength(0);
+            expect(toolFor('sidechain-a', 'Show sidechain A demo')?.mcpAppResult).toMatchObject({
+                structuredContent: { source: 'sidechain-a' },
             });
         });
     });

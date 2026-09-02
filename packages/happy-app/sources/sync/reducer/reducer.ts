@@ -167,9 +167,10 @@ type PendingToolResult = {
 
 export type ReducerState = {
     toolIdToMessageId: Map<string, string>; // toolId/permissionId -> messageId (since they're the same now)
-    sidechainToolIdToMessageId: Map<string, string>; // toolId -> sidechain messageId (for dual tracking)
+    sidechainToolIdToMessageId: Map<string, Map<string, string>>; // sidechainId -> toolId -> sidechain messageId
     permissions: Map<string, StoredPermission>; // Store permission details by ID for quick lookup
     pendingToolResults: Map<string, PendingToolResult>;
+    pendingSidechainToolResults: Map<string, Map<string, PendingToolResult>>;
     localIds: Map<string, string>;
     messageIds: Map<string, string>; // originalId -> internalId
     messages: Map<string, ReducerMessage>;
@@ -195,6 +196,7 @@ export function createReducer(): ReducerState {
         sidechainToolIdToMessageId: new Map(),
         permissions: new Map(),
         pendingToolResults: new Map(),
+        pendingSidechainToolResults: new Map(),
         messages: new Map(),
         localIds: new Map(),
         messageIds: new Map(),
@@ -1071,13 +1073,27 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                     state.messages.set(mid, toolMsg);
                     existingSidechain.push(toolMsg);
 
-                    // Map sidechain tool separately to avoid overwriting permission mapping
-                    state.sidechainToolIdToMessageId.set(c.id, mid);
+                    // Map sidechain tools by owner so matching call IDs cannot cross branches.
+                    let sidechainToolIds = state.sidechainToolIdToMessageId.get(msg.sidechainId);
+                    if (!sidechainToolIds) {
+                        sidechainToolIds = new Map();
+                        state.sidechainToolIdToMessageId.set(msg.sidechainId, sidechainToolIds);
+                    }
+                    sidechainToolIds.set(c.id, mid);
+
+                    const pendingResult = state.pendingSidechainToolResults.get(msg.sidechainId)?.get(c.id);
+                    if (pendingResult && applyToolResult(state, toolMsg, c.id, pendingResult)) {
+                        const pendingResults = state.pendingSidechainToolResults.get(msg.sidechainId)!;
+                        pendingResults.delete(c.id);
+                        if (pendingResults.size === 0) {
+                            state.pendingSidechainToolResults.delete(msg.sidechainId);
+                        }
+                    }
                 } else if (c.type === 'tool-result') {
                     // Process tool result in sidechain - update BOTH messages
 
                     // Update the sidechain tool message
-                    let sidechainMessageId = state.sidechainToolIdToMessageId.get(c.tool_use_id);
+                    let sidechainMessageId = state.sidechainToolIdToMessageId.get(msg.sidechainId)?.get(c.tool_use_id);
                     if (sidechainMessageId) {
                         let sidechainMessage = state.messages.get(sidechainMessageId);
                         if (sidechainMessage && sidechainMessage.tool && sidechainMessage.tool.state === 'running') {
@@ -1120,6 +1136,21 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                                 }
                             }
                         }
+                    } else {
+                        let pendingResults = state.pendingSidechainToolResults.get(msg.sidechainId);
+                        if (!pendingResults) {
+                            pendingResults = new Map();
+                            state.pendingSidechainToolResults.set(msg.sidechainId, pendingResults);
+                        }
+                        pendingResults.set(c.tool_use_id, {
+                            content: c.content,
+                            isError: c.is_error,
+                            status: c.status,
+                            failure: c.failure,
+                            mcpAppResult: c.mcpAppResult,
+                            permissions: c.permissions,
+                            createdAt: msg.createdAt,
+                        });
                     }
 
                     // Also update the main permission message if it exists
