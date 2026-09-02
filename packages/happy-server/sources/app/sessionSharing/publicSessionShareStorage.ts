@@ -1,4 +1,5 @@
 import {
+    deleteFile,
     deleteFilePrefix,
     isLocalStorage,
     localFileExists,
@@ -26,6 +27,10 @@ export function buildPublicShareStoragePath(shareId: string, generation: string,
 export async function putPublicShareAsset(storagePath: string, data: Buffer): Promise<void> {
     if (isLocalStorage()) return putLocalFile(storagePath, data);
     await s3client.putObject(s3bucket, storagePath, data, data.length);
+}
+
+export async function deletePublicShareAsset(storagePath: string): Promise<void> {
+    await deleteFile(storagePath);
 }
 
 export async function publicShareAssetExists(storagePath: string, expectedSize: number): Promise<boolean> {

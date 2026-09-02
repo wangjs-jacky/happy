@@ -105,6 +105,15 @@ export async function deleteFilePrefix(prefix: string): Promise<void> {
     }
 }
 
+export async function deleteFile(filePath: string): Promise<void> {
+    if (useLocalStorage) {
+        const fullPath = path.join(localFilesDir, filePath);
+        if (fs.existsSync(fullPath)) fs.rmSync(fullPath, { force: true });
+        return;
+    }
+    await s3client.removeObject(s3bucket, filePath);
+}
+
 /**
  * Delete all attachments for a session.
  * Local: removes the session attachments directory.

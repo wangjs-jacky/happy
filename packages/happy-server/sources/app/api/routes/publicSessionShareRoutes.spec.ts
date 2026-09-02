@@ -41,7 +41,7 @@ type AssetRow = {
     createdAt: Date;
 };
 
-const { state, dbMock, storageMock, resetState } = vi.hoisted(() => {
+const { state, dbMock, storageMock, providerMock, resetState } = vi.hoisted(() => {
     const state = {
         sessions: [] as Array<{ id: string; accountId: string }>,
         shares: [] as ShareRow[],
@@ -181,6 +181,38 @@ const { state, dbMock, storageMock, resetState } = vi.hoisted(() => {
             return { kind: 'buffer' as const, data };
         }),
         deletePublicShareGeneration: vi.fn(async () => undefined),
+        deletePublicShareAsset: vi.fn(async (path: string) => { state.bytes.delete(path); }),
+    };
+
+    const providerMock = {
+        getRandomPexelsCover: vi.fn(async () => ({
+            provider: 'pexels' as const,
+            photoId: 2014422,
+            previewUrl: 'https://images.pexels.com/photos/2014422/pexels-photo-2014422.jpeg',
+            width: 3024,
+            height: 3024,
+            averageColor: '#6E6353',
+            attribution: {
+                photographer: 'Eberhard Grossgasteiger',
+                photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+            },
+        })),
+        importPexelsCover: vi.fn(async () => ({
+            bytes: Buffer.from('webp'),
+            mimeType: 'image/webp' as const,
+            size: 4,
+            width: 2400,
+            height: 900,
+            attribution: {
+                photoId: 2014422,
+                photographer: 'Eberhard Grossgasteiger',
+                photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+            },
+        })),
+        PexelsConfigurationError: class PexelsConfigurationError extends Error {},
+        PexelsProviderError: class PexelsProviderError extends Error {},
     };
 
     const resetState = () => {
@@ -190,13 +222,15 @@ const { state, dbMock, storageMock, resetState } = vi.hoisted(() => {
         state.assets = [];
         state.bytes.clear();
         state.nextShare = 1;
+        delete process.env.PEXELS_API_KEY;
         vi.clearAllMocks();
     };
-    return { state, dbMock, storageMock, resetState };
+    return { state, dbMock, storageMock, providerMock, resetState };
 });
 
 vi.mock('@/storage/db', () => ({ db: dbMock }));
 vi.mock('@/app/sessionSharing/publicSessionShareStorage', () => storageMock);
+vi.mock('@/app/sessionSharing/publicSessionCoverProvider', () => providerMock);
 
 import { publicSessionShareRoutes } from './publicSessionShareRoutes';
 import { enableErrorHandlers } from '../utils/enableErrorHandlers';
@@ -281,6 +315,188 @@ describe('publicSessionShareRoutes', () => {
         expect(response.json().generation).toMatch(/^[0-9a-f-]{36}$/);
         expect(response.json().publicId).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(dbMock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'Serializable' });
+    });
+
+    it('returns a normalized random Pexels candidate only to the session owner', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+
+        const hidden = await app.inject({
+            method: 'GET',
+            url: '/v1/sessions/session-1/share/covers/random',
+            headers: { 'x-user-id': 'other-user' },
+        });
+        const response = await app.inject({
+            method: 'GET',
+            url: '/v1/sessions/session-1/share/covers/random',
+            headers: { 'x-user-id': 'owner-1' },
+        });
+
+        expect(hidden.statusCode).toBe(404);
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+            provider: 'pexels',
+            photoId: 2014422,
+            attribution: { photographer: 'Eberhard Grossgasteiger' },
+        });
+    });
+
+    it('returns 503 for an unconfigured random provider without disabling other share routes', async () => {
+        const unavailable = await app.inject({
+            method: 'GET',
+            url: '/v1/sessions/session-1/share/covers/random',
+            headers: { 'x-user-id': 'owner-1' },
+        });
+        const share = await app.inject({
+            method: 'GET',
+            url: '/v1/sessions/session-1/share',
+            headers: { 'x-user-id': 'owner-1' },
+        });
+
+        expect(unavailable.statusCode).toBe(503);
+        expect(unavailable.json()).toEqual({ error: 'Random cover provider is unavailable' });
+        expect(share.statusCode).toBe(200);
+        expect(share.json()).toMatchObject({ active: false });
+    });
+
+    it('imports a canonical WebP into the pending generation outside a database transaction', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const hidden = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'other-user' },
+            payload: { assetId: '77777777-7777-4777-8777-777777777777', photoId: 2014422 },
+        });
+        expect(hidden.statusCode).toBe(404);
+        let transactionActive = false;
+        dbMock.$transaction.mockImplementation(async (callback: any) => {
+            transactionActive = true;
+            try {
+                return await callback(dbMock);
+            } finally {
+                transactionActive = false;
+            }
+        });
+        providerMock.importPexelsCover.mockImplementationOnce(async () => {
+            expect(transactionActive).toBe(false);
+            return {
+                bytes: Buffer.from('webp'), mimeType: 'image/webp', size: 4, width: 2400, height: 900,
+                attribution: {
+                    photoId: 2014422,
+                    photographer: 'Eberhard Grossgasteiger',
+                    photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                    photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+                },
+            };
+        });
+        storageMock.putPublicShareAsset.mockImplementationOnce(async (path: string, bytes: Buffer) => {
+            expect(transactionActive).toBe(false);
+            state.bytes.set(path, bytes);
+        });
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '77777777-7777-4777-8777-777777777777', photoId: 2014422 },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({
+            assetId: '77777777-7777-4777-8777-777777777777',
+            mimeType: 'image/webp',
+            size: 4,
+            width: 2400,
+            height: 900,
+            attribution: {
+                photoId: 2014422,
+                photographer: 'Eberhard Grossgasteiger',
+                photographerUrl: 'https://www.pexels.com/@eberhardgross',
+                photoUrl: 'https://www.pexels.com/photo/brown-rocks-during-golden-hour-2014422/',
+            },
+        });
+        expect(state.assets).toHaveLength(1);
+        expect(state.assets[0]).toMatchObject({
+            id: '77777777-7777-4777-8777-777777777777',
+            generation: draft.generation,
+            mimeType: 'image/webp',
+            kind: 'image',
+            size: 4,
+            sha256: 'a57bb082e728a0cdce930ecfcccf4510a3a247be5f322b09b3a971a3f5ed34f8',
+            uploadedAt: expect.any(Date),
+        });
+        expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
+    });
+
+    it('removes only the imported object when the draft becomes stale during provider work', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const siblingPath = `private/session-shares/${state.shares[0].id}/${draft.generation}/sibling`;
+        state.bytes.set(siblingPath, Buffer.from('attachment'));
+        storageMock.putPublicShareAsset.mockImplementationOnce(async (path: string, bytes: Buffer) => {
+            state.bytes.set(path, bytes);
+            state.drafts[0].status = 'superseded';
+        });
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', photoId: 2014422 },
+        });
+
+        expect(response.statusCode).toBe(409);
+        expect(storageMock.deletePublicShareAsset).toHaveBeenCalledWith(
+            `private/session-shares/${state.shares[0].id}/${draft.generation}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+        );
+        expect(state.bytes.get(siblingPath)).toEqual(Buffer.from('attachment'));
+        expect(state.assets).toHaveLength(0);
+    });
+
+    it('returns canonical metadata when the same imported asset ID is retried', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const request = {
+            method: 'POST' as const,
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '88888888-8888-4888-8888-888888888888', photoId: 2014422 },
+        };
+
+        const first = await app.inject(request);
+        const retry = await app.inject(request);
+
+        expect(first.statusCode).toBe(200);
+        expect(retry.statusCode).toBe(200);
+        expect(retry.json()).toEqual(first.json());
+        expect(state.assets).toHaveLength(1);
+    });
+
+    it.each(['provider', 'storage'] as const)('leaves the draft unpublished when %s work fails', async (failure) => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        if (failure === 'provider') {
+            providerMock.importPexelsCover.mockRejectedValueOnce(new providerMock.PexelsProviderError('provider unavailable'));
+        } else {
+            storageMock.putPublicShareAsset.mockRejectedValueOnce(new Error('object store unavailable'));
+        }
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: '99999999-9999-4999-8999-999999999999', photoId: 2014422 },
+        });
+
+        expect(response.statusCode).toBeGreaterThanOrEqual(500);
+        expect(state.shares[0].publishedAt).toBeNull();
+        expect(state.drafts[0].status).toBe('pending');
+        expect(state.assets).toHaveLength(0);
+        if (failure === 'storage') {
+            expect(storageMock.deletePublicShareAsset).toHaveBeenCalledWith(
+                `private/session-shares/${state.shares[0].id}/${draft.generation}/99999999-9999-4999-8999-999999999999`,
+            );
+        }
     });
 
     it('retries a serializable quota transaction after a database write conflict', async () => {

@@ -19,6 +19,7 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
         }),
         listObjects: vi.fn(),
         removeObjects: vi.fn(async () => undefined),
+        removeObject: vi.fn(async (_bucket: string, key: string) => { state.objects.delete(key); }),
     };
     const filesMock = {
         s3client,
@@ -33,6 +34,7 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
                 if (key.startsWith(`${prefix}/`)) state.objects.delete(key);
             }
         }),
+        deleteFile: vi.fn(async (key: string) => { state.objects.delete(key); }),
         __state: state,
     };
     const resetStorage = () => {
@@ -47,6 +49,7 @@ vi.mock('@/storage/files', () => filesMock);
 
 import {
     buildPublicShareStoragePath,
+    deletePublicShareAsset,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
     publicShareAssetExists,
@@ -93,5 +96,17 @@ describe('publicSessionShareStorage', () => {
 
         expect(filesMock.__state.objects.has(oldPath)).toBe(false);
         expect(filesMock.__state.objects.has(activePath)).toBe(true);
+    });
+
+    it('deletes one stale imported object without removing sibling generation assets', async () => {
+        const importedPath = buildPublicShareStoragePath('share_1', 'generation-1', 'cover_1');
+        const attachmentPath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_2');
+        filesMock.__state.objects.set(importedPath, Buffer.from('cover'));
+        filesMock.__state.objects.set(attachmentPath, Buffer.from('attachment'));
+
+        await deletePublicShareAsset(importedPath);
+
+        expect(filesMock.__state.objects.has(importedPath)).toBe(false);
+        expect(filesMock.__state.objects.has(attachmentPath)).toBe(true);
     });
 });

@@ -11,11 +11,19 @@ import {
 } from '@/app/sessionSharing/publicSessionShareSchemas';
 import {
     buildPublicShareStoragePath,
+    deletePublicShareAsset,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
     publicShareAssetExists,
     putPublicShareAsset,
 } from '@/app/sessionSharing/publicSessionShareStorage';
+import {
+    getRandomPexelsCover,
+    importPexelsCover,
+    PexelsConfigurationError,
+    PexelsProviderError,
+    type ImportedPublicSessionCover,
+} from '@/app/sessionSharing/publicSessionCoverProvider';
 import { createPublicShareRateLimiter } from '@/app/sessionSharing/publicSessionShareRateLimit';
 import { cleanupPublicSessionShareGeneration } from '@/app/sessionSharing/publicSessionShareCleanup';
 import { log } from '@/utils/log';
@@ -52,6 +60,10 @@ const prepareAssetBodySchema = z.object({
     kind: publicShareAssetKindSchema,
     size: z.number().int().min(0).max(MAX_ASSET_SIZE),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+const importCoverBodySchema = z.object({
+    assetId: z.string().uuid(),
+    photoId: z.number().int().positive(),
 }).strict();
 
 function resolveBaseUrl(request: { headers: Record<string, string | string[] | undefined> }): string {
@@ -200,6 +212,31 @@ export function publicSessionShareRoutes(app: Fastify) {
                 ? { appearance: parsedSnapshot.data.appearance }
                 : {}),
         });
+    });
+
+    app.get('/v1/sessions/:sessionId/share/covers/random', {
+        preHandler: app.authenticate,
+        schema: { params: sessionParamsSchema },
+    }, async (request, reply) => {
+        const session = await db.session.findFirst({
+            where: { id: request.params.sessionId, accountId: request.userId },
+            select: { id: true },
+        });
+        if (!session) return reply.code(404).send({ error: 'Session not found' });
+        if (!await enforceShareWriteRate(request.userId, reply)) return;
+        const apiKey = process.env.PEXELS_API_KEY;
+        if (!apiKey) return reply.code(503).send({ error: 'Random cover provider is unavailable' });
+        try {
+            return reply.send(await getRandomPexelsCover(fetch, apiKey, Math.random));
+        } catch (error) {
+            if (error instanceof PexelsConfigurationError) {
+                return reply.code(503).send({ error: 'Random cover provider is unavailable' });
+            }
+            if (error instanceof PexelsProviderError) {
+                return reply.code(502).send({ error: 'Random cover provider request failed' });
+            }
+            throw error;
+        }
     });
 
     app.post('/v1/sessions/:sessionId/share/drafts', {
@@ -386,6 +423,144 @@ export function publicSessionShareRoutes(app: Fastify) {
         const baseUrl = resolveBaseUrl(request);
         const localUrl = `${baseUrl}/v1/sessions/${request.params.sessionId}/share/drafts/${request.params.generation}/assets/${assetId}`;
         return reply.send({ assetId, method: 'PUT', uploadUrl: localUrl });
+    });
+
+    app.post('/v1/sessions/:sessionId/share/drafts/:generation/covers/import', {
+        preHandler: app.authenticate,
+        schema: { params: draftParamsSchema, body: importCoverBodySchema },
+    }, async (request, reply) => {
+        const share = await db.publicSessionShare.findFirst({
+            where: { sessionId: request.params.sessionId, accountId: request.userId },
+        });
+        if (!share || share.revokedAt) return reply.code(404).send({ error: 'Session not found' });
+        if (!await enforceShareWriteRate(request.userId, reply)) return;
+        const draft = await db.publicSessionShareDraft.findFirst({
+            where: {
+                id: request.params.generation,
+                shareId: share.id,
+                lifecycleVersion: share.lifecycleVersion,
+                status: 'pending',
+                expiresAt: { gt: new Date() },
+            },
+        });
+        if (!draft) return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
+        const apiKey = process.env.PEXELS_API_KEY;
+        if (!apiKey) return reply.code(503).send({ error: 'Random cover provider is unavailable' });
+
+        let imported: ImportedPublicSessionCover;
+        try {
+            imported = await importPexelsCover(request.body.photoId, { fetchImpl: fetch, apiKey });
+        } catch (error) {
+            if (error instanceof PexelsConfigurationError) {
+                return reply.code(503).send({ error: 'Random cover provider is unavailable' });
+            }
+            if (error instanceof PexelsProviderError) {
+                return reply.code(502).send({ error: 'Random cover provider request failed' });
+            }
+            throw error;
+        }
+
+        const storagePath = buildPublicShareStoragePath(share.id, draft.id, request.body.assetId);
+        const sha256 = crypto.createHash('sha256').update(imported.bytes).digest('hex');
+        const responseBody = {
+            assetId: request.body.assetId,
+            mimeType: imported.mimeType,
+            size: imported.size,
+            width: imported.width,
+            height: imported.height,
+            attribution: imported.attribution,
+        };
+        const existing = await db.publicSessionShareAsset.findFirst({
+            where: { id: request.body.assetId, shareId: share.id, generation: draft.id },
+        });
+        if (existing) {
+            if (existing.uploadedAt
+                && existing.storagePath === storagePath
+                && existing.mimeType === imported.mimeType
+                && existing.kind === 'image'
+                && existing.size === imported.size
+                && existing.sha256 === sha256) {
+                return reply.send(responseBody);
+            }
+            return reply.code(409).send({ error: 'Shared attachment already exists' });
+        }
+
+        try {
+            await putPublicShareAsset(storagePath, imported.bytes);
+        } catch {
+            await deletePublicShareAsset(storagePath).catch(() => undefined);
+            return reply.code(503).send({ error: 'Cover storage is unavailable' });
+        }
+        try {
+            await serializableTransaction(async (tx) => {
+                const now = new Date();
+                const currentShare = await tx.publicSessionShare.findFirst({
+                    where: {
+                        id: share.id,
+                        sessionId: request.params.sessionId,
+                        accountId: request.userId,
+                        lifecycleVersion: share.lifecycleVersion,
+                        revokedAt: null,
+                    },
+                });
+                if (!currentShare) throw new StaleShareDraftError();
+                const currentDraft = await tx.publicSessionShareDraft.findFirst({
+                    where: {
+                        id: draft.id,
+                        shareId: share.id,
+                        lifecycleVersion: share.lifecycleVersion,
+                        status: 'pending',
+                        expiresAt: { gt: now },
+                    },
+                });
+                if (!currentDraft) throw new StaleShareDraftError();
+
+                const generationAssets = await tx.publicSessionShareAsset.findMany({
+                    where: { shareId: share.id, generation: draft.id },
+                });
+                if (generationAssets.some((asset) => asset.id === request.body.assetId)) {
+                    throw new PublicShareRequestError(409, 'Shared attachment already exists');
+                }
+                const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + imported.size;
+                if (generationAssets.length >= MAX_ASSET_COUNT || totalSize > MAX_TOTAL_ASSET_SIZE) {
+                    throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
+                }
+                const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
+                    where: {
+                        share: { accountId: request.userId },
+                        draft: { status: 'pending', expiresAt: { gt: now } },
+                    },
+                    _sum: { size: true },
+                });
+                if ((accountPendingSize._sum.size ?? 0) + imported.size > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
+                    throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
+                }
+                await tx.publicSessionShareAsset.create({
+                    data: {
+                        id: request.body.assetId,
+                        shareId: share.id,
+                        generation: draft.id,
+                        name: `pexels-cover-${request.body.photoId}.webp`,
+                        mimeType: imported.mimeType,
+                        kind: 'image',
+                        size: imported.size,
+                        sha256,
+                        storagePath,
+                        uploadedAt: now,
+                    },
+                });
+            });
+        } catch (error) {
+            await deletePublicShareAsset(storagePath).catch(() => undefined);
+            if (error instanceof StaleShareDraftError) {
+                return reply.code(409).send({ error: 'Shared-session draft is unavailable' });
+            }
+            if (error instanceof PublicShareRequestError) {
+                return reply.code(error.statusCode).send({ error: error.message });
+            }
+            throw error;
+        }
+        return reply.send(responseBody);
     });
 
     app.put('/v1/sessions/:sessionId/share/drafts/:generation/assets/:assetId', {
