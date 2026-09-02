@@ -3,6 +3,11 @@ import { Command, CommanderError, Option } from 'commander';
 import { discoverCurrentTranscript } from './adapters/discover';
 import type { TranscriptCandidate } from './adapters/types';
 import { installSkill, type InstallSkillResult, type InstallSkillTarget } from './installSkill';
+import {
+    exportSessionHtml,
+    type ExportSessionHtmlOptions,
+    type ExportSessionHtmlResult,
+} from './localHtml';
 import { ShareRecordStore, type PublicShareRecord } from './records';
 import {
     inspectSession,
@@ -28,6 +33,7 @@ export type CliIo = {
 
 export type CliDependencies = {
     inspectSession: (options: { candidate: TranscriptCandidate }) => Promise<SessionInspection>;
+    exportSessionHtml: (options: ExportSessionHtmlOptions) => Promise<ExportSessionHtmlResult>;
     shareSession: (options: ShareSessionOptions) => Promise<ShareSessionResult>;
     listRecords: () => Promise<PublicShareRecord[]>;
     statusManagedShare: (identifier: string) => Promise<ManagedShareStatusResult>;
@@ -55,6 +61,7 @@ function defaults(): CliDependencies {
     const store = new ShareRecordStore();
     return {
         inspectSession,
+        exportSessionHtml,
         shareSession: (options) => shareSession({ ...options, store }),
         listRecords: () => store.list(),
         statusManagedShare: (identifier) => statusManagedShare(identifier, store),
@@ -126,6 +133,28 @@ function createProgram(io: CliIo, dependencies: CliDependencies) {
         .action(async (options: SourceOptions & { json?: boolean }) => {
             const candidate = await candidateFromOptions(options, dependencies);
             writeInspection(io, await dependencies.inspectSession({ candidate }), Boolean(options.json));
+        });
+
+    addSourceOptions(program.command('export-html').description('Create one self-contained offline HTML snapshot'))
+        .requiredOption('--output <path>', 'destination HTML file')
+        .option('--force', 'replace an existing output file')
+        .option('--allow-sensitive', 'override high-confidence secret findings')
+        .option('--json', 'print JSON output')
+        .action(async (options: SourceOptions & {
+            output: string;
+            force?: boolean;
+            allowSensitive?: boolean;
+            json?: boolean;
+        }) => {
+            const candidate = await candidateFromOptions(options, dependencies);
+            const result = await dependencies.exportSessionHtml({
+                candidate,
+                outputPath: resolve(options.output),
+                allowSensitive: Boolean(options.allowSensitive),
+                overwrite: Boolean(options.force),
+            });
+            if (options.json) writeJson(io, result);
+            else io.stdout(`Local HTML: ${result.outputPath}\nSize: ${result.bytes} bytes\n`);
         });
 
     addSourceOptions(program.command('share').description('Create a public snapshot link'))

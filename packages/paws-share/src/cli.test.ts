@@ -34,11 +34,35 @@ describe('paws-share CLI', () => {
         expect(exitCode).toBe(0);
         expect(output.stdout.join('')).toContain('inspect');
         expect(output.stdout.join('')).toContain('share');
+        expect(output.stdout.join('')).toContain('export-html');
         expect(output.stdout.join('')).toContain('list');
         expect(output.stdout.join('')).toContain('renew');
         expect(output.stdout.join('')).toContain('revoke');
         expect(output.stdout.join('')).toContain('status');
         expect(output.stdout.join('')).toContain('replace');
+        expect(output.stderr).toEqual([]);
+    });
+
+    it('exports an explicit session to a local HTML file without publishing it', async () => {
+        const output = capture();
+        const exportSessionHtml = vi.fn(async () => ({
+            outputPath: '/tmp/review.html', source: 'codex' as const, title: 'Review',
+            messageCount: 4, attachmentCount: 1, attachmentBytes: 320, bytes: 4096,
+        }));
+
+        const exitCode = await runCli([
+            'node', 'paws-share', 'export-html', '--source', 'codex', '--session', '/tmp/session.jsonl',
+            '--output', '/tmp/review.html', '--force', '--json',
+        ], output.io, { exportSessionHtml });
+
+        expect(exitCode).toBe(0);
+        expect(exportSessionHtml).toHaveBeenCalledWith({
+            candidate: { provider: 'codex', path: '/tmp/session.jsonl' },
+            outputPath: '/tmp/review.html',
+            allowSensitive: false,
+            overwrite: true,
+        });
+        expect(JSON.parse(output.stdout.join(''))).toMatchObject({ outputPath: '/tmp/review.html', bytes: 4096 });
         expect(output.stderr).toEqual([]);
     });
 

@@ -64,4 +64,57 @@ describe('codexAdapter', () => {
         expect(await readResolvedAttachmentBytes(converted.attachments[0])).toEqual(png);
         expect(converted.unresolvedAttachments).toEqual([]);
     });
+
+    it('removes Paws host envelopes and synthetic configuration from public content', async () => {
+        const directory = await createTemporaryDirectory('paws-share-codex-envelope-');
+        temporaryDirectories.push(directory);
+        const transcript = join(directory, 'session.jsonl');
+        const lines = [
+            {
+                type: 'response_item', timestamp: '2026-09-01T00:00:00.000Z',
+                payload: {
+                    type: 'message', role: 'user', content: [
+                        { type: 'input_text', text: '<recommended_plugins>private routing</recommended_plugins>' },
+                        { type: 'input_text', text: '# AGENTS.md instructions\n<INSTRUCTIONS>private rules</INSTRUCTIONS>' },
+                        { type: 'input_text', text: '<environment_context>private environment</environment_context>' },
+                    ],
+                },
+            },
+            {
+                type: 'response_item', timestamp: '2026-09-01T00:00:01.000Z',
+                payload: {
+                    id: 'message-1', type: 'message', role: 'user', content: [{
+                        type: 'input_text',
+                        text: [
+                            'Happy attached 1 user-uploaded image to this Codex turn.',
+                            'Use this exact localImage path.',
+                            '- Image 1: /Users/example/private.png',
+                            '<!-- happy:paws-origin:private-origin -->',
+                            '<!-- happy:system-prompt:start -->',
+                            'private runtime settings',
+                            '<!-- happy:system-prompt:end -->',
+                            '',
+                            'Share this session.',
+                            '',
+                            '<!-- happy:system-prompt:start -->',
+                            'more private runtime settings',
+                            '<!-- happy:system-prompt:end -->',
+                        ].join('\n'),
+                    }],
+                },
+            },
+        ];
+        await writeFile(transcript, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+        const converted = await codexAdapter.convert({ provider: 'codex', path: transcript });
+        const serialized = JSON.stringify(converted.snapshot);
+
+        expect(converted.snapshot.title).toBe('Share this session.');
+        expect(converted.snapshot.messages).toHaveLength(1);
+        expect(converted.snapshot.messages[0].blocks).toEqual([{ type: 'text', markdown: 'Share this session.' }]);
+        expect(serialized).not.toContain('recommended_plugins');
+        expect(serialized).not.toContain('private.png');
+        expect(serialized).not.toContain('system-prompt');
+        expect(serialized).not.toContain('private runtime settings');
+    });
 });

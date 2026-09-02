@@ -1,6 +1,6 @@
 ---
 name: share-session
-description: Publish local Codex or Claude Code conversations as complete, read-only Paws snapshots, including structured attachments. Use when a user asks to inspect or share a coding-agent session, create a public conversation link, or list, check, replace, renew, or revoke a link managed by Paws Share.
+description: Export local Codex or Claude Code conversations as self-contained offline HTML or publish them as complete, read-only Paws snapshots, including structured attachments. Use when a user asks to inspect, save, or share a coding-agent session, create a local HTML or public conversation link, or manage a link created by Paws Share.
 ---
 
 # Share Session
@@ -16,6 +16,18 @@ Prefer the most specific identity available:
 3. Otherwise use `--current`. If it reports no match or multiple matches, stop and ask the user to choose an explicit session. Never select the newest or an unrelated session as a guess.
 
 Use the same selector for inspection and publication.
+
+## Create a local HTML file
+
+When the user asks for a local, offline, private, or single-file copy, use `export-html`; do not create a server draft or public link:
+
+```bash
+npx --yes @wangjs-jacky/paws-share@latest export-html --source codex --session "$session_path" --output ./paws-session.html --json
+```
+
+The file contains the standardized snapshot, inline CSS and JavaScript, and resolved attachments as data URLs. It needs no server or network connection when opened. It is read-only, searchable, responsive, and keeps thinking and tool blocks collapsible.
+
+Do not overwrite an existing file unless the user explicitly approves replacement; then add `--force`. The normal unresolved-attachment and high-confidence secret checks still apply because the HTML file may later be sent to someone. Return the absolute output path and byte size, and do not describe it as a public link.
 
 ## Create a public link
 

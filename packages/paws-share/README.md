@@ -9,6 +9,25 @@ npx --yes @wangjs-jacky/paws-share@latest share --current --yes --json
 
 The CLI uploads only a validated snapshot and resolved structured attachments. It stores a per-link management capability in `${PAWS_SHARE_HOME:-~/.paws-share}/shares.json` with owner-only permissions; the public URL and command output never contain that capability.
 
+## Local offline HTML
+
+Create one self-contained HTML file without uploading anything:
+
+```bash
+npx --yes @wangjs-jacky/paws-share@latest export-html --current --output ./paws-session.html --json
+```
+
+The HTML uses the same standardized snapshot preparation as public sharing. CSS, interaction code, images, audio, video, and downloadable file attachments are embedded in the output, so it opens offline. Existing files are preserved unless `--force` is explicit. High-confidence secrets and unresolved attachments remain blocked by default.
+
+The implementation keeps provider parsing and safety policy behind one shared snapshot-preparation module:
+
+```text
+Codex / Claude Code adapters -> prepared Paws snapshot -> remote publisher
+                                                     `-> local HTML exporter
+```
+
+The local exporter has no server client or management-record dependency. Provider-specific host envelopes are removed before either output receives the snapshot, so fixes apply to both paths.
+
 Manage links locally:
 
 ```bash
@@ -35,4 +54,4 @@ Start a new agent session so it discovers the skill, then ask naturally, for exa
 Use $share-session to share this conversation as a public read-only link.
 ```
 
-The skill inspects the exact transcript before publication, includes resolved structured attachments, blocks unresolved attachments and high-confidence secrets by default, and keeps the management capability local.
+The skill chooses local HTML or public publication from the user's request, inspects the exact transcript, includes resolved structured attachments, blocks unresolved attachments and high-confidence secrets by default, and keeps public-link management capabilities local.
