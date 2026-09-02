@@ -32,7 +32,19 @@ type ActiveFrame = {
     input: FrameMountInput;
     acceptingRequests: boolean;
     requests: Map<string, AbortController>;
+    retiredRequestIds: Set<string>;
 };
+
+const MCP_APP_MAX_RETIRED_REQUEST_IDS = 64;
+
+function rememberRetiredRequest(active: ActiveFrame, requestId: string): void {
+    while (active.retiredRequestIds.size >= MCP_APP_MAX_RETIRED_REQUEST_IDS) {
+        const oldest = active.retiredRequestIds.values().next().value as string | undefined;
+        if (!oldest) break;
+        active.retiredRequestIds.delete(oldest);
+    }
+    active.retiredRequestIds.add(requestId);
+}
 
 function byteLength(value: string): number {
     let bytes = 0;
@@ -189,10 +201,13 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
                 input: pending.input,
                 acceptingRequests: true,
                 requests: new Map(),
+                retiredRequestIds: new Set(),
             };
             pending.resolve(this.createFrame(message.instanceId));
         } else if (message.type === 'bridge-request') {
             this.handleBridgeRequest(message.instanceId, message.requestId, message.request);
+        } else if (message.type === 'bridge-cancel') {
+            this.handleBridgeCancel(message.requestId);
         } else if (message.type === 'resize') {
             this.queueResize(message.height);
         } else if (message.type === 'teardown-complete') {
@@ -207,7 +222,8 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         request: Parameters<FrameMountInput['onRequest']>[0],
     ): void {
         const active = this.active;
-        if (!active || !active.acceptingRequests || active.requests.has(requestId)) {
+        if (!active || !active.acceptingRequests || active.requests.has(requestId)
+            || active.retiredRequestIds.has(requestId)) {
             this.fail(protocolError());
             return;
         }
@@ -236,6 +252,7 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         if (this.active !== owned || !owned.acceptingRequests
             || !owned.requests.delete(requestId)
             || this.snapshot.instanceId !== instanceId) return;
+        rememberRetiredRequest(owned, requestId);
         try {
             this.send({ type: 'bridge-response', instanceId, requestId, response });
         } catch {
@@ -243,11 +260,31 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         }
     }
 
+    private handleBridgeCancel(requestId: string): void {
+        const active = this.active;
+        if (!active) {
+            this.fail(protocolError());
+            return;
+        }
+        const operation = active.requests.get(requestId);
+        if (operation) {
+            active.requests.delete(requestId);
+            rememberRetiredRequest(active, requestId);
+            operation.abort();
+            return;
+        }
+        if (active.retiredRequestIds.has(requestId)) return;
+        this.fail(protocolError());
+    }
+
     private revokeActiveRequests(): void {
         const active = this.active;
         if (!active) return;
         active.acceptingRequests = false;
-        for (const operation of active.requests.values()) operation.abort();
+        for (const [requestId, operation] of active.requests) {
+            rememberRetiredRequest(active, requestId);
+            operation.abort();
+        }
         active.requests.clear();
     }
 

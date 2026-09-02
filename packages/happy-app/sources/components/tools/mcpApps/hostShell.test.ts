@@ -76,6 +76,7 @@ describe('MCP App Host Shell protocol', () => {
                 type: 'bridge-request', instanceId: 'frame-1', requestId: 'request-1',
                 request: { method: 'ping', params: {} },
             },
+            { type: 'bridge-cancel', instanceId: 'frame-1', requestId: 'request-1' },
             { type: 'teardown-complete', instanceId: 'frame-1' },
             { type: 'protocol-error', instanceId: 'frame-1' },
         ]) {
@@ -207,7 +208,8 @@ describe('MCP App Host Shell protocol', () => {
             data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
             source: null,
         }));
-        const target = document.querySelector('iframe')!.contentWindow!;
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
         const viewTransport: any = {
             async start() {},
             async close() {},
@@ -319,7 +321,8 @@ describe('MCP App Host Shell protocol', () => {
             data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
             source: null,
         }));
-        const target = document.querySelector('iframe')!.contentWindow!;
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
         const viewTransport: any = {
             async start() {}, async close() {},
             async send(message: unknown) {
@@ -363,6 +366,214 @@ describe('MCP App Host Shell protocol', () => {
         expect(posted.filter((message) => message.type === 'bridge-request')).toEqual([]);
 
         await app.close();
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it.each([
+        ['oversized', {
+            jsonrpc: '2.0', id: 1, method: 'ui/request-display-mode',
+            params: { mode: 'fullscreen', padding: 'x'.repeat(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES) },
+        }],
+        ['unknown-field', {
+            jsonrpc: '2.0', id: 1, method: 'ui/request-display-mode',
+            params: { mode: 'fullscreen' }, nativeMethod: 'clipboard',
+        }],
+    ])('revokes raw %s official ingress before the SDK transport consumes it', async (_case, envelope) => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
+        await Promise.resolve();
+
+        window.dispatchEvent(new MessageEvent('message', { data: envelope, source: target }));
+
+        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('does not charge notifications but revokes the thirty-first raw View request attempt', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
+        await Promise.resolve();
+
+        for (let index = 0; index < 40; index += 1) {
+            window.dispatchEvent(new MessageEvent('message', {
+                source: target,
+                data: {
+                    jsonrpc: '2.0', method: 'ui/notifications/size-changed',
+                    params: { width: 390, height: 200 + index },
+                },
+            }));
+        }
+        for (let id = 1; id <= 30; id += 1) {
+            window.dispatchEvent(new MessageEvent('message', {
+                source: target,
+                data: {
+                    jsonrpc: '2.0', id, method: 'ui/request-display-mode',
+                    params: { mode: 'fullscreen' },
+                },
+            }));
+        }
+        expect(document.querySelector('iframe')).toBeTruthy();
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: target,
+            data: {
+                jsonrpc: '2.0', id: 31, method: 'ui/request-display-mode',
+                params: { mode: 'fullscreen' },
+            },
+        }));
+
+        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('fails closed when a nested frame forges a correlated native response', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const ownedFrame = document.querySelector('iframe')!;
+        const target = ownedFrame.contentWindow!;
+        await Promise.resolve();
+        window.dispatchEvent(new MessageEvent('message', {
+            source: target,
+            data: { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'late' } },
+        }));
+        await vi.waitFor(() => expect(posted.some((message) => message.type === 'bridge-request')).toBe(true));
+        const pending = posted.find((message) => message.type === 'bridge-request');
+        const foreignFrame = document.createElement('iframe');
+        document.body.appendChild(foreignFrame);
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: foreignFrame.contentWindow,
+            data: JSON.stringify({
+                type: 'bridge-response', instanceId: 'frame-1', requestId: pending.requestId,
+                response: { ok: true, value: { content: [] } },
+            }),
+        }));
+
+        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('fails closed when a nested frame forges native teardown', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const ownedFrame = document.querySelector('iframe')!;
+        const foreignFrame = document.createElement('iframe');
+        document.body.appendChild(foreignFrame);
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: foreignFrame.contentWindow,
+            data: JSON.stringify({ type: 'teardown', instanceId: 'frame-1' }),
+        }));
+
+        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
+        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('propagates official request cancellation and ignores the correlated late response', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const target = document.querySelector('iframe')!.contentWindow!;
+        await Promise.resolve();
+        window.dispatchEvent(new MessageEvent('message', {
+            source: target,
+            data: { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'late' } },
+        }));
+        await vi.waitFor(() => expect(posted.some((message) => message.type === 'bridge-request')).toBe(true));
+        const pending = posted.find((message) => message.type === 'bridge-request');
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: target,
+            data: {
+                jsonrpc: '2.0', method: 'notifications/cancelled',
+                params: { requestId: 7, reason: 'View disposed' },
+            },
+        }));
+
+        await vi.waitFor(() => expect(posted).toContainEqual({
+            type: 'bridge-cancel', instanceId: 'frame-1', requestId: pending.requestId,
+        }));
+        window.dispatchEvent(new MessageEvent('message', {
+            source: null,
+            data: JSON.stringify({
+                type: 'bridge-response', instanceId: 'frame-1', requestId: pending.requestId,
+                response: { ok: true, value: { content: [{ type: 'text', text: 'late' }] } },
+            }),
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(document.querySelector('iframe')).toBeTruthy();
+        expect(posted.at(-1)).not.toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('makes View ingress inert as soon as teardown begins, before its await completes', async () => {
+        const posted: any[] = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: JSON.stringify({ type: 'mount', instanceId: 'frame-1', html: '<main>View</main>', context }),
+            source: null,
+        }));
+        const target = document.querySelector('iframe')!.contentWindow!;
+        await Promise.resolve();
+
+        window.dispatchEvent(new MessageEvent('message', {
+            source: null,
+            data: JSON.stringify({ type: 'teardown', instanceId: 'frame-1' }),
+        }));
+        window.dispatchEvent(new MessageEvent('message', {
+            source: target,
+            data: { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'during-close' } },
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(posted.some((message) => (
+            message.type === 'bridge-request' && message.request.params?.name === 'during-close'
+        ))).toBe(false);
         stop();
         delete shellWindow.ReactNativeWebView;
     });

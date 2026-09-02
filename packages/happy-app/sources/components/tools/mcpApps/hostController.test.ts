@@ -137,9 +137,9 @@ class MemoryFrameAdapter implements McpAppFrameAdapter {
         return new MemoryFrame(this.events);
     }
 
-    request(request: McpAppBridgeRequest): Promise<unknown> {
+    request(request: McpAppBridgeRequest, signal?: AbortSignal): Promise<unknown> {
         if (!this.lastMountInput) throw new Error('frame has not mounted');
-        return this.lastMountInput.onRequest(request);
+        return this.lastMountInput.onRequest(request, signal);
     }
 }
 
@@ -564,6 +564,37 @@ describe('MCP App host controller', () => {
 
         now += 60_001;
         await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+    });
+
+    it('promptly releases a concurrent slot when the owned View request is cancelled', async () => {
+        const pendingReads: Array<ReturnType<typeof deferred<{ contents: unknown[] }>>> = [];
+        const remote = new MemoryRemotePort(
+            async () => resource,
+            async () => {
+                const gate = deferred<{ contents: unknown[] }>();
+                pendingReads.push(gate);
+                return gate.promise;
+            },
+        );
+        const adapter = new MemoryFrameAdapter([]);
+        const { controller } = makeController({ remotePort: remote, frameAdapter: adapter });
+        await controller.start();
+        const signals = Array.from({ length: 8 }, () => new AbortController());
+        const requests = signals.map((signal, index) => adapter.request({
+            method: 'resources/read', params: { uri: `ui://demo/${index}` },
+        }, signal.signal));
+        await vi.waitFor(() => expect(pendingReads).toHaveLength(8));
+        await expect(adapter.request({
+            method: 'resources/read', params: { uri: 'ui://demo/blocked' },
+        })).rejects.toMatchObject({ code: 'MCP_APP_TIMEOUT' });
+
+        signals[0].abort();
+        await expect(requests[0]).rejects.toMatchObject({ code: 'MCP_APP_SESSION_OFFLINE' });
+        expect((remote.secondaryInputs[0] as { signal: AbortSignal }).signal.aborted).toBe(true);
+        await expect(adapter.request({ method: 'ping', params: {} })).resolves.toEqual({});
+
+        pendingReads.forEach((gate) => gate.resolve({ contents: [] }));
+        await Promise.all(requests.slice(1));
     });
 
     it('rejects a serialized bridge response over 256 KiB with a stable safe code', async () => {

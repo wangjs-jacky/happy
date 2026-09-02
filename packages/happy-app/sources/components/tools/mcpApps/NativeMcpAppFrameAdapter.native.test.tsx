@@ -376,4 +376,52 @@ describe('NativeMcpAppFrameAdapter', () => {
 
         act(() => renderer.unmount());
     });
+
+    it('aborts a correlated request, releases it, and ignores cancel/response races', async () => {
+        let resolveLate!: (value: unknown) => void;
+        let requestSignal: AbortSignal | undefined;
+        const onRequest = vi.fn((_request, signal?: AbortSignal) => {
+            requestSignal = signal;
+            return new Promise<unknown>((resolve) => { resolveLate = resolve; });
+        });
+        const posted: string[] = [];
+        const onFailure = vi.fn();
+        const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+        let mounted!: Promise<any>;
+        act(() => {
+            mounted = adapter.mount({
+                resource, context, signal: new AbortController().signal,
+                onSandboxReady: vi.fn(), onFailure, onRequest,
+            });
+        });
+        const webView = renderer.root.findByType('WebView');
+        act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
+        act(() => webView.props.onLoadEnd());
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'sandbox-ready', instanceId: 'frame-1' }) } }));
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'initialized', instanceId: 'frame-1' }) } }));
+        await mounted;
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-request', instanceId: 'frame-1', requestId: 'request-cancelled',
+            request: { method: 'tools/call', params: { name: 'late' } },
+        }) } }));
+        await vi.waitFor(() => expect(requestSignal).toEqual(expect.any(AbortSignal)));
+
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-cancel', instanceId: 'frame-1', requestId: 'request-cancelled',
+        }) } }));
+
+        expect(requestSignal?.aborted).toBe(true);
+        expect(renderer.root.findAllByType('WebView')).toHaveLength(1);
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'bridge-cancel', instanceId: 'frame-1', requestId: 'request-cancelled',
+        }) } }));
+        resolveLate({ content: [{ type: 'text', text: 'CANARY_LATE' }] });
+        await Promise.resolve();
+        expect(JSON.stringify(posted)).not.toContain('CANARY_LATE');
+        expect(onFailure).not.toHaveBeenCalled();
+
+        act(() => renderer.unmount());
+    });
 });

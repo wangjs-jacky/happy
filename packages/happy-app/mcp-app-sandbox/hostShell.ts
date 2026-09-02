@@ -1,5 +1,10 @@
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
-import { ErrorCode, McpError, PingRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+    ErrorCode,
+    JSONRPCMessageSchema,
+    McpError,
+    PingRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
     MCP_APP_MAX_FRAME_HEIGHT,
@@ -64,6 +69,40 @@ function officialHostContext(context: z.infer<typeof hostContextSchema>) {
 
 type AppBridgeRequestExtra = Parameters<Parameters<AppBridge['setRequestHandler']>[1]>[1];
 
+const MCP_APP_MAX_VIEW_REQUESTS_PER_MINUTE = 30;
+
+function hasOwn(value: object, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
+    const allowedKeys = new Set(allowed);
+    return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function hasStrictJsonRpcEnvelope(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const envelope = value as Record<string, unknown>;
+    if (!JSONRPCMessageSchema.safeParse(value).success) return false;
+    if (hasOwn(envelope, 'method')) {
+        return hasOnlyKeys(envelope, hasOwn(envelope, 'id')
+            ? ['jsonrpc', 'id', 'method', 'params']
+            : ['jsonrpc', 'method', 'params']);
+    }
+    if (hasOwn(envelope, 'result')) {
+        return hasOnlyKeys(envelope, ['jsonrpc', 'id', 'result']);
+    }
+    if (!hasOnlyKeys(envelope, ['jsonrpc', 'id', 'error'])) return false;
+    const error = envelope.error;
+    return Boolean(error && typeof error === 'object' && !Array.isArray(error)
+        && hasOnlyKeys(error, ['code', 'message', 'data']));
+}
+
+function isViewRequestAttempt(value: unknown): boolean {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value)
+        && hasOwn(value, 'method') && hasOwn(value, 'id'));
+}
+
 class PawsAppBridge extends AppBridge {
     replacePingHandler(
         handler: (
@@ -102,6 +141,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     let iframe: HTMLIFrameElement | undefined;
     let bridge: PawsAppBridge | undefined;
     let disposed = false;
+    let closing = false;
+    let releasePromise: Promise<void> | undefined;
     let nextRequestId = 0;
     const pendingBridgeRequests = new Map<string, {
         resolve(value: unknown): void;
@@ -109,6 +150,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         removeAbortListener(): void;
     }>();
     const abandonedBridgeRequestIds = new Set<string>();
+    const viewRequestTimestamps: number[] = [];
+    let viewSource: Window | undefined;
 
     const rememberAbandonedRequest = (requestId: string): void => {
         while (abandonedBridgeRequestIds.size >= 64) {
@@ -120,7 +163,8 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     };
 
     const post = (message: NativeMessage): boolean => {
-        if (!disposed || message.type === 'teardown-complete' || message.type === 'protocol-error') {
+        const terminal = message.type === 'teardown-complete' || message.type === 'protocol-error';
+        if ((!disposed && !closing) || terminal) {
             const parsed = nativeMessages.safeParse(message);
             if (!parsed.success) return false;
             const serialized = JSON.stringify(parsed.data);
@@ -134,35 +178,45 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         if (instanceId) post({ type: 'resize', instanceId, height });
     }, shellWindow.requestAnimationFrame.bind(shellWindow));
 
-    const release = async (acknowledge: boolean, graceful = true) => {
+    const release = (acknowledge: boolean, graceful = true): Promise<void> => {
+        if (releasePromise) return releasePromise;
+        closing = true;
         const ownedId = instanceId;
         const ownedBridge = bridge;
         bridge = undefined;
-        for (const pending of pendingBridgeRequests.values()) {
-            pending.removeAbortListener();
-            pending.reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
+        if (viewSource) {
+            shellWindow.removeEventListener('message', viewIngressListener, true);
+            viewSource = undefined;
         }
-        pendingBridgeRequests.clear();
-        abandonedBridgeRequestIds.clear();
-        if (graceful && ownedBridge) {
-            try {
-                await Promise.race([
-                    ownedBridge.teardownResource({}),
-                    new Promise<void>((resolve) => shellWindow.setTimeout(resolve, 500)),
-                ]);
-            } catch {
-                // The View may already be gone. Closing still revokes the transport.
+        viewRequestTimestamps.length = 0;
+        releasePromise = (async () => {
+            for (const pending of pendingBridgeRequests.values()) {
+                pending.removeAbortListener();
+                pending.reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
             }
-        }
-        try {
-            await ownedBridge?.close();
-        } catch {
-            // Best-effort close; iframe removal is the security boundary.
-        }
-        iframe?.remove();
-        iframe = undefined;
-        instanceId = undefined;
-        if (acknowledge && ownedId) post({ type: 'teardown-complete', instanceId: ownedId });
+            pendingBridgeRequests.clear();
+            abandonedBridgeRequestIds.clear();
+            if (graceful && ownedBridge) {
+                try {
+                    await Promise.race([
+                        ownedBridge.teardownResource({}),
+                        new Promise<void>((resolve) => shellWindow.setTimeout(resolve, 500)),
+                    ]);
+                } catch {
+                    // The View may already be gone. Closing still revokes the transport.
+                }
+            }
+            try {
+                await ownedBridge?.close();
+            } catch {
+                // Best-effort close; iframe removal is the security boundary.
+            }
+            iframe?.remove();
+            iframe = undefined;
+            instanceId = undefined;
+            if (acknowledge && ownedId) post({ type: 'teardown-complete', instanceId: ownedId });
+        })();
+        return releasePromise;
     };
 
     const protocolFailure = () => {
@@ -173,7 +227,7 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     };
 
     const relay = (request: McpAppBridgeRequest, signal?: AbortSignal): Promise<unknown> => {
-        if (!instanceId || disposed || signal?.aborted) {
+        if (!instanceId || disposed || closing || signal?.aborted) {
             return Promise.reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
         }
         const parsed = mcpAppBridgeRequestSchema.safeParse(request);
@@ -189,6 +243,9 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
                 pendingBridgeRequests.delete(requestId);
                 pending.removeAbortListener();
                 rememberAbandonedRequest(requestId);
+                if (!closing && instanceId) {
+                    post({ type: 'bridge-cancel', instanceId, requestId });
+                }
                 reject(new McpError(ErrorCode.ConnectionClosed, 'App bridge closed.'));
             };
             const removeAbortListener = () => signal?.removeEventListener('abort', onAbort);
@@ -213,7 +270,38 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         throw new McpError(ErrorCode.MethodNotFound, 'Method not found');
     };
 
+    function viewIngressListener(event: MessageEvent): void {
+        if (!viewSource || event.source !== viewSource) return;
+        if (closing || disposed) {
+            event.stopImmediatePropagation();
+            return;
+        }
+        let serialized: string | undefined;
+        try {
+            serialized = JSON.stringify(event.data);
+        } catch {
+            // Cyclic and otherwise non-JSON values are protocol abuse.
+        }
+        const now = Date.now();
+        if (isViewRequestAttempt(event.data)) {
+            while (viewRequestTimestamps.length > 0
+                && viewRequestTimestamps[0] <= now - 60_000) {
+                viewRequestTimestamps.shift();
+            }
+            viewRequestTimestamps.push(now);
+        }
+        const overRate = viewRequestTimestamps.length > MCP_APP_MAX_VIEW_REQUESTS_PER_MINUTE;
+        if (!serialized || utf8ByteLength(serialized) > MCP_APP_MAX_BRIDGE_MESSAGE_BYTES
+            || !hasStrictJsonRpcEnvelope(event.data) || overRate) {
+            event.stopImmediatePropagation();
+            protocolFailure();
+        }
+        // Notifications and responses are schema/byte checked but deliberately
+        // do not consume the budget; only envelopes with both method and ID are attempts.
+    }
+
     const handleCommand = async (raw: unknown) => {
+        if (closing || disposed) return;
         let command: HostCommand;
         try {
             command = parseHostCommand(raw as string);
@@ -235,6 +323,9 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
                 protocolFailure();
                 return;
             }
+            viewSource = target;
+            viewRequestTimestamps.length = 0;
+            shellWindow.addEventListener('message', viewIngressListener, true);
             bridge = new PawsAppBridge(
                 null,
                 { name: 'Paws', version: '1.0.0' },
@@ -328,9 +419,16 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     };
 
     const listener = (event: MessageEvent) => {
-        // The owned View shares window.message with native WebView delivery.
-        // AppBridge exclusively owns messages from that exact inner window.
-        if (iframe?.contentWindow && event.source === iframe.contentWindow) return;
+        // The official transport exclusively owns the exact immediate View.
+        if (viewSource && event.source === viewSource) return;
+        // React Native WebView injects host commands with a null MessageEvent
+        // source. Any nested or foreign browser Window is untrusted.
+        if (event.source !== null) {
+            event.stopImmediatePropagation();
+            if (!closing && !disposed) protocolFailure();
+            return;
+        }
+        if (closing || disposed) return;
         void handleCommand(event.data);
     };
     shellWindow.addEventListener('message', listener);
@@ -339,6 +437,7 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         disposed = true;
         shellWindow.removeEventListener('message', listener);
         shellWindow.document.removeEventListener('message', listener as EventListener);
+        shellWindow.removeEventListener('message', viewIngressListener, true);
         void release(false, false);
         shellConsole.debug = originalConsole.debug;
         shellConsole.info = originalConsole.info;

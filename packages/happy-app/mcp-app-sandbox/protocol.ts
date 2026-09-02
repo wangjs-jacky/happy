@@ -101,6 +101,11 @@ export const nativeMessages = z.discriminatedUnion('type', [
         requestId: bridgeRequestIdSchema,
         request: mcpAppBridgeRequestSchema,
     }).strict(),
+    z.object({
+        type: z.literal('bridge-cancel'),
+        instanceId: z.string().min(1),
+        requestId: bridgeRequestIdSchema,
+    }).strict(),
     z.object({ type: z.literal('teardown-complete'), instanceId: z.string().min(1) }).strict(),
     z.object({ type: z.literal('protocol-error'), instanceId: z.string().min(1) }).strict(),
 ]);
