@@ -178,6 +178,29 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
     });
 
+    it('does not relaunch a stale scanner when its dismissal outlives the provider', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        let resolveDismissal!: () => void;
+        mocks.dismissScanner.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveDismissal = resolve;
+        }));
+        const retry = current.connectAuthQrCode();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+
+        resolveDismissal();
+        await act(async () => {
+            await retry;
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
         ['paws:///account?account-public-key', 'account'],
         ['paws://terminal?terminal-public-key', 'terminal'],
@@ -274,6 +297,30 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.dismissScanner).not.toHaveBeenCalled();
     });
 
+    it('does not open confirmation when scanner dismissal resolves after unmount', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        let resolveDismissal!: () => void;
+        mocks.dismissScanner.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveDismissal = resolve;
+        }));
+        const scan = mocks.onScanned!({ data: 'paws:///account?account-public-key' });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+
+        resolveDismissal();
+        await act(async () => {
+            await scan;
+        });
+
+        expect(mocks.confirm).not.toHaveBeenCalled();
+        expect(mocks.accountAuth).not.toHaveBeenCalled();
+    });
+
     it('ignores a duplicate scan while authentication is still in progress', async () => {
         let resolveAuthentication!: (value: boolean) => void;
         mocks.accountAuth.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
@@ -367,6 +414,21 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.dismissScanner).toHaveBeenCalledTimes(2);
     });
 
+    it('does not authenticate while the iOS scanner cannot be dismissed', async () => {
+        mocks.dismissScanner
+            .mockRejectedValueOnce(new Error('dismiss failed once'))
+            .mockRejectedValueOnce(new Error('dismiss failed twice'));
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await mocks.onScanned?.({ data: 'paws:///account?account-public-key' });
+        });
+
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(2);
+        expect(mocks.confirm).not.toHaveBeenCalled();
+        expect(mocks.accountAuth).not.toHaveBeenCalled();
+    });
+
     it('removes its listener and dismisses the iOS scanner when the screen unmounts', async () => {
         await act(async () => {
             await current.connectAuthQrCode();
@@ -389,6 +451,36 @@ describe('useUnifiedAuthQrCode', () => {
 
         expect(mocks.removeSubscription).toHaveBeenCalledTimes(1);
         expect(mocks.dismissScanner).not.toHaveBeenCalled();
+    });
+
+    it('retries cleanup dismissal and carries stale ownership into a replacement provider', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+        mocks.dismissScanner
+            .mockRejectedValueOnce(new Error('cleanup failed once'))
+            .mockRejectedValueOnce(new Error('cleanup failed twice'))
+            .mockResolvedValueOnce(undefined);
+
+        await act(async () => {
+            renderer.unmount();
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(3);
     });
 
     it('does not launch the scanner after a pending permission check outlives the provider', async () => {

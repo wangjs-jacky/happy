@@ -16,6 +16,14 @@ interface UnifiedAuthQrCodeContextValue {
 
 const UnifiedAuthQrCodeContext = React.createContext<UnifiedAuthQrCodeContextValue | null>(null);
 
+// Native scanner presentation can outlive the authenticated React tree. Keep
+// ownership at module scope so a replacement provider can close an orphaned
+// iOS scanner before accepting another scan request.
+const scannerSession = {
+    active: false,
+    dismissal: null as Promise<boolean> | null,
+};
+
 function showScannerUnavailableAlert() {
     Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToScanQr'), [
         { text: t('common.ok') },
@@ -39,7 +47,6 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     const isMountedRef = React.useRef(true);
     const isAuthenticatingRef = React.useRef(false);
     const isStartingScannerRef = React.useRef(false);
-    const scannerSessionActiveRef = React.useRef(false);
     const [isStartingScanner, setIsStartingScanner] = React.useState(false);
 
     const processAuthUrl = React.useCallback(async (url: string) => {
@@ -87,24 +94,34 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
         return runAuthentication(() => processAuthUrl(url));
     }, [processAuthUrl, runAuthentication]);
 
-    const dismissOwnedScanner = React.useCallback(async (): Promise<boolean> => {
-        if (!scannerSessionActiveRef.current) {
-            return true;
+    const dismissOwnedScanner = React.useCallback((): Promise<boolean> => {
+        if (scannerSession.dismissal) {
+            return scannerSession.dismissal;
         }
 
-        scannerSessionActiveRef.current = false;
+        if (!scannerSession.active) {
+            return Promise.resolve(true);
+        }
+
+        scannerSession.active = false;
         if (Platform.OS !== 'ios') {
-            return true;
+            return Promise.resolve(true);
         }
 
-        try {
-            await CameraView.dismissScanner();
-            return true;
-        } catch (error) {
-            scannerSessionActiveRef.current = true;
-            console.warn('Failed to dismiss authentication scanner', error);
-            return false;
-        }
+        const dismissal = CameraView.dismissScanner()
+            .then(() => true)
+            .catch((error: unknown) => {
+                scannerSession.active = true;
+                console.warn('Failed to dismiss authentication scanner', error);
+                return false;
+            })
+            .finally(() => {
+                if (scannerSession.dismissal === dismissal) {
+                    scannerSession.dismissal = null;
+                }
+            });
+        scannerSession.dismissal = dismissal;
+        return dismissal;
     }, []);
 
     const connectAuthQrCode = React.useCallback(async () => {
@@ -126,17 +143,21 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                 return;
             }
 
-            if (scannerSessionActiveRef.current && !await dismissOwnedScanner()) {
+            if (scannerSession.active && !await dismissOwnedScanner()) {
                 return;
             }
 
-            scannerSessionActiveRef.current = true;
+            if (!isMountedRef.current) {
+                return;
+            }
+
+            scannerSession.active = true;
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
             if (Platform.OS !== 'ios') {
-                scannerSessionActiveRef.current = false;
+                scannerSession.active = false;
             }
         } catch (error) {
-            scannerSessionActiveRef.current = false;
+            scannerSession.active = false;
             if (isMountedRef.current && !isScannerCancellation(error)) {
                 console.warn('Failed to launch authentication scanner', error);
                 showScannerUnavailableAlert();
@@ -151,10 +172,17 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
 
     React.useEffect(() => {
         isMountedRef.current = true;
+        if (Platform.OS === 'ios' && (scannerSession.active || scannerSession.dismissal)) {
+            void dismissOwnedScanner().then(async (dismissed) => {
+                if (!dismissed) {
+                    await dismissOwnedScanner();
+                }
+            });
+        }
         return () => {
             isMountedRef.current = false;
         };
-    }, []);
+    }, [dismissOwnedScanner]);
 
     // The provider is mounted once for the authenticated app, so every entry point
     // shares one scanner subscription and one authentication single-flight guard.
@@ -164,29 +192,28 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
         }
 
         const subscription = CameraView.onModernBarcodeScanned(async (event) => {
-            if (!scannerSessionActiveRef.current) {
+            if (!scannerSession.active) {
                 return;
             }
 
-            const scannerDismissed = await dismissOwnedScanner();
-            await runAuthentication(() => processAuthUrl(event.data));
-
-            // A failed iOS dismissal restores ownership so cleanup can retry. Retry
-            // here as well so the native scanner does not cover the result dialog.
+            let scannerDismissed = await dismissOwnedScanner();
             if (!scannerDismissed) {
-                await dismissOwnedScanner();
+                scannerDismissed = await dismissOwnedScanner();
             }
+            if (!scannerDismissed || !isMountedRef.current) {
+                return;
+            }
+
+            await runAuthentication(() => processAuthUrl(event.data));
         });
 
         return () => {
             subscription.remove();
-            const shouldDismissScanner = scannerSessionActiveRef.current;
-            scannerSessionActiveRef.current = false;
-            if (Platform.OS === 'ios' && shouldDismissScanner) {
-                CameraView.dismissScanner().catch((error: unknown) => {
-                    console.warn('Failed to dismiss scanner during cleanup', error);
-                });
-            }
+            void dismissOwnedScanner().then(async (dismissed) => {
+                if (!dismissed) {
+                    await dismissOwnedScanner();
+                }
+            });
         };
     }, [dismissOwnedScanner, processAuthUrl, runAuthentication]);
 
