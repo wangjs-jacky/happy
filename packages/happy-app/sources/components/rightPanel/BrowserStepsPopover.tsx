@@ -18,8 +18,8 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
     return (
         <View accessibilityViewIsModal style={styles.overlay} testID="browser-steps-popover">
             <Pressable accessibilityLabel="Close browser progress" onPress={props.onClose} style={styles.scrim} />
-            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}> 
-                <View style={[styles.header, { borderBottomColor: theme.colors.divider }]}> 
+            <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
+                <View style={[styles.header, { borderBottomColor: theme.colors.divider }]}>
                     <Text style={[styles.title, { color: theme.colors.text }]}>浏览器执行过程</Text>
                     <Pressable accessibilityRole="button" hitSlop={8} onPress={props.onClose}>
                         <Ionicons color={theme.colors.textSecondary} name="close" size={20} />
