@@ -187,6 +187,40 @@ describe('NativeMcpAppFrameAdapter', () => {
         act(() => renderer.unmount());
     });
 
+    it('splits an oversized App document into bounded WebView messages', async () => {
+        const posted: string[] = [];
+        const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+        const html = `<main>${'x'.repeat(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES * 2)}</main>`;
+        let mounted!: Promise<any>;
+        act(() => { mounted = adapter.mount({
+            resource: { ...resource, byteLength: new TextEncoder().encode(html).byteLength, html },
+            context,
+            signal: new AbortController().signal,
+            onSandboxReady: vi.fn(),
+            onFailure: vi.fn(),
+            onRequest: vi.fn(),
+        }); });
+        const webView = renderer.root.findByType('WebView');
+        act(() => webView.props.forwardedRef({ postMessage: (message: string) => posted.push(message) }));
+        act(() => webView.props.onLoadEnd());
+
+        expect(posted.every((raw) => new TextEncoder().encode(raw).byteLength <= MCP_APP_MAX_BRIDGE_MESSAGE_BYTES)).toBe(true);
+        expect(posted.map((raw) => JSON.parse(raw).type)).toEqual([
+            'mount-start', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-complete',
+        ]);
+
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'sandbox-ready', instanceId: 'frame-1',
+        }) } }));
+        act(() => webView.props.onMessage({ nativeEvent: { data: JSON.stringify({
+            type: 'initialized', instanceId: 'frame-1',
+        }) } }));
+        await expect(mounted).resolves.toBeDefined();
+        act(() => renderer.unmount());
+    });
+
     it('tears down the owned frame on malformed, wrong-instance, or oversized protocol data', async () => {
         for (const data of [
             '{not-json',

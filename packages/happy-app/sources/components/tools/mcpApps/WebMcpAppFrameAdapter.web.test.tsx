@@ -137,7 +137,8 @@ describe('WebMcpAppFrameAdapter', () => {
         });
 
         const iframe = renderer.root.findByType('iframe');
-        expect(iframe.props.testID).toBe('mcp-app-sandbox-frame');
+        expect(iframe.props.testID).toBeUndefined();
+        expect(iframe.props['data-testid']).toBe('mcp-app-sandbox-frame');
         expect(iframe.props.sandbox).toBe('allow-scripts allow-same-origin');
         expect(iframe.props.referrerPolicy).toBe('origin');
         expect(iframe.props.allow).toContain("camera 'none'");
@@ -194,6 +195,47 @@ describe('WebMcpAppFrameAdapter', () => {
         const frame = await mounted;
         frame.sendToolInput({ city: 'Hangzhou' });
         expect(child.postMessage.mock.calls.at(-1)?.[1]).toBe('https://sandbox.paws.example');
+    });
+
+    it('splits an oversized App document into bounded mount commands', async () => {
+        const eventWindow = new FakeWindow();
+        const adapter = new WebMcpAppFrameAdapter({
+            config: { enabled: true, sandboxOrigin: 'https://sandbox.paws.example', appOrigin: 'https://paws.example' },
+            eventWindow,
+            createInstanceId: () => 'frame-1',
+        });
+        const child = { postMessage: vi.fn() };
+        adapter.attachFrame({ contentWindow: child });
+        const html = `<main>${'x'.repeat(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES * 2)}</main>`;
+        const mounted = adapter.mount(mountInput({ resource: {
+            ...resource,
+            byteLength: new TextEncoder().encode(html).byteLength,
+            html,
+        } }));
+
+        eventWindow.dispatch({
+            source: child as unknown as MessageEventSource,
+            origin: 'https://sandbox.paws.example',
+            data: JSON.stringify({ type: 'sandbox-proxy-ready', parentOrigin: 'https://paws.example' }),
+        });
+
+        const rawCommands = child.postMessage.mock.calls.map(([raw]) => raw as string);
+        expect(rawCommands.every((raw) => new TextEncoder().encode(raw).byteLength <= MCP_APP_MAX_BRIDGE_MESSAGE_BYTES)).toBe(true);
+        expect(rawCommands.map((raw) => JSON.parse(raw).type)).toEqual([
+            'mount-start', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-complete',
+        ]);
+
+        eventWindow.dispatch({
+            source: child as unknown as MessageEventSource,
+            origin: 'https://sandbox.paws.example',
+            data: JSON.stringify({ type: 'sandbox-ready', instanceId: 'frame-1' }),
+        });
+        eventWindow.dispatch({
+            source: child as unknown as MessageEventSource,
+            origin: 'https://sandbox.paws.example',
+            data: JSON.stringify({ type: 'initialized', instanceId: 'frame-1' }),
+        });
+        await expect(mounted).resolves.toBeDefined();
     });
 
     it.each([

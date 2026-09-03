@@ -60,7 +60,7 @@ function normalizeResourceResult(value: unknown): McpAppReadResourceResult {
     if (!isRecord(value) || !Array.isArray(value.contents)) throw invalidInteractiveResponse();
     return {
         contents: value.contents,
-        ...(value._meta !== undefined ? { _meta: value._meta } : {}),
+        ...(isRecord(value._meta) ? { _meta: value._meta } : {}),
     };
 }
 
@@ -72,7 +72,7 @@ function normalizeToolResult(value: unknown): McpAppToolResult {
     return {
         content: value.content,
         ...(value.structuredContent !== undefined ? { structuredContent: value.structuredContent } : {}),
-        ...(value._meta !== undefined ? { _meta: value._meta } : {}),
+        ...(isRecord(value._meta) ? { _meta: value._meta } : {}),
         ...(value.isError !== undefined ? { isError: value.isError } : {}),
     };
 }

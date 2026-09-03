@@ -95,13 +95,17 @@ class MemoryRemotePort implements McpAppRemotePort {
 }
 
 class MemoryFrame implements McpAppFrame {
-    constructor(private readonly events: string[]) {}
+    constructor(
+        private readonly events: string[],
+        private readonly onToolResult: (result: McpAppToolResult) => void = () => {},
+    ) {}
 
     sendToolInput(input: Record<string, unknown>): void {
         this.events.push(`input:${JSON.stringify(input)}`);
     }
 
-    sendToolResult(result: { content: unknown[] }): void {
+    sendToolResult(result: McpAppToolResult): void {
+        this.onToolResult(result);
         this.events.push(`result:${JSON.stringify(result.content)}`);
     }
 
@@ -121,6 +125,7 @@ class MemoryFrame implements McpAppFrame {
 class MemoryFrameAdapter implements McpAppFrameAdapter {
     mounts = 0;
     lastMountInput?: FrameMountInput;
+    lastToolResult?: McpAppToolResult;
 
     constructor(
         private readonly events: string[],
@@ -135,7 +140,7 @@ class MemoryFrameAdapter implements McpAppFrameAdapter {
         this.events.push('sandbox-ready');
         await this.initialize(input);
         this.events.push('initialized');
-        return new MemoryFrame(this.events);
+        return new MemoryFrame(this.events, (result) => { this.lastToolResult = result; });
     }
 
     request(request: McpAppBridgeRequest, signal?: AbortSignal): Promise<unknown> {
@@ -436,6 +441,22 @@ describe('MCP App host controller', () => {
             'state:active',
         ]);
         expect(controller.getState()).toEqual({ type: 'active' });
+    });
+
+    it('omits null result metadata before notifying the MCP App SDK', async () => {
+        const adapter = new MemoryFrameAdapter([]);
+        const result = {
+            ...availableResult,
+            _meta: null,
+        } as unknown as McpAppResultV1;
+        const { controller } = makeController({ frameAdapter: adapter, result });
+
+        await controller.start();
+
+        expect(adapter.lastToolResult).toEqual({
+            content: [{ type: 'text', text: 'done' }],
+            structuredContent: { ok: true },
+        });
     });
 
     it('buffers cancellation until initialization and sends input first', async () => {

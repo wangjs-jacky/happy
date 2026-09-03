@@ -258,7 +258,6 @@ export function WebMcpAppFrameView({ adapter }: { adapter: WebMcpAppFrameAdapter
     if (!snapshot.visible || !snapshot.src) return null;
     return React.createElement('iframe', {
         ref: adapter.attachFrame,
-        testID: 'mcp-app-sandbox-frame',
         'data-testid': 'mcp-app-sandbox-frame',
         src: snapshot.src,
         title: 'MCP App sandbox',

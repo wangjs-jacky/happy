@@ -5,6 +5,7 @@ import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
     MCP_APP_MAX_FRAME_HEIGHT,
     MCP_APP_MIN_FRAME_HEIGHT,
+    createMcpAppMountCommands,
     hostCommandSchema,
     nativeMessages,
 } from '../../../../mcp-app-sandbox/protocol';
@@ -207,12 +208,11 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         const pending = this.pending;
         if (!pending || pending.mountSent || !this.snapshot.instanceId) return;
         pending.mountSent = true;
-        this.send({
-            type: 'mount',
-            instanceId: this.snapshot.instanceId,
-            html: pending.input.resource.html,
-            context: pending.input.context,
-        });
+        for (const command of createMcpAppMountCommands(
+            this.snapshot.instanceId,
+            pending.input.resource.html,
+            pending.input.context,
+        )) this.send(command);
     };
 
     onShouldStartLoadWithRequest = (request: { url?: string; isTopFrame?: boolean }): boolean => {

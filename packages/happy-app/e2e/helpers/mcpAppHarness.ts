@@ -68,7 +68,9 @@ export async function findMcpAppFrames(page: Page, sandboxOrigin: string, webOri
         });
         if (proxies.length !== 1) return false;
         const children = proxies[0].childFrames();
-        if (children.length !== 1 || children[0].url() !== 'about:srcdoc') return false;
+        // Chromium may expose a sandboxed srcdoc frame as either about:srcdoc
+        // or an empty URL. Its opaque origin is verified below in-frame.
+        if (children.length !== 1) return false;
         result = { proxy: proxies[0], view: children[0] };
         return true;
     }, { timeout: 30_000, message: 'expected one exact-origin Proxy with one inner MCP View' }).toBe(true);

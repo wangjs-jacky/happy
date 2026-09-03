@@ -25,8 +25,8 @@ export async function buildMcpAppFixtureHtml(): Promise<string> {
     const css = result.outputFiles.find((file) => file.path.endsWith('.css'))?.text;
     if (!javascript || !css) throw new Error('MCP App fixture build did not emit JavaScript and CSS');
     const html = template
-        .replace('<!-- MCP_APP_STYLE -->', `<style>${css}</style>`)
-        .replace('<!-- MCP_APP_SCRIPT -->', `<script>${javascript}</script>`);
+        .replace('<!-- MCP_APP_STYLE -->', () => `<style>${css}</style>`)
+        .replace('<!-- MCP_APP_SCRIPT -->', () => `<script>${javascript}</script>`);
     if (!html.includes('approve-release-readiness') || !html.includes('mcp-example-root')) {
         throw new Error('MCP App fixture build is missing deterministic markers');
     }

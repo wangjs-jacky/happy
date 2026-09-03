@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { dirname } from 'node:path';
+import { Script } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { startMcpAppFixture, type RunningMcpAppFixture } from './server.js';
 
@@ -21,6 +22,9 @@ function expectBundledMcpAppResource(resource: Awaited<ReturnType<Client['readRe
     expect(html).toContain('mcp-example-root');
     expect(html).toContain('Paws Release Readiness');
     expect(html).toContain('approve-release-readiness');
+    const script = /<script>([\s\S]+)<\/script>/u.exec(html)?.[1];
+    expect(script).toBeTruthy();
+    expect(() => new Script(script!, { filename: 'mcp-app-fixture.js' })).not.toThrow();
 }
 
 describe('local MCP App fixture contract', () => {

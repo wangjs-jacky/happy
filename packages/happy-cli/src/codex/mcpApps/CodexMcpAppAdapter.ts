@@ -306,7 +306,9 @@ export class CodexMcpAppAdapter {
             ...(rawResult.structuredContent !== undefined
                 ? { structuredContent: rawResult.structuredContent }
                 : {}),
-            ...(rawResult._meta !== undefined ? { _meta: rawResult._meta } : {}),
+            ...(rawResult._meta !== null && typeof rawResult._meta === 'object' && !Array.isArray(rawResult._meta)
+                ? { _meta: rawResult._meta }
+                : {}),
         };
         const serializedCandidate = JSON.stringify(candidate);
         normalized.result = Buffer.byteLength(serializedCandidate, 'utf8') > MAX_MCP_APP_RESULT_BYTES

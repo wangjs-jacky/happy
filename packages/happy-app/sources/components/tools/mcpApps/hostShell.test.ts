@@ -14,6 +14,7 @@ import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
     MCP_APP_MAX_FRAME_HEIGHT,
     MCP_APP_MIN_FRAME_HEIGHT,
+    createMcpAppMountCommands,
     createResizeEmitter,
     createSandboxedIframe,
     hostCommandSchema,
@@ -94,6 +95,58 @@ describe('MCP App Host Shell protocol', () => {
         expect(iframe.getAttribute('allow')).toBe("camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'");
         expect(iframe.srcdoc).toContain('<button>View</button>');
         expect(Object.keys(iframe.dataset)).toEqual([]);
+    });
+
+    it('reassembles a bounded multi-message mount before creating the opaque View', async () => {
+        const posted: Array<{ type: string; instanceId: string }> = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = {
+            postMessage: (value) => posted.push(JSON.parse(value)),
+        };
+        const stop = startHostShell(shellWindow);
+        const html = `<main data-testid="large-view">${'界'.repeat(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES)}</main>`;
+        const commands = createMcpAppMountCommands('frame-large', html, context);
+
+        expect(commands.map((command) => command.type)).toEqual([
+            'mount-start', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-chunk', 'mount-complete',
+        ]);
+        for (const command of commands) {
+            const raw = JSON.stringify(command);
+            expect(new TextEncoder().encode(raw).byteLength).toBeLessThanOrEqual(MCP_APP_MAX_BRIDGE_MESSAGE_BYTES);
+            window.dispatchEvent(new MessageEvent('message', { data: raw, source: null }));
+        }
+
+        await vi.waitFor(() => expect(document.querySelector('iframe')?.srcdoc).toBe(html));
+        expect(posted).toContainEqual({ type: 'sandbox-ready', instanceId: 'frame-large' });
+        expect(posted).not.toContainEqual({ type: 'protocol-error', instanceId: 'frame-large' });
+
+        stop();
+        delete shellWindow.ReactNativeWebView;
+    });
+
+    it('fails closed on an out-of-order mount chunk', async () => {
+        const posted: Array<{ type: string; instanceId: string }> = [];
+        const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
+        shellWindow.ReactNativeWebView = {
+            postMessage: (value) => posted.push(JSON.parse(value)),
+        };
+        const stop = startHostShell(shellWindow);
+        window.dispatchEvent(new MessageEvent('message', {
+            source: null,
+            data: JSON.stringify({ type: 'mount-start', instanceId: 'frame-bad', byteLength: 1, context }),
+        }));
+        window.dispatchEvent(new MessageEvent('message', {
+            source: null,
+            data: JSON.stringify({ type: 'mount-chunk', instanceId: 'frame-bad', offset: 1, dataBase64: 'YQ==' }),
+        }));
+
+        await vi.waitFor(() => expect(posted).toContainEqual({
+            type: 'protocol-error', instanceId: 'frame-bad',
+        }));
+        expect(document.querySelector('iframe')).toBeNull();
+
+        stop();
+        delete shellWindow.ReactNativeWebView;
     });
 
     it('coalesces resize events to one animation frame and clamps unsafe heights', () => {
@@ -447,7 +500,7 @@ describe('MCP App Host Shell protocol', () => {
         delete shellWindow.ReactNativeWebView;
     });
 
-    it('fails closed when a nested frame forges a correlated native response', async () => {
+    it('ignores a nested frame that forges a correlated native response', async () => {
         const posted: any[] = [];
         const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
         shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
@@ -476,13 +529,15 @@ describe('MCP App Host Shell protocol', () => {
             }),
         }));
 
-        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
-        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(ownedFrame.isConnected).toBe(true);
+        expect(posted.filter((message) => message.type === 'bridge-request')).toHaveLength(1);
+        expect(posted.some((message) => message.type === 'protocol-error')).toBe(false);
         stop();
         delete shellWindow.ReactNativeWebView;
     });
 
-    it('fails closed when a nested frame forges native teardown', async () => {
+    it('ignores a nested frame that forges native teardown', async () => {
         const posted: any[] = [];
         const shellWindow = window as Window & { ReactNativeWebView?: { postMessage(value: string): void } };
         shellWindow.ReactNativeWebView = { postMessage: (value) => posted.push(JSON.parse(value)) };
@@ -500,8 +555,9 @@ describe('MCP App Host Shell protocol', () => {
             data: JSON.stringify({ type: 'teardown', instanceId: 'frame-1' }),
         }));
 
-        await vi.waitFor(() => expect(ownedFrame.isConnected).toBe(false));
-        expect(posted.at(-1)).toEqual({ type: 'protocol-error', instanceId: 'frame-1' });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(ownedFrame.isConnected).toBe(true);
+        expect(posted.some((message) => message.type === 'protocol-error')).toBe(false);
         stop();
         delete shellWindow.ReactNativeWebView;
     });

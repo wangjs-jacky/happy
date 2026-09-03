@@ -2,6 +2,7 @@ import {
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
     MCP_APP_MAX_FRAME_HEIGHT,
     MCP_APP_MIN_FRAME_HEIGHT,
+    createMcpAppMountCommands,
     hostCommandSchema,
     nativeMessages,
     utf8ByteLength,
@@ -141,10 +142,11 @@ export class McpAppFrameBridge implements McpAppFrameAdapter {
             return;
         }
         pending.mountSent = true;
-        this.send({
-            type: 'mount', instanceId: this.snapshot.instanceId,
-            html: pending.input.resource.html, context: pending.input.context,
-        });
+        for (const command of createMcpAppMountCommands(
+            this.snapshot.instanceId,
+            pending.input.resource.html,
+            pending.input.context,
+        )) this.send(command);
     }
 
     receive(raw: unknown): void {

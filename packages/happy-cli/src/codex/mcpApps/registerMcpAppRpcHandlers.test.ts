@@ -283,6 +283,20 @@ describe('registerMcpAppRpcHandlers', () => {
         expect(handlers.has('mcpAppOperationCancel')).toBe(true);
     });
 
+    it('omits null tool result metadata before returning it to an MCP App', async () => {
+        const callMcpTool = vi.fn(async () => ({
+            content: [{ type: 'text', text: 'done' }],
+            _meta: null,
+        }));
+        const { handlers, registry } = createHarness({ callMcpTool });
+        bind(registry);
+
+        await expect(callTool(handlers.get('mcpAppToolCall')!)).resolves.toEqual({
+            ok: true,
+            value: { content: [{ type: 'text', text: 'done' }] },
+        });
+    });
+
     it('cancels only the exact binding-scoped operation and blocks late permission execution', async () => {
         const permission = deferred<{ decision: 'approved' }>();
         let permissionSignal: AbortSignal | undefined;

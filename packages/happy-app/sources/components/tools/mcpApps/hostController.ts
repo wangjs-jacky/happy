@@ -77,12 +77,16 @@ function normalizeError(error: unknown): McpAppHostError {
     return error instanceof McpAppHostError ? error : safeInternalError();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function availableResult(result: McpAppResultV1, isError: boolean): McpAppToolResult | undefined {
     if (result.state !== 'available') return undefined;
     return {
         content: result.content,
         ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}),
-        ...(result._meta !== undefined ? { _meta: result._meta } : {}),
+        ...(isRecord(result._meta) ? { _meta: result._meta } : {}),
         ...(isError ? { isError: true } : {}),
     };
 }

@@ -89,6 +89,24 @@ describe('CodexMcpAppAdapter', () => {
         });
     });
 
+    it('omits null result metadata that the MCP App SDK rejects', () => {
+        const normalized = adapter.normalizeItem({
+            ...localCodexFixture,
+            id: 'call-null-meta',
+            result: {
+                ...localCodexFixture.result,
+                _meta: null,
+            },
+        });
+
+        expect(normalized.result).toEqual({
+            version: 1,
+            state: 'available',
+            content: [{ type: 'text', text: 'done' }],
+            structuredContent: { count: 1 },
+        });
+    });
+
     it('accepts the upstream readOnlyHint fixture and unknown app-context fields', () => {
         expect(adapter.normalizeItem(upstreamCodexFixture)).toMatchObject({
             callId: 'call-upstream',

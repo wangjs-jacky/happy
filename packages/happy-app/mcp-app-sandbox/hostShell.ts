@@ -9,6 +9,8 @@ import { z } from 'zod';
 import {
     MCP_APP_MAX_FRAME_HEIGHT,
     MCP_APP_MAX_BRIDGE_MESSAGE_BYTES,
+    MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES,
+    MCP_APP_MAX_MOUNT_HTML_BYTES,
     MCP_APP_MIN_FRAME_HEIGHT,
     hostContextSchema,
     mcpAppBridgeRequestSchema,
@@ -221,6 +223,28 @@ class PawsAppBridge extends AppBridge {
     }
 }
 
+type MountAssembly = {
+    byteLength: number;
+    receivedBytes: number;
+    chunks: Uint8Array[];
+    context: z.infer<typeof hostContextSchema>;
+};
+
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
+
+function decodeMountChunk(dataBase64: string): Uint8Array | undefined {
+    if (!STRICT_BASE64.test(dataBase64)) return undefined;
+    try {
+        const binary = atob(dataBase64);
+        if (binary.length === 0 || binary.length > MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES) return undefined;
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return bytes;
+    } catch {
+        return undefined;
+    }
+}
+
 /** Starts the browser-only shell. The inner opaque-origin View never receives the native bridge object. */
 export function startHostShell(shellWindow: ShellWindow = window as ShellWindow): () => void {
     const native = shellWindow.ReactNativeWebView;
@@ -245,6 +269,7 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
     shellConsole.error = silent;
 
     let instanceId: string | undefined;
+    let mountAssembly: MountAssembly | undefined;
     let iframe: HTMLIFrameElement | undefined;
     let bridge: PawsAppBridge | undefined;
     let disposed = false;
@@ -304,6 +329,7 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         const ownedId = instanceId;
         const ownedBridge = bridge;
         bridge = undefined;
+        mountAssembly = undefined;
         if (viewSource) {
             shellWindow.removeEventListener('message', viewIngressListener, true);
             viewSource = undefined;
@@ -442,6 +468,76 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         // do not consume the budget; only envelopes with both method and ID are attempts.
     }
 
+    const mountView = async (
+        ownedId: string,
+        html: string,
+        context: z.infer<typeof hostContextSchema>,
+    ): Promise<void> => {
+        iframe = createSandboxedIframe(shellWindow.document, html);
+        shellWindow.document.body.replaceChildren(iframe);
+        const target = iframe.contentWindow;
+        if (!target) {
+            protocolFailure();
+            return;
+        }
+        viewSource = target;
+        viewRequestTimestamps.length = 0;
+        activeOfficialRequestIds.clear();
+        retiredOfficialRequestIds.clear();
+        shellWindow.addEventListener('message', viewIngressListener, true);
+        bridge = new PawsAppBridge(
+            null,
+            { name: 'Paws', version: '1.0.0' },
+            { openLinks: {}, serverTools: {}, serverResources: {} },
+            { hostContext: officialHostContext(context) },
+        );
+        bridge.onreadresource = async ({ uri }, extra) => relay({
+            method: 'resources/read', params: { uri },
+        }, extra.signal) as ReturnType<NonNullable<AppBridge['onreadresource']>>;
+        bridge.oncalltool = async (params, extra) => relay({
+            method: 'tools/call',
+            params: {
+                name: params.name,
+                ...(params.arguments !== undefined ? { arguments: params.arguments } : {}),
+                ...(params._meta !== undefined ? { _meta: params._meta } : {}),
+            },
+        }, extra.signal) as ReturnType<NonNullable<AppBridge['oncalltool']>>;
+        bridge.onopenlink = async ({ url }, extra) => relay({
+            method: 'ui/open-link', params: { url },
+        }, extra.signal) as ReturnType<NonNullable<AppBridge['onopenlink']>>;
+        bridge.replacePingHandler(async (_request, extra) => relay({
+            method: 'ping', params: {},
+        }, extra.signal) as Promise<Record<string, never>>);
+        bridge.onrequestdisplaymode = async ({ mode }) => {
+            if (mode === 'inline') return { mode: 'inline' };
+            return unsupported();
+        };
+        bridge.ondownloadfile = unsupported;
+        bridge.onmessage = unsupported;
+        bridge.onupdatemodelcontext = unsupported;
+        bridge.oncreatesamplingmessage = unsupported;
+        bridge.onlistresources = unsupported;
+        bridge.onlistresourcetemplates = unsupported;
+        bridge.onlistprompts = unsupported;
+        bridge.oninitialized = () => {
+            if (instanceId === ownedId) post({ type: 'initialized', instanceId: ownedId });
+        };
+        bridge.onsizechange = ({ height }) => {
+            if (height !== undefined) emitResize(height);
+        };
+        bridge.onrequestteardown = () => { void release(true); };
+        post({ type: 'sandbox-ready', instanceId: ownedId });
+        try {
+            await bridge.connect(new TrackedPostMessageTransport(
+                target,
+                target,
+                retireOfficialRequestId,
+            ));
+        } catch {
+            protocolFailure();
+        }
+    };
+
     const handleCommand = async (raw: unknown) => {
         if (closing || disposed) return;
         let command: HostCommand;
@@ -458,69 +554,61 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
                 return;
             }
             instanceId = command.instanceId;
-            iframe = createSandboxedIframe(shellWindow.document, command.html);
-            shellWindow.document.body.replaceChildren(iframe);
-            const target = iframe.contentWindow;
-            if (!target) {
+            await mountView(command.instanceId, command.html, command.context);
+            return;
+        }
+
+        if (command.type === 'mount-start') {
+            if (instanceId || mountAssembly || command.byteLength > MCP_APP_MAX_MOUNT_HTML_BYTES) {
                 protocolFailure();
                 return;
             }
-            viewSource = target;
-            viewRequestTimestamps.length = 0;
-            activeOfficialRequestIds.clear();
-            retiredOfficialRequestIds.clear();
-            shellWindow.addEventListener('message', viewIngressListener, true);
-            bridge = new PawsAppBridge(
-                null,
-                { name: 'Paws', version: '1.0.0' },
-                { openLinks: {}, serverTools: {}, serverResources: {} },
-                { hostContext: officialHostContext(command.context) },
-            );
-            bridge.onreadresource = async ({ uri }, extra) => relay({
-                method: 'resources/read', params: { uri },
-            }, extra.signal) as ReturnType<NonNullable<AppBridge['onreadresource']>>;
-            bridge.oncalltool = async (params, extra) => relay({
-                method: 'tools/call',
-                params: {
-                    name: params.name,
-                    ...(params.arguments !== undefined ? { arguments: params.arguments } : {}),
-                    ...(params._meta !== undefined ? { _meta: params._meta } : {}),
-                },
-            }, extra.signal) as ReturnType<NonNullable<AppBridge['oncalltool']>>;
-            bridge.onopenlink = async ({ url }, extra) => relay({
-                method: 'ui/open-link', params: { url },
-            }, extra.signal) as ReturnType<NonNullable<AppBridge['onopenlink']>>;
-            bridge.replacePingHandler(async (_request, extra) => relay({
-                method: 'ping', params: {},
-            }, extra.signal) as Promise<Record<string, never>>);
-            bridge.onrequestdisplaymode = async ({ mode }) => {
-                if (mode === 'inline') return { mode: 'inline' };
-                return unsupported();
+            instanceId = command.instanceId;
+            mountAssembly = {
+                byteLength: command.byteLength,
+                receivedBytes: 0,
+                chunks: [],
+                context: command.context,
             };
-            bridge.ondownloadfile = unsupported;
-            bridge.onmessage = unsupported;
-            bridge.onupdatemodelcontext = unsupported;
-            bridge.oncreatesamplingmessage = unsupported;
-            bridge.onlistresources = unsupported;
-            bridge.onlistresourcetemplates = unsupported;
-            bridge.onlistprompts = unsupported;
-            bridge.oninitialized = () => {
-                if (instanceId === command.instanceId) post({ type: 'initialized', instanceId: command.instanceId });
-            };
-            bridge.onsizechange = ({ height }) => {
-                if (height !== undefined) emitResize(height);
-            };
-            bridge.onrequestteardown = () => { void release(true); };
-            post({ type: 'sandbox-ready', instanceId: command.instanceId });
+            return;
+        }
+
+        if (command.type === 'mount-chunk') {
+            const assembly = mountAssembly;
+            const chunk = decodeMountChunk(command.dataBase64);
+            if (!assembly || !chunk || command.instanceId !== instanceId
+                || command.offset !== assembly.receivedBytes
+                || assembly.receivedBytes + chunk.byteLength > assembly.byteLength) {
+                protocolFailure();
+                return;
+            }
+            assembly.chunks.push(chunk);
+            assembly.receivedBytes += chunk.byteLength;
+            return;
+        }
+
+        if (command.type === 'mount-complete') {
+            const assembly = mountAssembly;
+            if (!assembly || command.instanceId !== instanceId
+                || assembly.receivedBytes !== assembly.byteLength) {
+                protocolFailure();
+                return;
+            }
+            const bytes = new Uint8Array(assembly.byteLength);
+            let offset = 0;
+            for (const chunk of assembly.chunks) {
+                bytes.set(chunk, offset);
+                offset += chunk.byteLength;
+            }
+            let html: string;
             try {
-                await bridge.connect(new TrackedPostMessageTransport(
-                    target,
-                    target,
-                    retireOfficialRequestId,
-                ));
+                html = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
             } catch {
                 protocolFailure();
+                return;
             }
+            mountAssembly = undefined;
+            await mountView(command.instanceId, html, assembly.context);
             return;
         }
 
@@ -570,10 +658,12 @@ export function startHostShell(shellWindow: ShellWindow = window as ShellWindow)
         // The official transport exclusively owns the exact immediate View.
         if (viewSource && event.source === viewSource) return;
         // React Native WebView injects host commands with a null MessageEvent
-        // source. Any nested or foreign browser Window is untrusted.
+        // source. The Web Proxy validates its parent and redispatches accepted
+        // commands with that same null source. Foreign browser Windows are
+        // untrusted, but ignoring them avoids giving an attacker a teardown
+        // primitive against an otherwise healthy App.
         if (event.source !== null) {
             event.stopImmediatePropagation();
-            if (!closing && !disposed) protocolFailure();
             return;
         }
         if (closing || disposed) return;

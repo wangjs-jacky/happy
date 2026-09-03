@@ -423,7 +423,7 @@ function safeSecondaryResourceResult(response: unknown, expectedUri: string): Sa
             uri: expectedUri,
             ...(item.mimeType !== undefined ? { mimeType: item.mimeType } : {}),
             ...(text !== undefined ? { text } : { blob: blob! }),
-            ...(item._meta !== undefined ? { _meta: item._meta } : {}),
+            ...(isRecord(item._meta) ? { _meta: item._meta } : {}),
         });
     }
     const value: McpResourceReadResponse = { contents };
@@ -447,7 +447,7 @@ function safeToolResult(response: unknown): SafeToolResult {
         content: response.content,
         ...(response.structuredContent !== undefined ? { structuredContent: response.structuredContent } : {}),
         ...(response.isError !== undefined ? { isError: response.isError } : {}),
-        ...(response._meta !== undefined ? { _meta: response._meta } : {}),
+        ...(isRecord(response._meta) ? { _meta: response._meta } : {}),
     };
     if (!jsonDepthWithin(value, MCP_APP_MAX_JSON_DEPTH)) return { ok: false, tooLarge: true };
     const bytes = serializedBytes(value);

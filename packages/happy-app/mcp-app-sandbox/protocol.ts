@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 export const MCP_APP_MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
+export const MCP_APP_MAX_MOUNT_HTML_BYTES = 5 * 1024 * 1024;
+export const MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES = 160 * 1024;
+const MCP_APP_MAX_MOUNT_CHUNK_BASE64_CHARS = Math.ceil(MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES / 3) * 4;
 export const MCP_APP_MIN_FRAME_HEIGHT = 120;
 export const MCP_APP_MAX_FRAME_HEIGHT = 720;
 
@@ -78,6 +81,19 @@ const bridgeRequestIdSchema = z.string().min(1).max(128);
 
 export const hostCommandSchema = z.discriminatedUnion('type', [
     z.object({ type: z.literal('mount'), instanceId: z.string().min(1), html: z.string(), context: hostContextSchema }).strict(),
+    z.object({
+        type: z.literal('mount-start'),
+        instanceId: z.string().min(1),
+        byteLength: z.number().int().positive().max(MCP_APP_MAX_MOUNT_HTML_BYTES),
+        context: hostContextSchema,
+    }).strict(),
+    z.object({
+        type: z.literal('mount-chunk'),
+        instanceId: z.string().min(1),
+        offset: z.number().int().nonnegative().max(MCP_APP_MAX_MOUNT_HTML_BYTES - 1),
+        dataBase64: z.string().min(1).max(MCP_APP_MAX_MOUNT_CHUNK_BASE64_CHARS),
+    }).strict(),
+    z.object({ type: z.literal('mount-complete'), instanceId: z.string().min(1) }).strict(),
     z.object({ type: z.literal('tool-input'), instanceId: z.string().min(1), input: z.record(z.string(), z.unknown()) }).strict(),
     z.object({ type: z.literal('tool-result'), instanceId: z.string().min(1), result: mcpAppToolResultSchema }).strict(),
     z.object({ type: z.literal('tool-cancelled'), instanceId: z.string().min(1), reason: z.string().max(280) }).strict(),
@@ -117,6 +133,48 @@ export type McpAppBridgeResponse = z.infer<typeof mcpAppBridgeResponseSchema>;
 
 export function utf8ByteLength(value: string): number {
     return new TextEncoder().encode(value).byteLength;
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+    let binary = '';
+    for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+        binary += String.fromCharCode.apply(
+            null,
+            bytes.subarray(offset, offset + 0x8000) as unknown as number[],
+        );
+    }
+    return btoa(binary);
+}
+
+export function createMcpAppMountCommands(
+    instanceId: string,
+    html: string,
+    context: z.infer<typeof hostContextSchema>,
+): HostCommand[] {
+    const legacy = { type: 'mount' as const, instanceId, html, context };
+    const legacyRaw = JSON.stringify(legacy);
+    if (utf8ByteLength(legacyRaw) <= MCP_APP_MAX_BRIDGE_MESSAGE_BYTES) return [legacy];
+
+    const bytes = new TextEncoder().encode(html);
+    if (bytes.byteLength === 0 || bytes.byteLength > MCP_APP_MAX_MOUNT_HTML_BYTES) {
+        throw new Error('Invalid MCP App mount document.');
+    }
+    const commands: HostCommand[] = [{
+        type: 'mount-start', instanceId, byteLength: bytes.byteLength, context,
+    }];
+    for (let offset = 0; offset < bytes.byteLength; offset += MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES) {
+        commands.push({
+            type: 'mount-chunk',
+            instanceId,
+            offset,
+            dataBase64: encodeBase64(bytes.subarray(
+                offset,
+                offset + MCP_APP_MAX_MOUNT_CHUNK_DECODED_BYTES,
+            )),
+        });
+    }
+    commands.push({ type: 'mount-complete', instanceId });
+    return commands;
 }
 
 export function parseHostCommand(raw: string): HostCommand {

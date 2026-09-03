@@ -73,7 +73,7 @@ test.describe.serial('MCP App real-origin Web Host', () => {
         await page.route(`${environment.sandboxOrigin}/mcp-app-sandbox/host?*`, (route) => route.abort('failed'));
         await page.reload({ waitUntil: 'domcontentloaded' });
         await expect(page.getByTestId('tool-card-header')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByTestId('mcp-app-error')).toBeVisible();
+        await expect(page.getByTestId('mcp-app-error')).toBeVisible({ timeout: 30_000 });
         await expect(page.locator('[data-testid="mcp-app-sandbox-frame"]')).toHaveCount(0);
         await saveMcpAppEvidence(page, testInfo, 'mcp-web-005-fallback.png');
     });

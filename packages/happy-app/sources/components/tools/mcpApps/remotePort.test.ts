@@ -55,9 +55,9 @@ class InMemoryResourceRpc implements McpAppResourceRpcClient {
     async callTool(
         _sessionId: string,
         input: McpAppToolCallRequest,
-    ): Promise<{ content: unknown[] }> {
+    ): Promise<{ content: unknown[]; _meta?: unknown }> {
         this.toolRequests.push(input);
-        return { content: [{ type: 'text', text: 'done' }] };
+        return { content: [{ type: 'text', text: 'done' }], _meta: null };
     }
 }
 
