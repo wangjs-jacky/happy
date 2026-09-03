@@ -86,4 +86,3 @@
 - [ ] **Step 3: Verify Cases 1–5** by exercising every primary action, Projects / Lists / Timeline switching, history-list selection into the right pane, and a mobile-width regression pass; capture and report each meaningful verified browser round.
 - [ ] **Step 4: Verify Case 6** in `ginghamDark`, including normal, hover/pressed, and selected states; capture and report the final verified browser state.
 - [ ] **Step 5: Run an independent review** against the implementation, test evidence, and screenshots; resolve blocking findings and rerun affected checks.
-

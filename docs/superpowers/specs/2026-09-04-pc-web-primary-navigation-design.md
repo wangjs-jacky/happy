@@ -42,4 +42,3 @@ All ordinary, hover/pressed, and selected navigation surfaces use `theme.colors.
 - Case 4: existing New Session, Inbox, Session Management, Plugins, and My Agents actions still work.
 - Case 5: mobile retains the single-column drawer information structure.
 - Case 6: default and `ginghamDark` states have consistent normal, pressed/hover, and selected surfaces.
-
