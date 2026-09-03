@@ -56,6 +56,11 @@ Data persists in the `paws-data` Docker volume across container restarts.
 |----------|----------|---------|-------------|
 | `HANDY_MASTER_SECRET` | Yes | - | Master secret for auth/encryption |
 | `PUBLIC_URL` | No | `http://localhost:3005` | Public base URL for file URLs sent to clients |
+| `HAPPY_WEB_URL` | No | `PUBLIC_URL` | Fixed Happy Web origin used after provider OAuth callbacks |
+| `VERCEL_INTEGRATION_CLIENT_ID` | No | — | Vercel connectable Integration OAuth client ID |
+| `VERCEL_INTEGRATION_CLIENT_SECRET` | No | — | Vercel Integration OAuth secret; server-only |
+| `VERCEL_INTEGRATION_SLUG` | No | — | Vercel Integration slug used to build the install URL |
+| `VERCEL_INTEGRATION_REDIRECT_URI` | No | — | Exact server callback URL registered with Vercel |
 | `PORT` | No | `3005` | Server port |
 | `DATA_DIR` | No | `/data` | Base data directory |
 | `PGLITE_DIR` | No | `/data/pglite` | PGlite database directory |
