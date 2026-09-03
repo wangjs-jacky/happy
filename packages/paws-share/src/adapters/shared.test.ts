@@ -40,4 +40,31 @@ describe('resolveStructuredAttachment', () => {
         await expect(resolveStructuredAttachment(candidate, 'linked-secret.txt', sessionDirectory))
             .rejects.toThrow('outside the session root');
     });
+
+    it('allows an exact file under a caller-provided Happy attachment root without trusting transcript cwd', async () => {
+        const directory = await createTemporaryDirectory('paws-share-happy-root-');
+        directories.push(directory);
+        const sessionDirectory = join(directory, 'sessions');
+        const attachmentDirectory = join(directory, '.happy', 'attachments');
+        const privateDirectory = join(directory, 'private');
+        await mkdir(sessionDirectory);
+        await mkdir(attachmentDirectory, { recursive: true });
+        await mkdir(privateDirectory);
+        const attachment = join(attachmentDirectory, 'current-upload.png');
+        await writeFile(attachment, Buffer.from('happy attachment'));
+        await writeFile(join(privateDirectory, 'sentinel.png'), Buffer.from('private file'));
+        const candidate = {
+            provider: 'codex' as const,
+            path: join(sessionDirectory, 'session.jsonl'),
+            cwd: '/',
+            attachmentRoots: [attachmentDirectory],
+        };
+
+        await expect(resolveStructuredAttachment(candidate, attachment, '/')).resolves.toMatchObject({
+            name: 'current-upload.png',
+            size: 16,
+        });
+        await expect(resolveStructuredAttachment(candidate, join(privateDirectory, 'sentinel.png'), '/'))
+            .rejects.toThrow('outside the session root');
+    });
 });

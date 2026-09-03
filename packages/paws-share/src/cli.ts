@@ -1,8 +1,15 @@
-import { resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Command, CommanderError, Option } from 'commander';
+import packageMetadata from '../package.json' with { type: 'json' };
 import { discoverCurrentTranscript } from './adapters/discover';
 import type { TranscriptCandidate } from './adapters/types';
 import { installSkill, type InstallSkillResult, type InstallSkillTarget } from './installSkill';
+import {
+    exportSessionHtml,
+    type ExportSessionHtmlOptions,
+    type ExportSessionHtmlResult,
+} from './localHtml';
 import { ShareRecordStore, type PublicShareRecord } from './records';
 import {
     inspectSession,
@@ -18,7 +25,6 @@ import {
     type ShareSessionResult,
 } from './share';
 
-const VERSION = '0.1.0-beta.0';
 const DEFAULT_SERVER_URL = 'https://47.115.228.20:8443';
 
 export type CliIo = {
@@ -28,6 +34,7 @@ export type CliIo = {
 
 export type CliDependencies = {
     inspectSession: (options: { candidate: TranscriptCandidate }) => Promise<SessionInspection>;
+    exportSessionHtml: (options: ExportSessionHtmlOptions) => Promise<ExportSessionHtmlResult>;
     shareSession: (options: ShareSessionOptions) => Promise<ShareSessionResult>;
     listRecords: () => Promise<PublicShareRecord[]>;
     statusManagedShare: (identifier: string) => Promise<ManagedShareStatusResult>;
@@ -55,6 +62,7 @@ function defaults(): CliDependencies {
     const store = new ShareRecordStore();
     return {
         inspectSession,
+        exportSessionHtml,
         shareSession: (options) => shareSession({ ...options, store }),
         listRecords: () => store.list(),
         statusManagedShare: (identifier) => statusManagedShare(identifier, store),
@@ -96,14 +104,19 @@ type SourceOptions = {
 };
 
 async function candidateFromOptions(options: SourceOptions, dependencies: CliDependencies): Promise<TranscriptCandidate> {
+    const cwd = resolve(dependencies.cwd());
+    const configuredHappyHome = dependencies.environment.HAPPY_HOME_DIR?.replace(/^~/, homedir());
+    const happyHome = resolve(configuredHappyHome ?? join(homedir(), '.happy'));
+    const attachmentRoots = [cwd, join(happyHome, 'attachments')];
     if (options.current) {
         if (options.source || options.session) throw new CliExpectedError('--current cannot be combined with --source or --session', 2);
-        return dependencies.discoverCurrentTranscript({ cwd: dependencies.cwd() });
+        const candidate = await dependencies.discoverCurrentTranscript({ cwd });
+        return { ...candidate, attachmentRoots: [...new Set([...(candidate.attachmentRoots ?? []), ...attachmentRoots])] };
     }
     if (!options.source || !options.session) {
         throw new CliExpectedError('Use --current or provide both --source and --session', 2);
     }
-    return { provider: options.source, path: resolve(options.session) };
+    return { provider: options.source, path: resolve(options.session), attachmentRoots };
 }
 
 function addSourceOptions(command: Command): Command {
@@ -117,7 +130,7 @@ function createProgram(io: CliIo, dependencies: CliDependencies) {
     const program = new Command()
         .name('paws-share')
         .description('Publish Codex and Claude Code sessions as read-only Paws snapshots')
-        .version(VERSION)
+        .version(packageMetadata.version)
         .configureOutput({ writeOut: io.stdout, writeErr: io.stderr })
         .exitOverride();
 
@@ -126,6 +139,28 @@ function createProgram(io: CliIo, dependencies: CliDependencies) {
         .action(async (options: SourceOptions & { json?: boolean }) => {
             const candidate = await candidateFromOptions(options, dependencies);
             writeInspection(io, await dependencies.inspectSession({ candidate }), Boolean(options.json));
+        });
+
+    addSourceOptions(program.command('export-html').description('Create one self-contained offline HTML snapshot'))
+        .requiredOption('--output <path>', 'destination HTML file')
+        .option('--force', 'replace an existing output file')
+        .option('--allow-sensitive', 'override high-confidence secret findings')
+        .option('--json', 'print JSON output')
+        .action(async (options: SourceOptions & {
+            output: string;
+            force?: boolean;
+            allowSensitive?: boolean;
+            json?: boolean;
+        }) => {
+            const candidate = await candidateFromOptions(options, dependencies);
+            const result = await dependencies.exportSessionHtml({
+                candidate,
+                outputPath: resolve(options.output),
+                allowSensitive: Boolean(options.allowSensitive),
+                overwrite: Boolean(options.force),
+            });
+            if (options.json) writeJson(io, result);
+            else io.stdout(`Local HTML: ${result.outputPath}\nSize: ${result.bytes} bytes\n`);
         });
 
     addSourceOptions(program.command('share').description('Create a public snapshot link'))

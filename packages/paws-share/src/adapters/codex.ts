@@ -9,6 +9,8 @@ import {
     timestamp,
 } from './shared';
 import type { ConvertedSnapshot, ResolvedAttachment, TranscriptAdapter, TranscriptCandidate } from './types';
+import { isSyntheticPawsCodexMessage, isSyntheticPawsCodexText, visiblePawsCodexUserText } from './codexEnvelope';
+import { materializePawsLocalAttachmentNotice } from './pawsLocalAttachments';
 
 type ToolBlock = Extract<PublicSessionBlock, { type: 'tool' }>;
 
@@ -79,11 +81,28 @@ export const codexAdapter: TranscriptAdapter = {
             }
             if (payload.type !== 'message' || (payload.role !== 'user' && payload.role !== 'assistant')) continue;
             const content = Array.isArray(payload.content) ? payload.content : [];
+            if (payload.role === 'user' && isSyntheticPawsCodexMessage(content)) continue;
             const blocks: PublicSessionBlock[] = [];
             for (const [blockIndex, rawBlock] of content.entries()) {
                 const block = recordValue(rawBlock);
                 if (!block) continue;
-                const text = stringValue(block.text);
+                let rawText = stringValue(block.text);
+                if (rawText && payload.role === 'user' && isSyntheticPawsCodexText(rawText)) continue;
+                if (rawText && payload.role === 'user') {
+                    const localNotice = await materializePawsLocalAttachmentNotice({
+                        value: rawText,
+                        candidate,
+                        recordedCwd,
+                        keyPrefix: `${stableId ?? sequence}:${blockIndex}`,
+                    });
+                    if (localNotice.matched) {
+                        localNotice.attachments.forEach((attachment) => attachments.set(attachment.attachmentId, attachment));
+                        blocks.push(...localNotice.blocks);
+                        unresolvedAttachments.push(...localNotice.unresolvedAttachments);
+                        rawText = localNotice.visibleText || undefined;
+                    }
+                }
+                const text = rawText && payload.role === 'user' ? visiblePawsCodexUserText(rawText) : rawText;
                 if ((block.type === 'input_text' || block.type === 'output_text') && text) {
                     blocks.push({ type: 'text', markdown: text });
                     if (payload.role === 'user' && !firstUserText) firstUserText = text;
