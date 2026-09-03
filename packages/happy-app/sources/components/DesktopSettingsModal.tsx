@@ -44,6 +44,7 @@ const SETTINGS_TITLES: Record<string, () => string> = {
     '/settings/skill': () => t('settingsSkills.detailTitle'),
     '/settings/skills': () => t('settingsSkills.title'),
     '/settings/usage': () => t('settings.usage'),
+    '/settings/temporary-previews': () => '临时交互预览',
     '/settings/voice': () => t('settings.voiceAssistant'),
     '/settings/voice/language': () => t('settingsVoice.languageTitle'),
 };
@@ -66,6 +67,7 @@ const SettingsSkillsScreen = React.lazy(() => import('@/app/(app)/settings/skill
 const SettingsUsageScreen = React.lazy(() => import('@/app/(app)/settings/usage'));
 const SettingsVoiceLanguageScreen = React.lazy(() => import('@/app/(app)/settings/voice/language'));
 const SettingsVoiceScreen = React.lazy(() => import('@/app/(app)/settings/voice'));
+const SettingsTemporaryPreviewsScreen = React.lazy(() => import('@/app/(app)/settings/temporary-previews'));
 
 const SETTINGS_SCREENS: Record<string, React.ComponentType> = {
     '/settings': SettingsView,
@@ -85,6 +87,7 @@ const SETTINGS_SCREENS: Record<string, React.ComponentType> = {
     '/settings/skill': SettingsSkillScreen,
     '/settings/skills': SettingsSkillsScreen,
     '/settings/usage': SettingsUsageScreen,
+    '/settings/temporary-previews': SettingsTemporaryPreviewsScreen,
     '/settings/voice': SettingsVoiceScreen,
     '/settings/voice/language': SettingsVoiceLanguageScreen,
 };

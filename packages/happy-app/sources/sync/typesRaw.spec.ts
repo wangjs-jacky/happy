@@ -1648,6 +1648,20 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             }
         });
 
+        it('normalizes a server-owned interactive preview into a completed preview tool card', () => {
+            const previewId = '11111111-1111-4111-8111-111111111111';
+            const normalized = normalizeRawMessage('db-preview-1', null, 1, {
+                role: 'session', content: { id: 'env-preview-1', time: 10, role: 'agent', ev: {
+                    t: 'interactive-preview', preview: { version: 1, id: previewId, title: 'Toolbar', state: 'ready', url: 'https://draft.vercel.app', publishedAt: 1, expiresAt: 2 },
+                } },
+            } as any);
+            expect(normalized?.role).toBe('agent');
+            if (normalized?.role === 'agent') {
+                expect(normalized.content[0]).toMatchObject({ type: 'tool-call', name: 'interactive-preview', input: { id: previewId, state: 'ready' } });
+                expect(normalized.content[1]).toMatchObject({ type: 'tool-result', status: 'completed' });
+            }
+        });
+
         it('normalizes tool-call lifecycle events', () => {
             const start = normalizeRawMessage('db-3', null, 1, {
                 ...base,

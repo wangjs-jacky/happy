@@ -18,6 +18,7 @@ import { AskUserQuestionView } from './AskUserQuestionView';
 import { GeminiEditView } from './GeminiEditView';
 import { GeminiExecuteView } from './GeminiExecuteView';
 import { FileView } from './FileView';
+import { InteractivePreviewCard } from './InteractivePreviewCard';
 
 export type ToolViewProps = {
     tool: ToolCall;
@@ -50,6 +51,7 @@ export const toolViewRegistry: Record<string, ToolViewComponent> = {
     execute: GeminiExecuteView,
     // File attachment events
     file: FileView,
+    'interactive-preview': InteractivePreviewCard,
 };
 
 export const toolFullViewRegistry: Record<string, ToolViewComponent> = {

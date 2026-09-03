@@ -939,6 +939,12 @@ export const knownTools = {
             return null;
         }
     },
+    'interactive-preview': {
+        title: '临时交互预览',
+        icon: (size: number, color: string) => <Ionicons name="desktop-outline" size={size} color={color} />,
+        minimal: false,
+        noStatus: true,
+    },
     // Internal Claude Code tool for loading deferred tools - no user-visible output
     'ToolSearch': {
         icon: ICON_SEARCH,

@@ -5,6 +5,7 @@ import {
     type McpAppResultV1,
     sessionToolCallEndEventSchema,
     sessionToolCallStartEventSchema,
+    interactivePreviewEventSchema,
 } from '@slopus/happy-wire';
 import { MessageMetaSchema, MessageMeta } from './typesMessageMeta';
 
@@ -104,6 +105,11 @@ const sessionStopEventSchema = z.object({
     status: z.enum(['completed', 'failed', 'cancelled']).optional(),
 });
 
+const sessionInteractivePreviewEventSchema = z.object({
+    t: z.literal('interactive-preview'),
+    preview: interactivePreviewEventSchema,
+});
+
 const sessionEventSchema = z.discriminatedUnion('t', [
     sessionTextEventSchema,
     sessionServiceMessageEventSchema,
@@ -114,6 +120,7 @@ const sessionEventSchema = z.discriminatedUnion('t', [
     sessionStartEventSchema,
     sessionTurnEndEventSchema,
     sessionStopEventSchema,
+    sessionInteractivePreviewEventSchema,
 ]);
 
 const sessionEnvelopeSchema = z.object({
@@ -575,7 +582,7 @@ function normalizeSessionEnvelope(
 ): NormalizedMessage | null {
     // Session protocol requires turn id on all agent-originated envelopes.
     // Drop malformed agent events without turn to avoid attaching stray messages.
-    if (envelope.role === 'agent' && !envelope.turn) {
+    if (envelope.role === 'agent' && !envelope.turn && envelope.ev.t !== 'interactive-preview') {
         return null;
     }
 
@@ -642,6 +649,19 @@ function normalizeSessionEnvelope(
                 parentUUID
             }],
             meta
+        } satisfies NormalizedMessage;
+    }
+
+    if (envelope.ev.t === 'interactive-preview') {
+        if (envelope.role !== 'agent') return null;
+        const callId = `interactive-preview-${envelope.ev.preview.id}`;
+        return {
+            id: messageId, localId, createdAt: messageCreatedAt, role: 'agent', isSidechain: false,
+            content: [
+                { type: 'tool-call', id: callId, name: 'interactive-preview', input: envelope.ev.preview, description: null, uuid: contentUUID, parentUUID: null },
+                { type: 'tool-result', tool_use_id: callId, content: null, is_error: envelope.ev.preview.state === 'failed', status: envelope.ev.preview.state === 'failed' ? 'failed' : 'completed', uuid: `${contentUUID}-result`, parentUUID: null },
+            ],
+            meta,
         } satisfies NormalizedMessage;
     }
 

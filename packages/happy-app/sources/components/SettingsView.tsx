@@ -320,6 +320,12 @@ export const SettingsView = React.memo(function SettingsView() {
 
             <ItemGroup title={t('settings.connectedAccounts')}>
                 <Item
+                    title="Vercel 临时预览"
+                    subtitle="统一绑定账号，发布 24 小时静态交互稿"
+                    icon={<Ionicons name="cloud-upload-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => router.push('/settings/temporary-previews' as any)}
+                />
+                <Item
                     title="Claude Code"
                     subtitle={isAnthropicConnected
                         ? t('settingsAccount.statusActive')
