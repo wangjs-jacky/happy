@@ -14,4 +14,15 @@ describe('systemPrompt image handling', () => {
     it('keeps OTA preview metadata aligned with the preview runtime source of truth', () => {
         expect(systemPrompt).toContain(`runtimeVersion: ${otaRuntimeVersions.preview}`);
     });
+
+    it('routes interactive previews for remote Paws clients to temporary HTTPS hosting instead of localhost', () => {
+        expect(systemPrompt).toContain('# Remote interactive previews');
+        expect(systemPrompt).toContain('must not give the user a localhost URL');
+        expect(systemPrompt).toContain('Vercel or Cloudflare');
+        expect(systemPrompt).toContain('temporary public HTTPS URL');
+        expect(systemPrompt).toContain('Do not deploy the Paws production app');
+        expect(systemPrompt).toContain('verify that the public URL is reachable');
+        expect(systemPrompt).toContain('If publishing needs new credentials, incurs cost, or no authorized provider is available, ask the user');
+        expect(systemPrompt).toContain('If a static image is sufficient, prefer the Images workflow above');
+    });
 });
