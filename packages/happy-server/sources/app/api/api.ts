@@ -35,6 +35,7 @@ import { publicSessionShareRoutes } from "./routes/publicSessionShareRoutes";
 import { externalSessionShareRoutes } from "./routes/externalSessionShareRoutes";
 import { mcpAppSandboxRoutes } from "./routes/mcpAppSandboxRoutes";
 import { vercelConnectRoutes } from "./routes/vercelConnectRoutes";
+import { interactivePreviewRoutes } from "./routes/interactivePreviewRoutes";
 import { isLiteralMcpAppSandboxRequestUrl } from './mcpAppSandboxHttp';
 import * as path from "path";
 import * as fs from "fs";
@@ -152,6 +153,7 @@ export async function createApiApp(opts: StartApiOptions = {}): Promise<Fastify>
     accountRoutes(typed);
     connectRoutes(typed);
     vercelConnectRoutes(typed);
+    interactivePreviewRoutes(typed);
     machinesRoutes(typed);
     artifactsRoutes(typed);
     accessKeysRoutes(typed);

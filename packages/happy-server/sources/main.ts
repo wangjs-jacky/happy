@@ -11,6 +11,7 @@ import { initEncrypt } from "./modules/encrypt";
 import { initGithub } from "./modules/github";
 import { loadFiles } from "./storage/files";
 import { startPublicSessionShareCleanup } from './app/sessionSharing/publicSessionShareCleanup';
+import { startInteractivePreviewCleanup } from './app/previews/previewCleanup';
 
 async function main() {
 
@@ -40,6 +41,7 @@ async function main() {
 
     await startApi();
     startPublicSessionShareCleanup();
+    startInteractivePreviewCleanup();
     await startMetricsServer();
     startDatabaseMetricsUpdater();
     startTimeout();

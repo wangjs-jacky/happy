@@ -54,6 +54,7 @@ model Account {
     UserKVStore         UserKVStore[]
     VoiceConversation   VoiceConversation[]
     PublicSessionShare  PublicSessionShare[]
+    InteractivePreview InteractivePreview[]
 }
 
 model TerminalAuthRequest {
@@ -111,6 +112,7 @@ model Session {
     usageReports      UsageReport[]
     accessKeys        AccessKey[]
     publicShare       PublicSessionShare?
+    interactivePreviews InteractivePreview[]
 
     @@unique([accountId, tag])
     @@index([accountId, updatedAt(sort: Desc)])
@@ -187,6 +189,45 @@ model SessionMessage {
 
     @@unique([sessionId, localId])
     @@index([sessionId, seq])
+}
+
+model InteractivePreview {
+    id                  String   @id
+    accountId           String
+    account             Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    sessionId           String
+    session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+    title               String
+    status              String   @default("draft")
+    manifest            Json
+    vercelDeploymentId  String?
+    url                 String?
+    publishedAt         DateTime?
+    expiresAt           DateTime
+    cleanupClaimedAt    DateTime?
+    errorCode           String?
+    createdAt           DateTime @default(now())
+    updatedAt           DateTime @updatedAt
+    assets              InteractivePreviewAsset[]
+
+    @@index([accountId, createdAt(sort: Desc)])
+    @@index([status, expiresAt])
+}
+
+model InteractivePreviewAsset {
+    previewId   String
+    preview     InteractivePreview @relation(fields: [previewId], references: [id], onDelete: Cascade)
+    id          String
+    path        String
+    mimeType    String
+    size        Int
+    sha256      String
+    storageKey  String
+    uploadedAt  DateTime?
+    createdAt   DateTime @default(now())
+
+    @@id([previewId, id])
+    @@unique([previewId, path])
 }
 
 //

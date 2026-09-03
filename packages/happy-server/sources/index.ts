@@ -11,6 +11,7 @@ import { startDatabaseMetricsUpdater } from "./app/monitoring/metrics2";
 import { startTimeout } from "./app/presence/timeout";
 import { onShutdown } from "./utils/shutdown";
 import { startPublicSessionShareCleanup } from "./app/sessionSharing/publicSessionShareCleanup";
+import { startInteractivePreviewCleanup } from "./app/previews/previewCleanup";
 
 export { runMigrations } from "./standalone";
 export type { StartApiOptions } from "./app/api/api";
@@ -45,6 +46,7 @@ export async function startServer(opts: StartServerOptions): Promise<{ port: num
         injectHtmlConfig: opts.injectHtmlConfig,
     });
     startPublicSessionShareCleanup();
+    startInteractivePreviewCleanup();
     startDatabaseMetricsUpdater();
     startTimeout();
 
