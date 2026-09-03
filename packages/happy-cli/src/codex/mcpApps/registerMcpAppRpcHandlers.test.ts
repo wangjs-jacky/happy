@@ -475,6 +475,99 @@ describe('registerMcpAppRpcHandlers', () => {
         });
     });
 
+    it('preserves validated official App UI metadata with a non-inline primary resource', async () => {
+        const html = [
+            '<link rel="stylesheet" href="https://cdn.example.test/app.css">',
+            '<main>App</main>',
+            '<script src="https://cdn.example.test/app.js"></script>',
+        ].join('');
+        const readMcpResource = vi.fn(async () => ({
+            contents: [{
+                uri: 'ui://demo/index.html',
+                mimeType: 'text/html;profile=mcp-app',
+                text: html,
+                _meta: {
+                    ui: {
+                        csp: {
+                            connectDomains: ['https://api.example.test'],
+                            resourceDomains: ['https://cdn.example.test'],
+                            frameDomains: ['https://frame.example.test'],
+                        },
+                        permissions: { camera: {}, clipboardWrite: {} },
+                        prefersBorder: true,
+                    },
+                },
+            }],
+        }));
+        const { handlers, registry } = createHarness({ readMcpResource });
+        bind(registry);
+
+        const resource = opened(await open(handlers.get('mcpAppResourceOpen')!));
+
+        expect(resource).toMatchObject({
+            byteLength: Buffer.byteLength(html),
+            ui: {
+                csp: {
+                    connectDomains: ['https://api.example.test'],
+                    resourceDomains: ['https://cdn.example.test'],
+                    frameDomains: ['https://frame.example.test'],
+                },
+                permissions: { camera: {}, clipboardWrite: {} },
+                prefersBorder: true,
+            },
+        });
+    });
+
+    it('normalizes deprecated flat App UI metadata before returning it', async () => {
+        const readMcpResource = vi.fn(async () => ({
+            contents: [{
+                uri: 'ui://demo/index.html',
+                mimeType: 'text/html;profile=mcp-app',
+                text: '<main>App</main>',
+                _meta: {
+                    'ui/csp': { resourceDomains: ['https://cdn.example.test'] },
+                    'ui/permissions': { microphone: {} },
+                    'ui/prefersBorder': false,
+                },
+            }],
+        }));
+        const { handlers, registry } = createHarness({ readMcpResource });
+        bind(registry);
+
+        expect((opened(await open(handlers.get('mcpAppResourceOpen')!)) as unknown as { ui?: unknown }).ui).toEqual({
+            csp: {
+                connectDomains: [],
+                resourceDomains: ['https://cdn.example.test'],
+                frameDomains: [],
+            },
+            permissions: { microphone: {} },
+            prefersBorder: false,
+        });
+    });
+
+    it.each([
+        ['malformed CSP origin', { ui: { csp: { resourceDomains: ['https://cdn.example.test/path'] } } }],
+        ['too many CSP origins', { ui: { csp: { resourceDomains: Array.from({ length: 33 }, (_, index) => `https://cdn-${index}.example.test`) } } }],
+        ['malformed permission marker', { ui: { permissions: { camera: { reason: 'secret' } } } }],
+        ['malformed border preference', { ui: { prefersBorder: 'yes' } }],
+    ])('rejects primary resource metadata with %s', async (_label, metadata) => {
+        const readMcpResource = vi.fn(async () => ({
+            contents: [{
+                uri: 'ui://demo/index.html',
+                mimeType: 'text/html;profile=mcp-app',
+                text: '<main>App</main>',
+                _meta: metadata,
+            }],
+        }));
+        const { handlers, registry } = createHarness({ readMcpResource });
+        bind(registry);
+
+        await expect(open(handlers.get('mcpAppResourceOpen')!)).resolves.toEqual({
+            ok: false,
+            error: expect.objectContaining({ code: 'MCP_APP_INVALID_RESOURCE', retryable: false }),
+        });
+    });
+
     it('reads secondary resources only through binding-derived authority and declared schemes', async () => {
         const readMcpResource = vi.fn(async (params: { uri: string }) => params.uri === 'ui://demo/index.html'
             ? {

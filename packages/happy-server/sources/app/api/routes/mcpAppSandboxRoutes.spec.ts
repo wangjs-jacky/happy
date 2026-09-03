@@ -100,8 +100,8 @@ describe('mcpAppSandboxRoutes', () => {
         const policy = response.headers['content-security-policy'];
         expect(policy).toBe([
             "default-src 'none'",
-            "script-src 'self' 'unsafe-inline'",
-            "style-src 'unsafe-inline'",
+            "script-src 'self' 'unsafe-inline' https://cdn.allowed.example",
+            "style-src 'unsafe-inline' https://cdn.allowed.example",
             'img-src data: blob: https://cdn.allowed.example',
             'media-src blob: https://cdn.allowed.example',
             'font-src data: https://cdn.allowed.example',

@@ -97,6 +97,46 @@ describe('MCP App verified remote port', () => {
         ]);
     });
 
+    it('revalidates and preserves official UI metadata with non-inline App HTML', async () => {
+        const html = '<link rel="stylesheet" href="https://cdn.example.test/app.css"><script src="https://cdn.example.test/app.js"></script>';
+        const bytes = Buffer.from(html);
+        const open: McpAppResourceOpenResponse = {
+            ...validOpen,
+            byteLength: bytes.byteLength,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            ui: {
+                csp: {
+                    connectDomains: ['https://api.example.test'],
+                    resourceDomains: ['https://cdn.example.test'],
+                    frameDomains: ['https://frame.example.test'],
+                },
+                permissions: { camera: {}, clipboardWrite: {} },
+                prefersBorder: true,
+            },
+        };
+
+        await expect(portFor(open, [{ offset: 0, dataBase64: bytes.toString('base64') }])
+            .readResource({ callId: 'call-1' })).resolves.toMatchObject({
+            html,
+            ui: open.ui,
+        });
+    });
+
+    it.each([
+        ['unknown CSP key', { csp: { resourceDomains: [], scriptDomains: [] } }],
+        ['unsafe CSP origin', { csp: { resourceDomains: ['https://cdn.example.test/path'] } }],
+        ['too many CSP origins', { csp: { resourceDomains: Array.from({ length: 33 }, (_, index) => `https://cdn-${index}.example.test`) } }],
+        ['unknown permission key', { permissions: { camera: {}, filesystem: {} } }],
+        ['non-empty permission marker', { permissions: { camera: { reason: 'secret' } } }],
+        ['wrong border type', { prefersBorder: 'yes' }],
+    ])('rejects %s at the App RPC trust boundary', async (_label, ui) => {
+        const open = { ...validOpen, ui } as McpAppResourceOpenResponse;
+
+        await expect(portFor(open, []).readResource({ callId: 'call-1' })).rejects.toMatchObject({
+            code: 'MCP_APP_INVALID_RESOURCE', retryable: false,
+        });
+    });
+
     it.each([
         ['repeated', [
             { offset: 0, dataBase64: 'aGVsbG8g', nextOffset: 0 },

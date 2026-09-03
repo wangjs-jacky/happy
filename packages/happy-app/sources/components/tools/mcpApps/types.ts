@@ -1,3 +1,5 @@
+import type { McpAppResourceUi } from './resourceUiMetadata';
+
 export type McpAppErrorCode =
     | 'MCP_APP_UNSUPPORTED'
     | 'MCP_APP_SESSION_OFFLINE'
@@ -48,11 +50,7 @@ export type McpAppResource = {
     sha256: string;
     encoding: 'utf8';
     html: string;
-    ui?: {
-        csp?: unknown;
-        permissions?: unknown;
-        prefersBorder?: boolean;
-    };
+    ui?: McpAppResourceUi;
 };
 
 export type ReadMcpAppResourceInput = {

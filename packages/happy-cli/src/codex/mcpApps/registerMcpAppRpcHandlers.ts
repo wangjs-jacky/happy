@@ -30,6 +30,8 @@ export const MCP_APP_OPERATION_TIMEOUT_MS = 30_000;
 export const MCP_APP_MAX_CALL_ID_BYTES = 256;
 export const MCP_APP_MAX_TOOL_NAME_BYTES = 256;
 export const MCP_APP_MAX_OPERATION_ID_BYTES = 128;
+export const MCP_APP_MAX_UI_METADATA_BYTES = 16 * 1024;
+export const MCP_APP_MAX_CSP_ORIGINS = 32;
 const MCP_APP_MAX_PRE_CANCEL_TOMBSTONES = 64;
 const MCP_APP_PRE_CANCEL_TTL_MS = MCP_APP_OPERATION_TIMEOUT_MS;
 
@@ -44,6 +46,26 @@ export type McpAppResourceOpenResponse = {
     byteLength: number;
     sha256: string;
     encoding: 'utf8';
+    ui?: McpAppResourceUi;
+};
+
+export type McpAppResourceCsp = {
+    connectDomains: string[];
+    resourceDomains: string[];
+    frameDomains: string[];
+};
+
+export type McpAppResourcePermissions = {
+    camera?: Record<string, never>;
+    microphone?: Record<string, never>;
+    geolocation?: Record<string, never>;
+    clipboardWrite?: Record<string, never>;
+};
+
+export type McpAppResourceUi = {
+    csp?: McpAppResourceCsp;
+    permissions?: McpAppResourcePermissions;
+    prefersBorder?: boolean;
 };
 
 export type McpAppResourceChunkRequest = {
@@ -84,6 +106,7 @@ type BufferedResource = {
     bytes: Uint8Array;
     sha256: string;
     expiresAt: number;
+    ui?: McpAppResourceUi;
 };
 
 export type McpAppRpcHandlerManager = {
@@ -233,17 +256,100 @@ function uriScheme(uri: string): string | undefined {
     return match?.[1]?.toLowerCase();
 }
 
-function declaredPrimaryResourceSchemes(content: Record<string, unknown>): ReadonlySet<string> {
-    const schemes = new Set<string>(['ui']);
+function isLoopbackHostname(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+}
+
+function canonicalDevelopmentHttp(raw: string): boolean {
+    const match = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::([1-9][0-9]{0,4}))?\/?$/u.exec(raw);
+    return Boolean(match && (match[1] === undefined || Number(match[1]) <= 65_535));
+}
+
+function normalizeExactResourceOrigin(raw: unknown): string | null {
+    if (typeof raw !== 'string' || Buffer.byteLength(raw, 'utf8') > 2_048
+        || raw.trim() !== raw || /[\s;'"\\?#]/u.test(raw)) return null;
+    const withoutRootSlash = raw.endsWith('/') ? raw.slice(0, -1) : raw;
+    const separator = withoutRootSlash.indexOf('://');
+    if (separator <= 0 || withoutRootSlash.slice(separator + 3).includes('/')) return null;
+    let url: URL;
+    try { url = new URL(raw); } catch { return null; }
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash
+        || !url.hostname || url.hostname.includes('*') || url.hostname.endsWith('.')) return null;
+    if (url.protocol !== 'https:' && (url.protocol !== 'http:'
+        || !isLoopbackHostname(url.hostname) || !canonicalDevelopmentHttp(raw))) return null;
+    return url.origin === 'null' ? null : url.origin;
+}
+
+function normalizeOriginArray(value: unknown): string[] | null {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > MCP_APP_MAX_CSP_ORIGINS) return null;
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of value) {
+        const origin = normalizeExactResourceOrigin(raw);
+        if (!origin) return null;
+        if (!seen.has(origin)) {
+            seen.add(origin);
+            normalized.push(origin);
+        }
+    }
+    return normalized;
+}
+
+function normalizeResourceCsp(value: unknown): McpAppResourceCsp | null | undefined {
+    if (value === undefined) return undefined;
+    if (!isRecord(value)
+        || !hasOnlyKeys(value, new Set(['connectDomains', 'resourceDomains', 'frameDomains']))) return null;
+    const connectDomains = normalizeOriginArray(value.connectDomains);
+    const resourceDomains = normalizeOriginArray(value.resourceDomains);
+    const frameDomains = normalizeOriginArray(value.frameDomains);
+    return connectDomains && resourceDomains && frameDomains
+        ? { connectDomains, resourceDomains, frameDomains }
+        : null;
+}
+
+function normalizeResourcePermissions(value: unknown): McpAppResourcePermissions | null | undefined {
+    if (value === undefined) return undefined;
+    if (!isRecord(value)
+        || !hasOnlyKeys(value, new Set(['camera', 'microphone', 'geolocation', 'clipboardWrite']))) return null;
+    const permissions: McpAppResourcePermissions = {};
+    for (const key of ['camera', 'microphone', 'geolocation', 'clipboardWrite'] as const) {
+        const marker = value[key];
+        if (marker === undefined) continue;
+        if (!isRecord(marker) || Object.keys(marker).length !== 0) return null;
+        permissions[key] = {};
+    }
+    return permissions;
+}
+
+function normalizePrimaryResourceUi(content: Record<string, unknown>): McpAppResourceUi | null | undefined {
     const meta = isRecord(content._meta) ? content._meta : undefined;
-    const ui = isRecord(meta?.ui) ? meta.ui : undefined;
-    const nestedCsp = isRecord(ui?.csp) ? ui.csp : undefined;
-    const deprecatedCsp = isRecord(meta?.['ui/csp']) ? meta['ui/csp'] : undefined;
-    const domains = nestedCsp?.resourceDomains ?? deprecatedCsp?.resourceDomains;
-    if (!Array.isArray(domains)) return schemes;
-    for (const domain of domains) {
-        if (typeof domain !== 'string' || domain.length > 2_048
-            || /[\s'";]/.test(domain)) continue;
+    if (!meta) return undefined;
+    if (meta.ui !== undefined && !isRecord(meta.ui)) return null;
+    const modern = isRecord(meta.ui) ? meta.ui : undefined;
+    const csp = normalizeResourceCsp(modern && Object.hasOwn(modern, 'csp')
+        ? modern.csp
+        : meta['ui/csp']);
+    const permissions = normalizeResourcePermissions(modern && Object.hasOwn(modern, 'permissions')
+        ? modern.permissions
+        : meta['ui/permissions']);
+    const prefersBorder = modern && Object.hasOwn(modern, 'prefersBorder')
+        ? modern.prefersBorder
+        : meta['ui/prefersBorder'];
+    if (csp === null || permissions === null
+        || (prefersBorder !== undefined && typeof prefersBorder !== 'boolean')) return null;
+    const ui: McpAppResourceUi = {
+        ...(csp ? { csp } : {}),
+        ...(permissions ? { permissions } : {}),
+        ...(prefersBorder !== undefined ? { prefersBorder } : {}),
+    };
+    if (Object.keys(ui).length === 0) return undefined;
+    return jsonWithinBounds(ui, MCP_APP_MAX_UI_METADATA_BYTES) ? ui : null;
+}
+
+function declaredPrimaryResourceSchemes(ui: McpAppResourceUi | undefined): ReadonlySet<string> {
+    const schemes = new Set<string>(['ui']);
+    for (const domain of ui?.csp?.resourceDomains ?? []) {
         const scheme = uriScheme(domain);
         if (scheme === 'http' || scheme === 'https') schemes.add(scheme);
     }
@@ -253,6 +359,7 @@ function declaredPrimaryResourceSchemes(content: Record<string, unknown>): Reado
 type PrimaryResource = {
     bytes: Uint8Array;
     allowedSecondarySchemes: ReadonlySet<string>;
+    ui?: McpAppResourceUi;
 };
 
 function primaryResourceBytes(
@@ -273,16 +380,23 @@ function primaryResourceBytes(
     if (content.uri !== expectedUri || content.mimeType !== 'text/html;profile=mcp-app') {
         return null;
     }
+    const ui = normalizePrimaryResourceUi(content as Record<string, unknown>);
+    if (ui === null) return null;
     if (typeof content.text === 'string' && content.blob === undefined) {
         return {
             bytes: Buffer.from(content.text, 'utf8'),
-            allowedSecondarySchemes: declaredPrimaryResourceSchemes(content),
+            allowedSecondarySchemes: declaredPrimaryResourceSchemes(ui),
+            ...(ui ? { ui } : {}),
         };
     }
     if (typeof content.blob === 'string' && content.text === undefined) {
         const bytes = Buffer.from(content.blob, 'base64');
         return bytes.byteLength > 0 || content.blob.length === 0
-            ? { bytes, allowedSecondarySchemes: declaredPrimaryResourceSchemes(content) }
+            ? {
+                bytes,
+                allowedSecondarySchemes: declaredPrimaryResourceSchemes(ui),
+                ...(ui ? { ui } : {}),
+            }
             : null;
     }
     return null;
@@ -605,6 +719,7 @@ export function registerMcpAppRpcHandlers(options: {
                 bytes: primary.bytes,
                 sha256: createHash('sha256').update(primary.bytes).digest('hex'),
                 expiresAt: now() + MCP_APP_RESOURCE_TTL_MS,
+                ...(primary.ui ? { ui: primary.ui } : {}),
             };
             ensureOperationIsCurrent(operation);
             resources.set(resourceId, buffered);
@@ -619,6 +734,7 @@ export function registerMcpAppRpcHandlers(options: {
                     byteLength: primary.bytes.byteLength,
                     sha256: buffered.sha256,
                     encoding: 'utf8',
+                    ...(buffered.ui ? { ui: buffered.ui } : {}),
                 },
             };
         } catch (error) {

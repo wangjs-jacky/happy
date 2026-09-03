@@ -40,12 +40,12 @@ const context: McpAppHostContext = {
 const resource: McpAppResource = {
     resourceId: 'resource-secret', uri: 'ui://private/app.html',
     mimeType: 'text/html;profile=mcp-app', byteLength: 17, sha256: 'a'.repeat(64),
-    encoding: 'utf8', html: '<main>safe</main>',
+    encoding: 'utf8', html: '<link rel="stylesheet" href="https://cdn.example/app.css"><script src="https://cdn.example/app.js"></script>',
     ui: { csp: {
         connectDomains: ['https://api.example'],
         resourceDomains: ['https://cdn.example'],
         frameDomains: ['https://frame.example'],
-    } },
+    }, permissions: { camera: {}, clipboardWrite: {} }, prefersBorder: true },
 };
 
 function mountInput(overrides: Partial<Parameters<WebMcpAppFrameAdapter['mount']>[0]> = {}) {
@@ -141,6 +141,8 @@ describe('WebMcpAppFrameAdapter', () => {
         expect(iframe.props.sandbox).toBe('allow-scripts allow-same-origin');
         expect(iframe.props.referrerPolicy).toBe('origin');
         expect(iframe.props.allow).toContain("camera 'none'");
+        expect(iframe.props.allow).toContain("clipboard-write 'none'");
+        expect(iframe.props.style.border).toBe('1px solid currentColor');
         expect(iframe.props.src).toMatch(/^https:\/\/sandbox\.paws\.example\/mcp-app-sandbox\/host\?/);
         expect(new URL(iframe.props.src).searchParams.get('parentOrigin')).toBe('https://paws.example');
         expect(parseCspFromUrl(iframe.props.src)).toEqual({
@@ -151,7 +153,7 @@ describe('WebMcpAppFrameAdapter', () => {
         expect(JSON.stringify(iframe.props)).not.toContain('instance-secret');
         expect(JSON.stringify(iframe.props)).not.toContain('resource-secret');
         expect(JSON.stringify(iframe.props)).not.toContain('ui://private/app.html');
-        expect(JSON.stringify(iframe.props)).not.toContain('<main>safe</main>');
+        expect(JSON.stringify(iframe.props)).not.toContain('cdn.example/app.js');
         act(() => renderer.unmount());
         await expect(mounted).rejects.toMatchObject({ code: 'MCP_APP_SANDBOX_UNAVAILABLE' });
     });

@@ -10,6 +10,10 @@ import {
 } from '../../../../mcp-app-sandbox/protocol';
 import { MCP_APP_HOST_SHELL_HTML } from './generated/hostShellBundle';
 import { McpAppHostError, type FrameMountInput, type McpAppFrame, type McpAppFrameAdapter } from './types';
+import {
+    normalizeMcpAppResourceUi,
+    type McpAppResourceCsp,
+} from './resourceUiMetadata';
 
 export { MCP_APP_MAX_BRIDGE_MESSAGE_BYTES, MCP_APP_MAX_FRAME_HEIGHT, MCP_APP_MIN_FRAME_HEIGHT };
 
@@ -18,7 +22,13 @@ export const MCP_APP_RESIZE_THROTTLE_MS = 16;
 const MCP_APP_TEARDOWN_TIMEOUT_MS = 1_000;
 
 type WebViewHandle = { postMessage(message: string): void };
-type Snapshot = { visible: boolean; height: number; instanceId?: string };
+type Snapshot = {
+    visible: boolean;
+    height: number;
+    instanceId?: string;
+    hostHtml?: string;
+    prefersBorder?: boolean;
+};
 type PendingMount = {
     input: FrameMountInput;
     resolve(frame: McpAppFrame): void;
@@ -62,6 +72,38 @@ function byteLength(value: string): number {
 
 function protocolError(): McpAppHostError {
     return new McpAppHostError('MCP_APP_BRIDGE_PROTOCOL', false, 'The App bridge protocol failed.');
+}
+
+function sandboxUnavailable(): McpAppHostError {
+    return new McpAppHostError('MCP_APP_SANDBOX_UNAVAILABLE', false, 'The App sandbox is unavailable.');
+}
+
+function originSources(values: readonly string[]): string {
+    return values.length > 0 ? ` ${values.join(' ')}` : '';
+}
+
+function buildNativeMcpAppHostShellHtml(csp: McpAppResourceCsp | undefined): string {
+    const resourceSources = originSources(csp?.resourceDomains ?? []);
+    const frameSources = originSources(csp?.frameDomains ?? []);
+    const connectSources = csp?.connectDomains ?? [];
+    const policy = [
+        "default-src 'none'",
+        `script-src 'unsafe-inline'${resourceSources}`,
+        `style-src 'unsafe-inline'${resourceSources}`,
+        `frame-src data: blob: 'self'${frameSources}`,
+        `img-src data: blob:${resourceSources}`,
+        `font-src data:${resourceSources}`,
+        resourceSources ? `media-src blob:${resourceSources}` : "media-src 'none'",
+        connectSources.length > 0 ? `connect-src ${connectSources.join(' ')}` : "connect-src 'none'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+    ].join('; ');
+    const marker = /(<meta http-equiv="Content-Security-Policy" content=")[^"]*(">)/u;
+    if (!marker.test(MCP_APP_HOST_SHELL_HTML)) throw sandboxUnavailable();
+    return MCP_APP_HOST_SHELL_HTML.replace(marker, (_match, before: string, after: string) => (
+        `${before}${policy}${after}`
+    ));
 }
 
 const SAFE_ERROR_SUMMARIES: Record<McpAppHostError['code'], string> = {
@@ -136,9 +178,21 @@ export class NativeMcpAppFrameAdapter implements McpAppFrameAdapter {
         if (this.pending || this.snapshot.visible) {
             throw new McpAppHostError('MCP_APP_SANDBOX_UNAVAILABLE', true, 'The App sandbox is busy.');
         }
+        const ui = normalizeMcpAppResourceUi(
+            input.resource.ui,
+            typeof __DEV__ !== 'undefined' && __DEV__,
+        );
+        if (ui === null) throw sandboxUnavailable();
+        const hostHtml = buildNativeMcpAppHostShellHtml(ui?.csp);
         const instanceId = this.createInstanceId();
         this.navigationAvailable = true;
-        this.publish({ visible: true, height: MCP_APP_MIN_FRAME_HEIGHT, instanceId });
+        this.publish({
+            visible: true,
+            height: MCP_APP_MIN_FRAME_HEIGHT,
+            instanceId,
+            hostHtml,
+            prefersBorder: ui?.prefersBorder === true,
+        });
         return new Promise<McpAppFrame>((resolve, reject) => {
             const abortListener = () => this.fail(input.signal.reason instanceof McpAppHostError
                 ? input.signal.reason
@@ -391,7 +445,7 @@ export function NativeMcpAppFrameView({ adapter }: { adapter: NativeMcpAppFrameA
     return React.createElement(WebView as React.ComponentType<any>, {
         ref: adapter.attachWebView,
         testID: 'mcp-app-sandbox-frame',
-        source: { html: MCP_APP_HOST_SHELL_HTML, baseUrl: MCP_APP_HOST_BASE_URL },
+        source: { html: snapshot.hostHtml ?? MCP_APP_HOST_SHELL_HTML, baseUrl: MCP_APP_HOST_BASE_URL },
         // Let the wrapper delegate every request to our callback; a narrower
         // whitelist can invoke Linking.openURL before this policy runs.
         originWhitelist: ['*'],
@@ -417,7 +471,11 @@ export function NativeMcpAppFrameView({ adapter }: { adapter: NativeMcpAppFrameA
         onHttpError: adapter.onWebViewFailure,
         onContentProcessDidTerminate: adapter.onWebViewFailure,
         onRenderProcessGone: adapter.onWebViewFailure,
-        style: { ...styles.frame, height: snapshot.height },
+        style: {
+            ...styles.frame,
+            ...(snapshot.prefersBorder ? styles.borderedFrame : {}),
+            height: snapshot.height,
+        },
     });
 }
 
@@ -427,5 +485,9 @@ const styles = StyleSheet.create((theme) => ({
     frame: {
         width: '100%',
         backgroundColor: theme.colors.surface,
+    },
+    borderedFrame: {
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
     },
 }));

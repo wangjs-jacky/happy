@@ -42,8 +42,8 @@ export function buildMcpAppSandboxCsp(
 ): string {
     return [
         "default-src 'none'",
-        "script-src 'self' 'unsafe-inline'",
-        "style-src 'unsafe-inline'",
+        `script-src 'self' 'unsafe-inline'${origins(metadata.resourceDomains)}`,
+        `style-src 'unsafe-inline'${origins(metadata.resourceDomains)}`,
         `img-src data: blob:${origins(metadata.resourceDomains)}`,
         `media-src blob:${origins(metadata.resourceDomains)}`,
         `font-src data:${origins(metadata.resourceDomains)}`,

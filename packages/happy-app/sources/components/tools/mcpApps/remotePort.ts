@@ -14,6 +14,7 @@ import {
     type ReadMcpAppResourceInput,
     type ReadSecondaryMcpAppResourceInput,
 } from './types';
+import { normalizeMcpAppResourceUi } from './resourceUiMetadata';
 
 const MCP_APP_MAX_HTML_BYTES = 5 * 1024 * 1024;
 const SHA256_HEX = /^[a-f0-9]{64}$/;
@@ -120,6 +121,8 @@ export function createMcpAppRemotePort(options: {
         async readResource(input: ReadMcpAppResourceInput): Promise<McpAppResource> {
             const open = await rpc.openResource(options.sessionId, { callId: input.callId }, input.signal);
             if (!validOpenResponse(open, input.expectedResourceUri)) throw invalidResource();
+            const ui = normalizeMcpAppResourceUi(open.ui, true);
+            if (ui === null) throw invalidResource();
             if (open.byteLength > MCP_APP_MAX_HTML_BYTES) throw resourceTooLarge();
 
             const bytes = new Uint8Array(open.byteLength);
@@ -164,7 +167,16 @@ export function createMcpAppRemotePort(options: {
             } catch {
                 throw invalidResource();
             }
-            return { ...open, html };
+            return {
+                resourceId: open.resourceId,
+                uri: open.uri,
+                mimeType: open.mimeType,
+                byteLength: open.byteLength,
+                sha256: open.sha256,
+                encoding: open.encoding,
+                ...(ui ? { ui } : {}),
+                html,
+            };
         },
 
         async readSecondaryResource(input: ReadSecondaryMcpAppResourceInput): Promise<McpAppReadResourceResult> {

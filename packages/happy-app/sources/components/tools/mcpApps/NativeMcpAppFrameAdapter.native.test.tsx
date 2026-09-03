@@ -17,7 +17,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (factory: unknown) => typeof factory === 'function'
-        ? (factory as (theme: object) => object)({ colors: { surface: '#101010' } })
+        ? (factory as (theme: object) => object)({ colors: { surface: '#101010', divider: '#303030' } })
         : factory },
 }));
 vi.mock('react-native-webview', async () => {
@@ -96,6 +96,37 @@ describe('NativeMcpAppFrameAdapter', () => {
         expect(webView.props.onShouldStartLoadWithRequest({
             url: 'https://mcp-app-host.invalid/child', isTopFrame: false,
         })).toBe(false);
+
+        act(() => renderer.unmount());
+    });
+
+    it('inherits validated resource CSP for external assets while denying permissions and honoring its border preference', () => {
+        const adapter = new NativeMcpAppFrameAdapter({ createInstanceId: () => 'frame-1' });
+        const externalResource: McpAppResource = {
+            ...resource,
+            html: '<link rel="stylesheet" href="https://cdn.example.test/app.css"><script src="https://cdn.example.test/app.js"></script>',
+            ui: {
+                csp: {
+                    connectDomains: ['https://api.example.test'],
+                    resourceDomains: ['https://cdn.example.test'],
+                    frameDomains: ['https://frame.example.test'],
+                },
+                permissions: { camera: {}, clipboardWrite: {} },
+                prefersBorder: true,
+            },
+        };
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<NativeMcpAppFrameView adapter={adapter} />); });
+        act(() => { void adapter.mount({ resource: externalResource, context, signal: new AbortController().signal, onSandboxReady: vi.fn(), onFailure: vi.fn(), onRequest: vi.fn() }); });
+        const webView = renderer.root.findByType('WebView');
+
+        expect(webView.props.source.html).toContain("script-src 'unsafe-inline' https://cdn.example.test");
+        expect(webView.props.source.html).toContain("style-src 'unsafe-inline' https://cdn.example.test");
+        expect(webView.props.source.html).toContain('connect-src https://api.example.test');
+        expect(webView.props.source.html).toContain("frame-src data: blob: 'self' https://frame.example.test");
+        expect(webView.props.mediaCapturePermissionGrantType).toBe('deny');
+        expect(webView.props.geolocationEnabled).toBe(false);
+        expect(webView.props.style).toMatchObject({ borderWidth: 1, borderColor: '#303030' });
 
         act(() => renderer.unmount());
     });

@@ -5,6 +5,7 @@ import {
     utf8ByteLength,
 } from '../../../../mcp-app-sandbox/protocol';
 import { McpAppFrameBridge, type McpAppFrameBridgeSnapshot } from './McpAppFrameBridge';
+import { normalizeMcpAppResourceUi } from './resourceUiMetadata';
 import { UnsupportedMcpAppFrameAdapter } from './UnsupportedMcpAppFrameAdapter';
 import { McpAppHostError, type FrameMountInput, type McpAppFrame, type McpAppFrameAdapter } from './types';
 
@@ -28,7 +29,7 @@ type MessageTarget = {
 type FrameWindow = { postMessage(message: string, targetOrigin: string): void };
 type FrameElement = { contentWindow: FrameWindow | null };
 
-type WebSnapshot = McpAppFrameBridgeSnapshot & { src?: string };
+type WebSnapshot = McpAppFrameBridgeSnapshot & { src?: string; prefersBorder: boolean };
 
 function isLoopbackHostname(hostname: string): boolean {
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
@@ -133,6 +134,7 @@ export class WebMcpAppFrameAdapter implements McpAppFrameAdapter {
     private proxyReady = false;
     private cachedBridgeSnapshot?: McpAppFrameBridgeSnapshot;
     private cachedSnapshot?: WebSnapshot;
+    private prefersBorder = false;
 
     constructor(options: {
         config: Extract<ResolvedWebMcpAppSandbox, { enabled: true }>;
@@ -152,9 +154,14 @@ export class WebMcpAppFrameAdapter implements McpAppFrameAdapter {
     getSnapshot = (): WebSnapshot => {
         const bridgeSnapshot = this.bridge.getSnapshot();
         if (this.cachedSnapshot && this.cachedBridgeSnapshot === bridgeSnapshot
-            && this.cachedSnapshot.src === this.src) return this.cachedSnapshot;
+            && this.cachedSnapshot.src === this.src
+            && this.cachedSnapshot.prefersBorder === this.prefersBorder) return this.cachedSnapshot;
         this.cachedBridgeSnapshot = bridgeSnapshot;
-        this.cachedSnapshot = { ...bridgeSnapshot, ...(this.src ? { src: this.src } : {}) };
+        this.cachedSnapshot = {
+            ...bridgeSnapshot,
+            ...(this.src ? { src: this.src } : {}),
+            prefersBorder: this.prefersBorder,
+        };
         return this.cachedSnapshot;
     };
 
@@ -169,12 +176,16 @@ export class WebMcpAppFrameAdapter implements McpAppFrameAdapter {
     };
 
     async mount(input: FrameMountInput): Promise<McpAppFrame> {
-        const csp = encodeCspMetadata(input.resource.ui?.csp, this.config.appOrigin.startsWith('http://'));
+        const development = this.config.appOrigin.startsWith('http://');
+        const ui = normalizeMcpAppResourceUi(input.resource.ui, development);
+        if (ui === null) throw sandboxUnavailable();
+        const csp = encodeCspMetadata(ui?.csp, development);
         if (!csp) throw sandboxUnavailable();
         const url = new URL('/mcp-app-sandbox/host', this.config.sandboxOrigin);
         url.searchParams.set('parentOrigin', this.config.appOrigin);
         url.searchParams.set('csp', csp);
         this.src = url.toString();
+        this.prefersBorder = ui?.prefersBorder === true;
         this.proxyReady = false;
         this.startListening();
         try {
@@ -197,6 +208,7 @@ export class WebMcpAppFrameAdapter implements McpAppFrameAdapter {
         this.proxyReady = false;
         this.frameWindow = undefined;
         this.src = undefined;
+        this.prefersBorder = false;
     };
 
     private onMessage = (event: MessageEvent): void => {
@@ -256,7 +268,8 @@ export function WebMcpAppFrameView({ adapter }: { adapter: WebMcpAppFrameAdapter
         onError: adapter.onFrameFailure,
         style: {
             display: 'block', width: '100%', height: snapshot.height || MCP_APP_MIN_FRAME_HEIGHT,
-            border: 0, background: 'transparent',
+            border: snapshot.prefersBorder ? '1px solid currentColor' : 0,
+            background: 'transparent',
         },
     });
 }
