@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,14 +7,18 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { WebSocket, WebSocketServer } from 'ws';
 import type { SandboxConfig } from '@/persistence';
 
+const codeModeHostName = process.platform === 'win32'
+    ? 'codex-code-mode-host.exe'
+    : 'codex-code-mode-host';
+
 const {
-    mockExecSync,
+    mockExecFileSync,
     mockInitializeSandbox,
     mockWrapForMcpTransport,
     mockSandboxCleanup,
     mockSpawn,
 } = vi.hoisted(() => ({
-    mockExecSync: vi.fn(),
+    mockExecFileSync: vi.fn(),
     mockInitializeSandbox: vi.fn(),
     mockWrapForMcpTransport: vi.fn(),
     mockSandboxCleanup: vi.fn(),
@@ -21,7 +26,7 @@ const {
 }));
 
 vi.mock('node:child_process', () => ({
-    execSync: mockExecSync,
+    execFileSync: mockExecFileSync,
     spawn: mockSpawn,
 }));
 
@@ -183,6 +188,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         'http_proxy',
         'https_proxy',
         'all_proxy',
+        'HAPPY_CODEX_PATH',
         'HAPPY_CODEX_PROXY_URL',
         'CODEX_PROXY_URL',
     ] as const;
@@ -206,7 +212,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         mockSpawn.mockReset();
         process.env.RUST_LOG = originalRustLog;
         restoreProxyEnv();
-        mockExecSync.mockReturnValue('codex-cli 0.107.0');
+        mockExecFileSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
         mockSpawn.mockImplementation(() => createMockProcess());
@@ -446,6 +452,95 @@ describe('CodexAppServerClient sandbox integration', () => {
         expect(client.sandboxEnabled).toBe(false);
 
         await client.disconnect();
+    });
+
+    it('uses HAPPY_CODEX_PATH to spawn the app-server', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'paws-codex-pair-'));
+        const codexPath = join(root, 'codex');
+        writeFileSync(codexPath, 'codex');
+        writeFileSync(join(root, codeModeHostName), 'host');
+        process.env.HAPPY_CODEX_PATH = codexPath;
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await client.connect();
+
+            expect(mockSpawn.mock.calls.at(-1)?.[0]).toBe(codexPath);
+            expect(mockExecFileSync).toHaveBeenCalledWith(
+                codexPath,
+                ['--version'],
+                expect.objectContaining({ encoding: 'utf8' }),
+            );
+
+            await client.disconnect();
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects a configured Codex whose host resolves to another installation', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'paws-codex-pair-'));
+        const cliDir = join(root, 'cli');
+        const hostDir = join(root, 'host');
+        mkdirSync(cliDir);
+        mkdirSync(hostDir);
+        const codexPath = join(cliDir, 'codex');
+        const hostPath = join(hostDir, codeModeHostName);
+        writeFileSync(codexPath, 'codex');
+        writeFileSync(hostPath, 'host');
+        symlinkSync(hostPath, join(cliDir, codeModeHostName));
+        process.env.HAPPY_CODEX_PATH = codexPath;
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await expect(client.connect()).rejects.toThrow(
+                'HAPPY_CODEX_PATH must point to a Codex installation with a matching code-mode host',
+            );
+            expect(mockSpawn).not.toHaveBeenCalled();
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('accepts a configured Codex symlink whose resolved installation is paired', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'paws-codex-pair-'));
+        const installDir = join(root, 'install');
+        const binDir = join(root, 'bin');
+        mkdirSync(installDir);
+        mkdirSync(binDir);
+        const installedCodexPath = join(installDir, 'codex');
+        const configuredCodexPath = join(binDir, 'codex');
+        writeFileSync(installedCodexPath, 'codex');
+        writeFileSync(join(installDir, codeModeHostName), 'host');
+        symlinkSync(installedCodexPath, configuredCodexPath);
+        process.env.HAPPY_CODEX_PATH = configuredCodexPath;
+
+        try {
+            const { CodexAppServerClient } = await import('./codexAppServerClient');
+            const client = new CodexAppServerClient();
+
+            await client.connect();
+
+            expect(mockSpawn.mock.calls.at(-1)?.[0]).toBe(configuredCodexPath);
+            await client.disconnect();
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects a relative HAPPY_CODEX_PATH before spawning', async () => {
+        process.env.HAPPY_CODEX_PATH = 'bin/codex';
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+
+        await expect(client.connect()).rejects.toThrow(
+            'HAPPY_CODEX_PATH must be an absolute path',
+        );
+        expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it('resets sandbox on disconnect', async () => {

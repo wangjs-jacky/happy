@@ -29,16 +29,28 @@ async function createDist() {
 }
 
 async function runVerifier({
+    healthBody = JSON.stringify({ status: 'ok', service: 'happy-server' }),
+    healthContentType = 'application/json; charset=utf-8',
+    healthFailuresBeforeReady = 0,
+    healthNeverResponds = false,
     liveRevision = revision,
     includeFontCors = true,
     mode = 'live',
     scriptContentType = 'application/javascript; charset=utf-8',
     immutableCache = true,
+    legacyRedirectLocation = 'canonical',
+    legacyRedirectStatus = 308,
+    healthTimeoutMs = 300,
+    requestTimeoutMs = 300,
+    assetNeverResponds = false,
+    entryNeverResponds = false,
 } = {}) {
     const directory = await createDist();
+    let healthRequests = 0;
     const server = http.createServer((request, response) => {
         const origin = `http://127.0.0.1:${server.address().port}`;
         if (request.url?.endsWith('.ttf')) {
+            if (assetNeverResponds) return;
             response.statusCode = 200;
             response.setHeader('Content-Type', 'font/ttf');
             if (includeFontCors) response.setHeader('Access-Control-Allow-Origin', origin);
@@ -68,6 +80,7 @@ async function runVerifier({
             return;
         }
         if (request.url === '/' || request.url?.startsWith('/session/') || request.url?.startsWith('/share/')) {
+            if (entryNeverResponds && request.url === '/') return;
             response.statusCode = 200;
             response.setHeader('Content-Type', 'text/html; charset=utf-8');
             if (request.url?.startsWith('/share/')) {
@@ -87,6 +100,19 @@ async function runVerifier({
             response.end('app');
             return;
         }
+        if (request.url === '/health') {
+            healthRequests += 1;
+            if (healthNeverResponds) return;
+            response.statusCode = 200;
+            if (healthRequests <= healthFailuresBeforeReady) {
+                response.setHeader('Content-Type', 'text/html; charset=utf-8');
+                response.end('<html><body>Paws</body></html>');
+            } else {
+                response.setHeader('Content-Type', healthContentType);
+                response.end(healthBody);
+            }
+            return;
+        }
         response.statusCode = 200;
         response.setHeader('Content-Type', request.url?.endsWith('.wasm') ? 'application/wasm' : 'application/json');
         response.setHeader('Cache-Control', 'no-cache');
@@ -94,22 +120,46 @@ async function runVerifier({
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const origin = `http://127.0.0.1:${server.address().port}`;
+    const legacyServer = http.createServer((request, response) => {
+        response.statusCode = legacyRedirectStatus;
+        if (legacyRedirectLocation) {
+            response.setHeader(
+                'Location',
+                legacyRedirectLocation === 'canonical' ? `${origin}${request.url}` : legacyRedirectLocation,
+            );
+        }
+        response.end();
+    });
+    await new Promise((resolve) => legacyServer.listen(0, '127.0.0.1', resolve));
+    const legacyOrigin = `http://127.0.0.1:${legacyServer.address().port}`;
 
     try {
         const result = await new Promise((resolve) => {
             const args = [verifierPath, origin, join(directory, 'index.html')];
             if (mode === 'immutable') args.push('--immutable', origin);
             const child = spawn(process.execPath, args, {
+                env: {
+                    ...process.env,
+                    PAWS_WEB_HEALTH_RETRY_INTERVAL_MS: '10',
+                    PAWS_WEB_HEALTH_TIMEOUT_MS: String(healthTimeoutMs),
+                    PAWS_WEB_REQUEST_TIMEOUT_MS: String(requestTimeoutMs),
+                    PAWS_LEGACY_WEB_ORIGIN: legacyOrigin,
+                },
                 stdio: ['ignore', 'pipe', 'pipe'],
             });
             let stdout = '';
             let stderr = '';
+            const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
             child.stdout.on('data', (chunk) => { stdout += chunk; });
             child.stderr.on('data', (chunk) => { stderr += chunk; });
-            child.on('close', (status) => resolve({ status, stdout, stderr }));
+            child.on('close', (status) => {
+                clearTimeout(killTimer);
+                resolve({ status, stdout, stderr });
+            });
         });
         return result;
     } finally {
+        await new Promise((resolve) => legacyServer.close(resolve));
         await new Promise((resolve) => server.close(resolve));
         await rm(directory, { recursive: true, force: true });
     }
@@ -137,6 +187,72 @@ test('accepts matching HTML and browser-readable Ionicons and Octicons', async (
     assert.match(result.stdout, /Octicons/);
     assert.match(result.stdout, /representative image asset/);
     assert.match(result.stdout, new RegExp(revision));
+    assert.match(result.stdout, /legacy Web entry redirects to the canonical origin/i);
+});
+
+test('rejects a legacy Web entry that still serves content instead of redirecting', async () => {
+    const result = await runVerifier({ legacyRedirectStatus: 200, legacyRedirectLocation: null });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /legacy Web entry.*HTTP 308/i);
+});
+
+test('rejects a legacy Web entry that redirects away from the canonical origin', async () => {
+    const result = await runVerifier({ legacyRedirectLocation: 'https://example.com/share/public-deployment-probe' });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /legacy Web entry.*canonical/i);
+});
+
+test('waits for a transient SPA health fallback while Caddy reload finishes', async () => {
+    const result = await runVerifier({ healthFailuresBeforeReady: 1 });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /healthy happy-server JSON/i);
+});
+
+test('enforces the health readiness deadline when a request never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ healthNeverResponds: true, healthTimeoutMs: 100 });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'health verifier exceeded its hard deadline');
+    assert.match(result.stderr, /health endpoint.*within 100ms/i);
+});
+
+test('bounds a Web asset request that never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ assetNeverResponds: true, requestTimeoutMs: 100 });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'asset verifier exceeded its hard deadline');
+    assert.match(result.stderr, /timeout|aborted/i);
+});
+
+test('bounds a canonical Web entry request that never responds', async () => {
+    const startedAt = Date.now();
+    const result = await runVerifier({ entryNeverResponds: true, requestTimeoutMs: 100 });
+
+    assert.notEqual(result.status, 0);
+    assert.ok(Date.now() - startedAt < 1_000, 'entry verifier exceeded its hard deadline');
+    assert.match(result.stderr, /timeout|aborted/i);
+});
+
+test('rejects an HTML SPA fallback at the backend health endpoint', async () => {
+    const result = await runVerifier({
+        healthBody: '<html><body>Paws</body></html>',
+        healthContentType: 'text/html; charset=utf-8',
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /health endpoint.*application\/json/i);
+});
+
+test('rejects JSON that does not identify a healthy happy-server backend', async () => {
+    const result = await runVerifier({ healthBody: JSON.stringify({ status: 'ok' }) });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /healthy happy-server response/i);
 });
 
 test('rejects an immutable release asset with the wrong MIME type before activation', async () => {

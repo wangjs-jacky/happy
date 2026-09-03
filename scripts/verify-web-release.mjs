@@ -39,10 +39,94 @@ for (const requiredPath of [
 }
 
 async function fetchRequired(label, url, init) {
-    const response = await fetch(url, { redirect: 'follow', ...init });
+    const response = await fetch(url, {
+        ...init,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(requestTimeoutMs),
+    });
     if (!response.ok) throw new Error(`${label} failed with HTTP ${response.status}: ${url}`);
     console.log(`OK ${response.status} ${label}`);
     return response;
+}
+
+function positiveDuration(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined) return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number`);
+    return value;
+}
+
+const healthTimeoutMs = positiveDuration('PAWS_WEB_HEALTH_TIMEOUT_MS', 30_000);
+const healthRetryIntervalMs = positiveDuration('PAWS_WEB_HEALTH_RETRY_INTERVAL_MS', 1_000);
+const requestTimeoutMs = positiveDuration('PAWS_WEB_REQUEST_TIMEOUT_MS', 30_000);
+const legacyWebOrigin = process.env.PAWS_LEGACY_WEB_ORIGIN?.replace(/\/+$/, '') ?? null;
+
+async function waitForHealthyServer() {
+    const deadline = Date.now() + healthTimeoutMs;
+    let lastError;
+    do {
+        try {
+            const remainingMs = Math.max(1, deadline - Date.now());
+            const response = await fetch(`${normalizedOrigin}/health`, {
+                redirect: 'follow',
+                signal: AbortSignal.timeout(remainingMs),
+            });
+            if (!response.ok) throw new Error(`health endpoint failed with HTTP ${response.status}: ${normalizedOrigin}/health`);
+            const contentType = response.headers.get('content-type') ?? '';
+            if (!/^application\/(?:[a-z0-9.+-]+\+)?json\b/i.test(contentType)) {
+                throw new Error(`health endpoint must return application/json, got: ${contentType || '(missing)'}`);
+            }
+            const health = await response.json();
+            if (health?.status !== 'ok' || health?.service !== 'happy-server') {
+                throw new Error(`health endpoint did not return a healthy happy-server response: ${JSON.stringify(health)}`);
+            }
+            console.log('OK 200 health endpoint');
+            console.log('OK health endpoint returned healthy happy-server JSON');
+            return;
+        } catch (error) {
+            if (error?.name !== 'TimeoutError' || !lastError) lastError = error;
+            if (Date.now() >= deadline) break;
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(healthRetryIntervalMs, deadline - Date.now())));
+        }
+    } while (Date.now() <= deadline);
+    throw new Error(`health endpoint did not become ready within ${healthTimeoutMs}ms: ${lastError?.message ?? 'unknown error'}`, {
+        cause: lastError,
+    });
+}
+
+async function waitForLegacyWebRedirect() {
+    if (!legacyWebOrigin) return;
+    const probePath = '/share/public-deployment-probe';
+    const expectedLocation = `${normalizedOrigin}${probePath}`;
+    const deadline = Date.now() + healthTimeoutMs;
+    let lastError;
+    do {
+        try {
+            const remainingMs = Math.max(1, deadline - Date.now());
+            const response = await fetch(`${legacyWebOrigin}${probePath}`, {
+                redirect: 'manual',
+                signal: AbortSignal.timeout(remainingMs),
+            });
+            if (response.status !== 308) {
+                throw new Error(`legacy Web entry must return HTTP 308, got ${response.status}`);
+            }
+            const location = response.headers.get('location');
+            const resolvedLocation = location ? new URL(location, legacyWebOrigin).href : null;
+            if (resolvedLocation !== expectedLocation) {
+                throw new Error(`legacy Web entry must redirect to the canonical origin: expected ${expectedLocation}, got ${resolvedLocation ?? '(missing)'}`);
+            }
+            console.log('OK legacy Web entry redirects to the canonical origin');
+            return;
+        } catch (error) {
+            if (error?.name !== 'TimeoutError' || !lastError) lastError = error;
+            if (Date.now() >= deadline) break;
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(healthRetryIntervalMs, deadline - Date.now())));
+        }
+    } while (Date.now() <= deadline);
+    throw new Error(`legacy Web entry did not become a canonical redirect within ${healthTimeoutMs}ms: ${lastError?.message ?? 'unknown error'}`, {
+        cause: lastError,
+    });
 }
 
 function assertHtmlRevision(label, body) {
@@ -151,7 +235,8 @@ if (immutableMode) {
     }
     console.log(`OK immutable OSS release ${expectedRevision} is safe to activate`);
 } else {
-    await fetchRequired('health endpoint', `${normalizedOrigin}/health`);
+    await waitForHealthyServer();
+    await waitForLegacyWebRedirect();
     for (const { label, url } of [
         { label: 'Web entry', url: `${normalizedOrigin}/` },
         { label: 'SPA route', url: `${normalizedOrigin}/session/web-deploy-check` },

@@ -21,6 +21,7 @@ jobs:
     environment: production-web
     env:
       PAWS_WEB_ORIGIN: https://47.115.228.20:8443
+      PAWS_LEGACY_WEB_ORIGIN: http://47.115.228.20:8080
       PAWS_DEPLOY_HOST: root@47.115.228.20
       PAWS_DEPLOY_PORT: '22'
       PAWS_LEGACY_WEB_PATH: /var/www/happy-web
@@ -54,6 +55,7 @@ jobs:
           test -n "$ALIBABA_CLOUD_ACCESS_KEY_SECRET" || { echo '::error::Missing ALIYUN_OSS_ACCESS_KEY_SECRET secret.'; exit 1; }
           test -n "${{ secrets.PAWS_WEB_DEPLOY_SSH_PRIVATE_KEY }}" || { echo '::error::Missing PAWS_WEB_DEPLOY_SSH_PRIVATE_KEY secret.'; exit 1; }
           test "$PAWS_WEB_ORIGIN" = 'https://47.115.228.20:8443'
+          test "$PAWS_LEGACY_WEB_ORIGIN" = 'http://47.115.228.20:8080'
           test "$PAWS_WEB_OSS_ORIGIN" = 'https://happy-app-ota-jacky.oss-cn-hangzhou.aliyuncs.com'
           test "$PAWS_LEGACY_WEB_PATH" = '/var/www/happy-web'
 
@@ -152,13 +154,27 @@ jobs:
           backup="$2"
           config="/etc/caddy/Caddyfile"
           cleanup() { rm -f -- "$candidate"; }
+          wait_for_reload() {
+            for ((attempt=1; attempt<=30; attempt+=1)); do
+              pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+              active_state="$(systemctl show caddy --property=ActiveState --value)"
+              reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+              if [ -z "$pending_jobs" ]; then
+                [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }
+                return
+              fi
+              sleep 1
+            done
+            return 1
+          }
           trap cleanup EXIT
           cp -p -- "$config" "$backup"
           install -m 644 -- "$candidate" "$config"
-          if ! caddy validate --config "$config" || ! systemctl reload caddy; then
+          if ! caddy validate --config "$config" || ! systemctl --no-block reload caddy || ! wait_for_reload; then
             cp -p -- "$backup" "$config"
             caddy validate --config "$config"
-            systemctl reload caddy
+            systemctl --no-block reload caddy
+            wait_for_reload
             exit 1
           fi
           REMOTE_SCRIPT
@@ -187,37 +203,7 @@ jobs:
             packages/happy-app/dist/.paws-release-revision \
             "$GITHUB_SHA"
 
-      - name: Ensure browser-readable OSS font CORS
-        run: |
-          set -euo pipefail
-          current_cors="$(mktemp)"
-          merged_cors="$(mktemp)"
-          verified_cors="$(mktemp)"
-          verified_merge="$(mktemp)"
-          trap 'rm -f "$current_cors" "$merged_cors" "$verified_cors" "$verified_merge"' EXIT
-          aliyun ossutil api get-bucket-cors \
-            --bucket "$PAWS_WEB_OSS_BUCKET" \
-            --endpoint "$OSS_UPLOAD_ENDPOINT" \
-            --addressing-style "$OSS_ADDRESSING_STYLE" \
-            --output-format json > "$current_cors"
-          cors_change="$(node scripts/merge-web-oss-cors.mjs "$current_cors" "$merged_cors" "$PAWS_WEB_ORIGIN")"
-          if [ "$cors_change" = 'changed' ]; then
-            aliyun ossutil api put-bucket-cors \
-              --bucket "$PAWS_WEB_OSS_BUCKET" \
-              --cors-configuration "file://$merged_cors" \
-              --endpoint "$OSS_UPLOAD_ENDPOINT" \
-              --addressing-style "$OSS_ADDRESSING_STYLE"
-          else
-            test "$cors_change" = 'unchanged'
-          fi
-          aliyun ossutil api get-bucket-cors \
-            --bucket "$PAWS_WEB_OSS_BUCKET" \
-            --endpoint "$OSS_UPLOAD_ENDPOINT" \
-            --addressing-style "$OSS_ADDRESSING_STYLE" \
-            --output-format json > "$verified_cors"
-          test "$(node scripts/merge-web-oss-cors.mjs "$verified_cors" "$verified_merge" "$PAWS_WEB_ORIGIN")" = 'unchanged'
-
-      - name: Upload and verify immutable Web release
+      - name: Upload complete immutable Web release
         run: bash scripts/upload-web-assets.sh
 
       - name: Verify immutable OSS release before activation
@@ -249,11 +235,13 @@ jobs:
           test "$caddy_change" = 'changed'
           scp -P "$PAWS_DEPLOY_PORT" "$next_caddy" "$PAWS_DEPLOY_HOST:$remote_candidate"
           echo "backup_path=$remote_backup" >> "$GITHUB_OUTPUT"
-          ssh -p "$PAWS_DEPLOY_PORT" "$PAWS_DEPLOY_HOST" bash -s -- "$remote_candidate" "$remote_backup" <<'REMOTE_SCRIPT'
+          ssh -p "$PAWS_DEPLOY_PORT" "$PAWS_DEPLOY_HOST" bash -s -- "$remote_candidate" "$remote_backup" "$PAWS_LEGACY_WEB_PATH" <<'REMOTE_SCRIPT'
           set -euo pipefail
           candidate="$1"
           backup="$2"
+          legacy_path="$3"
           config="/etc/caddy/Caddyfile"
+          test "$legacy_path" = '/var/www/happy-web'
           cleanup() { rm -f -- "$candidate"; }
           trap cleanup EXIT
           cp -p -- "$config" "$backup"
@@ -262,10 +250,19 @@ jobs:
             cp -p -- "$backup" "$config"
             exit 1
           fi
-          if ! systemctl reload caddy; then
+          if ! adapted_config="$(caddy adapt --config "$config" --adapter caddyfile)"; then
+            cp -p -- "$backup" "$config"
+            exit 1
+          fi
+          if grep -Fq -- "$legacy_path" <<<"$adapted_config"; then
+            echo "错误：expanded Caddy config 仍引用 $legacy_path，拒绝激活。" >&2
+            cp -p -- "$backup" "$config"
+            exit 1
+          fi
+          if ! systemctl --no-block reload caddy; then
             cp -p -- "$backup" "$config"
             caddy validate --config "$config"
-            systemctl reload caddy
+            systemctl --no-block reload caddy
             exit 1
           fi
           REMOTE_SCRIPT
@@ -284,8 +281,12 @@ jobs:
           set -euo pipefail
           legacy_path="$1"
           test "$legacy_path" = '/var/www/happy-web'
-          if grep -Fq -- "$legacy_path" /etc/caddy/Caddyfile; then
-            echo "错误：active Caddyfile 仍引用 $legacy_path，拒绝删除。" >&2
+          if ! adapted_config="$(caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile)"; then
+            echo '错误：无法展开 active Caddy config，拒绝删除 legacy Web files。' >&2
+            exit 1
+          fi
+          if grep -Fq -- "$legacy_path" <<<"$adapted_config"; then
+            echo "错误：expanded active Caddy config 仍引用 $legacy_path，拒绝删除。" >&2
             exit 1
           fi
           for target in "$legacy_path" "${legacy_path}.backup-"* "${legacy_path}.next-"*; do
@@ -329,9 +330,32 @@ jobs:
           test -f "$backup"
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
-          systemctl reload caddy
+          systemctl --no-block reload caddy
+          reload_completed=0
+          for ((attempt=1; attempt<=30; attempt+=1)); do
+            pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+            active_state="$(systemctl show caddy --property=ActiveState --value)"
+            reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+            if [ -z "$pending_jobs" ]; then
+              if [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                reload_completed=1
+                break
+              fi
+              echo "错误：Caddy rollback reload 失败（state=$active_state, result=${reload_result:-unknown}）。" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$reload_completed" -ne 1 ]; then
+            echo '错误：Caddy rollback reload 未在 30 秒内完成。' >&2
+            exit 1
+          fi
           REMOTE_SCRIPT
             caddy_rollback_status=$?
+            if [ "$caddy_rollback_status" -eq 0 ]; then
+              node scripts/verify-web-rollback.mjs "$PAWS_WEB_ORIGIN"
+              caddy_rollback_status=$?
+            fi
           fi
           if [ -n "$mcp_caddy_backup" ]; then
             ssh -p "$PAWS_DEPLOY_PORT" "$PAWS_DEPLOY_HOST" bash -s -- "$mcp_caddy_backup" <<'REMOTE_SCRIPT'
@@ -345,7 +369,26 @@ jobs:
           test -f "$backup"
           cp -p -- "$backup" "$config"
           caddy validate --config "$config"
-          systemctl reload caddy
+          systemctl --no-block reload caddy
+          reload_completed=0
+          for ((attempt=1; attempt<=30; attempt+=1)); do
+            pending_jobs="$(systemctl list-jobs --no-legend --plain caddy.service 2>/dev/null || true)"
+            active_state="$(systemctl show caddy --property=ActiveState --value)"
+            reload_result="$(systemctl show caddy --property=ReloadResult --value 2>/dev/null || true)"
+            if [ -z "$pending_jobs" ]; then
+              if [ "$active_state" = 'active' ] && { [ -z "$reload_result" ] || [ "$reload_result" = 'success' ]; }; then
+                reload_completed=1
+                break
+              fi
+              echo "错误：MCP App Caddy rollback reload 失败（state=$active_state, result=${reload_result:-unknown}）。" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$reload_completed" -ne 1 ]; then
+            echo '错误：MCP App Caddy rollback reload 未在 30 秒内完成。' >&2
+            exit 1
+          fi
           REMOTE_SCRIPT
             mcp_caddy_rollback_status=$?
           fi

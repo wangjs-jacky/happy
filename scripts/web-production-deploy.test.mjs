@@ -16,9 +16,8 @@ test('production workflow switches verified OSS content before Caddy and guarded
     const position = (name) => names.indexOf(name);
 
     assert.ok(position('Build and stamp Web from this main revision') >= 0);
-    assert.ok(position('Ensure browser-readable OSS font CORS') > position('Build and stamp Web from this main revision'));
-    assert.ok(position('Upload and verify immutable Web release') > position('Ensure browser-readable OSS font CORS'));
-    assert.ok(position('Verify immutable OSS release before activation') > position('Upload and verify immutable Web release'));
+    assert.ok(position('Upload complete immutable Web release') > position('Build and stamp Web from this main revision'));
+    assert.ok(position('Verify immutable OSS release before activation') > position('Upload complete immutable Web release'));
     assert.ok(position('Atomically switch OSS Web entry') > position('Verify immutable OSS release before activation'));
     assert.ok(position('Route the Web SPA to OSS') > position('Atomically switch OSS Web entry'));
     assert.ok(position('Verify live OSS-backed release and routes') > position('Route the Web SPA to OSS'));
@@ -31,7 +30,7 @@ test('guards the exact origin/main revision before every external production mut
     const names = workflow.jobs.deploy.steps.map((step) => step.name);
     const guardIndex = names.indexOf('Guard exact merged main revision before external mutation');
     assert.ok(guardIndex > names.indexOf('Checkout merged main revision'));
-    for (const mutation of ['Install Aliyun CLI', 'Configure MCP App sandbox route', 'Upload and verify immutable Web release', 'Atomically switch OSS Web entry']) {
+    for (const mutation of ['Configure MCP App sandbox route', 'Upload complete immutable Web release', 'Atomically switch OSS Web entry']) {
         assert.ok(names.indexOf(mutation) > guardIndex);
     }
     const guard = workflow.jobs.deploy.steps[guardIndex];
@@ -74,6 +73,16 @@ test('MCP App sandbox rollout is disabled by default and verified before Web exp
     }
 });
 
+test('production deployment verifies data-plane CORS without bucket-control permissions', async () => {
+    const workflowText = await readFile(workflowUrl, 'utf8');
+    const workflow = parse(workflowText);
+    const verifyStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Verify immutable OSS release before activation');
+
+    assert.doesNotMatch(workflowText, /ossutil api (?:get|put)-bucket-cors/);
+    assert.match(verifyStep.run, /verify-web-release\.mjs/);
+    assert.match(verifyStep.run, /--immutable/);
+});
+
 test('production activation is serialized and cannot be cancelled mid-switch', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
 
@@ -102,12 +111,18 @@ test('production workflow has rollback outputs and no active server deploy path'
     const rollbackStep = job.steps.find((step) => step.name === 'Roll back failed Web activation');
 
     assert.equal(job.env.PAWS_DEPLOY_PATH, undefined);
+    assert.equal(job.env.PAWS_LEGACY_WEB_ORIGIN, 'http://47.115.228.20:8080');
     assert.equal(job.env.PAWS_LEGACY_WEB_PATH, '/var/www/happy-web');
     assert.equal(switchStep.id, 'switch');
     assert.equal(caddyStep.id, 'caddy');
     assert.equal(cleanupStep.id, 'cleanup');
     assert.match(cleanupStep.run, /test "\$legacy_path" = '\/var\/www\/happy-web'/);
     assert.match(cleanupStep.run, /Caddyfile/);
+    assert.match(caddyStep.run, /caddy adapt --config "\$config" --adapter caddyfile/);
+    assert.match(cleanupStep.run, /caddy adapt --config \/etc\/caddy\/Caddyfile --adapter caddyfile/);
+    assert.doesNotMatch(cleanupStep.run, /grep[^\n]*\/etc\/caddy\/Caddyfile/);
+    const liveVerifyStep = job.steps.find((step) => step.name === 'Verify live OSS-backed release and routes');
+    assert.match(liveVerifyStep.run, /verify-web-release\.mjs/);
     assert.match(rollbackStep.if, /failure\(\)/);
     assert.match(rollbackStep.if, /live_verify\.outcome != 'success'/);
     assert.match(rollbackStep.run, /deploy-web\.sh --rollback/);
@@ -119,4 +134,19 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.match(rollbackStep.run, /exit 1/);
     const syntax = spawnSync('bash', ['-n'], { input: rollbackStep.run, encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('Caddy activation and rollback enqueue reloads without waiting on old connections', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const caddyStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Route the Web SPA to OSS');
+    const rollbackStep = workflow.jobs.deploy.steps.find((step) => step.name === 'Roll back failed Web activation');
+
+    assert.match(caddyStep.run, /systemctl --no-block reload caddy/);
+    assert.match(rollbackStep.run, /systemctl --no-block reload caddy/);
+    assert.match(rollbackStep.run, /systemctl list-jobs/);
+    assert.match(rollbackStep.run, /ReloadResult/);
+    assert.match(rollbackStep.run, /verify-web-rollback\.mjs "\$PAWS_WEB_ORIGIN"/);
+    assert.doesNotMatch(rollbackStep.run, /curl /);
+    assert.doesNotMatch(caddyStep.run, /systemctl reload caddy/);
+    assert.doesNotMatch(rollbackStep.run, /systemctl reload caddy/);
 });
