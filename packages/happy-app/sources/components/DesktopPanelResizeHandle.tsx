@@ -1,11 +1,7 @@
 import * as React from 'react';
 import { type GestureResponderEvent, Platform, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import {
-    DESKTOP_LEFT_PANEL_MIN_WIDTH,
-    DESKTOP_RIGHT_PANEL_MIN_WIDTH,
-    type DesktopPanelSide,
-} from '@/utils/desktopNavigationLayout';
+import { DESKTOP_RIGHT_PANEL_MIN_WIDTH, type DesktopPanelSide } from '@/utils/desktopNavigationLayout';
 import { useDesktopWorkspaceLayout } from '@/hooks/useDesktopWorkspaceLayout';
 
 export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHandle({
@@ -23,6 +19,7 @@ export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHa
         beginPanelResize,
         continuePanelResize,
         endPanelResize,
+        leftMinimumWidth,
         leftMaximumWidth,
         leftWidth,
         resizePanelBy,
@@ -31,7 +28,7 @@ export const DesktopPanelResizeHandle = React.memo(function DesktopPanelResizeHa
         rightWidth,
     } = useDesktopWorkspaceLayout();
     const currentWidth = side === 'left' ? leftWidth : rightWidth;
-    const minimumWidth = side === 'left' ? DESKTOP_LEFT_PANEL_MIN_WIDTH : DESKTOP_RIGHT_PANEL_MIN_WIDTH;
+    const minimumWidth = side === 'left' ? leftMinimumWidth : DESKTOP_RIGHT_PANEL_MIN_WIDTH;
     const maximumWidth = side === 'left' ? leftMaximumWidth : rightMaximumWidth;
 
     const readPointerX = React.useCallback((event: GestureResponderEvent) => {

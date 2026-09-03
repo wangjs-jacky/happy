@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Text, View, Pressable } from 'react-native';
+import { Platform, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
@@ -18,9 +18,10 @@ import { SidebarAccountMenu } from './SidebarAccountMenu';
 import { SidebarHelpMenu } from './SidebarHelpMenu';
 import { useCommandPaletteLauncher } from './CommandPalette/CommandPaletteProvider';
 import { useDesktopSettingsModal } from './DesktopSettingsModal';
-import { DesktopSidebarSessionsNavigation } from './DesktopSidebarSessionsNavigation';
+import { MobileSidebarSessionsNavigation } from './MobileSidebarSessionsNavigation';
 import { PluginMarketplaceModal } from './plugins/PluginMarketplaceModal';
 import { PluginLeftSidebarSlot } from './plugins/PluginLeftSidebarSlot';
+import { DesktopSidebarView } from './DesktopSidebarView';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -249,7 +250,7 @@ interface SidebarViewProps {
 
 type FooterMenu = 'account' | 'help' | null;
 
-export const SidebarView = React.memo(({
+const LegacySidebarView = React.memo(({
     closeDrawerOnNavigate = true,
     desktopDensity = false,
 }: SidebarViewProps) => {
@@ -479,7 +480,7 @@ export const SidebarView = React.memo(({
 
             {/* Projects preserves the existing session list; Lists adds the same
                 organization layer in both desktop and mobile sidebars. */}
-            <DesktopSidebarSessionsNavigation />
+            <MobileSidebarSessionsNavigation />
 
             {/* Low-frequency account and system actions stay anchored below the work list. */}
             <View
@@ -537,4 +538,14 @@ export const SidebarView = React.memo(({
             />
         </View>
     );
+});
+
+/**
+ * Platform boundary for sidebar information architecture.
+ * Desktop Web/Tauri gets the three-level shell; every native target keeps the
+ * established drawer implementation, including native tablets.
+ */
+export const SidebarView = React.memo(function SidebarView(props: SidebarViewProps) {
+    const useDesktopArchitecture = Platform.OS === 'web' && props.desktopDensity === true;
+    return useDesktopArchitecture ? <DesktopSidebarView /> : <LegacySidebarView {...props} />;
 });

@@ -37,7 +37,10 @@ export const SidebarNavigator = React.memo(() => {
     const isTablet = useIsTablet();
 
     return (
-        <DesktopWorkspaceLayoutProvider enabled={auth.isAuthenticated && isTablet}>
+        <DesktopWorkspaceLayoutProvider
+            enabled={auth.isAuthenticated && isTablet}
+            threeLevelLeft={Platform.OS === 'web'}
+        >
             <KeyboardShortcutsProvider>
                 <SidebarNavigatorContent />
             </KeyboardShortcutsProvider>

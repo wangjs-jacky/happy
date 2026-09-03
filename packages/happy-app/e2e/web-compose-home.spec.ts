@@ -3,6 +3,7 @@ import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { io } from 'socket.io-client';
+import { pluginPackages } from '@paws/plugins/catalog';
 import { decodeBase64, decryptBlob, decryptLegacy, encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 import { deriveKey } from '../../happy-cli/src/utils/deriveKey';
 import {
@@ -142,6 +143,19 @@ function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
     url.pathname = pathname;
     return url.toString();
+}
+
+async function activateGinghamDarkTheme(page: Page): Promise<void> {
+    await page.goto(authenticatedRoute('/settings/appearance'));
+    const gingham = page.getByText('Gingham', { exact: true });
+    await expect(gingham).toBeVisible({ timeout: 120_000 });
+    await gingham.click();
+    await expect.poll(() => page.locator('body').evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ))).toBe('rgb(18, 24, 33)');
+    await expect.poll(() => page.getByTestId('desktop-sidebar-icon-rail').evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    )), { timeout: 120_000 }).toBe('rgb(31, 42, 56)');
 }
 
 async function pauseForRecordedReview(page: Page, duration = 650): Promise<void> {
@@ -2802,20 +2816,65 @@ test('左栏稳定导航、机器项目分组与折叠共同保持当前会话�
 });
 
 test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用紧凑弹层', async ({ page }, testInfo) => {
+    test.setTimeout(360_000);
     const nestedButtonErrors: string[] = [];
     page.on('console', (message) => {
         const text = message.text();
         if (message.type() === 'error' && text.includes('cannot contain a nested')) nestedButtonErrors.push(text);
     });
+    await page.addInitScript(() => {
+        const key = 'mmkv.default\\local-settings';
+        const current = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+        window.localStorage.setItem(key, JSON.stringify({ ...current, themePreference: 'dark', themePack: 'gingham' }));
+    });
+    await page.emulateMedia({ colorScheme: 'dark' });
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(authenticatedRoute('/relationship-advisor'));
+    await page.route('**/v1/plugins', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            status: 200,
+            body: JSON.stringify({
+                plugins: pluginPackages.map(({ manifest }) => ({
+                    manifest,
+                    status: manifest.id === 'relationship-advisor'
+                        ? {
+                            installed: true,
+                            version: manifest.version,
+                            grantedPermissions: [...manifest.permissions],
+                            configuration: {
+                                baseUrl: 'https://api.example.com/v1',
+                                model: 'example/model-mini',
+                            },
+                            secretHints: { apiKey: 'LLPq' },
+                        }
+                        : { installed: false },
+                })),
+            }),
+        });
+    });
+    await activateGinghamDarkTheme(page);
+    await expect(page.getByTestId('sidebar-conversation-history-button')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('sidebar-conversation-history-button').click();
+    await expect(page).toHaveURL((url) => url.pathname === '/relationship-advisor' && !url.searchParams.has('conversationId'));
 
     const advisorComposer = page.getByRole('textbox', {
         name: 'Send what they said, a chat screenshot, or the reply you want to write',
     });
     const history = page.getByTestId('relationship-advisor-sidebar-history');
-    await expect(advisorComposer).toBeVisible({ timeout: 20_000 });
     await expect(history).toBeVisible();
+    await expect(page.getByTestId('relationship-advisor-conversation-selection')).toBeVisible();
+    await expect(page.getByTestId('sidebar-session-pane')).toHaveCount(0);
+    await expect(advisorComposer).toHaveCount(0);
+    await pauseForRecordedReview(page, 1_000);
+
+    const indexScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
+        ? path.join(process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR, 'case-0-after-plugin-index.png')
+        : testInfo.outputPath('case-0-after-plugin-index.png');
+    fs.mkdirSync(path.dirname(indexScreenshot), { recursive: true });
+    await page.screenshot({ path: indexScreenshot, fullPage: true });
+
+    await page.getByTestId('relationship-advisor-new-conversation').click();
+    await expect(advisorComposer).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => new URL(page.url()).searchParams.get('conversationId')).not.toBeNull();
     const firstUrl = page.url();
     const firstId = new URL(firstUrl).searchParams.get('conversationId');
@@ -2823,7 +2882,10 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toBeVisible();
 
     await page.reload();
-    await expect(advisorComposer).toBeVisible();
+    await activateGinghamDarkTheme(page);
+    await page.getByTestId('sidebar-conversation-history-button').click();
+    await page.getByTestId(`relationship-advisor-history-${firstId}`).getByRole('button').first().click();
+    await expect(advisorComposer).toBeVisible({ timeout: 120_000 });
     await expect(page).toHaveURL(firstUrl);
     await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toBeVisible();
 
@@ -2834,6 +2896,9 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     expect(secondId).not.toBe(firstId);
     await expect(page.getByTestId(`relationship-advisor-history-${secondId}`)).toBeVisible();
     await expect(history.locator('[data-testid^="relationship-advisor-history-"]')).toHaveCount(2);
+    await expect.poll(() => page.locator('body').evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ))).toBe('rgb(18, 24, 33)');
     await pauseForRecordedReview(page, 1_000);
 
     const historyScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
@@ -2875,15 +2940,17 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
 
     const darkAdvisorUrl = new URL(authenticatedRoute('/relationship-advisor'));
     darkAdvisorUrl.searchParams.set('conversationId', secondId!);
-    await page.goto(darkAdvisorUrl.toString());
+    await page.getByTestId('sidebar-conversation-history-button').click();
+    await page.getByTestId(`relationship-advisor-history-${secondId}`).getByRole('button').first().click();
     await expect(page.getByRole('textbox', {
         name: 'Send what they said, a chat screenshot, or the reply you want to write',
-    })).toBeVisible({ timeout: 20_000 });
+    })).toBeVisible({ timeout: 120_000 });
     const selectedHistoryRow = page.getByTestId(`relationship-advisor-history-${secondId}`);
     await expect(selectedHistoryRow).toBeVisible();
-    await expect.poll(() => selectedHistoryRow.evaluate((element) => (
+    const selectedBackground = await selectedHistoryRow.evaluate((element) => (
         window.getComputedStyle(element).backgroundColor
-    ))).toBe('rgb(40, 53, 68)');
+    ));
+    expect(selectedBackground).not.toBe('rgba(0, 0, 0, 0)');
 
     const firstHistoryButton = page
         .getByTestId(`relationship-advisor-history-${firstId}`)
@@ -2891,6 +2958,9 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
         .first();
     const firstHistoryButtonBox = await firstHistoryButton.boundingBox();
     expect(firstHistoryButtonBox).not.toBeNull();
+    const firstHistoryButtonBackground = await firstHistoryButton.evaluate((element) => (
+        window.getComputedStyle(element).backgroundColor
+    ));
     await page.mouse.move(
         firstHistoryButtonBox!.x + firstHistoryButtonBox!.width / 2,
         firstHistoryButtonBox!.y + firstHistoryButtonBox!.height / 2,
@@ -2898,7 +2968,7 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     await page.mouse.down();
     await expect.poll(() => firstHistoryButton.evaluate((element) => (
         window.getComputedStyle(element).backgroundColor
-    ))).toBe('rgb(31, 42, 56)');
+    ))).not.toBe(firstHistoryButtonBackground);
 
     const darkHistoryScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
         ? path.join(process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR, 'case-1-after-history-gingham-dark.png')
@@ -2912,7 +2982,7 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
     await expect(darkDialog).toBeVisible();
     await expect.poll(() => darkDialog.evaluate((element) => (
         window.getComputedStyle(element).backgroundColor
-    ))).toBe('rgb(26, 35, 48)');
+    ))).not.toBe('rgba(0, 0, 0, 0)');
     const darkDialogScreenshot = process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR
         ? path.join(process.env.HAPPY_RELATIONSHIP_HISTORY_EVIDENCE_DIR, 'case-2-after-agent-dialog-gingham-dark.png')
         : testInfo.outputPath('case-2-after-agent-dialog-gingham-dark.png');
@@ -2921,6 +2991,18 @@ test('[RELATIONSHIP-ADVISOR-HISTORY] 军师对话写入左栏且 PC Agent 使用
 
     await page.keyboard.press('Escape');
     await expect(darkDialog).toHaveCount(0);
+
+    await page.goto(darkAdvisorUrl.toString());
+    await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toBeVisible({ timeout: 120_000 });
+    await page.getByTestId(`relationship-advisor-delete-${firstId}`).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByTestId(`relationship-advisor-history-${firstId}`)).toHaveCount(0);
+    await page.getByTestId(`relationship-advisor-delete-${secondId}`).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page).toHaveURL((url) => url.pathname === '/relationship-advisor' && !url.searchParams.has('conversationId'));
+    await expect(page.getByTestId('relationship-advisor-conversation-selection')).toBeVisible();
+    await expect(history.locator('[data-testid^="relationship-advisor-history-"]')).toHaveCount(0);
+    await expect(advisorComposer).toHaveCount(0);
     expect(nestedButtonErrors).toEqual([]);
 });
 

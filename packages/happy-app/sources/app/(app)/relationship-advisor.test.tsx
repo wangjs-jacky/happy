@@ -9,6 +9,9 @@ import RelationshipAdvisorScreen from './relationship-advisor';
 
 const mocks = vi.hoisted(() => ({
     router: { setParams: vi.fn(), replace: vi.fn() },
+    platform: 'android',
+    isTablet: false,
+    conversationId: 'conversation-1' as string | undefined,
     pluginStatus: { installed: true } as { installed: boolean } | null,
     conversations: [{
         id: 'conversation-1',
@@ -16,13 +19,13 @@ const mocks = vi.hoisted(() => ({
         createdAt: 1,
         updatedAt: 1,
         messages: [],
-    }],
+    }] as any[],
     updateConversations: vi.fn(),
 }));
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
-    Platform: { OS: 'android' },
+    Platform: { get OS() { return mocks.platform; } },
     Pressable: 'Pressable',
     ScrollView: 'ScrollView',
     Text: 'Text',
@@ -35,7 +38,7 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'new-conversation-id' }));
 vi.mock('expo-router', () => ({
     Stack: { Screen: 'StackScreen' },
-    useLocalSearchParams: () => ({ conversationId: 'conversation-1' }),
+    useLocalSearchParams: () => ({ conversationId: mocks.conversationId }),
     useRouter: () => mocks.router,
 }));
 vi.mock('react-native-safe-area-context', () => ({
@@ -105,6 +108,7 @@ vi.mock('@/sync/storage', () => ({
     useLocalSettingUpdater: () => mocks.updateConversations,
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/utils/responsive', () => ({ useIsTablet: () => mocks.isTablet }));
 
 describe('RelationshipAdvisorScreen', () => {
     const originalConsoleError = console.error;
@@ -112,7 +116,17 @@ describe('RelationshipAdvisorScreen', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.platform = 'android';
+        mocks.isTablet = false;
+        mocks.conversationId = 'conversation-1';
         mocks.pluginStatus = { installed: true };
+        mocks.conversations = [{
+            id: 'conversation-1',
+            title: 'Conversation',
+            createdAt: 1,
+            updatedAt: 1,
+            messages: [],
+        }];
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
             callback(0);
             return 1;
@@ -152,6 +166,37 @@ describe('RelationshipAdvisorScreen', () => {
 
         expect(mocks.router.replace).toHaveBeenCalledWith('/settings/relationship-advisor');
         expect(renderer.root.findAllByProps({ testID: 'relationship-advisor-screen' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the desktop conversation index empty until the user creates or selects a conversation', () => {
+        mocks.platform = 'web';
+        mocks.isTablet = true;
+        mocks.conversations = [];
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<RelationshipAdvisorScreen />);
+        });
+
+        expect(renderer.root.findAllByProps({ testID: 'relationship-advisor-conversation-selection' })).toHaveLength(1);
+        expect(mocks.updateConversations).not.toHaveBeenCalled();
+        expect(mocks.router.setParams).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('preserves Android tablet auto-selection instead of applying the desktop conversation index', () => {
+        mocks.platform = 'android';
+        mocks.isTablet = true;
+        mocks.conversationId = undefined;
+        mocks.conversations = [];
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<RelationshipAdvisorScreen />);
+        });
+
+        expect(mocks.updateConversations).toHaveBeenCalledOnce();
+        expect(mocks.router.setParams).toHaveBeenCalledWith({ conversationId: 'new-conversation-id' });
+        expect(renderer.root.findAllByProps({ testID: 'relationship-advisor-conversation-selection' })).toHaveLength(0);
         act(() => renderer.unmount());
     });
 });

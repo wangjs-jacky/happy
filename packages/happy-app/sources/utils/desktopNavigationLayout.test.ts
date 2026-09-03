@@ -3,9 +3,12 @@ import {
     DESKTOP_LEFT_PANEL_MAX_WIDTH,
     DESKTOP_MAIN_MIN_WIDTH,
     DESKTOP_RIGHT_PANEL_MAX_WIDTH,
+    DESKTOP_SIDEBAR_SESSION_MIN_WIDTH,
+    clampDesktopSidebarOrganizationWidth,
     getDesktopPanelResizeWidth,
     getDesktopPanelShortcutPresentation,
     getDesktopSidebarWidth,
+    getDesktopSidebarOrganizationMaxWidth,
     getDesktopRightPanelWidth,
     getDesktopRightPanelPresentation,
     getResponsiveRightPanelMode,
@@ -27,6 +30,8 @@ describe('desktopNavigationLayout', () => {
         { width: 799, expected: 'edge-handle' },
         { width: 800, expected: 'drawer-toggle' },
         { width: 1024, expected: 'drawer-toggle' },
+        { width: 1100, expected: 'persistent' },
+        { width: 1279, expected: 'persistent' },
         { width: 1280, expected: 'persistent' },
         { width: 1440, expected: 'persistent' },
         { width: 1920, expected: 'persistent' },
@@ -45,6 +50,8 @@ describe('desktopNavigationLayout', () => {
     it.each([
         { width: 799, expected: 0 },
         { width: 800, expected: 250 },
+        { width: 1100, expected: 330 },
+        { width: 1279, expected: 360 },
         { width: 1280, expected: 360 },
         { width: 1600, expected: 360 },
     ])('calculates the desktop sidebar width at $width px', ({ width, expected }) => {
@@ -54,6 +61,7 @@ describe('desktopNavigationLayout', () => {
     it.each([
         { width: 1099, expected: 0 },
         { width: 1100, expected: 280 },
+        { width: 1279, expected: 306 },
         { width: 1280, expected: 307 },
         { width: 1500, expected: 360 },
     ])('calculates a compact desktop right panel width at $width px', ({ width, expected }) => {
@@ -66,12 +74,13 @@ describe('desktopNavigationLayout', () => {
             requestedLeftWidth: 640,
             requestedRightWidth: 640,
             rightVisible: true,
+            threeLevelLeft: true,
             windowWidth: 1280,
         });
 
         expect(widths.left + widths.main + widths.right).toBe(1280);
         expect(widths.main).toBe(DESKTOP_MAIN_MIN_WIDTH);
-        expect(widths.left).toBeGreaterThanOrEqual(250);
+        expect(widths.left).toBeGreaterThanOrEqual(500);
         expect(widths.right).toBeGreaterThanOrEqual(280);
     });
 
@@ -81,12 +90,48 @@ describe('desktopNavigationLayout', () => {
             requestedLeftWidth: 640,
             requestedRightWidth: 640,
             rightVisible: false,
+            threeLevelLeft: true,
             windowWidth: 1280,
         })).toEqual({
-            left: DESKTOP_LEFT_PANEL_MAX_WIDTH,
-            main: 1280 - DESKTOP_LEFT_PANEL_MAX_WIDTH,
+            left: 640,
+            main: 640,
             right: 0,
         });
+    });
+
+    it.each([
+        { windowWidth: 800, expectedMain: 300 },
+        { windowWidth: 900, expectedMain: 400 },
+        { windowWidth: 979, expectedMain: 479 },
+        { windowWidth: 980, expectedMain: 480 },
+    ])('keeps the three-level left navigation usable at $windowWidth px', ({ windowWidth, expectedMain }) => {
+        expect(getDesktopWorkspacePanelWidths({
+            leftVisible: true,
+            requestedLeftWidth: 580,
+            requestedRightWidth: 320,
+            rightVisible: false,
+            threeLevelLeft: true,
+            windowWidth,
+        })).toEqual({
+            left: 500,
+            main: expectedMain,
+            right: 0,
+        });
+    });
+
+    it('keeps the internal list-navigation pane within a useful desktop range', () => {
+        expect(clampDesktopSidebarOrganizationWidth(120)).toBe(176);
+        expect(clampDesktopSidebarOrganizationWidth(247.6)).toBe(248);
+        expect(clampDesktopSidebarOrganizationWidth(400)).toBe(320);
+    });
+
+    it('dynamically reserves a usable session pane inside compact desktop navigation', () => {
+        const compactNavigationWidth = 500 - 58;
+        expect(getDesktopSidebarOrganizationMaxWidth(compactNavigationWidth)).toBe(242);
+        expect(clampDesktopSidebarOrganizationWidth(320, compactNavigationWidth)).toBe(242);
+        expect(compactNavigationWidth - clampDesktopSidebarOrganizationWidth(320, compactNavigationWidth))
+            .toBe(DESKTOP_SIDEBAR_SESSION_MIN_WIDTH);
+        expect(getDesktopSidebarOrganizationMaxWidth(702)).toBe(320);
     });
 
     it('clamps the actively resized panel to its fixed maximum and the available workspace', () => {
@@ -118,6 +163,24 @@ describe('desktopNavigationLayout', () => {
             side: 'right',
             windowWidth: 1920,
         })).toBe(DESKTOP_RIGHT_PANEL_MAX_WIDTH);
+    });
+
+    it('keeps legacy native tablet widths separate from the PC three-level width contract', () => {
+        expect(getDesktopWorkspacePanelWidths({
+            leftVisible: true,
+            requestedLeftWidth: 580,
+            requestedRightWidth: 0,
+            rightVisible: false,
+            windowWidth: 1280,
+        }).left).toBe(480);
+        expect(getDesktopWorkspacePanelWidths({
+            leftVisible: true,
+            requestedLeftWidth: 580,
+            requestedRightWidth: 0,
+            rightVisible: false,
+            threeLevelLeft: true,
+            windowWidth: 1280,
+        }).left).toBe(580);
     });
 
     it('renders platform-correct shortcut hints and ARIA tokens', () => {
@@ -158,6 +221,18 @@ describe('desktopNavigationLayout', () => {
             supportsPersistentPanel: true,
             windowWidth: 1099,
         })).toBe(false);
+        expect(isDesktopRightPanelAvailable({
+            isTablet: true,
+            supportsPersistentPanel: true,
+            threeLevelLeft: true,
+            windowWidth: 1100,
+        })).toBe(false);
+        expect(isDesktopRightPanelAvailable({
+            isTablet: true,
+            supportsPersistentPanel: true,
+            threeLevelLeft: true,
+            windowWidth: 1280,
+        })).toBe(true);
         expect(isDesktopRightPanelAvailable({
             isTablet: false,
             supportsPersistentPanel: true,
