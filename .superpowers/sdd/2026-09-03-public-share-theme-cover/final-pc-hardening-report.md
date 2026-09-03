@@ -71,3 +71,31 @@ The complete SHA-256 manifest and exact dimensions are recorded in `docs/pr-evid
 - Case 4 is intentionally a focused crop rather than a full-page pair. Both sides are 900×240 at the same CSS-pixel scale, and the legacy source is retained unchanged elsewhere in the repository.
 - The diagnostics gate treats only `net::ERR_ABORTED` non-XHR media/image cancellation from deliberate source replacement or page teardown as lifecycle noise. All XHR/fetch failures, other request failures, page errors, console errors, and non-allowlisted HTTP errors remain test failures.
 - No product theme colors, spacing, typography, button dimensions, or tooltip styling were introduced in this hardening pass.
+
+## Follow-up PC review hardening — 2026-09-03
+
+The subsequent evidence/diagnostics review is addressed without product visual changes:
+
+- Browser lifecycle cancellation is no longer a blanket `net::ERR_ABORTED` allowance. A request must be an `image` or `media` resource and its URL must match the case's known app-asset, blob, or exact public-share attachment prefix. An aborted favicon exposed by the first strict full run is served as 204 before navigation rather than allowlisted.
+- Expected error responses now include exact origin, method, pathname, status, active phase, and count. The random-provider 503 is expected exactly once. The revoked public 404 is enabled only while the revoked anonymous page loads and is expected exactly once; the direct API probe is intentionally outside browser diagnostics.
+- Console error suppression is tied to an actually observed/matched expected response key, so a similarly worded 404/503 from another origin or path cannot pass.
+- The low-height overlay check first proves the background transcript has a real scroll range and a positive `scrollTop`. The replacement status is asserted as visible and as `aria-live="polite"`.
+- E2E captures now write only to `raw/current/`, including the phone supplemental. The tracked `raw/before/` directory contains the owner baseline, shared truthful anonymous baseline, and distinct legacy Copy baseline.
+- `scripts/build-public-share-theme-cover-evidence.mjs` is the deterministic evidence boundary. It recreates the eight primary artifacts and supplemental from raw sources, applies the disclosed pair-matched annotations/crop, validates exact sets/dimensions/pair differences/distinct Before hashes, and verifies SHA-256 against `evidence-manifest.json`. The README separates byte-exact reconstruction from an intentional raw-capture refresh.
+
+Follow-up RED evidence:
+
+- The new diagnostics unit suite initially failed because the strict classifier/matcher module did not exist.
+- The evidence reconstruction command initially failed with `MODULE_NOT_FOUND` because no deterministic builder was committed.
+- The first strict full browser run rejected an aborted `favicon.ico` because it was correctly outside the image/media URL allowlist.
+- The next full run showed the browser-observed revoked-page 404 count is one; the apparent second server-log request came from the separate API probe, not the monitored browser. The expectation was corrected to the observed browser boundary.
+
+Follow-up GREEN verification:
+
+- `pnpm --filter happy-app test --run sources/utils/publicSessionSharingDiagnostics.test.ts` — 1 file, 2 tests passed.
+- Final affected component/dialog/hook/diagnostics suite — 6 files, 58 tests passed.
+- `pnpm --filter happy-app typecheck` — passed after the final browser and evidence runs.
+- Normal-build full browser command — 3/3 passed in 2.2 minutes, with the final HTML/raw results produced by that complete run.
+- `node scripts/build-public-share-theme-cover-evidence.mjs --refresh-manifest` followed by `node scripts/build-public-share-theme-cover-evidence.mjs --verify` — generated and then byte-verified exactly eight primary artifacts plus one supplemental.
+
+The follow-up commit is recorded in the implementation handoff.

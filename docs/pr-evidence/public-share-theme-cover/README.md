@@ -19,14 +19,28 @@ Case 4 maps from the separately captured, truthful legacy anonymous Copy state a
 
 ## Reproduction
 
-Use the existing deterministic MP4 fixture and do not configure a Pexels key:
+Rebuild and verify the committed primary/supplemental artifacts byte-for-byte from the tracked raw inputs:
+
+```bash
+node scripts/build-public-share-theme-cover-evidence.mjs --verify
+```
+
+This command recreates all eight top-level primary PNGs, recreates the supplemental PNG, and fails unless their names, dimensions, pair differences, distinct Before hashes, and SHA-256 values exactly match `evidence-manifest.json`.
+
+To refresh current raw browser captures, use the existing deterministic MP4 fixture and do not configure a Pexels key:
 
 ```bash
 env -u PEXELS_API_KEY \
   HAPPY_E2E_MP4_PATH="$PWD/docs/evidence/public-share-oss/public-share-e2e-after.mp4" \
   HAPPY_PUBLIC_SHARE_EVIDENCE_DIR="$PWD/docs/pr-evidence/public-share-theme-cover" \
   pnpm test:e2e:web -- e2e/public-session-sharing-evidence.spec.ts
+
+# Review raw/current first; then intentionally rebuild artifacts and refresh the manifest.
+node scripts/build-public-share-theme-cover-evidence.mjs --refresh-manifest
+node scripts/build-public-share-theme-cover-evidence.mjs --verify
 ```
+
+The E2E command writes only under `raw/current/`; it cannot overwrite the reviewed primary artifacts. `--refresh-manifest` is reserved for an intentional, reviewed evidence refresh because the owner flow contains a run-specific public ID and timestamp.
 
 Focused verification and build commands:
 
@@ -58,8 +72,9 @@ pnpm --filter happy-app export:web
 - The Pexels renderer case intercepts only the public snapshot and immutable attachment responses. Its attribution metadata is deterministic, and its cover bytes are the same tracked repository PNG. The browser intercepts `window.open`, verifies the exact canonical HTTPS Pexels host/path and empty credentials/query/hash, and never contacts Pexels or any external image host.
 - “Immutable” in this evidence means the cover URL and object key are generation-addressed. Production asset responses intentionally use `Cache-Control: no-store` so revocation is immediate; browser/CDN immutable caching remains disabled until a purge contract exists. The deterministic renderer does not inject a cache header.
 - The owner random-cover request is deterministically intercepted with HTTP 503 to prove that upload and coverless publication remain available without live Pexels credentials.
-- Before captures came from verified pre-feature browser evidence: Cases 1–3 from the 1440×900 run and Case 4 from the separate 900×240 legacy Copy capture. Current raw After captures are deterministic outputs of the command above before the disclosed evidence-only annotations/crop. The command builds the branch CLI normally and removes the ephemeral server environment after each run. Browser-side test finalizers independently revoke all owner and compatibility fixtures, including when an assertion fails.
-- The full final run reports 3/3 passed. Each case collects browser console errors, uncaught page errors, request failures, and HTTP responses at or above 400. The exact expected failures are the intentionally intercepted provider 503 and revoked-share 404; failed XHR/fetch and other unexpected failures are fatal. The development log endpoint is replaced in-page with a deterministic 204 before application code starts.
+- Tracked immutable inputs live under `raw/before/`: the Case 1 owner baseline, the truthful shared anonymous baseline for Cases 2/3, and the distinct Case 4 Copy baseline. Tracked full-size browser outputs live under `raw/current/`; the E2E never writes processed evidence paths. `scripts/build-public-share-theme-cover-evidence.mjs` is the single deterministic annotation/crop/copy implementation.
+- Before captures came from verified pre-feature browser evidence: Cases 1–3 from the 1440×900 run and Case 4 from the separate 900×240 legacy Copy capture. Current raw After captures are outputs of the browser command above before the disclosed evidence-only annotations/crop. The command builds the branch CLI normally and removes the ephemeral server environment after each run. Browser-side test finalizers independently revoke all owner and compatibility fixtures, including when an assertion fails.
+- The full final run reports 3/3 passed. Each case collects browser console errors, uncaught page errors, request failures, and HTTP responses at or above 400. The provider 503 is allowed exactly once for the expected server origin/method/path/status. The revoked-share 404 is allowed exactly once for the expected Web origin/method/path/status and only while the revoked page is loading. Only `net::ERR_ABORTED` image/media requests matching the case's exact app-asset, blob, or public-attachment prefixes are classified as lifecycle cancellation; every other failed request is fatal. The development log endpoint is replaced in-page with a deterministic 204 before application code starts.
 - Browser checks also cover anonymous/no-cookie requests, `noindex,nofollow,noarchive`, read-only chrome, V1 fallback, V2 covered/coverless rendering, canonical Pexels attribution, valid `aria-pressed` mode toggles and existing tooltips on hover/focus, light/dark/system local storage across IDs and reloads, system media changes, cover/header/transcript non-overlap, real scroll geometry, transcript instance/scroll preservation, low-height overlay/background scroll, focus restoration, phone-width containment, and keyboard copy feedback.
 
 ## SHA-256 manifest
@@ -67,11 +82,11 @@ pnpm --filter happy-app export:web
 | Artifact | Dimensions | SHA-256 |
 | --- | --- | --- |
 | `case-1-share-dialog-before.png` | 1440×900 | `0aa2eb1abe0a12f7a326df7b3a106c153049f503a2ec3a679703f12ef0c62a35` |
-| `case-1-share-dialog-after.png` | 1440×900 | `f93e11c1de56033c0cf5908ff573929b7bd978350641bc5dbf75d79392248df5` |
+| `case-1-share-dialog-after.png` | 1440×900 | `92fc6e350bec1686bb51eb84b9dcd7420de768eaebf8ef878a144b200d5c4a5c` |
 | `case-2-public-cover-before.png` | 1440×900 | `cdeb15e5a8f74c7448f58e0c975bebf40feba263a3d59ecf0b2800f698d26e92` |
 | `case-2-public-cover-after.png` | 1440×900 | `b878255771f87b14cf29c09922681d685ee264156480978006faba5701bfccf9` |
 | `case-3-no-cover-before.png` | 1440×900 | `6fd0a0dec8bc4587c1d2b389890904dfcb778645549f757901032ce0a6889d9f` |
-| `case-3-no-cover-after.png` | 1440×900 | `d1760abf0f60ace14bb1565db3943a31b585feb50f218720c2cd2953b27c5b6c` |
+| `case-3-no-cover-after.png` | 1440×900 | `1909c18f1fa212348946945fef65b0b35da452a3ff956fdb79c2980db9f04f15` |
 | `case-4-gingham-dark-before.png` | 900×240 | `ad756f7d745cc1381e17b517ecd66269c708cd5f8c28a62a88ddae7ef2573cc5` |
 | `case-4-gingham-dark-after.png` | 900×240 | `bc527850291c8e1003a4c7c7681bb8847dc5d054d16537d44dcd50212d2f5633` |
-| `supplemental/case-3-no-cover-390x844.png` | 390×844 | `e397238882eb15426cc50545a51544f658d1eb9dd4447f30856ae7cc2fd54f9f` |
+| `supplemental/case-3-no-cover-390x844.png` | 390×844 | `bf89e5af28678efadc0b8b92fe7b35bf7a827fe03a3af905913a850486007f2b` |

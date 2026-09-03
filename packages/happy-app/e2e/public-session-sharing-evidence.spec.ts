@@ -14,9 +14,19 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { PublicSessionSnapshot } from '@slopus/happy-wire';
 import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
+import {
+    browserResponseConsoleKey,
+    isAllowedLifecycleAbort,
+    matchesExpectedBrowserResponse,
+    type BrowserRequestFailure,
+    type BrowserResponseSummary,
+    type ExpectedBrowserResponse,
+} from './public-session-sharing-diagnostics';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
+const authenticatedWebOrigin = new URL(authenticatedWebUrl).origin;
+const e2eServerOrigin = new URL(e2eServerUrl).origin;
 const videoFixturePath = process.env.HAPPY_E2E_MP4_PATH!;
 const evidenceDirectory = process.env.HAPPY_PUBLIC_SHARE_EVIDENCE_DIR;
 const coverFixturePath = resolve(process.cwd(), '..', '..', 'docs/assets/plugin-host-v2/marketplace-installed.png');
@@ -64,31 +74,39 @@ function evidencePath(testInfo: TestInfo, filename: string): string {
     return path;
 }
 
-type ExpectedBrowserResponse = {
-    method: string;
-    pathname: string;
-    status: number;
-};
+function currentEvidencePath(testInfo: TestInfo, filename: string): string {
+    return evidencePath(testInfo, `raw/current/${filename}`);
+}
 
-function createBrowserDiagnostics(expectedResponses: () => readonly ExpectedBrowserResponse[] = () => []) {
+function createBrowserDiagnostics({
+    allowedAbortUrlPrefixes = () => [],
+    expectedResponses = () => [],
+}: {
+    allowedAbortUrlPrefixes?: () => readonly string[];
+    expectedResponses?: () => readonly ExpectedBrowserResponse[];
+} = {}) {
     const consoleErrors: Array<{ locationUrl: string; text: string }> = [];
     const pageErrors: string[] = [];
-    const failedRequests: Array<{ description: string; error: string; resourceType: string }> = [];
+    const failedRequests: BrowserRequestFailure[] = [];
     const unexpectedResponses: string[] = [];
+    const expectedResponseCounts = new Map<string, number>();
+    const observedExpectedConsoleKeys = new Set<string>();
     const monitoredPages = new WeakSet<Page>();
 
-    const matchesExpectedResponse = (response: Response) => {
+    const responseSummary = (response: Response): BrowserResponseSummary => {
         const url = new URL(response.url());
-        return expectedResponses().some((expected) => (
-            expected.status === response.status()
-            && expected.method === response.request().method()
-            && expected.pathname === url.pathname
-        ));
+        return {
+            method: response.request().method(),
+            origin: url.origin,
+            pathname: url.pathname,
+            status: response.status(),
+        };
     };
 
     const monitorPage = async (page: Page) => {
         if (monitoredPages.has(page)) return;
         monitoredPages.add(page);
+        await page.route(/\/favicon\.ico(?:\?|$)/, (route) => route.fulfill({ status: 204 }));
         await page.addInitScript(() => {
             const browserFetch = window.fetch.bind(window);
             window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -114,11 +132,21 @@ function createBrowserDiagnostics(expectedResponses: () => readonly ExpectedBrow
                 description: `${request.method()} ${request.url()} — ${error}`,
                 error,
                 resourceType: request.resourceType(),
+                url: request.url(),
             });
         });
         page.on('response', (response: Response) => {
             if (response.status() < 400) return;
-            if (matchesExpectedResponse(response)) return;
+            const actual = responseSummary(response);
+            const expected = expectedResponses().find((candidate) => (
+                matchesExpectedBrowserResponse(actual, candidate)
+            ));
+            if (expected) {
+                const count = (expectedResponseCounts.get(expected.label) ?? 0) + 1;
+                expectedResponseCounts.set(expected.label, count);
+                observedExpectedConsoleKeys.add(browserResponseConsoleKey(actual));
+                if (count <= expected.expectedCount) return;
+            }
             unexpectedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
         });
     };
@@ -129,17 +157,26 @@ function createBrowserDiagnostics(expectedResponses: () => readonly ExpectedBrow
                 .exec(entry.text)?.[1];
             if (!status || !entry.locationUrl) return true;
             const url = new URL(entry.locationUrl);
-            return !expectedResponses().some((expected) => (
-                expected.status === Number(status) && expected.pathname === url.pathname
-            ));
+            return !observedExpectedConsoleKeys.has(browserResponseConsoleKey({
+                method: 'GET',
+                origin: url.origin,
+                pathname: url.pathname,
+                status: Number(status),
+            }));
         }).map((entry) => `${entry.text} @ ${entry.locationUrl || 'unknown'}`);
         expect(unexpectedConsoleErrors, 'unexpected browser console.error messages').toEqual([]);
         expect(pageErrors, 'uncaught browser page errors').toEqual([]);
         const unexpectedFailedRequests = failedRequests.filter((entry) => (
-            ['fetch', 'xhr'].includes(entry.resourceType) || entry.error !== 'net::ERR_ABORTED'
+            !isAllowedLifecycleAbort(entry, allowedAbortUrlPrefixes())
         )).map((entry) => entry.description);
         expect(unexpectedFailedRequests, 'failed browser requests (XHR/fetch, or non-lifecycle aborts)').toEqual([]);
         expect(unexpectedResponses, 'unexpected HTTP >=400 browser responses').toEqual([]);
+        for (const expected of expectedResponses()) {
+            expect(
+                expectedResponseCounts.get(expected.label) ?? 0,
+                `${expected.label} response count`,
+            ).toBe(expected.expectedCount);
+        }
     };
 
     return { expectClean, monitorPage };
@@ -627,11 +664,18 @@ async function expectLowHeightDialogContract(page: Page): Promise<void> {
     const dialog = page.getByTestId('public-session-share-dialog');
     const scroll = page.getByTestId('public-session-share-scroll');
     const background = page.getByTestId('conversation-transcript-list');
-    await background.evaluate((element) => {
+    const backgroundGeometry = await background.evaluate((element) => {
         element.scrollTop = Math.min(240, element.scrollHeight - element.clientHeight);
         element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        return {
+            clientHeight: element.clientHeight,
+            scrollHeight: element.scrollHeight,
+            scrollTop: element.scrollTop,
+        };
     });
-    const backgroundScrollTop = await background.evaluate((element) => element.scrollTop);
+    expect(backgroundGeometry.scrollHeight).toBeGreaterThan(backgroundGeometry.clientHeight);
+    expect(backgroundGeometry.scrollTop).toBeGreaterThan(0);
+    const backgroundScrollTop = backgroundGeometry.scrollTop;
     const dialogGeometry = await dialog.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         return {
@@ -721,18 +765,37 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     const cleanupTargets: ShareCleanupTarget[] = [];
     let cleanupRequired = true;
     let primaryFailure: unknown;
-    const diagnostics = createBrowserDiagnostics(() => [
+    let revokedResponsePhase = false;
+    const diagnostics = createBrowserDiagnostics({
+        allowedAbortUrlPrefixes: () => [
+            `${authenticatedWebOrigin}/assets/`,
+            `blob:${authenticatedWebOrigin}/`,
+            ...(publicId ? [
+                `${authenticatedWebOrigin}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/`,
+                `${e2eServerOrigin}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/`,
+            ] : []),
+        ],
+        expectedResponses: () => [
         ...(sessionId ? [{
+            enabled: () => true,
+            expectedCount: 1,
+            label: 'owner random-cover provider unavailable',
             method: 'GET',
+            origin: e2eServerOrigin,
             pathname: `/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`,
             status: 503,
         }] : []),
         ...(publicId ? [{
+            enabled: () => revokedResponsePhase,
+            expectedCount: 1,
+            label: 'revoked public snapshot',
             method: 'GET',
+            origin: authenticatedWebOrigin,
             pathname: `/v1/public/session-shares/${encodeURIComponent(publicId)}`,
             status: 404,
         }] : []),
-    ]);
+        ],
+    });
     await diagnostics.monitorPage(page);
     try {
     sessionId = await createSession(request);
@@ -815,6 +878,8 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await randomRequestStarted;
     await expect(page.getByTestId('public-session-share-create')).toBeDisabled();
     await expect(page.getByTestId('public-share-appearance-controls')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByTestId('public-share-cover-replacement-state'))
+        .toHaveAttribute('aria-live', 'polite');
     await expect(page.getByTestId('public-share-cover-replacement-state')).toBeVisible();
     releaseRandomCover();
     await expect(page.getByTestId('public-share-cover-provider-state'))
@@ -845,7 +910,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await expectSelectedTheme(page, 'gingham');
     await expectDialogCoverLoaded(page);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.screenshot({ path: evidencePath(testInfo, 'case-1-share-dialog-after.png'), fullPage: false });
+    await page.screenshot({ path: currentEvidencePath(testInfo, 'case-1-share-dialog-after.png'), fullPage: false });
 
     const publicApiResponse = await request.get(
         new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}`, e2eServerUrl).toString(),
@@ -945,10 +1010,12 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
         const revokedPage = await revokedContext.newPage();
         await diagnostics.monitorPage(revokedPage);
         await revokedPage.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
+        revokedResponsePhase = true;
         await revokedPage.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
         await expect(revokedPage.getByTestId('public-session-share-unavailable')).toBeVisible({ timeout: 180_000 });
         await expect(revokedPage.getByText('This shared session is unavailable', { exact: true })).toBeVisible();
     } finally {
+        revokedResponsePhase = false;
         await revokedContext.close();
     }
     expect(randomCoverRequestCount).toBe(1);
@@ -966,7 +1033,16 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
     const sharedAt = Date.UTC(2026, 8, 3, 4, 5, 0);
     const cleanupTargets: ShareCleanupTarget[] = [];
     let primaryFailure: unknown;
-    const diagnostics = createBrowserDiagnostics();
+    let publicIds: string[] = [];
+    const diagnostics = createBrowserDiagnostics({
+        allowedAbortUrlPrefixes: () => [
+            `${authenticatedWebOrigin}/assets/`,
+            `blob:${authenticatedWebOrigin}/`,
+            ...publicIds.map((publicId) => (
+                `${authenticatedWebOrigin}/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/`
+            )),
+        ],
+    });
     try {
     const v1 = await publishDirectSnapshot(request, {
         version: 1,
@@ -985,6 +1061,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         messages: longMessages('V2 coverless', 52),
         appearance: { themePack: 'sage' },
     }, (target) => cleanupTargets.push(target));
+    publicIds = [v1.publicId, coverlessV2.publicId];
 
     const context = await browser.newContext({
         colorScheme: 'dark',
@@ -1013,7 +1090,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         expect(headerTop).toBeLessThanOrEqual(1);
         await expectViewportEdgeScroller(page);
         await expectPublicSectionGeometry(page, false);
-        await page.screenshot({ path: evidencePath(testInfo, 'case-3-no-cover-after.png'), fullPage: false });
+        await page.screenshot({ path: currentEvidencePath(testInfo, 'case-3-no-cover-after.png'), fullPage: false });
 
         await page.setViewportSize({ width: 390, height: 844 });
         await expect(page.getByTestId('public-session-transcript')).toBeVisible();
@@ -1044,7 +1121,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         await expectViewportEdgeScroller(page);
         await expectPublicSectionGeometry(page, false);
         await page.screenshot({
-            path: evidencePath(testInfo, 'supplemental/case-3-no-cover-390x844.png'),
+            path: currentEvidencePath(testInfo, 'supplemental/case-3-no-cover-390x844.png'),
             fullPage: false,
         });
         diagnostics.expectClean();
@@ -1098,7 +1175,13 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         presentation: { groupToolCalls: true },
         messages: longMessages('Historical cross-ID V1', 28),
     };
-    const diagnostics = createBrowserDiagnostics();
+    const diagnostics = createBrowserDiagnostics({
+        allowedAbortUrlPrefixes: () => [
+            `${authenticatedWebOrigin}/assets/`,
+            `blob:${authenticatedWebOrigin}/`,
+            `${authenticatedWebOrigin}/v1/public/session-shares/${coveredPublicId}/attachments/`,
+        ],
+    });
 
     const context = await browser.newContext({
         colorScheme: 'dark',
@@ -1232,7 +1315,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
             .toBe('pnpm test -- --grep public-session-share');
         await page.getByRole('button', { name: 'Dark', exact: true }).hover();
-        await page.screenshot({ path: evidencePath(testInfo, 'case-4-gingham-dark-after.png'), fullPage: false });
+        await page.screenshot({ path: currentEvidencePath(testInfo, 'case-4-gingham-dark-after.png'), fullPage: false });
         await expect(copyButton).toHaveAttribute('aria-label', 'Copy', { timeout: 3_000 });
 
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
@@ -1262,7 +1345,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectCoverLoaded(page, coveredPublicId, coverAssetId);
         await page.getByTestId('conversation-transcript-list').evaluate((element) => { element.scrollTop = 0; });
         await expectPublicSectionGeometry(page, true);
-        await page.screenshot({ path: evidencePath(testInfo, 'case-2-public-cover-after.png'), fullPage: false });
+        await page.screenshot({ path: currentEvidencePath(testInfo, 'case-2-public-cover-after.png'), fullPage: false });
 
         await page.getByRole('button', { name: 'System', exact: true }).click();
         await expectSelectedMode(page, 'System');
