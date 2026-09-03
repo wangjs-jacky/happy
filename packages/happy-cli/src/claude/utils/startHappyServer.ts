@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import { BROWSER_STEP_TOOL_DESCRIPTION } from "@/browser/browserStepReportingPrompt";
 import { configuration } from "@/configuration";
 import { fetchFinanceChart } from "@/finance/financeChart";
+import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -32,6 +33,8 @@ type HappyMcpHandlers = {
         range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
         interval?: '1d';
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    createPreview: (title: string) => Promise<{ success: boolean; previewId?: string; path?: string; error?: string }>;
+    publishPreview: (previewId: string) => Promise<{ success: boolean; url?: string; expiresAt?: number; error?: string }>;
 };
 
 type SendImageInput = {
@@ -246,6 +249,28 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         }
     });
 
+    mcp.registerTool('create_preview', {
+        description: 'Create an empty, Happy-managed workspace for a static HTML/CSS/JS interaction draft. Write only public, non-sensitive preview files into the returned directory, then call publish_preview.',
+        title: 'Create Interactive Preview',
+        inputSchema: { title: z.string().trim().min(1).max(160) },
+    }, async ({ title }) => {
+        const response = await handlers.createPreview(title);
+        return response.success
+            ? { content: [{ type: 'text', text: JSON.stringify({ previewId: response.previewId, workspacePath: response.path, next: 'Write the static files, then call publish_preview with previewId.' }) }] }
+            : { content: [{ type: 'text', text: `Failed to create preview: ${response.error}` }], isError: true };
+    });
+
+    mcp.registerTool('publish_preview', {
+        description: 'Validate and automatically publish a Happy-managed static preview workspace to the connected Vercel account. The public unlisted link expires after 24 hours.',
+        title: 'Publish Interactive Preview',
+        inputSchema: { previewId: z.string().uuid() },
+    }, async ({ previewId }) => {
+        const response = await handlers.publishPreview(previewId);
+        return response.success
+            ? { content: [{ type: 'text', text: JSON.stringify({ url: response.url, expiresAt: response.expiresAt }) }] }
+            : { content: [{ type: 'text', text: `Failed to publish preview: ${response.error}` }], isError: true };
+    });
+
     return mcp;
 }
 
@@ -256,6 +281,7 @@ export async function startHappyServer(
     },
 ) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
+    const previewWorkspaces = new PreviewWorkspaceRegistry();
 
     const handlers: HappyMcpHandlers = {
         changeTitle: async (title: string) => {
@@ -335,6 +361,24 @@ export async function startHappyServer(
             try {
                 const data = await fetchFinanceChart(input);
                 return { success: true, data };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+        },
+        createPreview: async (title) => {
+            try {
+                const workspace = await previewWorkspaces.create(client.sessionId, title);
+                return { success: true, previewId: workspace.previewId, path: workspace.path };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+        },
+        publishPreview: async (previewId) => {
+            try {
+                const workspace = await previewWorkspaces.resolveForPublish(client.sessionId, previewId);
+                const preview = await client.publishInteractivePreview(workspace);
+                await previewWorkspaces.remove(client.sessionId, previewId);
+                return { success: true, url: preview.url, expiresAt: preview.expiresAt };
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : String(error) };
             }

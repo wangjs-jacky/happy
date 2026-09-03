@@ -12,7 +12,7 @@ import { z } from 'zod';
 
 import { BROWSER_STEP_TOOL_DESCRIPTION } from '@/browser/browserStepReportingPrompt';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart'] as const;
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview'] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -156,5 +156,25 @@ export function registerHappyBridgeTools(
       ensureHttpClient,
       'Failed to fetch finance chart'
     )
+  );
+
+  server.registerTool(
+    'create_preview',
+    {
+      description: 'Create a Happy-managed static interaction-preview workspace. Only files in this issued workspace can be published.',
+      title: 'Create Interactive Preview',
+      inputSchema: { title: z.string().trim().min(1).max(160) },
+    },
+    async (args) => forwardHappyToolCall('create_preview', { title: args.title }, ensureHttpClient, 'Failed to create preview')
+  );
+
+  server.registerTool(
+    'publish_preview',
+    {
+      description: 'Validate and publish a Happy-managed static preview to Vercel for 24 hours.',
+      title: 'Publish Interactive Preview',
+      inputSchema: { previewId: z.string().uuid() },
+    },
+    async (args) => forwardHappyToolCall('publish_preview', { previewId: args.previewId }, ensureHttpClient, 'Failed to publish preview')
   );
 }

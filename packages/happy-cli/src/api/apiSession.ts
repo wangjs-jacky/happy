@@ -33,6 +33,8 @@ import axios from 'axios';
 import { resolveMediaArtifact } from './mediaArtifact';
 import { applyPersistedTurnStatus, clearStaleRunningTurnStatus } from './sessionTurnStatus';
 import type { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
+import { publishPreviewWorkspace } from '@/previews/previewApi';
+import type { ResolvedPreviewWorkspace } from '@/previews/previewWorkspace';
 
 function redactPresignedUrl(url: string): string {
     return url.replace(/([?&](?:X-Amz-Signature|Signature)=)[^&]+/g, '$1<redacted>');
@@ -826,6 +828,17 @@ export class ApiSessionClient extends EventEmitter {
         }
 
         this.enqueueSessionProtocolEnvelope(envelope);
+    }
+
+    async publishInteractivePreview(workspace: ResolvedPreviewWorkspace) {
+        const preview = await publishPreviewWorkspace({
+            serverUrl: configuration.serverUrl,
+            token: this.token,
+            sessionId: this.sessionId,
+            workspace,
+        });
+        this.sendSessionProtocolMessage(createEnvelope('agent', { t: 'interactive-preview', preview }));
+        return preview;
     }
 
     /**
