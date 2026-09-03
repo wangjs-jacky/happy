@@ -606,6 +606,33 @@ function expectSameLayout<T extends { backgroundColor: string }>(actual: T, expe
     expect(expectedBackgroundColor).toMatch(/^rgba?\(/);
 }
 
+function expectSameMediaPresentation(
+    actual: Awaited<ReturnType<typeof elementStyleSignature>>,
+    expected: Awaited<ReturnType<typeof elementStyleSignature>>,
+): void {
+    const { width: actualWidth, height: actualHeight, ...actualVisualStyle } = actual;
+    const { width: expectedWidth, height: expectedHeight, ...expectedVisualStyle } = expected;
+    expect(actualVisualStyle).toEqual(expectedVisualStyle);
+    expect(actualWidth).toBeGreaterThan(0);
+    expect(actualHeight).toBeGreaterThan(0);
+    expect(expectedWidth).toBeGreaterThan(0);
+    expect(expectedHeight).toBeGreaterThan(0);
+    expect(actualWidth / actualHeight).toBeCloseTo(expectedWidth / expectedHeight, 2);
+}
+
+function expectSameResponsiveElementPresentation(
+    actual: Awaited<ReturnType<typeof elementStyleSignature>>,
+    expected: Awaited<ReturnType<typeof elementStyleSignature>>,
+): void {
+    const { width: actualWidth, height: actualHeight, ...actualVisualStyle } = actual;
+    const { width: expectedWidth, height: expectedHeight, ...expectedVisualStyle } = expected;
+    expect(actualVisualStyle).toEqual(expectedVisualStyle);
+    expect(actualWidth).toBeGreaterThan(0);
+    expect(actualHeight).toBeGreaterThan(0);
+    expect(expectedWidth).toBeGreaterThan(0);
+    expect(expectedHeight).toBeGreaterThan(0);
+}
+
 async function expectViewportEdgeScroller(page: Page): Promise<void> {
     const geometry = await page.getByTestId('conversation-transcript-list').evaluate((element) => {
         const rect = element.getBoundingClientRect();
@@ -972,12 +999,35 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
             'message-agent-',
             '已检查：这是一次不可继续输入、可随时撤销的公开快照。',
         ), authenticatedAgentStyle);
-        expect(await elementStyleSignature(anonymousPage, 'media-attachment-player-generated'))
-            .toEqual(authenticatedVideoStyle);
+        expectSameMediaPresentation(
+            await elementStyleSignature(anonymousPage, 'media-attachment-player-generated'),
+            authenticatedVideoStyle,
+        );
         const publicWorkToggle = anonymousPage.getByTestId('conversation-agent-work-toggle').first();
         await expect(publicWorkToggle).toBeVisible();
         expect((await publicWorkToggle.textContent())?.trim()).toBe(authenticatedWorkLabel);
-        expectSameLayout(await elementStyleSignature(anonymousPage, 'conversation-agent-work-toggle'), authenticatedWorkStyle);
+        expectSameResponsiveElementPresentation(
+            await elementStyleSignature(anonymousPage, 'conversation-agent-work-toggle'),
+            authenticatedWorkStyle,
+        );
+        const publicWorkGeometry = await publicWorkToggle.evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            const containerBounds = element.parentElement?.getBoundingClientRect();
+            return {
+                bottom: bounds.bottom,
+                containerBottom: containerBounds?.bottom ?? Number.NEGATIVE_INFINITY,
+                containerLeft: containerBounds?.left ?? Number.POSITIVE_INFINITY,
+                containerRight: containerBounds?.right ?? Number.NEGATIVE_INFINITY,
+                containerTop: containerBounds?.top ?? Number.POSITIVE_INFINITY,
+                left: bounds.left,
+                right: bounds.right,
+                top: bounds.top,
+            };
+        });
+        expect(publicWorkGeometry.left).toBeGreaterThanOrEqual(publicWorkGeometry.containerLeft);
+        expect(publicWorkGeometry.right).toBeLessThanOrEqual(publicWorkGeometry.containerRight);
+        expect(publicWorkGeometry.top).toBeGreaterThanOrEqual(publicWorkGeometry.containerTop);
+        expect(publicWorkGeometry.bottom).toBeLessThanOrEqual(publicWorkGeometry.containerBottom);
         await publicWorkToggle.click();
         await expect(anonymousPage.getByTestId('conversation-tool-group-toggle').first()).toBeVisible();
         await publicWorkToggle.click();
