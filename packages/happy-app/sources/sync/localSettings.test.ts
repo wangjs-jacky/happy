@@ -59,8 +59,10 @@ describe('localSettings desktop workspace panels', () => {
     it('keeps both desktop panels expanded by default', () => {
         expect(localSettingsDefaults.desktopLeftSidebarCollapsed).toBe(false);
         expect(localSettingsDefaults.desktopRightPanelCollapsed).toBe(false);
-        expect(localSettingsDefaults.desktopLeftSidebarWidth).toBe(360);
+        expect(localSettingsDefaults.desktopLeftSidebarWidth).toBe(580);
         expect(localSettingsDefaults.desktopRightPanelWidth).toBe(320);
+        expect(localSettingsDefaults.desktopSidebarOrganizationCollapsed).toBe(false);
+        expect(localSettingsDefaults.desktopSidebarOrganizationWidth).toBe(220);
     });
 
     it('preserves independent collapse preferences when older data only has Zen mode', () => {
@@ -69,8 +71,10 @@ describe('localSettings desktop workspace panels', () => {
         expect(parsed.zenMode).toBe(true);
         expect(parsed.desktopLeftSidebarCollapsed).toBe(false);
         expect(parsed.desktopRightPanelCollapsed).toBe(false);
-        expect(parsed.desktopLeftSidebarWidth).toBe(360);
+        expect(parsed.desktopLeftSidebarWidth).toBe(580);
         expect(parsed.desktopRightPanelWidth).toBe(320);
+        expect(parsed.desktopSidebarOrganizationCollapsed).toBe(false);
+        expect(parsed.desktopSidebarOrganizationWidth).toBe(220);
     });
 
     it('restores independently stored panel preferences', () => {
@@ -80,12 +84,16 @@ describe('localSettings desktop workspace panels', () => {
             desktopRightPanelCollapsed: false,
             desktopLeftSidebarWidth: 412,
             desktopRightPanelWidth: 388,
+            desktopSidebarOrganizationCollapsed: true,
+            desktopSidebarOrganizationWidth: 268,
         });
 
         expect(parsed.desktopLeftSidebarCollapsed).toBe(true);
         expect(parsed.desktopRightPanelCollapsed).toBe(false);
         expect(parsed.desktopLeftSidebarWidth).toBe(412);
         expect(parsed.desktopRightPanelWidth).toBe(388);
+        expect(parsed.desktopSidebarOrganizationCollapsed).toBe(true);
+        expect(parsed.desktopSidebarOrganizationWidth).toBe(268);
     });
 });
 
@@ -108,6 +116,7 @@ describe('localSettings desktop Lists and Tags', () => {
 
     it('persists one List and multiple Tags for a session', () => {
         const sidebarOrganization = {
+            folders: [],
             lists: [{
                 id: 'happy', name: 'Happy', kind: 'workspace' as const, color: 'blue' as const,
                 machineId: 'mac-mini', path: '~/happy', defaultAgent: 'codex' as const, createdAt: 1,
@@ -150,7 +159,7 @@ describe('localSettings desktop Lists and Tags', () => {
         });
 
         expect(parsed.themePreference).toBe('dark');
-        expect(parsed.sidebarOrganization).toEqual({ lists: [], tags: [], sessions: {} });
+        expect(parsed.sidebarOrganization).toEqual({ folders: [], lists: [], tags: [], sessions: {} });
     });
 });
 
