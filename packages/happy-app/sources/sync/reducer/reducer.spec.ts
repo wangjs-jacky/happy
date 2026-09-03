@@ -574,6 +574,89 @@ describe('reducer', () => {
             expect(tool?.mcpAppResult).toBeUndefined();
         });
 
+        it('keeps the first pending main cancellation when a late completion arrives before tool start', () => {
+            const state = createReducer();
+            reducer(state, [{
+                id: 'pending-main-cancel', localId: null, createdAt: 1000, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'pending-main-call', content: null, is_error: false,
+                    status: 'cancelled', failure: { summary: 'Stopped before start' },
+                    uuid: 'pending-main-cancel-uuid', parentUUID: null,
+                }],
+            }, {
+                id: 'pending-main-late', localId: null, createdAt: 1100, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'pending-main-call', content: 'late', is_error: false,
+                    status: 'completed', mcpAppResult: { version: 1, state: 'available', content: [] },
+                    uuid: 'pending-main-late-uuid', parentUUID: null,
+                }],
+            }]);
+
+            reducer(state, [{
+                id: 'pending-main-start', localId: null, createdAt: 1200, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-call', id: 'pending-main-call', name: 'ShowDemo', input: {},
+                    description: 'Pending main cancellation', uuid: 'pending-main-start-uuid', parentUUID: null,
+                }],
+            }]);
+
+            const messageId = state.toolIdToMessageId.get('pending-main-call');
+            const tool = state.messages.get(messageId!)?.tool;
+            expect(tool).toMatchObject({
+                state: 'cancelled',
+                cancellationReason: 'Stopped before start',
+                permission: { status: 'canceled' },
+            });
+            expect(tool?.result).toBeNull();
+            expect(tool?.mcpAppResult).toBeUndefined();
+        });
+
+        it('keeps the first pending sidechain cancellation when a late error arrives before tool start', () => {
+            const state = createReducer();
+            reducer(state, [{
+                id: 'pending-side-owner', localId: null, createdAt: 900, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-call', id: 'pending-side-owner-call', name: 'Task',
+                    input: { prompt: 'Pending sidechain cancellation' },
+                    description: 'Pending sidechain cancellation', uuid: 'pending-side-owner-uuid', parentUUID: null,
+                }],
+            }, {
+                id: 'pending-side-cancel', localId: null, createdAt: 1000, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'pending-side-call', content: null, is_error: false,
+                    status: 'cancelled', failure: { summary: 'Sidechain stopped before start' },
+                    uuid: 'pending-side-cancel-uuid', parentUUID: 'pending-side-owner-call',
+                }],
+            }, {
+                id: 'pending-side-late', localId: null, createdAt: 1100, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'pending-side-call', content: 'late failure', is_error: true,
+                    status: 'failed', failure: { summary: 'Late failure' },
+                    uuid: 'pending-side-late-uuid', parentUUID: 'pending-side-owner-call',
+                }],
+            }]);
+
+            reducer(state, [{
+                id: 'pending-side-start', localId: null, createdAt: 1200, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-call', id: 'pending-side-call', name: 'ShowDemo', input: {},
+                    description: 'Pending sidechain cancellation', uuid: 'pending-side-start-uuid',
+                    parentUUID: 'pending-side-owner-call',
+                }],
+            }]);
+
+            const tool = state.sidechains.get('pending-side-owner')?.find((message) => (
+                message.tool?.callId === 'pending-side-call'
+            ))?.tool;
+            expect(tool).toMatchObject({
+                state: 'cancelled',
+                cancellationReason: 'Sidechain stopped before start',
+                permission: { status: 'canceled' },
+            });
+            expect(tool?.result).toBeNull();
+            expect(tool?.mcpAppResult).toBeUndefined();
+        });
+
         it('retains result-first MCP App metadata per sidechain call across replay', () => {
             const state = createReducer();
             const sidechainAParentId = '11111111-1111-4111-8111-111111111111';

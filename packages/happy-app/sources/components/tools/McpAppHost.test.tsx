@@ -126,21 +126,9 @@ describe('McpAppHost state presentation', () => {
     });
 
     it('delivers normalized wire cancellation to the View exactly once and ignores a late result', async () => {
-        const wire = [
+        const pendingWire = [
             {
-                id: 'wire-start', time: 10, role: 'agent' as const, turn: 'turn-1',
-                ev: {
-                    t: 'tool-call-start' as const,
-                    call: 'wire-call-cancelled',
-                    name: 'mcp__demo__show',
-                    title: 'Show demo',
-                    description: 'Show demo',
-                    args: { city: 'Hangzhou' },
-                    mcpApp: { version: 1 as const, server: 'demo', resourceUri: 'ui://demo/index.html' },
-                },
-            },
-            {
-                id: 'wire-cancelled', time: 20, role: 'agent' as const, turn: 'turn-1',
+                id: 'wire-cancelled', time: 10, role: 'agent' as const, turn: 'turn-1',
                 ev: {
                     t: 'tool-call-end' as const,
                     call: 'wire-call-cancelled',
@@ -148,11 +136,41 @@ describe('McpAppHost state presentation', () => {
                     error: { summary: 'Stopped by user' },
                 },
             },
+            {
+                id: 'wire-late-before-start', time: 20, role: 'agent' as const, turn: 'turn-1',
+                ev: {
+                    t: 'tool-call-end' as const,
+                    call: 'wire-call-cancelled',
+                    status: 'completed' as const,
+                    mcpAppResult: {
+                        version: 1 as const, state: 'available' as const, content: [],
+                        structuredContent: { late: true },
+                    },
+                },
+            },
         ].map((envelope, index) => normalizeRawMessage(
             `db-wire-${index}`, null, envelope.time, { role: 'session', content: envelope } as any,
         )).filter((message): message is NormalizedMessage => message !== null);
         const state = createReducer();
-        const reduced = reducer(state, wire);
+        reducer(state, pendingWire);
+
+        const start = normalizeRawMessage('db-wire-start', null, 30, {
+            role: 'session',
+            content: {
+                id: 'wire-start', time: 30, role: 'agent', turn: 'turn-1',
+                ev: {
+                    t: 'tool-call-start',
+                    call: 'wire-call-cancelled',
+                    name: 'mcp__demo__show',
+                    title: 'Show demo',
+                    description: 'Show demo',
+                    args: { city: 'Hangzhou' },
+                    mcpApp: { version: 1, server: 'demo', resourceUri: 'ui://demo/index.html' },
+                },
+            },
+        } as any);
+        expect(start).not.toBeNull();
+        const reduced = reducer(state, [start!]);
         const cancelled = reduced.messages.find((message) => message.kind === 'tool-call');
         expect(cancelled?.kind).toBe('tool-call');
         if (cancelled?.kind !== 'tool-call') throw new Error('cancelled tool call was not reduced');
@@ -177,10 +195,10 @@ describe('McpAppHost state presentation', () => {
             'ui/notifications/tool-cancelled:Stopped by user',
         ]);
 
-        const late = normalizeRawMessage('db-wire-late', null, 30, {
+        const late = normalizeRawMessage('db-wire-late', null, 40, {
             role: 'session',
             content: {
-                id: 'wire-late', time: 30, role: 'agent', turn: 'turn-1',
+                id: 'wire-late', time: 40, role: 'agent', turn: 'turn-1',
                 ev: {
                     t: 'tool-call-end', call: 'wire-call-cancelled', status: 'completed',
                     mcpAppResult: {

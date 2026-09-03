@@ -968,7 +968,9 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                     // Find the message containing this tool
                     let messageId = state.toolIdToMessageId.get(c.tool_use_id);
                     if (!messageId) {
-                        state.pendingToolResults.set(c.tool_use_id, pendingResult);
+                        if (!state.pendingToolResults.has(c.tool_use_id)) {
+                            state.pendingToolResults.set(c.tool_use_id, pendingResult);
+                        }
                         continue;
                     }
 
@@ -1137,7 +1139,9 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             pendingResults = new Map();
                             state.pendingSidechainToolResults.set(msg.sidechainId, pendingResults);
                         }
-                        pendingResults.set(c.tool_use_id, sidechainResult);
+                        if (!pendingResults.has(c.tool_use_id)) {
+                            pendingResults.set(c.tool_use_id, sidechainResult);
+                        }
                     }
 
                     // Also update the main permission message if it exists
