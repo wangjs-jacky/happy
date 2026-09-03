@@ -1,8 +1,7 @@
 import * as React from 'react';
-import { ActivityIndicator, Linking, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { randomUUID } from 'expo-crypto';
-import { Image } from 'expo-image';
 import { StyleSheet } from 'react-native-unistyles';
 import type { PublicSessionCover, PublicSessionThemePack } from '@slopus/happy-wire';
 import { MAX_FILE_SIZE, useImagePicker, type AttachmentPreview } from '@/hooks/useImagePicker';
@@ -166,6 +165,7 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
                         const selected = accent.id === themePack;
                         return (
                             <Pressable
+                                aria-checked={selected}
                                 accessibilityLabel={t('sessionShare.themeColorOption', { theme: accent.id })}
                                 accessibilityRole="radio"
                                 accessibilityState={{ checked: selected, disabled }}
@@ -197,7 +197,7 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
                     <View style={styles.previewWrap}>
                         <Image
                             accessibilityLabel={t('sessionShare.coverPreview')}
-                            contentFit="cover"
+                            resizeMode="cover"
                             source={{ uri: previewUri }}
                             style={styles.preview}
                             testID="public-share-cover-preview"

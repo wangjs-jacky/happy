@@ -43,12 +43,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
+    Image: 'Image',
     Linking: { openURL: mocks.openUrl },
     Pressable: 'Pressable',
     Text: 'Text',
     View: 'View',
 }));
-vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('expo-crypto', () => ({ randomUUID: mocks.uuid }));
 vi.mock('@/sync/storage', () => ({
@@ -173,6 +173,15 @@ describe('PublicSessionShareAppearanceControls', () => {
         ]);
         expect(renderer.root.findByProps({ testID: 'public-share-theme-caramel' }).props.accessibilityState)
             .toEqual({ checked: true, disabled: false });
+        expect(swatches.map((node: any) => node.props['aria-checked'])).toEqual([
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        ]);
         expect(mocks.pickerOptions[0]).toEqual({
             maxAttachments: 1,
             maxImageSizeBytes: 50 * 1024 * 1024,
@@ -203,6 +212,7 @@ describe('PublicSessionShareAppearanceControls', () => {
 
         const preview = renderer.root.findByProps({ testID: 'public-share-cover-preview' });
         expect(preview.props.source).toEqual({ uri: mocks.candidate.previewUrl });
+        expect(preview.props.resizeMode).toBe('cover');
         expect(renderer.root.findByProps({ testID: 'public-share-cover-attribution' }).props.children)
             .toBe('Photo by Ada Stone on Pexels');
         expect(onCoverSelectionChange).toHaveBeenCalledWith({ kind: 'pexels', photoId: 731889 });

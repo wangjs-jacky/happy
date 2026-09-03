@@ -1,14 +1,28 @@
-import { expect, test, type APIRequestContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import {
+    expect,
+    test,
+    type APIRequestContext,
+    type Locator,
+    type Page,
+    type Route,
+    type TestInfo,
+} from '@playwright/test';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { PublicSessionSnapshot } from '@slopus/happy-wire';
 import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 
 const authenticatedWebUrl = process.env.HAPPY_E2E_WEB_URL!;
 const e2eServerUrl = process.env.HAPPY_E2E_SERVER_URL!;
 const videoFixturePath = process.env.HAPPY_E2E_MP4_PATH!;
 const evidenceDirectory = process.env.HAPPY_PUBLIC_SHARE_EVIDENCE_DIR;
-const evidencePhase = process.env.HAPPY_PUBLIC_SHARE_EVIDENCE_PHASE ?? 'after';
+const coverFixturePath = resolve(process.cwd(), '..', '..', 'docs/assets/plugin-host-v2/marketplace-installed.png');
+const appearanceStorageKey = 'paws.public-share.appearance-mode';
+const themePackIds = ['caramel', 'gingham', 'terminal', 'acorn', 'sage', 'sakura', 'grape'] as const;
 
 type Credentials = { encryptionKey: Uint8Array; token: string };
+type PublishedFixture = { publicId: string; publicUrl: string; sessionId: string };
+type SnapshotV2 = Extract<PublicSessionSnapshot, { version: 2 }>;
 
 function credentials(): Credentials {
     const authUrl = new URL(authenticatedWebUrl);
@@ -18,15 +32,32 @@ function credentials(): Credentials {
     return { token, encryptionKey: new Uint8Array(Buffer.from(secret, 'base64url')) };
 }
 
+function ownerHeaders(json = false): Record<string, string> {
+    return {
+        Authorization: `Bearer ${credentials().token}`,
+        'X-Happy-Client': 'playwright-public-session-share',
+        ...(json ? { 'Content-Type': 'application/json' } : {}),
+    };
+}
+
 function authenticatedRoute(pathname: string): string {
     const url = new URL(authenticatedWebUrl);
     url.pathname = pathname;
     return url.toString();
 }
 
-function evidencePath(testInfo: TestInfo, name: string): string {
-    const filename = `${name}-${evidencePhase}.png`;
-    return evidenceDirectory ? `${evidenceDirectory}/${filename}` : testInfo.outputPath(filename);
+function publicRoute(publicId: string): string {
+    const url = new URL(authenticatedWebUrl);
+    url.pathname = `/share/${encodeURIComponent(publicId)}`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+}
+
+function evidencePath(testInfo: TestInfo, filename: string): string {
+    if (!evidenceDirectory) return testInfo.outputPath(filename);
+    mkdirSync(evidenceDirectory, { recursive: true });
+    return resolve(evidenceDirectory, filename);
 }
 
 async function waitForNextWallClockMillisecond(after: number): Promise<void> {
@@ -35,13 +66,12 @@ async function waitForNextWallClockMillisecond(after: number): Promise<void> {
         if (Date.now() >= deadline) {
             throw new Error('Timed out waiting for the next wall-clock millisecond while seeding the public-share fixture.');
         }
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await new Promise<void>((resolveWait) => setTimeout(resolveWait, 0));
     }
 }
 
-async function createSession(request: APIRequestContext): Promise<string> {
+async function createSession(request: APIRequestContext, title = '[PUBLIC-SESSION-SHARE] 产品发布检查清单'): Promise<string> {
     const auth = credentials();
-    const title = '[PUBLIC-SESSION-SHARE] 产品发布检查清单';
     const metadata = encodeBase64(encryptLegacy({
         path: '/workspace/public-session-share-e2e',
         host: 'playwright-public-share.local',
@@ -62,10 +92,7 @@ async function createSession(request: APIRequestContext): Promise<string> {
             agentState: null,
             dataEncryptionKey: null,
         },
-        headers: {
-            Authorization: `Bearer ${auth.token}`,
-            'X-Happy-Client': 'playwright-public-session-share',
-        },
+        headers: ownerHeaders(),
     });
     expect(response.ok()).toBe(true);
     return (await response.json() as { session: { id: string } }).session.id;
@@ -76,13 +103,7 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
     const video = readFileSync(videoFixturePath);
     const uploadRequest = await request.post(
         new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/attachments/request-upload`, e2eServerUrl).toString(),
-        {
-            data: { filename: '发布演示.mp4', size: video.length, kind: 'video' },
-            headers: {
-                Authorization: `Bearer ${auth.token}`,
-                'X-Happy-Client': 'playwright-public-session-share',
-            },
-        },
+        { data: { filename: '发布演示.mp4', size: video.length, kind: 'video' }, headers: ownerHeaders() },
     );
     expect(uploadRequest.ok()).toBe(true);
     const upload = await uploadRequest.json() as { ref: string; uploadUrl: string; method: 'PUT' };
@@ -110,14 +131,10 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
         {
             role: 'agent',
             content: {
-                type: 'acp',
-                provider: 'codex',
+                type: 'acp', provider: 'codex',
                 data: {
-                    type: 'tool-call',
-                    callId: `public-share-read-${now}`,
-                    id: `public-share-read-${now}`,
-                    input: { file_path: '/workspace/public-session-share-e2e/release-checklist.md' },
-                    name: 'Read',
+                    type: 'tool-call', callId: `public-share-read-${now}`, id: `public-share-read-${now}`,
+                    input: { file_path: '/workspace/public-session-share-e2e/release-checklist.md' }, name: 'Read',
                 },
             },
             meta: { sentFrom: 'cli' },
@@ -125,12 +142,9 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
         {
             role: 'agent',
             content: {
-                type: 'acp',
-                provider: 'codex',
+                type: 'acp', provider: 'codex',
                 data: {
-                    type: 'tool-result',
-                    callId: `public-share-read-${now}`,
-                    id: `public-share-read-result-${now}`,
+                    type: 'tool-result', callId: `public-share-read-${now}`, id: `public-share-read-result-${now}`,
                     output: { success: true },
                 },
             },
@@ -139,14 +153,10 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
         {
             role: 'agent',
             content: {
-                type: 'acp',
-                provider: 'codex',
+                type: 'acp', provider: 'codex',
                 data: {
-                    type: 'tool-call',
-                    callId: `public-share-test-${now}`,
-                    id: `public-share-test-${now}`,
-                    input: { command: 'pnpm test -- --grep public-session-share' },
-                    name: 'Bash',
+                    type: 'tool-call', callId: `public-share-test-${now}`, id: `public-share-test-${now}`,
+                    input: { command: 'pnpm test -- --grep public-session-share' }, name: 'Bash',
                 },
             },
             meta: { sentFrom: 'cli' },
@@ -154,12 +164,9 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
         {
             role: 'agent',
             content: {
-                type: 'acp',
-                provider: 'codex',
+                type: 'acp', provider: 'codex',
                 data: {
-                    type: 'tool-result',
-                    callId: `public-share-test-${now}`,
-                    id: `public-share-test-result-${now}`,
+                    type: 'tool-result', callId: `public-share-test-${now}`, id: `public-share-test-result-${now}`,
                     output: { success: true },
                 },
             },
@@ -172,8 +179,7 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
                 data: {
                     type: 'assistant',
                     message: {
-                        role: 'assistant',
-                        model: 'gpt-5.6-sol',
+                        role: 'assistant', model: 'gpt-5.6-sol',
                         content: [{
                             type: 'text',
                             text: [
@@ -193,19 +199,10 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
             content: {
                 type: 'session',
                 data: {
-                    id: `public-share-video-${now}`,
-                    time: now,
-                    role: 'agent',
-                    turn: `public-share-turn-${now}`,
+                    id: `public-share-video-${now}`, time: now, role: 'agent', turn: `public-share-turn-${now}`,
                     ev: {
-                        t: 'file',
-                        ref: upload.ref,
-                        name: '发布演示.mp4',
-                        size: video.length,
-                        kind: 'video',
-                        mimeType: 'video/mp4',
-                        encrypted: false,
-                        source: 'generated',
+                        t: 'file', ref: upload.ref, name: '发布演示.mp4', size: video.length,
+                        kind: 'video', mimeType: 'video/mp4', encrypted: false, source: 'generated',
                     },
                 },
             },
@@ -221,25 +218,66 @@ async function appendConversation(request: APIRequestContext, sessionId: string)
                         localId: `public-session-share-${index}-${now}`,
                     }],
                 },
-                headers: {
-                    Authorization: `Bearer ${auth.token}`,
-                    'X-Happy-Client': 'playwright-public-session-share',
-                },
+                headers: ownerHeaders(),
             },
         );
         expect(response.ok()).toBe(true);
-        const responseCompletedAt = Date.now();
-        await waitForNextWallClockMillisecond(responseCompletedAt);
+        await waitForNextWallClockMillisecond(Date.now());
     }
 }
 
-async function proxyPublicRequests(route: Route): Promise<void> {
+function longMessages(label: string, lineCount = 72): PublicSessionSnapshot['messages'] {
+    return [{
+        id: `${label}-assistant`,
+        role: 'assistant',
+        createdAt: Date.UTC(2026, 8, 3, 4, 0, 0),
+        blocks: [{
+            type: 'text',
+            markdown: [
+                `${label}: anonymous public snapshot.`,
+                ...Array.from({ length: lineCount }, (_, index) => `${label} verification line ${index + 1}: immutable and read-only.`),
+                '```sh\npnpm test -- --grep public-session-share\n```',
+            ].join('\n\n'),
+        }],
+    }];
+}
+
+async function publishDirectSnapshot(request: APIRequestContext, snapshot: PublicSessionSnapshot): Promise<PublishedFixture> {
+    const sessionId = await createSession(request, snapshot.title);
+    const draftResponse = await request.post(
+        new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts`, e2eServerUrl).toString(),
+        { headers: ownerHeaders() },
+    );
+    expect(draftResponse.ok()).toBe(true);
+    const draft = await draftResponse.json() as { generation: string; publicId: string };
+    const publishResponse = await request.put(
+        new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts/${encodeURIComponent(draft.generation)}/publish`, e2eServerUrl).toString(),
+        { data: { snapshot }, headers: ownerHeaders(true) },
+    );
+    expect(publishResponse.ok()).toBe(true);
+    return { publicId: draft.publicId, publicUrl: publicRoute(draft.publicId), sessionId };
+}
+
+async function revokeShare(request: APIRequestContext, fixture: PublishedFixture): Promise<void> {
+    const response = await request.delete(
+        new URL(`/v1/sessions/${encodeURIComponent(fixture.sessionId)}/share`, e2eServerUrl).toString(),
+        { headers: ownerHeaders() },
+    );
+    expect(response.ok()).toBe(true);
+}
+
+async function proxyAnonymousPublicRequest(route: Route): Promise<void> {
     const incoming = new URL(route.request().url());
-    const upstream = new URL(`${incoming.pathname}${incoming.search}`, e2eServerUrl);
-    const headers = await route.request().allHeaders();
+    const incomingHeaders = await route.request().allHeaders();
+    expect(incomingHeaders.authorization).toBeUndefined();
+    expect(incomingHeaders.cookie).toBeUndefined();
+    const headers = { ...incomingHeaders };
     delete headers.authorization;
     delete headers.cookie;
-    const response = await route.fetch({ url: upstream.toString(), headers });
+    const response = await route.fetch({
+        url: new URL(`${incoming.pathname}${incoming.search}`, e2eServerUrl).toString(),
+        headers,
+    });
     await route.fulfill({ response });
 }
 
@@ -257,8 +295,7 @@ async function enableToolGrouping(page: Page): Promise<void> {
     await expect(toggle).toBeVisible({ timeout: 180_000 });
     if (!await toggle.isChecked()) {
         const saved = page.waitForResponse((response) => (
-            response.request().method() === 'POST'
-            && new URL(response.url()).pathname === '/v1/account/settings'
+            response.request().method() === 'POST' && new URL(response.url()).pathname === '/v1/account/settings'
         ));
         await toggle.click();
         expect((await saved).ok()).toBe(true);
@@ -270,8 +307,53 @@ async function enableGinghamDark(page: Page): Promise<void> {
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto(authenticatedRoute('/settings/appearance'), { waitUntil: 'domcontentloaded', timeout: 180_000 });
     await page.getByText('Gingham', { exact: true }).click();
-    await expect.poll(() => page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor))
-        .toBe('rgb(18, 24, 33)');
+    await expectBodyColor(page, 'rgb(18, 24, 33)');
+}
+
+async function expectBodyColor(page: Page, color: string): Promise<void> {
+    await expect.poll(() => page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(color);
+}
+
+async function expectPublicPageColor(page: Page, color: string): Promise<void> {
+    await expect.poll(() => page.getByTestId('public-session-transcript')
+        .evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(color);
+}
+
+async function expectSelectedTheme(page: Page, themePack: (typeof themePackIds)[number]): Promise<void> {
+    const selected = page.getByRole('radio', { name: `Theme color: ${themePack}`, exact: true });
+    const unselected = page.getByRole('radio', {
+        name: `Theme color: ${themePackIds.find((candidate) => candidate !== themePack)!}`,
+        exact: true,
+    });
+    await expect.poll(async () => {
+        const [selectedText, selectedSurface, unselectedText, unselectedSurface] = await Promise.all([
+            selected.textContent(),
+            selected.evaluate((element) => getComputedStyle(element).backgroundColor),
+            unselected.textContent(),
+            unselected.evaluate((element) => getComputedStyle(element).backgroundColor),
+        ]);
+        return (selectedText?.trim().length ?? 0) > 0
+            && (unselectedText?.trim().length ?? 0) === 0
+            && selectedSurface !== unselectedSurface;
+    }).toBe(true);
+    await expect(page.getByRole('radio', { name: `Theme color: ${themePack}`, checked: true, exact: true })).toHaveCount(1);
+}
+
+async function expectSelectedMode(page: Page, mode: 'Light' | 'Dark' | 'System'): Promise<void> {
+    await expect(page.getByRole('button', { name: mode, exact: true })).toHaveAttribute('aria-selected', 'true');
+}
+
+async function expectAnonymousReadOnly(page: Page): Promise<void> {
+    await expect(page.getByTestId('public-session-transcript')).toBeVisible({ timeout: 180_000 });
+    await expect(page.getByTestId('conversation-transcript-list')).toBeVisible();
+    await expect(page.getByTestId('public-session-compact-header')).toBeVisible();
+    await expect(page.getByTestId('session-message-input')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-navigation-sidebar')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-right-panel')).toHaveCount(0);
+    await expect(page.getByTestId('session-header-more-button')).toHaveCount(0);
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex,nofollow,noarchive');
+    expect(await page.context().cookies()).toEqual([]);
+    expect(await page.evaluate(() => Object.keys(localStorage).every((key) => !/token|secret|auth/i.test(key)))).toBe(true);
 }
 
 async function expectLoadedVectorIcon(icon: Locator): Promise<void> {
@@ -346,14 +428,86 @@ function expectSameLayout<T extends { backgroundColor: string }>(actual: T, expe
     expect(expectedBackgroundColor).toMatch(/^rgba?\(/);
 }
 
-test.afterEach(async ({ page }) => {
-    await page.close();
-});
+async function expectViewportEdgeScroller(page: Page): Promise<void> {
+    const geometry = await page.getByTestId('conversation-transcript-list').evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(window.innerWidth - 1, rect.top + Math.min(40, rect.height / 2));
+        return {
+            clientHeight: element.clientHeight,
+            documentScrollWidth: document.documentElement.scrollWidth,
+            hitOwnedByScroller: hit === element || (hit !== null && element.contains(hit)),
+            innerWidth: window.innerWidth,
+            left: rect.left,
+            overflowY: getComputedStyle(element).overflowY,
+            right: rect.right,
+            scrollHeight: element.scrollHeight,
+            width: rect.width,
+        };
+    });
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight + 100);
+    expect(['auto', 'scroll']).toContain(geometry.overflowY);
+    expect(Math.abs(geometry.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.right - geometry.innerWidth)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.width - geometry.innerWidth)).toBeLessThanOrEqual(1);
+    expect(geometry.hitOwnedByScroller).toBe(true);
+    expect(geometry.documentScrollWidth).toBeLessThanOrEqual(geometry.innerWidth);
+}
 
-test('PUBLIC-SESSION-SHARE owner publishes a complete snapshot and anonymous viewers stay read-only', async ({ page, request }, testInfo) => {
+async function markAndScrollTranscript(page: Page): Promise<number> {
+    return page.getByTestId('conversation-transcript-list').evaluate((element) => {
+        const target = Math.min(640, element.scrollHeight - element.clientHeight);
+        if (target <= 0) throw new Error('The long transcript fixture did not create a vertical scroll range.');
+        (element as HTMLElement).dataset.e2eTranscriptInstance = 'public-share-stable-instance';
+        element.scrollTop = target;
+        element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        return target;
+    });
+}
+
+async function expectTranscriptPreserved(page: Page, expectedScrollTop: number): Promise<void> {
+    await expect.poll(() => page.getByTestId('conversation-transcript-list').evaluate((element) => ({
+        marker: (element as HTMLElement).dataset.e2eTranscriptInstance,
+        scrollTop: Math.round(element.scrollTop),
+    }))).toEqual({ marker: 'public-share-stable-instance', scrollTop: Math.round(expectedScrollTop) });
+}
+
+async function coverImageSource(page: Page): Promise<string> {
+    return page.getByTestId('public-session-cover-image').evaluate((element) => {
+        const image = element instanceof HTMLImageElement ? element : element.querySelector('img');
+        if (image instanceof HTMLImageElement) return image.currentSrc || image.src;
+        const match = getComputedStyle(element).backgroundImage.match(/^url\(["']?(.*?)["']?\)$/);
+        if (!match) throw new Error('Public cover did not expose an image source.');
+        return match[1];
+    });
+}
+
+async function expectCoverLoaded(page: Page, publicId: string, assetId: string): Promise<void> {
+    const cover = page.getByTestId('public-session-cover-image');
+    await expect(cover).toBeVisible();
+    await expect.poll(() => cover.evaluate((element) => {
+        const image = element instanceof HTMLImageElement ? element : element.querySelector('img');
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+    })).toBe(true);
+    const source = new URL(await coverImageSource(page));
+    expect(source.pathname).toBe(
+        `/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(assetId)}`,
+    );
+}
+
+async function expectDialogCoverLoaded(page: Page): Promise<void> {
+    const preview = page.getByTestId('public-share-cover-preview');
+    await expect(preview).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => preview.evaluate((element) => {
+        const image = element instanceof HTMLImageElement ? element : element.querySelector('img');
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+    })).toBe(true);
+}
+
+test('V2 owner dialog exposes seven themes and resilient cover actions, then publishes an anonymous immutable cover', async ({ browser, page, request }, testInfo) => {
     test.setTimeout(600_000);
     const sessionId = await createSession(request);
     await appendConversation(request, sessionId);
+    await page.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
     await page.setViewportSize({ width: 1440, height: 900 });
     await enableGinghamDark(page);
     await enableToolGrouping(page);
@@ -361,6 +515,7 @@ test('PUBLIC-SESSION-SHARE owner publishes a complete snapshot and anonymous vie
     await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 180_000 });
     await expect(page.getByTestId('conversation-transcript-list')).toBeVisible();
     await expect(page.getByTestId('media-attachment-player-generated')).toBeVisible();
+
     const authenticatedUserStyle = await messageStyleSignature(
         page,
         'message-user-',
@@ -381,90 +536,340 @@ test('PUBLIC-SESSION-SHARE owner publishes a complete snapshot and anonymous vie
     await expect(page.getByTestId('conversation-tool-group-toggle').first()).toBeVisible();
     await authenticatedWorkToggle.click();
     await expect(page.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
-    await page.screenshot({ path: evidencePath(testInfo, 'authenticated-conversation'), fullPage: true });
 
     await openShareDialog(page);
     await expect(page.getByTestId('public-session-share-privacy-message')).toContainText('all attachments');
+    await expect(page.getByTestId('public-share-appearance-controls')).toBeVisible();
+    await expect(page.getByRole('radio')).toHaveCount(7);
+    for (const themePack of themePackIds) {
+        const swatch = page.getByRole('radio', { name: `Theme color: ${themePack}`, exact: true });
+        await swatch.click();
+        await expectSelectedTheme(page, themePack);
+    }
+    await page.getByRole('radio', { name: 'Theme color: gingham', exact: true }).click();
+
+    await page.route('**/v1/sessions/**/share/covers/random', async (route) => {
+        await route.fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'Pexels cover provider is unavailable' }),
+        });
+    });
+    await page.getByTestId('public-share-cover-random').click();
+    await expect(page.getByTestId('public-share-cover-provider-state'))
+        .toContainText('Pexels is unavailable. You can still upload an image or share without a cover.');
+    await expect(page.getByTestId('public-session-share-create')).toBeEnabled();
+
+    const fileChooser = page.waitForEvent('filechooser');
+    await page.getByTestId('public-share-cover-upload').click();
+    await (await fileChooser).setFiles(coverFixturePath);
+    await expectDialogCoverLoaded(page);
+    await expect(page.getByTestId('public-share-cover-provider-state')).toHaveCount(0);
+    await expect(page.getByTestId('public-share-cover-remove')).toBeEnabled();
+
     await page.getByTestId('public-session-share-create').click();
-    await expect(page.getByTestId('public-session-share-copy')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('public-session-share-copy')).toBeVisible({ timeout: 120_000 });
     const publicUrl = (await page.getByText(/\/share\//).first().textContent())?.trim();
     expect(publicUrl).toMatch(/^http:\/\/localhost:\d+\/share\/[A-Za-z0-9_-]+$/);
     const publicId = new URL(publicUrl!).pathname.split('/').pop()!;
-    await page.screenshot({ path: evidencePath(testInfo, 'owner-manage-share'), fullPage: true });
+    await page.getByTestId('public-session-share-scroll').evaluate((element) => { element.scrollTop = 0; });
+    await expectSelectedTheme(page, 'gingham');
+    await expectDialogCoverLoaded(page);
+    await page.screenshot({ path: evidencePath(testInfo, 'case-1-share-dialog-after.png'), fullPage: false });
 
-    await page.route('**/v1/public/session-shares/**', proxyPublicRequests);
     const publicApiResponse = await request.get(
         new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}`, e2eServerUrl).toString(),
     );
     expect(publicApiResponse.ok()).toBe(true);
-    const publicPayload = await publicApiResponse.json() as {
-        snapshot: { messages: Array<{ blocks: Array<{ type: string; attachmentId?: string; name?: string }> }> };
-    };
+    const publicPayload = await publicApiResponse.json() as { snapshot: SnapshotV2 };
+    expect(publicPayload.snapshot.version).toBe(2);
+    expect(publicPayload.snapshot.appearance.themePack).toBe('gingham');
+    const cover = publicPayload.snapshot.appearance.cover;
+    expect(cover).toMatchObject({ mimeType: 'image/png', width: 1600, height: 1000 });
+    expect(cover?.attribution).toBeUndefined();
     const attachment = publicPayload.snapshot.messages
         .flatMap((message) => message.blocks)
         .find((block) => block.type === 'attachment');
     expect(attachment).toMatchObject({ type: 'attachment', name: '发布演示.mp4' });
     const attachmentResponse = await request.get(
-        new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(attachment!.attachmentId!)}`, e2eServerUrl).toString(),
+        new URL(
+            `/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(attachment!.attachmentId!)}`,
+            e2eServerUrl,
+        ).toString(),
     );
     expect(attachmentResponse.ok()).toBe(true);
     expect((await attachmentResponse.body()).length).toBeGreaterThan(0);
 
-    await page.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
-    await expect(page.getByTestId('public-session-transcript')).toBeVisible({ timeout: 180_000 });
-    await expect(page.getByTestId('conversation-transcript-list')).toBeVisible();
-    await expect(page.getByText('[PUBLIC-SESSION-SHARE] 产品发布检查清单', { exact: true })).toBeVisible();
-    await expect(page.getByText('请确认公开分享页只展示对话正文和全部附件。', { exact: true })).toBeVisible();
-    await expect(page.getByText('已检查：这是一次不可继续输入、可随时撤销的公开快照。', { exact: true })).toBeVisible();
-    await expect(page.locator('video')).toBeVisible();
-    expectSameLayout(await messageStyleSignature(
-        page,
-        'message-user-',
-        '请确认公开分享页只展示对话正文和全部附件。',
-    ), authenticatedUserStyle);
-    expectSameLayout(await messageStyleSignature(
-        page,
-        'message-agent-',
-        '已检查：这是一次不可继续输入、可随时撤销的公开快照。',
-    ), authenticatedAgentStyle);
-    expect(await elementStyleSignature(page, 'media-attachment-player-generated')).toEqual(authenticatedVideoStyle);
-    const publicWorkToggle = page.getByTestId('conversation-agent-work-toggle').first();
-    await expect(publicWorkToggle).toBeVisible();
-    await expect(page.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
-    expect((await publicWorkToggle.textContent())?.trim()).toBe(authenticatedWorkLabel);
-    expectSameLayout(await elementStyleSignature(page, 'conversation-agent-work-toggle'), authenticatedWorkStyle);
-    await publicWorkToggle.click();
-    await expect(page.getByTestId('conversation-tool-group-toggle').first()).toBeVisible();
-    await publicWorkToggle.click();
-    await expect(page.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
-    await expect(page.getByTestId('public-session-compact-header')).toBeVisible();
-    await expect(page.getByRole('heading', { name: '[PUBLIC-SESSION-SHARE] 产品发布检查清单' }))
-        .toHaveCSS('font-size', '22px');
-    const codeScroll = page.getByTestId('markdown-code-scroll').filter({ hasText: 'pnpm test -- --grep public-session-share' });
-    if (evidencePhase === 'before') {
-        await codeScroll.hover();
-        await expect(page.getByText('Copy', { exact: true }).last()).toBeVisible();
-        await page.screenshot({ path: evidencePath(testInfo, 'anonymous-copy-feedback'), fullPage: true });
-    } else {
-        await expectLoadedVectorIcon(page.getByTestId('public-session-header-icon'));
-        await expectLoadedVectorIcon(page.getByTestId('public-session-time-icon'));
+    const anonymousContext = await browser.newContext({
+        colorScheme: 'dark',
+        locale: 'en-US',
+        viewport: { width: 1440, height: 900 },
+    });
+    try {
+        expect(await anonymousContext.cookies()).toEqual([]);
+        const anonymousPage = await anonymousContext.newPage();
+        await anonymousPage.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
+        await anonymousPage.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(anonymousPage);
+        await expectPublicPageColor(anonymousPage, 'rgb(18, 24, 33)');
+        await expectSelectedMode(anonymousPage, 'System');
+        await expect(anonymousPage.getByText('[PUBLIC-SESSION-SHARE] 产品发布检查清单', { exact: true })).toBeVisible();
+        await expect(anonymousPage.getByText('请确认公开分享页只展示对话正文和全部附件。', { exact: true })).toBeVisible();
+        await expect(anonymousPage.getByText('已检查：这是一次不可继续输入、可随时撤销的公开快照。', { exact: true })).toBeVisible();
+        await expect(anonymousPage.locator('video')).toBeVisible();
+        await expectCoverLoaded(anonymousPage, publicId, cover!.assetId);
+        expectSameLayout(await messageStyleSignature(
+            anonymousPage,
+            'message-user-',
+            '请确认公开分享页只展示对话正文和全部附件。',
+        ), authenticatedUserStyle);
+        expectSameLayout(await messageStyleSignature(
+            anonymousPage,
+            'message-agent-',
+            '已检查：这是一次不可继续输入、可随时撤销的公开快照。',
+        ), authenticatedAgentStyle);
+        expect(await elementStyleSignature(anonymousPage, 'media-attachment-player-generated'))
+            .toEqual(authenticatedVideoStyle);
+        const publicWorkToggle = anonymousPage.getByTestId('conversation-agent-work-toggle').first();
+        await expect(publicWorkToggle).toBeVisible();
+        expect((await publicWorkToggle.textContent())?.trim()).toBe(authenticatedWorkLabel);
+        expectSameLayout(await elementStyleSignature(anonymousPage, 'conversation-agent-work-toggle'), authenticatedWorkStyle);
+        await publicWorkToggle.click();
+        await expect(anonymousPage.getByTestId('conversation-tool-group-toggle').first()).toBeVisible();
+        await publicWorkToggle.click();
+        await expect(anonymousPage.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
+        await expect(anonymousPage.getByRole('heading', { name: '[PUBLIC-SESSION-SHARE] 产品发布检查清单' }))
+            .toHaveCSS('font-size', '22px');
+        await expectLoadedVectorIcon(anonymousPage.getByTestId('public-session-header-icon'));
+        await expectLoadedVectorIcon(anonymousPage.getByTestId('public-session-time-icon'));
         await expectLoadedVectorIcon(publicWorkToggle.getByTestId('conversation-tool-summary-icon'));
         await expectLoadedVectorIcon(publicWorkToggle.getByTestId('conversation-collapse-chevron'));
+    } finally {
+        await anonymousContext.close();
+    }
+
+    const revokeResponsePromise = page.waitForResponse((response) => (
+        response.request().method() === 'DELETE' && response.url().endsWith(`/v1/sessions/${sessionId}/share`)
+    ));
+    await page.getByTestId('public-session-share-revoke').click();
+    await expect(page.getByTestId('public-session-share-revoke-confirmation')).toBeVisible();
+    await page.getByTestId('public-session-share-revoke-confirm').click();
+    expect((await revokeResponsePromise).status()).toBe(200);
+    await expect(page.getByTestId('public-session-share-create')).toBeVisible({ timeout: 30_000 });
+    const revokedResponse = await request.get(
+        new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}`, e2eServerUrl).toString(),
+    );
+    expect(revokedResponse.status()).toBe(404);
+    const revokedContext = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 } });
+    try {
+        const revokedPage = await revokedContext.newPage();
+        await revokedPage.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
+        await revokedPage.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expect(revokedPage.getByTestId('public-session-share-unavailable')).toBeVisible({ timeout: 180_000 });
+        await expect(revokedPage.getByText('This shared session is unavailable', { exact: true })).toBeVisible();
+    } finally {
+        await revokedContext.close();
+    }
+});
+
+test('historical V1 and coverless V2 shares remain anonymous, compact, and usable at desktop and phone widths', async ({ browser, request }, testInfo) => {
+    test.setTimeout(600_000);
+    const sharedAt = Date.UTC(2026, 8, 3, 4, 5, 0);
+    const v1 = await publishDirectSnapshot(request, {
+        version: 1,
+        title: 'Historical V1 public session',
+        sharedAt,
+        source: { provider: 'codex' },
+        presentation: { groupToolCalls: true },
+        messages: longMessages('V1', 36),
+    });
+    const coverlessV2 = await publishDirectSnapshot(request, {
+        version: 2,
+        title: 'Coverless V2 public session',
+        sharedAt: sharedAt + 1,
+        source: { provider: 'paws' },
+        presentation: { groupToolCalls: true },
+        messages: longMessages('V2 coverless', 52),
+        appearance: { themePack: 'sage' },
+    });
+
+    const context = await browser.newContext({
+        colorScheme: 'dark',
+        locale: 'en-US',
+        viewport: { width: 1440, height: 900 },
+    });
+    try {
+        const page = await context.newPage();
+        await page.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
+
+        await page.goto(v1.publicUrl, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expect(page.getByText('V1: anonymous public snapshot.', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('public-session-cover')).toHaveCount(0);
+        await expectPublicPageColor(page, 'rgb(26, 21, 18)');
+
+        await page.goto(coverlessV2.publicUrl, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expect(page.getByText('V2 coverless: anonymous public snapshot.', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('public-session-cover')).toHaveCount(0);
+        await expectPublicPageColor(page, 'rgb(18, 23, 15)');
+        const headerTop = await page.getByTestId('public-session-compact-header').evaluate((element) => (
+            Math.round(element.getBoundingClientRect().top)
+        ));
+        expect(headerTop).toBeLessThanOrEqual(1);
+        await expectViewportEdgeScroller(page);
+        await page.screenshot({ path: evidencePath(testInfo, 'case-3-no-cover-after.png'), fullPage: false });
+
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(page.getByTestId('public-session-transcript')).toBeVisible();
+        await expect(page.getByTestId('public-session-cover')).toHaveCount(0);
+        await expect(page.getByTestId('public-session-title')).toBeVisible();
+        const mobileGeometry = await page.evaluate(() => {
+            const control = document.querySelector('[data-testid="public-session-appearance-mode"]');
+            const header = document.querySelector('[data-testid="public-session-header-inner"]');
+            if (!(control instanceof HTMLElement) || !(header instanceof HTMLElement)) {
+                throw new Error('Missing compact public header geometry.');
+            }
+            const controlRect = control.getBoundingClientRect();
+            const headerRect = header.getBoundingClientRect();
+            return {
+                controlLeft: controlRect.left,
+                controlRight: controlRect.right,
+                headerLeft: headerRect.left,
+                headerRight: headerRect.right,
+                scrollWidth: document.documentElement.scrollWidth,
+                viewportWidth: window.innerWidth,
+            };
+        });
+        expect(mobileGeometry.controlLeft).toBeGreaterThanOrEqual(0);
+        expect(mobileGeometry.controlRight).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
+        expect(mobileGeometry.headerLeft).toBeGreaterThanOrEqual(0);
+        expect(mobileGeometry.headerRight).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
+        expect(mobileGeometry.scrollWidth).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
+        await expectViewportEdgeScroller(page);
+    } finally {
+        await context.close();
+        await revokeShare(request, v1);
+        await revokeShare(request, coverlessV2);
+    }
+});
+
+test('deterministic Pexels V2 renderer keeps mode storage and the mounted transcript stable across IDs, reloads, and system changes', async ({ browser }, testInfo) => {
+    test.setTimeout(600_000);
+    const coverBytes = readFileSync(coverFixturePath);
+    const coverAssetId = 'f4f39a1b-3d5e-4b5f-8f35-6a9f1f6788c1';
+    const coveredPublicId = 'pexels-renderer-v2';
+    const historicalPublicId = 'historical-renderer-v1';
+    const publishedAt = Date.UTC(2026, 8, 3, 4, 10, 0);
+    const coveredSnapshot: SnapshotV2 = {
+        version: 2,
+        title: 'Gingham release story',
+        sharedAt: publishedAt,
+        source: { provider: 'codex' },
+        presentation: { groupToolCalls: true },
+        messages: longMessages('Gingham V2', 96),
+        appearance: {
+            themePack: 'gingham',
+            cover: {
+                assetId: coverAssetId,
+                mimeType: 'image/png',
+                size: coverBytes.length,
+                width: 1600,
+                height: 1000,
+                attribution: {
+                    photoId: 2014422,
+                    photographer: 'Ada Lovelace',
+                    photographerUrl: 'https://www.pexels.com/@ada-lovelace/',
+                    photoUrl: 'https://www.pexels.com/photo/2014422/',
+                },
+            },
+        },
+    };
+    const historicalSnapshot: PublicSessionSnapshot = {
+        version: 1,
+        title: 'Historical cross-ID appearance fixture',
+        sharedAt: publishedAt - 1,
+        source: { provider: 'codex' },
+        presentation: { groupToolCalls: true },
+        messages: longMessages('Historical cross-ID V1', 28),
+    };
+
+    const context = await browser.newContext({
+        colorScheme: 'dark',
+        locale: 'en-US',
+        viewport: { width: 1440, height: 900 },
+    });
+    try {
+        const page = await context.newPage();
+        await page.route('**/v1/public/session-shares/**', async (route) => {
+            const requestUrl = new URL(route.request().url());
+            const headers = await route.request().allHeaders();
+            expect(headers.authorization).toBeUndefined();
+            expect(headers.cookie).toBeUndefined();
+            const segments = requestUrl.pathname.split('/').filter(Boolean);
+            const publicId = decodeURIComponent(segments[3] ?? '');
+            const assetId = decodeURIComponent(segments[5] ?? '');
+            if (segments.length === 4 && publicId === coveredPublicId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ snapshot: coveredSnapshot, publishedAt }),
+                });
+                return;
+            }
+            if (segments.length === 4 && publicId === historicalPublicId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ snapshot: historicalSnapshot, publishedAt: publishedAt - 1 }),
+                });
+                return;
+            }
+            if (segments.length === 6 && publicId === coveredPublicId && assetId === coverAssetId) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'image/png',
+                    headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
+                    body: coverBytes,
+                });
+                return;
+            }
+            await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}' });
+        });
+
+        await page.goto(publicRoute(coveredPublicId), { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expectSelectedMode(page, 'System');
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        await expectCoverLoaded(page, coveredPublicId, coverAssetId);
+        await expect(page.getByRole('link', { name: 'Photo by Ada Lovelace on Pexels', exact: true })).toBeVisible();
+        await expect(page.getByTestId('public-session-cover-attribution')).toContainText('Photo by Ada Lovelace on Pexels');
+        await expectViewportEdgeScroller(page);
+
+        const initialScrollTop = await markAndScrollTranscript(page);
+        await page.getByRole('button', { name: 'Light', exact: true }).click();
+        await expectSelectedMode(page, 'Light');
+        await expectPublicPageColor(page, 'rgb(244, 247, 250)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('light');
+        await expectTranscriptPreserved(page, initialScrollTop);
+
+        await page.getByRole('button', { name: 'Dark', exact: true }).click();
+        await expectSelectedMode(page, 'Dark');
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('dark');
+        await expectTranscriptPreserved(page, initialScrollTop);
 
         const transcript = page.getByTestId('conversation-transcript-list');
         await transcript.evaluate((element) => {
-            element.scrollTop = 0;
+            element.scrollTop = element.scrollHeight;
             element.dispatchEvent(new Event('scroll', { bubbles: true }));
         });
-        const scrollButton = page.getByTestId('conversation-scroll-to-bottom');
-        await expect(scrollButton).toBeVisible();
-        await expectLoadedVectorIcon(page.getByTestId('conversation-scroll-to-bottom-icon'));
-        await scrollButton.click();
-
-        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(publicUrl!).origin });
+        const codeScroll = page.getByTestId('markdown-code-scroll').filter({ hasText: 'pnpm test -- --grep public-session-share' });
+        await expect(codeScroll).toBeVisible();
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(publicRoute(coveredPublicId)).origin });
         const copyButton = page.getByTestId('markdown-code-copy').first();
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-        for (let index = 0; index < 40 && !(await copyButton.evaluate((element) => element === document.activeElement)); index += 1) {
+        for (let index = 0; index < 80 && !(await copyButton.evaluate((element) => element === document.activeElement)); index += 1) {
             await page.keyboard.press('Tab');
         }
         await expect(copyButton).toBeFocused();
@@ -474,35 +879,60 @@ test('PUBLIC-SESSION-SHARE owner publishes a complete snapshot and anonymous vie
         await expect(page.getByTestId('markdown-code-copy-feedback')).toHaveAttribute('aria-live', 'polite');
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
             .toBe('pnpm test -- --grep public-session-share');
-        await page.waitForTimeout(900);
-        await page.screenshot({ path: evidencePath(testInfo, 'anonymous-copy-feedback'), fullPage: true });
+        await page.getByRole('button', { name: 'Dark', exact: true }).hover();
+        await page.screenshot({ path: evidencePath(testInfo, 'case-4-gingham-dark-after.png'), fullPage: false });
         await expect(copyButton).toHaveAttribute('aria-label', 'Copy', { timeout: 3_000 });
+
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expectSelectedMode(page, 'Dark');
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('dark');
+
+        await page.goto(publicRoute(historicalPublicId), { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expectSelectedMode(page, 'Dark');
+        await expectPublicPageColor(page, 'rgb(26, 21, 18)');
+        await expect(page.getByTestId('public-session-cover')).toHaveCount(0);
+
+        await page.getByRole('button', { name: 'Light', exact: true }).click();
+        await expectSelectedMode(page, 'Light');
+        await expectPublicPageColor(page, 'rgb(251, 247, 240)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('light');
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectSelectedMode(page, 'Light');
+        await expectPublicPageColor(page, 'rgb(251, 247, 240)');
+
+        await page.goto(publicRoute(coveredPublicId), { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectAnonymousReadOnly(page);
+        await expectSelectedMode(page, 'Light');
+        await expectPublicPageColor(page, 'rgb(244, 247, 250)');
+        await expectCoverLoaded(page, coveredPublicId, coverAssetId);
+        await page.getByTestId('conversation-transcript-list').evaluate((element) => { element.scrollTop = 0; });
+        await page.screenshot({ path: evidencePath(testInfo, 'case-2-public-cover-after.png'), fullPage: false });
+
+        await page.getByRole('button', { name: 'System', exact: true }).click();
+        await expectSelectedMode(page, 'System');
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('system');
+        const systemScrollTop = await markAndScrollTranscript(page);
+        await page.emulateMedia({ colorScheme: 'light' });
+        await expectPublicPageColor(page, 'rgb(244, 247, 250)');
+        await expectTranscriptPreserved(page, systemScrollTop);
+        await page.emulateMedia({ colorScheme: 'dark' });
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        await expectTranscriptPreserved(page, systemScrollTop);
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectSelectedMode(page, 'System');
+        await expectPublicPageColor(page, 'rgb(18, 24, 33)');
+        expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('system');
+
+        await page.goto(publicRoute(historicalPublicId), { waitUntil: 'domcontentloaded', timeout: 180_000 });
+        await expectSelectedMode(page, 'System');
+        await expectPublicPageColor(page, 'rgb(26, 21, 18)');
+        await page.emulateMedia({ colorScheme: 'light' });
+        await expectPublicPageColor(page, 'rgb(251, 247, 240)');
+    } finally {
+        await context.close();
     }
-    await expect(page.getByTestId('session-message-input')).toHaveCount(0);
-    await expect(page.getByTestId('desktop-navigation-sidebar')).toHaveCount(0);
-    await expect(page.getByTestId('desktop-right-panel')).toHaveCount(0);
-    await expect(page.getByTestId('session-header-more-button')).toHaveCount(0);
-    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex,nofollow,noarchive');
-    await page.screenshot({ path: evidencePath(testInfo, 'anonymous-read-only-share'), fullPage: true });
-
-    await page.goto(authenticatedRoute(`/session/${sessionId}`), { waitUntil: 'domcontentloaded', timeout: 180_000 });
-    await expect(page.getByTestId('session-message-input')).toBeVisible({ timeout: 180_000 });
-    await openShareDialog(page);
-    const revokeResponsePromise = page.waitForResponse((response) => (
-        response.request().method() === 'DELETE'
-        && response.url().endsWith(`/v1/sessions/${sessionId}/share`)
-    ));
-    await page.getByTestId('public-session-share-revoke').click();
-    await expect(page.getByTestId('public-session-share-revoke-confirmation')).toBeVisible();
-    await page.getByTestId('public-session-share-revoke-confirm').click();
-    expect((await revokeResponsePromise).status()).toBe(200);
-    await expect(page.getByTestId('public-session-share-create')).toBeVisible({ timeout: 30_000 });
-
-    const revokedResponse = await request.get(
-        new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}`, e2eServerUrl).toString(),
-    );
-    expect(revokedResponse.status()).toBe(404);
-    await page.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
-    await expect(page.getByTestId('public-session-share-unavailable')).toBeVisible({ timeout: 180_000 });
-    await expect(page.getByText('This shared session is unavailable', { exact: true })).toBeVisible();
 });

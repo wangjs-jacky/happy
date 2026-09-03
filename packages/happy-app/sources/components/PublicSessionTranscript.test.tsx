@@ -272,6 +272,7 @@ describe('PublicSessionTranscript', () => {
             { selected: false },
             { selected: true },
         ]);
+        expect(buttons.map((button: any) => button.props['aria-selected'])).toEqual([false, false, true]);
         act(() => buttons[1].props.onPress());
         expect(setAppearanceMode).toHaveBeenCalledWith('dark');
         expect(renderer.root.findAllByProps({ testID: 'public-session-theme-pack-picker' })).toHaveLength(0);

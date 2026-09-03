@@ -180,6 +180,7 @@ function PublicAppearanceModeControl({
                 const selected = option.mode === mode;
                 return (
                     <Pressable
+                        aria-selected={selected}
                         accessibilityLabel={t(option.label)}
                         accessibilityRole="button"
                         accessibilityState={{ selected }}
