@@ -18,95 +18,129 @@ function normalizeHttpsOrigin(raw, label) {
     return url.origin;
 }
 
-function structuralLines(lines) {
-    const result = [];
-    let quote = null;
-    let heredocDelimiter = null;
-    for (const line of lines) {
-        const content = Array.from({ length: line.length }, () => ' ');
-        let commentStart = -1;
-        let index = 0;
-        let tokenStart = quote === null;
-        if (heredocDelimiter !== null) {
-            while (index < line.length && /\s/u.test(line[index])) index += 1;
-            const delimiterEnd = index + heredocDelimiter.length;
-            const closesHeredoc = line.startsWith(heredocDelimiter, index)
-                && (delimiterEnd === line.length || /\s/u.test(line[delimiterEnd]));
-            if (!closesHeredoc) {
-                result.push({ content: content.join(''), commentStart });
-                continue;
-            }
-            index = delimiterEnd;
-            heredocDelimiter = null;
-            tokenStart = false;
+function scanCaddyfile(source) {
+    const tokens = [];
+    const comments = [];
+    let index = 0;
+    let line = 0;
+    const emit = (text, tokenLine, quoted = false) => tokens.push({ text, line: tokenLine, quoted });
+    while (index < source.length) {
+        const character = source[index];
+        if (/\s/u.test(character)) {
+            if (character === '\n') line += 1;
+            index += 1;
+            continue;
+        }
+        if (character === '#') {
+            const end = source.indexOf('\n', index);
+            comments.push({ line, text: source.slice(index, end < 0 ? source.length : end).trim() });
+            index = end < 0 ? source.length : end;
+            continue;
         }
 
-        let escaped = false;
-        let pendingHeredoc = null;
-        for (; index < line.length; index += 1) {
-            const character = line[index];
-            if (escaped) { escaped = false; continue; }
-            if (quote) {
-                if (character === '\\') { escaped = true; continue; }
-                if (character === quote) quote = null;
-                continue;
-            }
-            if (character === '\\') { escaped = true; tokenStart = false; continue; }
-            if (character === '#') { commentStart = index; break; }
-            if (character === '"' || character === "'" || character === '`') {
-                quote = character;
-                tokenStart = false;
-                continue;
-            }
-            if (tokenStart && line.startsWith('<<', index)) {
-                if (pendingHeredoc !== null) throw new Error('Caddyfile contains a malformed heredoc token');
-                const match = /^<<([A-Za-z0-9_][A-Za-z0-9_-]*)/u.exec(line.slice(index));
-                const delimiter = match?.[1];
-                const delimiterEnd = delimiter ? index + 2 + delimiter.length : index + 2;
-                if (!delimiter || (delimiterEnd < line.length && !/\s/u.test(line[delimiterEnd]))) {
-                    throw new Error('Caddyfile contains a malformed heredoc token');
+        const tokenLine = line;
+        if (character === '"' || character === '`') {
+            const quote = character;
+            let escaped = false;
+            let closed = false;
+            index += 1;
+            while (index < source.length) {
+                const quotedCharacter = source[index];
+                if (quote === '"' && !escaped && quotedCharacter === '\\') {
+                    escaped = true;
+                    index += 1;
+                    continue;
                 }
-                pendingHeredoc = delimiter;
-                index = delimiterEnd - 1;
-                tokenStart = false;
+                if (quote === '"' && escaped) {
+                    escaped = false;
+                    if (quotedCharacter === '\n') line += 1;
+                    index += 1;
+                    continue;
+                }
+                if (quotedCharacter === quote) {
+                    index += 1;
+                    emit('', tokenLine, true);
+                    closed = true;
+                    break;
+                }
+                if (quotedCharacter === '\n') line += 1;
+                index += 1;
+            }
+            if (!closed) {
+                throw new Error(escaped
+                    ? 'Caddyfile contains an unterminated escape in a quoted value'
+                    : 'Caddyfile contains an unterminated quoted value');
+            }
+            continue;
+        }
+
+        if (source.startsWith('<<', index)) {
+            const openerEnd = source.indexOf('\n', index);
+            const opener = source.slice(index, openerEnd < 0 ? source.length : openerEnd);
+            const markerMatch = /^<<([A-Za-z0-9_][A-Za-z0-9_-]*)$/u.exec(opener);
+            if (!markerMatch) throw new Error('Caddyfile contains a malformed heredoc token');
+            const marker = markerMatch[1];
+            index = openerEnd < 0 ? source.length : openerEnd + 1;
+            if (openerEnd >= 0) line += 1;
+            let closed = false;
+            while (index <= source.length) {
+                const closeLineEnd = source.indexOf('\n', index);
+                const physicalEnd = closeLineEnd < 0 ? source.length : closeLineEnd;
+                let markerStart = index;
+                while (markerStart < physicalEnd && /[^\S\n]/u.test(source[markerStart])) markerStart += 1;
+                const markerEnd = markerStart + marker.length;
+                if (source.startsWith(marker, markerStart)
+                    && (markerEnd === physicalEnd || /[^\S\n]/u.test(source[markerEnd]))) {
+                    emit('', tokenLine, true);
+                    index = markerEnd;
+                    closed = true;
+                    break;
+                }
+                if (closeLineEnd < 0) break;
+                index = closeLineEnd + 1;
+                line += 1;
+            }
+            if (!closed) throw new Error('Caddyfile contains an unterminated heredoc');
+            continue;
+        }
+
+        const start = index;
+        let escaped = false;
+        while (index < source.length && !/\s/u.test(source[index])) {
+            const tokenCharacter = source[index];
+            if (!escaped && tokenCharacter === '\\') {
+                escaped = true;
+                index += 1;
                 continue;
             }
-            content[index] = character;
-            tokenStart = /\s/u.test(character);
+            escaped = false;
+            index += 1;
         }
-        if (escaped) throw new Error('Caddyfile contains an unterminated escape');
-        if (pendingHeredoc !== null) {
-            if (quote !== null) throw new Error('Caddyfile contains a malformed heredoc token');
-            heredocDelimiter = pendingHeredoc;
-        }
-        result.push({ content: content.join(''), commentStart });
+        if (escaped && index === source.length) throw new Error('Caddyfile contains an unterminated escape');
+        emit(source.slice(start, index), tokenLine);
     }
-    if (quote !== null) throw new Error('Caddyfile contains an unterminated quoted value');
-    if (heredocDelimiter !== null) throw new Error('Caddyfile contains an unterminated heredoc');
-    return result;
+    return { tokens, comments };
 }
 
-function braceDelta(content) {
-    return (content.match(/{/g) ?? []).length - (content.match(/}/g) ?? []).length;
-}
-
-function blockEnd(structure, start, label) {
+function blockEnd(tokens, start, label) {
     let depth = 0;
-    for (let index = start; index < structure.length; index += 1) {
-        depth += braceDelta(structure[index].content);
+    for (let index = start; index < tokens.length; index += 1) {
+        if (!tokens[index].quoted && tokens[index].text === '{') depth += 1;
+        if (!tokens[index].quoted && tokens[index].text === '}') depth -= 1;
         if (index > start && depth === 0) return index;
         if (depth < 0) break;
     }
     throw new Error(`${label} is unbalanced`);
 }
 
-function findManagedRange(lines, structure) {
+function findManagedRange(lines, comments) {
     const starts = [];
     const ends = [];
-    for (const [index, line] of lines.entries()) {
-        const comment = structure[index].commentStart >= 0 ? line.slice(structure[index].commentStart).trim() : '';
-        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START && comment === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(index);
-        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END && comment === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(index);
+    for (const comment of comments) {
+        if (lines[comment.line]?.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START
+            && comment.text === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(comment.line);
+        if (lines[comment.line]?.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END
+            && comment.text === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(comment.line);
     }
     if (starts.length === 0 && ends.length === 0) return null;
     if (starts.length !== 1 || ends.length !== 1 || ends[0] < starts[0]) {
@@ -145,21 +179,36 @@ export function configureProductionMcpAppSandboxCaddy(source, options) {
     }
     const hadFinalNewline = source.endsWith(newline);
     const lines = source.split(newline);
-    const structure = structuralLines(lines);
-    const globalManagedRange = findManagedRange(lines, structure);
+    const scan = scanCaddyfile(source.replaceAll('\r\n', '\n'));
+    const globalManagedRange = findManagedRange(lines, scan.comments);
     const sandboxHost = new URL(sandboxOrigin).host;
     const acceptedSiteLabels = new Set([sandboxHost, sandboxOrigin]);
-    const siteStarts = lines.flatMap((_line, index) => {
-        const match = /^\s*(\S+)\s*\{\s*$/u.exec(structure[index].content);
-        return match && acceptedSiteLabels.has(match[1]) ? [index] : [];
-    });
+    const siteStarts = [];
+    let nesting = 0;
+    for (const [index, token] of scan.tokens.entries()) {
+        const structuralOpen = !token.quoted && token.text === '{';
+        const structuralClose = !token.quoted && token.text === '}';
+        const next = scan.tokens[index + 1];
+        const previous = scan.tokens[index - 1];
+        if (nesting === 0 && acceptedSiteLabels.has(token.text) && !token.quoted
+            && (!previous || previous.line < token.line)
+            && next && !next.quoted && next.text === '{' && next.line === token.line
+            && (!scan.tokens[index + 2] || scan.tokens[index + 2].line > token.line)) {
+            siteStarts.push({ line: token.line, braceIndex: index + 1 });
+        }
+        if (structuralOpen) nesting += 1;
+        if (structuralClose) nesting -= 1;
+        if (nesting < 0) throw new Error('Caddyfile contains unbalanced structural braces');
+    }
+    if (nesting !== 0) throw new Error('Caddyfile contains unbalanced structural braces');
     if (siteStarts.length !== 1) {
         throw new Error(siteStarts.length === 0
             ? `Caddy site block not found for already-provisioned sandbox: ${sandboxHost}`
             : `Multiple Caddy site blocks found for sandbox: ${sandboxHost}`);
     }
-    const siteStart = siteStarts[0];
-    const siteEnd = blockEnd(structure, siteStart, `Sandbox Caddy site ${sandboxHost}`);
+    const siteStart = siteStarts[0].line;
+    const siteEndToken = blockEnd(scan.tokens, siteStarts[0].braceIndex, `Sandbox Caddy site ${sandboxHost}`);
+    const siteEnd = scan.tokens[siteEndToken].line;
     if (globalManagedRange
         && (globalManagedRange.start <= siteStart || globalManagedRange.end >= siteEnd)) {
         throw new Error('Existing managed MCP App sandbox Caddy block is outside the sandbox site');

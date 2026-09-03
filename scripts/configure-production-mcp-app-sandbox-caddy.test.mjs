@@ -42,6 +42,12 @@ test('adds an exact-path managed block only inside the provisioned sandbox site'
     assert.match(configured, /# TLS is provisioned automatically by the site address\./);
     assert.match(configured, /metrics\.example \{\n    reverse_proxy localhost:9090\n\}/);
     assert.match(configured, /paws\.example:8443 \{\n    respond "paws"\n\}/);
+
+    const boundaryComment = configureProductionMcpAppSandboxCaddy(
+        source.replace('sandbox.paws.example {', 'sandbox.paws.example { # valid token-boundary comment'),
+        { sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'] },
+    );
+    assert.match(boundaryComment, /sandbox\.paws\.example \{ # valid token-boundary comment/);
 });
 
 test('is idempotent and replaces only its own complete managed block', () => {
@@ -106,15 +112,26 @@ test('fails closed for missing, same-origin, non-HTTPS, and incomplete managed s
             sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
         }), /only comments|unbalanced/i);
     }
+    for (const invalidHeader of [
+        'sandbox.paws.example {#not-a-comment',
+        'sandbox.paws.example {"not-a-quote"',
+    ]) {
+        assert.throws(() => configureProductionMcpAppSandboxCaddy(
+            source.replace('sandbox.paws.example {', invalidHeader),
+            { sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'] },
+        ), /site block not found|unbalanced|unterminated/i);
+    }
 });
 
 test('preserves unrelated multiline quotes and official heredocs with structural close-line remainders', () => {
     const unrelated = `notes.example {
     header X-Double "first line {
+        a literal line-ending escape \\
         sandbox.paws.example {
         } still quoted"
     header X-Single '} still quoted'
     header X-Raw \`first raw line }
+        a raw line-ending backslash \\
         sandbox.paws.example {
         ${MCP_APP_SANDBOX_CADDY_BLOCK_START}
         { still raw\`
@@ -148,7 +165,7 @@ test('fails closed on any heredoc or nested token inside the target while scanni
     );
     assert.throws(() => configureProductionMcpAppSandboxCaddy(dangerous, {
         sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
-    }), /only comments/i);
+    }), /only comments|unbalanced/i);
 
     const escapedClosingBrace = source.replace(
         '    # TLS is provisioned automatically by the site address.',
@@ -170,7 +187,10 @@ test('rejects malformed official heredoc forms, open multiline tokens, mixed lin
         source.replace('# TLS is provisioned automatically by the site address.', 'respond <<-DOC\nDOC'),
         source.replace('# TLS is provisioned automatically by the site address.', 'respond <<DOC!\nDOC'),
         source.replace('# TLS is provisioned automatically by the site address.', 'respond <<DOC#comment\nDOC'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<DOC ignored\nDOC'),
         source.replace('# TLS is provisioned', 'respond <<EOF\n} hidden forever'),
+        `${source}header X-Dangling \\`,
+        `${source}header X-Bad "escaped \\"`,
         source.replace('\n', '\r\n'),
     ];
     for (const candidate of malformed) {
@@ -206,6 +226,9 @@ test('does not create or mutate the output file when validation fails', async ()
             [source.replace('# TLS is provisioned', 'reverse_proxy localhost:9999'), /only comments/i],
             [source.replace('# TLS is provisioned', 'respond <<EOF\n} data'), /unterminated heredoc/i],
             [source.replace('# TLS is provisioned', 'respond <<"DOC"\nDOC'), /malformed heredoc/i],
+            [source.replace('# TLS is provisioned', 'respond <<DOC ignored\nDOC'), /malformed heredoc/i],
+            [source.replace('sandbox.paws.example {', 'sandbox.paws.example {#not-a-comment'), /site block not found|unbalanced/i],
+            [source.replace('sandbox.paws.example {', 'sandbox.paws.example {"not-a-quote"'), /site block not found|unbalanced/i],
             [source.replace('# TLS is provisioned', 'header X-Bad `unterminated'), /unterminated quoted/i],
         ]) {
             await writeFile(input, invalidSource);
