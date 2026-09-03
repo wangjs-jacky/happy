@@ -1,4 +1,4 @@
-import type { PublicSessionThemePack } from '@slopus/happy-wire';
+import type { PublicSessionCover, PublicSessionThemePack } from '@slopus/happy-wire';
 import { z } from 'zod';
 
 export type PublicSessionShareJobStatus = 'queued' | 'running' | 'ready' | 'failed';
@@ -11,7 +11,7 @@ export type PublicSessionCoverSelection =
         attachmentId: string;
         uri: string;
         name: string;
-        mimeType: string;
+        mimeType: PublicSessionCover['mimeType'];
         size: number;
         width: number;
         height: number;
@@ -32,7 +32,7 @@ export const publicSessionCoverSelectionSchema: z.ZodType<PublicSessionCoverSele
         attachmentId: z.string().uuid(),
         uri: z.string().regex(/^(?:file|content|ph|assets-library|blob):/i),
         name: z.string().min(1).max(500),
-        mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+        mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/avif']),
         size: z.number().int().positive().max(100 * 1024 * 1024),
         width: z.number().int().positive().max(100_000),
         height: z.number().int().positive().max(100_000),

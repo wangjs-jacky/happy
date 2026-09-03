@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { filesMock, resetStorage } = vi.hoisted(() => {
     const state = {
         local: true,
+        objectStorageConfigured: true,
         objects: new Map<string, Buffer>(),
     };
     const s3client = {
@@ -31,6 +32,7 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
         s3client,
         s3bucket: 'bucket',
         isLocalStorage: vi.fn(() => state.local),
+        isObjectStorageConfigured: vi.fn(() => state.objectStorageConfigured),
         getLocalFilesDir: vi.fn(() => '/tmp/paws-share-storage'),
         putLocalFile: vi.fn(async (key: string, value: Buffer) => { state.objects.set(key, value); }),
         readLocalFile: vi.fn((key: string) => state.objects.get(key) ?? null),
@@ -50,7 +52,10 @@ const { filesMock, resetStorage } = vi.hoisted(() => {
     };
     const resetStorage = () => {
         state.local = true;
+        state.objectStorageConfigured = true;
         state.objects.clear();
+        delete process.env.PUBLIC_SHARE_LOCAL_STORAGE;
+        process.env.NODE_ENV = 'test';
         vi.clearAllMocks();
     };
     return { filesMock, resetStorage };
@@ -66,6 +71,7 @@ import {
     getPublicShareDownloadSource,
     publicShareAssetExists,
     putPublicShareAsset,
+    readPublicShareAssetBytes,
 } from './publicSessionShareStorage';
 
 describe('publicSessionShareStorage', () => {
@@ -96,6 +102,43 @@ describe('publicSessionShareStorage', () => {
         expect(source.kind).toBe('stream');
         expect(filesMock.s3client.getObject).toHaveBeenCalledWith('bucket', storagePath);
         expect(filesMock.s3client.putObject).toHaveBeenCalledWith('bucket', storagePath, Buffer.from('hello'), 5);
+    });
+
+    it.each([true, false])('reads exact share bytes through a bounded storage API (local=%s)', async (local) => {
+        filesMock.__state.local = local;
+        const storagePath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1');
+        filesMock.__state.objects.set(storagePath, Buffer.from('hello'));
+
+        await expect(readPublicShareAssetBytes(storagePath, 5)).resolves.toEqual(Buffer.from('hello'));
+        await expect(readPublicShareAssetBytes(storagePath, 4)).rejects.toThrow('Public share asset exceeds byte limit');
+    });
+
+    it('fails every public-share object operation closed in production without explicit local opt-in', async () => {
+        process.env.NODE_ENV = 'production';
+        filesMock.__state.local = true;
+        const storagePath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1');
+
+        await expect(putPublicShareAsset(storagePath, Buffer.from('hello'))).rejects.toThrow('Public share object storage is required');
+        await expect(copyPublicShareAsset(storagePath, `${storagePath}-copy`)).rejects.toThrow('Public share object storage is required');
+        await expect(readPublicShareAssetBytes(storagePath, 5)).rejects.toThrow('Public share object storage is required');
+        await expect(getPublicShareDownloadSource(storagePath)).rejects.toThrow('Public share object storage is required');
+        await expect(publicShareAssetExists(storagePath, 5)).rejects.toThrow('Public share object storage is required');
+        await expect(deletePublicShareAsset(storagePath)).rejects.toThrow('Public share object storage is required');
+        await expect(deletePublicShareGeneration('share_1', 'generation-1')).rejects.toThrow('Public share object storage is required');
+
+        process.env.PUBLIC_SHARE_LOCAL_STORAGE = 'enabled';
+        await expect(putPublicShareAsset(storagePath, Buffer.from('hello'))).resolves.toBeUndefined();
+        await expect(readPublicShareAssetBytes(storagePath, 5)).resolves.toEqual(Buffer.from('hello'));
+    });
+
+    it('fails closed when S3 mode is selected with incomplete object-storage configuration', async () => {
+        process.env.NODE_ENV = 'production';
+        filesMock.__state.local = false;
+        filesMock.__state.objectStorageConfigured = false;
+        const storagePath = buildPublicShareStoragePath('share_1', 'generation-1', 'asset_1');
+
+        await expect(putPublicShareAsset(storagePath, Buffer.from('hello'))).rejects.toThrow('Public share object storage is required');
+        await expect(readPublicShareAssetBytes(storagePath, 5)).rejects.toThrow('Public share object storage is required');
     });
 
     it.each([true, false])('copies a share asset inside the configured storage backend (local=%s)', async (local) => {

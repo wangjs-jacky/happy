@@ -88,7 +88,7 @@ const coveredSnapshot = {
         themePack: 'gingham' as const,
         cover: {
             assetId: '51515151-5151-4515-8515-515151515151',
-            mimeType: 'image/webp',
+            mimeType: 'image/webp' as const,
             size: 4321,
             width: 2400,
             height: 900,

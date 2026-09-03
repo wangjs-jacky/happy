@@ -6,26 +6,29 @@ import type { Fastify } from '../types';
 import { db } from '@/storage/db';
 import {
     publicSessionSnapshotSchema,
-    publicSessionCoverAttributionSchema,
     publicShareAssetKindSchema,
-    type PublicSessionSnapshot,
 } from '@/app/sessionSharing/publicSessionShareSchemas';
 import {
     buildPublicShareStoragePath,
     copyPublicShareAsset,
-    deletePublicShareAsset,
     deletePublicShareGeneration,
     getPublicShareDownloadSource,
     publicShareAssetExists,
     putPublicShareAsset,
+    readPublicShareAssetBytes,
 } from '@/app/sessionSharing/publicSessionShareStorage';
 import {
     getRandomPexelsCover,
     importPexelsCover,
+    MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE,
     PexelsConfigurationError,
     PexelsProviderError,
     type ImportedPublicSessionCover,
 } from '@/app/sessionSharing/publicSessionCoverProvider';
+import {
+    createPublicSessionCoverAvailability,
+    PublicSessionCoverAvailabilityError,
+} from '@/app/sessionSharing/publicSessionCoverAvailability';
 import { createPublicShareRateLimiter } from '@/app/sessionSharing/publicSessionShareRateLimit';
 import { cleanupPublicSessionShareGeneration } from '@/app/sessionSharing/publicSessionShareCleanup';
 import { log } from '@/utils/log';
@@ -34,6 +37,28 @@ import {
     publicSessionShareNotFound,
     setPublicSessionShareHeaders,
 } from '@/app/sessionSharing/publicSessionShareHttp';
+import {
+    collectPublicSessionShareAssetManifest,
+    manifestMetadataMatches,
+    PublicSessionCoverValidationError,
+    validateUploadedPublicSessionCover,
+} from '@/app/sessionSharing/publicSessionShareAssetValidation';
+import {
+    canonicalImportedCoverResponse,
+    cleanupPublicSessionCoverObjectWhenPossible,
+    CLONE_COVER_CLAIM_LEASE_MS,
+    coverMatchesPersistedAssetMetadata,
+    decodeCloneCoverClaim,
+    decodePersistedPexelsCoverMetadata,
+    decodePexelsCoverClaim,
+    encodeCloneCoverClaim,
+    encodePersistedPexelsCoverMetadata,
+    encodePexelsCoverClaim,
+    isReservedPublicSessionAssetName,
+    PEXELS_COVER_CLAIM_LEASE_MS,
+    PEXELS_PENDING_SHA256,
+    publicSessionCoverClaimWhere,
+} from '@/app/sessionSharing/publicSessionCoverClaims';
 
 const MAX_ASSET_COUNT = 100;
 // This matches Fastify's global binary-body limit. Share uploads are proxied
@@ -55,13 +80,9 @@ const assetParamsSchema = draftParamsSchema.extend({ assetId: z.string().uuid() 
 // 400 here would reveal a different public state than the product promises.
 const publicParamsSchema = z.object({ publicId: z.string() });
 const publicAssetParamsSchema = publicParamsSchema.extend({ assetId: z.string() });
-const PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX = '__paws_internal__:';
-const LEGACY_PEXELS_INTERNAL_ASSET_NAME_PREFIXES = ['pexels-cover-v1:', 'pexels-cover-pending:'];
-const isReservedInternalAssetName = (name: string): boolean => name.startsWith(PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX)
-    || LEGACY_PEXELS_INTERNAL_ASSET_NAME_PREFIXES.some((prefix) => name.startsWith(prefix));
 const prepareAssetBodySchema = z.object({
     attachmentId: z.string().uuid(),
-    name: z.string().min(1).max(500).refine((name) => !isReservedInternalAssetName(name), 'Reserved attachment name'),
+    name: z.string().min(1).max(500).refine((name) => !isReservedPublicSessionAssetName(name), 'Reserved attachment name'),
     mimeType: z.string().min(1).max(200),
     kind: publicShareAssetKindSchema,
     size: z.number().int().min(0).max(MAX_ASSET_SIZE),
@@ -74,27 +95,6 @@ const importCoverBodySchema = z.object({
 const cloneCoverBodySchema = z.object({
     assetId: z.string().uuid(),
 }).strict();
-const persistedPexelsCoverMetadataSchema = z.object({
-    width: z.number().int().positive().max(100_000),
-    height: z.number().int().positive().max(100_000),
-    attribution: publicSessionCoverAttributionSchema,
-}).strict();
-const pexelsCoverClaimSchema = z.object({
-    photoId: z.number().int().positive(),
-    token: z.string().uuid(),
-    leaseUntil: z.number().int().positive(),
-}).strict();
-const cloneCoverClaimSchema = z.object({
-    token: z.string().uuid(),
-    leaseUntil: z.number().int().positive(),
-}).strict();
-const PEXELS_COVER_METADATA_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}pexels-cover-v1:`;
-const PEXELS_COVER_CLAIM_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}pexels-claim-v1:`;
-const CLONE_COVER_CLAIM_PREFIX = `${PUBLIC_SHARE_INTERNAL_ASSET_NAME_PREFIX}clone-claim-v1:`;
-const PEXELS_COVER_CLAIM_LEASE_MS = 2 * 60 * 1000;
-const CLONE_COVER_CLAIM_LEASE_MS = 2 * 60 * 1000;
-const MAX_INTERNAL_ASSET_NAME_BYTES = 4 * 1024;
-const PEXELS_PENDING_SHA256 = '0'.repeat(64);
 
 function resolveBaseUrl(request: { headers: Record<string, string | string[] | undefined> }): string {
     if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
@@ -117,97 +117,6 @@ function validAssetId(value: string): boolean {
     return z.string().uuid().safeParse(value).success;
 }
 
-function encodeInternalAssetName(prefix: string, value: unknown): string | null {
-    const encoded = `${prefix}${Buffer.from(JSON.stringify(value)).toString('base64url')}`;
-    return Buffer.byteLength(encoded, 'utf8') <= MAX_INTERNAL_ASSET_NAME_BYTES ? encoded : null;
-}
-
-function decodeInternalAssetName<T>(name: string, prefix: string, schema: z.ZodType<T>): T | null {
-    if (!name.startsWith(prefix) || Buffer.byteLength(name, 'utf8') > MAX_INTERNAL_ASSET_NAME_BYTES) return null;
-    const encoded = name.slice(prefix.length);
-    if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
-    try {
-        const decoded = Buffer.from(encoded, 'base64url').toString('utf8');
-        const canonicalEncoding = Buffer.from(decoded, 'utf8').toString('base64url');
-        if (canonicalEncoding !== encoded) return null;
-        return schema.parse(JSON.parse(decoded));
-    } catch {
-        return null;
-    }
-}
-
-function encodePersistedPexelsCoverMetadata(imported: ImportedPublicSessionCover): string | null {
-    // Cover manifests intentionally omit a filename, and the approved schema
-    // has no mutable provider-metadata column. Keep the canonical retry
-    // descriptor in this existing row so retries need neither a migration nor
-    // a second object-storage path.
-    const metadata = {
-        width: imported.width,
-        height: imported.height,
-        attribution: imported.attribution,
-    };
-    const parsed = persistedPexelsCoverMetadataSchema.safeParse(metadata);
-    return parsed.success ? encodeInternalAssetName(PEXELS_COVER_METADATA_PREFIX, parsed.data) : null;
-}
-
-function decodePersistedPexelsCoverMetadata(name: string): z.infer<typeof persistedPexelsCoverMetadataSchema> | null {
-    return decodeInternalAssetName(name, PEXELS_COVER_METADATA_PREFIX, persistedPexelsCoverMetadataSchema);
-}
-
-function encodePexelsCoverClaim(photoId: number, token: string, leaseUntil: number): string {
-    const name = encodeInternalAssetName(PEXELS_COVER_CLAIM_PREFIX, { photoId, token, leaseUntil });
-    if (!name) throw new Error('Pexels cover claim exceeds internal metadata limit');
-    return name;
-}
-
-function decodePexelsCoverClaim(name: string): z.infer<typeof pexelsCoverClaimSchema> | null {
-    return decodeInternalAssetName(name, PEXELS_COVER_CLAIM_PREFIX, pexelsCoverClaimSchema);
-}
-
-function encodeCloneCoverClaim(token: string, leaseUntil: number): string {
-    const name = encodeInternalAssetName(CLONE_COVER_CLAIM_PREFIX, { token, leaseUntil });
-    if (!name) throw new Error('Clone cover claim exceeds internal metadata limit');
-    return name;
-}
-
-function decodeCloneCoverClaim(name: string): z.infer<typeof cloneCoverClaimSchema> | null {
-    return decodeInternalAssetName(name, CLONE_COVER_CLAIM_PREFIX, cloneCoverClaimSchema);
-}
-
-function canonicalImportedCoverResponse(
-    assetId: string,
-    mimeType: string,
-    size: number,
-    metadata: z.infer<typeof persistedPexelsCoverMetadataSchema>,
-) {
-    return {
-        assetId,
-        mimeType,
-        size,
-        width: metadata.width,
-        height: metadata.height,
-        attribution: metadata.attribution,
-    };
-}
-
-function coverMatchesPersistedAssetMetadata(
-    cover: NonNullable<Extract<PublicSessionSnapshot, { version: 2 }>['appearance']['cover']>,
-    assetName: string,
-): boolean {
-    const persisted = decodePersistedPexelsCoverMetadata(assetName);
-    if (!persisted) return !isReservedInternalAssetName(assetName) && cover.attribution === undefined;
-    const attribution = cover.attribution;
-    return Boolean(
-        attribution
-        && cover.width === persisted.width
-        && cover.height === persisted.height
-        && attribution.photoId === persisted.attribution.photoId
-        && attribution.photographer === persisted.attribution.photographer
-        && attribution.photographerUrl === persisted.attribution.photographerUrl
-        && attribution.photoUrl === persisted.attribution.photoUrl,
-    );
-}
-
 async function enforceShareWriteRate(userId: string, reply: any): Promise<boolean> {
     const result = await shareWriteRate.check(userId);
     if (result.allowed) return true;
@@ -223,40 +132,6 @@ async function enforcePublicReadRate(key: string, reply: any): Promise<boolean> 
     reply.header('Retry-After', result.retryAfterSeconds);
     reply.code(429).send({ error: 'Too many requests. Try again in a minute.' });
     return false;
-}
-
-type PublicSessionShareAssetDescriptor = {
-    assetId: string;
-    kind: string;
-    mimeType: string;
-    size: number;
-    name?: string;
-};
-
-export function collectPublicSessionShareAssetManifest(snapshot: PublicSessionSnapshot): PublicSessionShareAssetDescriptor[] {
-    const assets: PublicSessionShareAssetDescriptor[] = [];
-    for (const message of snapshot.messages) {
-        for (const block of message.blocks) {
-            if (block.type === 'attachment') {
-                assets.push({
-                    assetId: block.attachmentId,
-                    kind: block.kind,
-                    mimeType: block.mimeType,
-                    size: block.size,
-                    name: block.name,
-                });
-            }
-        }
-    }
-    if (snapshot.version === 2 && snapshot.appearance.cover) {
-        assets.push({
-            assetId: snapshot.appearance.cover.assetId,
-            kind: 'image',
-            mimeType: snapshot.appearance.cover.mimeType,
-            size: snapshot.appearance.cover.size,
-        });
-    }
-    return assets;
 }
 
 function safeMimeType(kind: string, mimeType: string): string {
@@ -312,25 +187,9 @@ async function cleanupShareGenerationWhenPossible(shareId: string, generation: s
     }
 }
 
-async function cleanupImportedCoverObjectWhenPossible(
-    storagePath: string,
-    details: { shareId: string; generation: string; assetId: string },
-): Promise<boolean> {
-    try {
-        await deletePublicShareAsset(storagePath);
-        return true;
-    } catch (error) {
-        log({
-            module: 'public-session-cover-import-cleanup',
-            level: 'error',
-            ...details,
-            error,
-        }, 'Failed to clean imported cover object; retaining the draft asset for retry');
-        return false;
-    }
-}
-
 export function publicSessionShareRoutes(app: Fastify) {
+    const coverAvailability = createPublicSessionCoverAvailability();
+
     app.get('/v1/sessions/:sessionId/share', {
         preHandler: app.authenticate,
         schema: { params: sessionParamsSchema },
@@ -366,8 +225,15 @@ export function publicSessionShareRoutes(app: Fastify) {
         const apiKey = process.env.PEXELS_API_KEY;
         if (!apiKey) return reply.code(503).send({ error: 'Random cover provider is unavailable' });
         try {
-            return reply.send(await getRandomPexelsCover(fetch, apiKey, Math.random));
+            return reply.send(await coverAvailability.run(
+                request.userId,
+                () => getRandomPexelsCover(fetch, apiKey, Math.random),
+            ));
         } catch (error) {
+            if (error instanceof PublicSessionCoverAvailabilityError) {
+                reply.header('Retry-After', error.retryAfterSeconds);
+                return reply.code(429).send({ error: error.message });
+            }
             if (error instanceof PexelsConfigurationError) {
                 return reply.code(503).send({ error: 'Random cover provider is unavailable' });
             }
@@ -646,29 +512,24 @@ export function publicSessionShareRoutes(app: Fastify) {
             }
             return null;
         };
+        const claimDetails = { shareId: share.id, generation: draft.id, assetId: activeCover.assetId };
         const deleteUnreferencedClaimObject = async (storagePath: string): Promise<void> => {
-            const referenced = await db.publicSessionShareAsset.findFirst({
-                where: { ...destinationWhere, storagePath },
-            });
-            if (referenced) return;
-            await deletePublicShareAsset(storagePath).catch((error) => {
-                log({
-                    module: 'public-session-cover-clone-cleanup',
-                    level: 'error',
-                    shareId: share.id,
-                    generation: draft.id,
-                    assetId: activeCover.assetId,
-                    error,
-                }, 'Failed to clean unreferenced cloned cover object');
+            await cleanupPublicSessionCoverObjectWhenPossible(storagePath, claimDetails, {
+                module: 'public-session-cover-clone-cleanup',
+                message: 'Failed to clean unreferenced cloned cover object',
+                isReferenced: async () => Boolean(await db.publicSessionShareAsset.findFirst({
+                    where: { ...destinationWhere, storagePath },
+                })),
             });
         };
         const releaseOwnedClaim = async (): Promise<boolean> => {
             const released = await db.publicSessionShareAsset.deleteMany({
                 where: {
-                    ...destinationWhere,
-                    name: claimName,
-                    storagePath: claimStoragePath,
-                    uploadedAt: null,
+                    ...publicSessionCoverClaimWhere({
+                        ...destinationWhere,
+                        name: claimName,
+                        storagePath: claimStoragePath,
+                    }),
                 },
             }).catch(() => ({ count: 0 }));
             if (released.count !== 1) return false;
@@ -838,12 +699,11 @@ export function publicSessionShareRoutes(app: Fastify) {
         if (replacedStoragePath) await deleteUnreferencedClaimObject(replacedStoragePath);
 
         const ownsClaim = async (): Promise<boolean> => Boolean(await db.publicSessionShareAsset.findFirst({
-            where: {
+            where: publicSessionCoverClaimWhere({
                 ...destinationWhere,
                 name: claimName,
                 storagePath: claimStoragePath,
-                uploadedAt: null,
-            },
+            }),
         }));
         if (!await ownsClaim()) {
             const completed = await readCompletedDestination() ?? await waitForCompletedDestination();
@@ -896,12 +756,11 @@ export function publicSessionShareRoutes(app: Fastify) {
                 });
                 if (!currentShare || !currentDraft) throw new StaleShareDraftError();
                 const finalized = await tx.publicSessionShareAsset.updateMany({
-                    where: {
+                    where: publicSessionCoverClaimWhere({
                         ...destinationWhere,
                         name: claimName,
                         storagePath: claimStoragePath,
-                        uploadedAt: null,
-                    },
+                    }),
                     data: { name: source.name, uploadedAt: now },
                 });
                 if (finalized.count !== 1) throw new StaleShareDraftError();
@@ -1019,21 +878,38 @@ export function publicSessionShareRoutes(app: Fastify) {
                     }
                     const currentClaim = existing.uploadedAt ? null : decodePexelsCoverClaim(existing.name);
                     if (currentClaim && currentClaim.leaseUntil <= Date.now()) {
-                        const takenOver = await tx.publicSessionShareAsset.updateMany({
+                        const reservationDelta = Math.max(0, MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE - existing.size);
+                        const generationAssets = await tx.publicSessionShareAsset.findMany({
+                            where: { shareId: share.id, generation: draft.id },
+                        });
+                        const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + reservationDelta;
+                        if (totalSize > MAX_TOTAL_ASSET_SIZE) {
+                            throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
+                        }
+                        const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
                             where: {
+                                share: { accountId: request.userId },
+                                draft: { status: 'pending', expiresAt: { gt: now } },
+                            },
+                            _sum: { size: true },
+                        });
+                        if ((accountPendingSize._sum.size ?? 0) + reservationDelta > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
+                            throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
+                        }
+                        const takenOver = await tx.publicSessionShareAsset.updateMany({
+                            where: publicSessionCoverClaimWhere({
                                 id: request.body.assetId,
                                 shareId: share.id,
                                 generation: draft.id,
                                 name: existing.name,
                                 storagePath: existing.storagePath,
-                                uploadedAt: null,
-                            },
+                            }),
                             data: {
                                 name: pendingName,
                                 storagePath,
                                 mimeType: 'image/webp',
                                 kind: 'image',
-                                size: 0,
+                                size: MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE,
                                 sha256: PEXELS_PENDING_SHA256,
                             },
                         });
@@ -1050,6 +926,22 @@ export function publicSessionShareRoutes(app: Fastify) {
                 if (generationAssets.length >= MAX_ASSET_COUNT) {
                     throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
                 }
+                const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0)
+                    + MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE;
+                if (totalSize > MAX_TOTAL_ASSET_SIZE) {
+                    throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
+                }
+                const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
+                    where: {
+                        share: { accountId: request.userId },
+                        draft: { status: 'pending', expiresAt: { gt: now } },
+                    },
+                    _sum: { size: true },
+                });
+                if ((accountPendingSize._sum.size ?? 0) + MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE
+                    > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
+                    throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
+                }
                 await tx.publicSessionShareAsset.create({
                     data: {
                         id: request.body.assetId,
@@ -1058,7 +950,7 @@ export function publicSessionShareRoutes(app: Fastify) {
                         name: pendingName,
                         mimeType: 'image/webp',
                         kind: 'image',
-                        size: 0,
+                        size: MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE,
                         sha256: PEXELS_PENDING_SHA256,
                         storagePath,
                     },
@@ -1084,26 +976,24 @@ export function publicSessionShareRoutes(app: Fastify) {
             assetId: request.body.assetId,
         };
         const ownsClaim = async (): Promise<boolean> => Boolean(await db.publicSessionShareAsset.findFirst({
-            where: {
+            where: publicSessionCoverClaimWhere({
                 id: request.body.assetId,
                 shareId: share.id,
                 generation: draft.id,
                 name: pendingName,
                 storagePath,
-                uploadedAt: null,
-            },
+            }),
         }));
         const releaseClaimWhenPossible = async (): Promise<boolean> => {
             try {
                 const released = await db.publicSessionShareAsset.deleteMany({
-                    where: {
+                    where: publicSessionCoverClaimWhere({
                         id: request.body.assetId,
                         shareId: share.id,
                         generation: draft.id,
                         name: pendingName,
                         storagePath,
-                        uploadedAt: null,
-                    },
+                    }),
                 });
                 return released.count === 1;
             } catch (error) {
@@ -1117,13 +1007,23 @@ export function publicSessionShareRoutes(app: Fastify) {
             }
         };
         if (replacedStoragePath) {
-            await cleanupImportedCoverObjectWhenPossible(replacedStoragePath, cleanupDetails);
+            await cleanupPublicSessionCoverObjectWhenPossible(replacedStoragePath, cleanupDetails, {
+                module: 'public-session-cover-import-cleanup',
+                message: 'Failed to clean imported cover object; retaining the draft asset for retry',
+            });
         }
         let imported: ImportedPublicSessionCover;
+        let releaseAvailability: (() => void) | null = null;
         try {
+            releaseAvailability = await coverAvailability.acquire(request.userId);
             imported = await importPexelsCover(request.body.photoId, { fetchImpl: fetch, apiKey });
         } catch (error) {
+            releaseAvailability?.();
             await releaseClaimWhenPossible();
+            if (error instanceof PublicSessionCoverAvailabilityError) {
+                reply.header('Retry-After', error.retryAfterSeconds);
+                return reply.code(429).send({ error: error.message });
+            }
             if (error instanceof PexelsConfigurationError) {
                 return reply.code(503).send({ error: 'Random cover provider is unavailable' });
             }
@@ -1135,10 +1035,17 @@ export function publicSessionShareRoutes(app: Fastify) {
 
         const persistedName = encodePersistedPexelsCoverMetadata(imported);
         if (!persistedName) {
+            releaseAvailability?.();
+            await releaseClaimWhenPossible();
+            return reply.code(502).send({ error: 'Random cover provider request failed' });
+        }
+        if (imported.size > MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE) {
+            releaseAvailability?.();
             await releaseClaimWhenPossible();
             return reply.code(502).send({ error: 'Random cover provider request failed' });
         }
         if (!await ownsClaim()) {
+            releaseAvailability?.();
             return reply.code(409).send({ error: 'Shared attachment already exists' });
         }
         const sha256 = crypto.createHash('sha256').update(imported.bytes).digest('hex');
@@ -1151,11 +1058,16 @@ export function publicSessionShareRoutes(app: Fastify) {
         try {
             await putPublicShareAsset(storagePath, imported.bytes);
         } catch {
-            if (await cleanupImportedCoverObjectWhenPossible(storagePath, cleanupDetails)) {
+            releaseAvailability?.();
+            if (await cleanupPublicSessionCoverObjectWhenPossible(storagePath, cleanupDetails, {
+                module: 'public-session-cover-import-cleanup',
+                message: 'Failed to clean imported cover object; retaining the draft asset for retry',
+            })) {
                 await releaseClaimWhenPossible();
             }
             return reply.code(503).send({ error: 'Cover storage is unavailable' });
         }
+        releaseAvailability?.();
         try {
             await serializableTransaction(async (tx) => {
                 const now = new Date();
@@ -1180,32 +1092,14 @@ export function publicSessionShareRoutes(app: Fastify) {
                 });
                 if (!currentDraft) throw new StaleShareDraftError();
 
-                const generationAssets = await tx.publicSessionShareAsset.findMany({
-                    where: { shareId: share.id, generation: draft.id },
-                });
-                const totalSize = generationAssets.reduce((total, asset) => total + asset.size, 0) + imported.size;
-                if (totalSize > MAX_TOTAL_ASSET_SIZE) {
-                    throw new PublicShareRequestError(413, 'Shared session attachment limit exceeded');
-                }
-                const accountPendingSize = await tx.publicSessionShareAsset.aggregate({
-                    where: {
-                        share: { accountId: request.userId },
-                        draft: { status: 'pending', expiresAt: { gt: now } },
-                    },
-                    _sum: { size: true },
-                });
-                if ((accountPendingSize._sum.size ?? 0) + imported.size > MAX_PENDING_ASSET_SIZE_PER_ACCOUNT) {
-                    throw new PublicShareRequestError(413, 'Pending shared-session storage limit exceeded');
-                }
                 const finalized = await tx.publicSessionShareAsset.updateMany({
-                    where: {
+                    where: publicSessionCoverClaimWhere({
                         id: request.body.assetId,
                         shareId: share.id,
                         generation: draft.id,
                         name: pendingName,
                         storagePath,
-                        uploadedAt: null,
-                    },
+                    }),
                     data: {
                         name: persistedName,
                         mimeType: imported.mimeType,
@@ -1218,7 +1112,10 @@ export function publicSessionShareRoutes(app: Fastify) {
             });
         } catch (error) {
             if (error instanceof StaleShareDraftError || error instanceof PublicShareRequestError) {
-                if (await cleanupImportedCoverObjectWhenPossible(storagePath, cleanupDetails)) {
+                if (await cleanupPublicSessionCoverObjectWhenPossible(storagePath, cleanupDetails, {
+                    module: 'public-session-cover-import-cleanup',
+                    message: 'Failed to clean imported cover object; retaining the draft asset for retry',
+                })) {
                     await releaseClaimWhenPossible();
                 }
                 if (error instanceof StaleShareDraftError) {
@@ -1326,12 +1223,13 @@ export function publicSessionShareRoutes(app: Fastify) {
         const assetById = new Map(assets.map((asset) => [asset.id, asset]));
         for (const descriptor of manifest) {
             const asset = assetById.get(descriptor.assetId);
-            if (!asset
-                || (descriptor.name !== undefined && descriptor.name !== asset.name)
-                || descriptor.mimeType !== asset.mimeType
-                || descriptor.kind !== asset.kind
-                || descriptor.size !== asset.size) {
+            if (!asset || !manifestMetadataMatches(descriptor, asset)) {
                 return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
+            }
+        }
+        for (const asset of assets) {
+            if (!asset.uploadedAt || !await publicShareAssetExists(asset.storagePath, asset.size)) {
+                return reply.code(409).send({ error: 'Shared attachment upload incomplete' });
             }
         }
         const cover = request.body.snapshot.version === 2
@@ -1342,13 +1240,21 @@ export function publicSessionShareRoutes(app: Fastify) {
             if (!coverAsset || !coverMatchesPersistedAssetMetadata(cover, coverAsset.name)) {
                 return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
             }
-        }
-        for (const asset of assets) {
-            if (!asset.uploadedAt || !await publicShareAssetExists(asset.storagePath, asset.size)) {
-                return reply.code(409).send({ error: 'Shared attachment upload incomplete' });
+            if (!decodePersistedPexelsCoverMetadata(coverAsset.name)) {
+                try {
+                    await validateUploadedPublicSessionCover({
+                        cover,
+                        asset: coverAsset,
+                        readBytes: readPublicShareAssetBytes,
+                    });
+                } catch (error) {
+                    if (error instanceof PublicSessionCoverValidationError) {
+                        return reply.code(409).send({ error: error.message });
+                    }
+                    throw error;
+                }
             }
         }
-
         const oldGeneration = share.activeGeneration;
         const publishedAt = new Date();
         let updated;

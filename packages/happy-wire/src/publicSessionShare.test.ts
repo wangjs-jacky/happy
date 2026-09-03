@@ -64,6 +64,50 @@ describe('publicSessionSnapshotSchema', () => {
     });
 
     it.each([
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/avif',
+    ])('accepts the safe uploaded-cover MIME type %s', (mimeType) => {
+        expect(publicSessionSnapshotSchema.parse({
+            ...legacySnapshot,
+            version: 2,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '51515151-5151-4515-8515-515151515151',
+                    mimeType,
+                    size: 4,
+                    width: 1,
+                    height: 1,
+                },
+            },
+        })).toMatchObject({ appearance: { cover: { mimeType } } });
+    });
+
+    it.each([
+        'image/svg+xml',
+        'image/gif',
+        'application/octet-stream',
+        'image/unknown',
+    ])('rejects the unsafe uploaded-cover MIME type %s', (mimeType) => {
+        expect(() => publicSessionSnapshotSchema.parse({
+            ...legacySnapshot,
+            version: 2,
+            appearance: {
+                themePack: 'sage',
+                cover: {
+                    assetId: '51515151-5151-4515-8515-515151515151',
+                    mimeType,
+                    size: 4,
+                    width: 1,
+                    height: 1,
+                },
+            },
+        })).toThrow();
+    });
+
+    it.each([
         ['arbitrary host', 'https://attacker.example/@photographer'],
         ['plaintext Pexels', 'http://www.pexels.com/@photographer'],
         ['credentialed Pexels', 'https://user:password@www.pexels.com/@photographer'],

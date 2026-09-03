@@ -249,7 +249,7 @@ describe('public session share publishing', () => {
             attachmentId: '22222222-2222-4222-8222-222222222222',
             uri: 'file:///tmp/cover.webp',
             name: 'cover.webp',
-            mimeType: 'image/webp',
+            mimeType: 'image/webp' as const,
             size: 3,
             width: 1600,
             height: 600,

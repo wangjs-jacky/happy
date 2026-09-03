@@ -145,6 +145,31 @@ describe('parsePublicSessionShareJobs', () => {
         }]);
     });
 
+    it.each([
+        ['image/avif', true],
+        ['image/gif', false],
+    ] as const)('treats %s as a safe persisted cover MIME: %s', (mimeType, accepted) => {
+        const job = {
+            id: 'job-upload', sessionId: 'session-upload', title: 'Upload', requestedAt: 100,
+            cutoffSeq: 42, ownerId: 'owner-1', serverUrl: 'https://paws.test',
+            groupToolCalls: true, themePack: 'sage', status: 'queued', progress: { completed: 0, total: 1 },
+            notificationPending: false, updatedAt: 110,
+            coverSelection: {
+                kind: 'upload',
+                attachmentId: '11111111-1111-4111-8111-111111111111',
+                uri: 'file:///tmp/cover',
+                name: 'cover',
+                mimeType,
+                size: 321,
+                width: 1600,
+                height: 600,
+            },
+        };
+
+        expect(parsePublicSessionShareJobs(JSON.stringify([job]))[0]?.coverSelection)
+            .toEqual(accepted ? job.coverSelection : undefined);
+    });
+
     it('drops malformed or unsupported persisted records', () => {
         expect(parsePublicSessionShareJobs('{not-json')).toEqual([]);
         expect(parsePublicSessionShareJobs(JSON.stringify([

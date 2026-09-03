@@ -274,7 +274,7 @@ describe('PublicSessionShareAppearanceControls', () => {
             uri: 'file:///tmp/cover.webp',
             width: 1600,
             height: 900,
-            mimeType: 'image/webp',
+            mimeType: 'image/webp' as const,
             size: 2048,
             name: 'cover.webp',
             thumbhash: 'thumb',
@@ -405,6 +405,39 @@ describe('PublicSessionShareAppearanceControls', () => {
         act(() => renderer.unmount());
     });
 
+    it('reports an unsupported picker image without replacing the current cover', async () => {
+        mocks.pickImages.mockResolvedValueOnce([{
+            ...pickedImage,
+            uri: 'file:///tmp/animated.gif',
+            name: 'animated.gif',
+            mimeType: 'image/gif',
+        }]);
+        const onCoverSelectionChange = vi.fn();
+        const { renderer } = renderControls({
+            coverSelection: { kind: 'existing', assetId: '51515151-5151-4515-8515-515151515151' },
+            existingCover: {
+                assetId: '51515151-5151-4515-8515-515151515151',
+                mimeType: 'image/webp',
+                size: 5,
+                width: 1200,
+                height: 600,
+                uri: 'https://paws.test/cover',
+            },
+            onCoverSelectionChange,
+        });
+
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-upload-state' }).props.children)
+            .toBe('sessionShare.coverUploadFailed');
+        expect(onCoverSelectionChange).not.toHaveBeenCalled();
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-preview' }).props.source)
+            .toEqual({ uri: 'https://paws.test/cover' });
+        act(() => renderer.unmount());
+    });
+
     it('ignores a deferred upload result after unmount', async () => {
         const pending = deferred<typeof mocks.selectedImages>();
         mocks.pickImages.mockReturnValueOnce(pending.promise);
@@ -447,7 +480,7 @@ describe('PublicSessionShareAppearanceControls', () => {
             uri: 'file:///tmp/current.webp',
             width: 1600,
             height: 900,
-            mimeType: 'image/webp',
+            mimeType: 'image/webp' as const,
             size: 2048,
             name: 'current.webp',
         };

@@ -63,6 +63,15 @@ export function isLocalStorage() {
     return useLocalStorage;
 }
 
+export function isObjectStorageConfigured(): boolean {
+    return Boolean(
+        process.env.S3_HOST
+        && process.env.S3_ACCESS_KEY
+        && process.env.S3_SECRET_KEY
+        && process.env.S3_BUCKET,
+    );
+}
+
 export function getLocalFilesDir() {
     return localFilesDir;
 }

@@ -75,9 +75,16 @@ export const publicSessionCoverAttributionSchema = z.object({
     photoUrl: publicSessionPexelsUrlSchema,
 }).strict();
 
+export const publicSessionCoverMimeTypeSchema = z.enum([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/avif',
+]);
+
 const publicSessionCoverSchema = z.object({
     assetId: z.string().uuid(),
-    mimeType: z.string().min(1).max(200),
+    mimeType: publicSessionCoverMimeTypeSchema,
     size: z.number().int().positive().max(100 * 1024 * 1024),
     width: z.number().int().positive().max(100_000),
     height: z.number().int().positive().max(100_000),

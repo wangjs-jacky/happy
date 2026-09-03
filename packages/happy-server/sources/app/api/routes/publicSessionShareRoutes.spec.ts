@@ -1,4 +1,5 @@
 import fastify from 'fastify';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { Fastify } from '../types';
@@ -180,6 +181,12 @@ const { state, dbMock, storageMock, providerMock, logMock, resetState } = vi.hoi
             if (!data) throw new Error('missing');
             return { kind: 'buffer' as const, data };
         }),
+        readPublicShareAssetBytes: vi.fn(async (path: string, maxBytes: number) => {
+            const data = state.bytes.get(path);
+            if (!data) throw new Error('missing');
+            if (data.length > maxBytes) throw new Error('too large');
+            return data;
+        }),
         deletePublicShareGeneration: vi.fn(async () => undefined),
         deletePublicShareAsset: vi.fn(async (path: string) => { state.bytes.delete(path); }),
         copyPublicShareAsset: vi.fn(async (source: string, destination: string) => {
@@ -190,6 +197,7 @@ const { state, dbMock, storageMock, providerMock, logMock, resetState } = vi.hoi
     };
 
     const providerMock = {
+        MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE: 10 * 1024 * 1024,
         getRandomPexelsCover: vi.fn(async () => ({
             provider: 'pexels' as const,
             photoId: 2014422,
@@ -307,6 +315,11 @@ const coverSnapshot = (assetId: string, cover: Partial<{
     }],
 });
 const HELLO_SHA256 = '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
+const ONE_PIXEL_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+);
+const ONE_PIXEL_PNG_SHA256 = createHash('sha256').update(ONE_PIXEL_PNG).digest('hex');
 
 function deferred<T = void>() {
     let resolve!: (value: T) => void;
@@ -790,6 +803,74 @@ describe('publicSessionShareRoutes', () => {
         expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
     });
 
+    it('reserves the maximum transformed cover size before calling Pexels and releases it after failure', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const entered = deferred();
+        const release = deferred();
+        providerMock.importPexelsCover.mockImplementationOnce(async () => {
+            entered.resolve();
+            await release.promise;
+            throw new providerMock.PexelsProviderError('provider unavailable');
+        });
+
+        const responsePromise = app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: crypto.randomUUID(), photoId: 2014422 },
+        });
+        await entered.promise;
+
+        expect(state.assets).toHaveLength(1);
+        expect(state.assets[0].size).toBe(10 * 1024 * 1024);
+        release.resolve();
+        expect((await responsePromise).statusCode).toBe(502);
+        expect(state.assets).toHaveLength(0);
+    });
+
+    it('rejects pending-account quota exhaustion before making a provider request', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        dbMock.publicSessionShareAsset.aggregate.mockResolvedValueOnce({
+            _sum: { size: 2 * 1024 * 1024 * 1024 - 10 * 1024 * 1024 + 1 },
+        });
+
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: { assetId: crypto.randomUUID(), photoId: 2014422 },
+        });
+
+        expect(response.statusCode).toBe(413);
+        expect(response.json()).toEqual({ error: 'Pending shared-session storage limit exceeded' });
+        expect(providerMock.importPexelsCover).not.toHaveBeenCalled();
+        expect(state.assets).toHaveLength(0);
+    });
+
+    it('rate-limits many distinct cover asset IDs by account with Retry-After', async () => {
+        process.env.PEXELS_API_KEY = 'server-secret';
+        const draft = (await createDraft()).json();
+        const responses = [];
+        for (let index = 0; index < 21; index += 1) {
+            responses.push(await app.inject({
+                method: 'POST',
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: {
+                    assetId: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+                    photoId: 2014422,
+                },
+            }));
+        }
+
+        expect(responses.slice(0, 20).every((response) => response.statusCode === 200)).toBe(true);
+        expect(responses[20].statusCode).toBe(429);
+        expect(Number(responses[20].headers['retry-after'])).toBeGreaterThan(0);
+        expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(20);
+    });
+
     it('removes only the imported object when the draft becomes stale during provider work', async () => {
         process.env.PEXELS_API_KEY = 'server-secret';
         const draft = (await createDraft()).json();
@@ -1033,6 +1114,7 @@ describe('publicSessionShareRoutes', () => {
         });
 
         expect(response.statusCode).toBe(200);
+        expect(response.headers['cache-control']).toBe('no-store');
         expect(response.headers['content-disposition']).toContain('filename="cover.webp"');
         expect(response.headers['content-disposition']).not.toContain('pexels-cover-v1');
         expect(response.headers['content-disposition']).not.toContain('__paws_internal__');
@@ -1214,24 +1296,73 @@ describe('publicSessionShareRoutes', () => {
             headers: { 'x-user-id': 'owner-1' },
             payload: {
                 attachmentId: '55555555-5555-4555-8555-555555555555',
-                name: 'cover.jpg', mimeType: 'image/jpeg', kind: 'image', size: 5, sha256: HELLO_SHA256,
+                name: 'cover.png', mimeType: 'image/png', kind: 'image', size: ONE_PIXEL_PNG.length, sha256: ONE_PIXEL_PNG_SHA256,
             },
         })).json();
         await app.inject({
             method: 'PUT',
             url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
             headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
-            payload: Buffer.from('hello'),
+            payload: ONE_PIXEL_PNG,
         });
 
         const publish = await app.inject({
             method: 'PUT',
             url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
             headers: { 'x-user-id': 'owner-1' },
-            payload: { snapshot: coverSnapshot(asset.assetId) },
+            payload: {
+                snapshot: coverSnapshot(asset.assetId, {
+                    mimeType: 'image/png',
+                    size: ONE_PIXEL_PNG.length,
+                    width: 1,
+                    height: 1,
+                }),
+            },
         });
 
         expect(publish.statusCode).toBe(200);
+    });
+
+    it.each([
+        ['corrupt bytes', Buffer.alloc(ONE_PIXEL_PNG.length, 1), 'image/png', 1, 1],
+        ['mislabeled format', ONE_PIXEL_PNG, 'image/jpeg', 1, 1],
+        ['dimension mismatch', ONE_PIXEL_PNG, 'image/png', 2, 1],
+    ] as const)('rejects an uploaded cover with %s before publication', async (_case, bytes, mimeType, width, height) => {
+        const draft = (await createDraft()).json();
+        const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const assetId = crypto.randomUUID();
+        await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: assetId,
+                name: 'cover.png',
+                mimeType,
+                kind: 'image',
+                size: bytes.length,
+                sha256,
+            },
+        });
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: bytes,
+        });
+
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                snapshot: coverSnapshot(assetId, { mimeType, size: bytes.length, width, height }),
+            },
+        });
+
+        expect(publish.statusCode).toBe(409);
+        expect(publish.json()).toEqual({ error: 'Shared cover validation failed' });
+        expect(state.shares[0].publishedAt).toBeNull();
     });
 
     it.each([
@@ -1431,7 +1562,7 @@ describe('publicSessionShareRoutes', () => {
     it.each([
         ['different MIME type', { kind: 'image', mimeType: 'image/jpeg', size: 5 }, { mimeType: 'image/png' }],
         ['different size', { kind: 'image', mimeType: 'image/jpeg', size: 5 }, { size: 6 }],
-        ['non-image asset kind', { kind: 'file', mimeType: 'application/octet-stream', size: 5 }, { mimeType: 'application/octet-stream' }],
+        ['non-image asset kind', { kind: 'file', mimeType: 'image/png', size: 5 }, { mimeType: 'image/png' }],
     ] as const)('rejects a cover with a %s from its registered asset', async (_reason, preparedAsset, cover) => {
         const draft = (await createDraft()).json();
         const asset = (await app.inject({

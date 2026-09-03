@@ -7,7 +7,7 @@ const PEXELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 8;
 const MAX_API_RESPONSE_SIZE = 1024 * 1024;
 const MAX_IMAGE_RESPONSE_SIZE = 20 * 1024 * 1024;
-const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
+export const MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE = 10 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 60_000_000;
 const MAX_INPUT_DIMENSION = 20_000;
 const COVER_WIDTH = 2400;
@@ -311,7 +311,7 @@ export async function importPexelsCover(
             .resize(COVER_WIDTH, COVER_HEIGHT, { fit: 'cover', position: 'centre' })
             .webp({ quality: 82 })
             .toBuffer();
-        if (bytes.length === 0 || bytes.length > MAX_OUTPUT_SIZE) {
+        if (bytes.length === 0 || bytes.length > MAX_IMPORTED_PUBLIC_SESSION_COVER_SIZE) {
             throw new PexelsProviderError('Pexels cover output exceeds the limit');
         }
         return {

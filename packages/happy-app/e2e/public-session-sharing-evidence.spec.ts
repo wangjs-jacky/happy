@@ -922,7 +922,6 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
                 await route.fulfill({
                     status: 200,
                     contentType: 'image/png',
-                    headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
                     body: coverBytes,
                 });
                 return;

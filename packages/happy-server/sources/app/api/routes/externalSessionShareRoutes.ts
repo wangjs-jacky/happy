@@ -8,7 +8,6 @@ import {
     publicSessionSnapshotSchema,
     publicSessionSourceProviderSchema,
     publicShareAssetKindSchema,
-    type PublicSessionSnapshot,
 } from '@/app/sessionSharing/publicSessionShareSchemas';
 import {
     capabilityExpiry,
@@ -22,9 +21,16 @@ import {
     deletePublicShareGeneration,
     publicShareAssetExists,
     putPublicShareAsset,
+    readPublicShareAssetBytes,
 } from '@/app/sessionSharing/publicSessionShareStorage';
 import { createPublicShareRateLimiter } from '@/app/sessionSharing/publicSessionShareRateLimit';
 import { cleanupPublicSessionShareGeneration } from '@/app/sessionSharing/publicSessionShareCleanup';
+import {
+    collectPublicSessionShareAssetManifest,
+    manifestMetadataMatches,
+    PublicSessionCoverValidationError,
+    validateUploadedPublicSessionCover,
+} from '@/app/sessionSharing/publicSessionShareAssetValidation';
 
 const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024;
 const MAX_ASSET_COUNT = 50;
@@ -141,16 +147,6 @@ async function createDraftOnRequest(request: any, reply: any) {
     if (!token || typeof requestId !== 'string' || !z.string().uuid().safeParse(requestId).success) {
         return reply.code(400).send({ error: 'Valid capability and Idempotency-Key are required' });
     }
-}
-
-function attachmentIds(snapshot: PublicSessionSnapshot): Set<string> {
-    const ids = new Set<string>();
-    for (const message of snapshot.messages) {
-        for (const block of message.blocks) {
-            if (block.type === 'attachment') ids.add(block.attachmentId);
-        }
-    }
-    return ids;
 }
 
 function sameSnapshot(left: unknown, right: unknown): boolean {
@@ -465,27 +461,42 @@ export function externalSessionShareRoutes(app: Fastify) {
         const assets = await db.publicSessionShareAsset.findMany({
             where: { shareId: share.id, generation: draft.id },
         });
-        const referencedIds = attachmentIds(request.body.snapshot);
+        const manifest = collectPublicSessionShareAssetManifest(request.body.snapshot);
+        const referencedIds = new Set(manifest.map((asset) => asset.assetId));
         if (assets.length !== referencedIds.size || assets.some((asset) => !referencedIds.has(asset.id))) {
             return reply.code(409).send({ error: 'Shared attachment manifest mismatch' });
         }
         const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-        for (const message of request.body.snapshot.messages) {
-            for (const block of message.blocks) {
-                if (block.type !== 'attachment') continue;
-                const asset = assetById.get(block.attachmentId);
-                if (!asset
-                    || asset.name !== block.name
-                    || asset.mimeType !== block.mimeType
-                    || asset.kind !== block.kind
-                    || asset.size !== block.size) {
-                    return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
-                }
+        for (const descriptor of manifest) {
+            const asset = assetById.get(descriptor.assetId);
+            if (!asset || !manifestMetadataMatches(descriptor, asset)) {
+                return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
             }
         }
         for (const asset of assets) {
             if (!asset.uploadedAt || !await publicShareAssetExists(asset.storagePath, asset.size)) {
                 return reply.code(409).send({ error: 'Shared attachment upload incomplete' });
+            }
+        }
+        const cover = request.body.snapshot.version === 2
+            ? request.body.snapshot.appearance.cover
+            : undefined;
+        if (cover) {
+            const asset = assetById.get(cover.assetId);
+            if (!asset || cover.attribution) {
+                return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
+            }
+            try {
+                await validateUploadedPublicSessionCover({
+                    cover,
+                    asset,
+                    readBytes: readPublicShareAssetBytes,
+                });
+            } catch (error) {
+                if (error instanceof PublicSessionCoverValidationError) {
+                    return reply.code(409).send({ error: error.message });
+                }
+                throw error;
             }
         }
         const oldGeneration = share.activeGeneration;

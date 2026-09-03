@@ -14,6 +14,19 @@ import { t } from '@/text';
 
 type ExistingCover = PublicSessionCover & { uri: string };
 
+const SUPPORTED_PUBLIC_SESSION_COVER_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/avif',
+]);
+
+function isSupportedPublicSessionCoverMimeType(
+    mimeType: string,
+): mimeType is PublicSessionCover['mimeType'] {
+    return SUPPORTED_PUBLIC_SESSION_COVER_MIME_TYPES.has(mimeType);
+}
+
 export interface PublicSessionShareAppearanceControlsProps {
     sessionId: string;
     themePack: PublicSessionThemePack;
@@ -111,6 +124,9 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
         try {
             const image = (await pickImages())[0];
             if (!mountedRef.current || actionEpoch.current !== sequence || !image) return;
+            if (!isSupportedPublicSessionCoverMimeType(image.mimeType)) {
+                throw new Error('Unsupported public session cover MIME type');
+            }
             setCandidate(null);
             setUploadPreview(image);
             onCoverSelectionChange({
