@@ -10,10 +10,18 @@ import type { ToolViewProps } from './_all';
 export const InteractivePreviewCard = React.memo(function InteractivePreviewCard({ tool }: ToolViewProps) {
     const { theme } = useUnistyles();
     const parsed = interactivePreviewEventSchema.safeParse(tool.input);
+    const expiresAt = parsed.success ? parsed.data.expiresAt : undefined;
+    const [now, setNow] = React.useState(Date.now());
+    React.useEffect(() => {
+        if (!expiresAt || expiresAt <= now) return;
+        const timer = setTimeout(() => setNow(Date.now()), Math.min(expiresAt - now + 50, 2_147_483_647));
+        return () => clearTimeout(timer);
+    }, [expiresAt, now]);
     if (!parsed.success) return null;
     const preview = parsed.data;
-    const ready = preview.state === 'ready' && Boolean(preview.url);
-    const label = preview.state === 'publishing' ? '正在发布…' : preview.state === 'ready' ? '在线预览已就绪' : preview.state === 'expired' ? '预览已过期' : '发布失败';
+    const state = preview.expiresAt && preview.expiresAt <= now ? 'expired' : preview.state;
+    const ready = state === 'ready' && Boolean(preview.url);
+    const label = state === 'publishing' ? '正在发布…' : state === 'ready' ? '在线预览已就绪' : state === 'expired' ? '预览已过期' : '发布失败';
     return (
         <View style={[styles.card, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]} testID="interactive-preview-card">
             <View style={styles.titleRow}>

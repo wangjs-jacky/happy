@@ -29,7 +29,7 @@ function assertSignature(extension: string, bytes: Buffer): void {
 
 export class PreviewWorkspaceRegistry {
     private readonly workspaces = new Map<string, Workspace>();
-    constructor(private readonly root = join(tmpdir(), 'happy-interactive-previews')) {}
+    constructor(private readonly root = join(tmpdir(), 'happy-interactive-previews', randomUUID())) {}
 
     async create(sessionId: string, title: string): Promise<Workspace> {
         if (!title.trim() || title.trim().length > 160) throw new Error('Invalid preview title');
@@ -42,7 +42,10 @@ export class PreviewWorkspaceRegistry {
     async resolveForPublish(sessionId: string, previewId: string): Promise<ResolvedPreviewWorkspace> {
         const workspace = this.workspaces.get(previewId);
         if (!workspace || workspace.sessionId !== sessionId) throw new Error('Preview workspace not found for session');
+        const rootInfo = await lstat(workspace.path);
+        if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error('Preview workspace root was replaced');
         const canonicalRoot = await realpath(workspace.path);
+        if (canonicalRoot !== workspace.path) throw new Error('Preview workspace root changed');
         const paths: string[] = [];
         const walk = async (directory: string): Promise<void> => {
             for (const entry of await readdir(directory, { withFileTypes: true })) {

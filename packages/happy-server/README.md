@@ -83,6 +83,10 @@ To use external Postgres or Redis instead of the embedded defaults, set:
 | `PEXELS_API_KEY` | Server-only Pexels API key for random/imported share covers |
 | `PUBLIC_SHARE_LOCAL_STORAGE` | Set to `enabled` only to explicitly allow local public-share storage in a production self-host deployment |
 
+### Managed temporary previews
+
+Temporary interaction previews require both the Vercel Integration variables above and private S3-compatible storage. Happy issues exact-size presigned uploads under `private/interactive-previews/`; clients cannot publish arbitrary directories or localhost ports. The server verifies every object against the immutable manifest, creates only non-production Vercel deployments, and retries deletion after the fixed 24-hour lifetime. Apply a private lifecycle rule to the same prefix as a final orphan-safety net (for example, delete objects older than two days); do not make the bucket or prefix public.
+
 Hosted production public shares fail closed unless `S3_HOST`, `S3_ACCESS_KEY`,
 `S3_SECRET_KEY`, and `S3_BUCKET` are all configured. A production self-host may
 explicitly opt into filesystem storage with `PUBLIC_SHARE_LOCAL_STORAGE=enabled`;

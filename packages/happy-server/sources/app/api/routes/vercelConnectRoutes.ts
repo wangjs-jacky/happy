@@ -3,6 +3,7 @@ import { type Fastify } from '../types';
 import { log } from '@/utils/log';
 import { vercelCredentialStore, type VercelCredential } from '@/app/previews/vercelCredentialStore';
 import { vercelOAuthStateStore } from '@/app/previews/vercelOAuthState';
+import { isObjectStorageConfigured } from '@/storage/files';
 
 export interface VercelConnectConfig {
     clientId: string;
@@ -69,7 +70,8 @@ async function exchangeCode(code: string, config: VercelConnectConfig): Promise<
 }
 
 const defaultDependencies: VercelConnectDependencies = {
-    config: readConfig(), stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore, exchangeCode,
+    config: isObjectStorageConfigured() ? readConfig() : null,
+    stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore, exchangeCode,
 };
 
 function redirectUrl(config: VercelConnectConfig | null, key: string, value: string): string {

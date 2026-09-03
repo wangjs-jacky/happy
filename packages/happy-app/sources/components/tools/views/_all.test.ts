@@ -18,6 +18,7 @@ vi.mock('./AskUserQuestionView', () => ({ AskUserQuestionView: () => null }));
 vi.mock('./GeminiEditView', () => ({ GeminiEditView: () => null }));
 vi.mock('./GeminiExecuteView', () => ({ GeminiExecuteView: () => null }));
 vi.mock('./FileView', () => ({ FileView: () => null }));
+vi.mock('./InteractivePreviewCard', () => ({ InteractivePreviewCard: () => null }));
 
 describe('tool full view registry', () => {
     it('uses Codex patch and diff views in tool detail screens', () => {

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     authInit: vi.fn(),
     startApi: vi.fn(),
     startCleanup: vi.fn(),
+    startPreviewCleanup: vi.fn(),
     startMetrics: vi.fn(),
     startTimeout: vi.fn(),
     onShutdown: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('./app/api/api', () => ({ startApi: mocks.startApi }));
 vi.mock('./app/monitoring/metrics2', () => ({ startDatabaseMetricsUpdater: mocks.startMetrics }));
 vi.mock('./app/presence/timeout', () => ({ startTimeout: mocks.startTimeout }));
 vi.mock('./app/sessionSharing/publicSessionShareCleanup', () => ({ startPublicSessionShareCleanup: mocks.startCleanup }));
+vi.mock('./app/previews/previewCleanup', () => ({ startInteractivePreviewCleanup: mocks.startPreviewCleanup }));
 vi.mock('./utils/shutdown', () => ({ onShutdown: mocks.onShutdown }));
 
 import { startServer } from './index';
@@ -43,6 +45,7 @@ describe('startServer', () => {
         })).resolves.toEqual({ port: 3005, host: '127.0.0.1' });
 
         expect(mocks.startCleanup).toHaveBeenCalledTimes(1);
+        expect(mocks.startPreviewCleanup).toHaveBeenCalledTimes(1);
         expect(mocks.startApi).toHaveBeenCalledBefore(mocks.startCleanup);
     });
 });

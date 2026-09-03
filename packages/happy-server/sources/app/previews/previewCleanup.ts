@@ -19,7 +19,7 @@ export async function cleanupInteractivePreviewRows(rows: CleanupPreviewRow[], d
     let cleaned = 0;
     for (const row of rows) {
         try {
-            if (row.status === 'ready' && row.vercelDeploymentId) await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
+            if (row.vercelDeploymentId) await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
             await dependencies.deleteStaging(row.id);
             await dependencies.markExpired(row.id);
             cleaned++;

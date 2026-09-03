@@ -10,7 +10,8 @@ describe('cleanupInteractivePreviewRows', () => {
     });
     it('retains the row for retry when provider deletion fails', async () => {
         const dependencies: any = { deleteStaging: vi.fn(), deleteDeployment: vi.fn(async () => { throw new Error('provider down'); }), markExpired: vi.fn() };
-        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'ready', accountId: 'u1', vercelDeploymentId: 'dpl_1' }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'failed', accountId: 'u1', vercelDeploymentId: 'dpl_1' }], dependencies);
+        expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_1');
         expect(dependencies.markExpired).not.toHaveBeenCalled();
     });
 });

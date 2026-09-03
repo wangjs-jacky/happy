@@ -20,15 +20,18 @@ export default function TemporaryPreviewsSettings() {
     React.useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
     const connect = React.useCallback(async () => {
         if (!auth.credentials || busy) return; setBusy(true);
+        const popup = Platform.OS === 'web' && typeof window !== 'undefined'
+            ? window.open('about:blank', 'happy-vercel-connect', 'popup,width=720,height=760')
+            : null;
         try {
             const url = await getVercelPreviewConnectUrl(auth.credentials);
-            if (Platform.OS === 'web' && typeof window !== 'undefined') window.open(url, 'happy-vercel-connect', 'popup,width=720,height=760'); else await openExternalUrl(url);
+            if (popup) popup.location.href = url; else await openExternalUrl(url);
             const started = Date.now();
             if (pollTimer.current) clearInterval(pollTimer.current);
             pollTimer.current = setInterval(() => { void getVercelPreviewStatus(auth.credentials!).then((next) => {
                 setStatus(next); if (next.connected || Date.now() - started > 120_000) { clearInterval(pollTimer.current!); pollTimer.current = null; }
-            }); }, 2000);
-        } catch (error) { Modal.alert('Vercel', error instanceof Error ? error.message : String(error)); }
+            }).catch(() => { /* Keep polling through transient network failures. */ }); }, 2000);
+        } catch (error) { popup?.close(); Modal.alert('Vercel', error instanceof Error ? error.message : String(error)); }
         finally { setBusy(false); }
     }, [auth.credentials, busy, refresh]);
     const disconnect = React.useCallback(async () => {
