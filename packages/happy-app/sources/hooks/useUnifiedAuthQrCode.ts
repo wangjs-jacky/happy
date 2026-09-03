@@ -22,7 +22,11 @@ const UnifiedAuthQrCodeContext = React.createContext<UnifiedAuthQrCodeContextVal
 const scannerSession = {
     active: false,
     dismissal: null as Promise<boolean> | null,
+    generation: 0,
+    launching: null as Promise<void> | null,
 };
+
+let authenticationInFlight = false;
 
 function showScannerUnavailableAlert() {
     Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToScanQr'), [
@@ -45,8 +49,8 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     const account = useConnectAccount();
     const terminal = useConnectTerminal();
     const isMountedRef = React.useRef(true);
-    const isAuthenticatingRef = React.useRef(false);
     const isStartingScannerRef = React.useRef(false);
+    const ownedScannerGenerationRef = React.useRef<number | null>(null);
     const [isStartingScanner, setIsStartingScanner] = React.useState(false);
 
     const processAuthUrl = React.useCallback(async (url: string) => {
@@ -78,15 +82,15 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     }, [account.processAuthUrl, terminal.processAuthUrl]);
 
     const runAuthentication = React.useCallback(async (operation: () => Promise<boolean>) => {
-        if (isAuthenticatingRef.current) {
+        if (authenticationInFlight) {
             return false;
         }
 
-        isAuthenticatingRef.current = true;
+        authenticationInFlight = true;
         try {
             return await operation();
         } finally {
-            isAuthenticatingRef.current = false;
+            authenticationInFlight = false;
         }
     }, []);
 
@@ -143,6 +147,15 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                 return;
             }
 
+            const pendingLaunch = scannerSession.launching;
+            if (pendingLaunch) {
+                await pendingLaunch;
+            }
+
+            if (!isMountedRef.current) {
+                return;
+            }
+
             if (scannerSession.active && !await dismissOwnedScanner()) {
                 return;
             }
@@ -151,13 +164,37 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                 return;
             }
 
+            const generation = scannerSession.generation + 1;
+            scannerSession.generation = generation;
+            ownedScannerGenerationRef.current = generation;
             scannerSession.active = true;
-            await CameraView.launchScanner({ barcodeTypes: ['qr'] });
-            if (Platform.OS !== 'ios') {
+
+            const nativeLaunch = CameraView.launchScanner({ barcodeTypes: ['qr'] });
+            const trackedLaunch = nativeLaunch
+                .then(
+                    () => {
+                        if (scannerSession.generation === generation && Platform.OS !== 'ios') {
+                            scannerSession.active = false;
+                        }
+                    },
+                    () => {
+                        if (scannerSession.generation === generation) {
+                            scannerSession.active = false;
+                        }
+                    },
+                )
+                .finally(() => {
+                    if (scannerSession.launching === trackedLaunch) {
+                        scannerSession.launching = null;
+                    }
+                });
+            scannerSession.launching = trackedLaunch;
+            await nativeLaunch;
+        } catch (error) {
+            const ownedGeneration = ownedScannerGenerationRef.current;
+            if (ownedGeneration !== null && scannerSession.generation === ownedGeneration) {
                 scannerSession.active = false;
             }
-        } catch (error) {
-            scannerSession.active = false;
             if (isMountedRef.current && !isScannerCancellation(error)) {
                 console.warn('Failed to launch authentication scanner', error);
                 showScannerUnavailableAlert();
@@ -173,14 +210,24 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     React.useEffect(() => {
         isMountedRef.current = true;
         if (Platform.OS === 'ios' && (scannerSession.active || scannerSession.dismissal)) {
-            void dismissOwnedScanner().then(async (dismissed) => {
+            void (async () => {
+                const pendingLaunch = scannerSession.launching;
+                if (pendingLaunch) {
+                    await pendingLaunch;
+                }
+                const dismissed = await dismissOwnedScanner();
                 if (!dismissed) {
                     await dismissOwnedScanner();
                 }
-            });
+            })();
         }
         return () => {
             isMountedRef.current = false;
+            const ownedGeneration = ownedScannerGenerationRef.current;
+            ownedScannerGenerationRef.current = null;
+            if (ownedGeneration !== null && scannerSession.generation === ownedGeneration) {
+                scannerSession.generation += 1;
+            }
         };
     }, [dismissOwnedScanner]);
 
@@ -209,11 +256,16 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
 
         return () => {
             subscription.remove();
-            void dismissOwnedScanner().then(async (dismissed) => {
+            void (async () => {
+                const pendingLaunch = scannerSession.launching;
+                if (pendingLaunch) {
+                    await pendingLaunch;
+                }
+                const dismissed = await dismissOwnedScanner();
                 if (!dismissed) {
                     await dismissOwnedScanner();
                 }
-            });
+            })();
         };
     }, [dismissOwnedScanner, processAuthUrl, runAuthentication]);
 

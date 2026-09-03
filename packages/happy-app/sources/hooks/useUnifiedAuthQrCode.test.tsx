@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
     checkPermissions: vi.fn(async () => true),
     confirm: vi.fn(async () => true),
     dismissScanner: vi.fn(async () => {}),
-    launchScanner: vi.fn(),
+    launchScanner: vi.fn(async () => {}),
     listeners: [] as Array<(event: { data: string }) => Promise<void>>,
     onScanned: undefined as undefined | ((event: { data: string }) => Promise<void>),
     platformOS: 'ios',
@@ -154,6 +154,41 @@ describe('useUnifiedAuthQrCode', () => {
         });
 
         expect(mocks.alert).toHaveBeenCalledTimes(1);
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits for an old provider launch to settle and dismisses it before a replacement launches', async () => {
+        let resolveOldLaunch!: () => void;
+        mocks.launchScanner.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveOldLaunch = resolve;
+        }));
+
+        const oldLaunch = current.connectAuthQrCode();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        const replacementLaunch = current.connectAuthQrCode();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+
+        resolveOldLaunch();
+        await act(async () => {
+            await oldLaunch;
+            await replacementLaunch;
+        });
+
+        expect(mocks.dismissScanner).toHaveBeenCalled();
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
     });
 
@@ -380,6 +415,38 @@ describe('useUnifiedAuthQrCode', () => {
         });
 
         expect(mocks.dismissScanner).toHaveBeenCalledTimes(1);
+        expect(mocks.terminalAuth).not.toHaveBeenCalled();
+
+        resolveAuthentication(true);
+        await act(async () => {
+            await firstAttempt;
+        });
+    });
+
+    it('keeps authentication single-flight ownership across provider replacement', async () => {
+        let resolveAuthentication!: (value: boolean) => void;
+        mocks.accountAuth.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            resolveAuthentication = resolve;
+        }));
+
+        const firstAttempt = current.connectWithUrl('paws:///account?account-public-key');
+        await act(async () => {
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        await act(async () => {
+            await current.connectWithUrl('paws://terminal?terminal-public-key');
+        });
+
+        expect(mocks.confirm).toHaveBeenCalledTimes(1);
         expect(mocks.terminalAuth).not.toHaveBeenCalled();
 
         resolveAuthentication(true);
