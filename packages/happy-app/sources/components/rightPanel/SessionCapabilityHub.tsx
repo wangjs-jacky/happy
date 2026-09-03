@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
@@ -20,8 +20,8 @@ import { SessionFolderBrowserView } from './SessionFolderBrowserView';
 import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 import { usePluginSurfaceViews } from '../plugins/usePluginSurfaceViews';
-import { BrowserStepsPanel } from './BrowserStepsPanel';
 import { getBrowserSteps } from './browserStepsModel';
+import { BrowserStepsPopover } from './BrowserStepsPopover';
 
 type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
@@ -76,6 +76,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     const panel = useRightSwipePanel();
     const [quickPrompts, setQuickPrompts] = useSettingMutable('quickPrompts');
     const [selectedKey, setSelectedKey] = React.useState<CapabilityPanelKey | null>(null);
+    const [browserStepsOpen, setBrowserStepsOpen] = React.useState(false);
     const { onInsertQuickPrompt, sessionId } = props;
     const { actionItems } = useSessionQuickActions(props.session, {
         onAfterArchive: () => panel?.closePanel(),
@@ -164,12 +165,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
         item.onPress();
     }, [panel]);
 
-    // This check must stay after the component's hooks so a frame arriving
-    // during a session never changes the hook order of the existing hub.
-    if (browserSteps.length > 0) {
-        return <BrowserStepsPanel sessionId={props.sessionId} steps={browserSteps} />;
-    }
-
     if (selectedKey) {
         if (selectedKey === 'sessionActions') {
             return (
@@ -214,6 +209,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     }
 
     return (
+        <View style={styles.summaryRoot}>
         <ScrollView
             contentContainerStyle={styles.summaryContent}
             showsVerticalScrollIndicator={false}
@@ -222,6 +218,12 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                 <Text numberOfLines={1} style={[styles.headingTitle, { color: theme.colors.text }]}>
                     {t('rightPanelCapabilityHub.title')}
                 </Text>
+                {browserSteps.length > 0 ? (
+                    <Pressable accessibilityRole="button" onPress={() => setBrowserStepsOpen(true)} style={[styles.browserStepsButton, { backgroundColor: theme.colors.surfaceHigh }]} testID="open-browser-steps">
+                        <Ionicons color={theme.colors.text} name="globe-outline" size={14} />
+                        <Text style={[styles.browserStepsButtonText, { color: theme.colors.text }]}>查看过程 · {browserSteps.length}</Text>
+                    </Pressable>
+                ) : null}
             </View>
 
             <View style={styles.grid}>
@@ -271,6 +273,8 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                 })}
             </View>
         </ScrollView>
+        <BrowserStepsPopover open={browserStepsOpen} onClose={() => setBrowserStepsOpen(false)} sessionId={props.sessionId} steps={browserSteps} />
+        </View>
     );
 });
 
@@ -356,12 +360,16 @@ function renderPanelIcon(key: CapabilityPanelKey, color: string) {
 }
 
 const styles = StyleSheet.create(() => ({
+    summaryRoot: { flex: 1 },
     summaryContent: {
         paddingBottom: 24,
         paddingHorizontal: 12,
         paddingTop: 10,
     },
     heading: {
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         marginBottom: 12,
         paddingHorizontal: 2,
     },
@@ -370,6 +378,8 @@ const styles = StyleSheet.create(() => ({
         fontWeight: '700',
         letterSpacing: -0.4,
     },
+    browserStepsButton: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 6 },
+    browserStepsButtonText: { fontSize: 12, fontWeight: '600' },
     placeholderCopy: {
         fontSize: 13,
         lineHeight: 18,
