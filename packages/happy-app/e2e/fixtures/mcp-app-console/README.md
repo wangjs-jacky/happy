@@ -1,9 +1,16 @@
 # MCP App console fixture
 
-Deterministic MCP App used to verify Paws across two real browser origins. It exposes
-`show-release-readiness` over Streamable HTTP or stdio and serves a single-file
-`text/html;profile=mcp-app` resource at
-`ui://paws-release-readiness/app.html`.
+Deterministic MCP Apps used to verify Paws across two real browser origins. The
+fixture exposes four independent UI resources over Streamable HTTP or stdio:
+
+- release readiness with a mediated approval action;
+- a horizontally scrollable and filterable service catalog with health checks;
+- a filterable incident board with expandable runbooks and confirmation;
+- a deployment planner with environment, step, summary, and preview interactions.
+
+Every resource is a single-file `text/html;profile=mcp-app` bundle. The shared
+bundle selects the correct experience from the tool's discriminated structured
+content, while every App action calls a real fixture MCP tool through the Host.
 
 The fixture deliberately uses the versions already pinned by `happy-app`:
 `@modelcontextprotocol/ext-apps@1.7.5`, MCP SDK `1.29.0`, and esbuild `0.27.2`.
@@ -25,8 +32,9 @@ generated Proxy/Host Shell, official App API, MCP resource, and structured tool
 result. Only authentication/session transport may use the existing local E2E
 environment; the expected App DOM is never inserted by the harness.
 
-Prepare the originating call with this deterministic input so the named Web
-cases can assert the exact structured result:
+Prepare the readiness call with this deterministic input, then call
+`show-service-catalog`, `show-incident-board`, and `show-deployment-planner`
+without arguments. The named Web cases can then assert all four exact results:
 
 ```json
 {
@@ -40,15 +48,11 @@ cases can assert the exact structured result:
 }
 ```
 
-The fixture itself is fully executable with the commands above. The complete
-five-case console run is intentionally not presented as a copy-paste local
-command yet: this repository has no public/dev command that can both create a
-new live Codex-backed session with a per-test MCP server configuration and
-submit the deterministic tool call. `happy attach --json` only resumes an
-already-existing Codex thread, while `scripts/run-web-e2e.ts` creates a fresh
-ephemeral auth/server environment. The programmatic start/turn APIs are
-internal agent adapters, not supported public/dev APIs. Adding a test-only
-session or RPC injection would bypass the origin binding being tested.
+The evidence spec covers nine cases: origin binding, cross-origin isolation,
+forged-message rejection, mediated actions, sandbox fallback, each complex App
+interaction, and a 430px-wide responsive pass. It must point at a genuine
+Codex-backed session containing the four tool results; the harness never
+inserts expected App DOM or fabricates tool-call results.
 
 Evidence runs additionally require a clean `HAPPY_E2E_WEB_URL` with no query or
 fragment and a protected `0600` Playwright storage-state file supplied through

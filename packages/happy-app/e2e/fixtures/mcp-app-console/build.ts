@@ -27,7 +27,16 @@ export async function buildMcpAppFixtureHtml(): Promise<string> {
     const html = template
         .replace('<!-- MCP_APP_STYLE -->', () => `<style>${css}</style>`)
         .replace('<!-- MCP_APP_SCRIPT -->', () => `<script>${javascript}</script>`);
-    if (!html.includes('approve-release-readiness') || !html.includes('mcp-example-root')) {
+    if (![
+        'approve-release-readiness',
+        'check-service-health',
+        'confirm-incident-runbook',
+        'preview-deployment-plan',
+        'mcp-example-root',
+        'mcp-catalog-root',
+        'mcp-incident-root',
+        'mcp-deployment-root',
+    ].every((marker) => html.includes(marker))) {
         throw new Error('MCP App fixture build is missing deterministic markers');
     }
     return html;

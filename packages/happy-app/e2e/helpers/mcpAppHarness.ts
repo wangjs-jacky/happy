@@ -12,6 +12,26 @@ export type McpAppE2eEnvironment = {
 
 export type McpAppFrames = { proxy: Frame; view: Frame };
 
+export async function centerMcpAppFrame(page: Page, proxy: Frame): Promise<void> {
+    const outer = await proxy.frameElement();
+    await outer.evaluate((element) => (element as HTMLElement).scrollIntoView({ block: 'center', inline: 'nearest' }));
+    let previous = '';
+    let stableSamples = 0;
+    await expect.poll(async () => {
+        const box = await outer.boundingBox();
+        const signature = box
+            ? `${Math.round(box.x)}:${Math.round(box.y)}:${Math.round(box.width)}:${Math.round(box.height)}`
+            : 'detached';
+        stableSamples = signature === previous ? stableSamples + 1 : 0;
+        previous = signature;
+        return stableSamples;
+    }, {
+        timeout: 5_000,
+        intervals: [100, 150, 250],
+        message: 'expected the MCP App frame geometry to settle before pointer interaction',
+    }).toBeGreaterThanOrEqual(2);
+}
+
 function requiredEnvironment(name: string): string {
     const value = process.env[name];
     if (!value) throw new Error(`Missing required ${name} for MCP App real-origin E2E`);
@@ -54,33 +74,93 @@ export function sessionUrl(environment: McpAppE2eEnvironment): string {
     return url.toString();
 }
 
-export async function findMcpAppFrames(page: Page, sandboxOrigin: string, webOrigin: string): Promise<McpAppFrames> {
+export async function findMcpAppFramesForView(
+    page: Page,
+    sandboxOrigin: string,
+    webOrigin: string,
+    rootTestId: string,
+    scope: 'latest-fixture' | 'mounted' = 'latest-fixture',
+): Promise<McpAppFrames> {
     expect(new URL(page.url()).origin).toBe(webOrigin);
+    // The session timeline is an inverted virtual list: the newest messages
+    // occupy the first DOM positions, and this fixture's tool calls therefore
+    // appear in reverse invocation order.
+    const fixturePosition = {
+        'mcp-deployment-root': 0,
+        'mcp-incident-root': 1,
+        'mcp-catalog-root': 2,
+        'mcp-example-root': 3,
+    }[rootTestId];
+    if (fixturePosition === undefined) throw new Error(`Unknown fixture root: ${rootTestId}`);
     let result: McpAppFrames | undefined;
+    let mountedScanStep = 0;
+    const mountedScanRatios = [0.2, 0.4, 0.6, 0.8, 1, 0] as const;
     await expect.poll(async () => {
-        const proxies = page.frames().filter((frame) => {
-            try {
-                return new URL(frame.url()).origin === sandboxOrigin
-                    && frame.parentFrame() === page.mainFrame();
-            } catch {
-                return false;
+        if (scope === 'mounted') {
+            for (const proxy of page.frames()) {
+                try {
+                    if (new URL(proxy.url()).origin !== sandboxOrigin
+                        || proxy.parentFrame() !== page.mainFrame()) continue;
+                } catch {
+                    continue;
+                }
+                const children = proxy.childFrames();
+                if (children.length !== 1) continue;
+                if (await children[0].locator(`[data-testid="${rootTestId}"]`).count() === 1) {
+                    result = { proxy, view: children[0] };
+                    return true;
+                }
             }
-        });
-        if (proxies.length !== 1) return false;
-        const children = proxies[0].childFrames();
+            // At a narrow viewport the inverted virtual list can create the
+            // outer Proxy iframe before mounting its owned srcdoc child. Move
+            // through deterministic transcript positions so each virtualized
+            // tool card gets a chance to finish mounting before the next poll.
+            const ratio = mountedScanRatios[mountedScanStep % mountedScanRatios.length];
+            mountedScanStep += 1;
+            const transcript = page.getByTestId('conversation-transcript-list');
+            if (await transcript.count() === 1) {
+                await transcript.evaluate((element, nextRatio) => {
+                    const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
+                    element.scrollTop = Math.round(maximum * nextRatio);
+                }, ratio);
+            }
+            return false;
+        }
+        const hosts = page.getByTestId('mcp-app-content');
+        const hostCount = await hosts.count();
+        if (hostCount < 4) return false;
+        const host = hosts.nth(fixturePosition);
+        // React Native Web's inverted virtual list uses transforms, which can
+        // fool Playwright's visibility-based scrollIntoViewIfNeeded(). Force a
+        // DOM scroll so the requested newest card mounts at narrow widths.
+        await host.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+        const outer = await host
+            .locator('iframe[data-testid="mcp-app-sandbox-frame"]')
+            .elementHandle();
+        const proxy = await outer?.contentFrame();
+        if (!proxy) return false;
+        try {
+            if (new URL(proxy.url()).origin !== sandboxOrigin
+                || proxy.parentFrame() !== page.mainFrame()) return false;
+        } catch {
+            return false;
+        }
+        const children = proxy.childFrames();
         // Chromium may expose a sandboxed srcdoc frame as either about:srcdoc
         // or an empty URL. Its opaque origin is verified below in-frame.
         if (children.length !== 1) return false;
-        result = { proxy: proxies[0], view: children[0] };
-        return true;
-    }, { timeout: 30_000, message: 'expected one exact-origin Proxy with one inner MCP View' }).toBe(true);
+        if (await children[0].locator(`[data-testid="${rootTestId}"]`).count() === 1) {
+            result = { proxy, view: children[0] };
+            return true;
+        }
+        return false;
+    }, { timeout: 30_000, message: `expected an exact-origin Proxy containing ${rootTestId}` }).toBe(true);
 
-    const outer = page.locator('iframe[data-testid="mcp-app-sandbox-frame"]');
-    await expect(outer).toHaveCount(1);
+    const outer = await result!.proxy.frameElement();
     const src = await outer.getAttribute('src');
     expect(src && new URL(src).origin).toBe(sandboxOrigin);
-    await expect(outer).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
-    await expect(outer).toHaveAttribute('referrerpolicy', 'origin');
+    expect(await outer.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+    expect(await outer.getAttribute('referrerpolicy')).toBe('origin');
 
     const proxyState = await result!.proxy.evaluate(() => ({
         origin: window.location.origin,
@@ -95,7 +175,15 @@ export async function findMcpAppFrames(page: Page, sandboxOrigin: string, webOri
     await expect(inner).toHaveAttribute('referrerpolicy', 'no-referrer');
     expect(await inner.getAttribute('srcdoc')).toBeTruthy();
     expect(await result!.view.evaluate(() => window.origin)).toBe('null');
+    // The session timeline opens anchored to its newest message. Center the
+    // owned outer frame before pointer interaction so a card above the fold
+    // cannot be clicked through stale cross-frame coordinates while it resizes.
+    await centerMcpAppFrame(page, result!.proxy);
     return result!;
+}
+
+export async function findMcpAppFrames(page: Page, sandboxOrigin: string, webOrigin: string): Promise<McpAppFrames> {
+    return findMcpAppFramesForView(page, sandboxOrigin, webOrigin, 'mcp-example-root');
 }
 
 export async function injectUnexpectedSourceMessage(page: Page, sandboxOrigin: string): Promise<void> {
