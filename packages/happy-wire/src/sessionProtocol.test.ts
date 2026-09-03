@@ -74,6 +74,18 @@ describe('session protocol schemas', () => {
         browserStep: { label: 'Opened order details' },
         image: { thumbhash: '', width: 1280, height: 720 },
       },
+      {
+        t: 'interactive-preview',
+        preview: {
+          version: 1,
+          id: '018f6c2d-3c52-7b51-9a41-6be68eb5cb31',
+          title: 'Settings interaction draft',
+          state: 'ready',
+          url: 'https://happy-preview-abc.vercel.app',
+          publishedAt: 1_788_480_000_000,
+          expiresAt: 1_788_566_400_000,
+        },
+      },
       { t: 'turn-start' },
       { t: 'start', title: 'Research agent' },
       { t: 'turn-end', status: 'completed' },

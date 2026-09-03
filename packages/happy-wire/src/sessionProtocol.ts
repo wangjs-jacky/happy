@@ -6,6 +6,7 @@
 
 import { createId, isCuid } from '@paralleldrive/cuid2';
 import * as z from 'zod';
+import { interactivePreviewEventSchema } from './interactivePreview';
 
 export const sessionRoleSchema = z.enum(['user', 'agent']);
 export type SessionRole = z.infer<typeof sessionRoleSchema>;
@@ -127,6 +128,11 @@ export const sessionStopEventSchema = z.object({
   status: sessionTurnEndStatusSchema.optional(),
 });
 
+export const sessionInteractivePreviewEventSchema = z.object({
+  t: z.literal('interactive-preview'),
+  preview: interactivePreviewEventSchema,
+});
+
 export const sessionEventSchema = z.discriminatedUnion('t', [
   sessionTextEventSchema,
   sessionServiceMessageEventSchema,
@@ -137,6 +143,7 @@ export const sessionEventSchema = z.discriminatedUnion('t', [
   sessionStartEventSchema,
   sessionTurnEndEventSchema,
   sessionStopEventSchema,
+  sessionInteractivePreviewEventSchema,
 ]);
 
 export type SessionEvent = z.infer<typeof sessionEventSchema>;
