@@ -236,6 +236,38 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
     });
 
+    it('waits for cleanup dismissal before a replacement provider launches', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        let resolveDismissal!: () => void;
+        mocks.dismissScanner.mockImplementationOnce(() => new Promise<void>((resolve) => {
+            resolveDismissal = resolve;
+        }));
+        act(() => renderer.unmount());
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        const replacementLaunch = current.connectAuthQrCode();
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+
+        resolveDismissal();
+        await act(async () => {
+            await replacementLaunch;
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+    });
+
     it.each([
         ['paws:///account?account-public-key', 'account'],
         ['paws://terminal?terminal-public-key', 'terminal'],
