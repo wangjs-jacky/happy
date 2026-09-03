@@ -156,9 +156,8 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                 return;
             }
 
-            const pendingDismissal = scannerSession.dismissal;
-            if (pendingDismissal) {
-                await pendingDismissal;
+            while (scannerSession.dismissal) {
+                await scannerSession.dismissal;
             }
 
             if (!isMountedRef.current) {

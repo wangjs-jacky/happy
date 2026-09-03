@@ -268,6 +268,52 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
     });
 
+    it('waits for a cleanup dismissal retry before a replacement provider launches', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        let rejectFirstDismissal!: (error: Error) => void;
+        let resolveRetryDismissal!: () => void;
+        mocks.dismissScanner
+            .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+                rejectFirstDismissal = reject;
+            }))
+            .mockImplementationOnce(() => new Promise<void>((resolve) => {
+                resolveRetryDismissal = resolve;
+            }));
+
+        act(() => renderer.unmount());
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        const replacementLaunch = current.connectAuthQrCode();
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        rejectFirstDismissal(new Error('cleanup failed once'));
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(2);
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+
+        resolveRetryDismissal();
+        await act(async () => {
+            await replacementLaunch;
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+    });
+
     it.each([
         ['paws:///account?account-public-key', 'account'],
         ['paws://terminal?terminal-public-key', 'terminal'],
