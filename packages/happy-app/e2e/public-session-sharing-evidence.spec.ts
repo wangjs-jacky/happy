@@ -2,13 +2,16 @@ import {
     expect,
     test,
     type APIRequestContext,
+    type ConsoleMessage,
     type Locator,
     type Page,
+    type Request,
+    type Response,
     type Route,
     type TestInfo,
 } from '@playwright/test';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { PublicSessionSnapshot } from '@slopus/happy-wire';
 import { encodeBase64, encryptLegacy } from '../../happy-cli/src/api/encryption';
 
@@ -56,9 +59,90 @@ function publicRoute(publicId: string): string {
 }
 
 function evidencePath(testInfo: TestInfo, filename: string): string {
-    if (!evidenceDirectory) return testInfo.outputPath(filename);
-    mkdirSync(evidenceDirectory, { recursive: true });
-    return resolve(evidenceDirectory, filename);
+    const path = evidenceDirectory ? resolve(evidenceDirectory, filename) : testInfo.outputPath(filename);
+    mkdirSync(dirname(path), { recursive: true });
+    return path;
+}
+
+type ExpectedBrowserResponse = {
+    method: string;
+    pathname: string;
+    status: number;
+};
+
+function createBrowserDiagnostics(expectedResponses: () => readonly ExpectedBrowserResponse[] = () => []) {
+    const consoleErrors: Array<{ locationUrl: string; text: string }> = [];
+    const pageErrors: string[] = [];
+    const failedRequests: Array<{ description: string; error: string; resourceType: string }> = [];
+    const unexpectedResponses: string[] = [];
+    const monitoredPages = new WeakSet<Page>();
+
+    const matchesExpectedResponse = (response: Response) => {
+        const url = new URL(response.url());
+        return expectedResponses().some((expected) => (
+            expected.status === response.status()
+            && expected.method === response.request().method()
+            && expected.pathname === url.pathname
+        ));
+    };
+
+    const monitorPage = async (page: Page) => {
+        if (monitoredPages.has(page)) return;
+        monitoredPages.add(page);
+        await page.addInitScript(() => {
+            const browserFetch = window.fetch.bind(window);
+            window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+                const requestUrl = new URL(
+                    typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+                    window.location.href,
+                );
+                if (requestUrl.href === 'http://localhost:8787/logs') {
+                    return Promise.resolve(new Response(null, { status: 204 }));
+                }
+                return browserFetch(input, init);
+            }) as typeof window.fetch;
+        });
+        page.on('console', (message: ConsoleMessage) => {
+            if (message.type() !== 'error') return;
+            const locationUrl = message.location().url;
+            consoleErrors.push({ text: message.text(), locationUrl });
+        });
+        page.on('pageerror', (error) => pageErrors.push(error.message));
+        page.on('requestfailed', (request: Request) => {
+            const error = request.failure()?.errorText ?? 'unknown failure';
+            failedRequests.push({
+                description: `${request.method()} ${request.url()} — ${error}`,
+                error,
+                resourceType: request.resourceType(),
+            });
+        });
+        page.on('response', (response: Response) => {
+            if (response.status() < 400) return;
+            if (matchesExpectedResponse(response)) return;
+            unexpectedResponses.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+        });
+    };
+
+    const expectClean = () => {
+        const unexpectedConsoleErrors = consoleErrors.filter((entry) => {
+            const status = /Failed to load resource: the server responded with a status of (404|503)/
+                .exec(entry.text)?.[1];
+            if (!status || !entry.locationUrl) return true;
+            const url = new URL(entry.locationUrl);
+            return !expectedResponses().some((expected) => (
+                expected.status === Number(status) && expected.pathname === url.pathname
+            ));
+        }).map((entry) => `${entry.text} @ ${entry.locationUrl || 'unknown'}`);
+        expect(unexpectedConsoleErrors, 'unexpected browser console.error messages').toEqual([]);
+        expect(pageErrors, 'uncaught browser page errors').toEqual([]);
+        const unexpectedFailedRequests = failedRequests.filter((entry) => (
+            ['fetch', 'xhr'].includes(entry.resourceType) || entry.error !== 'net::ERR_ABORTED'
+        )).map((entry) => entry.description);
+        expect(unexpectedFailedRequests, 'failed browser requests (XHR/fetch, or non-lifecycle aborts)').toEqual([]);
+        expect(unexpectedResponses, 'unexpected HTTP >=400 browser responses').toEqual([]);
+    };
+
+    return { expectClean, monitorPage };
 }
 
 async function waitForNextWallClockMillisecond(after: number): Promise<void> {
@@ -373,7 +457,31 @@ async function expectSelectedTheme(page: Page, themePack: (typeof themePackIds)[
 }
 
 async function expectSelectedMode(page: Page, mode: 'Light' | 'Dark' | 'System'): Promise<void> {
-    await expect(page.getByRole('button', { name: mode, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('button', { name: mode, exact: true })).toHaveAttribute('aria-pressed', 'true');
+}
+
+async function expectModeTooltips(page: Page): Promise<void> {
+    const light = page.getByRole('button', { name: 'Light', exact: true });
+    const dark = page.getByRole('button', { name: 'Dark', exact: true });
+    const title = page.getByTestId('public-session-title');
+
+    await light.hover();
+    const lightTooltip = page.getByTestId('public-session-appearance-tooltip-light');
+    await expect(lightTooltip).toBeVisible();
+    await expect(lightTooltip).toHaveText('Light');
+    const [lightTooltipBox, titleBox] = await Promise.all([lightTooltip.boundingBox(), title.boundingBox()]);
+    expect(lightTooltipBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
+    expect(lightTooltipBox!.x).toBeGreaterThanOrEqual(titleBox!.x + titleBox!.width);
+    await page.mouse.move(0, 0);
+    await expect(lightTooltip).toHaveCount(0);
+
+    await dark.focus();
+    const darkTooltip = page.getByTestId('public-session-appearance-tooltip-dark');
+    await expect(darkTooltip).toBeVisible();
+    await expect(darkTooltip).toHaveText('Dark');
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(darkTooltip).toHaveCount(0);
 }
 
 async function expectAnonymousReadOnly(page: Page): Promise<void> {
@@ -486,6 +594,76 @@ async function expectViewportEdgeScroller(page: Page): Promise<void> {
     expect(geometry.documentScrollWidth).toBeLessThanOrEqual(geometry.innerWidth);
 }
 
+async function expectPublicSectionGeometry(page: Page, expectCover: boolean): Promise<void> {
+    const geometry = await page.evaluate(() => {
+        const cover = document.querySelector('[data-testid="public-session-cover"]');
+        const header = document.querySelector('[data-testid="public-session-compact-header"]');
+        const transcript = document.querySelector('[data-testid="public-session-transcript-scroll-region"]');
+        if (!(header instanceof HTMLElement) || !(transcript instanceof HTMLElement)) {
+            throw new Error('Missing public header/transcript geometry.');
+        }
+        const coverRect = cover instanceof HTMLElement ? cover.getBoundingClientRect() : null;
+        const headerRect = header.getBoundingClientRect();
+        const transcriptRect = transcript.getBoundingClientRect();
+        const hit = document.elementFromPoint(window.innerWidth / 2, transcriptRect.top + 4);
+        return {
+            coverBottom: coverRect?.bottom ?? null,
+            coverPresent: coverRect !== null,
+            headerBottom: headerRect.bottom,
+            headerTop: headerRect.top,
+            hitHeader: hit === header || (hit !== null && header.contains(hit)),
+            hitTranscript: hit === transcript || (hit !== null && transcript.contains(hit)),
+            transcriptTop: transcriptRect.top,
+        };
+    });
+    expect(geometry.coverPresent).toBe(expectCover);
+    if (expectCover) expect(geometry.coverBottom!).toBeLessThanOrEqual(geometry.headerTop + 1);
+    expect(geometry.headerBottom).toBeLessThanOrEqual(geometry.transcriptTop + 1);
+    expect(geometry.hitHeader).toBe(false);
+    expect(geometry.hitTranscript).toBe(true);
+}
+
+async function expectLowHeightDialogContract(page: Page): Promise<void> {
+    const dialog = page.getByTestId('public-session-share-dialog');
+    const scroll = page.getByTestId('public-session-share-scroll');
+    const background = page.getByTestId('conversation-transcript-list');
+    await background.evaluate((element) => {
+        element.scrollTop = Math.min(240, element.scrollHeight - element.clientHeight);
+        element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    const backgroundScrollTop = await background.evaluate((element) => element.scrollTop);
+    const dialogGeometry = await dialog.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+            bottom: rect.bottom,
+            height: rect.height,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            viewportHeight: window.innerHeight,
+            viewportWidth: window.innerWidth,
+        };
+    });
+    expect(dialogGeometry.top).toBeGreaterThanOrEqual(16);
+    expect(dialogGeometry.left).toBeGreaterThanOrEqual(16);
+    expect(dialogGeometry.bottom).toBeLessThanOrEqual(dialogGeometry.viewportHeight - 16);
+    expect(dialogGeometry.right).toBeLessThanOrEqual(dialogGeometry.viewportWidth - 16);
+    expect(dialogGeometry.height).toBeLessThanOrEqual(dialogGeometry.viewportHeight - 32);
+
+    await scroll.evaluate((element) => { element.scrollTop = 0; });
+    await expect(page.getByTestId('public-session-share-privacy-message')).toBeInViewport();
+    await scroll.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+        element.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await expect(page.getByTestId('public-session-share-create')).toBeInViewport();
+    const scrollBox = await scroll.boundingBox();
+    expect(scrollBox).not.toBeNull();
+    await page.mouse.move(scrollBox!.x + scrollBox!.width / 2, scrollBox!.y + scrollBox!.height / 2);
+    await page.mouse.wheel(0, 900);
+    await expect.poll(() => background.evaluate((element) => element.scrollTop)).toBe(backgroundScrollTop);
+}
+
 async function markAndScrollTranscript(page: Page): Promise<number> {
     return page.getByTestId('conversation-transcript-list').evaluate((element) => {
         const target = Math.min(640, element.scrollHeight - element.clientHeight);
@@ -543,6 +721,19 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     const cleanupTargets: ShareCleanupTarget[] = [];
     let cleanupRequired = true;
     let primaryFailure: unknown;
+    const diagnostics = createBrowserDiagnostics(() => [
+        ...(sessionId ? [{
+            method: 'GET',
+            pathname: `/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`,
+            status: 503,
+        }] : []),
+        ...(publicId ? [{
+            method: 'GET',
+            pathname: `/v1/public/session-shares/${encodeURIComponent(publicId)}`,
+            status: 404,
+        }] : []),
+    ]);
+    await diagnostics.monitorPage(page);
     try {
     sessionId = await createSession(request);
     cleanupTargets.push({ label: 'owner dialog fixture', sessionId });
@@ -577,6 +768,12 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await authenticatedWorkToggle.click();
     await expect(page.getByTestId('conversation-tool-group-toggle')).toHaveCount(0);
 
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openShareDialog(page);
+    await expectLowHeightDialogContract(page);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('public-session-share-dialog')).toHaveCount(0);
+    await expect(page.locator('[data-testid="session-header-more-button"]:visible')).toBeFocused();
     await openShareDialog(page);
     await expect(page.getByTestId('public-session-share-privacy-message')).toContainText('all attachments');
     await expect(page.getByTestId('public-share-appearance-controls')).toBeVisible();
@@ -592,6 +789,8 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     let randomCoverRequestCount = 0;
     const expectedRandomCoverOrigin = new URL(e2eServerUrl).origin;
     const expectedRandomCoverPath = `/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`;
+    let releaseRandomCover!: () => void;
+    const randomCoverGate = new Promise<void>((resolveGate) => { releaseRandomCover = resolveGate; });
     await page.route('**/v1/sessions/**/share/covers/random*', async (route) => {
         randomCoverRequestCount += 1;
         const randomRequest = route.request();
@@ -602,13 +801,22 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
         if (randomUrl.pathname !== expectedRandomCoverPath) randomCoverRequestProblems.push(`path=${randomUrl.pathname}`);
         if (randomUrl.search !== '') randomCoverRequestProblems.push(`search=${randomUrl.search}`);
         if (headers.authorization !== ownerHeaders().Authorization) randomCoverRequestProblems.push('owner Authorization missing or malformed');
+        await randomCoverGate;
         await route.fulfill({
             status: 503,
             contentType: 'application/json',
             body: JSON.stringify({ error: 'Pexels cover provider is unavailable' }),
         });
     });
+    const randomRequestStarted = page.waitForRequest((request) => (
+        new URL(request.url()).pathname === expectedRandomCoverPath
+    ));
     await page.getByTestId('public-share-cover-random').click();
+    await randomRequestStarted;
+    await expect(page.getByTestId('public-session-share-create')).toBeDisabled();
+    await expect(page.getByTestId('public-share-appearance-controls')).toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByTestId('public-share-cover-replacement-state')).toBeVisible();
+    releaseRandomCover();
     await expect(page.getByTestId('public-share-cover-provider-state'))
         .toContainText('Pexels is unavailable. You can still upload an image or share without a cover.');
     expect(randomCoverRequestProblems).toEqual([]);
@@ -636,6 +844,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await page.getByTestId('public-session-share-scroll').evaluate((element) => { element.scrollTop = 0; });
     await expectSelectedTheme(page, 'gingham');
     await expectDialogCoverLoaded(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.screenshot({ path: evidencePath(testInfo, 'case-1-share-dialog-after.png'), fullPage: false });
 
     const publicApiResponse = await request.get(
@@ -677,6 +886,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     try {
         expect(await anonymousContext.cookies()).toEqual([]);
         const anonymousPage = await anonymousContext.newPage();
+        await diagnostics.monitorPage(anonymousPage);
         await anonymousPage.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
         await anonymousPage.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
         await expectAnonymousReadOnly(anonymousPage);
@@ -733,6 +943,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     const revokedContext = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 900 } });
     try {
         const revokedPage = await revokedContext.newPage();
+        await diagnostics.monitorPage(revokedPage);
         await revokedPage.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
         await revokedPage.goto(publicUrl!, { waitUntil: 'domcontentloaded', timeout: 180_000 });
         await expect(revokedPage.getByTestId('public-session-share-unavailable')).toBeVisible({ timeout: 180_000 });
@@ -741,6 +952,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
         await revokedContext.close();
     }
     expect(randomCoverRequestCount).toBe(1);
+    diagnostics.expectClean();
     } catch (error) {
         primaryFailure = error;
         throw error;
@@ -754,6 +966,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
     const sharedAt = Date.UTC(2026, 8, 3, 4, 5, 0);
     const cleanupTargets: ShareCleanupTarget[] = [];
     let primaryFailure: unknown;
+    const diagnostics = createBrowserDiagnostics();
     try {
     const v1 = await publishDirectSnapshot(request, {
         version: 1,
@@ -780,6 +993,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
     });
     try {
         const page = await context.newPage();
+        await diagnostics.monitorPage(page);
         await page.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
 
         await page.goto(v1.publicUrl, { waitUntil: 'domcontentloaded', timeout: 180_000 });
@@ -798,6 +1012,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         ));
         expect(headerTop).toBeLessThanOrEqual(1);
         await expectViewportEdgeScroller(page);
+        await expectPublicSectionGeometry(page, false);
         await page.screenshot({ path: evidencePath(testInfo, 'case-3-no-cover-after.png'), fullPage: false });
 
         await page.setViewportSize({ width: 390, height: 844 });
@@ -827,6 +1042,12 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         expect(mobileGeometry.headerRight).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
         expect(mobileGeometry.scrollWidth).toBeLessThanOrEqual(mobileGeometry.viewportWidth);
         await expectViewportEdgeScroller(page);
+        await expectPublicSectionGeometry(page, false);
+        await page.screenshot({
+            path: evidencePath(testInfo, 'supplemental/case-3-no-cover-390x844.png'),
+            fullPage: false,
+        });
+        diagnostics.expectClean();
     } finally {
         await context.close();
     }
@@ -877,6 +1098,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         presentation: { groupToolCalls: true },
         messages: longMessages('Historical cross-ID V1', 28),
     };
+    const diagnostics = createBrowserDiagnostics();
 
     const context = await browser.newContext({
         colorScheme: 'dark',
@@ -894,6 +1116,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
             }) as typeof window.open;
         });
         const page = await context.newPage();
+        await diagnostics.monitorPage(page);
         await page.route('**/v1/public/session-shares/**', async (route) => {
             const requestUrl = new URL(route.request().url());
             const headers = await route.request().allHeaders();
@@ -934,6 +1157,11 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectSelectedMode(page, 'System');
         await expectPublicPageColor(page, 'rgb(18, 24, 33)');
         await expectCoverLoaded(page, coveredPublicId, coverAssetId);
+        await expectPublicSectionGeometry(page, true);
+        await expectModeTooltips(page);
+        for (const label of ['Light', 'Dark', 'System']) {
+            await expect(page.getByRole('button', { name: label, exact: true })).not.toHaveAttribute('aria-selected');
+        }
         const attributionLink = page.getByRole('link', { name: 'Photo by Ada Lovelace on Pexels', exact: true });
         await expect(attributionLink).toBeVisible();
         await expect(page.getByTestId('public-session-cover-attribution')).toContainText('Photo by Ada Lovelace on Pexels');
@@ -975,6 +1203,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectPublicPageColor(page, 'rgb(244, 247, 250)');
         expect(await page.evaluate((key) => localStorage.getItem(key), appearanceStorageKey)).toBe('light');
         await expectTranscriptPreserved(page, initialScrollTop);
+        await expectPublicSectionGeometry(page, true);
 
         await page.getByRole('button', { name: 'Dark', exact: true }).click();
         await expectSelectedMode(page, 'Dark');
@@ -1032,6 +1261,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectPublicPageColor(page, 'rgb(244, 247, 250)');
         await expectCoverLoaded(page, coveredPublicId, coverAssetId);
         await page.getByTestId('conversation-transcript-list').evaluate((element) => { element.scrollTop = 0; });
+        await expectPublicSectionGeometry(page, true);
         await page.screenshot({ path: evidencePath(testInfo, 'case-2-public-cover-after.png'), fullPage: false });
 
         await page.getByRole('button', { name: 'System', exact: true }).click();
@@ -1055,6 +1285,7 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectPublicPageColor(page, 'rgb(26, 21, 18)');
         await page.emulateMedia({ colorScheme: 'light' });
         await expectPublicPageColor(page, 'rgb(251, 247, 240)');
+        diagnostics.expectClean();
     } finally {
         await context.close();
     }
