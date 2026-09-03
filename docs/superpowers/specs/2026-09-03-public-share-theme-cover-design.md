@@ -87,7 +87,7 @@ Pexels is the sole remote provider in version one.
 - Remote and uploaded images are bounded by MIME, bytes, dimensions, and decode success. SVG and executable content are rejected.
 - Failed Pexels calls, failed uploads, incomplete objects, expired drafts, and stale generations never replace the active public snapshot.
 - Revoke and generation replacement clean cover assets through the same durable cleanup path as attachments.
-- Public assets keep the existing noindex and public-share security headers and gain immutable caching appropriate to generation-scoped resources.
+- Public assets keep the existing noindex and public-share security headers. Although their object-storage keys are generation-addressed, responses deliberately remain `Cache-Control: no-store` so revoke takes effect immediately without a CDN purge contract. Immutable browser/CDN caching can only be enabled after purge support exists.
 
 ## Compatibility
 
@@ -113,4 +113,3 @@ Pexels is the sole remote provider in version one.
 - Per-view random covers.
 - A separate mutable appearance table.
 - The broader migration of every Web bundle/static deployment artifact to OSS/CDN. This feature still requires every newly created cover asset to be OSS/S3-only in production.
-
