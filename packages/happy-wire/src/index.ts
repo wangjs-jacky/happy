@@ -6,3 +6,4 @@ export * from './motionPhoto';
 export * from './plugins';
 export * from './publicSessionShare';
 export * from './interactivePreview';
+export * from './interactivePreviewPrompt';

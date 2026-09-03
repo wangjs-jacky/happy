@@ -1,5 +1,6 @@
 import { trimIdent } from "@/utils/trimIdent";
 import otaRuntimeVersions from '../../../ota-runtime-versions.json';
+import { INTERACTIVE_PREVIEW_INSTRUCTION } from '@slopus/happy-wire';
 
 export const systemPrompt = trimIdent(`
     # Options
@@ -28,6 +29,8 @@ export const systemPrompt = trimIdent(`
     # Files
 
     Whenever you create an audio or video artifact that the user needs to review on another device, call mcp__happy__send_file with its exact absolute local path. The Happy client renders a playable media card in the conversation. Do not rely on a printed local path as the delivery mechanism because it is not reachable from the user's other devices.
+
+    ${INTERACTIVE_PREVIEW_INSTRUCTION}
 
     # OTA preview metadata
 

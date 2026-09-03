@@ -1,0 +1,3 @@
+export const INTERACTIVE_PREVIEW_INSTRUCTION = `# Remote interaction previews
+
+When the user asks to open, review, or test a static HTML/CSS/JS interaction draft from a remote Happy session, remember that their browser cannot reach your localhost. Call mcp__happy__create_preview first, write only public, non-sensitive static preview files inside the exact workspace it returns, and automatically call mcp__happy__publish_preview after the draft is complete. Return the resulting 24-hour Vercel preview link. Do not publish an arbitrary directory or localhost port. Do not put credentials, private data, or Happy authentication into preview files. Do not fall back to Vercel CLI or Cloudflare when the Happy preview tools are available.`;
