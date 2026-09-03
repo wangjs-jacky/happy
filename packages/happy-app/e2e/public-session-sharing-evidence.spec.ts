@@ -590,6 +590,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
 
     const randomCoverRequestProblems: string[] = [];
     let randomCoverRequestCount = 0;
+    const expectedRandomCoverOrigin = new URL(e2eServerUrl).origin;
     const expectedRandomCoverPath = `/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`;
     await page.route('**/v1/sessions/**/share/covers/random*', async (route) => {
         randomCoverRequestCount += 1;
@@ -597,6 +598,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
         const randomUrl = new URL(randomRequest.url());
         const headers = await randomRequest.allHeaders();
         if (randomRequest.method() !== 'GET') randomCoverRequestProblems.push(`method=${randomRequest.method()}`);
+        if (randomUrl.origin !== expectedRandomCoverOrigin) randomCoverRequestProblems.push(`origin=${randomUrl.origin}`);
         if (randomUrl.pathname !== expectedRandomCoverPath) randomCoverRequestProblems.push(`path=${randomUrl.pathname}`);
         if (randomUrl.search !== '') randomCoverRequestProblems.push(`search=${randomUrl.search}`);
         if (headers.authorization !== ownerHeaders().Authorization) randomCoverRequestProblems.push('owner Authorization missing or malformed');
