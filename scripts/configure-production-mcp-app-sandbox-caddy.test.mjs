@@ -176,6 +176,40 @@ test('fails closed on any heredoc or nested token inside the target while scanni
     }), /only comments/i);
 });
 
+test('enforces the official heredoc closing-marker indentation across every nonempty body line', async () => {
+    const valid = `notes.example {
+    respond <<HTML
+        <main>
+
+            <p>more indentation is valid</p>
+        HTML 200
+}
+
+${source}`;
+    assert.ok(configureProductionMcpAppSandboxCaddy(valid, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }).startsWith(valid.slice(0, valid.indexOf(source))));
+
+    const mismatched = valid.replace('        <main>', '  <main>');
+    assert.throws(() => configureProductionMcpAppSandboxCaddy(mismatched, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }), /mismatched.*whitespace/i);
+
+    const directory = await mkdtemp(join(tmpdir(), 'paws-mcp-caddy-heredoc-'));
+    const input = join(directory, 'Caddyfile');
+    const output = join(directory, 'output');
+    await writeFile(input, mismatched);
+    await writeFile(output, 'untouched');
+    try {
+        await assert.rejects(runConfigureProductionMcpAppSandboxCaddy([
+            input, output, 'https://sandbox.paws.example', 'https://paws.example:8443',
+        ]), /mismatched.*whitespace/i);
+        assert.equal(await readFile(output, 'utf8'), 'untouched');
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test('rejects malformed official heredoc forms, open multiline tokens, mixed line endings, and modified blocks', () => {
     const malformed = [
         source.replace('# TLS is provisioned', 'header X-Bad "unterminated }'),

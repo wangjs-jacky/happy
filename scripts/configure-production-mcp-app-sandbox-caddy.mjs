@@ -83,6 +83,7 @@ function scanCaddyfile(source) {
             index = openerEnd < 0 ? source.length : openerEnd + 1;
             if (openerEnd >= 0) line += 1;
             let closed = false;
+            const bodyLines = [];
             while (index <= source.length) {
                 const closeLineEnd = source.indexOf('\n', index);
                 const physicalEnd = closeLineEnd < 0 ? source.length : closeLineEnd;
@@ -91,12 +92,17 @@ function scanCaddyfile(source) {
                 const markerEnd = markerStart + marker.length;
                 if (source.startsWith(marker, markerStart)
                     && (markerEnd === physicalEnd || /[^\S\n]/u.test(source[markerEnd]))) {
+                    const padding = source.slice(index, markerStart);
+                    if (bodyLines.some((bodyLine) => bodyLine !== '' && !bodyLine.startsWith(padding))) {
+                        throw new Error('Caddyfile heredoc has mismatched leading whitespace for its closing marker');
+                    }
                     emit('', tokenLine, true);
                     index = markerEnd;
                     closed = true;
                     break;
                 }
                 if (closeLineEnd < 0) break;
+                bodyLines.push(source.slice(index, physicalEnd));
                 index = closeLineEnd + 1;
                 line += 1;
             }
