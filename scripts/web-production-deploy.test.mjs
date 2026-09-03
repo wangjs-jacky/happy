@@ -5,6 +5,9 @@ import test from 'node:test';
 import { parse } from 'yaml';
 
 const workflowUrl = new URL('../.github/workflows/web-production-deploy.yml', import.meta.url);
+const evidenceSpecUrl = new URL('../packages/happy-app/e2e/mcp-app-host-evidence.spec.ts', import.meta.url);
+const evidenceHelperUrl = new URL('../packages/happy-app/e2e/helpers/mcpAppHarness.ts', import.meta.url);
+const gitignoreUrl = new URL('../.gitignore', import.meta.url);
 
 test('production workflow switches verified OSS content before Caddy and guarded cleanup', async () => {
     const workflow = parse(await readFile(workflowUrl, 'utf8'));
@@ -76,6 +79,18 @@ test('production activation is serialized and cannot be cancelled mid-switch', a
 
     assert.equal(workflow.concurrency.group, 'paws-web-production');
     assert.equal(workflow.concurrency['cancel-in-progress'], false);
+});
+
+test('authenticated MCP App evidence disables traces and protects external storage state', async () => {
+    const [spec, helper, gitignore] = await Promise.all([
+        readFile(evidenceSpecUrl, 'utf8'), readFile(evidenceHelperUrl, 'utf8'), readFile(gitignoreUrl, 'utf8'),
+    ]);
+    assert.match(spec, /test\.use\(\{ storageState: environment\.storageState, trace: 'off' \}\)/);
+    assert.doesNotMatch(spec, /testInfo\.attach|storageState.*evidence/i);
+    assert.match(helper, /HAPPY_E2E_STORAGE_STATE/);
+    assert.match(helper, /webUrl\.search \|\| webUrl\.hash/);
+    assert.match(helper, /state\.mode & 0o077/);
+    assert.match(gitignore, /packages\/happy-app\/\.mcp-app-e2e-auth\//);
 });
 
 test('production workflow has rollback outputs and no active server deploy path', async () => {

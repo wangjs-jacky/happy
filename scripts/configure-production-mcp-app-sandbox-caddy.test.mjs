@@ -20,7 +20,7 @@ paws.example:8443 {
 }
 
 sandbox.paws.example {
-    header X-Existing "preserved"
+    # TLS is provisioned automatically by the site address.
 }
 
 metrics.example {
@@ -39,23 +39,40 @@ test('adds an exact-path managed block only inside the provisioned sandbox site'
     assert.match(configured, /@paws_mcp_app_host path \/mcp-app-sandbox\/host \/mcp-app-sandbox\/host\.js/);
     assert.match(configured, /reverse_proxy @paws_mcp_app_host localhost:3005/);
     assert.match(configured, /respond 404/);
-    assert.match(configured, /header X-Existing "preserved"/);
+    assert.match(configured, /# TLS is provisioned automatically by the site address\./);
     assert.match(configured, /metrics\.example \{\n    reverse_proxy localhost:9090\n\}/);
     assert.match(configured, /paws\.example:8443 \{\n    respond "paws"\n\}/);
 });
 
 test('is idempotent and replaces only its own complete managed block', () => {
-    const once = configureProductionMcpAppSandboxCaddy(source, {
+    const options = {
         sandboxOrigin: 'https://sandbox.paws.example',
         parentOrigins: ['https://paws.example:8443'],
-    });
-    const twice = configureProductionMcpAppSandboxCaddy(once, {
-        sandboxOrigin: 'https://sandbox.paws.example',
-        parentOrigins: ['https://paws.example:8443'],
-    });
+    };
+    const once = configureProductionMcpAppSandboxCaddy(source, options);
+    const twice = configureProductionMcpAppSandboxCaddy(once, options);
 
     assert.equal(twice, once);
     assert.equal(twice.match(new RegExp(MCP_APP_SANDBOX_CADDY_BLOCK_START, 'g'))?.length, 1);
+
+    const differentlyIndentedComment = once.replace(
+        '    # TLS is provisioned automatically by the site address.',
+        '  # TLS is provisioned automatically by the site address.',
+    );
+    assert.equal(configureProductionMcpAppSandboxCaddy(differentlyIndentedComment, options), differentlyIndentedComment);
+});
+
+test('preserves unrelated sites byte-for-byte, including CRLF and quoted braces', () => {
+    const crlf = source.replace('respond "paws"', 'respond "paws } \\" quoted" # } comment').replaceAll('\n', '\r\n');
+    const configured = configureProductionMcpAppSandboxCaddy(crlf, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    });
+    const prefix = crlf.slice(0, crlf.indexOf('sandbox.paws.example {'));
+    const suffix = crlf.slice(crlf.indexOf('metrics.example {'));
+    assert.ok(configured.startsWith(prefix));
+    assert.ok(configured.endsWith(suffix));
+    assert.ok(configured.includes('\r\n'));
+    assert.equal(configured.replaceAll('\r\n', '').includes('\n'), false);
 });
 
 test('fails closed for missing, same-origin, non-HTTPS, and incomplete managed sites', () => {
@@ -69,19 +86,87 @@ test('fails closed for missing, same-origin, non-HTTPS, and incomplete managed s
         sandboxOrigin: 'http://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
     }), /HTTPS/i);
     assert.throws(() => configureProductionMcpAppSandboxCaddy(
-        source.replace('    header X-Existing "preserved"', `    ${MCP_APP_SANDBOX_CADDY_BLOCK_START}`),
+        source.replace('    # TLS is provisioned automatically by the site address.', `    ${MCP_APP_SANDBOX_CADDY_BLOCK_START}`),
         { sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'] },
     ), /incomplete/i);
     assert.throws(() => configureProductionMcpAppSandboxCaddy(
-        source.replace('    header X-Existing "preserved"', '    respond "placeholder"'),
+        source.replace('    # TLS is provisioned automatically by the site address.', '    respond "placeholder"'),
         { sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'] },
-    ), /unmanaged request handlers/i);
-    for (const handler of ['reverse_proxy localhost:9999', 'handle_errors {', 'request_body {', 'import hidden_routes']) {
-        const dangerous = source.replace('    header X-Existing "preserved"', `    header X-Quoted "quoted } \\" still text" # } comment\n    ${handler}`);
+    ), /only comments/i);
+    for (const handler of [
+        'reverse_proxy localhost:9999', 'route {', 'handle {', 'handle_path /x {', 'respond 200',
+        'redir / /x', 'rewrite * /x', 'file_server', 'php_fastcgi localhost:9000', 'request_body {',
+        'handle_errors {', 'import hidden_routes', 'abort', 'basic_auth {', 'forward_auth localhost:3000',
+        'try_files {path} /index.html', 'tls internal', 'error "boom"', 'invoke hidden_routes',
+        '(hidden_routes) {', 'log', 'encode gzip', 'header X-Test value',
+        'reverse_proxy https://evil.example',
+    ]) {
+        const dangerous = source.replace('    # TLS is provisioned automatically by the site address.', `    ${handler}`);
         assert.throws(() => configureProductionMcpAppSandboxCaddy(dangerous, {
             sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
-        }), /unmanaged request handlers|unbalanced/i);
+        }), /only comments|unbalanced/i);
     }
+});
+
+test('ignores braces in unrelated quotes, backticks, comments, and quoted or indented heredocs', () => {
+    const unrelated = `notes.example {
+    header X-Double "} \\" still quoted"
+    header X-Single '} still quoted'
+    header X-Raw \`} still raw\`
+    header X-Escaped \\} still-a-token
+    respond <<"DOC"
+        { # not structural
+        ${MCP_APP_SANDBOX_CADDY_BLOCK_START}
+        } still data
+        DOC # not the exact terminator
+        DOC
+}
+
+${source}`;
+    const configured = configureProductionMcpAppSandboxCaddy(unrelated, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    });
+    assert.ok(configured.startsWith(unrelated.slice(0, unrelated.indexOf(source))));
+    assert.match(configured, /# paws-mcp-app-sandbox:start/);
+});
+
+test('fails closed on any heredoc or nested token inside the target without misreading its braces', () => {
+    const dangerous = source.replace(
+        '    # TLS is provisioned automatically by the site address.',
+        '    respond <<-\'BODY\'\n        } data only\n        { data only\n        BODY',
+    );
+    assert.throws(() => configureProductionMcpAppSandboxCaddy(dangerous, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }), /only comments/i);
+
+    const escapedClosingBrace = source.replace(
+        '    # TLS is provisioned automatically by the site address.',
+        '    header X-Escaped \\}',
+    );
+    assert.throws(() => configureProductionMcpAppSandboxCaddy(escapedClosingBrace, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }), /only comments/i);
+});
+
+test('rejects unterminated quotes, backticks, heredocs, mixed line endings, and modified managed blocks', () => {
+    const malformed = [
+        source.replace('# TLS is provisioned', 'header X-Bad "unterminated }'),
+        source.replace('# TLS is provisioned', 'header X-Bad `unterminated }'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<'),
+        source.replace('# TLS is provisioned', 'respond <<EOF\n} hidden forever'),
+        source.replace('\n', '\r\n'),
+    ];
+    for (const candidate of malformed) {
+        assert.throws(() => configureProductionMcpAppSandboxCaddy(candidate, {
+            sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+        }), /unterminated|malformed|mixed|unbalanced/i);
+    }
+    const configured = configureProductionMcpAppSandboxCaddy(source, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }).replace('respond 404', 'respond 200');
+    assert.throws(() => configureProductionMcpAppSandboxCaddy(configured, {
+        sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
+    }), /managed.*modified/i);
 });
 
 test('does not create or mutate the output file when validation fails', async () => {
@@ -100,6 +185,17 @@ test('does not create or mutate the output file when validation fails', async ()
             input, existingOutput, 'https://missing.example', 'https://paws.example:8443',
         ]), /site block not found/i);
         assert.equal(await readFile(existingOutput, 'utf8'), 'untouched');
+        for (const [invalidSource, pattern] of [
+            [source.replace('# TLS is provisioned', 'reverse_proxy localhost:9999'), /only comments/i],
+            [source.replace('# TLS is provisioned', 'respond <<EOF\n} data'), /unterminated heredoc/i],
+            [source.replace('# TLS is provisioned', 'header X-Bad `unterminated'), /unterminated quoted/i],
+        ]) {
+            await writeFile(input, invalidSource);
+            await assert.rejects(runConfigureProductionMcpAppSandboxCaddy([
+                input, existingOutput, 'https://sandbox.paws.example', 'https://paws.example:8443',
+            ]), pattern);
+            assert.equal(await readFile(existingOutput, 'utf8'), 'untouched');
+        }
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

@@ -94,10 +94,18 @@ test('rejects permissive or duplicate CSP and Permissions-Policy values', async 
     }
 });
 
-test('bounds every request even when fetch never settles', async () => {
+test('applies the per-request deadline when fetch never settles', async () => {
     const started = Date.now();
     await assert.rejects(verifyProductionMcpAppSandbox({
-        sandboxOrigin, parentOrigin, fetchImpl: () => new Promise(() => {}), requestTimeoutMs: 10, overallTimeoutMs: 50,
+        sandboxOrigin, parentOrigin, fetchImpl: () => new Promise(() => {}), requestTimeoutMs: 10, overallTimeoutMs: 1_000,
+    }), /timed out/i);
+    assert.ok(Date.now() - started < 500);
+});
+
+test('applies the overall deadline when it is shorter and leaves no live timeout', async () => {
+    const started = Date.now();
+    await assert.rejects(verifyProductionMcpAppSandbox({
+        sandboxOrigin, parentOrigin, fetchImpl: () => new Promise(() => {}), requestTimeoutMs: 10_000, overallTimeoutMs: 10,
     }), /timed out/i);
     assert.ok(Date.now() - started < 500);
 });

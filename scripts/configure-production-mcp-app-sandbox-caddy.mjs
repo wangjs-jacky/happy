@@ -30,6 +30,7 @@ function structuralContent(line) {
             content += ' ';
             continue;
         }
+        if (character === '\\') { escaped = true; content += ' '; continue; }
         if (character === '#') break;
         if (character === '"' || character === "'" || character === '`') { quote = character; content += ' '; continue; }
         content += character;
@@ -38,27 +39,50 @@ function structuralContent(line) {
     return content;
 }
 
-function braceDelta(line) {
-    const content = structuralContent(line);
+function structuralLines(lines) {
+    const result = [];
+    let heredocDelimiter = null;
+    for (const line of lines) {
+        if (heredocDelimiter !== null) {
+            result.push({ content: '', heredocBody: true });
+            if (line.trim() === heredocDelimiter) heredocDelimiter = null;
+            continue;
+        }
+        const content = structuralContent(line);
+        const marker = content.indexOf('<<');
+        if (marker >= 0) {
+            const declaration = line.slice(marker);
+            const match = /^<<-?\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|([^\s{}#]+))/u.exec(declaration);
+            const delimiter = match && (match[1] ?? match[2] ?? match[3] ?? match[4]);
+            if (!delimiter || delimiter.includes('<<')) throw new Error('Caddyfile contains a malformed heredoc token');
+            heredocDelimiter = delimiter;
+        }
+        result.push({ content, heredocBody: false });
+    }
+    if (heredocDelimiter !== null) throw new Error('Caddyfile contains an unterminated heredoc');
+    return result;
+}
+
+function braceDelta(content) {
     return (content.match(/{/g) ?? []).length - (content.match(/}/g) ?? []).length;
 }
 
-function blockEnd(lines, start, label) {
+function blockEnd(structure, start, label) {
     let depth = 0;
-    for (let index = start; index < lines.length; index += 1) {
-        depth += braceDelta(lines[index]);
+    for (let index = start; index < structure.length; index += 1) {
+        depth += braceDelta(structure[index].content);
         if (index > start && depth === 0) return index;
         if (depth < 0) break;
     }
     throw new Error(`${label} is unbalanced`);
 }
 
-function findManagedRange(lines) {
+function findManagedRange(lines, structure) {
     const starts = [];
     const ends = [];
     for (const [index, line] of lines.entries()) {
-        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(index);
-        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(index);
+        if (!structure[index].heredocBody && line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(index);
+        if (!structure[index].heredocBody && line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(index);
     }
     if (starts.length === 0 && ends.length === 0) return null;
     if (starts.length !== 1 || ends.length !== 1 || ends[0] < starts[0]) {
@@ -90,13 +114,19 @@ export function configureProductionMcpAppSandboxCaddy(source, options) {
         throw new Error('Sandbox origin must use a different origin from every Paws parent origin');
     }
 
-    const hadFinalNewline = source.endsWith('\n');
-    const lines = source.replace(/\r\n/g, '\n').split('\n');
-    const globalManagedRange = findManagedRange(lines);
+    const newline = source.includes('\r\n') ? '\r\n' : '\n';
+    const withoutCrLf = source.replaceAll('\r\n', '');
+    if (withoutCrLf.includes('\r') || (newline === '\r\n' && withoutCrLf.includes('\n'))) {
+        throw new Error('Caddyfile contains mixed or unsupported line endings');
+    }
+    const hadFinalNewline = source.endsWith(newline);
+    const lines = source.split(newline);
+    const structure = structuralLines(lines);
+    const globalManagedRange = findManagedRange(lines, structure);
     const sandboxHost = new URL(sandboxOrigin).host;
     const acceptedSiteLabels = new Set([sandboxHost, sandboxOrigin]);
-    const siteStarts = lines.flatMap((line, index) => {
-        const match = /^\s*(\S+)\s*\{\s*$/u.exec(structuralContent(line));
+    const siteStarts = lines.flatMap((_line, index) => {
+        const match = /^\s*(\S+)\s*\{\s*$/u.exec(structure[index].content);
         return match && acceptedSiteLabels.has(match[1]) ? [index] : [];
     });
     if (siteStarts.length !== 1) {
@@ -105,37 +135,38 @@ export function configureProductionMcpAppSandboxCaddy(source, options) {
             : `Multiple Caddy site blocks found for sandbox: ${sandboxHost}`);
     }
     const siteStart = siteStarts[0];
-    const siteEnd = blockEnd(lines, siteStart, `Sandbox Caddy site ${sandboxHost}`);
+    const siteEnd = blockEnd(structure, siteStart, `Sandbox Caddy site ${sandboxHost}`);
     if (globalManagedRange
         && (globalManagedRange.start <= siteStart || globalManagedRange.end >= siteEnd)) {
         throw new Error('Existing managed MCP App sandbox Caddy block is outside the sandbox site');
     }
 
-    const unmanagedSiteLines = lines.slice(siteStart + 1, siteEnd).filter((_line, offset) => {
-        if (!globalManagedRange) return true;
-        const absoluteIndex = siteStart + 1 + offset;
-        return absoluteIndex < globalManagedRange.start || absoluteIndex > globalManagedRange.end;
-    });
-    const requestHandler = unmanagedSiteLines.find((line) => (
-        /^\s*(?:handle|handle_path|handle_errors|route|respond|reverse_proxy|rewrite|redir|file_server|php_fastcgi|request_body|error|abort|invoke|import|\()[\s{]/u.test(structuralContent(line))
-    ));
-    if (requestHandler) {
-        throw new Error('Provisioned sandbox site must not contain unmanaged request handlers');
+    for (let index = siteStart + 1; index < siteEnd; index += 1) {
+        if (globalManagedRange && index >= globalManagedRange.start && index <= globalManagedRange.end) continue;
+        const trimmed = lines[index].trim();
+        if (trimmed !== '' && !trimmed.startsWith('#')) {
+            throw new Error('Provisioned sandbox site must contain only comments outside the managed block');
+        }
     }
 
-    const siteIndent = lines.slice(siteStart + 1, siteEnd)
-        .find((line) => line.trim().length > 0)?.match(/^\s*/u)?.[0]
-        ?? `${lines[siteStart].match(/^\s*/u)?.[0] ?? ''}    `;
-    const replacement = managedLines(siteIndent);
     if (globalManagedRange) {
-        lines.splice(globalManagedRange.start, globalManagedRange.end - globalManagedRange.start + 1, ...replacement);
+        const existingIndent = lines[globalManagedRange.start].match(/^\s*/u)?.[0] ?? '';
+        const expected = managedLines(existingIndent);
+        const actual = lines.slice(globalManagedRange.start, globalManagedRange.end + 1);
+        if (actual.length !== expected.length || actual.some((line, index) => line !== expected[index])) {
+            throw new Error('Existing managed MCP App sandbox Caddy block was modified');
+        }
+        lines.splice(globalManagedRange.start, globalManagedRange.end - globalManagedRange.start + 1, ...expected);
     } else {
+        const siteIndent = lines.slice(siteStart + 1, siteEnd)
+            .find((line) => line.trim().length > 0)?.match(/^\s*/u)?.[0]
+            ?? `${lines[siteStart].match(/^\s*/u)?.[0] ?? ''}    `;
         const prefix = siteEnd > siteStart + 1 && lines[siteEnd - 1].trim() !== '' ? [''] : [];
-        lines.splice(siteEnd, 0, ...prefix, ...replacement);
+        lines.splice(siteEnd, 0, ...prefix, ...managedLines(siteIndent));
     }
-    let result = lines.join('\n');
-    if (hadFinalNewline && !result.endsWith('\n')) result += '\n';
-    if (!hadFinalNewline && result.endsWith('\n')) result = result.slice(0, -1);
+    let result = lines.join(newline);
+    if (hadFinalNewline && !result.endsWith(newline)) result += newline;
+    if (!hadFinalNewline && result.endsWith(newline)) result = result.slice(0, -newline.length);
     return result;
 }
 
