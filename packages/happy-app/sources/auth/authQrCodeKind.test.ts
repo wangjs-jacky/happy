@@ -3,10 +3,12 @@ import { getAuthQrCodeKind } from './authQrCodeKind';
 
 describe('getAuthQrCodeKind', () => {
     it.each([
-        ['paws:///account?account-public-key', 'account'],
-        ['paws://terminal?terminal-public-key', 'terminal'],
+        ['paws:///account?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'account'],
+        ['paws://terminal?AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8', 'terminal'],
         ['paws:///account?', null],
         ['paws://terminal?', null],
+        ['paws:///account?A', null],
+        ['paws://terminal?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', null],
         ['paws:///account?not valid', null],
         ['paws://terminal?<script>', null],
         ['https://example.com/not-a-paws-code', null],
