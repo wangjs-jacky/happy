@@ -103,7 +103,12 @@ function requireApiKey(apiKey: string): void {
 
 function assertAllowedImageUrl(value: string): string {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || !ALLOWED_IMAGE_HOSTS.has(url.hostname.toLowerCase())) {
+    if (
+        url.protocol !== 'https:'
+        || !ALLOWED_IMAGE_HOSTS.has(url.hostname.toLowerCase())
+        || Boolean(url.username || url.password)
+        || Boolean(url.port && url.port !== '443')
+    ) {
         throw new PexelsProviderError('Pexels returned an unsupported image host');
     }
     return url.toString();

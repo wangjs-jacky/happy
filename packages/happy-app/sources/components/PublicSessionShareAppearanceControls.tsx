@@ -63,12 +63,14 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
     const mountedRef = React.useRef(true);
     const randomLoadingRef = React.useRef(false);
     const replacementBusyRef = React.useRef(false);
+    const onReplacementBusyChangeRef = React.useRef(onReplacementBusyChange);
+    onReplacementBusyChangeRef.current = onReplacementBusyChange;
 
     const setReplacementBusy = React.useCallback((busy: boolean) => {
         if (replacementBusyRef.current === busy) return;
         replacementBusyRef.current = busy;
-        onReplacementBusyChange(busy);
-    }, [onReplacementBusyChange]);
+        onReplacementBusyChangeRef.current(busy);
+    }, []);
 
     React.useEffect(() => {
         mountedRef.current = true;
@@ -76,7 +78,10 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
             mountedRef.current = false;
             actionEpoch.current += 1;
             randomLoadingRef.current = false;
-            replacementBusyRef.current = false;
+            if (replacementBusyRef.current) {
+                replacementBusyRef.current = false;
+                onReplacementBusyChangeRef.current(false);
+            }
         };
     }, []);
 

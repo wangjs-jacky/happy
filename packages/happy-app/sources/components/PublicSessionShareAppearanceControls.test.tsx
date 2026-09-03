@@ -516,34 +516,38 @@ describe('PublicSessionShareAppearanceControls', () => {
         act(() => renderer.unmount());
     });
 
-    it('ignores a deferred upload result after unmount', async () => {
+    it('clears parent replacement busy state and ignores a deferred upload result after unmount', async () => {
         const pending = deferred<typeof mocks.selectedImages>();
         mocks.pickImages.mockReturnValueOnce(pending.promise);
         const onCoverSelectionChange = vi.fn();
-        const { renderer } = renderControls({ onCoverSelectionChange });
+        const onReplacementBusyChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange, onReplacementBusyChange });
 
         let uploadPromise!: Promise<void>;
         act(() => {
             uploadPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
             renderer.unmount();
         });
+        expect(onReplacementBusyChange.mock.calls).toEqual([[true], [false]]);
         pending.resolve([pickedImage]);
         await uploadPromise;
 
         expect(onCoverSelectionChange).not.toHaveBeenCalled();
     });
 
-    it('ignores a deferred random result after unmount', async () => {
+    it('clears parent replacement busy state and ignores a deferred random result after unmount', async () => {
         const pending = deferred<typeof mocks.candidate>();
         mocks.getRandomCover.mockReturnValueOnce(pending.promise);
         const onCoverSelectionChange = vi.fn();
-        const { renderer } = renderControls({ onCoverSelectionChange });
+        const onReplacementBusyChange = vi.fn();
+        const { renderer } = renderControls({ onCoverSelectionChange, onReplacementBusyChange });
 
         let randomPromise!: Promise<void>;
         act(() => {
             randomPromise = renderer.root.findByProps({ testID: 'public-share-cover-random' }).props.onPress();
             renderer.unmount();
         });
+        expect(onReplacementBusyChange.mock.calls).toEqual([[true], [false]]);
         pending.resolve(mocks.candidate);
         await randomPromise;
 

@@ -184,6 +184,30 @@ describe('PublicSessionShareDialog', () => {
         act(() => renderer.unmount());
     });
 
+    it('blocks revoke entry during replacement and restores update after the replacement settles', () => {
+        mocks.share.shareState = { active: true, publicId: 'public-id', publishedAt: 1_788_000_000_000 };
+        mocks.share.shareUrl = 'https://paws.example/share/public-id';
+        const renderer = renderDialog();
+        const controls = renderer.root.findByType('PublicSessionShareAppearanceControls');
+
+        act(() => controls.props.onReplacementBusyChange(true));
+        const revoke = renderer.root.findByProps({ testID: 'public-session-share-revoke' });
+        expect(revoke.props.disabled).toBe(true);
+        act(() => revoke.props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'public-session-share-revoke-confirmation' })).toHaveLength(0);
+
+        act(() => controls.props.onReplacementBusyChange(false));
+        expect(renderer.root.findByProps({ testID: 'public-session-share-update' }).props.disabled).toBe(false);
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-revoke' }).props.onPress());
+        expect(renderer.root.findAllByProps({ testID: 'public-session-share-revoke-confirmation' })).toHaveLength(1);
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-revoke-cancel' }).props.onPress());
+        expect(renderer.root.findByProps({ testID: 'public-session-share-update' }).props.disabled).toBe(false);
+        act(() => renderer.root.findByProps({ testID: 'public-session-share-update' }).props.onPress());
+        expect(mocks.publish).toHaveBeenCalledOnce();
+
+        act(() => renderer.unmount());
+    });
+
     it('initializes an active update from its immutable snapshot instead of the last-used default', () => {
         mocks.share.shareState = {
             active: true,

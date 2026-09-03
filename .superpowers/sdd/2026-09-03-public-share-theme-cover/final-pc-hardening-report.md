@@ -99,3 +99,21 @@ Follow-up GREEN verification:
 - `node scripts/build-public-share-theme-cover-evidence.mjs --refresh-manifest` followed by `node scripts/build-public-share-theme-cover-evidence.mjs --verify` — generated and then byte-verified exactly eight primary artifacts plus one supplemental.
 
 The follow-up commit is recorded in the implementation handoff.
+
+## Final read-only evidence and replacement-state follow-up — 2026-09-03
+
+The final normal-build browser run completed all three cases in 2.9 minutes. Its `raw/current/` screenshots, 390×844 supplemental capture, HTML report, and `.last-run.json` are the final run outputs. No browser rerun was performed after this point.
+
+The evidence builder's verification contract is now genuinely read-only. `--verify` builds the expected artifacts in a fresh temporary directory, validates both the generated and tracked artifact sets against the manifest, byte-compares each generated/tracked PNG, and removes the temporary directory. Only `--refresh-manifest` writes processed top-level/supplemental artifacts and the manifest. A `node:test` integration case runs the real builder in a temporary evidence repository and proves that a manifest mismatch cannot mutate the committed artifact or manifest.
+
+The final code review also identified a replacement-state escape through the active-share Revoke action. Revoke entry is now disabled and handler-guarded while a random/upload replacement is unresolved. As a second safety boundary, appearance-control unmount invalidates the pending epoch and actively clears the parent's busy contract through the latest callback. Unit regressions cover blocked synthetic revoke entry, recovery after replacement completion/cancellation, and unmount cleanup. Pexels image URL validation additionally rejects embedded credentials and non-default HTTPS ports before any image request.
+
+Final follow-up verification:
+
+- Evidence builder integration test — 1/1 passed.
+- Read-only `node scripts/build-public-share-theme-cover-evidence.mjs --verify` — passed after one intentional `--refresh-manifest` from the final raw/current capture set.
+- Share dialog + appearance controls — 2 files, 28 tests passed.
+- Final affected App suite, including transcript, appearance/share hooks, and diagnostics — 6 files, 59 tests passed.
+- Pexels cover provider — 1 file, 14 tests passed.
+- Happy App and self-hosted Server TypeScript checks — passed.
+- Playwright `.last-run.json` remains `passed`; the final HTML report remains the complete three-case invocation.

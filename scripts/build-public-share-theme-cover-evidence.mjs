@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -8,7 +9,6 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const evidenceRoot = resolve(repositoryRoot, 'docs/pr-evidence/public-share-theme-cover');
 const rawBeforeRoot = resolve(evidenceRoot, 'raw/before');
 const rawCurrentRoot = resolve(evidenceRoot, 'raw/current');
-const supplementalRoot = resolve(evidenceRoot, 'supplemental');
 const manifestPath = resolve(evidenceRoot, 'evidence-manifest.json');
 
 const primaryFiles = [
@@ -64,44 +64,46 @@ async function artifact(path, relativePath) {
     };
 }
 
-async function build() {
-    await mkdir(supplementalRoot, { recursive: true });
+async function build(outputRoot) {
+    const outputSupplementalRoot = resolve(outputRoot, 'supplemental');
+    await mkdir(outputSupplementalRoot, { recursive: true });
     const case1Before = resolve(rawBeforeRoot, 'case-1-share-dialog-before.png');
     const case1Current = resolve(rawCurrentRoot, 'case-1-share-dialog-after.png');
     await assertDimensions(case1Before, 1440, 900);
     await assertDimensions(case1Current, 1440, 900);
-    await copyFile(case1Before, resolve(evidenceRoot, 'case-1-share-dialog-before.png'));
-    await copyFile(case1Current, resolve(evidenceRoot, 'case-1-share-dialog-after.png'));
+    await copyFile(case1Before, resolve(outputRoot, 'case-1-share-dialog-before.png'));
+    await copyFile(case1Current, resolve(outputRoot, 'case-1-share-dialog-after.png'));
 
     const anonymousBefore = resolve(rawBeforeRoot, 'anonymous-read-only-share-before.png');
-    await annotate(anonymousBefore, resolve(evidenceRoot, 'case-2-public-cover-before.png'), 'CASE 2 · COVER + HEADER', '#2563eb', 340);
-    await annotate(resolve(rawCurrentRoot, 'case-2-public-cover-after.png'), resolve(evidenceRoot, 'case-2-public-cover-after.png'), 'CASE 2 · COVER + HEADER', '#2563eb', 340);
-    await annotate(anonymousBefore, resolve(evidenceRoot, 'case-3-no-cover-before.png'), 'CASE 3 · COVERLESS HEADER', '#16a34a', 78);
-    await annotate(resolve(rawCurrentRoot, 'case-3-no-cover-after.png'), resolve(evidenceRoot, 'case-3-no-cover-after.png'), 'CASE 3 · COVERLESS HEADER', '#16a34a', 78);
+    await annotate(anonymousBefore, resolve(outputRoot, 'case-2-public-cover-before.png'), 'CASE 2 · COVER + HEADER', '#2563eb', 340);
+    await annotate(resolve(rawCurrentRoot, 'case-2-public-cover-after.png'), resolve(outputRoot, 'case-2-public-cover-after.png'), 'CASE 2 · COVER + HEADER', '#2563eb', 340);
+    await annotate(anonymousBefore, resolve(outputRoot, 'case-3-no-cover-before.png'), 'CASE 3 · COVERLESS HEADER', '#16a34a', 78);
+    await annotate(resolve(rawCurrentRoot, 'case-3-no-cover-after.png'), resolve(outputRoot, 'case-3-no-cover-after.png'), 'CASE 3 · COVERLESS HEADER', '#16a34a', 78);
 
     const case4Before = resolve(rawBeforeRoot, 'case-4-copy-before.png');
     await assertDimensions(case4Before, 900, 240);
-    await copyFile(case4Before, resolve(evidenceRoot, 'case-4-gingham-dark-before.png'));
+    await copyFile(case4Before, resolve(outputRoot, 'case-4-gingham-dark-before.png'));
     const case4Current = resolve(rawCurrentRoot, 'case-4-gingham-dark-after.png');
     await assertDimensions(case4Current, 1440, 900);
     await replaceFromSharp(
-        resolve(evidenceRoot, 'case-4-gingham-dark-after.png'),
+        resolve(outputRoot, 'case-4-gingham-dark-after.png'),
         sharp(case4Current).extract({ height: 240, left: 270, top: 660, width: 900 }),
     );
 
     const supplementalInput = resolve(rawCurrentRoot, 'supplemental/case-3-no-cover-390x844.png');
     await assertDimensions(supplementalInput, 390, 844);
-    await copyFile(supplementalInput, resolve(supplementalRoot, supplementalFiles[0]));
+    await copyFile(supplementalInput, resolve(outputSupplementalRoot, supplementalFiles[0]));
 }
 
-async function collectManifest() {
-    const actualPrimary = (await readdir(evidenceRoot))
+async function collectManifest(root) {
+    const supplemental = resolve(root, 'supplemental');
+    const actualPrimary = (await readdir(root))
         .filter((name) => name.endsWith('.png'))
         .sort();
     if (JSON.stringify(actualPrimary) !== JSON.stringify([...primaryFiles].sort())) {
         throw new Error(`Expected exactly eight primary PNGs, got: ${actualPrimary.join(', ')}`);
     }
-    const actualSupplemental = (await readdir(supplementalRoot))
+    const actualSupplemental = (await readdir(supplemental))
         .filter((name) => name.endsWith('.png'))
         .sort();
     if (JSON.stringify(actualSupplemental) !== JSON.stringify(supplementalFiles)) {
@@ -110,10 +112,10 @@ async function collectManifest() {
 
     const artifacts = [];
     for (const filename of primaryFiles) {
-        artifacts.push(await artifact(resolve(evidenceRoot, filename), filename));
+        artifacts.push(await artifact(resolve(root, filename), filename));
     }
     for (const filename of supplementalFiles) {
-        artifacts.push(await artifact(resolve(supplementalRoot, filename), `supplemental/${filename}`));
+        artifacts.push(await artifact(resolve(supplemental, filename), `supplemental/${filename}`));
     }
     for (const caseNumber of [1, 2, 3, 4]) {
         const before = artifacts.find(({ file }) => file.startsWith(`case-${caseNumber}-`) && file.endsWith('-before.png'));
@@ -128,17 +130,49 @@ async function collectManifest() {
     return { artifacts, primaryCount: 8, supplementalCount: 1 };
 }
 
-async function main() {
-    const refreshManifest = process.argv.includes('--refresh-manifest');
-    await build();
-    const manifest = await collectManifest();
-    if (refreshManifest) {
-        await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    } else {
-        const expected = JSON.parse(await readFile(manifestPath, 'utf8'));
-        if (JSON.stringify(manifest) !== JSON.stringify(expected)) {
+async function verify() {
+    const generatedRoot = await mkdtemp(resolve(tmpdir(), 'happy-public-share-evidence-'));
+    try {
+        await build(generatedRoot);
+        const generatedManifest = await collectManifest(generatedRoot);
+        const trackedManifest = await collectManifest(evidenceRoot);
+        const expectedManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+        if (
+            JSON.stringify(generatedManifest) !== JSON.stringify(expectedManifest)
+            || JSON.stringify(trackedManifest) !== JSON.stringify(expectedManifest)
+        ) {
             throw new Error('Generated evidence does not match evidence-manifest.json; refresh only after reviewing new raw captures.');
         }
+        for (const { file } of generatedManifest.artifacts) {
+            const generated = await readFile(resolve(generatedRoot, file));
+            const tracked = await readFile(resolve(evidenceRoot, file));
+            if (!generated.equals(tracked)) {
+                throw new Error(`${file} does not byte-match the evidence generated from tracked raw inputs.`);
+            }
+        }
+        return generatedManifest;
+    } finally {
+        await rm(generatedRoot, { force: true, recursive: true });
+    }
+}
+
+async function refreshManifest() {
+    await build(evidenceRoot);
+    const manifest = await collectManifest(evidenceRoot);
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    return manifest;
+}
+
+async function main() {
+    const [mode, ...extraArguments] = process.argv.slice(2);
+    if (extraArguments.length > 0 || !['--refresh-manifest', '--verify'].includes(mode)) {
+        throw new Error('Usage: node scripts/build-public-share-theme-cover-evidence.mjs --verify | --refresh-manifest');
+    }
+    let manifest;
+    if (mode === '--refresh-manifest') {
+        manifest = await refreshManifest();
+    } else {
+        manifest = await verify();
     }
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
 }

@@ -19,13 +19,13 @@ Case 4 maps from the separately captured, truthful legacy anonymous Copy state a
 
 ## Reproduction
 
-Rebuild and verify the committed primary/supplemental artifacts byte-for-byte from the tracked raw inputs:
+Verify the committed primary/supplemental artifacts byte-for-byte from the tracked raw inputs:
 
 ```bash
 node scripts/build-public-share-theme-cover-evidence.mjs --verify
 ```
 
-This command recreates all eight top-level primary PNGs, recreates the supplemental PNG, and fails unless their names, dimensions, pair differences, distinct Before hashes, and SHA-256 values exactly match `evidence-manifest.json`.
+This command is strictly read-only. It generates all eight primary PNGs and the supplemental PNG under a fresh temporary directory, validates their names, dimensions, pair differences, and distinct Before hashes, then byte-compares them with the tracked artifacts and checks both sets against `evidence-manifest.json`. It never writes `raw/`, the tracked top-level artifacts, the supplemental artifact, or the manifest.
 
 To refresh current raw browser captures, use the existing deterministic MP4 fixture and do not configure a Pexels key:
 
@@ -40,11 +40,12 @@ node scripts/build-public-share-theme-cover-evidence.mjs --refresh-manifest
 node scripts/build-public-share-theme-cover-evidence.mjs --verify
 ```
 
-The E2E command writes only under `raw/current/`; it cannot overwrite the reviewed primary artifacts. `--refresh-manifest` is reserved for an intentional, reviewed evidence refresh because the owner flow contains a run-specific public ID and timestamp.
+The E2E command writes only under `raw/current/`; it cannot overwrite the reviewed primary artifacts. `--refresh-manifest` is the only evidence-builder mode that writes the processed primary/supplemental artifacts and manifest. It is reserved for an intentional, reviewed refresh because the owner flow contains a run-specific public ID and timestamp. Always follow it with the read-only `--verify` mode.
 
 Focused verification and build commands:
 
 ```bash
+node --test scripts/build-public-share-theme-cover-evidence.test.mjs
 pnpm --filter @slopus/happy-wire exec vitest run src/publicSessionShare.test.ts
 pnpm --filter happy-server-self-host exec vitest run \
   sources/app/sessionSharing/publicSessionCoverProvider.spec.ts \
@@ -82,11 +83,11 @@ pnpm --filter happy-app export:web
 | Artifact | Dimensions | SHA-256 |
 | --- | --- | --- |
 | `case-1-share-dialog-before.png` | 1440×900 | `0aa2eb1abe0a12f7a326df7b3a106c153049f503a2ec3a679703f12ef0c62a35` |
-| `case-1-share-dialog-after.png` | 1440×900 | `92fc6e350bec1686bb51eb84b9dcd7420de768eaebf8ef878a144b200d5c4a5c` |
+| `case-1-share-dialog-after.png` | 1440×900 | `589fc533155e93d9667cd01c79e92e92ae5b78a291cd29e225d4a6ca1d4a3dc6` |
 | `case-2-public-cover-before.png` | 1440×900 | `cdeb15e5a8f74c7448f58e0c975bebf40feba263a3d59ecf0b2800f698d26e92` |
-| `case-2-public-cover-after.png` | 1440×900 | `b878255771f87b14cf29c09922681d685ee264156480978006faba5701bfccf9` |
+| `case-2-public-cover-after.png` | 1440×900 | `71e4fb7a82e263d1119470f83059fa584dc8cde8af8e07b2c537825af329f564` |
 | `case-3-no-cover-before.png` | 1440×900 | `6fd0a0dec8bc4587c1d2b389890904dfcb778645549f757901032ce0a6889d9f` |
-| `case-3-no-cover-after.png` | 1440×900 | `1909c18f1fa212348946945fef65b0b35da452a3ff956fdb79c2980db9f04f15` |
+| `case-3-no-cover-after.png` | 1440×900 | `0ad2ae2706096d1c9f2052cf9d81e851fe5164558d4c79a70d70cc234b71e0ff` |
 | `case-4-gingham-dark-before.png` | 900×240 | `ad756f7d745cc1381e17b517ecd66269c708cd5f8c28a62a88ddae7ef2573cc5` |
 | `case-4-gingham-dark-after.png` | 900×240 | `bc527850291c8e1003a4c7c7681bb8847dc5d054d16537d44dcd50212d2f5633` |
-| `supplemental/case-3-no-cover-390x844.png` | 390×844 | `bf89e5af28678efadc0b8b92fe7b35bf7a827fe03a3af905913a850486007f2b` |
+| `supplemental/case-3-no-cover-390x844.png` | 390×844 | `cc58230a8f9dc2bd8213e5253f2518bfc98203d788d2042842a6e80ac240eb07` |

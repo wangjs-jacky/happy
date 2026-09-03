@@ -90,10 +90,17 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         if (shareUrl) void Linking.openURL(shareUrl);
     }, [shareUrl]);
 
+    const busy = publishing || revoking;
+
     const confirmRevoke = React.useCallback(() => {
         setConfirmingRevoke(false);
         revoke();
     }, [revoke]);
+
+    const startConfirmingRevoke = React.useCallback(() => {
+        if (busy || replacementBusy) return;
+        setConfirmingRevoke(true);
+    }, [busy, replacementBusy]);
 
     const startPublish = React.useCallback(() => {
         if (replacementBusy) return;
@@ -109,7 +116,6 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         setAppearance((current) => ({ ...current, coverSelection }));
     }, []);
 
-    const busy = publishing || revoking;
     const publishDisabled = busy || replacementBusy;
     const busyLabel = publishing
         ? progress.total > 0
@@ -253,9 +259,9 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                             <Pressable
                                 accessibilityLabel={t('sessionShare.revokeSharing')}
                                 accessibilityRole="button"
-                                disabled={busy}
-                                onPress={() => setConfirmingRevoke(true)}
-                                style={({ pressed }) => [styles.revokeButton, pressed && styles.pressed, busy && styles.disabled]}
+                                disabled={publishDisabled}
+                                onPress={startConfirmingRevoke}
+                                style={({ pressed }) => [styles.revokeButton, pressed && styles.pressed, publishDisabled && styles.disabled]}
                                 testID="public-session-share-revoke"
                             >
                                 <Ionicons name="link-outline" size={17} color={styles.revokeText.color} />

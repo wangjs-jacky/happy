@@ -162,6 +162,28 @@ describe('importPexelsCover', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+        ['embedded credentials', 'https://reader:secret@images.pexels.com/photos/2014422/cover.jpeg'],
+        ['a non-HTTPS-default port', 'https://images.pexels.com:444/photos/2014422/cover.jpeg'],
+    ])('rejects a Pexels image URL containing %s', async (_reason, original) => {
+        const sharp = (await import('sharp')).default;
+        const source = await sharp({
+            create: { width: 3000, height: 1600, channels: 3, background: '#6E6353' },
+        }).jpeg().toBuffer();
+        const maliciousPhoto = { ...PHOTO, src: { ...PHOTO.src, original } };
+        const fetchImpl = vi.fn(async (input: string | URL | Request) => (
+            new URL(String(input)).hostname === 'api.pexels.com'
+                ? jsonResponse(maliciousPhoto)
+                : new Response(source, { headers: { 'content-type': 'image/jpeg' } })
+        ));
+
+        await expect(importPexelsCover(PHOTO.id, {
+            fetchImpl: fetchImpl as typeof fetch,
+            apiKey: 'server-secret',
+        })).rejects.toThrow('image host');
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
     it('uses manual redirects and never follows a Pexels image redirect to an internal host', async () => {
         const sharp = (await import('sharp')).default;
         const source = await sharp({
