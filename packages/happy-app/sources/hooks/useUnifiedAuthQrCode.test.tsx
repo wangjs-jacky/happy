@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     accountLoading: false,
     alert: vi.fn(),
     checkPermissions: vi.fn(async () => true),
+    confirm: vi.fn(async () => true),
     dismissScanner: vi.fn(async () => {}),
     launchScanner: vi.fn(),
     listeners: [] as Array<(event: { data: string }) => Promise<void>>,
@@ -42,7 +43,7 @@ vi.mock('@/hooks/useConnectAccount', () => ({
 vi.mock('@/hooks/useConnectTerminal', () => ({
     useConnectTerminal: () => ({ isLoading: mocks.terminalLoading, processAuthUrl: mocks.terminalAuth }),
 }));
-vi.mock('@/modal', () => ({ Modal: { alert: mocks.alert } }));
+vi.mock('@/modal', () => ({ Modal: { alert: mocks.alert, confirm: mocks.confirm } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import { UnifiedAuthQrCodeProvider, useUnifiedAuthQrCode } from './useUnifiedAuthQrCode';
@@ -67,6 +68,8 @@ describe('useUnifiedAuthQrCode', () => {
         mocks.alert.mockClear();
         mocks.checkPermissions.mockReset();
         mocks.checkPermissions.mockResolvedValue(true);
+        mocks.confirm.mockReset();
+        mocks.confirm.mockResolvedValue(true);
         mocks.dismissScanner.mockClear();
         mocks.launchScanner.mockClear();
         mocks.listeners.length = 0;
@@ -165,6 +168,15 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.alert).not.toHaveBeenCalled();
     });
 
+    it('allows the iOS scanner to be launched again after its presentation completes', async () => {
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+    });
+
     it.each([
         ['paws:///account?account-public-key', 'account'],
         ['paws://terminal?terminal-public-key', 'terminal'],
@@ -175,6 +187,31 @@ describe('useUnifiedAuthQrCode', () => {
 
         expect(mocks.accountAuth).toHaveBeenCalledTimes(expectedAuthenticator === 'account' ? 1 : 0);
         expect(mocks.terminalAuth).toHaveBeenCalledTimes(expectedAuthenticator === 'terminal' ? 1 : 0);
+    });
+
+    it.each([
+        ['paws:///account?account-public-key', 'navigation.linkNewDevice', 'settingsAccount.linkNewDeviceSubtitle'],
+        ['paws://terminal?terminal-public-key', 'navigation.connectTerminal', 'terminal.terminalRequestDescription'],
+    ] as const)('confirms the detected authorization type before processing %s', async (url, title, message) => {
+        await act(async () => {
+            await current.connectWithUrl(url);
+        });
+
+        expect(mocks.confirm).toHaveBeenCalledWith(title, message, {
+            cancelText: 'common.cancel',
+            confirmText: 'common.continue',
+        });
+    });
+
+    it('does not authenticate when the detected authorization type is declined', async () => {
+        mocks.confirm.mockResolvedValueOnce(false);
+
+        await act(async () => {
+            await current.connectWithUrl('paws:///account?account-public-key');
+        });
+
+        expect(mocks.accountAuth).not.toHaveBeenCalled();
+        expect(mocks.terminalAuth).not.toHaveBeenCalled();
     });
 
     it('explains unsupported authentication URLs without calling either authenticator', async () => {
@@ -193,15 +230,27 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.onScanned).toBeDefined();
 
         await act(async () => {
+            await current.connectAuthQrCode();
             await mocks.onScanned?.({ data: 'paws:///account?account-public-key' });
         });
         await act(async () => {
+            await current.connectAuthQrCode();
             await mocks.onScanned?.({ data: 'paws://terminal?terminal-public-key' });
         });
 
         expect(mocks.accountAuth).toHaveBeenCalledWith('paws:///account?account-public-key');
         expect(mocks.terminalAuth).toHaveBeenCalledWith('paws://terminal?terminal-public-key');
         expect(mocks.dismissScanner).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores scanner events when this provider did not launch the scanner', async () => {
+        await act(async () => {
+            await mocks.onScanned?.({ data: 'paws:///account?account-public-key' });
+        });
+
+        expect(mocks.confirm).not.toHaveBeenCalled();
+        expect(mocks.accountAuth).not.toHaveBeenCalled();
+        expect(mocks.dismissScanner).not.toHaveBeenCalled();
     });
 
     it('ignores a duplicate scan while authentication is still in progress', async () => {
@@ -213,6 +262,7 @@ describe('useUnifiedAuthQrCode', () => {
         let firstScan!: Promise<void>;
         let duplicateScan!: Promise<void>;
         await act(async () => {
+            await current.connectAuthQrCode();
             firstScan = mocks.onScanned!({ data: 'paws:///account?account-public-key' });
             duplicateScan = mocks.onScanned!({ data: 'paws:///account?account-public-key' });
             await Promise.resolve();
@@ -266,6 +316,7 @@ describe('useUnifiedAuthQrCode', () => {
         mocks.dismissScanner.mockRejectedValueOnce(new Error('dismiss failed'));
 
         await act(async () => {
+            await current.connectAuthQrCode();
             await mocks.onScanned?.({ data: 'paws:///account?account-public-key' });
         });
 
@@ -274,12 +325,47 @@ describe('useUnifiedAuthQrCode', () => {
 
     it('removes its listener and dismisses the iOS scanner when the screen unmounts', async () => {
         await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        await act(async () => {
             renderer.unmount();
             await Promise.resolve();
         });
 
         expect(mocks.removeSubscription).toHaveBeenCalledTimes(1);
         expect(mocks.dismissScanner).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not dismiss a scanner it did not launch when the provider unmounts', async () => {
+        await act(async () => {
+            renderer.unmount();
+            await Promise.resolve();
+        });
+
+        expect(mocks.removeSubscription).toHaveBeenCalledTimes(1);
+        expect(mocks.dismissScanner).not.toHaveBeenCalled();
+    });
+
+    it('does not launch the scanner after a pending permission check outlives the provider', async () => {
+        let resolvePermission!: (value: boolean) => void;
+        mocks.checkPermissions.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            resolvePermission = resolve;
+        }));
+
+        let attempt!: Promise<void>;
+        await act(async () => {
+            attempt = current.connectAuthQrCode();
+            await Promise.resolve();
+        });
+
+        act(() => renderer.unmount());
+        resolvePermission(true);
+        await act(async () => {
+            await attempt;
+        });
+
+        expect(mocks.launchScanner).not.toHaveBeenCalled();
     });
 
     it('reports loading while either authenticator is busy', () => {

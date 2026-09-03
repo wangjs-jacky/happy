@@ -36,23 +36,38 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     const checkScannerPermissions = useCheckScannerPermissions();
     const account = useConnectAccount();
     const terminal = useConnectTerminal();
+    const isMountedRef = React.useRef(true);
     const isAuthenticatingRef = React.useRef(false);
-    const isScannerOpenRef = React.useRef(false);
+    const isStartingScannerRef = React.useRef(false);
+    const scannerSessionActiveRef = React.useRef(false);
     const [isStartingScanner, setIsStartingScanner] = React.useState(false);
 
     const processAuthUrl = React.useCallback(async (url: string) => {
         const kind = getAuthQrCodeKind(url);
-        if (kind === 'account') {
-            return account.processAuthUrl(url);
-        }
-        if (kind === 'terminal') {
-            return terminal.processAuthUrl(url);
+        if (!kind) {
+            Modal.alert(t('common.error'), t('modals.invalidAuthUrl'), [
+                { text: t('common.ok') },
+            ]);
+            return false;
         }
 
-        Modal.alert(t('common.error'), t('modals.invalidAuthUrl'), [
-            { text: t('common.ok') },
-        ]);
-        return false;
+        const confirmed = await Modal.confirm(
+            kind === 'account' ? t('navigation.linkNewDevice') : t('navigation.connectTerminal'),
+            kind === 'account'
+                ? t('settingsAccount.linkNewDeviceSubtitle')
+                : t('terminal.terminalRequestDescription'),
+            {
+                cancelText: t('common.cancel'),
+                confirmText: t('common.continue'),
+            },
+        );
+        if (!confirmed) {
+            return false;
+        }
+
+        return kind === 'account'
+            ? account.processAuthUrl(url)
+            : terminal.processAuthUrl(url);
     }, [account.processAuthUrl, terminal.processAuthUrl]);
 
     const runAuthentication = React.useCallback(async (operation: () => Promise<boolean>) => {
@@ -73,33 +88,49 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
     }, [processAuthUrl, runAuthentication]);
 
     const connectAuthQrCode = React.useCallback(async () => {
-        if (isScannerOpenRef.current) {
+        if (isStartingScannerRef.current) {
             return;
         }
 
-        isScannerOpenRef.current = true;
+        isStartingScannerRef.current = true;
         setIsStartingScanner(true);
         try {
             if (!CameraView.isModernBarcodeScannerAvailable || !await checkScannerPermissions()) {
-                isScannerOpenRef.current = false;
-                showScannerUnavailableAlert();
+                if (isMountedRef.current) {
+                    showScannerUnavailableAlert();
+                }
                 return;
             }
 
+            if (!isMountedRef.current) {
+                return;
+            }
+
+            scannerSessionActiveRef.current = true;
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
             if (Platform.OS !== 'ios') {
-                isScannerOpenRef.current = false;
+                scannerSessionActiveRef.current = false;
             }
         } catch (error) {
-            isScannerOpenRef.current = false;
-            if (!isScannerCancellation(error)) {
+            scannerSessionActiveRef.current = false;
+            if (isMountedRef.current && !isScannerCancellation(error)) {
                 console.warn('Failed to launch authentication scanner', error);
                 showScannerUnavailableAlert();
             }
         } finally {
-            setIsStartingScanner(false);
+            isStartingScannerRef.current = false;
+            if (isMountedRef.current) {
+                setIsStartingScanner(false);
+            }
         }
     }, [checkScannerPermissions]);
+
+    React.useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     // The provider is mounted once for the authenticated app, so every entry point
     // shares one scanner subscription and one authentication single-flight guard.
@@ -109,7 +140,11 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
         }
 
         const subscription = CameraView.onModernBarcodeScanned(async (event) => {
-            isScannerOpenRef.current = false;
+            if (!scannerSessionActiveRef.current) {
+                return;
+            }
+
+            scannerSessionActiveRef.current = false;
             await runAuthentication(async () => {
                 if (Platform.OS === 'ios') {
                     try {
@@ -124,8 +159,9 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
 
         return () => {
             subscription.remove();
-            isScannerOpenRef.current = false;
-            if (Platform.OS === 'ios') {
+            const shouldDismissScanner = scannerSessionActiveRef.current;
+            scannerSessionActiveRef.current = false;
+            if (Platform.OS === 'ios' && shouldDismissScanner) {
                 CameraView.dismissScanner().catch((error: unknown) => {
                     console.warn('Failed to dismiss scanner during cleanup', error);
                 });
