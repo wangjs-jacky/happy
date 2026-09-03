@@ -1,11 +1,11 @@
 export type AuthQrCodeKind = 'account' | 'terminal';
 
 export function getAuthQrCodeKind(url: string): AuthQrCodeKind | null {
-    if (url.startsWith('paws:///account?')) {
+    if (/^paws:\/\/\/account\?[A-Za-z0-9_-]+$/.test(url)) {
         return 'account';
     }
 
-    if (url.startsWith('paws://terminal?')) {
+    if (/^paws:\/\/terminal\?[A-Za-z0-9_-]+$/.test(url)) {
         return 'terminal';
     }
 

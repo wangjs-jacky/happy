@@ -8,31 +8,33 @@ const mocks = vi.hoisted(() => ({
     accountAuth: vi.fn(async () => true),
     accountLoading: false,
     alert: vi.fn(),
+    checkPermissions: vi.fn(async () => true),
     dismissScanner: vi.fn(async () => {}),
-    isFocused: true,
     launchScanner: vi.fn(),
+    listeners: [] as Array<(event: { data: string }) => Promise<void>>,
     onScanned: undefined as undefined | ((event: { data: string }) => Promise<void>),
-    permissionGranted: true,
+    platformOS: 'ios',
     removeSubscription: vi.fn(),
+    scannerAvailable: true,
     terminalAuth: vi.fn(async () => true),
     terminalLoading: false,
 }));
 
-vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
-vi.mock('@react-navigation/native', () => ({ useIsFocused: () => mocks.isFocused }));
+vi.mock('react-native', () => ({ Platform: { get OS() { return mocks.platformOS; } } }));
 vi.mock('expo-camera', () => ({
     CameraView: {
         dismissScanner: mocks.dismissScanner,
-        isModernBarcodeScannerAvailable: true,
+        get isModernBarcodeScannerAvailable() { return mocks.scannerAvailable; },
         launchScanner: mocks.launchScanner,
         onModernBarcodeScanned: (listener: (event: { data: string }) => Promise<void>) => {
+            mocks.listeners.push(listener);
             mocks.onScanned = listener;
             return { remove: mocks.removeSubscription };
         },
     },
 }));
 vi.mock('@/hooks/useCheckCameraPermissions', () => ({
-    useCheckScannerPermissions: () => async () => mocks.permissionGranted,
+    useCheckScannerPermissions: () => mocks.checkPermissions,
 }));
 vi.mock('@/hooks/useConnectAccount', () => ({
     useConnectAccount: () => ({ isLoading: mocks.accountLoading, processAuthUrl: mocks.accountAuth }),
@@ -43,7 +45,7 @@ vi.mock('@/hooks/useConnectTerminal', () => ({
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.alert } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
-import { useUnifiedAuthQrCode } from './useUnifiedAuthQrCode';
+import { UnifiedAuthQrCodeProvider, useUnifiedAuthQrCode } from './useUnifiedAuthQrCode';
 
 function Probe({ onReady }: { onReady: (value: ReturnType<typeof useUnifiedAuthQrCode>) => void }) {
     onReady(useUnifiedAuthQrCode());
@@ -63,16 +65,23 @@ describe('useUnifiedAuthQrCode', () => {
         mocks.accountAuth.mockClear();
         mocks.accountLoading = false;
         mocks.alert.mockClear();
+        mocks.checkPermissions.mockReset();
+        mocks.checkPermissions.mockResolvedValue(true);
         mocks.dismissScanner.mockClear();
-        mocks.isFocused = true;
         mocks.launchScanner.mockClear();
+        mocks.listeners.length = 0;
         mocks.onScanned = undefined;
-        mocks.permissionGranted = true;
+        mocks.platformOS = 'ios';
         mocks.removeSubscription.mockClear();
+        mocks.scannerAvailable = true;
         mocks.terminalAuth.mockClear();
         mocks.terminalLoading = false;
         act(() => {
-            renderer = TestRenderer.create(<Probe onReady={(value) => { current = value; }} />);
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
         });
     });
 
@@ -91,7 +100,7 @@ describe('useUnifiedAuthQrCode', () => {
     });
 
     it('shows a recoverable error when scanner permission is unavailable', async () => {
-        mocks.permissionGranted = false;
+        mocks.checkPermissions.mockResolvedValue(false);
 
         await act(async () => {
             await current.connectAuthQrCode();
@@ -103,6 +112,57 @@ describe('useUnifiedAuthQrCode', () => {
             'modals.cameraPermissionsRequiredToScanQr',
             [{ text: 'common.ok' }],
         );
+    });
+
+    it('shows a recoverable error when the native scanner is unavailable', async () => {
+        mocks.scannerAvailable = false;
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.checkPermissions).not.toHaveBeenCalled();
+        expect(mocks.launchScanner).not.toHaveBeenCalled();
+        expect(mocks.alert).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the scanner guard when checking permission rejects', async () => {
+        mocks.checkPermissions
+            .mockRejectedValueOnce(new Error('permission check failed'))
+            .mockResolvedValueOnce(true);
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.alert).toHaveBeenCalledTimes(1);
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the scanner guard when launching the scanner rejects', async () => {
+        mocks.launchScanner
+            .mockRejectedValueOnce(new Error('launch failed'))
+            .mockResolvedValueOnce(undefined);
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.alert).toHaveBeenCalledTimes(1);
+        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not show an error when Android scanning is cancelled by the user', async () => {
+        mocks.platformOS = 'android';
+        mocks.launchScanner.mockRejectedValueOnce({ code: 'ERR_BARCODE_SCANNING_CANCELLED' });
+
+        await act(async () => {
+            await current.connectAuthQrCode();
+        });
+
+        expect(mocks.alert).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -166,16 +226,40 @@ describe('useUnifiedAuthQrCode', () => {
         });
     });
 
-    it('does not register a scanner listener while its screen is unfocused', () => {
-        act(() => renderer.unmount());
-        mocks.onScanned = undefined;
-        mocks.isFocused = false;
+    it('ignores a duplicate pasted URL while authentication is still in progress', async () => {
+        let resolveAuthentication!: (value: boolean) => void;
+        mocks.accountAuth.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            resolveAuthentication = resolve;
+        }));
 
-        act(() => {
-            renderer = TestRenderer.create(<Probe onReady={(value) => { current = value; }} />);
+        let firstAttempt!: Promise<boolean>;
+        let duplicateAttempt!: Promise<boolean>;
+        await act(async () => {
+            firstAttempt = current.connectWithUrl('paws:///account?account-public-key');
+            duplicateAttempt = current.connectWithUrl('paws:///account?account-public-key');
+            await Promise.resolve();
         });
 
-        expect(mocks.onScanned).toBeUndefined();
+        expect(mocks.accountAuth).toHaveBeenCalledTimes(1);
+
+        resolveAuthentication(true);
+        await act(async () => {
+            await Promise.all([firstAttempt, duplicateAttempt]);
+        });
+    });
+
+    it('releases the authentication guard after an authenticator rejects', async () => {
+        mocks.accountAuth
+            .mockRejectedValueOnce(new Error('authentication failed'))
+            .mockResolvedValueOnce(true);
+
+        await expect(current.connectWithUrl('paws:///account?account-public-key')).rejects.toThrow('authentication failed');
+
+        await act(async () => {
+            await current.connectWithUrl('paws:///account?account-public-key');
+        });
+
+        expect(mocks.accountAuth).toHaveBeenCalledTimes(2);
     });
 
     it('continues authentication when dismissing the iOS scanner fails', async () => {
@@ -203,9 +287,29 @@ describe('useUnifiedAuthQrCode', () => {
         mocks.terminalLoading = true;
 
         act(() => {
-            renderer = TestRenderer.create(<Probe onReady={(value) => { current = value; }} />);
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
         });
 
         expect(current.isLoading).toBe(true);
+    });
+
+    it('registers one native listener when two consumers are mounted together', () => {
+        act(() => renderer.unmount());
+        mocks.listeners.length = 0;
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <UnifiedAuthQrCodeProvider>
+                    <Probe onReady={(value) => { current = value; }} />
+                    <Probe onReady={(value) => { current = value; }} />
+                </UnifiedAuthQrCodeProvider>,
+            );
+        });
+
+        expect(mocks.listeners).toHaveLength(1);
     });
 });

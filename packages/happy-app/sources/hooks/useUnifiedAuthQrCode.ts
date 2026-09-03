@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
-import { useIsFocused } from '@react-navigation/native';
 import { getAuthQrCodeKind } from '@/auth/authQrCodeKind';
 import { useCheckScannerPermissions } from '@/hooks/useCheckCameraPermissions';
 import { useConnectAccount } from '@/hooks/useConnectAccount';
@@ -9,14 +8,39 @@ import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 
-export function useUnifiedAuthQrCode() {
+interface UnifiedAuthQrCodeContextValue {
+    connectAuthQrCode: () => Promise<void>;
+    connectWithUrl: (url: string) => Promise<boolean>;
+    isLoading: boolean;
+}
+
+const UnifiedAuthQrCodeContext = React.createContext<UnifiedAuthQrCodeContextValue | null>(null);
+
+function showScannerUnavailableAlert() {
+    Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToScanQr'), [
+        { text: t('common.ok') },
+    ]);
+}
+
+function isScannerCancellation(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    return (typeof code === 'string' && code.includes('BARCODE_SCANNING_CANCELLED'))
+        || (typeof message === 'string' && message.includes('Barcode scanning was cancelled'));
+}
+
+export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactNode }) {
     const checkScannerPermissions = useCheckScannerPermissions();
-    const isFocused = useIsFocused();
     const account = useConnectAccount();
     const terminal = useConnectTerminal();
-    const isProcessingRef = React.useRef(false);
+    const isAuthenticatingRef = React.useRef(false);
+    const isScannerOpenRef = React.useRef(false);
+    const [isStartingScanner, setIsStartingScanner] = React.useState(false);
 
-    const connectWithUrl = React.useCallback(async (url: string) => {
+    const processAuthUrl = React.useCallback(async (url: string) => {
         const kind = getAuthQrCodeKind(url);
         if (kind === 'account') {
             return account.processAuthUrl(url);
@@ -31,31 +55,62 @@ export function useUnifiedAuthQrCode() {
         return false;
     }, [account.processAuthUrl, terminal.processAuthUrl]);
 
+    const runAuthentication = React.useCallback(async (operation: () => Promise<boolean>) => {
+        if (isAuthenticatingRef.current) {
+            return false;
+        }
+
+        isAuthenticatingRef.current = true;
+        try {
+            return await operation();
+        } finally {
+            isAuthenticatingRef.current = false;
+        }
+    }, []);
+
+    const connectWithUrl = React.useCallback(async (url: string) => {
+        return runAuthentication(() => processAuthUrl(url));
+    }, [processAuthUrl, runAuthentication]);
+
     const connectAuthQrCode = React.useCallback(async () => {
-        if (await checkScannerPermissions()) {
-            CameraView.launchScanner({ barcodeTypes: ['qr'] });
+        if (isScannerOpenRef.current) {
             return;
         }
 
-        Modal.alert(t('common.error'), t('modals.cameraPermissionsRequiredToScanQr'), [
-            { text: t('common.ok') },
-        ]);
+        isScannerOpenRef.current = true;
+        setIsStartingScanner(true);
+        try {
+            if (!CameraView.isModernBarcodeScannerAvailable || !await checkScannerPermissions()) {
+                isScannerOpenRef.current = false;
+                showScannerUnavailableAlert();
+                return;
+            }
+
+            await CameraView.launchScanner({ barcodeTypes: ['qr'] });
+            if (Platform.OS !== 'ios') {
+                isScannerOpenRef.current = false;
+            }
+        } catch (error) {
+            isScannerOpenRef.current = false;
+            if (!isScannerCancellation(error)) {
+                console.warn('Failed to launch authentication scanner', error);
+                showScannerUnavailableAlert();
+            }
+        } finally {
+            setIsStartingScanner(false);
+        }
     }, [checkScannerPermissions]);
 
-    // Keep scanner ownership in one focused screen, then dispatch each QR payload
-    // to the account or terminal authenticator after suppressing duplicate events.
+    // The provider is mounted once for the authenticated app, so every entry point
+    // shares one scanner subscription and one authentication single-flight guard.
     React.useEffect(() => {
-        if (!isFocused || !CameraView.isModernBarcodeScannerAvailable) {
+        if (!CameraView.isModernBarcodeScannerAvailable) {
             return;
         }
 
         const subscription = CameraView.onModernBarcodeScanned(async (event) => {
-            if (isProcessingRef.current) {
-                return;
-            }
-
-            isProcessingRef.current = true;
-            try {
+            isScannerOpenRef.current = false;
+            await runAuthentication(async () => {
                 if (Platform.OS === 'ios') {
                     try {
                         await CameraView.dismissScanner();
@@ -63,26 +118,34 @@ export function useUnifiedAuthQrCode() {
                         console.warn('Failed to dismiss scanner before authentication', error);
                     }
                 }
-                await connectWithUrl(event.data);
-            } finally {
-                isProcessingRef.current = false;
-            }
+                return processAuthUrl(event.data);
+            });
         });
 
         return () => {
             subscription.remove();
-            isProcessingRef.current = false;
+            isScannerOpenRef.current = false;
             if (Platform.OS === 'ios') {
                 CameraView.dismissScanner().catch((error: unknown) => {
                     console.warn('Failed to dismiss scanner during cleanup', error);
                 });
             }
         };
-    }, [connectWithUrl, isFocused]);
+    }, [processAuthUrl, runAuthentication]);
 
-    return {
+    const value = React.useMemo<UnifiedAuthQrCodeContextValue>(() => ({
         connectAuthQrCode,
         connectWithUrl,
-        isLoading: account.isLoading || terminal.isLoading,
-    };
+        isLoading: isStartingScanner || account.isLoading || terminal.isLoading,
+    }), [account.isLoading, connectAuthQrCode, connectWithUrl, isStartingScanner, terminal.isLoading]);
+
+    return React.createElement(UnifiedAuthQrCodeContext.Provider, { value }, children);
+}
+
+export function useUnifiedAuthQrCode(): UnifiedAuthQrCodeContextValue {
+    const value = React.useContext(UnifiedAuthQrCodeContext);
+    if (!value) {
+        throw new Error('useUnifiedAuthQrCode must be used within UnifiedAuthQrCodeProvider');
+    }
+    return value;
 }
