@@ -18,47 +18,70 @@ function normalizeHttpsOrigin(raw, label) {
     return url.origin;
 }
 
-function structuralContent(line) {
-    let content = '';
-    let quote = null;
-    let escaped = false;
-    for (const character of line) {
-        if (escaped) { escaped = false; content += ' '; continue; }
-        if (quote) {
-            if (character === '\\') { escaped = true; content += ' '; continue; }
-            if (character === quote) quote = null;
-            content += ' ';
-            continue;
-        }
-        if (character === '\\') { escaped = true; content += ' '; continue; }
-        if (character === '#') break;
-        if (character === '"' || character === "'" || character === '`') { quote = character; content += ' '; continue; }
-        content += character;
-    }
-    if (quote || escaped) throw new Error('Caddyfile contains an unterminated quoted value');
-    return content;
-}
-
 function structuralLines(lines) {
     const result = [];
+    let quote = null;
     let heredocDelimiter = null;
     for (const line of lines) {
+        const content = Array.from({ length: line.length }, () => ' ');
+        let commentStart = -1;
+        let index = 0;
+        let tokenStart = quote === null;
         if (heredocDelimiter !== null) {
-            result.push({ content: '', heredocBody: true });
-            if (line.trim() === heredocDelimiter) heredocDelimiter = null;
-            continue;
+            while (index < line.length && /\s/u.test(line[index])) index += 1;
+            const delimiterEnd = index + heredocDelimiter.length;
+            const closesHeredoc = line.startsWith(heredocDelimiter, index)
+                && (delimiterEnd === line.length || /\s/u.test(line[delimiterEnd]));
+            if (!closesHeredoc) {
+                result.push({ content: content.join(''), commentStart });
+                continue;
+            }
+            index = delimiterEnd;
+            heredocDelimiter = null;
+            tokenStart = false;
         }
-        const content = structuralContent(line);
-        const marker = content.indexOf('<<');
-        if (marker >= 0) {
-            const declaration = line.slice(marker);
-            const match = /^<<-?\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|([^\s{}#]+))/u.exec(declaration);
-            const delimiter = match && (match[1] ?? match[2] ?? match[3] ?? match[4]);
-            if (!delimiter || delimiter.includes('<<')) throw new Error('Caddyfile contains a malformed heredoc token');
-            heredocDelimiter = delimiter;
+
+        let escaped = false;
+        let pendingHeredoc = null;
+        for (; index < line.length; index += 1) {
+            const character = line[index];
+            if (escaped) { escaped = false; continue; }
+            if (quote) {
+                if (character === '\\') { escaped = true; continue; }
+                if (character === quote) quote = null;
+                continue;
+            }
+            if (character === '\\') { escaped = true; tokenStart = false; continue; }
+            if (character === '#') { commentStart = index; break; }
+            if (character === '"' || character === "'" || character === '`') {
+                quote = character;
+                tokenStart = false;
+                continue;
+            }
+            if (tokenStart && line.startsWith('<<', index)) {
+                if (pendingHeredoc !== null) throw new Error('Caddyfile contains a malformed heredoc token');
+                const match = /^<<([A-Za-z0-9_][A-Za-z0-9_-]*)/u.exec(line.slice(index));
+                const delimiter = match?.[1];
+                const delimiterEnd = delimiter ? index + 2 + delimiter.length : index + 2;
+                if (!delimiter || (delimiterEnd < line.length && !/\s/u.test(line[delimiterEnd]))) {
+                    throw new Error('Caddyfile contains a malformed heredoc token');
+                }
+                pendingHeredoc = delimiter;
+                index = delimiterEnd - 1;
+                tokenStart = false;
+                continue;
+            }
+            content[index] = character;
+            tokenStart = /\s/u.test(character);
         }
-        result.push({ content, heredocBody: false });
+        if (escaped) throw new Error('Caddyfile contains an unterminated escape');
+        if (pendingHeredoc !== null) {
+            if (quote !== null) throw new Error('Caddyfile contains a malformed heredoc token');
+            heredocDelimiter = pendingHeredoc;
+        }
+        result.push({ content: content.join(''), commentStart });
     }
+    if (quote !== null) throw new Error('Caddyfile contains an unterminated quoted value');
     if (heredocDelimiter !== null) throw new Error('Caddyfile contains an unterminated heredoc');
     return result;
 }
@@ -81,8 +104,9 @@ function findManagedRange(lines, structure) {
     const starts = [];
     const ends = [];
     for (const [index, line] of lines.entries()) {
-        if (!structure[index].heredocBody && line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(index);
-        if (!structure[index].heredocBody && line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(index);
+        const comment = structure[index].commentStart >= 0 ? line.slice(structure[index].commentStart).trim() : '';
+        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_START && comment === MCP_APP_SANDBOX_CADDY_BLOCK_START) starts.push(index);
+        if (line.trim() === MCP_APP_SANDBOX_CADDY_BLOCK_END && comment === MCP_APP_SANDBOX_CADDY_BLOCK_END) ends.push(index);
     }
     if (starts.length === 0 && ends.length === 0) return null;
     if (starts.length !== 1 || ends.length !== 1 || ends[0] < starts[0]) {

@@ -108,18 +108,29 @@ test('fails closed for missing, same-origin, non-HTTPS, and incomplete managed s
     }
 });
 
-test('ignores braces in unrelated quotes, backticks, comments, and quoted or indented heredocs', () => {
+test('preserves unrelated multiline quotes and official heredocs with structural close-line remainders', () => {
     const unrelated = `notes.example {
-    header X-Double "} \\" still quoted"
+    header X-Double "first line {
+        sandbox.paws.example {
+        } still quoted"
     header X-Single '} still quoted'
-    header X-Raw \`} still raw\`
+    header X-Raw \`first raw line }
+        sandbox.paws.example {
+        ${MCP_APP_SANDBOX_CADDY_BLOCK_START}
+        { still raw\`
     header X-Escaped \\} still-a-token
-    respond <<"DOC"
+    header X-Escaped-Heredoc \\<<NOT_A_HEREDOC
+    header X-Inline-Heredoc prefix<<NOT_A_HEREDOC
+    respond <<HTML
         { # not structural
         ${MCP_APP_SANDBOX_CADDY_BLOCK_START}
         } still data
-        DOC # not the exact terminator
-        DOC
+        HTML 200
+    route {
+        respond <<BODY
+            sandbox.paws.example {
+            { still data
+        BODY }
 }
 
 ${source}`;
@@ -130,10 +141,10 @@ ${source}`;
     assert.match(configured, /# paws-mcp-app-sandbox:start/);
 });
 
-test('fails closed on any heredoc or nested token inside the target without misreading its braces', () => {
+test('fails closed on any heredoc or nested token inside the target while scanning close-line remainders', () => {
     const dangerous = source.replace(
         '    # TLS is provisioned automatically by the site address.',
-        '    respond <<-\'BODY\'\n        } data only\n        { data only\n        BODY',
+        '    respond <<BODY\n        } data only\n        { data only\n        BODY }',
     );
     assert.throws(() => configureProductionMcpAppSandboxCaddy(dangerous, {
         sandboxOrigin: 'https://sandbox.paws.example', parentOrigins: ['https://paws.example:8443'],
@@ -148,11 +159,17 @@ test('fails closed on any heredoc or nested token inside the target without misr
     }), /only comments/i);
 });
 
-test('rejects unterminated quotes, backticks, heredocs, mixed line endings, and modified managed blocks', () => {
+test('rejects malformed official heredoc forms, open multiline tokens, mixed line endings, and modified blocks', () => {
     const malformed = [
         source.replace('# TLS is provisioned', 'header X-Bad "unterminated }'),
         source.replace('# TLS is provisioned', 'header X-Bad `unterminated }'),
         source.replace('# TLS is provisioned automatically by the site address.', 'respond <<'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<"DOC"\nDOC'),
+        source.replace('# TLS is provisioned automatically by the site address.', "respond <<'DOC'\nDOC"),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond << DOC\nDOC'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<-DOC\nDOC'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<DOC!\nDOC'),
+        source.replace('# TLS is provisioned automatically by the site address.', 'respond <<DOC#comment\nDOC'),
         source.replace('# TLS is provisioned', 'respond <<EOF\n} hidden forever'),
         source.replace('\n', '\r\n'),
     ];
@@ -188,6 +205,7 @@ test('does not create or mutate the output file when validation fails', async ()
         for (const [invalidSource, pattern] of [
             [source.replace('# TLS is provisioned', 'reverse_proxy localhost:9999'), /only comments/i],
             [source.replace('# TLS is provisioned', 'respond <<EOF\n} data'), /unterminated heredoc/i],
+            [source.replace('# TLS is provisioned', 'respond <<"DOC"\nDOC'), /malformed heredoc/i],
             [source.replace('# TLS is provisioned', 'header X-Bad `unterminated'), /unterminated quoted/i],
         ]) {
             await writeFile(input, invalidSource);
