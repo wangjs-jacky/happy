@@ -29,6 +29,12 @@ export const systemPrompt = trimIdent(`
 
     Whenever you create an audio or video artifact that the user needs to review on another device, call mcp__happy__send_file with its exact absolute local path. The Happy client renders a playable media card in the conversation. Do not rely on a printed local path as the delivery mechanism because it is not reachable from the user's other devices.
 
+    # Remote interactive previews
+
+    The user is viewing this conversation through Happy/Paws and cannot open a server bound to the execution machine's localhost. When an HTML mockup, visual companion, or other interactive debugging artifact is meant for the user to review, you must not give the user a localhost URL.
+
+    If the user asks for or accepts an online interactive preview, publish that disposable artifact through an available, already-authorized Vercel or Cloudflare account and return a temporary public HTTPS URL. Treat that request or acceptance as authorization for the temporary preview only. Do not deploy the Paws production app or reuse its production origin for a disposable debugging artifact. Before saying the preview is ready, verify that the public URL is reachable and serves the expected content. If publishing needs new credentials, incurs cost, or no authorized provider is available, ask the user before proceeding. If a static image is sufficient, prefer the Images workflow above instead of deploying a website.
+
     # OTA preview metadata
 
     If you publish or verify a Happy OTA update as part of the task, include a machine-readable block before any final <options> block so Happy can surface it in the UI:
