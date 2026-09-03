@@ -1,5 +1,6 @@
 import fastify from 'fastify';
 import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { Fastify } from '../types';
@@ -212,11 +213,11 @@ const { state, dbMock, storageMock, providerMock, logMock, resetState } = vi.hoi
             },
         })),
         importPexelsCover: vi.fn(async (_photoId: number, _deps?: unknown) => ({
-            bytes: Buffer.from('webp'),
+            bytes: Buffer.from('UklGRi4AAABXRUJQVlA4ICIAAABwAQCdASoCAAEAAUAmJZQCdAFAAAD+/DeBV/fU6D4r4AAA', 'base64'),
             mimeType: 'image/webp' as const,
-            size: 4,
-            width: 2400,
-            height: 900,
+            size: 54,
+            width: 2,
+            height: 1,
             attribution: {
                 photoId: 2014422,
                 photographer: 'Eberhard Grossgasteiger',
@@ -320,6 +321,10 @@ const ONE_PIXEL_PNG = Buffer.from(
     'base64',
 );
 const ONE_PIXEL_PNG_SHA256 = createHash('sha256').update(ONE_PIXEL_PNG).digest('hex');
+const VALID_IMPORTED_WEBP = Buffer.from(
+    'UklGRi4AAABXRUJQVlA4ICIAAABwAQCdASoCAAEAAUAmJZQCdAFAAAD+/DeBV/fU6D4r4AAA',
+    'base64',
+);
 
 function deferred<T = void>() {
     let resolve!: (value: T) => void;
@@ -954,7 +959,7 @@ describe('publicSessionShareRoutes', () => {
             expect(providerMock.importPexelsCover).toHaveBeenCalledTimes(1);
             expect(state.assets).toHaveLength(1);
             expect(state.assets[0].uploadedAt).toBeInstanceOf(Date);
-            expect(state.bytes.get(state.assets[0].storagePath)).toEqual(Buffer.from('webp'));
+            expect(state.bytes.get(state.assets[0].storagePath)).toEqual(VALID_IMPORTED_WEBP);
         } finally {
             now.mockRestore();
         }
@@ -1120,6 +1125,54 @@ describe('publicSessionShareRoutes', () => {
         expect(response.headers['content-disposition']).not.toContain('__paws_internal__');
     });
 
+    it('serves an accepted AVIF cover inline with hardened response headers', async () => {
+        const bytes = await sharp({
+            create: { width: 1, height: 1, channels: 3, background: { r: 50, g: 60, b: 70 } },
+        }).avif().toBuffer();
+        const draft = (await createDraft()).json();
+        const asset = (await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: '14141414-1414-4414-8414-141414141414',
+                name: 'cover.avif',
+                mimeType: 'image/avif',
+                kind: 'image',
+                size: bytes.length,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+            },
+        })).json();
+        await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets/${asset.assetId}`,
+            headers: { 'x-user-id': 'owner-1', 'content-type': 'application/octet-stream' },
+            payload: bytes,
+        });
+        const publish = await app.inject({
+            method: 'PUT',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                snapshot: coverSnapshot(asset.assetId, {
+                    mimeType: 'image/avif', size: bytes.length, width: 1, height: 1,
+                }),
+            },
+        });
+        expect(publish.statusCode).toBe(200);
+
+        const response = await app.inject({
+            method: 'GET',
+            url: `/v1/public/session-shares/${draft.publicId}/attachments/${asset.assetId}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-type']).toContain('image/avif');
+        expect(response.headers['content-disposition']).toContain('inline');
+        expect(response.headers['x-content-type-options']).toBe('nosniff');
+        expect(response.headers['cache-control']).toBe('no-store');
+    });
+
     it.each(['provider', 'storage'] as const)('leaves the draft unpublished when %s work fails', async (failure) => {
         process.env.PEXELS_API_KEY = 'server-secret';
         const draft = (await createDraft()).json();
@@ -1216,7 +1269,12 @@ describe('publicSessionShareRoutes', () => {
         expect(upload.json().error).toContain('checksum');
     });
 
-    it('rejects client attachment names that use the reserved internal metadata prefix', async () => {
+    it.each([
+        '__paws_internal__:pexels-cover-v1:forged',
+        'folder/__paws_internal__:pexels-claim-v1:forged',
+        'folder\\pexels-cover-v1:forged',
+        '../pexels-cover-pending:forged',
+    ])('rejects client attachment names whose normalized basename is reserved: %s', async (name) => {
         const draft = (await createDraft()).json();
 
         const response = await app.inject({
@@ -1225,7 +1283,7 @@ describe('publicSessionShareRoutes', () => {
             headers: { 'x-user-id': 'owner-1' },
             payload: {
                 attachmentId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-                name: '__paws_internal__:pexels-cover-v1:forged',
+                name,
                 mimeType: 'image/webp',
                 kind: 'image',
                 size: 4,
@@ -1235,6 +1293,26 @@ describe('publicSessionShareRoutes', () => {
 
         expect(response.statusCode).toBe(400);
         expect(state.assets).toHaveLength(0);
+    });
+
+    it('normalizes both path separators without decoding percent-looking ordinary names', async () => {
+        const draft = (await createDraft()).json();
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/sessions/session-1/share/drafts/${draft.generation}/assets`,
+            headers: { 'x-user-id': 'owner-1' },
+            payload: {
+                attachmentId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                name: 'folder\\report%20final.pdf',
+                mimeType: 'application/pdf',
+                kind: 'file',
+                size: 4,
+                sha256: 'a57bb082e728a0cdce930ecfcccf4510a3a247be5f322b09b3a971a3f5ed34f8',
+            },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(state.assets[0]?.name).toBe('report%20final.pdf');
     });
 
     it('keeps drafts private and publishes only after every manifest asset exists', async () => {
@@ -1458,11 +1536,66 @@ describe('publicSessionShareRoutes', () => {
         expect(publish.statusCode).toBe(409);
     });
 
+    it.each(['same-length corruption', 'wrong dimensions', 'wrong format'] as const)(
+        'validates canonical imported cover bytes and rejects %s',
+        async (failure) => {
+            process.env.PEXELS_API_KEY = 'server-secret';
+            const draft = (await createDraft()).json();
+            const imported = (await app.inject({
+                method: 'POST',
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/covers/import`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: { assetId: crypto.randomUUID(), photoId: 2014422 },
+            })).json();
+            const asset = state.assets.find((candidate) => candidate.id === imported.assetId)!;
+            let replacement: Buffer;
+            if (failure === 'same-length corruption') {
+                replacement = Buffer.alloc(imported.size, 0x61);
+            } else if (failure === 'wrong dimensions') {
+                replacement = await sharp({
+                    create: { width: 1, height: 1, channels: 3, background: { r: 20, g: 30, b: 40 } },
+                }).webp().toBuffer();
+                asset.size = replacement.length;
+                asset.sha256 = createHash('sha256').update(replacement).digest('hex');
+            } else {
+                replacement = await sharp({
+                    create: {
+                        width: imported.width,
+                        height: imported.height,
+                        channels: 3,
+                        background: { r: 20, g: 30, b: 40 },
+                    },
+                }).png().toBuffer();
+                asset.size = replacement.length;
+                asset.sha256 = createHash('sha256').update(replacement).digest('hex');
+            }
+            state.bytes.set(asset.storagePath, replacement);
+
+            const publish = await app.inject({
+                method: 'PUT',
+                url: `/v1/sessions/session-1/share/drafts/${draft.generation}/publish`,
+                headers: { 'x-user-id': 'owner-1' },
+                payload: {
+                    snapshot: coverSnapshot(imported.assetId, {
+                        mimeType: imported.mimeType,
+                        size: replacement.length,
+                        width: imported.width,
+                        height: imported.height,
+                        attribution: imported.attribution,
+                    }),
+                },
+            });
+
+            expect(publish.statusCode).toBe(409);
+            expect(publish.json()).toEqual({ error: 'Shared cover validation failed' });
+        },
+    );
+
     it.each([
         ['photo URL', { attribution: { ...PEXELS_ATTRIBUTION, photoUrl: 'https://www.pexels.com/photo/another-photo-1/' } }],
         ['photographer', { attribution: { ...PEXELS_ATTRIBUTION, photographer: 'Forged Photographer' } }],
-        ['width', { width: 2399, attribution: PEXELS_ATTRIBUTION }],
-        ['height', { height: 899, attribution: PEXELS_ATTRIBUTION }],
+        ['width', { width: 3, attribution: PEXELS_ATTRIBUTION }],
+        ['height', { height: 2, attribution: PEXELS_ATTRIBUTION }],
     ] as const)('rejects forged imported Pexels %s metadata', async (_field, forged) => {
         process.env.PEXELS_API_KEY = 'server-secret';
         const draft = (await createDraft()).json();

@@ -348,6 +348,26 @@ describe('externalSessionShareRoutes', () => {
         expect(state.binaryParseCount).toBe(0);
     });
 
+    it('rejects a reserved basename after Windows-path normalization', async () => {
+        const created = (await createDraft()).json();
+        const response = await app.inject({
+            method: 'POST',
+            url: `/v1/external/session-shares/${created.shareId}/drafts/${created.generation}/assets`,
+            headers: { authorization: AUTHORIZATION },
+            payload: {
+                attachmentId: ATTACHMENT_ID,
+                name: 'folder\\__paws_internal__:clone-claim-v1:forged',
+                mimeType: 'image/webp',
+                kind: 'image',
+                size: 5,
+                sha256: HELLO_SHA256,
+            },
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(state.assets).toHaveLength(0);
+    });
+
     it('publishes an uploaded attachment atomically through the existing public endpoints', async () => {
         const created = (await createDraft()).json();
         const prepared = await app.inject({

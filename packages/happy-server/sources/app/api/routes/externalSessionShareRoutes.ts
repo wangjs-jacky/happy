@@ -1,5 +1,4 @@
 import * as crypto from 'node:crypto';
-import * as path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Fastify } from '../types';
@@ -31,6 +30,7 @@ import {
     PublicSessionCoverValidationError,
     validateUploadedPublicSessionCover,
 } from '@/app/sessionSharing/publicSessionShareAssetValidation';
+import { publicSessionUserAssetNameSchema } from '@/app/sessionSharing/publicSessionShareAssetNames';
 
 const MAX_SNAPSHOT_BYTES = 10 * 1024 * 1024;
 const MAX_ASSET_COUNT = 50;
@@ -52,7 +52,7 @@ const createBodySchema = z.object({
 }).strict();
 const prepareAssetBodySchema = z.object({
     attachmentId: z.string().uuid(),
-    name: z.string().min(1).max(500),
+    name: publicSessionUserAssetNameSchema,
     mimeType: z.string().min(1).max(200),
     kind: publicShareAssetKindSchema,
     size: z.number().int().min(0).max(MAX_ASSET_SIZE),
@@ -85,11 +85,6 @@ function resolveBaseUrl(request: { headers: Record<string, string | string[] | u
     const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ?? request.headers.host;
     const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ?? 'http';
     return typeof host === 'string' && host ? `${protocol}://${host}` : `http://localhost:${process.env.PORT || '3005'}`;
-}
-
-function safeName(name: string): string {
-    const base = path.basename(name).replace(/[\u0000-\u001f\u007f"\\]/g, '_');
-    return base || 'attachment';
 }
 
 function managedNotFound(reply: any) {
@@ -334,7 +329,7 @@ export function externalSessionShareRoutes(app: Fastify) {
                 });
                 const assets = retainedAssets.filter((asset) => asset.generation === currentDraft.id);
                 const existing = assets.find((asset) => asset.id === request.body.attachmentId);
-                const name = safeName(request.body.name);
+                const name = request.body.name;
                 if (existing) {
                     const identical = existing.name === name
                         && existing.mimeType === request.body.mimeType

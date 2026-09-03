@@ -1,5 +1,4 @@
 import * as crypto from 'crypto';
-import * as path from 'path';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import type { Fastify } from '../types';
@@ -54,11 +53,14 @@ import {
     encodeCloneCoverClaim,
     encodePersistedPexelsCoverMetadata,
     encodePexelsCoverClaim,
-    isReservedPublicSessionAssetName,
     PEXELS_COVER_CLAIM_LEASE_MS,
     PEXELS_PENDING_SHA256,
     publicSessionCoverClaimWhere,
 } from '@/app/sessionSharing/publicSessionCoverClaims';
+import {
+    normalizePublicSessionAssetName,
+    publicSessionUserAssetNameSchema,
+} from '@/app/sessionSharing/publicSessionShareAssetNames';
 
 const MAX_ASSET_COUNT = 100;
 // This matches Fastify's global binary-body limit. Share uploads are proxied
@@ -82,7 +84,7 @@ const publicParamsSchema = z.object({ publicId: z.string() });
 const publicAssetParamsSchema = publicParamsSchema.extend({ assetId: z.string() });
 const prepareAssetBodySchema = z.object({
     attachmentId: z.string().uuid(),
-    name: z.string().min(1).max(500).refine((name) => !isReservedPublicSessionAssetName(name), 'Reserved attachment name'),
+    name: publicSessionUserAssetNameSchema,
     mimeType: z.string().min(1).max(200),
     kind: publicShareAssetKindSchema,
     size: z.number().int().min(0).max(MAX_ASSET_SIZE),
@@ -136,7 +138,7 @@ async function enforcePublicReadRate(key: string, reply: any): Promise<boolean> 
 
 function safeMimeType(kind: string, mimeType: string): string {
     const inline = kind === 'image'
-        ? /^(image\/(png|jpeg|gif|webp))$/i.test(mimeType)
+        ? /^(image\/(png|jpeg|gif|webp|avif))$/i.test(mimeType)
         : kind === 'audio'
             ? /^(audio\/(mpeg|mp4|aac|wav|flac|ogg|opus))$/i.test(mimeType)
             : kind === 'video'
@@ -146,8 +148,7 @@ function safeMimeType(kind: string, mimeType: string): string {
 }
 
 function safeDispositionName(name: string): string {
-    const base = path.basename(name).replace(/[\u0000-\u001f\u007f"\\]/g, '_');
-    return base || 'attachment';
+    return normalizePublicSessionAssetName(name);
 }
 
 function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
@@ -364,7 +365,7 @@ export function publicSessionShareRoutes(app: Fastify) {
     }, async (request, reply) => {
         if (!await enforceShareWriteRate(request.userId, reply)) return;
         const assetId = request.body.attachmentId;
-        const name = safeDispositionName(request.body.name);
+        const name = request.body.name;
         try {
             await serializableTransaction(async (tx) => {
                 const now = new Date();
@@ -1240,19 +1241,17 @@ export function publicSessionShareRoutes(app: Fastify) {
             if (!coverAsset || !coverMatchesPersistedAssetMetadata(cover, coverAsset.name)) {
                 return reply.code(409).send({ error: 'Shared attachment metadata mismatch' });
             }
-            if (!decodePersistedPexelsCoverMetadata(coverAsset.name)) {
-                try {
-                    await validateUploadedPublicSessionCover({
-                        cover,
-                        asset: coverAsset,
-                        readBytes: readPublicShareAssetBytes,
-                    });
-                } catch (error) {
-                    if (error instanceof PublicSessionCoverValidationError) {
-                        return reply.code(409).send({ error: error.message });
-                    }
-                    throw error;
+            try {
+                await validateUploadedPublicSessionCover({
+                    cover,
+                    asset: coverAsset,
+                    readBytes: readPublicShareAssetBytes,
+                });
+            } catch (error) {
+                if (error instanceof PublicSessionCoverValidationError) {
+                    return reply.code(409).send({ error: error.message });
                 }
+                throw error;
             }
         }
         const oldGeneration = share.activeGeneration;

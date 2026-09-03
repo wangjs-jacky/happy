@@ -14,7 +14,7 @@ export class PublicSessionCoverAvailabilityError extends Error {
     override readonly name = 'PublicSessionCoverAvailabilityError';
 
     constructor(readonly retryAfterSeconds: number) {
-        super('Random cover provider is busy');
+        super('Cover provider is busy');
     }
 }
 

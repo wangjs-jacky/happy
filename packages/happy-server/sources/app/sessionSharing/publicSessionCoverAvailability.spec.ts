@@ -51,6 +51,7 @@ describe('public session cover provider availability', () => {
         const firstRun = availability.run('account-a', async () => first.promise);
 
         await expect(availability.run('account-a', async () => undefined)).rejects.toBeInstanceOf(PublicSessionCoverAvailabilityError);
+        await expect(availability.run('account-a', async () => undefined)).rejects.toThrow('Cover provider is busy');
         const secondRun = availability.run('account-b', async () => second.promise);
         await expect(availability.run('account-c', async () => undefined)).rejects.toBeInstanceOf(PublicSessionCoverAvailabilityError);
 
@@ -72,5 +73,15 @@ describe('public session cover provider availability', () => {
             throw new Error('provider failed');
         })).rejects.toThrow('provider failed');
         await expect(availability.run('account-a', async () => 'recovered')).resolves.toBe('recovered');
+    });
+
+    it('fails closed when the configured distributed limiter errors', async () => {
+        const operation = vi.fn(async () => 'should not run');
+        const availability = createPublicSessionCoverAvailability({
+            redisEval: vi.fn(async () => { throw new Error('redis unavailable'); }),
+        });
+
+        await expect(availability.run('account-a', operation)).rejects.toThrow('redis unavailable');
+        expect(operation).not.toHaveBeenCalled();
     });
 });
