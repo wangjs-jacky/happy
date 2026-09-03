@@ -168,12 +168,13 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.alert).not.toHaveBeenCalled();
     });
 
-    it('allows the iOS scanner to be launched again after its presentation completes', async () => {
+    it('dismisses a stale iOS scanner session before launching it again', async () => {
         await act(async () => {
             await current.connectAuthQrCode();
             await current.connectAuthQrCode();
         });
 
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(1);
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
     });
 
@@ -212,6 +213,26 @@ describe('useUnifiedAuthQrCode', () => {
 
         expect(mocks.accountAuth).not.toHaveBeenCalled();
         expect(mocks.terminalAuth).not.toHaveBeenCalled();
+    });
+
+    it('does not authenticate when confirmation resolves after the provider unmounts', async () => {
+        let resolveConfirmation!: (value: boolean) => void;
+        mocks.confirm.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            resolveConfirmation = resolve;
+        }));
+
+        const attempt = current.connectWithUrl('paws:///account?account-public-key');
+        await act(async () => {
+            await Promise.resolve();
+        });
+        act(() => renderer.unmount());
+
+        resolveConfirmation(true);
+        await act(async () => {
+            await attempt;
+        });
+
+        expect(mocks.accountAuth).not.toHaveBeenCalled();
     });
 
     it('explains unsupported authentication URLs without calling either authenticator', async () => {
@@ -298,6 +319,28 @@ describe('useUnifiedAuthQrCode', () => {
         });
     });
 
+    it('dismisses an owned iOS scanner even when another authentication owns the single-flight guard', async () => {
+        let resolveAuthentication!: (value: boolean) => void;
+        mocks.accountAuth.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+            resolveAuthentication = resolve;
+        }));
+
+        const firstAttempt = current.connectWithUrl('paws:///account?account-public-key');
+        await act(async () => {
+            await Promise.resolve();
+            await current.connectAuthQrCode();
+            await mocks.onScanned?.({ data: 'paws://terminal?terminal-public-key' });
+        });
+
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(1);
+        expect(mocks.terminalAuth).not.toHaveBeenCalled();
+
+        resolveAuthentication(true);
+        await act(async () => {
+            await firstAttempt;
+        });
+    });
+
     it('releases the authentication guard after an authenticator rejects', async () => {
         mocks.accountAuth
             .mockRejectedValueOnce(new Error('authentication failed'))
@@ -321,6 +364,7 @@ describe('useUnifiedAuthQrCode', () => {
         });
 
         expect(mocks.accountAuth).toHaveBeenCalledWith('paws:///account?account-public-key');
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(2);
     });
 
     it('removes its listener and dismisses the iOS scanner when the screen unmounts', async () => {
