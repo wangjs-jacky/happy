@@ -164,6 +164,7 @@ export function createMcpAppHostController(options: {
     let pendingDelivery: PendingDelivery | undefined = currentResult?.state === 'available'
         ? { type: 'result', result: availableResult(currentResult, false)! }
         : undefined;
+    let terminalDeliveryAccepted = pendingDelivery !== undefined;
     let frame: McpAppFrame | undefined;
     let activeController: AbortController | undefined;
     let loadPromise: Promise<void> | undefined;
@@ -484,15 +485,17 @@ export function createMcpAppHostController(options: {
                 return;
             }
 
-            if (update.result?.state === 'available') {
-                pendingDelivery = {
-                    type: 'result',
-                    result: availableResult(update.result, update.state === 'error')!,
-                };
-            } else if (update.state === 'cancelled') {
+            if (!terminalDeliveryAccepted && update.state === 'cancelled') {
+                terminalDeliveryAccepted = true;
                 pendingDelivery = {
                     type: 'cancelled',
                     reason: update.cancellationReason ?? 'The tool call was cancelled.',
+                };
+            } else if (!terminalDeliveryAccepted && update.result?.state === 'available') {
+                terminalDeliveryAccepted = true;
+                pendingDelivery = {
+                    type: 'result',
+                    result: availableResult(update.result, update.state === 'error')!,
                 };
             }
 

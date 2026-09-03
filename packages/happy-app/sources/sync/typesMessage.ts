@@ -6,7 +6,7 @@ export type ToolCall = {
     /** Immutable protocol identifier used for MCP App RPC correlation. */
     readonly callId?: string;
     name: string;
-    state: 'running' | 'completed' | 'error';
+    state: 'running' | 'completed' | 'error' | 'cancelled';
     input: any;
     createdAt: number;
     startedAt: number | null;
@@ -18,6 +18,7 @@ export type ToolCall = {
         summary: string;
         detail?: string;
     };
+    cancellationReason?: string;
     permission?: {
         id: string;
         status: 'pending' | 'approved' | 'denied' | 'canceled';

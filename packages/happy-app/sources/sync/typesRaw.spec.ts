@@ -1800,7 +1800,8 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                         ev: {
                             t: 'tool-call-end',
                             call: 'call-cancelled',
-                            status: 'cancelled'
+                            status: 'cancelled',
+                            error: { summary: 'Stopped by user' },
                         }
                     }
                 }
@@ -1811,7 +1812,8 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                     type: 'tool-result',
                     tool_use_id: 'call-cancelled',
                     is_error: false,
-                    status: 'cancelled'
+                    status: 'cancelled',
+                    failure: { summary: 'Stopped by user' },
                 });
             }
         });

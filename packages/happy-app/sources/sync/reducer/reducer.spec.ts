@@ -534,6 +534,46 @@ describe('reducer', () => {
             });
         });
 
+        it('keeps sidechain cancellation terminal with a bounded reason and ignores a late result', () => {
+            const state = createReducer();
+            reducer(state, [{
+                id: 'cancel-owner', localId: null, createdAt: 900, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-call', id: 'cancel-owner-call', name: 'Task', input: { prompt: 'Cancel demo' },
+                    description: 'Cancel demo', uuid: 'cancel-owner-uuid', parentUUID: null,
+                }],
+            }, {
+                id: 'cancel-start', localId: null, createdAt: 1000, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-call', id: 'sidechain-cancel-call', name: 'ShowDemo', input: {},
+                    description: 'Cancel demo', uuid: 'cancel-start-uuid', parentUUID: 'cancel-owner-call',
+                }],
+            }, {
+                id: 'cancel-result', localId: null, createdAt: 1100, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'sidechain-cancel-call', content: null, is_error: false,
+                    status: 'cancelled', failure: { summary: `Stopped ${'x'.repeat(400)}` },
+                    uuid: 'cancel-result-uuid', parentUUID: 'cancel-owner-call',
+                }],
+            }, {
+                id: 'cancel-late-result', localId: null, createdAt: 1200, role: 'agent', isSidechain: true,
+                content: [{
+                    type: 'tool-result', tool_use_id: 'sidechain-cancel-call', content: 'late', is_error: false,
+                    status: 'completed', mcpAppResult: { version: 1, state: 'available', content: [] },
+                    uuid: 'cancel-late-result-uuid', parentUUID: 'cancel-owner-call',
+                }],
+            }]);
+
+            const tool = state.sidechains.get('cancel-owner')?.find((message) => (
+                message.tool?.callId === 'sidechain-cancel-call'
+            ))?.tool;
+            expect(tool?.state).toBe('cancelled');
+            expect(tool?.cancellationReason).toHaveLength(280);
+            expect(tool?.cancellationReason).toMatch(/^Stopped x/u);
+            expect(tool?.result).toBeNull();
+            expect(tool?.mcpAppResult).toBeUndefined();
+        });
+
         it('retains result-first MCP App metadata per sidechain call across replay', () => {
             const state = createReducer();
             const sidechainAParentId = '11111111-1111-4111-8111-111111111111';
@@ -3914,7 +3954,8 @@ describe('reducer', () => {
             expect(result.messages[0]).toMatchObject({
                 kind: 'tool-call',
                 tool: {
-                    state: 'completed',
+                    state: 'cancelled',
+                    cancellationReason: 'The tool call was cancelled.',
                     permission: { status: 'canceled' },
                 },
             });

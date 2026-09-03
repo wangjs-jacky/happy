@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TestRenderer from 'react-test-renderer';
 import { McpAppHost } from './McpAppHost';
 import { McpAppHostError, type McpAppFrame, type McpAppFrameAdapter, type McpAppRemotePort } from './mcpApps/types';
+import { normalizeRawMessage, type NormalizedMessage } from '@/sync/typesRaw';
+import { createReducer, reducer } from '@/sync/reducer/reducer';
 
 const mocks = vi.hoisted(() => ({
     presence: 'online' as string | number,
@@ -12,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     readError: null as McpAppHostError | null,
     frameMountInput: null as any,
     adapterSupport: 'supported' as 'supported' | 'unsupported',
+    viewNotifications: [] as string[],
 }));
 
 vi.mock('react-native', () => ({
@@ -55,9 +58,11 @@ vi.mock('./mcpApps/remotePort', () => ({
 }));
 vi.mock('./mcpApps/frameAdapter', () => {
     class Frame implements McpAppFrame {
-        sendToolInput() {}
-        sendToolResult() {}
-        sendToolCancelled() {}
+        sendToolInput() { mocks.viewNotifications.push('ui/notifications/tool-input'); }
+        sendToolResult() { mocks.viewNotifications.push('ui/notifications/tool-result'); }
+        sendToolCancelled(reason: string) {
+            mocks.viewNotifications.push(`ui/notifications/tool-cancelled:${reason}`);
+        }
         updateHostContext() {}
         async teardown() {}
     }
@@ -100,6 +105,7 @@ describe('McpAppHost state presentation', () => {
         mocks.readError = null;
         mocks.frameMountInput = null;
         mocks.adapterSupport = 'supported';
+        mocks.viewNotifications.length = 0;
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
@@ -116,6 +122,86 @@ describe('McpAppHost state presentation', () => {
         expect(mocks.reads[0]).toMatchObject({ callId: 'wire-call-1' });
         expect(renderer.root.findByType('Frame')).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'mcp-app-error' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('delivers normalized wire cancellation to the View exactly once and ignores a late result', async () => {
+        const wire = [
+            {
+                id: 'wire-start', time: 10, role: 'agent' as const, turn: 'turn-1',
+                ev: {
+                    t: 'tool-call-start' as const,
+                    call: 'wire-call-cancelled',
+                    name: 'mcp__demo__show',
+                    title: 'Show demo',
+                    description: 'Show demo',
+                    args: { city: 'Hangzhou' },
+                    mcpApp: { version: 1 as const, server: 'demo', resourceUri: 'ui://demo/index.html' },
+                },
+            },
+            {
+                id: 'wire-cancelled', time: 20, role: 'agent' as const, turn: 'turn-1',
+                ev: {
+                    t: 'tool-call-end' as const,
+                    call: 'wire-call-cancelled',
+                    status: 'cancelled' as const,
+                    error: { summary: 'Stopped by user' },
+                },
+            },
+        ].map((envelope, index) => normalizeRawMessage(
+            `db-wire-${index}`, null, envelope.time, { role: 'session', content: envelope } as any,
+        )).filter((message): message is NormalizedMessage => message !== null);
+        const state = createReducer();
+        const reduced = reducer(state, wire);
+        const cancelled = reduced.messages.find((message) => message.kind === 'tool-call');
+        expect(cancelled?.kind).toBe('tool-call');
+        if (cancelled?.kind !== 'tool-call') throw new Error('cancelled tool call was not reduced');
+        expect(cancelled.tool).toMatchObject({
+            state: 'cancelled',
+            cancellationReason: 'Stopped by user',
+            mcpApp: { resourceUri: 'ui://demo/index.html' },
+        });
+
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                <McpAppHost
+                    sessionId="session-1"
+                    toolCall={cancelled.tool}
+                    presentation={cancelled.tool.mcpApp!}
+                />,
+            );
+        });
+        expect(mocks.viewNotifications).toEqual([
+            'ui/notifications/tool-input',
+            'ui/notifications/tool-cancelled:Stopped by user',
+        ]);
+
+        const late = normalizeRawMessage('db-wire-late', null, 30, {
+            role: 'session',
+            content: {
+                id: 'wire-late', time: 30, role: 'agent', turn: 'turn-1',
+                ev: {
+                    t: 'tool-call-end', call: 'wire-call-cancelled', status: 'completed',
+                    mcpAppResult: {
+                        version: 1, state: 'available', content: [], structuredContent: { late: true },
+                    },
+                },
+            },
+        } as any);
+        expect(late).not.toBeNull();
+        reducer(state, [late!]);
+        const storedId = state.toolIdToMessageId.get('wire-call-cancelled');
+        const stored = state.messages.get(storedId!)?.tool;
+        expect(stored).toMatchObject({ state: 'cancelled', cancellationReason: 'Stopped by user' });
+        expect(stored?.mcpAppResult).toBeUndefined();
+        await act(async () => {
+            renderer.update(
+                <McpAppHost sessionId="session-1" toolCall={{ ...stored! }} presentation={stored!.mcpApp!} />,
+            );
+        });
+        expect(mocks.viewNotifications.filter((event) => event.includes('tool-cancelled'))).toHaveLength(1);
+        expect(mocks.viewNotifications).not.toContain('ui/notifications/tool-result');
         act(() => renderer.unmount());
     });
 

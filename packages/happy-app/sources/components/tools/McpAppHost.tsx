@@ -95,8 +95,12 @@ export function McpAppHost({ sessionId, toolCall, presentation, result }: Props)
     }, [hostContext]);
 
     React.useEffect(() => {
-        void controllerRef.current?.updateToolCall({ state: toolCall.state, result });
-    }, [result, toolCall.state]);
+        void controllerRef.current?.updateToolCall({
+            state: toolCall.state,
+            result,
+            cancellationReason: toolCall.cancellationReason,
+        });
+    }, [result, toolCall.cancellationReason, toolCall.state]);
 
     const retry = React.useCallback(() => { void controllerRef.current?.retry(); }, []);
 

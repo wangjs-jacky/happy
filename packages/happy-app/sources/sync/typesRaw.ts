@@ -710,7 +710,9 @@ function normalizeSessionEnvelope(
     }
 
     if (envelope.ev.t === 'tool-call-end') {
-        const status = envelope.ev.error ? 'failed' : envelope.ev.status;
+        const status = envelope.ev.status === 'cancelled'
+            ? 'cancelled'
+            : envelope.ev.error ? 'failed' : envelope.ev.status;
         return {
             id: messageId,
             localId,
