@@ -120,6 +120,20 @@ describe('RelationshipAdvisorSidebarHistory', () => {
         act(() => renderer.unmount());
     });
 
+    it('returns the desktop conversation index to empty after deleting its final conversation', async () => {
+        const onNavigate = vi.fn();
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<RelationshipAdvisorSidebarHistory desktopDensity fill onNavigate={onNavigate} />);
+        });
+
+        await act(async () => renderer.root.findByProps({ testID: 'relationship-advisor-delete-conversation-1' }).props.onPress());
+
+        expect(mocks.conversations).toEqual([]);
+        expect(onNavigate).toHaveBeenCalledWith('/relationship-advisor');
+        act(() => renderer.unmount());
+    });
+
     it('keeps navigation and delete as sibling actions', () => {
         const onNavigate = vi.fn();
         let renderer: any;

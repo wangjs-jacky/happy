@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     zenMode: false,
     desktopLeftSidebarCollapsed: false,
     pathname: '/',
+    platform: 'web',
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -38,7 +39,7 @@ vi.mock('react-native', async () => {
         View: 'View',
         Text: 'Text',
         Pressable: 'Pressable',
-        Platform: { OS: 'web' },
+        Platform: { get OS() { return mocks.platform; } },
         BackHandler: { addEventListener: vi.fn() },
         useWindowDimensions: () => ({ width: 1200, height: 800 }),
     };
@@ -135,13 +136,16 @@ vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({
     DesktopWorkspaceLayoutProvider: ({
         children,
         enabled,
+        threeLevelLeft,
     }: {
         children: React.ReactNode;
         enabled: boolean;
-    }) => React.createElement('DesktopWorkspaceLayoutProvider', { enabled }, children),
+        threeLevelLeft?: boolean;
+    }) => React.createElement('DesktopWorkspaceLayoutProvider', { enabled, threeLevelLeft }, children),
     useDesktopWorkspaceLayout: () => ({
         enabled: mocks.isTablet,
         leftExpandedWidth: mocks.isTablet ? 360 : 0,
+        leftMinimumWidth: mocks.isTablet ? 500 : 0,
         leftVisible: mocks.isTablet && !mocks.zenMode && !mocks.desktopLeftSidebarCollapsed,
         leftMaximumWidth: 640,
         leftWidth: mocks.isTablet && !mocks.zenMode && !mocks.desktopLeftSidebarCollapsed ? 360 : 0,
@@ -168,6 +172,7 @@ describe('SidebarNavigator drawer behavior', () => {
         mocks.zenMode = false;
         mocks.desktopLeftSidebarCollapsed = false;
         mocks.pathname = '/';
+        mocks.platform = 'web';
         vi.clearAllMocks();
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -187,8 +192,20 @@ describe('SidebarNavigator drawer behavior', () => {
         const layout = renderer.root.findByType('DesktopWorkspaceLayoutProvider');
         const shortcuts = layout.findByType('KeyboardShortcutsProvider');
         expect(layout.props.enabled).toBe(true);
+        expect(layout.props.threeLevelLeft).toBe(true);
         expect(shortcuts.findByType('Drawer')).toBeDefined();
 
+        act(() => renderer.unmount());
+    });
+
+    it('does not enable three-level panel sizing for native tablet layouts', () => {
+        mocks.platform = 'android';
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<SidebarNavigator />);
+        });
+
+        expect(renderer.root.findByType('DesktopWorkspaceLayoutProvider').props.threeLevelLeft).toBe(false);
         act(() => renderer.unmount());
     });
 

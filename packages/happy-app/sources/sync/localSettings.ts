@@ -4,6 +4,8 @@ import { AgentLauncherListSchema } from './settings';
 import {
     DESKTOP_LEFT_PANEL_DEFAULT_WIDTH,
     DESKTOP_RIGHT_PANEL_DEFAULT_WIDTH,
+    DESKTOP_SIDEBAR_ORGANIZATION_DEFAULT_WIDTH,
+    DESKTOP_THREE_LEVEL_LEFT_PANEL_DEFAULT_WIDTH,
 } from '@/utils/desktopNavigationLayout';
 import {
     buildRelationshipAdvisorConversationTitle,
@@ -55,9 +57,13 @@ export const LocalSettingsSchema = z.object({
     desktopLeftSidebarCollapsed: z.boolean().describe('Collapse the desktop session sidebar independently of Zen mode'),
     desktopRightPanelCollapsed: z.boolean().describe('Collapse the desktop capability panel independently of Zen mode'),
     desktopLeftSidebarWidth: z.number().finite().describe('Preferred width of the desktop session sidebar'),
+    desktopThreeLevelSidebarWidth: z.number().finite().describe('Preferred width of the PC three-level sidebar'),
     desktopRightPanelWidth: z.number().finite().describe('Preferred width of the desktop capability panel'),
+    desktopSidebarOrganizationCollapsed: z.boolean().describe('Collapse the desktop list navigation while keeping the session list visible'),
+    desktopSidebarOrganizationWidth: z.number().finite().describe('Preferred width of the desktop list navigation'),
     sessionListLayout: z.enum(['projects', 'time']).describe('Preferred session sidebar grouping'),
     desktopSidebarMode: z.enum(['projects', 'lists', 'timeline']).describe('Desktop session sidebar primary mode'),
+    desktopSidebarTagsVisibility: z.enum(['always', 'when-populated', 'hidden']).describe('Visibility policy for the desktop sidebar Tags section'),
     sidebarOrganization: SidebarOrganizationSchema.describe('Legacy device-local session Lists and Tags, retained for account-sync migration'),
     // 「Agent 空间模式」：进入某个「我的 Agent」后，左侧侧栏收敛为该 Agent 的专属工作台
     // （仅本空间会话 + 预设快捷指令 + 退出空间）。存 agent id；null 为全局视图。刻意放设备本地、
@@ -114,10 +120,15 @@ export const localSettingsDefaults: LocalSettings = {
     desktopLeftSidebarCollapsed: false,
     desktopRightPanelCollapsed: false,
     desktopLeftSidebarWidth: DESKTOP_LEFT_PANEL_DEFAULT_WIDTH,
+    desktopThreeLevelSidebarWidth: DESKTOP_THREE_LEVEL_LEFT_PANEL_DEFAULT_WIDTH,
     desktopRightPanelWidth: DESKTOP_RIGHT_PANEL_DEFAULT_WIDTH,
+    desktopSidebarOrganizationCollapsed: false,
+    desktopSidebarOrganizationWidth: DESKTOP_SIDEBAR_ORGANIZATION_DEFAULT_WIDTH,
     sessionListLayout: 'projects',
     desktopSidebarMode: 'projects',
+    desktopSidebarTagsVisibility: 'when-populated',
     sidebarOrganization: {
+        folders: [],
         lists: [],
         tags: [],
         sessions: {},

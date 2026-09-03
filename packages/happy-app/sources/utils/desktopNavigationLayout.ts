@@ -1,10 +1,21 @@
 export const WEB_TABLET_MIN_WIDTH = 800;
 export const DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH = 1100;
+export const DESKTOP_THREE_LEVEL_RIGHT_PANEL_MIN_WINDOW_WIDTH = 1280;
 export const DESKTOP_SESSION_HEADER_COMPACT_WINDOW_WIDTH = 1180;
 export const DESKTOP_MAIN_MIN_WIDTH = 480;
+export const DESKTOP_MAIN_COMPACT_MIN_WIDTH = 300;
+// Legacy native/tablet sidebar sizing. Keep these values stable: the desktop
+// three-level shell has its own width contract below.
 export const DESKTOP_LEFT_PANEL_MIN_WIDTH = 250;
 export const DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 360;
 export const DESKTOP_LEFT_PANEL_MAX_WIDTH = 480;
+export const DESKTOP_THREE_LEVEL_LEFT_PANEL_MIN_WIDTH = 500;
+export const DESKTOP_THREE_LEVEL_LEFT_PANEL_DEFAULT_WIDTH = 580;
+export const DESKTOP_THREE_LEVEL_LEFT_PANEL_MAX_WIDTH = 760;
+export const DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH = 176;
+export const DESKTOP_SIDEBAR_ORGANIZATION_DEFAULT_WIDTH = 220;
+export const DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH = 320;
+export const DESKTOP_SIDEBAR_SESSION_MIN_WIDTH = 200;
 export const DESKTOP_RIGHT_PANEL_MIN_WIDTH = 280;
 export const DESKTOP_RIGHT_PANEL_DEFAULT_WIDTH = 320;
 export const DESKTOP_RIGHT_PANEL_MAX_WIDTH = 480;
@@ -64,18 +75,59 @@ export function getDesktopRightPanelWidth(windowWidth: number): number {
 
 export type DesktopPanelSide = 'left' | 'right';
 
-function getDesktopPanelMinimum(side: DesktopPanelSide): number {
+export function getDesktopSidebarOrganizationMaxWidth(navigationWidth?: number): number {
+    if (navigationWidth === undefined) return DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH;
+    return Math.max(
+        DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH,
+        Math.min(
+            DESKTOP_SIDEBAR_ORGANIZATION_MAX_WIDTH,
+            Math.floor(navigationWidth - DESKTOP_SIDEBAR_SESSION_MIN_WIDTH),
+        ),
+    );
+}
+
+export function clampDesktopSidebarOrganizationWidth(width: number, navigationWidth?: number): number {
+    return Math.round(Math.min(
+        Math.max(width, DESKTOP_SIDEBAR_ORGANIZATION_MIN_WIDTH),
+        getDesktopSidebarOrganizationMaxWidth(navigationWidth),
+    ));
+}
+
+function getDesktopPanelMinimum(side: DesktopPanelSide, threeLevelLeft: boolean): number {
+    if (side === 'left' && threeLevelLeft) return DESKTOP_THREE_LEVEL_LEFT_PANEL_MIN_WIDTH;
     return side === 'left' ? DESKTOP_LEFT_PANEL_MIN_WIDTH : DESKTOP_RIGHT_PANEL_MIN_WIDTH;
 }
 
-function getDesktopPanelMaximum(side: DesktopPanelSide): number {
+function getDesktopPanelMaximum(side: DesktopPanelSide, threeLevelLeft: boolean): number {
+    if (side === 'left' && threeLevelLeft) return DESKTOP_THREE_LEVEL_LEFT_PANEL_MAX_WIDTH;
     return side === 'left' ? DESKTOP_LEFT_PANEL_MAX_WIDTH : DESKTOP_RIGHT_PANEL_MAX_WIDTH;
 }
 
-export function clampDesktopPanelWidth(side: DesktopPanelSide, width: number): number {
+function getDesktopWorkspaceMainMinimum({
+    leftVisible,
+    rightVisible,
+    threeLevelLeft,
+    windowWidth,
+}: {
+    leftVisible: boolean;
+    rightVisible: boolean;
+    threeLevelLeft: boolean;
+    windowWidth: number;
+}): number {
+    if (!threeLevelLeft) return Math.min(windowWidth, DESKTOP_MAIN_MIN_WIDTH);
+    const panelMinimum = (leftVisible ? getDesktopPanelMinimum('left', threeLevelLeft) : 0)
+        + (rightVisible ? DESKTOP_RIGHT_PANEL_MIN_WIDTH : 0);
+    return Math.min(
+        windowWidth,
+        DESKTOP_MAIN_MIN_WIDTH,
+        Math.max(DESKTOP_MAIN_COMPACT_MIN_WIDTH, windowWidth - panelMinimum),
+    );
+}
+
+export function clampDesktopPanelWidth(side: DesktopPanelSide, width: number, threeLevelLeft = false): number {
     return Math.round(Math.min(
-        Math.max(width, getDesktopPanelMinimum(side)),
-        getDesktopPanelMaximum(side),
+        Math.max(width, getDesktopPanelMinimum(side, threeLevelLeft)),
+        getDesktopPanelMaximum(side, threeLevelLeft),
     ));
 }
 
@@ -84,31 +136,35 @@ export function getDesktopWorkspacePanelWidths({
     requestedLeftWidth,
     requestedRightWidth,
     rightVisible,
+    threeLevelLeft = false,
     windowWidth,
 }: {
     leftVisible: boolean;
     requestedLeftWidth: number;
     requestedRightWidth: number;
     rightVisible: boolean;
+    threeLevelLeft?: boolean;
     windowWidth: number;
 }): { left: number; main: number; right: number } {
-    const availableForPanels = Math.max(0, windowWidth - DESKTOP_MAIN_MIN_WIDTH);
-    let left = leftVisible ? clampDesktopPanelWidth('left', requestedLeftWidth) : 0;
+    const mainMinimum = getDesktopWorkspaceMainMinimum({ leftVisible, rightVisible, threeLevelLeft, windowWidth });
+    const availableForPanels = Math.max(0, windowWidth - mainMinimum);
+    const leftMinimum = getDesktopPanelMinimum('left', threeLevelLeft);
+    let left = leftVisible ? clampDesktopPanelWidth('left', requestedLeftWidth, threeLevelLeft) : 0;
     let right = rightVisible ? clampDesktopPanelWidth('right', requestedRightWidth) : 0;
 
     if (left + right > availableForPanels) {
         if (leftVisible && rightVisible) {
-            const minimumTotal = DESKTOP_LEFT_PANEL_MIN_WIDTH + DESKTOP_RIGHT_PANEL_MIN_WIDTH;
+            const minimumTotal = leftMinimum + DESKTOP_RIGHT_PANEL_MIN_WIDTH;
             if (availableForPanels >= minimumTotal) {
-                const leftExtra = Math.max(0, left - DESKTOP_LEFT_PANEL_MIN_WIDTH);
+                const leftExtra = Math.max(0, left - leftMinimum);
                 const rightExtra = Math.max(0, right - DESKTOP_RIGHT_PANEL_MIN_WIDTH);
                 const desiredExtra = leftExtra + rightExtra;
                 const availableExtra = availableForPanels - minimumTotal;
                 const leftShare = desiredExtra > 0 ? leftExtra / desiredExtra : 0.5;
-                left = DESKTOP_LEFT_PANEL_MIN_WIDTH + Math.floor(availableExtra * leftShare);
+                left = leftMinimum + Math.floor(availableExtra * leftShare);
                 right = availableForPanels - left;
             } else {
-                const leftShare = DESKTOP_LEFT_PANEL_MIN_WIDTH / minimumTotal;
+                const leftShare = leftMinimum / minimumTotal;
                 left = Math.floor(availableForPanels * leftShare);
                 right = availableForPanels - left;
             }
@@ -121,7 +177,7 @@ export function getDesktopWorkspacePanelWidths({
 
     return {
         left,
-        main: Math.max(DESKTOP_MAIN_MIN_WIDTH, windowWidth - left - right),
+        main: Math.max(mainMinimum, windowWidth - left - right),
         right,
     };
 }
@@ -131,19 +187,27 @@ export function getDesktopPanelResizeWidth({
     oppositePanelVisible,
     oppositePanelWidth,
     side,
+    threeLevelLeft = false,
     windowWidth,
 }: {
     desiredWidth: number;
     oppositePanelVisible: boolean;
     oppositePanelWidth: number;
     side: DesktopPanelSide;
+    threeLevelLeft?: boolean;
     windowWidth: number;
 }): number {
-    const min = getDesktopPanelMinimum(side);
-    const max = getDesktopPanelMaximum(side);
+    const min = getDesktopPanelMinimum(side, threeLevelLeft);
+    const max = getDesktopPanelMaximum(side, threeLevelLeft);
+    const mainMinimum = getDesktopWorkspaceMainMinimum({
+        leftVisible: side === 'left' || oppositePanelVisible,
+        rightVisible: side === 'right' || oppositePanelVisible,
+        threeLevelLeft,
+        windowWidth,
+    });
     const availableWidth = Math.max(
         0,
-        windowWidth - DESKTOP_MAIN_MIN_WIDTH - (oppositePanelVisible ? oppositePanelWidth : 0),
+        windowWidth - mainMinimum - (oppositePanelVisible ? oppositePanelWidth : 0),
     );
     if (availableWidth < min) return Math.round(availableWidth);
     return Math.round(Math.min(Math.max(desiredWidth, min), availableWidth, max));
@@ -192,15 +256,20 @@ export function isDesktopRightPanelRoute(pathname: string): boolean {
 export function isDesktopRightPanelAvailable({
     isTablet,
     supportsPersistentPanel,
+    threeLevelLeft = false,
     windowWidth,
 }: {
     isTablet: boolean;
     supportsPersistentPanel: boolean;
+    threeLevelLeft?: boolean;
     windowWidth: number;
 }): boolean {
+    const minimumWindowWidth = threeLevelLeft
+        ? DESKTOP_THREE_LEVEL_RIGHT_PANEL_MIN_WINDOW_WIDTH
+        : DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH;
     return isTablet
         && supportsPersistentPanel
-        && windowWidth >= DESKTOP_RIGHT_PANEL_MIN_WINDOW_WIDTH;
+        && windowWidth >= minimumWindowWidth;
 }
 
 export function shouldUseCompactSessionHeader({

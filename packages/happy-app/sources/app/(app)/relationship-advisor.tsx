@@ -28,6 +28,7 @@ import { StreamingMarkdownView } from '@/components/relationship-advisor/Streami
 import { MAX_RELATIONSHIP_ADVISOR_IMAGE_SIZE } from '@/sync/relationshipAdvisorImages';
 import { t } from '@/text';
 import { useLocalSetting, useLocalSettingUpdater } from '@/sync/storage';
+import { useIsTablet } from '@/utils/responsive';
 import {
     createRelationshipAdvisorConversation,
     saveRelationshipAdvisorConversation,
@@ -35,23 +36,26 @@ import {
 
 function RelationshipAdvisorScreen() {
     const router = useRouter();
+    const isDesktopWeb = Platform.OS === 'web' && useIsTablet();
     const { status: pluginStatus } = useRelationshipAdvisorPlugin();
     const params = useLocalSearchParams<{ conversationId?: string | string[] }>();
     const conversations = useLocalSetting('relationshipAdvisorConversations');
     const updateConversations = useLocalSettingUpdater('relationshipAdvisorConversations');
     const requestedConversationId = Array.isArray(params.conversationId) ? params.conversationId[0] : params.conversationId;
-    const conversation = conversations.find(({ id }) => id === requestedConversationId) ?? conversations[0];
+    const requestedConversation = conversations.find(({ id }) => id === requestedConversationId);
+    const conversation = requestedConversation ?? (!isDesktopWeb ? conversations[0] : undefined);
 
     React.useEffect(() => {
         if (pluginStatus?.installed !== true) return;
         if (conversation && requestedConversationId === conversation.id) return;
+        if (isDesktopWeb) return;
         const target = conversation ?? createRelationshipAdvisorConversation(
             randomUUID(),
             t('relationshipAdvisor.newConversation'),
         );
         if (!conversation) updateConversations((current) => saveRelationshipAdvisorConversation(current, target));
         router.setParams({ conversationId: target.id });
-    }, [conversation, pluginStatus, requestedConversationId, router, updateConversations]);
+    }, [conversation, isDesktopWeb, pluginStatus, requestedConversationId, router, updateConversations]);
 
     React.useEffect(() => {
         if (pluginStatus?.installed === false) {
@@ -59,11 +63,30 @@ function RelationshipAdvisorScreen() {
         }
     }, [pluginStatus, router]);
 
-    if (pluginStatus?.installed !== true || !conversation) {
+    if (pluginStatus?.installed !== true) {
         return <View style={styles.root} />;
     }
 
+    if (!conversation) {
+        return isDesktopWeb
+            ? <RelationshipAdvisorConversationSelection />
+            : <View style={styles.root} />;
+    }
+
     return <RelationshipAdvisorConversationScreen key={conversation.id} conversationId={conversation.id} />;
+}
+
+function RelationshipAdvisorConversationSelection() {
+    const { theme } = useUnistyles();
+    return (
+        <View style={styles.root} testID="relationship-advisor-conversation-selection">
+            <Stack.Screen options={{ headerTitle: t('relationshipAdvisor.title') }} />
+            <View style={styles.selectionEmpty}>
+                <Ionicons color={theme.colors.textSecondary} name="chatbubbles-outline" size={26} />
+                <Text style={styles.selectionEmptyText}>{t('relationshipAdvisor.selectConversation')}</Text>
+            </View>
+        </View>
+    );
 }
 
 function RelationshipAdvisorConversationScreen({ conversationId }: { conversationId: string }) {
@@ -379,6 +402,21 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         fontSize: 15,
         lineHeight: 22,
+        textAlign: 'center',
+        ...Typography.default(),
+    },
+    selectionEmpty: {
+        alignItems: 'center',
+        flex: 1,
+        gap: 10,
+        justifyContent: 'center',
+        padding: 24,
+    },
+    selectionEmptyText: {
+        color: theme.colors.textSecondary,
+        fontSize: 14,
+        lineHeight: 20,
+        maxWidth: 320,
         textAlign: 'center',
         ...Typography.default(),
     },
