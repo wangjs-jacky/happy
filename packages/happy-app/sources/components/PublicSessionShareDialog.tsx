@@ -201,7 +201,15 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                                     <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={18} color={styles.icon.color} />
                                 </Pressable>
                             </View>
-                            {copied ? <Text style={styles.copiedText}>{t('sessionShare.linkCopied')}</Text> : null}
+                            {copied ? (
+                                <Text
+                                    accessibilityLiveRegion="polite"
+                                    style={styles.copiedText}
+                                    testID="public-session-share-copy-feedback"
+                                >
+                                    {t('sessionShare.linkCopied')}
+                                </Text>
+                            ) : null}
 
                             <PublicSessionShareAppearanceControls
                                 coverSelection={appearance.coverSelection}

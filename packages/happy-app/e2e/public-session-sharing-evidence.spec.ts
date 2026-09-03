@@ -22,6 +22,7 @@ const themePackIds = ['caramel', 'gingham', 'terminal', 'acorn', 'sage', 'sakura
 
 type Credentials = { encryptionKey: Uint8Array; token: string };
 type PublishedFixture = { publicId: string; publicUrl: string; sessionId: string };
+type ShareCleanupTarget = { label: string; sessionId: string };
 type SnapshotV2 = Extract<PublicSessionSnapshot, { version: 2 }>;
 
 function credentials(): Credentials {
@@ -242,8 +243,13 @@ function longMessages(label: string, lineCount = 72): PublicSessionSnapshot['mes
     }];
 }
 
-async function publishDirectSnapshot(request: APIRequestContext, snapshot: PublicSessionSnapshot): Promise<PublishedFixture> {
+async function publishDirectSnapshot(
+    request: APIRequestContext,
+    snapshot: PublicSessionSnapshot,
+    registerCleanup: (target: ShareCleanupTarget) => void,
+): Promise<PublishedFixture> {
     const sessionId = await createSession(request, snapshot.title);
+    registerCleanup({ label: snapshot.title, sessionId });
     const draftResponse = await request.post(
         new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/share/drafts`, e2eServerUrl).toString(),
         { headers: ownerHeaders() },
@@ -258,12 +264,39 @@ async function publishDirectSnapshot(request: APIRequestContext, snapshot: Publi
     return { publicId: draft.publicId, publicUrl: publicRoute(draft.publicId), sessionId };
 }
 
-async function revokeShare(request: APIRequestContext, fixture: PublishedFixture): Promise<void> {
+async function revokeShare(request: APIRequestContext, sessionId: string): Promise<number> {
     const response = await request.delete(
-        new URL(`/v1/sessions/${encodeURIComponent(fixture.sessionId)}/share`, e2eServerUrl).toString(),
+        new URL(`/v1/sessions/${encodeURIComponent(sessionId)}/share`, e2eServerUrl).toString(),
         { headers: ownerHeaders() },
     );
-    expect(response.ok()).toBe(true);
+    const status = response.status();
+    if (status !== 200 && status !== 404) {
+        throw new Error(`Share cleanup returned HTTP ${status}.`);
+    }
+    return status;
+}
+
+async function cleanupShares(
+    request: APIRequestContext,
+    targets: readonly ShareCleanupTarget[],
+    primaryFailure: unknown,
+): Promise<void> {
+    const results = await Promise.allSettled(targets.map(async (target) => ({
+        label: target.label,
+        status: await revokeShare(request, target.sessionId),
+    })));
+    const failures = results.flatMap((result, index) => (
+        result.status === 'rejected'
+            ? [`${targets[index]?.label ?? `fixture-${index}`}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+            : []
+    ));
+    if (failures.length === 0) return;
+    const message = `Public-share cleanup failed:\n${failures.join('\n')}`;
+    if (primaryFailure) {
+        console.warn(message);
+        return;
+    }
+    throw new Error(message);
 }
 
 async function proxyAnonymousPublicRequest(route: Route): Promise<void> {
@@ -505,7 +538,14 @@ async function expectDialogCoverLoaded(page: Page): Promise<void> {
 
 test('V2 owner dialog exposes seven themes and resilient cover actions, then publishes an anonymous immutable cover', async ({ browser, page, request }, testInfo) => {
     test.setTimeout(600_000);
-    const sessionId = await createSession(request);
+    let sessionId: string | null = null;
+    let publicId: string | null = null;
+    const cleanupTargets: ShareCleanupTarget[] = [];
+    let cleanupRequired = true;
+    let primaryFailure: unknown;
+    try {
+    sessionId = await createSession(request);
+    cleanupTargets.push({ label: 'owner dialog fixture', sessionId });
     await appendConversation(request, sessionId);
     await page.route('**/v1/public/session-shares/**', proxyAnonymousPublicRequest);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -548,7 +588,18 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     }
     await page.getByRole('radio', { name: 'Theme color: gingham', exact: true }).click();
 
-    await page.route('**/v1/sessions/**/share/covers/random', async (route) => {
+    const randomCoverRequestProblems: string[] = [];
+    let randomCoverRequestCount = 0;
+    const expectedRandomCoverPath = `/v1/sessions/${encodeURIComponent(sessionId)}/share/covers/random`;
+    await page.route('**/v1/sessions/**/share/covers/random*', async (route) => {
+        randomCoverRequestCount += 1;
+        const randomRequest = route.request();
+        const randomUrl = new URL(randomRequest.url());
+        const headers = await randomRequest.allHeaders();
+        if (randomRequest.method() !== 'GET') randomCoverRequestProblems.push(`method=${randomRequest.method()}`);
+        if (randomUrl.pathname !== expectedRandomCoverPath) randomCoverRequestProblems.push(`path=${randomUrl.pathname}`);
+        if (randomUrl.search !== '') randomCoverRequestProblems.push(`search=${randomUrl.search}`);
+        if (headers.authorization !== ownerHeaders().Authorization) randomCoverRequestProblems.push('owner Authorization missing or malformed');
         await route.fulfill({
             status: 503,
             contentType: 'application/json',
@@ -558,6 +609,8 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await page.getByTestId('public-share-cover-random').click();
     await expect(page.getByTestId('public-share-cover-provider-state'))
         .toContainText('Pexels is unavailable. You can still upload an image or share without a cover.');
+    expect(randomCoverRequestProblems).toEqual([]);
+    expect(randomCoverRequestCount).toBe(1);
     await expect(page.getByTestId('public-session-share-create')).toBeEnabled();
 
     const fileChooser = page.waitForEvent('filechooser');
@@ -571,7 +624,13 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await expect(page.getByTestId('public-session-share-copy')).toBeVisible({ timeout: 120_000 });
     const publicUrl = (await page.getByText(/\/share\//).first().textContent())?.trim();
     expect(publicUrl).toMatch(/^http:\/\/localhost:\d+\/share\/[A-Za-z0-9_-]+$/);
-    const publicId = new URL(publicUrl!).pathname.split('/').pop()!;
+    publicId = new URL(publicUrl!).pathname.split('/').pop()!;
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(publicUrl!).origin });
+    await page.getByTestId('public-session-share-copy').click();
+    await expect(page.getByTestId('public-session-share-copy-feedback'))
+        .toHaveAttribute('aria-live', 'polite');
+    await expect(page.getByTestId('public-session-share-copy-feedback')).toHaveText('Public link copied');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(publicUrl);
     await page.getByTestId('public-session-share-scroll').evaluate((element) => { element.scrollTop = 0; });
     await expectSelectedTheme(page, 'gingham');
     await expectDialogCoverLoaded(page);
@@ -598,7 +657,15 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
         ).toString(),
     );
     expect(attachmentResponse.ok()).toBe(true);
-    expect((await attachmentResponse.body()).length).toBeGreaterThan(0);
+    expect(Buffer.from(await attachmentResponse.body()).equals(readFileSync(videoFixturePath))).toBe(true);
+    const coverResponse = await request.get(
+        new URL(
+            `/v1/public/session-shares/${encodeURIComponent(publicId)}/attachments/${encodeURIComponent(cover!.assetId)}`,
+            e2eServerUrl,
+        ).toString(),
+    );
+    expect(coverResponse.ok()).toBe(true);
+    expect(Buffer.from(await coverResponse.body()).equals(readFileSync(coverFixturePath))).toBe(true);
 
     const anonymousContext = await browser.newContext({
         colorScheme: 'dark',
@@ -655,6 +722,7 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     await expect(page.getByTestId('public-session-share-revoke-confirmation')).toBeVisible();
     await page.getByTestId('public-session-share-revoke-confirm').click();
     expect((await revokeResponsePromise).status()).toBe(200);
+    cleanupRequired = false;
     await expect(page.getByTestId('public-session-share-create')).toBeVisible({ timeout: 30_000 });
     const revokedResponse = await request.get(
         new URL(`/v1/public/session-shares/${encodeURIComponent(publicId)}`, e2eServerUrl).toString(),
@@ -670,11 +738,21 @@ test('V2 owner dialog exposes seven themes and resilient cover actions, then pub
     } finally {
         await revokedContext.close();
     }
+    expect(randomCoverRequestCount).toBe(1);
+    } catch (error) {
+        primaryFailure = error;
+        throw error;
+    } finally {
+        if (cleanupRequired) await cleanupShares(request, cleanupTargets, primaryFailure);
+    }
 });
 
 test('historical V1 and coverless V2 shares remain anonymous, compact, and usable at desktop and phone widths', async ({ browser, request }, testInfo) => {
     test.setTimeout(600_000);
     const sharedAt = Date.UTC(2026, 8, 3, 4, 5, 0);
+    const cleanupTargets: ShareCleanupTarget[] = [];
+    let primaryFailure: unknown;
+    try {
     const v1 = await publishDirectSnapshot(request, {
         version: 1,
         title: 'Historical V1 public session',
@@ -682,7 +760,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         source: { provider: 'codex' },
         presentation: { groupToolCalls: true },
         messages: longMessages('V1', 36),
-    });
+    }, (target) => cleanupTargets.push(target));
     const coverlessV2 = await publishDirectSnapshot(request, {
         version: 2,
         title: 'Coverless V2 public session',
@@ -691,7 +769,7 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         presentation: { groupToolCalls: true },
         messages: longMessages('V2 coverless', 52),
         appearance: { themePack: 'sage' },
-    });
+    }, (target) => cleanupTargets.push(target));
 
     const context = await browser.newContext({
         colorScheme: 'dark',
@@ -749,8 +827,12 @@ test('historical V1 and coverless V2 shares remain anonymous, compact, and usabl
         await expectViewportEdgeScroller(page);
     } finally {
         await context.close();
-        await revokeShare(request, v1);
-        await revokeShare(request, coverlessV2);
+    }
+    } catch (error) {
+        primaryFailure = error;
+        throw error;
+    } finally {
+        await cleanupShares(request, cleanupTargets, primaryFailure);
     }
 });
 
@@ -800,6 +882,15 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         viewport: { width: 1440, height: 900 },
     });
     try {
+        await context.addInitScript(() => {
+            const state = window as typeof window & {
+                __publicShareOpenedUrl?: { features?: string; target?: string; url: string };
+            };
+            window.open = ((url?: string | URL, target?: string, features?: string) => {
+                state.__publicShareOpenedUrl = { features, target, url: String(url) };
+                return null;
+            }) as typeof window.open;
+        });
         const page = await context.newPage();
         await page.route('**/v1/public/session-shares/**', async (route) => {
             const requestUrl = new URL(route.request().url());
@@ -842,8 +933,39 @@ test('deterministic Pexels V2 renderer keeps mode storage and the mounted transc
         await expectSelectedMode(page, 'System');
         await expectPublicPageColor(page, 'rgb(18, 24, 33)');
         await expectCoverLoaded(page, coveredPublicId, coverAssetId);
-        await expect(page.getByRole('link', { name: 'Photo by Ada Lovelace on Pexels', exact: true })).toBeVisible();
+        const attributionLink = page.getByRole('link', { name: 'Photo by Ada Lovelace on Pexels', exact: true });
+        await expect(attributionLink).toBeVisible();
         await expect(page.getByTestId('public-session-cover-attribution')).toContainText('Photo by Ada Lovelace on Pexels');
+        await attributionLink.click();
+        const openedAttribution = await page.evaluate(() => (
+            window as typeof window & {
+                __publicShareOpenedUrl?: { features?: string; target?: string; url: string };
+            }
+        ).__publicShareOpenedUrl);
+        expect(openedAttribution).toEqual({
+            features: 'noopener',
+            target: '_blank',
+            url: coveredSnapshot.appearance.cover!.attribution!.photoUrl,
+        });
+        const attributionUrl = new URL(openedAttribution!.url);
+        expect({
+            hash: attributionUrl.hash,
+            hostname: attributionUrl.hostname,
+            password: attributionUrl.password,
+            pathname: attributionUrl.pathname,
+            protocol: attributionUrl.protocol,
+            search: attributionUrl.search,
+            username: attributionUrl.username,
+        }).toEqual({
+            hash: '',
+            hostname: 'www.pexels.com',
+            password: '',
+            pathname: '/photo/2014422/',
+            protocol: 'https:',
+            search: '',
+            username: '',
+        });
+        expect(await context.cookies('https://www.pexels.com')).toEqual([]);
         await expectViewportEdgeScroller(page);
 
         const initialScrollTop = await markAndScrollTranscript(page);

@@ -234,6 +234,8 @@ describe('PublicSessionShareDialog', () => {
             await renderer.root.findByProps({ testID: 'public-session-share-copy' }).props.onPress();
         });
         await vi.waitFor(() => expect(mocks.copy).toHaveBeenCalledWith('https://paws.example/share/public-id'));
+        expect(renderer.root.findByProps({ testID: 'public-session-share-copy-feedback' }).props)
+            .toMatchObject({ accessibilityLiveRegion: 'polite', children: 'sessionShare.linkCopied' });
         act(() => renderer.root.findByProps({ testID: 'public-session-share-open' }).props.onPress());
         expect(mocks.openUrl).toHaveBeenCalledWith('https://paws.example/share/public-id');
         act(() => renderer.root.findByProps({ testID: 'public-session-share-update' }).props.onPress());
