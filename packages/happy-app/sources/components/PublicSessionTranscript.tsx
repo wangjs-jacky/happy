@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Image, Linking, Pressable, Text, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';
 import { layout } from '@/components/layout';
@@ -9,6 +9,7 @@ import { getPublicSessionAttachmentUrl } from '@/sync/publicSessionShareViewer';
 import type { PublicSessionSnapshot } from '@/sync/publicSessionShareTypes';
 import { publicSessionShareText as t } from '@/text/publicSessionShareText';
 import { ConversationTranscript } from './ConversationTranscript';
+import { DesktopShortcutTooltip } from './DesktopShortcutTooltip';
 
 export function PublicSessionTranscript({
     publicId,
@@ -170,6 +171,9 @@ function PublicAppearanceModeControl({
     mode: PublicSessionAppearanceMode;
     onChange: (mode: PublicSessionAppearanceMode) => void;
 }) {
+    const [hoveredMode, setHoveredMode] = React.useState<PublicSessionAppearanceMode | null>(null);
+    const [focusedMode, setFocusedMode] = React.useState<PublicSessionAppearanceMode | null>(null);
+
     return (
         <View
             accessibilityLabel={t('sessionShare.appearance')}
@@ -180,12 +184,15 @@ function PublicAppearanceModeControl({
                 const selected = option.mode === mode;
                 return (
                     <Pressable
-                        aria-selected={selected}
+                        aria-pressed={selected}
                         accessibilityLabel={t(option.label)}
                         accessibilityRole="button"
-                        accessibilityState={{ selected }}
                         hitSlop={4}
                         key={option.mode}
+                        onBlur={() => setFocusedMode((current) => current === option.mode ? null : current)}
+                        onFocus={() => setFocusedMode(option.mode)}
+                        onHoverIn={() => setHoveredMode(option.mode)}
+                        onHoverOut={() => setHoveredMode((current) => current === option.mode ? null : current)}
                         onPress={() => onChange(option.mode)}
                         style={({ pressed }) => [
                             styles.modeButton,
@@ -194,6 +201,15 @@ function PublicAppearanceModeControl({
                         ]}
                     >
                         <Ionicons name={option.icon} size={14} color={styles.modeIcon.color} />
+                        {Platform.OS === 'web' ? (
+                            <DesktopShortcutTooltip
+                                align="center"
+                                compact
+                                label={t(option.label)}
+                                testID={`public-session-appearance-tooltip-${option.mode}`}
+                                visible={hoveredMode === option.mode || focusedMode === option.mode}
+                            />
+                        ) : null}
                     </Pressable>
                 );
             })}
@@ -325,6 +341,7 @@ const styles = StyleSheet.create((theme) => ({
         borderColor: theme.colors.divider,
     },
     modeButton: {
+        position: 'relative',
         width: 26,
         height: 26,
         alignItems: 'center',

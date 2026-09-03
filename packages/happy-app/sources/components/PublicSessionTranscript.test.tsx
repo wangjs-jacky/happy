@@ -243,7 +243,7 @@ describe('PublicSessionTranscript', () => {
         act(() => renderer.unmount());
     });
 
-    it('offers three ordinary accessible mode buttons without promising radio arrow-key behavior', () => {
+    it('offers three accessible toggle buttons with pressed state and focus tooltips', () => {
         const setAppearanceMode = vi.fn();
         let renderer: any;
         act(() => {
@@ -267,12 +267,16 @@ describe('PublicSessionTranscript', () => {
             'sessionShare.appearanceDark',
             'sessionShare.appearanceSystem',
         ]);
-        expect(buttons.map((button: any) => button.props.accessibilityState)).toEqual([
-            { selected: false },
-            { selected: false },
-            { selected: true },
-        ]);
-        expect(buttons.map((button: any) => button.props['aria-selected'])).toEqual([false, false, true]);
+        expect(buttons.map((button: any) => button.props['aria-pressed'])).toEqual([false, false, true]);
+        expect(buttons.map((button: any) => button.props['aria-selected'])).toEqual([undefined, undefined, undefined]);
+        act(() => buttons[0].props.onFocus());
+        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(true);
+        act(() => buttons[0].props.onBlur());
+        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-light' }).props.visible).toBe(false);
+        act(() => buttons[1].props.onHoverIn());
+        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(true);
+        act(() => buttons[1].props.onHoverOut());
+        expect(renderer.root.findByProps({ testID: 'public-session-appearance-tooltip-dark' }).props.visible).toBe(false);
         act(() => buttons[1].props.onPress());
         expect(setAppearanceMode).toHaveBeenCalledWith('dark');
         expect(renderer.root.findAllByProps({ testID: 'public-session-theme-pack-picker' })).toHaveLength(0);

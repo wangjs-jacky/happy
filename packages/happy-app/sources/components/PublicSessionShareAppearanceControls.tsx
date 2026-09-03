@@ -35,6 +35,7 @@ export interface PublicSessionShareAppearanceControlsProps {
     disabled?: boolean;
     onThemePackChange: (themePack: PublicSessionThemePack) => void;
     onCoverSelectionChange: (coverSelection: PublicSessionCoverSelection | undefined) => void;
+    onReplacementBusyChange: (busy: boolean) => void;
 }
 
 export const PublicSessionShareAppearanceControls = React.memo(function PublicSessionShareAppearanceControls({
@@ -45,6 +46,7 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
     disabled = false,
     onThemePackChange,
     onCoverSelectionChange,
+    onReplacementBusyChange,
 }: PublicSessionShareAppearanceControlsProps) {
     const [, setLastPublicShareThemePack] = useLocalSettingMutable('lastPublicShareThemePack');
     const { pickImages, clearImages } = useImagePicker({
@@ -60,6 +62,13 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
     const actionEpoch = React.useRef(0);
     const mountedRef = React.useRef(true);
     const randomLoadingRef = React.useRef(false);
+    const replacementBusyRef = React.useRef(false);
+
+    const setReplacementBusy = React.useCallback((busy: boolean) => {
+        if (replacementBusyRef.current === busy) return;
+        replacementBusyRef.current = busy;
+        onReplacementBusyChange(busy);
+    }, [onReplacementBusyChange]);
 
     React.useEffect(() => {
         mountedRef.current = true;
@@ -67,8 +76,18 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
             mountedRef.current = false;
             actionEpoch.current += 1;
             randomLoadingRef.current = false;
+            replacementBusyRef.current = false;
         };
     }, []);
+
+    React.useEffect(() => {
+        if (!disabled || !replacementBusyRef.current) return;
+        actionEpoch.current += 1;
+        randomLoadingRef.current = false;
+        setRandomLoading(false);
+        setUploadLoading(false);
+        setReplacementBusy(false);
+    }, [disabled, setReplacementBusy]);
 
     React.useEffect(() => {
         if (coverSelection?.kind !== 'pexels') setCandidate(null);
@@ -90,6 +109,7 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
         const sequence = actionEpoch.current + 1;
         actionEpoch.current = sequence;
         randomLoadingRef.current = true;
+        setReplacementBusy(true);
         setRandomLoading(true);
         setUploadLoading(false);
         setUploadFailed(false);
@@ -107,15 +127,17 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
             if (mountedRef.current && actionEpoch.current === sequence) {
                 randomLoadingRef.current = false;
                 setRandomLoading(false);
+                setReplacementBusy(false);
             }
         }
-    }, [clearImages, disabled, onCoverSelectionChange, sessionId]);
+    }, [clearImages, disabled, onCoverSelectionChange, sessionId, setReplacementBusy]);
 
     const selectUploadCover = React.useCallback(async () => {
         if (disabled) return;
         const sequence = actionEpoch.current + 1;
         actionEpoch.current = sequence;
         randomLoadingRef.current = false;
+        setReplacementBusy(true);
         setRandomLoading(false);
         setUploadLoading(true);
         setUploadFailed(false);
@@ -143,9 +165,12 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
         } catch {
             if (mountedRef.current && actionEpoch.current === sequence) setUploadFailed(true);
         } finally {
-            if (mountedRef.current && actionEpoch.current === sequence) setUploadLoading(false);
+            if (mountedRef.current && actionEpoch.current === sequence) {
+                setUploadLoading(false);
+                setReplacementBusy(false);
+            }
         }
-    }, [clearImages, disabled, onCoverSelectionChange, pickImages]);
+    }, [clearImages, disabled, onCoverSelectionChange, pickImages, setReplacementBusy]);
 
     const removeCover = React.useCallback(() => {
         if (disabled) return;
@@ -154,12 +179,13 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
         setRandomLoading(false);
         setUploadLoading(false);
         setUploadFailed(false);
+        setReplacementBusy(false);
         clearImages();
         setUploadPreview(null);
         setCandidate(null);
         setProviderUnavailable(false);
         onCoverSelectionChange(undefined);
-    }, [clearImages, disabled, onCoverSelectionChange]);
+    }, [clearImages, disabled, onCoverSelectionChange, setReplacementBusy]);
 
     const selectedUploadUri = uploadPreview?.uri
         ?? (coverSelection?.kind === 'upload' ? coverSelection.uri : undefined);
@@ -173,7 +199,13 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
     const hasCover = Boolean(coverSelection || candidate || uploadPreview);
 
     return (
-        <View accessibilityLabel={t('sessionShare.appearance')} style={styles.container} testID="public-share-appearance-controls">
+        <View
+            aria-busy={randomLoading || uploadLoading}
+            accessibilityLabel={t('sessionShare.appearance')}
+            accessibilityState={{ busy: randomLoading || uploadLoading }}
+            style={styles.container}
+            testID="public-share-appearance-controls"
+        >
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>{t('sessionShare.themeColor')}</Text>
                 <View accessibilityRole="radiogroup" style={styles.swatchRow}>
@@ -247,6 +279,15 @@ export const PublicSessionShareAppearanceControls = React.memo(function PublicSe
                 {uploadFailed ? (
                     <Text accessibilityRole="alert" style={styles.providerState} testID="public-share-cover-upload-state">
                         {t('sessionShare.coverUploadFailed')}
+                    </Text>
+                ) : null}
+                {randomLoading || uploadLoading ? (
+                    <Text
+                        accessibilityLiveRegion="polite"
+                        style={styles.replacementState}
+                        testID="public-share-cover-replacement-state"
+                    >
+                        {t('sessionShare.preparing')}
                     </Text>
                 ) : null}
                 <View style={styles.coverActions}>
@@ -347,6 +388,7 @@ const styles = StyleSheet.create((theme) => ({
     emptyCoverIcon: { color: theme.colors.textSecondary },
     emptyCoverText: { color: theme.colors.textSecondary, fontSize: 12 },
     providerState: { color: theme.colors.status.error, fontSize: 12 },
+    replacementState: { color: theme.colors.textSecondary, fontSize: 12 },
     coverActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     coverAction: {
         minHeight: 38,

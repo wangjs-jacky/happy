@@ -111,6 +111,7 @@ function renderControls(overrides: Partial<Props> = {}) {
         coverSelection: undefined,
         onThemePackChange: vi.fn(),
         onCoverSelectionChange: vi.fn(),
+        onReplacementBusyChange: vi.fn(),
         ...overrides,
     };
     let renderer: any;
@@ -222,6 +223,81 @@ describe('PublicSessionShareAppearanceControls', () => {
         act(() => renderer.unmount());
     });
 
+    it('reports a pending random replacement until it resolves', async () => {
+        const pending = deferred<typeof mocks.candidate>();
+        mocks.getRandomCover.mockReturnValueOnce(pending.promise);
+        const onReplacementBusyChange = vi.fn();
+        const { renderer } = renderControls({ onReplacementBusyChange });
+
+        let randomPromise!: Promise<void>;
+        act(() => {
+            randomPromise = renderer.root.findByProps({ testID: 'public-share-cover-random' }).props.onPress();
+        });
+
+        expect(onReplacementBusyChange).toHaveBeenLastCalledWith(true);
+        expect(renderer.root.findByProps({ testID: 'public-share-appearance-controls' }).props.accessibilityState)
+            .toEqual({ busy: true });
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-replacement-state' }).props)
+            .toMatchObject({ accessibilityLiveRegion: 'polite', children: 'sessionShare.preparing' });
+
+        await act(async () => {
+            pending.resolve(mocks.candidate);
+            await randomPromise;
+        });
+
+        expect(onReplacementBusyChange).toHaveBeenLastCalledWith(false);
+        expect(renderer.root.findAllByProps({ testID: 'public-share-cover-replacement-state' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('reports a pending upload normalization until rejection settles', async () => {
+        const pending = deferred<MockPickedImage[]>();
+        mocks.pickImages.mockReturnValueOnce(pending.promise);
+        const onReplacementBusyChange = vi.fn();
+        const { renderer } = renderControls({ onReplacementBusyChange });
+
+        let uploadPromise!: Promise<void>;
+        act(() => {
+            uploadPromise = renderer.root.findByProps({ testID: 'public-share-cover-upload' }).props.onPress();
+        });
+        expect(onReplacementBusyChange).toHaveBeenLastCalledWith(true);
+
+        await act(async () => {
+            pending.reject(new Error('normalization failed'));
+            await uploadPromise;
+        });
+
+        expect(onReplacementBusyChange).toHaveBeenLastCalledWith(false);
+        expect(renderer.root.findByProps({ testID: 'public-share-cover-upload-state' })).toBeTruthy();
+        act(() => renderer.unmount());
+    });
+
+    it('invalidates an unresolved replacement when publication disables the controls', async () => {
+        const pending = deferred<typeof mocks.candidate>();
+        mocks.getRandomCover.mockReturnValueOnce(pending.promise);
+        const onCoverSelectionChange = vi.fn();
+        const onReplacementBusyChange = vi.fn();
+        const { renderer, props } = renderControls({ onCoverSelectionChange, onReplacementBusyChange });
+
+        let randomPromise!: Promise<void>;
+        act(() => {
+            randomPromise = renderer.root.findByProps({ testID: 'public-share-cover-random' }).props.onPress();
+        });
+        act(() => renderer.update(
+            <PublicSessionShareAppearanceControls {...props} disabled />,
+        ));
+        expect(onReplacementBusyChange).toHaveBeenLastCalledWith(false);
+
+        await act(async () => {
+            pending.resolve(mocks.candidate);
+            await randomPromise;
+        });
+
+        expect(onCoverSelectionChange).not.toHaveBeenCalled();
+        expect(renderer.root.findAllByProps({ testID: 'public-share-cover-preview' })).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
     it('keeps upload and coverless actions available when Pexels is unavailable', async () => {
         mocks.getRandomCover.mockRejectedValueOnce(new Error('503 provider unavailable'));
         const { renderer } = renderControls();
@@ -303,6 +379,7 @@ describe('PublicSessionShareAppearanceControls', () => {
                     coverSelection={undefined}
                     onThemePackChange={vi.fn()}
                     onCoverSelectionChange={onCoverSelectionChange}
+                    onReplacementBusyChange={vi.fn()}
                 />,
             );
             await uploadPromise;
@@ -335,6 +412,7 @@ describe('PublicSessionShareAppearanceControls', () => {
                     coverSelection={{ kind: 'pexels', photoId: 731889 }}
                     onThemePackChange={vi.fn()}
                     onCoverSelectionChange={onCoverSelectionChange}
+                    onReplacementBusyChange={vi.fn()}
                 />,
             );
             await uploadPromise;

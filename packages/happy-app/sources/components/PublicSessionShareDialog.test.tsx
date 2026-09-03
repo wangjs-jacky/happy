@@ -137,6 +137,7 @@ describe('PublicSessionShareDialog', () => {
 
     afterEach(() => {
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+        vi.unstubAllGlobals();
     });
 
     it('explains the public immutable snapshot before the first share', () => {
@@ -146,6 +147,40 @@ describe('PublicSessionShareDialog', () => {
         act(() => renderer.root.findByProps({ testID: 'public-session-share-create' }).props.onPress());
         expect(mocks.publish).toHaveBeenCalledWith({ themePack: 'grape', coverSelection: undefined });
 
+        act(() => renderer.unmount());
+    });
+
+    it('disables create and refuses publication while a random replacement is unresolved', () => {
+        const renderer = renderDialog();
+        const controls = renderer.root.findByType('PublicSessionShareAppearanceControls');
+
+        act(() => controls.props.onReplacementBusyChange(true));
+
+        const create = renderer.root.findByProps({ testID: 'public-session-share-create' });
+        expect(create.props.disabled).toBe(true);
+        act(() => create.props.onPress());
+        expect(mocks.publish).not.toHaveBeenCalled();
+
+        act(() => controls.props.onReplacementBusyChange(false));
+        expect(renderer.root.findByProps({ testID: 'public-session-share-create' }).props.disabled).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('disables update and refuses publication while upload normalization is unresolved', () => {
+        mocks.share.shareState = { active: true, publicId: 'public-id', publishedAt: 1_788_000_000_000 };
+        mocks.share.shareUrl = 'https://paws.example/share/public-id';
+        const renderer = renderDialog();
+        const controls = renderer.root.findByType('PublicSessionShareAppearanceControls');
+
+        act(() => controls.props.onReplacementBusyChange(true));
+
+        const update = renderer.root.findByProps({ testID: 'public-session-share-update' });
+        expect(update.props.disabled).toBe(true);
+        act(() => update.props.onPress());
+        expect(mocks.publish).not.toHaveBeenCalled();
+
+        act(() => controls.props.onReplacementBusyChange(false));
+        expect(renderer.root.findByProps({ testID: 'public-session-share-update' }).props.disabled).toBe(false);
         act(() => renderer.unmount());
     });
 
@@ -300,5 +335,17 @@ describe('PublicSessionShareDialog', () => {
         expect(mocks.publish).toHaveBeenCalledOnce();
         expect(onClose).toHaveBeenCalledOnce();
         act(() => renderer.unmount());
+    });
+
+    it('returns Web focus to the persistent session details trigger when it unmounts', () => {
+        const focus = vi.fn();
+        const querySelector = vi.fn(() => ({ focus }));
+        vi.stubGlobal('document', { querySelector });
+        const renderer = renderDialog();
+
+        act(() => renderer.unmount());
+
+        expect(querySelector).toHaveBeenCalledWith('[data-testid="session-header-more-button"]:not([aria-hidden="true"])');
+        expect(focus).toHaveBeenCalledOnce();
     });
 });

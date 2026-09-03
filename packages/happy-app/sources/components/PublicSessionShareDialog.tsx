@@ -38,6 +38,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
     const dialogMaxHeight = Math.max(0, windowHeight - 32);
     const [copied, setCopied] = React.useState(false);
     const [confirmingRevoke, setConfirmingRevoke] = React.useState(false);
+    const [replacementBusy, setReplacementBusy] = React.useState(false);
     const [appearance, setAppearance] = React.useState<{
         themePack: PublicSessionThemePack;
         coverSelection?: PublicSessionCoverSelection;
@@ -51,6 +52,13 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
         appearanceIdentity ? `${sessionId}:${appearanceIdentity}` : null,
     );
     const wasPublishing = React.useRef(false);
+
+    React.useEffect(() => () => {
+        if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+        document.querySelector<HTMLElement>(
+            '[data-testid="session-header-more-button"]:not([aria-hidden="true"])',
+        )?.focus();
+    }, []);
 
     React.useEffect(() => {
         if (!appearanceIdentity) return;
@@ -88,9 +96,10 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
     }, [revoke]);
 
     const startPublish = React.useCallback(() => {
+        if (replacementBusy) return;
         const accepted = publish(appearance);
         if (accepted && Platform.OS !== 'web') onClose?.();
-    }, [appearance, onClose, publish]);
+    }, [appearance, onClose, publish, replacementBusy]);
 
     const setThemePack = React.useCallback((themePack: PublicSessionThemePack) => {
         setAppearance((current) => ({ ...current, themePack }));
@@ -101,6 +110,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
     }, []);
 
     const busy = publishing || revoking;
+    const publishDisabled = busy || replacementBusy;
     const busyLabel = publishing
         ? progress.total > 0
             ? t('sessionShare.uploading', progress)
@@ -219,6 +229,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                                     uri: getPublicSessionAttachmentUrl(shareState.publicId, shareState.appearance.cover.assetId),
                                 } : undefined}
                                 onCoverSelectionChange={setCoverSelection}
+                                onReplacementBusyChange={setReplacementBusy}
                                 onThemePackChange={setThemePack}
                                 sessionId={sessionId}
                                 themePack={appearance.themePack}
@@ -232,7 +243,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                                     testID="public-session-share-open"
                                 />
                                 <DialogButton
-                                    disabled={busy}
+                                    disabled={publishDisabled}
                                     icon="refresh-outline"
                                     label={t('sessionShare.updateSnapshot')}
                                     onPress={startPublish}
@@ -261,6 +272,7 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                                 coverSelection={appearance.coverSelection}
                                 disabled={busy}
                                 onCoverSelectionChange={setCoverSelection}
+                                onReplacementBusyChange={setReplacementBusy}
                                 onThemePackChange={setThemePack}
                                 sessionId={sessionId}
                                 themePack={appearance.themePack}
@@ -278,9 +290,9 @@ export const PublicSessionShareDialog = React.memo(function PublicSessionShareDi
                                 <Pressable
                                     accessibilityLabel={t('sessionShare.confirmAction')}
                                     accessibilityRole="button"
-                                    disabled={busy}
+                                    disabled={publishDisabled}
                                     onPress={startPublish}
-                                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
+                                    style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, publishDisabled && styles.disabled]}
                                     testID="public-session-share-create"
                                 >
                                     {publishing ? <ActivityIndicator size="small" color={styles.primaryButtonText.color} /> : null}
