@@ -310,6 +310,10 @@ export class CodexAppServerClient {
     private pendingTurnCompletion: {
         resolve: (aborted: boolean) => void;
         turnId: string | null;
+        timer: ReturnType<typeof setTimeout> | null;
+        timeoutMs: number;
+        label: string;
+        approvalPauseDepth: number;
     } | null = null;
 
     // Tracks in-flight interruptTurn() RPCs so sendTurnAndWait can wait for them
@@ -509,6 +513,14 @@ export class CodexAppServerClient {
             return false;
         }
 
+        if (method.startsWith('item/')) {
+            // Item lifecycle notifications prove the root turn (or one of its
+            // delegated child turns) is still making observable progress.
+            this.markPendingTurnActivity(
+                this.isRootThreadNotification(params) ? this.extractTurnId(params) : null,
+            );
+        }
+
         if (method === 'turn/started') {
             if (!this.isRootThreadNotification(params)) {
                 return true;
@@ -567,6 +579,7 @@ export class CodexAppServerClient {
             if (!this.isRootThreadNotification(params)) {
                 return true;
             }
+            this.markPendingTurnActivity(this.extractTurnId(params));
             const tokenUsage = params?.tokenUsage;
             if (tokenUsage && typeof tokenUsage === 'object') {
                 this.eventHandler?.({
@@ -1424,8 +1437,56 @@ export class CodexAppServerClient {
 
     private resolvePendingTurn(aborted: boolean): void {
         if (!this.pendingTurnCompletion) return;
+        if (this.pendingTurnCompletion.timer) {
+            clearTimeout(this.pendingTurnCompletion.timer);
+        }
         this.pendingTurnCompletion.resolve(aborted);
         this.pendingTurnCompletion = null;
+    }
+
+    private clearPendingTurnCompletion(): void {
+        if (this.pendingTurnCompletion?.timer) {
+            clearTimeout(this.pendingTurnCompletion.timer);
+        }
+        this.pendingTurnCompletion = null;
+    }
+
+    private armPendingTurnTimeout(): void {
+        const pending = this.pendingTurnCompletion;
+        if (!pending) return;
+
+        if (pending.timer) {
+            clearTimeout(pending.timer);
+        }
+        pending.timer = null;
+        if (pending.approvalPauseDepth > 0) return;
+        pending.timer = setTimeout(() => {
+            this.resolveTimedOutTurn(pending.timeoutMs, pending.label);
+        }, pending.timeoutMs);
+    }
+
+    private markPendingTurnActivity(turnId?: string | null): void {
+        const pending = this.pendingTurnCompletion;
+        if (!pending) return;
+        if (pending.turnId && turnId && pending.turnId !== turnId) return;
+        this.armPendingTurnTimeout();
+    }
+
+    private pausePendingTurnTimeout(turnId?: string | null): void {
+        const pending = this.pendingTurnCompletion;
+        if (!pending) return;
+        if (pending.turnId && turnId && pending.turnId !== turnId) return;
+        if (pending.timer) clearTimeout(pending.timer);
+        pending.timer = null;
+        pending.approvalPauseDepth += 1;
+    }
+
+    private resumePendingTurnTimeout(turnId?: string | null): void {
+        const pending = this.pendingTurnCompletion;
+        if (!pending) return;
+        if (pending.turnId && turnId && pending.turnId !== turnId) return;
+        if (pending.approvalPauseDepth > 0) pending.approvalPauseDepth -= 1;
+        if (pending.approvalPauseDepth === 0) this.armPendingTurnTimeout();
     }
 
     private resolveTimedOutTurn(timeoutMs: number, label: string): void {
@@ -1433,7 +1494,7 @@ export class CodexAppServerClient {
         if (!pending) return;
 
         const turnId = pending.turnId ?? this._turnId;
-        const error = `${label} timed out after ${timeoutMs}ms`;
+        const error = `${label} timed out after ${timeoutMs}ms without progress`;
         logger.warn(`[CodexAppServer] ${error} — treating as failed abort`);
 
         this.resolvePendingTurn(true);
@@ -1455,6 +1516,7 @@ export class CodexAppServerClient {
         if (turnId) {
             this.pendingTurnCompletion.turnId = turnId;
         }
+        this.markPendingTurnActivity(turnId);
     }
 
     private tryResolvePendingTurn(aborted: boolean, turnId: string | null, source: string): void {
@@ -1605,7 +1667,7 @@ export class CodexAppServerClient {
         }
     }
 
-    /** Default timeout for waiting on turn completion (ms). 10 minutes. */
+    /** Default inactivity timeout while waiting on turn completion (ms). */
     private static readonly TURN_TIMEOUT_MS = 10 * 60 * 1000;
 
     /**
@@ -1633,29 +1695,26 @@ export class CodexAppServerClient {
         }
 
         const timeoutMs = opts?.turnTimeoutMs ?? CodexAppServerClient.TURN_TIMEOUT_MS;
-        let timer: ReturnType<typeof setTimeout> | null = null;
-
         const completion = new Promise<boolean>((resolve) => {
             this.pendingTurnCompletion = {
                 resolve,
                 turnId: null,
+                timer: null,
+                timeoutMs,
+                label: 'Turn',
+                approvalPauseDepth: 0,
             };
-
-            timer = setTimeout(() => {
-                this.resolveTimedOutTurn(timeoutMs, 'Turn');
-            }, timeoutMs);
+            this.armPendingTurnTimeout();
         });
 
         try {
             await this.sendTurn(prompt, opts);
         } catch (err) {
-            if (timer) clearTimeout(timer);
-            this.pendingTurnCompletion = null;
+            this.clearPendingTurnCompletion();
             throw err;
         }
 
         const aborted = await completion;
-        if (timer) clearTimeout(timer);
         return { aborted };
     }
 
@@ -1668,36 +1727,36 @@ export class CodexAppServerClient {
             await new Promise(resolve => setTimeout(resolve, 0));
         }
 
-        let timer: ReturnType<typeof setTimeout> | null = null;
         const completion = new Promise<boolean>((resolve) => {
             this.pendingTurnCompletion = {
                 resolve,
                 turnId: null,
+                timer: null,
+                timeoutMs,
+                label: 'Server-started turn',
+                approvalPauseDepth: 0,
             };
-
-            timer = setTimeout(() => {
-                this.resolveTimedOutTurn(timeoutMs, 'Server-started turn');
-            }, timeoutMs);
+            this.armPendingTurnTimeout();
         });
 
         try {
             const result = await start();
             const turn = (result as { turn?: { id?: string | null } }).turn;
             const turnId = turn?.id;
-            if (typeof turnId === 'string' && turnId.length > 0) {
-                this._turnId = turnId;
-                if (this.pendingTurnCompletion) {
-                    this.pendingTurnCompletion.turnId = turnId;
+            if (this.pendingTurnCompletion) {
+                if (typeof turnId === 'string' && turnId.length > 0) {
+                    this._turnId = turnId;
+                    this.markPendingTurnStarted(turnId);
+                } else {
+                    this.markPendingTurnActivity();
                 }
             }
         } catch (err) {
-            if (timer) clearTimeout(timer);
-            this.pendingTurnCompletion = null;
+            this.clearPendingTurnCompletion();
             throw err;
         }
 
         const aborted = await completion;
-        if (timer) clearTimeout(timer);
         return { aborted };
     }
 
@@ -1986,6 +2045,9 @@ export class CodexAppServerClient {
             || method === 'execCommandApproval'
             || method === 'item/fileChange/requestApproval'
             || method === 'applyPatchApproval';
+        if (isApprovalRequest) {
+            this.markPendingTurnActivity(params?.turnId ?? params?.turn_id ?? null);
+        }
         const approvalAuthority = this.connection.type === 'unixSocket'
             ? (this.connection.approvalAuthority ?? 'desktop')
             : 'paws';
@@ -1995,6 +2057,8 @@ export class CodexAppServerClient {
         }
 
         if (method === 'mcpServer/elicitation/request') {
+            const turnId = params?.turnId ?? params?.turn_id ?? null;
+            this.pausePendingTurnTimeout(turnId);
             const toolName = this.parseToolNameFromElicitationMessage(params?.message) ?? params?.serverName ?? 'McpTool';
             const decision = await this.handleApproval({
                 type: 'mcp',
@@ -2004,12 +2068,15 @@ export class CodexAppServerClient {
                 serverName: params?.serverName,
                 message: params?.message,
             });
+            this.resumePendingTurnTimeout(turnId);
             this.respond(id, this.mapDecisionToMcpElicitationResponse(decision, params));
             return;
         }
 
         // Command execution approval
         if (method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval') {
+            const turnId = params?.turnId ?? params?.turn_id ?? null;
+            this.pausePendingTurnTimeout(turnId);
             const legacy = method === 'execCommandApproval';
             const callId = params.itemId ?? params.callId ?? String(id);
             const decision = await this.handleApproval({
@@ -2019,12 +2086,15 @@ export class CodexAppServerClient {
                 cwd: params.cwd,
                 reason: params.reason,
             });
+            this.resumePendingTurnTimeout(turnId);
             this.respond(id, { decision: this.mapDecisionToWire(decision, legacy) });
             return;
         }
 
         // File change / patch approval
         if (method === 'item/fileChange/requestApproval' || method === 'applyPatchApproval') {
+            const turnId = params?.turnId ?? params?.turn_id ?? null;
+            this.pausePendingTurnTimeout(turnId);
             const legacy = method === 'applyPatchApproval';
             const callId = params.itemId ?? params.callId ?? String(id);
             const decision = await this.handleApproval({
@@ -2035,6 +2105,7 @@ export class CodexAppServerClient {
                     : undefined),
                 reason: params.reason,
             });
+            this.resumePendingTurnTimeout(turnId);
             this.respond(id, { decision: this.mapDecisionToWire(decision, legacy) });
             return;
         }
@@ -2062,6 +2133,9 @@ export class CodexAppServerClient {
             this.notificationProtocol = 'legacy';
             const msg = params?.msg;
             if (msg) {
+                if (msg.type !== 'task_complete' && msg.type !== 'turn_aborted') {
+                    this.markPendingTurnActivity(msg.turn_id ?? msg.turnId ?? null);
+                }
                 // Extract turn_id from task_started events
                 if (msg.type === 'task_started' && msg.turn_id) {
                     this._turnId = msg.turn_id;

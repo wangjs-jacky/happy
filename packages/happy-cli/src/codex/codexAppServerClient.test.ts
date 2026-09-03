@@ -755,6 +755,254 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
+    it('keeps an active turn alive when progress arrives before the inactivity timeout', async () => {
+        const proc = createMockProcess({
+            pid: 2004,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-active', path: '/tmp/thread-active' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'never',
+                                sandbox: { type: 'dangerFullAccess' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-active', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'turn/started',
+                            params: {
+                                threadId: 'thread-active',
+                                turn: { id: 'turn-active', status: 'inProgress' },
+                            },
+                        });
+                    }, 0);
+
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            method: 'item/started',
+                            params: {
+                                threadId: 'thread-active',
+                                turnId: 'turn-active',
+                                item: {
+                                    id: 'command-active',
+                                    type: 'commandExecution',
+                                    command: 'pnpm test',
+                                    cwd: '/tmp/project',
+                                    status: 'inProgress',
+                                },
+                            },
+                        });
+                    }, 60);
+
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            method: 'turn/completed',
+                            params: {
+                                threadId: 'thread-active',
+                                turn: { id: 'turn-active', status: 'completed', error: null },
+                            },
+                        });
+                    }, 120);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const events: Array<Record<string, unknown>> = [];
+        client.setEventHandler((msg) => {
+            events.push(msg as Record<string, unknown>);
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+
+        await expect(client.sendTurnAndWait('keep working', { turnTimeoutMs: 90 }))
+            .resolves.toEqual({ aborted: false });
+        expect(events).not.toContainEqual(expect.objectContaining({
+            type: 'turn_aborted',
+            reason: 'timeout',
+        }));
+
+        await client.disconnect();
+    });
+
+    it('keeps a turn alive while an approval request waits for a decision', async () => {
+        const proc = createMockProcess({
+            pid: 2005,
+            onRequest: (msg, stdout) => {
+                if (msg.method === 'thread/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                thread: { id: 'thread-approval-active', path: '/tmp/thread-approval-active' },
+                                model: 'gpt-test',
+                                modelProvider: 'openai',
+                                cwd: '/tmp/project',
+                                approvalPolicy: 'on-request',
+                                sandbox: { type: 'workspaceWrite' },
+                                reasoningEffort: null,
+                            },
+                        });
+                    }, 0);
+                }
+
+                if (msg.method === 'turn/start' && msg.id != null) {
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: msg.id,
+                            result: {
+                                turn: { id: 'turn-approval-active', items: [], status: 'inProgress', error: null },
+                            },
+                        });
+                        pushJsonLine(stdout, {
+                            method: 'turn/started',
+                            params: {
+                                threadId: 'thread-approval-active',
+                                turn: { id: 'turn-approval-active', status: 'inProgress' },
+                            },
+                        });
+                    }, 0);
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: 78,
+                            method: 'item/commandExecution/requestApproval',
+                            params: {
+                                threadId: 'thread-approval-active',
+                                turnId: 'turn-approval-active',
+                                itemId: 'command-needing-approval',
+                                command: 'pnpm test',
+                            },
+                        });
+                    }, 60);
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            id: 79,
+                            method: 'item/commandExecution/requestApproval',
+                            params: {
+                                threadId: 'thread-approval-active',
+                                turnId: 'turn-approval-active',
+                                itemId: 'second-command-needing-approval',
+                                command: 'pnpm typecheck',
+                            },
+                        });
+                    }, 70);
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            method: 'item/started',
+                            params: {
+                                threadId: 'thread-approval-active',
+                                turnId: 'turn-approval-active',
+                                item: {
+                                    id: 'approval-progress',
+                                    type: 'commandExecution',
+                                    command: 'still working',
+                                    cwd: '/tmp/project',
+                                    status: 'inProgress',
+                                },
+                            },
+                        });
+                    }, 100);
+                    setTimeout(() => {
+                        pushJsonLine(stdout, {
+                            method: 'turn/completed',
+                            params: {
+                                threadId: 'thread-approval-active',
+                                turn: { id: 'turn-approval-active', status: 'completed', error: null },
+                            },
+                        });
+                    }, 300);
+                }
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        client.setApprovalHandler(async (request) => {
+            await new Promise((resolve) => setTimeout(
+                resolve,
+                request.callId === 'command-needing-approval' ? 160 : 200,
+            ));
+            return 'approved';
+        });
+
+        await client.connect();
+        await client.startThread({
+            model: 'gpt-test',
+            cwd: '/tmp/project',
+            approvalPolicy: 'on-request',
+            sandbox: 'workspace-write',
+        });
+
+        await expect(client.sendTurnAndWait('request approval', { turnTimeoutMs: 90 }))
+            .resolves.toEqual({ aborted: false });
+        await client.disconnect();
+    });
+
+    it('restarts the inactivity deadline when a server-started turn is accepted', async () => {
+        const proc = createMockProcess({
+            pid: 2006,
+            onRequest: (msg, stdout) => {
+                if (msg.method !== 'review/start' || msg.id == null) return;
+                setTimeout(() => {
+                    pushJsonLine(stdout, {
+                        id: msg.id,
+                        result: {
+                            turn: { id: 'turn-delayed-review', status: 'inProgress', items: [], error: null },
+                            reviewThreadId: 'thread-delayed-review',
+                        },
+                    });
+                }, 60);
+                setTimeout(() => {
+                    pushJsonLine(stdout, {
+                        method: 'turn/completed',
+                        params: {
+                            threadId: 'thread-delayed-review',
+                            turn: { id: 'turn-delayed-review', status: 'completed', error: null },
+                        },
+                    });
+                }, 120);
+            },
+        });
+        mockSpawn.mockImplementation(() => proc);
+
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+
+        await expect(client.startReviewAndWait({
+            threadId: 'thread-delayed-review',
+            target: { type: 'uncommittedChanges' },
+            delivery: 'inline',
+            turnTimeoutMs: 90,
+        })).resolves.toEqual({ aborted: false });
+        await client.disconnect();
+    });
+
     it('forks, reads, and rolls back Codex threads through app-server RPC', async () => {
         const requests: MockRpcMessage[] = [];
         const proc = createMockProcess({
