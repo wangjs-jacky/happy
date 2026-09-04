@@ -99,6 +99,31 @@ describe('session startup trace serialization', () => {
         }));
     });
 
+    it('snapshots each allowed property once so a stateful getter cannot bypass validation', () => {
+        const secret: Record<string, unknown> = { token: 'getter-secret-canary' };
+        secret.cycle = secret;
+        let traceIdReads = 0;
+        const event = {
+            get traceId() {
+                traceIdReads += 1;
+                return traceIdReads === 1
+                    ? '00000000-0000-4000-8000-000000000001'
+                    : secret;
+            },
+            stage: 'web.spawn.clicked',
+            nested: secret,
+        };
+
+        let serialized: string | null | undefined;
+        expect(() => { serialized = serializeSessionStartupTrace(event); }).not.toThrow();
+        expect(traceIdReads).toBe(1);
+        expect(serialized).toBe(JSON.stringify({
+            traceId: '00000000-0000-4000-8000-000000000001',
+            stage: 'web.spawn.clicked',
+        }));
+        expect(serialized).not.toContain('canary');
+    });
+
     it('never lets serialization or console failures escape into startup logic', () => {
         const throwingEvent = Object.defineProperty({}, 'traceId', {
             get: () => { throw new Error('getter-canary'); },

@@ -9,7 +9,7 @@ export type DaemonStartupTraceContext = {
 };
 
 type DaemonStartupStage = 'daemon.spawn.child_started' | 'daemon.spawn.webhook_received';
-type StartupTraceWriter = (label: string, event: Record<string, unknown>) => void;
+export type StartupTraceWriter = (label: string, event: Record<string, unknown>) => void;
 
 const defaultWriter: StartupTraceWriter = (label, event) => logger.debug(label, event);
 

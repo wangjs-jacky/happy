@@ -33,23 +33,7 @@ import type { PendingAttachment } from '@/utils/MessageQueue2';
 import axios from 'axios';
 import { resolveMediaArtifact } from './mediaArtifact';
 import { applyPersistedTurnStatus, clearStaleRunningTurnStatus } from './sessionTurnStatus';
-
-const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function logWorkerSocketReady(traceId: string, sessionId: string, machineId?: string): void {
-    try {
-        logger.debug('[SESSION STARTUP]', {
-            traceId,
-            stage: 'worker.socket.ready',
-            timestamp: Date.now(),
-            outcome: 'success',
-            sessionId,
-            ...(machineId ? { machineId } : {}),
-        });
-    } catch {
-        // Startup telemetry is best-effort and must never affect socket setup.
-    }
-}
+import type { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 
 function redactPresignedUrl(url: string): string {
     return url.replace(/([?&](?:X-Amz-Signature|Signature)=)[^&]+/g, '$1<redacted>');
@@ -160,8 +144,7 @@ type V3PostSessionMessagesResponse = {
 };
 
 export class ApiSessionClient extends EventEmitter {
-    private readonly startupTraceId: string | undefined;
-    private startupSocketReadyLogged = false;
+    private readonly startupLifecycle: WorkerSessionStartupLifecycle | undefined;
     private readonly token: string;
     readonly sessionId: string;
     private metadata: Metadata | null;
@@ -213,11 +196,9 @@ export class ApiSessionClient extends EventEmitter {
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
 
-    constructor(token: string, session: Session, startupTraceId?: string) {
+    constructor(token: string, session: Session, startupLifecycle?: WorkerSessionStartupLifecycle) {
         super()
-        this.startupTraceId = startupTraceId && SESSION_STARTUP_TRACE_ID_RE.test(startupTraceId)
-            ? startupTraceId
-            : undefined;
+        this.startupLifecycle = startupLifecycle;
         this.token = token;
         this.sessionId = session.id;
         this.metadata = session.metadata;
@@ -262,10 +243,7 @@ export class ApiSessionClient extends EventEmitter {
 
         this.socket.on('connect', () => {
             logger.debug('Socket connected successfully');
-            if (this.startupTraceId && !this.startupSocketReadyLogged) {
-                this.startupSocketReadyLogged = true;
-                logWorkerSocketReady(this.startupTraceId, this.sessionId, this.metadata?.machineId);
-            }
+            this.startupLifecycle?.socketReady(this.sessionId, this.metadata?.machineId);
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
                 this.reconnectInterval = null;

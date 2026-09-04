@@ -56,22 +56,25 @@ export function sanitizeSessionStartupTrace(
     try {
         if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
         const candidate = event as Record<string, unknown>;
-        if (typeof candidate.traceId !== 'string' || !SESSION_STARTUP_TRACE_ID_RE.test(candidate.traceId)) return null;
-        if (typeof candidate.stage !== 'string' || !SESSION_STARTUP_STAGES.has(candidate.stage as SessionStartupStage)) return null;
-        if (candidate.outcome !== undefined && candidate.outcome !== 'success' && candidate.outcome !== 'error') return null;
+        const snapshot: Record<string, unknown> = {};
+        for (const key of SESSION_STARTUP_TRACE_KEYS) snapshot[key] = candidate[key];
+
+        if (typeof snapshot.traceId !== 'string' || !SESSION_STARTUP_TRACE_ID_RE.test(snapshot.traceId)) return null;
+        if (typeof snapshot.stage !== 'string' || !SESSION_STARTUP_STAGES.has(snapshot.stage as SessionStartupStage)) return null;
+        if (snapshot.outcome !== undefined && snapshot.outcome !== 'success' && snapshot.outcome !== 'error') return null;
         for (const key of ['timestamp', 'duration'] as const) {
-            const value = candidate[key];
+            const value = snapshot[key];
             if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) return null;
         }
         for (const key of ['sessionId', 'machineId', 'errorCode'] as const) {
-            const value = candidate[key];
+            const value = snapshot[key];
             if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) return null;
         }
 
         const sanitized: Record<string, unknown> = {};
         for (const key of SESSION_STARTUP_TRACE_KEYS) {
-            if (candidate[key] !== undefined) {
-                sanitized[key] = candidate[key];
+            if (snapshot[key] !== undefined) {
+                sanitized[key] = snapshot[key];
             }
         }
         return sanitized as unknown as SessionStartupTraceEvent;
