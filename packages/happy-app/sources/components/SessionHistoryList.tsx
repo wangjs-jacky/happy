@@ -13,6 +13,7 @@ import { useAllSessions, useIsDataReady } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
+import { isSessionArchived } from '@/utils/sessionLifecycle';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { SessionHistoryScrollIntent } from './sessionHistoryScrollIntent';
 
@@ -118,7 +119,10 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const groupedItems = React.useMemo(
+        () => groupSessionsByDate((allSessions ?? []).filter(isSessionArchived)),
+        [allSessions],
+    );
     const showEmptyState = shouldShowSessionEmptyState(groupedItems.length);
     const scrollIntent = React.useMemo(() => new SessionHistoryScrollIntent(), [showEmptyState]);
     React.useEffect(() => {
@@ -181,7 +185,14 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
 
     const content = showEmptyState
-        ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
+        ? (
+            <EmptySessionsTablet
+                description={t('sessionHistory.archiveEmptyDescription')}
+                icon="archive-outline"
+                showNewSessionAction={false}
+                title={t('sessionHistory.archiveEmpty')}
+            />
+        )
         : (
             <FlatList
                 {...scrollState}
@@ -208,7 +219,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     return (
         <View
             style={[styles.container, !sidebar && styles.pageContainer]}
-            testID={sidebar ? 'desktop-sidebar-history-list' : 'session-history-list'}
+            testID={sidebar ? 'desktop-sidebar-archive-list' : 'session-archive-list'}
         >
             <View style={sidebar ? styles.sidebarContent : styles.pageContent}>{content}</View>
         </View>

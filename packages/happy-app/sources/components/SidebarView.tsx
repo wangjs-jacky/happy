@@ -103,6 +103,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     desktopRailButtonSelected: {
         backgroundColor: theme.colors.surfaceSelected,
     },
+    newSessionIcon: {
+        color: theme.colors.status.connected,
+    },
     desktopRailTooltip: {
         alignItems: 'center',
         backgroundColor: theme.colors.text,
@@ -334,6 +337,7 @@ type FooterMenu = 'account' | 'help' | null;
 
 function DesktopRailItem({
     icon,
+    iconColor,
     label,
     onPress,
     selected = false,
@@ -341,6 +345,7 @@ function DesktopRailItem({
     showLabel = false,
 }: {
     icon: React.ComponentProps<typeof Ionicons>['name'];
+    iconColor?: string;
     label: string;
     onPress: () => void;
     selected?: boolean;
@@ -371,9 +376,11 @@ function DesktopRailItem({
                 testID={testID}
             >
                 <Ionicons
-                    color={selected ? stylesheet.newSessionText.color : stylesheet.pluginsChevron.color}
+                    color={iconColor ?? (selected ? stylesheet.newSessionText.color : stylesheet.pluginsChevron.color)}
+                    dataSet={testID === 'sidebar-new-session-button' ? { iconName: 'add' } : undefined}
                     name={icon}
                     size={21}
+                    testID={testID === 'sidebar-new-session-button' ? 'sidebar-new-session-icon' : undefined}
                 />
                 {showLabel ? <Text numberOfLines={2} style={styles.mobileRailLabel}>{label}</Text> : null}
             </Pressable>
@@ -430,6 +437,7 @@ export const SidebarView = React.memo(({
     const profile = useProfile();
     const agents = useLocalSetting('agents');
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
+    const [desktopSidebarListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const [sheetOpen, setSheetOpen] = React.useState(false);
     const [pluginMarketplaceOpen, setPluginMarketplaceOpen] = React.useState(false);
     const [initialPluginId, setInitialPluginId] = React.useState<string | null>(null);
@@ -538,7 +546,7 @@ export const SidebarView = React.memo(({
                         pressed && styles.newSessionButtonPressed,
                     ]}
                 >
-                    <Ionicons name="create-outline" size={16} color={stylesheet.newSessionText.color} />
+                    <Ionicons name="add" size={18} color={stylesheet.newSessionIcon.color} />
                     <Text style={styles.newSessionText}>{t('sidebar.newSession')}</Text>
                 </Pressable>
 
@@ -581,7 +589,7 @@ export const SidebarView = React.memo(({
         </View>
     );
 
-    const agentAndHistoryNavigation = (
+    const agentAndArchiveNavigation = (
         <View style={styles.secondaryNavigation} testID="sidebar-secondary-navigation">
                 <View
                     style={styles.secondaryNavigationDivider}
@@ -628,18 +636,18 @@ export const SidebarView = React.memo(({
                 </Pressable>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ selected: desktopPrimaryNavigation && desktopSidebarMode === 'history' }}
-                    onPress={() => desktopPrimaryNavigation ? setDesktopSidebarMode('history') : go('/session/recent')}
+                    accessibilityState={{ selected: desktopPrimaryNavigation && desktopSidebarMode === 'archive' }}
+                    onPress={() => desktopPrimaryNavigation ? setDesktopSidebarMode('archive') : go('/session/recent')}
                     style={({ pressed }) => [
                         styles.newSessionButton,
                         desktopDensity && styles.newSessionButtonDesktop,
-                        desktopPrimaryNavigation && desktopSidebarMode === 'history' && styles.navigationRowSelected,
+                        desktopPrimaryNavigation && desktopSidebarMode === 'archive' && styles.navigationRowSelected,
                         pressed && styles.newSessionButtonPressed,
                     ]}
-                    testID="sidebar-history-button"
+                    testID="sidebar-archive-button"
                 >
-                    <Ionicons name="time-outline" size={16} color={stylesheet.newSessionText.color} />
-                    <Text style={styles.newSessionText}>{t('relationshipAdvisor.historyTitle')}</Text>
+                    <Ionicons name="archive-outline" size={16} color={stylesheet.newSessionText.color} />
+                    <Text style={styles.newSessionText}>{t('sessionHistory.archiveTitle')}</Text>
                 </Pressable>
         </View>
     );
@@ -648,7 +656,8 @@ export const SidebarView = React.memo(({
         <View style={styles.desktopRail} testID="desktop-navigation-rail">
             <DesktopRailItem
                 showLabel={mobileNavigation}
-                icon="create-outline"
+                icon="add"
+                iconColor={stylesheet.newSessionIcon.color}
                 label={t('sidebar.newSession')}
                 onPress={() => go('/new')}
                 testID="sidebar-new-session-button"
@@ -689,14 +698,33 @@ export const SidebarView = React.memo(({
                 onPress={() => setSheetOpen(true)}
                 testID="sidebar-my-agents-button"
             />
-            <DesktopRailItem
-                showLabel={mobileNavigation}
-                icon="time-outline"
-                label={mobileNavigation ? t('sessionHistory.title') : t('relationshipAdvisor.historyTitle')}
-                onPress={openDesktopHistory}
-                selected={!advisorSidebarActive && desktopSidebarMode === 'history'}
-                testID="sidebar-history-button"
-            />
+            {mobileNavigation ? (
+                <DesktopRailItem
+                    showLabel
+                    icon="time-outline"
+                    label={t('sessionHistory.title')}
+                    onPress={openDesktopHistory}
+                    selected={!advisorSidebarActive && desktopSidebarMode === 'history'}
+                    testID="sidebar-history-button"
+                />
+            ) : (
+                <>
+                    <DesktopRailItem
+                        icon="list-outline"
+                        label={t('sidebar.listsTab')}
+                        onPress={() => setDesktopSidebarMode(desktopSidebarListMode)}
+                        selected={desktopSidebarMode !== 'archive'}
+                        testID="sidebar-session-list-button"
+                    />
+                    <DesktopRailItem
+                        icon="archive-outline"
+                        label={t('sessionHistory.archiveTitle')}
+                        onPress={() => setDesktopSidebarMode('archive')}
+                        selected={desktopSidebarMode === 'archive'}
+                        testID="sidebar-archive-button"
+                    />
+                </>
+            )}
         </View>
     );
 
@@ -828,7 +856,7 @@ export const SidebarView = React.memo(({
             ) : (
                 <>
                     {primaryNavigation}
-                    {agentAndHistoryNavigation}
+                    {agentAndArchiveNavigation}
                     {pluginNavigation}
                     {voiceStatus}
                     <DesktopSidebarSessionsNavigation />
