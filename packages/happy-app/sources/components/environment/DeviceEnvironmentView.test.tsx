@@ -155,6 +155,47 @@ describe('DeviceEnvironmentView', () => {
         expect(controller.applyApproved).not.toHaveBeenCalled();
     });
 
+    it('confirms an all-aligned three-machine no-op broadcast only after explicit approval', async () => {
+        renderEnvironmentView({ phase: 'previewed', rows: [
+            row('aligned-one', { plan: plan('none', '2.80.0') }),
+            row('aligned-two', { plan: plan('none', '2.80.0') }),
+            row('aligned-three', { plan: plan('none', '2.80.0') }),
+        ] });
+        expect(renderer!.root.findByProps({ testID: 'environment-confirm-alignment' }).props.disabled).toBe(false);
+        await press('environment-confirm-alignment');
+        const message = mocks.confirm.mock.calls[0][1];
+        expect(message).toContain('aligned-one: No version change');
+        expect(message).toContain('aligned-two: No version change');
+        expect(message).toContain('aligned-three: No version change');
+        expect(controller.applyApproved).not.toHaveBeenCalled();
+        await act(async () => confirmation.resolve(false));
+        expect(controller.applyApproved).not.toHaveBeenCalled();
+
+        await act(async () => {
+            const button = renderer!.root.findByProps({ testID: 'environment-confirm-alignment' });
+            button.props.onPress();
+            button.props.onPress();
+        });
+        expect(mocks.confirm).toHaveBeenCalledTimes(2);
+        await act(async () => confirmation.resolve(true));
+        expect(controller.applyApproved).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        ['no plans', () => [row('unplanned')]],
+        ['offline only', () => [row('offline', { online: false, status: 'offline', plan: plan('none', '2.80.0') })]],
+        ['manual repair only', () => [row('manual', { status: 'manual-repair', plan: plan('manual-repair', '2.79.0') })]],
+        ['ineligible no-op', () => [row('manual-noop', { status: 'manual-repair', plan: plan('none', '2.80.0'), reasonCode: 'authentication-missing' })]],
+        ['error only', () => [row('error', { status: 'rpc-error', plan: plan('none', '2.80.0') })]],
+        ['unsupported only', () => [row('unsupported', { observation: { ...observation(), support: 'unsupported' }, plan: plan('none', '2.80.0') })]],
+    ] as const)('keeps confirmation disabled for %s', async (_name, rows) => {
+        renderEnvironmentView({ phase: 'previewed', rows: rows() });
+        expect(renderer!.root.findByProps({ testID: 'environment-confirm-alignment' }).props.disabled).toBe(true);
+        await press('environment-confirm-alignment');
+        expect(mocks.confirm).not.toHaveBeenCalled();
+        expect(controller.applyApproved).not.toHaveBeenCalled();
+    });
+
     it.each(['scanning', 'previewing', 'applying'] as const)('disables all duplicate actions during %s', async (phase) => {
         renderEnvironmentView({ phase, rows: previewRows() });
         for (const id of ['environment-scan-all', 'environment-preview-alignment', 'environment-confirm-alignment']) {

@@ -166,7 +166,9 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
     const canPreview = !busyPhase && controller.target.kind === 'ready'
         && (controller.phase === 'scanned' || controller.phase === 'previewed');
     const canConfirm = !busyPhase && controller.phase === 'previewed' && controller.target.kind === 'ready'
-        && controller.rows.some((row) => row.online && (row.plan?.action === 'install' || row.plan?.action === 'upgrade'));
+        && controller.rows.some((row) => row.online && row.observation?.support === 'supported'
+            && (row.status === 'ready' || row.status === 'install' || row.status === 'upgrade')
+            && (row.plan?.action === 'none' || row.plan?.action === 'install' || row.plan?.action === 'upgrade'));
     const [working, runAction] = useHappyAction(async (action: 'scan' | 'preview' | 'confirm') => {
         if (busyPhase) return;
         if (action === 'scan') {
