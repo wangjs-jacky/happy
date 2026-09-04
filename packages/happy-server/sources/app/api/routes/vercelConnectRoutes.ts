@@ -4,6 +4,7 @@ import { log } from '@/utils/log';
 import { vercelCredentialStore, type VercelCredential } from '@/app/previews/vercelCredentialStore';
 import { vercelOAuthStateStore } from '@/app/previews/vercelOAuthState';
 import { isPreviewStorageConfigured } from '@/app/previews/previewStorage';
+import { previewService } from '@/app/previews/previewService';
 
 export interface VercelConnectConfig {
     clientId: string;
@@ -21,6 +22,7 @@ export interface VercelConnectDependencies {
         set(accountId: string, credential: VercelCredential): Promise<void>;
         delete(accountId: string): Promise<void>;
     };
+    disconnect(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }>;
     exchangeCode(code: string, config: VercelConnectConfig): Promise<Omit<VercelCredential, 'version'>>;
 }
 
@@ -71,7 +73,7 @@ async function exchangeCode(code: string, config: VercelConnectConfig): Promise<
 
 const defaultDependencies: VercelConnectDependencies = {
     config: isPreviewStorageConfigured() ? readConfig() : null,
-    stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore, exchangeCode,
+    stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore, disconnect: (accountId) => previewService.disconnectVercel(accountId), exchangeCode,
 };
 
 function redirectUrl(config: VercelConnectConfig | null, key: string, value: string): string {
@@ -137,9 +139,8 @@ export function vercelConnectRoutes(app: Fastify, dependencies: VercelConnectDep
 
     app.delete('/v1/connect/vercel', {
         preHandler: app.authenticate,
-        schema: { response: { 200: z.object({ success: z.literal(true) }) } },
+        schema: { response: { 200: z.object({ success: z.literal(true), warning: z.literal('VERCEL_DEPLOYMENT_CLEANUP_PENDING').optional() }) } },
     }, async (request, reply) => {
-        await dependencies.credentialStore.delete(request.userId);
-        return reply.send({ success: true as const });
+        return reply.send({ success: true as const, ...await dependencies.disconnect(request.userId) });
     });
 }

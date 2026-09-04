@@ -297,6 +297,12 @@ describe('createVercelClient', () => {
         expect(fetchImpl.mock.calls[0][0]).toBe('https://api.vercel.com/v13/deployments/dpl_safe-1');
     });
 
+    it('treats an already removed deployment as a successful idempotent delete', async () => {
+        const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse({ error: { code: 'not_found' } }, 404)) });
+
+        await expect(client.deleteDeployment('dpl_removed')).resolves.toBeUndefined();
+    });
+
     it('rejects unsafe provider identifiers before building a URL', async () => {
         const fetchImpl = vi.fn(async (_url: string, _init?: any) => jsonResponse({}));
         const client = createVercelClient({ token: 'secret', fetchImpl });

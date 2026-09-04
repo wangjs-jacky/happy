@@ -83,6 +83,7 @@ export function createPreviewService(dependencies: {
             let row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
             if (!row) throw new Error('Preview not found');
             if (row.status === 'ready') return previewRowToEvent(row);
+            if (row.status === 'publishing') return previewRowToEvent(row);
             if (!row.assets?.length || row.assets.some((asset) => !asset.uploadedAt)) throw new Error('Preview assets are incomplete');
             if (row.assets.some((asset) => asset.path === 'vercel.json')) throw new Error('Preview manifest may not include vercel.json');
             const credential = await credentialStore.get(accountId);
@@ -91,6 +92,7 @@ export function createPreviewService(dependencies: {
             if (claimed.count !== 1) {
                 row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
                 if (row?.status === 'ready') return previewRowToEvent(row);
+                if (row?.status === 'publishing') return previewRowToEvent(row);
                 throw new Error('Preview publication already in progress');
             }
             try {
@@ -145,13 +147,38 @@ export function createPreviewService(dependencies: {
     },
     async delete(accountId: string, previewId: string): Promise<void> {
         const row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId } }) as PreviewRow | null;
-        if (!row) throw new Error('Preview not found');
+        if (!row) return;
+        await database.interactivePreview.updateMany({ where: { id: previewId, accountId }, data: {
+            status: 'deleting', url: null, errorCode: null, cleanupClaimedAt: null,
+        } });
+    },
+    async disconnectVercel(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }> {
         const credential = await credentialStore.get(accountId);
-        if (row.vercelDeploymentId && credential) {
-            await clientFactory({ token: credential.accessToken, teamId: credential.teamId }).deleteDeployment(row.vercelDeploymentId);
+        const rows = await database.interactivePreview.findMany({ where: {
+            accountId, status: { in: ['draft', 'publishing', 'failed', 'ready', 'deleting'] },
+        }, select: { id: true, vercelDeploymentId: true } }) as Array<{ id: string; vercelDeploymentId: string | null }>;
+        let warning = false;
+        const client = credential ? clientFactory({ token: credential.accessToken, teamId: credential.teamId }) : null;
+        for (const row of rows) {
+            await database.interactivePreview.updateMany({ where: { id: row.id, accountId }, data: {
+                status: 'deleting', url: null, cleanupClaimedAt: null,
+            } });
+            try {
+                if (row.vercelDeploymentId) {
+                    if (!client) throw new Error('Vercel credential unavailable');
+                    await client.deleteDeployment(row.vercelDeploymentId);
+                }
+                await storage.deletePreview(row.id);
+                await database.interactivePreview.update({ where: { id: row.id }, data: { status: 'expired', url: null, cleanupClaimedAt: null } });
+            } catch {
+                warning = true;
+                await database.interactivePreview.update({ where: { id: row.id }, data: {
+                    status: 'deleting', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null,
+                } });
+            }
         }
-        await storage.deletePreview(previewId);
-        await database.interactivePreview.delete({ where: { id: previewId } });
+        await credentialStore.delete(accountId);
+        return warning ? { warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } : {};
     },
     };
 }

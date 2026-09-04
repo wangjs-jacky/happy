@@ -219,7 +219,12 @@ export function createVercelClient(options: {
 
         async deleteDeployment(deploymentId: string): Promise<void> {
             assertSafeIdentifier(deploymentId);
-            await request(`/v13/deployments/${deploymentId}`, { method: 'DELETE' });
+            try {
+                await request(`/v13/deployments/${deploymentId}`, { method: 'DELETE' });
+            } catch (error) {
+                if (error instanceof VercelApiError && error.status === 404) return;
+                throw error;
+            }
         },
     };
 }

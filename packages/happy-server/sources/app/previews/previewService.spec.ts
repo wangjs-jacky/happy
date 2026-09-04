@@ -3,6 +3,37 @@ import { describe, expect, it, vi } from 'vitest';
 import { createPreviewService } from './previewService';
 
 describe('createPreviewService publication', () => {
+    it('returns the current publishing event for a duplicate in-flight publish request', async () => {
+        const row: any = { id: '99999999-9999-4999-8999-999999999999', title: 'Draft', status: 'publishing', url: null, publishedAt: null, expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, assets: [] };
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 0 })) } };
+        const service = createPreviewService({ database, storage: {} as any, credentialStore: {} as any, clientFactory: vi.fn() as any });
+
+        await expect(service.publish('u1', row.id)).resolves.toMatchObject({ id: row.id, state: 'publishing' });
+    });
+
+    it('turns an explicit delete into a retryable tombstone when credentials are unavailable', async () => {
+        const row: any = { id: '77777777-7777-4777-8777-777777777777', accountId: 'u1', status: 'ready', vercelDeploymentId: 'dpl_7' };
+        const updateMany = vi.fn(async () => ({ count: 1 }));
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany, delete: vi.fn() } };
+        const storage = { deletePreview: vi.fn() } as any;
+        const service = createPreviewService({ database, storage, credentialStore: { get: vi.fn(async () => null) } as any, clientFactory: vi.fn() as any });
+
+        await expect(service.delete('u1', row.id)).resolves.toBeUndefined();
+
+        expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+            where: { id: row.id, accountId: 'u1' }, data: expect.objectContaining({ status: 'deleting', url: null }),
+        }));
+        expect(database.interactivePreview.delete).not.toHaveBeenCalled();
+        expect(storage.deletePreview).not.toHaveBeenCalled();
+    });
+
+    it('makes deleting an already removed preview idempotent', async () => {
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => null), updateMany: vi.fn(), delete: vi.fn() } };
+        const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore: { get: vi.fn() } as any, clientFactory: vi.fn() as any });
+
+        await expect(service.delete('u1', '88888888-8888-4888-8888-888888888888')).resolves.toBeUndefined();
+    });
+
     it('does not publish when atomic project persistence loses a reconnect or disconnect race', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
         const row: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'u1', title: 'Draft', status: 'draft', url: null, publishedAt: null,

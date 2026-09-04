@@ -21,6 +21,7 @@ async function createApp(overrides: Partial<VercelConnectDependencies> = {}) {
         },
         stateStore: { create: vi.fn(async () => 'state-token'), consume: vi.fn(async () => 'user-1') },
         credentialStore: { get: vi.fn(async () => null), set: vi.fn(async () => {}), delete: vi.fn(async () => {}) },
+        disconnect: vi.fn(async () => ({})),
         exchangeCode: vi.fn(async () => ({ accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1' })),
         ...overrides,
     };
@@ -105,6 +106,18 @@ describe('vercelConnectRoutes', () => {
         const response = await app.inject({ method: 'DELETE', url: '/v1/connect/vercel', headers: { 'x-user-id': 'user-2' } });
         expect(response.statusCode).toBe(200);
         expect(response.json()).toEqual({ success: true });
-        expect(created.dependencies.credentialStore.delete).toHaveBeenCalledWith('user-2');
+        expect(created.dependencies.disconnect).toHaveBeenCalledWith('user-2');
+    });
+
+    it('keeps a safe cleanup tombstone and surfaces a warning when disconnect cannot remove deployments', async () => {
+        const disconnect = vi.fn(async () => ({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' as const }));
+        const created = await createApp({ disconnect } as any); app = created.app;
+
+        const response = await app.inject({ method: 'DELETE', url: '/v1/connect/vercel', headers: { 'x-user-id': 'user-2' } });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ success: true, warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        expect(disconnect).toHaveBeenCalledWith('user-2');
+        expect(created.dependencies.credentialStore.delete).not.toHaveBeenCalled();
     });
 });
