@@ -169,10 +169,18 @@ export type SessionRegenerateTitleResponse =
     | { success: false; message: string };
 
 // Response types for spawn session
+export type SpawnSessionHydrationError = {
+    type: 'error';
+    errorCode: 'session-hydration-failed';
+    errorMessage: 'session-hydration-failed';
+    sessionId: string;
+};
+
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
-    | { type: 'error'; errorMessage: string };
+    | { type: 'error'; errorMessage: string }
+    | SpawnSessionHydrationError;
 
 function normalizeSpawnSessionResult(result: unknown): SpawnSessionResult {
     if (!result || typeof result !== 'object') {
@@ -983,10 +991,16 @@ type ForkOptions = {
     targetDirectory?: string;
 };
 
-async function hydrateSpawnedSession(sessionId: string): Promise<void> {
-    // Hydration remains best-effort for fork callers because the socket event
-    // may populate local state after this bounded targeted retry completes.
-    await ensureSessionHydratedWithRetry(sessionId);
+async function hydrateSpawnedSession(sessionId: string): Promise<SpawnSessionHydrationError | null> {
+    if (await ensureSessionHydratedWithRetry(sessionId)) {
+        return null;
+    }
+    return {
+        type: 'error',
+        errorCode: 'session-hydration-failed',
+        errorMessage: 'session-hydration-failed',
+        sessionId,
+    };
 }
 
 /**
@@ -1036,7 +1050,8 @@ export async function forkAndSpawn(
         });
 
         if (spawnResult.type === 'success') {
-            await hydrateSpawnedSession(spawnResult.sessionId);
+            const hydrationError = await hydrateSpawnedSession(spawnResult.sessionId);
+            if (hydrationError) return hydrationError;
         }
 
         return spawnResult;
@@ -1071,11 +1086,11 @@ export async function forkAndSpawn(
     });
 
     // Pull only the newly-created session row into local sync state before we
-    // hand control back to the caller. A full account refresh can decrypt up
-    // to 150 sessions and may be queued twice by the concurrent broadcast,
-    // unnecessarily blocking navigation after the fork already succeeded.
+    // hand control back to the caller. Success means callers may safely apply
+    // local configuration and navigate to the hydrated row.
     if (spawnResult.type === 'success') {
-        await hydrateSpawnedSession(spawnResult.sessionId);
+        const hydrationError = await hydrateSpawnedSession(spawnResult.sessionId);
+        if (hydrationError) return hydrationError;
     }
 
     return spawnResult;

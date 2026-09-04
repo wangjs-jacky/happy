@@ -118,6 +118,12 @@ type ComposeHomeProps = {
     variant?: 'home' | 'screen';
 };
 
+type SubmittedComposeSnapshot = {
+    text: string;
+    textRevision: number;
+    userAttachmentIds: string[];
+};
+
 const CompactRightPanelToggleButton = React.memo(function CompactRightPanelToggleButton({
     panelLabel,
 }: {
@@ -165,6 +171,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, hydrationError, retryHydration, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
+    const textRevisionRef = React.useRef(0);
+    const pendingSubmissionRef = React.useRef<SubmittedComposeSnapshot | null>(null);
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
     const [selectedImageVariantCount, setSelectedImageVariantCount] = React.useState(1);
@@ -283,6 +291,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
     const canAttach = composeExperience.canAttach;
     const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
+    const selectedImagesRef = React.useRef(selectedImages);
+    selectedImagesRef.current = selectedImages;
     const hasImages = canAttach && selectedImages.length > 0;
     const pendingStyleImageRestoreState = React.useRef<'idle' | 'restoring' | 'done'>('idle');
 
@@ -663,14 +673,23 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }));
     }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
 
-    const clearSubmittedDraft = React.useCallback(() => {
-        composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
-        setText('');
-        if (activeImageAgent) {
-            setPendingCustomImageStyleReferences([]);
+    const handleTextChange = React.useCallback((nextText: string) => {
+        textRevisionRef.current += 1;
+        setText(nextText);
+    }, []);
+
+    const clearQueuedSubmission = React.useCallback((snapshot: SubmittedComposeSnapshot) => {
+        if (textRevisionRef.current === snapshot.textRevision) {
+            composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
+            setText('');
         }
-        clearImages();
-    }, [activeImageAgent, clearImages, setPendingCustomImageStyleReferences]);
+        const currentAttachmentIds = new Set(selectedImagesRef.current.map((image) => image.id));
+        for (const attachmentId of snapshot.userAttachmentIds) {
+            if (currentAttachmentIds.has(attachmentId)) {
+                removeImage(attachmentId);
+            }
+        }
+    }, [removeImage]);
 
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
@@ -678,7 +697,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         const images = activeImageAgent
             ? [...selectedCustomReferenceImages, ...userImages]
             : userImages.length > 0 ? userImages : undefined;
-        if ((!trimmed && !images) || sending) return;
+        if ((!trimmed && !images) || sending || hydrationError) return;
         if (activeImageAgent && (!effectiveImageAgent || activeImageStyles.length === 0)) return;
         const prompt = activeImageAgent && effectiveImageAgent
             ? buildImageAgentPrompt({
@@ -714,6 +733,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
 
         // Clear only after the encrypted first message reaches the local outbox.
         // A hydration failure keeps the draft available for the retry action.
+        const submittedSnapshot: SubmittedComposeSnapshot = {
+            text,
+            textRevision: textRevisionRef.current,
+            userAttachmentIds: userImages.map((image) => image.id),
+        };
+        pendingSubmissionRef.current = submittedSnapshot;
         spawn({
             machineId: draft.selectedMachineId!,
             machine: machine!,
@@ -730,16 +755,23 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             sidebarListId,
         }).then((ok) => {
             if (ok) {
-                clearSubmittedDraft();
+                clearQueuedSubmission(submittedSnapshot);
+                if (pendingSubmissionRef.current === submittedSnapshot) {
+                    pendingSubmissionRef.current = null;
+                }
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearSubmittedDraft]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, hydrationError, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission]);
 
     const handleRetryHydration = React.useCallback(async () => {
-        if (await retryHydration()) {
-            clearSubmittedDraft();
+        const submittedSnapshot = pendingSubmissionRef.current;
+        if (await retryHydration() && submittedSnapshot) {
+            clearQueuedSubmission(submittedSnapshot);
+            if (pendingSubmissionRef.current === submittedSnapshot) {
+                pendingSubmissionRef.current = null;
+            }
         }
-    }, [clearSubmittedDraft, retryHydration]);
+    }, [clearQueuedSubmission, retryHydration]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -1096,7 +1128,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                                 ? t('composeHome.askPlaceholder')
                                 : t('composeHome.placeholder')}
                         initialValue={text}
-                        onChangeText={setText}
+                        onChangeText={handleTextChange}
                         onSend={handleSend}
                         isSending={sending}
                         isSendDisabled={!canSubmit || Boolean(hydrationError)}

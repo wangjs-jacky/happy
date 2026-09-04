@@ -322,6 +322,45 @@ describe('useSpawnSession', () => {
         }
     });
 
+    it('coalesces concurrent recovery actions into one queued message and navigation', async () => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        const hook = renderHook();
+
+        try {
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                await spawnPromise;
+            });
+
+            let resolveHydration: ((hydrated: boolean) => void) | undefined;
+            mocks.ensureSessionHydrated.mockImplementation(() => new Promise<boolean>((resolve) => {
+                resolveHydration = resolve;
+            }));
+            let firstRetry!: Promise<boolean>;
+            let secondResult;
+            await act(async () => {
+                firstRetry = hook.current().retryHydration();
+                await Promise.resolve();
+                secondResult = await hook.current().retryHydration();
+            });
+
+            expect(secondResult).toBe(false);
+            await act(async () => {
+                resolveHydration?.(true);
+                await firstRetry;
+            });
+
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
     it('keeps sending true until the wrapper finishes its initial message', async () => {
         let resolveSend: (() => void) | undefined;
         let markSendStarted: (() => void) | undefined;

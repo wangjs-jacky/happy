@@ -98,12 +98,9 @@ export function useSessionWorkingDirectory(
                 };
             }
 
-            // forkAndSpawn already hydrates context continuations on its normal
-            // path. Retry only when that row is still absent (for example after
-            // a transient targeted-sync failure), because the local overrides
-            // below are intentionally no-ops until the session exists.
-            const spawnedSessionMissing = !storage.getState().sessions[result.sessionId];
-            if (switchStrategy === 'new-session' || spawnedSessionMissing) {
+            // forkAndSpawn returns success only after its own bounded hydration.
+            // Fresh-session Agents still need the same single targeted schedule.
+            if (switchStrategy === 'new-session') {
                 const hydrated = await ensureSessionHydratedWithRetry(result.sessionId);
                 if (!hydrated) {
                     return { success: false, error: 'session-hydration-failed' };

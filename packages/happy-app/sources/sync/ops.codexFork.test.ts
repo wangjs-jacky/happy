@@ -192,7 +192,7 @@ describe('codex fork ops', () => {
         );
     });
 
-    it('bounds targeted hydration without a full refresh when a forked session is delayed', async () => {
+    it('returns a typed error after bounded hydration cannot find a forked session', async () => {
         vi.useFakeTimers();
         ensureSessionHydrated.mockResolvedValue(false);
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
@@ -217,7 +217,12 @@ describe('codex fork ops', () => {
             await vi.runAllTimersAsync();
             const result = await forkPromise;
 
-            expect(result).toEqual({ type: 'success', sessionId: 'happy-delayed' });
+            expect(result).toEqual({
+                type: 'error',
+                errorCode: 'session-hydration-failed',
+                errorMessage: 'session-hydration-failed',
+                sessionId: 'happy-delayed',
+            });
             expect(ensureSessionHydrated).toHaveBeenCalledTimes(4);
             expect(ensureSessionHydrated).toHaveBeenNthCalledWith(4, 'happy-delayed');
             expect(refreshSessions).not.toHaveBeenCalled();
@@ -226,7 +231,7 @@ describe('codex fork ops', () => {
         }
     });
 
-    it('keeps navigation best-effort when single-session hydration fails', async () => {
+    it('returns a typed error when every targeted hydration attempt throws', async () => {
         ensureSessionHydrated.mockRejectedValue(new Error('temporary sync failure'));
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {
@@ -245,7 +250,12 @@ describe('codex fork ops', () => {
             machineId: 'machine-1',
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
-        })).resolves.toEqual({ type: 'success', sessionId: 'happy-flaky' });
+        })).resolves.toEqual({
+            type: 'error',
+            errorCode: 'session-hydration-failed',
+            errorMessage: 'session-hydration-failed',
+            sessionId: 'happy-flaky',
+        });
         expect(ensureSessionHydrated).toHaveBeenCalledTimes(4);
         expect(refreshSessions).not.toHaveBeenCalled();
     });
