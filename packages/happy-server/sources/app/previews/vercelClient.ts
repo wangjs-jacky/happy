@@ -32,12 +32,13 @@ const deploymentResponseSchema = z.object({
     readyState: z.enum(['QUEUED', 'INITIALIZING', 'BUILDING', 'READY', 'ERROR', 'CANCELED', 'DELETED']),
     target: z.union([z.string().min(1), z.null()]),
     alias: z.array(z.string().min(1)).optional(),
+    aliasAssigned: z.boolean(),
 }).passthrough();
 
 const projectResponseSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
-    installCommand: z.string().min(1),
+    installCommand: z.string().min(1).nullable().optional(),
 }).passthrough();
 
 function assertSafeIdentifier(value: string): void {
@@ -119,6 +120,11 @@ export function createVercelClient(options: {
                     body: JSON.stringify({ name, framework: null, publicSource: false, installCommand: marker }),
                 });
                 const project = projectResponseSchema.parse(await response.json());
+                if (project.installCommand === undefined || project.installCommand === null) {
+                    const verified = await readProject(project.id);
+                    if (!isOwned(verified, name)) throw new Error('Vercel preview project ownership validation failed');
+                    return { id: verified.id };
+                }
                 if (!isOwned(project, name)) {
                     throw new Error('Vercel preview project ownership validation failed');
                 }
@@ -172,7 +178,7 @@ export function createVercelClient(options: {
                     if (deployment.target === 'production') throw new Error('Vercel returned an unexpected production deployment');
                     throw new Error(`Vercel returned a non-preview deployment target: ${deployment.target}`);
                 }
-                if (deployment.alias?.length) throw new Error('Vercel returned an unexpected deployment alias');
+                if (deployment.alias?.length || deployment.aliasAssigned !== false) throw new Error('Vercel returned an unexpected deployment alias');
             };
             const response = await request('/v13/deployments', {
                 method: 'POST',

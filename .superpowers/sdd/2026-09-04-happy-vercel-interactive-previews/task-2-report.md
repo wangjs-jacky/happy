@@ -96,3 +96,27 @@ pnpm --dir packages/happy-server run typecheck
 > tsc --noEmit
 exit 0
 ```
+
+## Review remediation 2 (follow-up commit)
+
+- Vercel documents project `installCommand` as optional, so project responses now parse it as optional and nullable. Missing, null, or mismatched markers are never treated as Happy-owned. A marker-less create response is verified with `GET /v9/projects/:id` before ownership is accepted.
+- Deployment responses now require `aliasAssigned: false` in addition to a null target and no aliases. `true` and a missing field both fail closed on the create and poll paths.
+
+### Review 2 red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Optional/null project marker | Both forms caused a schema error and stopped collision fallback; a marker-less create response was trusted incorrectly | Client tests treat missing/null markers as unrelated and verify a marker-less create via provider `GET` |
+| `aliasAssigned` safety | A `true` or missing value still returned a deployment URL | Client tests reject both unless `aliasAssigned` is explicitly `false` |
+
+Final review-2 verification:
+
+```text
+pnpm --dir packages/happy-server exec vitest run ...
+Test Files  4 passed (4)
+Tests       42 passed (42)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+```
