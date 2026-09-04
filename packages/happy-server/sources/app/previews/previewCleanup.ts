@@ -4,6 +4,7 @@ import { log } from '@/utils/log';
 import { previewStorage } from './previewStorage';
 import { vercelCredentialStore } from './vercelCredentialStore';
 import { createVercelClient } from './vercelClient';
+import { previewService } from './previewService';
 
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const CLAIM_TTL_MS = 15 * 60 * 1000;
@@ -55,12 +56,17 @@ export function createPreviewCleanup(dependencies: {
     credentialStore: Pick<typeof vercelCredentialStore, 'get'>;
     clientFactory: typeof createVercelClient;
     now?: () => Date;
+    recoverPublications?: (time: Date) => Promise<void>;
 }) {
     const now = dependencies.now ?? (() => new Date());
     const staleClaim = (time: Date) => new Date(time.getTime() - CLAIM_TTL_MS);
     const retryAt = (time: Date, retryCount: number) => new Date(time.getTime() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(retryCount, 10)));
 
     async function recoverStalePublications(time: Date): Promise<void> {
+        if (dependencies.recoverPublications) {
+            await dependencies.recoverPublications(time);
+            return;
+        }
         await dependencies.database.interactivePreview.updateMany({
             where: { status: 'publishing', updatedAt: { lte: staleClaim(time) } },
             data: { status: 'failed', errorCode: 'PUBLISH_LEASE_EXPIRED', cleanupClaimedAt: null, cleanupNextAttemptAt: null },
@@ -146,7 +152,10 @@ export function createPreviewCleanup(dependencies: {
     return { cleanupExpired, recoverStalePublications };
 }
 
-const defaultPreviewCleanup = createPreviewCleanup({ database: db, storage: previewStorage, credentialStore: vercelCredentialStore, clientFactory: createVercelClient });
+const defaultPreviewCleanup = createPreviewCleanup({
+    database: db, storage: previewStorage, credentialStore: vercelCredentialStore, clientFactory: createVercelClient,
+    recoverPublications: (time) => previewService.recoverStalePublications(time),
+});
 
 export async function cleanupExpiredInteractivePreviews(now = new Date()): Promise<number> {
     return defaultPreviewCleanup.cleanupExpired(now);

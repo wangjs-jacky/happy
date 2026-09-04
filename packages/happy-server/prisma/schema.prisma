@@ -202,6 +202,9 @@ model InteractivePreview {
     manifest            Json
     vercelDeploymentId  String?
     publicationAttemptId String?
+    publicationCreateStartedAt DateTime?
+    publicationReconcileRetryCount Int @default(0)
+    publicationReconcileNextAttemptAt DateTime?
     publicationGeneration Int @default(0)
     connectionGeneration Int @default(0)
     stagingGeneration   String
@@ -220,6 +223,7 @@ model InteractivePreview {
     @@index([accountId, createdAt(sort: Desc)])
     @@index([status, expiresAt])
     @@index([status, cleanupNextAttemptAt])
+    @@index([status, publicationReconcileNextAttemptAt])
     @@index([sessionId, status])
 }
 

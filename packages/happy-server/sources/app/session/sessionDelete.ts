@@ -6,6 +6,28 @@ import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { log } from "@/utils/log";
 import { deleteSessionAttachments } from "@/storage/files";
 
+export async function fenceSessionInteractivePreviews(
+    tx: { interactivePreview: { updateMany(input: unknown): Promise<unknown> } },
+    accountId: string,
+    sessionId: string,
+): Promise<void> {
+    await tx.interactivePreview.updateMany({
+        where: {
+            accountId,
+            sessionId,
+            status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+        },
+        data: {
+            status: 'deleting',
+            url: null,
+            errorCode: 'SESSION_DELETED_CLEANUP_PENDING',
+            publicationGeneration: { increment: 1 },
+            connectionGeneration: { increment: 1 },
+            publicationReconcileNextAttemptAt: new Date(),
+        },
+    });
+}
+
 /**
  * Delete a session and all its related data.
  * Handles:
@@ -76,20 +98,7 @@ export async function sessionDelete(ctx: Context, sessionId: string): Promise<bo
 
         // 4. Fence externally-backed previews before `Session` sets their relation
         // to null. The cleanup worker owns Vercel/OSS deletion after the transaction.
-        await tx.interactivePreview.updateMany({
-            where: {
-                accountId: ctx.uid,
-                sessionId,
-                status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
-            },
-            data: {
-                status: 'deleting',
-                url: null,
-                errorCode: 'SESSION_DELETED_CLEANUP_PENDING',
-                publicationGeneration: { increment: 1 },
-                connectionGeneration: { increment: 1 },
-            },
-        });
+        await fenceSessionInteractivePreviews(tx, ctx.uid, sessionId);
 
         // 5. Delete the session itself
         await tx.session.delete({

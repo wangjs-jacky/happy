@@ -52,6 +52,110 @@ git diff --check
 exit 0
 ```
 
+## Cluster D review-fix follow-up: autonomous recovery and unresolved cleanup
+
+The publication attempt is now a durable recovery record rather than a
+best-effort request boundary. The `20260904120000_reconcile_interactive_preview_attempts`
+migration adds `publicationCreateStartedAt`,
+`publicationReconcileRetryCount`, and `publicationReconcileNextAttemptAt`.
+Creation is marked before the Vercel create call. Once this marker exists, a
+failed/invisible attempt is never eligible for a second create: it remains a
+publishing or deleting tombstone until scheduler reconciliation reaches a
+provider result or its original expiry deadline.
+The migration also conservatively upgrades legacy attempt-ID rows from the
+previous lifecycle into this reconciliation state, including deleting rows
+whose deployment ID was not yet observed.
+
+`lookupDeploymentByMetadata` deliberately reports four provider outcomes:
+`not_found`, `in_progress`, `ready`, and `terminal`. It performs no readiness
+polling. Both interactive publication and the scheduler bind the discovered
+deployment ID before `waitForDeploymentReady`, including `BUILDING` and
+`QUEUED` deployments. The default cleanup scheduler invokes
+`previewService.recoverStalePublications` on every pass, before normal expiry
+cleanup, and recovery never creates a deployment. Provider polling and retry
+scheduling are bounded by the persisted exponential cadence and the existing
+preview expiry deadline.
+
+Delete, session deletion, and disconnect now fence a possibly-active
+publisher into a durable deletion tombstone. A fenced publisher that later
+receives a Vercel deployment ID binds it through an account-plus-attempt CAS,
+independent of `publicationGeneration`, then performs compensating deletion.
+If that deletion fails the ID, retry count, and due time remain persisted for
+the normal credential-backed cleanup worker. A deleting attempt whose metadata
+is not yet visible retains both reconciliation and cleanup due times instead
+of being expired prematurely.
+
+Disconnect drains this work while its credential is still available. It then
+removes the encrypted credential as required, but returns the fixed
+`VERCEL_DEPLOYMENT_CLEANUP_PENDING` warning whenever an unresolved or failed
+cleanup tombstone remains; the tombstone is intentionally retained for manual
+provider removal rather than reporting false success. Explicit delete and
+session deletion retain their credential-backed retry path.
+
+### Cluster D red/green evidence
+
+The provider lifecycle test was introduced against the absent lookup API and
+failed with `lookupDeploymentByMetadata is not a function`. The new API and
+pre-poll binding made it green. The invisible-deployment deletion case was
+then made red by removing the write of `cleanupNextAttemptAt`: normal cleanup
+incorrectly changed the tombstone to `expired`. Restoring that durable retry
+write keeps it `deleting` until provider visibility or deadline.
+
+The full persisted integration run also initially exposed test-harness
+starvation: a fixed count of `setImmediate` retries could complete before the
+local fake Vercel HTTP request was scheduled under the combined suite. The
+helper now uses a bounded wall-clock, condition-based wait, and the full suite
+is deterministic without changing production timing.
+
+### Cluster D persisted integration coverage
+
+The PGlite and production HTTP-client harness covers all of the review
+scenarios:
+
+| Case | Durable boundary assertion |
+| --- | --- |
+| Scheduler restart recovery | A delayed-visibility `BUILDING` deployment becomes ready after restart when only the scheduler runs; it makes zero new Vercel create requests. |
+| Explicit delete | A held create response arrives after the delete fence; failed compensation retains the returned deployment ID and a due retry tombstone. |
+| Session deletion | The production transaction fences the preview before removing its session relation; the same delayed-create cleanup state survives. |
+| Disconnect | Delayed/failing provider cleanup returns the fixed warning and removes the credential while retaining the provider-ID tombstone. |
+| Invisible deletion | Scheduler metadata `not_found` leaves a pre-create tombstone deleting with both durable retry deadlines. |
+
+### Cluster D verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts \
+  --silent --reporter=dot
+
+Test Files  9 passed (9)
+Tests       101 passed (101)
+
+pnpm --dir packages/happy-cli exec vitest run \
+  src/previews/previewApi.test.ts --config /dev/null --reporter=verbose
+
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server run typecheck
+exit 0
+
+PGLITE_DIR=/tmp/happy-task3-pglite.<random> \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 43 migration(s), including
+20260904120000_reconcile_interactive_preview_attempts.
+
+git diff --check
+exit 0
+```
+
 Final completion pass after integration additions:
 
 ```text

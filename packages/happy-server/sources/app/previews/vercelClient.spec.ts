@@ -162,11 +162,37 @@ describe('createVercelClient', () => {
         }] }));
         const client = createVercelClient({ token: 'secret', fetchImpl });
 
-        await expect((client as any).findDeploymentByMetadata({
+        await expect((client as any).lookupDeploymentByMetadata({
             projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
-        })).resolves.toEqual({ id: 'dpl_recovered', url: 'https://recovered.vercel.app', readyState: 'READY' });
+        })).resolves.toEqual({ visibility: 'ready', deployment: { id: 'dpl_recovered', url: 'https://recovered.vercel.app', readyState: 'READY' } });
 
         expect((fetchImpl as any).mock.calls[0][0]).toBe('https://api.vercel.com/v6/deployments?projectId=prj_1&meta-happyPreviewId=preview-1&meta-happyPublicationAttemptId=attempt-1');
+    });
+
+    it('reports delayed, terminal, and absent metadata lookups without polling before durable tracking', async () => {
+        const deployment = (id: string, readyState: string) => ({
+            id, url: `${id}.vercel.app`, readyState, target: null, aliasAssigned: false,
+            meta: { happyPreviewId: 'preview-1', happyPublicationAttemptId: 'attempt-1' },
+        });
+        const responses = [
+            { deployments: [] },
+            { deployments: [deployment('dpl_building', 'BUILDING')] },
+            { deployments: [deployment('dpl_failed', 'ERROR')] },
+        ];
+        const fetchImpl = vi.fn(async () => jsonResponse(responses.shift()!));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect((client as any).lookupDeploymentByMetadata({
+            projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
+        })).resolves.toEqual({ visibility: 'not_found' });
+        await expect((client as any).lookupDeploymentByMetadata({
+            projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
+        })).resolves.toMatchObject({ visibility: 'in_progress', deployment: { id: 'dpl_building', readyState: 'BUILDING' } });
+        await expect((client as any).lookupDeploymentByMetadata({
+            projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
+        })).resolves.toMatchObject({ visibility: 'terminal', deployment: { id: 'dpl_failed', readyState: 'ERROR' } });
+
+        expect(fetchImpl).toHaveBeenCalledTimes(3);
     });
 
     it('waits for a reconciled deployment to become ready instead of treating its build URL as published', async () => {
@@ -178,9 +204,12 @@ describe('createVercelClient', () => {
             .mockResolvedValueOnce(jsonResponse({ id: 'dpl_building', url: 'building.vercel.app', readyState: 'READY', target: null, aliasAssigned: false }));
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {}, pollIntervalMs: 0 });
 
-        await expect((client as any).findDeploymentByMetadata({
+        const lookup = await (client as any).lookupDeploymentByMetadata({
             projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
-        })).resolves.toEqual({ id: 'dpl_building', url: 'https://building.vercel.app', readyState: 'READY' });
+        });
+        expect(lookup).toMatchObject({ visibility: 'in_progress', deployment: { id: 'dpl_building', readyState: 'BUILDING' } });
+        await expect((client as any).waitForDeploymentReady(lookup.deployment))
+            .resolves.toEqual({ id: 'dpl_building', url: 'https://building.vercel.app', readyState: 'READY' });
 
         expect((fetchImpl as any).mock.calls.map(([url]: [string]) => url)).toEqual([
             'https://api.vercel.com/v6/deployments?projectId=prj_1&meta-happyPreviewId=preview-1&meta-happyPublicationAttemptId=attempt-1',

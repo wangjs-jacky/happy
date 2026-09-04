@@ -47,6 +47,18 @@ const deploymentListResponseSchema = z.object({
     deployments: z.array(deploymentResponseSchema),
 }).passthrough();
 
+export type VercelDeployment = {
+    id: string;
+    url: string;
+    readyState: 'QUEUED' | 'INITIALIZING' | 'BUILDING' | 'READY' | 'ERROR' | 'CANCELED' | 'DELETED';
+};
+
+export type VercelDeploymentLookup =
+    | { visibility: 'not_found' }
+    | { visibility: 'in_progress'; deployment: VercelDeployment }
+    | { visibility: 'ready'; deployment: VercelDeployment }
+    | { visibility: 'terminal'; deployment: VercelDeployment };
+
 const projectResponseSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -117,13 +129,13 @@ export function createVercelClient(options: {
         if (deployment.alias?.length || deployment.aliasAssigned !== false) throw new Error('Vercel returned an unexpected deployment alias');
     };
 
-    const deploymentResult = (deployment: z.infer<typeof deploymentResponseSchema>) => ({
+    const deploymentResult = (deployment: z.infer<typeof deploymentResponseSchema>): VercelDeployment => ({
         id: deployment.id,
         url: `https://${deployment.url.replace(/^https?:\/\//, '')}`,
         readyState: deployment.readyState,
     });
 
-    async function waitForDeploymentReady(initial: z.infer<typeof deploymentResponseSchema>): Promise<{ id: string; url: string; readyState: string }> {
+    async function waitForDeploymentReady(initial: z.infer<typeof deploymentResponseSchema>): Promise<VercelDeployment> {
         const deadline = now() + deploymentTimeoutMs;
         const remaining = (): number => {
             const milliseconds = deadline - now();
@@ -214,7 +226,7 @@ export function createVercelClient(options: {
             });
         },
 
-        async findDeploymentByMetadata(input: { projectId: string; happyPreviewId: string; publicationAttemptId: string }): Promise<{ id: string; url: string; readyState: string } | null> {
+        async lookupDeploymentByMetadata(input: { projectId: string; happyPreviewId: string; publicationAttemptId: string }): Promise<VercelDeploymentLookup> {
             assertSafeIdentifier(input.projectId);
             if (!input.happyPreviewId || !input.publicationAttemptId) throw new Error('Missing Happy deployment metadata');
             const query = new URLSearchParams({
@@ -228,9 +240,18 @@ export function createVercelClient(options: {
                 candidate.meta?.happyPreviewId === input.happyPreviewId
                 && candidate.meta?.happyPublicationAttemptId === input.publicationAttemptId,
             );
-            if (!deployment) return null;
+            if (!deployment) return { visibility: 'not_found' };
             assertPreviewSemantics(deployment);
-            return waitForDeploymentReady(deployment);
+            const result = deploymentResult(deployment);
+            if (result.readyState === 'READY') return { visibility: 'ready', deployment: result };
+            if (result.readyState === 'ERROR' || result.readyState === 'CANCELED' || result.readyState === 'DELETED') return { visibility: 'terminal', deployment: result };
+            return { visibility: 'in_progress', deployment: result };
+        },
+
+        async waitForDeploymentReady(deployment: VercelDeployment): Promise<VercelDeployment> {
+            assertSafeIdentifier(deployment.id);
+            const response = await request(`/v13/deployments/${deployment.id}`, { method: 'GET' }, deploymentTimeoutMs);
+            return waitForDeploymentReady(deploymentResponseSchema.parse(await response.json()));
         },
 
         async createDeployment(input: {
@@ -239,7 +260,7 @@ export function createVercelClient(options: {
             files: Array<{ file: string; sha: string; size: number }>;
             meta: Record<string, string>;
             onCreated?: (deployment: { id: string }) => Promise<void>;
-        }): Promise<{ id: string; url: string; readyState?: string }> {
+        }): Promise<VercelDeployment> {
             const response = await request('/v13/deployments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

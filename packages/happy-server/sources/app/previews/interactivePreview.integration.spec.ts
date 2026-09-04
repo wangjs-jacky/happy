@@ -17,6 +17,7 @@ import { createPGlite } from '../../storage/pgliteLoader';
 import { decryptString, encryptString, initEncrypt } from '../../modules/encrypt';
 import { type Fastify } from '../api/types';
 import { interactivePreviewRoutes } from '../api/routes/interactivePreviewRoutes';
+import { fenceSessionInteractivePreviews } from '../session/sessionDelete';
 import { createPreviewCleanup } from './previewCleanup';
 import { createPreviewService } from './previewService';
 import { createPreviewStorage } from './previewStorage';
@@ -42,6 +43,9 @@ const ids = {
     restart: '55555555-5555-4555-8555-555555555555',
     explicitDelete: '66666666-6666-4666-8666-666666666666',
     pendingStaging: '77777777-7777-4777-8777-777777777777',
+    fencedExplicitDelete: '88888888-8888-4888-8888-888888888888',
+    fencedSessionDelete: '99999999-9999-4999-8999-999999999999',
+    fencedDisconnect: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 } as const;
 
 type AssetInput = { id: string; path: string; mimeType: string; bytes: Buffer };
@@ -49,7 +53,7 @@ type UploadDescriptor = { assetId: string; method: 'POST'; uploadUrl: string; fo
 type Deployment = {
     id: string;
     url: string;
-    readyState: 'READY';
+    readyState: 'QUEUED' | 'INITIALIZING' | 'BUILDING' | 'READY' | 'ERROR' | 'CANCELED' | 'DELETED';
     target: null;
     aliasAssigned: false;
     meta: Record<string, string>;
@@ -112,10 +116,11 @@ function parseMultipart(body: Buffer, contentType: string): { fields: Record<str
     return { fields, file };
 }
 
-async function eventually(predicate: () => boolean, label: string): Promise<void> {
-    for (let attempt = 0; attempt < 100; attempt++) {
+async function eventually(predicate: () => boolean, label: string, timeoutMs = 5_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
         if (predicate()) return;
-        await new Promise<void>((resolve) => setImmediate(resolve));
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
     throw new Error(`Timed out waiting for ${label}`);
 }
@@ -258,6 +263,7 @@ class VercelWireServer {
     activeDeployments = 0;
     holdDeploymentCreates = false;
     failDeleteRequests = 0;
+    private readonly delayedVisibility = new Map<string, { visibleAfterLookups: number; readyOnPoll: boolean }>();
     server!: Server;
     port!: number;
 
@@ -290,6 +296,19 @@ class VercelWireServer {
             meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
             projectId: 'prj',
         });
+    }
+
+    addDelayedDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_delayed'): void {
+        this.deployments.set(id, {
+            id,
+            url: `${id}.preview.local`,
+            readyState: 'BUILDING',
+            target: null,
+            aliasAssigned: false,
+            meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
+            projectId: 'prj',
+        });
+        this.delayedVisibility.set(id, { visibleAfterLookups: this.metadataLookups + 2, readyOnPoll: true });
     }
 
     releaseOneDeployment(): void {
@@ -331,7 +350,8 @@ class VercelWireServer {
             const matching = [...this.deployments.values()].filter((deployment) =>
                 deployment.projectId === url.searchParams.get('projectId')
                 && deployment.meta.happyPreviewId === url.searchParams.get('meta-happyPreviewId')
-                && deployment.meta.happyPublicationAttemptId === url.searchParams.get('meta-happyPublicationAttemptId'),
+                && deployment.meta.happyPublicationAttemptId === url.searchParams.get('meta-happyPublicationAttemptId')
+                && (this.delayedVisibility.get(deployment.id)?.visibleAfterLookups ?? 0) <= this.metadataLookups,
             );
             return this.sendJson(response, 200, { deployments: matching.map((deployment) => this.deploymentJson(deployment)) });
         }
@@ -379,6 +399,8 @@ class VercelWireServer {
         if (deploymentId && request.method === 'GET') {
             const deployment = this.deployments.get(deploymentId);
             if (!deployment) return this.sendJson(response, 404, { error: { code: 'not_found' } });
+            const delayed = this.delayedVisibility.get(deploymentId);
+            if (delayed?.readyOnPoll && deployment.readyState === 'BUILDING') deployment.readyState = 'READY';
             return this.sendJson(response, 200, this.deploymentJson(deployment));
         }
         if (deploymentId && request.method === 'DELETE') {
@@ -468,6 +490,7 @@ class PreviewHarness {
             credentialStore: this.credentialStore as never,
             clientFactory: this.clientFactory as never,
             now: () => new Date(this.clock),
+            recoverPublications: (time) => this.service.recoverStalePublications(time),
         });
     }
 
@@ -641,24 +664,22 @@ describe('interactive preview persisted integration', () => {
         expect(harness.vercel.maxDeploymentConcurrency).toBe(2);
     }, 30_000);
 
-    it('recreates the app and service over the same PGlite, reconciles a stale publication, then honors a deleting backoff tombstone after another restart', async () => {
+    it('restarts over PGlite and lets the scheduler alone recover a delayed visible deployment without a second create', async () => {
         const harness = await setup();
         const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>recovery</h1>') }];
         await harness.createAndUpload(ids.restart, assets);
         const publicationAttemptId = 'attempt-reconcile';
         const recoveryTime = after(clockStart, 16 * 60 * 1000);
         await harness.database.interactivePreview.update({ where: { id: ids.restart }, data: {
-            status: 'publishing', publicationAttemptId, publicationGeneration: 1, updatedAt: new Date(clockStart),
+            status: 'publishing', publicationAttemptId, publicationGeneration: 1, publicationCreateStartedAt: new Date(clockStart), updatedAt: new Date(clockStart),
         } });
-        harness.vercel.addReconciledDeployment(ids.restart, publicationAttemptId);
+        harness.vercel.addDelayedDeployment(ids.restart, publicationAttemptId);
 
         await harness.restart();
-        await harness.cleanup().recoverStalePublications(recoveryTime);
-        const recovered = await harness.app.inject({
-            method: 'POST', url: `/v1/sessions/${sessionA}/previews/${ids.restart}/publish`, headers: { 'x-user-id': accountA },
-        });
-        expect(recovered.statusCode, recovered.body).toBe(200);
-        expect(interactivePreviewEventSchema.parse(recovered.json().preview)).toMatchObject({ state: 'ready', url: 'https://dpl_reconciled.preview.local' });
+        await harness.cleanup().cleanupExpired(recoveryTime);
+        await harness.cleanup().cleanupExpired(after(recoveryTime, 60_000));
+        const recovered = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
+        expect(recovered).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_delayed', url: 'https://dpl_delayed.preview.local' });
         expect(harness.vercel.metadataLookups).toBeGreaterThan(0);
         expect(harness.vercel.createRequests).toHaveLength(0);
         expect(harness.vercel.fileUploads).toHaveLength(0);
@@ -673,7 +694,7 @@ describe('interactive preview persisted integration', () => {
         harness.vercel.failDeleteRequests = 3;
         await harness.cleanup().cleanupExpired(firstCleanup);
         let tombstone = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
-        expect(tombstone).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_reconciled', cleanupRetryCount: 1, cleanupNextAttemptAt: after(firstCleanup, 60_000) });
+        expect(tombstone).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delayed', cleanupRetryCount: 1, cleanupNextAttemptAt: after(firstCleanup, 60_000) });
         const failedDeleteRequests = harness.vercel.deleteRequests.length;
         await harness.cleanup().cleanupExpired(after(firstCleanup, 30_000));
         expect(harness.vercel.deleteRequests).toHaveLength(failedDeleteRequests);
@@ -682,8 +703,61 @@ describe('interactive preview persisted integration', () => {
         await harness.cleanup().cleanupExpired(after(firstCleanup, 60_000));
         tombstone = await harness.database.interactivePreview.findUnique({ where: { id: ids.restart } });
         expect(tombstone).toMatchObject({ status: 'expired', vercelDeploymentId: null });
-        expect(harness.vercel.deployments.has('dpl_reconciled')).toBe(false);
+        expect(harness.vercel.deployments.has('dpl_delayed')).toBe(false);
         expect([...harness.s3.objects.keys()].filter((key) => key.includes(`/${ids.restart}/`))).toEqual([]);
+    }, 30_000);
+
+    it.each([
+        ['explicit delete', ids.fencedExplicitDelete, async (harness: PreviewHarness, previewId: string) => {
+            const response = await harness.app.inject({ method: 'DELETE', url: `/v1/sessions/${sessionA}/previews/${previewId}`, headers: { 'x-user-id': accountA } });
+            expect(response.statusCode).toBe(200);
+        }],
+        ['session deletion', ids.fencedSessionDelete, async (harness: PreviewHarness, previewId: string) => {
+            await harness.database.$transaction(async (tx) => {
+                await fenceSessionInteractivePreviews(tx as never, accountA, sessionA);
+                await tx.session.delete({ where: { id: sessionA } });
+            });
+        }],
+        ['disconnect', ids.fencedDisconnect, async (harness: PreviewHarness) => {
+            const result = await harness.service.disconnectVercel(accountA);
+            expect(result).toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+            expect(await harness.credentialStore.get(accountA)).toBeNull();
+        }],
+    ])('keeps a %s tombstone when a publisher is fenced before its delayed create response and compensation fails', async (_label, previewId, fence) => {
+        const harness = await setup();
+        await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from(`<h1>${previewId}</h1>`) }]);
+        harness.vercel.holdDeploymentCreates = true;
+        const publication = harness.service.publish(accountA, sessionA, previewId);
+        await eventually(() => harness.vercel.createRequests.length === 1, 'the delayed provider create request');
+        harness.vercel.failDeleteRequests = 3;
+        await fence(harness, previewId);
+        harness.vercel.holdDeploymentCreates = false;
+        harness.vercel.releaseOneDeployment();
+        await expect(publication).rejects.toThrow(/fenced|publish/i);
+
+        const tombstone = await harness.database.interactivePreview.findUnique({ where: { id: previewId } });
+        expect(tombstone).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_1', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+        expect(tombstone?.cleanupNextAttemptAt).toBeInstanceOf(Date);
+        expect(tombstone?.cleanupRetryCount).toBeGreaterThan(0);
+        expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
+    }, 30_000);
+
+    it('does not expire a deleting unresolved create attempt while Vercel metadata is still invisible', async () => {
+        const harness = await setup();
+        await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>unresolved</h1>') }]);
+        const attempt = 'attempt-not-yet-visible';
+        const cleanupTime = after(clockStart, 16 * 60 * 1000);
+        await harness.database.interactivePreview.update({ where: { id: ids.primary }, data: {
+            status: 'deleting', publicationAttemptId: attempt, publicationCreateStartedAt: new Date(clockStart),
+            publicationGeneration: 1, publicationReconcileNextAttemptAt: new Date(clockStart), updatedAt: new Date(clockStart),
+        } });
+
+        await harness.cleanup().cleanupExpired(cleanupTime);
+
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({
+            status: 'deleting', vercelDeploymentId: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+            cleanupNextAttemptAt: after(cleanupTime, 60_000), publicationReconcileNextAttemptAt: after(cleanupTime, 60_000),
+        });
     }, 30_000);
 
     it('keeps an explicit delete durable through provider failure, then prunes its expired tombstone after thirty days', async () => {
