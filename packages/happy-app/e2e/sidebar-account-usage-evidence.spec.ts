@@ -20,7 +20,12 @@ async function hideExpoDevelopmentOverlay(page: Page): Promise<void> {
                 element.style.setProperty('visibility', 'hidden', 'important');
             });
         };
-        new MutationObserver(hideOverlay).observe(document.documentElement, { childList: true, subtree: true });
+        new MutationObserver(hideOverlay).observe(document, {
+            attributes: true,
+            attributeFilter: ['class'],
+            childList: true,
+            subtree: true,
+        });
         hideOverlay();
     });
 }
