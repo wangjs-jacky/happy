@@ -44,6 +44,15 @@ describe('interactive preview manifest', () => {
     expect(() => (preview as any).validateInteractivePreviewManifest(manifest([asset('page.html')]))).toThrow(/index\.html/i);
   });
 
+  it('uses one 96-character opaque asset-id boundary for manifest consumers', () => {
+    expect((preview as any).validateInteractivePreviewManifest(manifest([
+      { ...asset('index.html'), id: 'a'.repeat(96) },
+    ]))).toMatchObject({ assets: [{ id: 'a'.repeat(96) }] });
+    expect(() => (preview as any).validateInteractivePreviewManifest(manifest([
+      { ...asset('index.html'), id: 'a'.repeat(97) },
+    ]))).toThrow();
+  });
+
   it('enforces count, per-file, and total byte limits', () => {
     expect(() => (preview as any).validateInteractivePreviewManifest(manifest([
       asset('index.html'),

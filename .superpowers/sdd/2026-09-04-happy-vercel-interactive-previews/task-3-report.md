@@ -52,6 +52,104 @@ git diff --check
 exit 0
 ```
 
+## Cluster F quality-review follow-up: Vercel digests, ownership, reconnect fences, and legacy staging
+
+### Delivered corrections
+
+1. The preview manifest remains a SHA-256 integrity contract: staged bytes are
+   checked against the persisted 64-hex `sha256` before publication. The
+   Vercel Files API is now given a separately computed SHA-1 of those verified
+   bytes (and of Happy's generated `vercel.json`); the Vercel client rejects
+   any upload or deployment file reference that is not exactly 40 lowercase
+   hexadecimal characters. The production-client HTTP fixture independently
+   verifies the SHA-1/body match and that every deployment reference names an
+   uploaded SHA-1 file.
+2. Publication and stale recovery now have exclusive CAS ownership.
+   Publisher CAS predicates include `cleanupClaimedAt: null`. A late publisher
+   only compensates a created deployment after atomically proving the row is
+   its unclaimed `deleting` tombstone; recovery only marks an obsolete
+   deployment under its own deletion claim and never deletes a deployment that
+   has become ready. The persisted delayed-create race proves recovery can
+   bind and ready the matching deployment while the late publisher makes zero
+   delete calls.
+3. OAuth callback delegates credential replacement to a single
+   `reconnectVercel` service operation. Its database transaction advances
+   `Account.vercelConnectionEpoch` and fences active previews to `deleting`
+   before the new token reaches the encrypted credential store. A publisher
+   validates that epoch before provider create, in `onCreated`, and before the
+   ready CAS. The persisted account/team race proves an old-team publisher
+   cannot mark ready and compensates with its captured old-team client; the
+   new team never receives a false-success 404 cleanup. `vercelTeamId` is
+   stored as lifecycle scope metadata only; provider access tokens remain only
+   in encrypted credential storage.
+4. Upload descriptors are reissued only for an unexpired, unclaimed `draft`.
+   Expired, `deleting`, and cleanup-claimed rows return the same scoped
+   not-found error and never mint new descriptors.
+5. `PREVIEW_ASSET_ID_MAX_LENGTH` and the asset-ID Zod schema are shared by
+   happy-wire, storage, and routes. The selected contract bound is 96 because
+   Fastify's default 100-character parameter limit must leave room for the
+   route structure; 96 is accepted and 97 is rejected consistently at the
+   wire and HTTP boundaries.
+6. Existing persisted storage keys are deliberately not rewritten in a DB
+   migration: object-store renames are non-transactional and could strand a
+   verified object. New previews use the hardened account/generation key;
+   read/assert/upload accept a narrowly parsed legacy
+   `private/interactive-previews/<previewId>/<assetId>` key. Cleanup lists
+   only the new exact prefix and removes legacy objects only when their exact
+   persisted key belongs to that preview—never a broad legacy prefix. The
+   persisted legacy test completes and publishes a pre-hardening row, removes
+   its exact legacy object, and proves a sibling object survives.
+
+### Cluster F red/green evidence
+
+| Regression initially exposed | Green regression coverage |
+| --- | --- |
+| SHA-256 values were sent to Vercel, whose file API requires SHA-1. | Client and service tests reject 64-hex Vercel refs, assert SHA-1 uploads/references, and the production HTTP fake verifies digest/body/ref consistency. |
+| A delayed publisher could compensate a deployment that recovery was about to make ready. | Persisted delayed publisher/recovery race ends `ready` with zero provider deletes. |
+| OAuth reconnect could replace credential scope while old work still held a provider client. | Transaction ordering unit test plus persisted old-team reconnect race fence the publisher and prove old-scope compensation. |
+| Any matching historical draft reissued fresh upload URLs. | Expired, deleting, and cleanup-claimed descriptor reissue cases all reject. |
+| Asset-ID bounds drifted between wire (128), storage (96), and route behavior. | 96/97 wire and route boundary cases share the exported schema/constant. |
+| Pre-hardening rows could fail storage validation or be cleaned by a broad prefix. | Legacy persisted-key completion and exact-key cleanup case keeps a sibling object intact. |
+
+### Cluster F verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts \
+  --silent --reporter=dot
+
+Test Files  9 passed (9)
+Tests       116 passed (116)
+
+pnpm --dir packages/happy-wire exec vitest run src/interactivePreview.test.ts --reporter=dot
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --dir packages/happy-cli exec vitest run src/previews/previewApi.test.ts --config /dev/null --reporter=dot
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-wire run build && pnpm --dir packages/happy-wire run typecheck
+pnpm --dir packages/happy-cli run typecheck
+pnpm --dir packages/happy-server run typecheck
+all exit 0
+
+PGLITE_DIR=$(mktemp -d /tmp/happy-task3-pglite.XXXXXX) \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 44 migration(s), including 20260904130000_fence_vercel_reconnects.
+
+git diff --check
+exit 0
+```
+
 ## Cluster E review-fix follow-up: expiry ambiguity and provider-delete checkpoints
 
 An attempt for which Vercel creation has started but no deployment ID is yet

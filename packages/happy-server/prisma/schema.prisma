@@ -28,6 +28,7 @@ model Account {
     updatedAt       DateTime    @updatedAt
     settings        String?
     settingsVersion Int         @default(0)
+    vercelConnectionEpoch Int  @default(0)
     githubUserId    String?     @unique
     githubUser      GithubUser? @relation(fields: [githubUserId], references: [id])
 
@@ -207,6 +208,7 @@ model InteractivePreview {
     publicationReconcileNextAttemptAt DateTime?
     publicationGeneration Int @default(0)
     connectionGeneration Int @default(0)
+    vercelTeamId        String?
     stagingGeneration   String
     stagingCleanupPending Boolean @default(false)
     url                 String?

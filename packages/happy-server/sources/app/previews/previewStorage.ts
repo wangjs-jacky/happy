@@ -1,10 +1,13 @@
-import { PREVIEW_LIMITS } from '@slopus/happy-wire';
+import { PREVIEW_ASSET_ID_MAX_LENGTH, PREVIEW_LIMITS } from '@slopus/happy-wire';
 import { Client } from 'minio';
 
-const PREVIEW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ASSET_ID = /^[A-Za-z0-9_-]{1,96}$/;
+const PREVIEW_ID_SOURCE = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const PREVIEW_ID = new RegExp(`^${PREVIEW_ID_SOURCE}$`, 'i');
+const ASSET_ID = new RegExp(`^[A-Za-z0-9_-]{1,${PREVIEW_ASSET_ID_MAX_LENGTH}}$`);
 const OPAQUE_SCOPE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const PRESIGNED_TTL_SECONDS = 10 * 60;
+const CURRENT_STORAGE_KEY = new RegExp(`^private/interactive-previews/[A-Za-z0-9_-]{1,128}/${PREVIEW_ID_SOURCE}/[A-Za-z0-9_-]{1,128}/[A-Za-z0-9_-]{1,${PREVIEW_ASSET_ID_MAX_LENGTH}}$`, 'i');
+const LEGACY_STORAGE_KEY = new RegExp(`^private/interactive-previews/${PREVIEW_ID_SOURCE}/[A-Za-z0-9_-]{1,${PREVIEW_ASSET_ID_MAX_LENGTH}}$`, 'i');
 
 export type PreviewStagingScope = {
     accountId: string;
@@ -92,9 +95,13 @@ function keyFor(scope: PreviewStagingScope, assetId: string): string {
 }
 
 function assertStorageKey(storageKey: string): void {
-    if (!/^private\/interactive-previews\/[A-Za-z0-9_-]{1,128}\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,96}$/i.test(storageKey)) {
+    if (!CURRENT_STORAGE_KEY.test(storageKey) && !LEGACY_STORAGE_KEY.test(storageKey)) {
         throw new Error('Invalid preview storage key');
     }
+}
+
+export function isLegacyPreviewStorageKey(previewId: string, storageKey: string): boolean {
+    return LEGACY_STORAGE_KEY.test(storageKey) && storageKey.startsWith(`private/interactive-previews/${previewId}/`);
 }
 
 export function createPreviewStorage(options: { client: PreviewS3Client; bucket: string; now?: () => Date }) {
@@ -130,8 +137,14 @@ export function createPreviewStorage(options: { client: PreviewS3Client; bucket:
             }
             return Buffer.concat(chunks);
         },
-        async deletePreview(scope: PreviewStagingScope): Promise<void> {
+        async deletePreview(scope: PreviewStagingScope, persistedStorageKeys: readonly string[] = []): Promise<void> {
             const prefix = prefixFor(scope);
+            const legacyKeys = persistedStorageKeys.filter((storageKey) => {
+                assertStorageKey(storageKey);
+                if (CURRENT_STORAGE_KEY.test(storageKey)) return false;
+                if (!isLegacyPreviewStorageKey(scope.previewId, storageKey)) throw new Error('Legacy preview storage key belongs to a different preview');
+                return true;
+            });
             const stream = options.client.listObjects(options.bucket, prefix, true);
             const keys = await new Promise<string[]>((resolve, reject) => {
                 const values: string[] = [];
@@ -139,7 +152,8 @@ export function createPreviewStorage(options: { client: PreviewS3Client; bucket:
                 stream.on('end', () => resolve(values));
                 stream.on('error', reject);
             });
-            if (keys.length) await options.client.removeObjects(options.bucket, keys);
+            const exactKeys = [...new Set([...keys, ...legacyKeys])];
+            if (exactKeys.length) await options.client.removeObjects(options.bucket, exactKeys);
         },
     };
 }

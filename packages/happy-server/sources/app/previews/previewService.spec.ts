@@ -7,7 +7,7 @@ describe('createPreviewService publication', () => {
         const previewId = '12121212-1212-4121-8121-121212121212';
         const storageKey = 'private/interactive-previews/u1/12121212-1212-4121-8121-121212121212/generation-1/index';
         const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
-        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
+        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status: 'draft', expiresAt: new Date('2026-09-05T00:00:00.000Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
         const create = vi.fn(async () => existing);
         const createUpload = vi.fn(async () => ({ method: 'POST' as const, uploadUrl: 'https://oss.test/fresh', formFields: { key: 'fresh' } }));
         const database: any = { session: { findFirst: vi.fn(async () => ({ id: 's1' })) }, interactivePreview: { findUnique: vi.fn(async () => existing), create } };
@@ -20,6 +20,23 @@ describe('createPreviewService publication', () => {
 
         expect(create).not.toHaveBeenCalled();
         expect(createUpload).toHaveBeenCalledWith(storageKey, 12);
+    });
+
+    it.each([
+        ['expired', 'draft', new Date('2026-09-04T00:00:00.000Z'), null],
+        ['deleting', 'deleting', new Date('2026-09-04T02:00:00.000Z'), null],
+        ['cleanup-claimed', 'draft', new Date('2026-09-04T02:00:00.000Z'), new Date('2026-09-04T01:00:00.000Z')],
+    ])('does not reissue upload descriptors for a %s persisted draft', async (_label, status, expiresAt, cleanupClaimedAt) => {
+        const previewId = '15151515-1515-4151-8151-151515151515';
+        const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
+        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status, expiresAt, cleanupClaimedAt, manifest,
+            assets: [{ ...manifest.assets[0], storageKey: `private/interactive-previews/u1/${previewId}/generation-1/index` }] };
+        const createUpload = vi.fn();
+        const database: any = { session: { findFirst: vi.fn(async () => ({ id: 's1' })) }, interactivePreview: { findUnique: vi.fn(async () => existing), create: vi.fn() } };
+        const service = createPreviewService({ database, storage: { createUpload } as any, credentialStore: {} as any, clientFactory: vi.fn() as any, now: () => new Date('2026-09-04T01:00:00.000Z') });
+
+        await expect(service.createDraft('u1', 's1', manifest)).rejects.toThrow('Preview not found');
+        expect(createUpload).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -96,6 +113,25 @@ describe('createPreviewService publication', () => {
         await expect(service.delete('u1', 's1', '88888888-8888-4888-8888-888888888888')).resolves.toBeUndefined();
     });
 
+    it('atomically fences active previews before replacing an encrypted reconnect credential', async () => {
+        const calls: string[] = [];
+        const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg', teamId: 'team-1', projectId: 'prj_happy' };
+        const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg', teamId: 'team-1' };
+        const database: any = {
+            $transaction: async (work: any) => work({
+                account: { update: vi.fn(async () => { calls.push('advance-epoch'); return { vercelConnectionEpoch: 7 }; }) },
+                interactivePreview: { updateMany: vi.fn(async () => { calls.push('fence-previews'); return { count: 2 }; }) },
+            }),
+        };
+        const set = vi.fn(async () => { calls.push('replace-credential'); });
+        const service = createPreviewService({ database, storage: {} as any, credentialStore: { get: vi.fn(async () => previous), set } as any, clientFactory: vi.fn() as any });
+
+        await service.reconnectVercel('u1', replacement);
+
+        expect(calls).toEqual(['advance-epoch', 'fence-previews', 'replace-credential']);
+        expect(set).toHaveBeenCalledWith('u1', { ...replacement, projectId: 'prj_happy' });
+    });
+
     it('does not publish when atomic project persistence loses a reconnect or disconnect race', async () => {
         const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
         const row: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
@@ -154,6 +190,7 @@ describe('createPreviewService publication', () => {
         const configUpload = uploadFile.mock.calls.find(([, uploaded, mimeType]) => mimeType === 'application/json' && new TextDecoder().decode(uploaded).includes('X-Robots-Tag'));
         expect(configUpload).toBeDefined();
         const [configSha, configBytes] = configUpload!;
+        expect(configSha).toBe(createHash('sha1').update(configBytes).digest('hex'));
         expect(JSON.parse(new TextDecoder().decode(configBytes))).toEqual({ headers: [{ source: '/(.*)', headers: [
             { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
             { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -205,8 +242,9 @@ describe('createPreviewService publication', () => {
         const service = createPreviewService({ database, storage, credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any,
             clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_happy' })), uploadFile, createDeployment, deleteDeployment: vi.fn() })) as any, now: () => new Date('2026-09-04T02:00:00Z') });
         const result = await service.publish('u1', 's1', row.id);
-        expect(uploadFile).toHaveBeenCalledWith(sha256, bytes, 'text/html');
-        expect(createDeployment.mock.calls[0][0]).toMatchObject({ files: expect.arrayContaining([{ file: 'index.html', sha: sha256, size: bytes.length }]) });
+        const sha1 = createHash('sha1').update(bytes).digest('hex');
+        expect(uploadFile).toHaveBeenCalledWith(sha1, bytes, 'text/html');
+        expect(createDeployment.mock.calls[0][0]).toMatchObject({ files: expect.arrayContaining([{ file: 'index.html', sha: sha1, size: bytes.length }]) });
         expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { vercelDeploymentId: 'dpl_1' } }));
         expect(database.interactivePreview.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'ready', vercelDeploymentId: 'dpl_1', expiresAt: new Date('2026-09-05T02:00:00Z') }) }));
         expect(storage.deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'generation-1' });

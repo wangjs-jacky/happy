@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 const API_ORIGIN = 'https://api.vercel.com';
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+const VERCEL_FILE_DIGEST = /^[a-f0-9]{40}$/;
 
 function retryAfterMilliseconds(value: string | null, now: number): number | null {
     if (value === null) return null;
@@ -67,6 +68,10 @@ const projectResponseSchema = z.object({
 
 function assertSafeIdentifier(value: string): void {
     if (!SAFE_ID.test(value)) throw new Error('Unsafe Vercel identifier');
+}
+
+function assertVercelFileDigest(value: string): void {
+    if (!VERCEL_FILE_DIGEST.test(value)) throw new Error('Invalid Vercel file digest');
 }
 
 export function createVercelClient(options: {
@@ -214,7 +219,7 @@ export function createVercelClient(options: {
         },
 
         async uploadFile(sha: string, bytes: Uint8Array, mimeType: string): Promise<void> {
-            if (!/^[a-f0-9]{64}$/.test(sha)) throw new Error('Invalid Vercel file digest');
+            assertVercelFileDigest(sha);
             await request('/v2/files', {
                 method: 'POST',
                 headers: {
@@ -261,6 +266,7 @@ export function createVercelClient(options: {
             meta: Record<string, string>;
             onCreated?: (deployment: { id: string }) => Promise<void>;
         }): Promise<VercelDeployment> {
+            for (const file of input.files) assertVercelFileDigest(file.sha);
             const response = await request('/v13/deployments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

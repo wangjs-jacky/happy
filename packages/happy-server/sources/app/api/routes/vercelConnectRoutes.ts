@@ -19,10 +19,10 @@ export interface VercelConnectDependencies {
     stateStore: { create(accountId: string): Promise<string>; consume(state: string): Promise<string | null> };
     credentialStore: {
         get(accountId: string): Promise<VercelCredential | null>;
-        set(accountId: string, credential: VercelCredential): Promise<void>;
         delete(accountId: string): Promise<void>;
     };
     disconnect(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }>;
+    reconnect(accountId: string, credential: VercelCredential): Promise<void>;
     exchangeCode(code: string, config: VercelConnectConfig): Promise<Omit<VercelCredential, 'version'>>;
 }
 
@@ -73,7 +73,10 @@ async function exchangeCode(code: string, config: VercelConnectConfig): Promise<
 
 const defaultDependencies: VercelConnectDependencies = {
     config: isPreviewStorageConfigured() ? readConfig() : null,
-    stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore, disconnect: (accountId) => previewService.disconnectVercel(accountId), exchangeCode,
+    stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore,
+    disconnect: (accountId) => previewService.disconnectVercel(accountId),
+    reconnect: (accountId, credential) => previewService.reconnectVercel(accountId, credential),
+    exchangeCode,
 };
 
 function redirectUrl(config: VercelConnectConfig | null, key: string, value: string): string {
@@ -124,12 +127,7 @@ export function vercelConnectRoutes(app: Fastify, dependencies: VercelConnectDep
         if (!accountId) return reply.redirect(redirectUrl(config, 'vercel_error', 'invalid_state'));
         try {
             const credential = await dependencies.exchangeCode(request.query.code, config);
-            const existing = await dependencies.credentialStore.get(accountId);
-            const sameScope = existing?.configurationId === credential.configurationId && existing.teamId === credential.teamId;
-            await dependencies.credentialStore.set(accountId, {
-                version: 1, ...credential,
-                ...(sameScope && existing?.projectId ? { projectId: existing.projectId } : {}),
-            });
+            await dependencies.reconnect(accountId, { version: 1, ...credential });
             return reply.redirect(redirectUrl(config, 'vercel', 'connected'));
         } catch (error) {
             log({ module: 'vercel-oauth', level: 'error' }, `Vercel OAuth exchange failed: ${error instanceof Error ? error.name : 'unknown'}`);

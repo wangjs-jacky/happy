@@ -20,8 +20,9 @@ async function createApp(overrides: Partial<VercelConnectDependencies> = {}) {
             redirectUri: 'https://happy.test/v1/connect/vercel/callback', webUrl: 'https://happy.test',
         },
         stateStore: { create: vi.fn(async () => 'state-token'), consume: vi.fn(async () => 'user-1') },
-        credentialStore: { get: vi.fn(async () => null), set: vi.fn(async () => {}), delete: vi.fn(async () => {}) },
+        credentialStore: { get: vi.fn(async () => null), delete: vi.fn(async () => {}) },
         disconnect: vi.fn(async () => ({})),
+        reconnect: vi.fn(async () => {}),
         exchangeCode: vi.fn(async () => ({ accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1' })),
         ...overrides,
     };
@@ -45,7 +46,7 @@ describe('vercelConnectRoutes', () => {
     it('reports availability separately from connection status', async () => {
         const created = await createApp({ credentialStore: {
             get: vi.fn(async () => ({ version: 1 as const, accessToken: 'hidden', configurationId: 'icfg_1', teamId: 'team_1', teamName: 'Acme' })),
-            set: vi.fn(async () => {}), delete: vi.fn(async () => {}),
+            delete: vi.fn(async () => {}),
         } }); app = created.app;
         const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/status', headers: { 'x-user-id': 'user-1' } });
         expect(response.json()).toEqual({ available: true, connected: true, account: { teamId: 'team_1', teamName: 'Acme' } });
@@ -58,7 +59,7 @@ describe('vercelConnectRoutes', () => {
         expect(response.statusCode).toBe(302);
         expect(response.headers.location).toBe('https://happy.test/?vercel=connected');
         expect(created.dependencies.exchangeCode).toHaveBeenCalledWith('one-use-code', created.dependencies.config);
-        expect(created.dependencies.credentialStore.set).toHaveBeenCalledWith('user-1', {
+        expect(created.dependencies.reconnect).toHaveBeenCalledWith('user-1', {
             version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1',
         });
     });
@@ -66,13 +67,13 @@ describe('vercelConnectRoutes', () => {
     it('preserves the dedicated project when reconnecting the same Vercel configuration and scope', async () => {
         const created = await createApp({ credentialStore: {
             get: vi.fn(async () => ({ version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' })),
-            set: vi.fn(async () => {}), delete: vi.fn(async () => {}),
+            delete: vi.fn(async () => {}),
         } }); app = created.app;
 
         await created.app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=one-use-code&state=state-token' });
 
-        expect(created.dependencies.credentialStore.set).toHaveBeenCalledWith('user-1', {
-            version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy',
+        expect(created.dependencies.reconnect).toHaveBeenCalledWith('user-1', {
+            version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1',
         });
     });
 
@@ -80,14 +81,14 @@ describe('vercelConnectRoutes', () => {
         const created = await createApp({
             credentialStore: {
                 get: vi.fn(async () => ({ version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' })),
-                set: vi.fn(async () => {}), delete: vi.fn(async () => {}),
+                delete: vi.fn(async () => {}),
             },
             exchangeCode: vi.fn(async () => ({ accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_2' })),
         }); app = created.app;
 
         await created.app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=one-use-code&state=state-token' });
 
-        expect(created.dependencies.credentialStore.set).toHaveBeenCalledWith('user-1', {
+        expect(created.dependencies.reconnect).toHaveBeenCalledWith('user-1', {
             version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_2',
         });
     });

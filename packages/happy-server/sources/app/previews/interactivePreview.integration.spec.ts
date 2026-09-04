@@ -61,6 +61,7 @@ type Deployment = {
     aliasAssigned: false;
     meta: Record<string, string>;
     projectId: string;
+    teamId: string | null;
 };
 
 function digest(bytes: Buffer): string {
@@ -256,15 +257,19 @@ class VercelWireServer {
     readonly fileUploads: Array<{ digest: string; mimeType: string; bytes: Buffer }> = [];
     readonly createRequests: Array<{ files: Array<{ file: string; sha: string; size: number }>; meta: Record<string, string> }> = [];
     readonly deleteRequests: string[] = [];
+    readonly providerScopes: Array<{ operation: 'create' | 'delete'; deploymentId?: string; teamId: string | null }> = [];
     readonly authorization: string[] = [];
+    readonly protocolErrors: string[] = [];
     readonly deployments = new Map<string, Deployment>();
     readonly pendingCreates: Array<() => void> = [];
+    readonly pendingMetadataLookups: Array<() => void> = [];
     metadataLookups = 0;
     maxFileUploadConcurrency = 0;
     activeFileUploads = 0;
     maxDeploymentConcurrency = 0;
     activeDeployments = 0;
     holdDeploymentCreates = false;
+    holdMetadataLookups = false;
     failDeleteRequests = 0;
     failMetadataLookups = 0;
     private readonly delayedVisibility = new Map<string, { visibleAfterLookups: number; readyOnPoll: boolean }>();
@@ -299,6 +304,7 @@ class VercelWireServer {
             aliasAssigned: false,
             meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
             projectId: 'prj',
+            teamId: null,
         });
     }
 
@@ -311,6 +317,7 @@ class VercelWireServer {
             aliasAssigned: false,
             meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
             projectId: 'prj',
+            teamId: null,
         });
         this.delayedVisibility.set(id, { visibleAfterLookups: this.metadataLookups + 2, readyOnPoll: true });
     }
@@ -318,6 +325,12 @@ class VercelWireServer {
     releaseOneDeployment(): void {
         const release = this.pendingCreates.shift();
         if (!release) throw new Error('No held Vercel deployment to release');
+        release();
+    }
+
+    releaseOneMetadataLookup(): void {
+        const release = this.pendingMetadataLookups.shift();
+        if (!release) throw new Error('No held Vercel metadata lookup to release');
         release();
     }
 
@@ -355,6 +368,7 @@ class VercelWireServer {
                 this.failMetadataLookups--;
                 return this.sendJson(response, 503, { error: { code: 'provider_unavailable' } });
             }
+            if (this.holdMetadataLookups) await new Promise<void>((resolve) => this.pendingMetadataLookups.push(resolve));
             const matching = [...this.deployments.values()].filter((deployment) =>
                 deployment.projectId === url.searchParams.get('projectId')
                 && deployment.meta.happyPreviewId === url.searchParams.get('meta-happyPreviewId')
@@ -367,8 +381,14 @@ class VercelWireServer {
             this.activeFileUploads++;
             this.maxFileUploadConcurrency = Math.max(this.maxFileUploadConcurrency, this.activeFileUploads);
             const bytes = await readBody(request);
+            const digest = String(request.headers['x-vercel-digest'] || '');
+            if (!/^[a-f0-9]{40}$/.test(digest) || createHash('sha1').update(bytes).digest('hex') !== digest) {
+                this.protocolErrors.push('invalid Vercel file digest');
+                this.activeFileUploads--;
+                return this.sendJson(response, 400, { error: { code: 'invalid_file_digest' } });
+            }
             this.fileUploads.push({
-                digest: String(request.headers['x-vercel-digest'] || ''),
+                digest,
                 mimeType: String(request.headers['content-type'] || ''),
                 bytes,
             });
@@ -378,7 +398,13 @@ class VercelWireServer {
         }
         if (url.pathname === '/v13/deployments' && request.method === 'POST') {
             const requestBody = JSON.parse((await readBody(request)).toString('utf8')) as { files: Array<{ file: string; sha: string; size: number }>; meta: Record<string, string> };
+            if (requestBody.files.some((file) => !/^[a-f0-9]{40}$/.test(file.sha)
+                || this.fileUploads.find((upload) => upload.digest === file.sha)?.bytes.byteLength !== file.size)) {
+                this.protocolErrors.push('invalid Vercel deployment file reference');
+                return this.sendJson(response, 400, { error: { code: 'invalid_file_reference' } });
+            }
             this.createRequests.push({ files: requestBody.files, meta: requestBody.meta });
+            this.providerScopes.push({ operation: 'create', teamId: url.searchParams.get('teamId') });
             const id = `dpl_${this.createRequests.length}`;
             this.activeDeployments++;
             this.maxDeploymentConcurrency = Math.max(this.maxDeploymentConcurrency, this.activeDeployments);
@@ -392,6 +418,7 @@ class VercelWireServer {
                     aliasAssigned: false,
                     meta: requestBody.meta,
                     projectId: 'prj',
+                    teamId: url.searchParams.get('teamId'),
                 };
                 this.deployments.set(id, deployment);
                 this.sendJson(response, 200, this.deploymentJson(deployment));
@@ -413,10 +440,13 @@ class VercelWireServer {
         }
         if (deploymentId && request.method === 'DELETE') {
             this.deleteRequests.push(deploymentId);
+            this.providerScopes.push({ operation: 'delete', deploymentId, teamId: url.searchParams.get('teamId') });
             if (this.failDeleteRequests > 0) {
                 this.failDeleteRequests--;
                 return this.sendJson(response, 503, { error: { code: 'provider_unavailable' } });
             }
+            const deployment = this.deployments.get(deploymentId);
+            if (deployment && deployment.teamId !== url.searchParams.get('teamId')) return this.sendJson(response, 404, { error: { code: 'not_found' } });
             this.deployments.delete(deploymentId);
             return this.sendJson(response, 200, {});
         }
@@ -622,6 +652,9 @@ describe('interactive preview persisted integration', () => {
             ] }] })),
         ]);
         expect(harness.vercel.maxFileUploadConcurrency).toBe(1);
+        expect(harness.vercel.fileUploads.every((upload) => upload.digest === createHash('sha1').update(upload.bytes).digest('hex'))).toBe(true);
+        expect(harness.vercel.createRequests[0]?.files.every((file) => /^[a-f0-9]{40}$/.test(file.sha))).toBe(true);
+        expect(harness.vercel.protocolErrors).toEqual([]);
         const stagingPrefix = persisted!.assets[0]!.storageKey.slice(0, persisted!.assets[0]!.storageKey.lastIndexOf('/') + 1);
         expect([...harness.s3.objects.keys()].filter((key) => key.startsWith(stagingPrefix))).toEqual([]);
         expect(harness.s3.protocolErrors).toEqual([]);
@@ -641,6 +674,30 @@ describe('interactive preview persisted integration', () => {
         expect((await harness.app.inject({ method: 'POST', url: `/v1/sessions/${sessionA}/previews/${ids.primary}/publish`, headers: wrongAccount })).statusCode).toBe(404);
         expect((await harness.app.inject({ method: 'DELETE', url: `/v1/sessions/${sessionA}/previews/${ids.primary}`, headers: wrongAccount })).statusCode).toBe(404);
         expect((await harness.app.inject({ method: 'POST', url: `/v1/sessions/${sessionB}/previews/${ids.primary}/publish`, headers: wrongAccount })).statusCode).toBe(404);
+    }, 30_000);
+
+    it('finishes and cleans an existing persisted legacy staging object without touching sibling legacy prefixes', async () => {
+        const harness = await setup();
+        const previewId = '39393939-3939-4939-8939-393939393939';
+        const bytes = Buffer.from('<h1>legacy</h1>');
+        const assets = [{ id: 'legacy_asset', path: 'index.html', mimeType: 'text/html', bytes }];
+        const draft = await harness.app.inject({ method: 'POST', url: `/v1/sessions/${sessionA}/previews/${previewId}/draft`, headers: { 'x-user-id': accountA }, payload: manifest(previewId, assets) });
+        expect(draft.statusCode).toBe(200);
+        const legacyKey = `private/interactive-previews/${previewId}/legacy_asset`;
+        const siblingKey = `private/interactive-previews/${previewId}/sibling_asset`;
+        await harness.database.interactivePreviewAsset.update({ where: { previewId_id: { previewId, id: 'legacy_asset' } }, data: { storageKey: legacyKey } });
+        harness.s3.seed(legacyKey, bytes);
+        harness.s3.seed(siblingKey, Buffer.from('must-survive'));
+
+        const completed = await harness.app.inject({ method: 'POST', url: `/v1/sessions/${sessionA}/previews/${previewId}/assets/legacy_asset/uploaded`, headers: { 'x-user-id': accountA } });
+        expect(completed.statusCode, completed.body).toBe(200);
+        const published = await harness.app.inject({ method: 'POST', url: `/v1/sessions/${sessionA}/previews/${previewId}/publish`, headers: { 'x-user-id': accountA } });
+        expect(published.statusCode, published.body).toBe(200);
+
+        expect(harness.s3.deleteBatches.flat()).toContain(legacyKey);
+        expect(harness.s3.deleteBatches.flat()).not.toContain(siblingKey);
+        expect(harness.s3.objects.has(legacyKey)).toBe(false);
+        expect(harness.s3.objects.get(siblingKey)).toEqual(Buffer.from('must-survive'));
     }, 30_000);
 
     it('holds three persisted previews to two active publication jobs and does not duplicate an in-flight deployment', async () => {
@@ -670,6 +727,54 @@ describe('interactive preview persisted integration', () => {
         expect(responses.map((response) => response.state)).toEqual(['ready', 'ready', 'ready']);
         expect(harness.vercel.createRequests).toHaveLength(3);
         expect(harness.vercel.maxDeploymentConcurrency).toBe(2);
+    }, 30_000);
+
+    it('lets a recovery claim finish a delayed publisher deployment without the publisher deleting the matching ready result', async () => {
+        const harness = await setup();
+        const previewId = '48484848-4848-4484-8484-484848484848';
+        await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>race</h1>') }]);
+        harness.vercel.holdDeploymentCreates = true;
+        const publication = harness.service.publish(accountA, sessionA, previewId);
+        await eventually(() => harness.vercel.createRequests.length === 1, 'the delayed publisher create');
+        await harness.database.interactivePreview.update({ where: { id: previewId }, data: { updatedAt: after(clockStart, -16 * 60 * 1000), publicationReconcileNextAttemptAt: new Date(clockStart) } });
+        harness.vercel.holdMetadataLookups = true;
+        const recovery = harness.service.recoverStalePublications(after(clockStart, 16 * 60 * 1000));
+        await eventually(() => harness.vercel.pendingMetadataLookups.length === 1, 'the recovery metadata claim');
+        harness.vercel.holdDeploymentCreates = false;
+        harness.vercel.releaseOneDeployment();
+        await eventually(() => harness.vercel.deployments.has('dpl_1'), 'the delayed provider deployment');
+        harness.vercel.holdMetadataLookups = false;
+        harness.vercel.releaseOneMetadataLookup();
+
+        await expect(publication).rejects.toThrow(/fenced|publish/i);
+        await recovery;
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_1' });
+        expect(harness.vercel.deleteRequests).toEqual([]);
+        expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
+    }, 30_000);
+
+    it('fences an old-team publisher on reconnect and compensates through its old provider scope', async () => {
+        const harness = await setup();
+        const previewId = '49494949-4949-4494-8494-494949494949';
+        await harness.credentialStore.set(accountA, { version: 1, accessToken: 'token-old-team', configurationId: 'cfg-a', teamId: 'team-old', projectId: 'prj' });
+        await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>reconnect</h1>') }]);
+        harness.vercel.holdDeploymentCreates = true;
+        const publication = harness.service.publish(accountA, sessionA, previewId);
+        await eventually(() => harness.vercel.createRequests.length === 1, 'the old-team delayed deployment');
+
+        await harness.service.reconnectVercel(accountA, { version: 1, accessToken: 'token-new-team', configurationId: 'cfg-a', teamId: 'team-new' });
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionEpoch: 1 });
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'deleting', url: null });
+        expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-new-team', teamId: 'team-new' });
+
+        harness.vercel.holdDeploymentCreates = false;
+        harness.vercel.releaseOneDeployment();
+        await expect(publication).rejects.toThrow(/connection changed/i);
+
+        expect(harness.vercel.providerScopes).toContainEqual({ operation: 'create', teamId: 'team-old' });
+        expect(harness.vercel.providerScopes).toContainEqual({ operation: 'delete', deploymentId: 'dpl_1', teamId: 'team-old' });
+        expect(harness.vercel.deployments.has('dpl_1')).toBe(false);
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'expired', vercelDeploymentId: null });
     }, 30_000);
 
     it('restarts over PGlite and lets the scheduler alone recover a delayed visible deployment without a second create', async () => {

@@ -115,19 +115,31 @@ describe('createVercelClient', () => {
         expect(fetchImpl.mock.calls[0][0]).toBe('https://api.vercel.com/v9/projects/prj_saved?teamId=team_1');
     });
 
-    it('uploads exact file bytes to the fixed Vercel origin with a digest', async () => {
+    it('uploads exact file bytes to the fixed Vercel origin with its SHA-1 digest', async () => {
         const fetchImpl = vi.fn(async (_url: string, _init?: any) => jsonResponse({}));
         const client = createVercelClient({ token: 'secret', teamId: 'team_1', fetchImpl });
         const bytes = new Uint8Array([1, 2, 3]);
 
-        await client.uploadFile('a'.repeat(64), bytes, 'text/html');
+        await client.uploadFile('7037807198c22a7d2b0807371d763779a84fdfcf', bytes, 'text/html');
 
         expect(fetchImpl).toHaveBeenCalledOnce();
         const [url, init] = fetchImpl.mock.calls[0];
         expect(url).toBe('https://api.vercel.com/v2/files?teamId=team_1');
         expect(init).toMatchObject({ method: 'POST', body: bytes });
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret');
-        expect(new Headers(init?.headers).get('x-vercel-digest')).toBe('a'.repeat(64));
+        expect(new Headers(init?.headers).get('x-vercel-digest')).toBe('7037807198c22a7d2b0807371d763779a84fdfcf');
+    });
+
+    it('rejects non-SHA-1 upload and deployment file references before making a provider request', async () => {
+        const fetchImpl = vi.fn(async () => jsonResponse({}));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.uploadFile('a'.repeat(64), new Uint8Array([1]), 'text/html')).rejects.toThrow('Invalid Vercel file digest');
+        await expect(client.createDeployment({
+            name: 'happy-previews', files: [{ file: 'index.html', sha: 'b'.repeat(64), size: 1 }], meta: {},
+        })).rejects.toThrow('Invalid Vercel file digest');
+
+        expect(fetchImpl).not.toHaveBeenCalled();
     });
 
     it('creates a non-production static deployment from SHA references', async () => {
@@ -140,7 +152,7 @@ describe('createVercelClient', () => {
             name: 'happy-previews',
             projectId: 'prj_1',
             meta: { happyPreviewId: 'preview-1' },
-            files: [{ file: 'index.html', sha: 'b'.repeat(64), size: 42 }],
+            files: [{ file: 'index.html', sha: 'b'.repeat(40), size: 42 }],
         });
 
         const [url, init] = fetchImpl.mock.calls[0];
@@ -149,7 +161,7 @@ describe('createVercelClient', () => {
             name: 'happy-previews',
             project: 'prj_1',
             target: null,
-            files: [{ file: 'index.html', sha: 'b'.repeat(64), size: 42 }],
+            files: [{ file: 'index.html', sha: 'b'.repeat(40), size: 42 }],
             projectSettings: { framework: null },
         });
         expect(result).toEqual({ id: 'dpl_1', url: 'https://happy-preview.vercel.app', readyState: 'READY' });
@@ -222,7 +234,7 @@ describe('createVercelClient', () => {
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {} });
 
         await expect(client.createDeployment({
-            name: 'happy-previews', files: [{ file: 'index.html', sha: 'b'.repeat(64), size: 42 }], meta: {},
+            name: 'happy-previews', files: [{ file: 'index.html', sha: 'b'.repeat(40), size: 42 }], meta: {},
         })).rejects.toMatchObject({ code: 'temporary_unavailable', status: 503 });
 
         expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -239,7 +251,7 @@ describe('createVercelClient', () => {
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {} });
 
         await client.createDeployment({
-            name: 'happy-previews', files: [{ file: 'index.html', sha: '0'.repeat(64), size: 1 }], meta: {},
+            name: 'happy-previews', files: [{ file: 'index.html', sha: '0'.repeat(40), size: 1 }], meta: {},
             onCreated: async ({ id }) => { persistedId = id; },
         });
         expect(persistedId).toBe('dpl_tracked');
@@ -250,7 +262,7 @@ describe('createVercelClient', () => {
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => { throw new Error('unexpected poll'); } });
 
         await expect(client.createDeployment({
-            name: 'happy-previews', files: [{ file: 'index.html', sha: '9'.repeat(64), size: 1 }], meta: {},
+            name: 'happy-previews', files: [{ file: 'index.html', sha: '9'.repeat(40), size: 1 }], meta: {},
             onCreated: async () => { throw new Error('durable persistence failed'); },
         })).rejects.toThrow('durable persistence failed');
         expect(fetchImpl).toHaveBeenCalledOnce();
@@ -264,7 +276,7 @@ describe('createVercelClient', () => {
     ])('rejects %s so only unaliased preview deployments are accepted', async (response, _label) => {
         const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse(response)) });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '1'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '1'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/preview|alias|target/i);
     });
 
@@ -274,7 +286,7 @@ describe('createVercelClient', () => {
     ])('rejects deployment responses without aliasAssigned: false', async (response) => {
         const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse(response)) });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '5'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '5'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/alias/i);
     });
 
@@ -284,7 +296,7 @@ describe('createVercelClient', () => {
             sleep: async () => { throw new Error('unexpected polling'); },
         });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '2'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '2'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/terminal|invalid/i);
     });
 
@@ -295,7 +307,7 @@ describe('createVercelClient', () => {
         const timeoutSignal = vi.fn(() => new AbortController().signal);
         const client = createVercelClient({ token: 'secret', fetchImpl, now: () => clock, sleep, pollIntervalMs: 1_000, deploymentTimeoutMs: 100, timeoutSignal });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '3'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '3'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/timed out/i);
         expect(sleep).toHaveBeenCalledWith(100);
         expect(fetchImpl).toHaveBeenCalledOnce();
@@ -310,7 +322,7 @@ describe('createVercelClient', () => {
         const timeoutSignal = vi.fn(() => new AbortController().signal);
         const client = createVercelClient({ token: 'secret', fetchImpl, now: () => clock, sleep: async () => { clock = 90; }, pollIntervalMs: 90, deploymentTimeoutMs: 100, timeoutSignal });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '4'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '4'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/timed out/i);
         expect(timeoutSignal).toHaveBeenNthCalledWith(1, 100);
         expect(timeoutSignal).toHaveBeenNthCalledWith(2, 10);
@@ -323,7 +335,7 @@ describe('createVercelClient', () => {
         const sleep = vi.fn(async () => {});
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep, pollIntervalMs: 0 });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'd'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'd'.repeat(40), size: 1 }], meta: {} }))
             .resolves.toEqual({ id: 'dpl_wait', url: 'https://happy-preview.vercel.app', readyState: 'READY' });
 
         expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
@@ -339,7 +351,7 @@ describe('createVercelClient', () => {
             .mockResolvedValueOnce(jsonResponse({ id: 'dpl_failed', url: 'happy-preview.vercel.app', readyState: 'ERROR', target: null, aliasAssigned: false }));
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {}, pollIntervalMs: 0 });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'e'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'e'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/terminal/i);
     });
 
@@ -348,7 +360,7 @@ describe('createVercelClient', () => {
         const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(101);
         const client = createVercelClient({ token: 'secret', fetchImpl, now, sleep: async () => {}, pollIntervalMs: 0, deploymentTimeoutMs: 100 });
 
-        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'f'.repeat(64), size: 1 }], meta: {} }))
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'f'.repeat(40), size: 1 }], meta: {} }))
             .rejects.toThrow(/timed out/i);
         expect(fetchImpl).toHaveBeenCalledOnce();
     });
@@ -359,7 +371,7 @@ describe('createVercelClient', () => {
             fetchImpl: vi.fn(async (_url: string, _init?: any) => jsonResponse({ id: 'dpl_2', url: 'prod.vercel.app', readyState: 'READY', target: 'production', aliasAssigned: false })),
         });
         await expect(client.createDeployment({
-            name: 'happy-previews', files: [{ file: 'index.html', sha: 'c'.repeat(64), size: 1 }], meta: {},
+            name: 'happy-previews', files: [{ file: 'index.html', sha: 'c'.repeat(40), size: 1 }], meta: {},
         })).rejects.toThrow(/production/i);
     });
 
@@ -377,7 +389,7 @@ describe('createVercelClient', () => {
         const sleep = vi.fn(async () => {});
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep });
 
-        await expect(client.uploadFile('a'.repeat(64), new Uint8Array([1]), 'text/plain')).resolves.toBeUndefined();
+        await expect(client.uploadFile('a'.repeat(40), new Uint8Array([1]), 'text/plain')).resolves.toBeUndefined();
         expect(sleep).toHaveBeenCalledWith(2000);
         expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
@@ -388,7 +400,7 @@ describe('createVercelClient', () => {
             .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'rate_limited' } }), { status: 429, headers: { 'retry-after': 'Thu, 01 Jan 1970 00:00:02 GMT' } }))
             .mockResolvedValueOnce(jsonResponse({}));
         const client = createVercelClient({ token: 'secret', fetchImpl, sleep, now: () => 1_000 });
-        await client.uploadFile('b'.repeat(64), new Uint8Array([1]), 'text/plain');
+        await client.uploadFile('b'.repeat(40), new Uint8Array([1]), 'text/plain');
         expect(sleep).toHaveBeenNthCalledWith(1, 250);
         expect(sleep).toHaveBeenNthCalledWith(2, 1000);
     });

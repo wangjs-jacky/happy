@@ -85,6 +85,13 @@ describe('createPreviewStorage', () => {
         expect(result).toEqual({ method: 'POST', uploadUrl: 'https://oss.test', formFields: { key: 'signed' } });
     });
 
+    it('accepts the shared 96-character opaque asset id but rejects 97 characters', () => {
+        const storage = createPreviewStorage({ client: {} as any, bucket: 'private-bucket' });
+        const scope = { accountId: 'account-1', previewId: '11111111-1111-4111-8111-111111111111', stagingGeneration: 'generation-1' };
+        expect(storage.storageKey(scope, 'a'.repeat(96))).toContain(`/${'a'.repeat(96)}`);
+        expect(() => storage.storageKey(scope, 'a'.repeat(97))).toThrow(/asset id/i);
+    });
+
     it('rejects an object whose observed size differs from the manifest', async () => {
         const client = { statObject: vi.fn(async () => ({ size: 9 })) };
         const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket' });
@@ -105,5 +112,31 @@ describe('createPreviewStorage', () => {
         await promise;
         expect(client.listObjects).toHaveBeenCalledWith('private-bucket', 'private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/', true);
         expect(client.removeObjects).toHaveBeenCalledWith('private-bucket', ['private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/asset_1']);
+    });
+
+    it('reads and removes persisted legacy keys exactly without listing their broad preview prefix', async () => {
+        const listeners: Record<string, Function> = {};
+        const stream = { on: vi.fn((name: string, fn: Function) => { listeners[name] = fn; return stream; }) };
+        const previewId = '11111111-1111-4111-8111-111111111111';
+        const legacyKey = `private/interactive-previews/${previewId}/legacy_asset`;
+        const client = {
+            listObjects: vi.fn(() => stream),
+            removeObjects: vi.fn(async () => {}),
+            statObject: vi.fn(async () => ({ size: 4 })),
+        };
+        const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket' });
+        const scope = { accountId: 'account-1', previewId, stagingGeneration: 'generation-1' };
+        const currentKey = storage.storageKey(scope, 'current_asset');
+
+        await expect(storage.assertUploaded(legacyKey, 4)).resolves.toBeUndefined();
+        await expect(storage.assertUploaded('private/interactive-previews/11111111-1111-0111-8111-111111111111/legacy_asset', 4)).rejects.toThrow(/storage key/i);
+        const deletion = storage.deletePreview(scope, [legacyKey]);
+        listeners.data({ name: currentKey });
+        listeners.end();
+        await deletion;
+
+        expect(client.listObjects).toHaveBeenCalledWith('private-bucket', `${currentKey.slice(0, currentKey.lastIndexOf('/') + 1)}`, true);
+        expect(client.listObjects).not.toHaveBeenCalledWith('private-bucket', `private/interactive-previews/${previewId}/`, true);
+        expect(client.removeObjects).toHaveBeenCalledWith('private-bucket', [currentKey, legacyKey]);
     });
 });

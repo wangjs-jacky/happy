@@ -1,10 +1,10 @@
-import { interactivePreviewEventSchema, interactivePreviewManifestSchema, type InteractivePreviewEvent, type InteractivePreviewManifest } from '@slopus/happy-wire';
+import { interactivePreviewAssetIdSchema, interactivePreviewEventSchema, interactivePreviewManifestSchema, type InteractivePreviewEvent, type InteractivePreviewManifest } from '@slopus/happy-wire';
 import { z } from 'zod';
 import { type Fastify } from '../types';
 import { previewService } from '@/app/previews/previewService';
 
 const previewIdSchema = z.uuid();
-const assetIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,96}$/);
+const assetIdSchema = interactivePreviewAssetIdSchema;
 const uploadSchema = z.object({ assetId: assetIdSchema, method: z.literal('POST'), uploadUrl: z.string(), formFields: z.record(z.string(), z.string()) });
 
 function isPreviewNotFound(error: unknown): boolean {

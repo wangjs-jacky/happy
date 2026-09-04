@@ -54,6 +54,15 @@ describe('interactivePreviewRoutes', () => {
         const published = await app.inject({ method: 'POST', url: `/v1/sessions/session-1/previews/${manifest.previewId}/publish`, headers: { 'x-user-id': 'user-1' } });
         expect(published.json().preview.state).toBe('ready'); expect(created.dependencies.publish).toHaveBeenCalledWith('user-1', 'session-1', manifest.previewId);
     });
+    it('accepts the shared 96-character asset id at the route boundary and rejects 97 characters', async () => {
+        const created = await createApp(); app = created.app;
+        const assetId = 'a'.repeat(96);
+        const accepted = await app.inject({ method: 'POST', url: `/v1/sessions/session-1/previews/${manifest.previewId}/assets/${assetId}/uploaded`, headers: { 'x-user-id': 'user-1' } });
+        const rejected = await app.inject({ method: 'POST', url: `/v1/sessions/session-1/previews/${manifest.previewId}/assets/${'a'.repeat(97)}/uploaded`, headers: { 'x-user-id': 'user-1' } });
+        expect(accepted.statusCode).toBe(200);
+        expect(rejected.statusCode).toBe(400);
+        expect(created.dependencies.completeAsset).toHaveBeenCalledWith('user-1', 'session-1', manifest.previewId, assetId);
+    });
     it('normalizes a scoped missing preview to a 404 without exposing a cross-session record', async () => {
         const created = await createApp({ completeAsset: vi.fn(async () => { throw new Error('Preview not found'); }) }); app = created.app;
 

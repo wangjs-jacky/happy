@@ -1,7 +1,7 @@
 import { db } from '@/storage/db';
 import { onShutdown } from '@/utils/shutdown';
 import { log } from '@/utils/log';
-import { previewStorage } from './previewStorage';
+import { isLegacyPreviewStorageKey, previewStorage } from './previewStorage';
 import { vercelCredentialStore } from './vercelCredentialStore';
 import { createVercelClient } from './vercelClient';
 import { previewService } from './previewService';
@@ -15,7 +15,8 @@ const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type CleanupPreviewRow = {
     id: string; status: string; accountId: string; stagingGeneration: string; vercelDeploymentId: string | null;
-    stagingCleanupPending?: boolean; expiresAt?: Date;
+    stagingCleanupPending?: boolean; expiresAt?: Date; vercelTeamId?: string | null;
+    assets?: Array<{ storageKey: string }>;
 };
 export interface PreviewCleanupDependencies {
     deleteStaging(accountId: string, previewId: string, stagingGeneration: string): Promise<void>;
@@ -94,7 +95,7 @@ export function createPreviewCleanup(dependencies: {
                 ],
             },
             take: 50, orderBy: { expiresAt: 'asc' },
-            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true, stagingCleanupPending: true, expiresAt: true },
+            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true, vercelTeamId: true, stagingCleanupPending: true, expiresAt: true, assets: { select: { storageKey: true } } },
         }) as CleanupPreviewRow[];
         const claimed: CleanupPreviewRow[] = [];
         const claims = new Map<string, { status: string; stagingCleanupPending: boolean }>();
@@ -113,10 +114,19 @@ export function createPreviewCleanup(dependencies: {
             }
         }
         const cleaned = await cleanupInteractivePreviewRows(claimed, {
-            deleteStaging: (accountId, previewId, stagingGeneration) => dependencies.storage.deletePreview({ accountId, previewId, stagingGeneration }),
+            deleteStaging: (accountId, previewId, stagingGeneration) => {
+                const row = claimed.find((candidate) => candidate.id === previewId);
+                const scope = { accountId, previewId, stagingGeneration };
+                const legacyStorageKeys = row?.assets?.map((asset) => asset.storageKey).filter((storageKey) => isLegacyPreviewStorageKey(previewId, storageKey)) || [];
+                return legacyStorageKeys.length ? dependencies.storage.deletePreview(scope, legacyStorageKeys) : dependencies.storage.deletePreview(scope);
+            },
             async deleteDeployment(accountId, deploymentId) {
                 const credential = await dependencies.credentialStore.get(accountId);
                 if (!credential) throw new Error('Vercel credential unavailable');
+                const row = claimed.find((candidate) => candidate.accountId === accountId && candidate.vercelDeploymentId === deploymentId);
+                if (row?.vercelTeamId && row.vercelTeamId !== credential.teamId) {
+                    throw new Error('Vercel credential scope no longer owns this deployment');
+                }
                 await dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId }).deleteDeployment(deploymentId);
             },
             async markExpired(previewId) {

@@ -6,6 +6,11 @@ export const PREVIEW_LIMITS = {
   maxTotalBytes: 10 * 1024 * 1024,
 } as const;
 
+// Fastify's route-parameter limit is 100 bytes by default. Leave room for
+// its path parser while keeping the opaque asset identifier comfortably large.
+export const PREVIEW_ASSET_ID_MAX_LENGTH = 96;
+export const interactivePreviewAssetIdSchema = z.string().min(1).max(PREVIEW_ASSET_ID_MAX_LENGTH).regex(/^[A-Za-z0-9_-]+$/);
+
 const allowedMimeTypesByExtension: Readonly<Record<string, readonly string[]>> = {
   '.html': ['text/html'],
   '.css': ['text/css'],
@@ -41,7 +46,7 @@ function isSafeRelativePath(path: string): boolean {
 }
 
 export const interactivePreviewAssetSchema = z.object({
-  id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  id: interactivePreviewAssetIdSchema,
   path: z.string().min(1).max(240).refine(isSafeRelativePath, 'Unsafe preview path'),
   size: z.number().int().nonnegative().max(PREVIEW_LIMITS.maxFileBytes),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
