@@ -145,37 +145,72 @@ function renderEgoProbe(origin, sessionId) {
   const state = {
     origin: ${JSON.stringify(origin)},
     sessionId: ${JSON.stringify(sessionId)},
-    marks: {},
+    deepLink: {},
+    spawn: {},
   };
   const now = () => performance.now();
-  const mark = (name) => { state.marks[name] = now(); };
-  const requiredMark = (name) => {
-    if (typeof state.marks[name] !== 'number') throw new Error('Critical-path lifecycle mark is missing.');
-    return state.marks[name];
+  const resourceEntries = () => performance.getEntriesByType('resource').map(({ name }) => ({ name }));
+  const resourceBaseline = () => resourceEntries().length;
+  const snapshotSince = (baseline) => resourceEntries().slice(baseline);
+  const requiredMark = (value) => {
+    if (typeof value !== 'number') throw new Error('Critical-path lifecycle mark is missing.');
+    return value;
+  };
+  const requiredSnapshot = (value) => {
+    if (!Array.isArray(value)) throw new Error('Critical-path lifecycle mark is missing.');
+    return value;
   };
   const navigationStart = () => {
     const entry = performance.getEntriesByType('navigation')[0];
     return entry && typeof entry.startTime === 'number' ? entry.startTime : 0;
   };
+  const freezeDeepLink = () => {
+    const path = state.deepLink;
+    if (typeof path.headerVisible === 'number' && typeof path.latestMessageComplete === 'number'
+      && !Array.isArray(path.resources)) {
+      path.resources = snapshotSince(path.resourceBaseline);
+    }
+  };
+  const freezeSpawn = () => {
+    const path = state.spawn;
+    if (typeof path.routeNavigation === 'number' && !Array.isArray(path.resources)) {
+      path.resources = snapshotSince(path.resourceBaseline);
+    }
+  };
 
   const probe = {
-    initFreshDeepLink() { state.marks.deepLinkStart = navigationStart(); },
-    markFreshHeaderVisible() { mark('freshHeaderVisible'); },
-    markFreshLatestMessageComplete() { mark('freshLatestMessageComplete'); },
-    startNewTextSession() { mark('newSessionSendClick'); },
-    markNewSessionEvent() { mark('newSessionEvent'); },
-    markLocalQueue() { mark('localQueue'); },
-    markRouteNavigation() { mark('routeNavigation'); },
-    markFirstAgentEvent() { mark('firstAgentEvent'); },
-    markTurnCompletion() { mark('turnCompletion'); },
+    initFreshDeepLink() {
+      state.deepLink = { start: navigationStart(), resourceBaseline: resourceBaseline() };
+    },
+    markFreshHeaderVisible() {
+      state.deepLink.headerVisible = now();
+      freezeDeepLink();
+    },
+    markFreshLatestMessageComplete() {
+      state.deepLink.latestMessageComplete = now();
+      freezeDeepLink();
+    },
+    startNewTextSession() {
+      state.spawn = { sendClick: now(), resourceBaseline: resourceBaseline() };
+    },
+    markNewSessionEvent() { state.spawn.newSessionEvent = now(); },
+    markLocalQueue() { state.spawn.localQueue = now(); },
+    markRouteNavigation() {
+      state.spawn.routeNavigation = now();
+      freezeSpawn();
+    },
+    markFirstAgentEvent() { state.spawn.firstAgentEvent = now(); },
+    markTurnCompletion() { state.spawn.turnCompletion = now(); },
     collect() {
+      const deepLink = state.deepLink;
+      const spawn = state.spawn;
       const deepLinkInteractiveMs = Math.max(
-        requiredMark('freshHeaderVisible'),
-        requiredMark('freshLatestMessageComplete'),
-      ) - requiredMark('deepLinkStart');
-      const spawnNavigateMs = requiredMark('routeNavigation') - requiredMark('newSessionSendClick');
+        requiredMark(deepLink.headerVisible),
+        requiredMark(deepLink.latestMessageComplete),
+      ) - requiredMark(deepLink.start);
+      const spawnNavigateMs = requiredMark(spawn.routeNavigation) - requiredMark(spawn.sendClick);
       return {
-        resources: performance.getEntriesByType('resource').map(({ name }) => ({ name })),
+        resources: [...requiredSnapshot(deepLink.resources), ...requiredSnapshot(spawn.resources)],
         deepLinkInteractiveMs,
         spawnNavigateMs,
       };

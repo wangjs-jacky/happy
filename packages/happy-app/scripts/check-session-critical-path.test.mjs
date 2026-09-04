@@ -220,7 +220,7 @@ test('print-ego-probe supplies a self-contained lifecycle that collects both pat
   probe.markTurnCompletion();
 
   assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
-    resources: [{ name: 'https://example.test/api/turn' }],
+    resources: [],
     deepLinkInteractiveMs: 550,
     spawnNavigateMs: 750,
   });
@@ -252,4 +252,103 @@ test('the probe survives a same-document route transition and never accesses cre
   afterRouteTransition.markRouteNavigation();
   assert.equal(afterRouteTransition.collect().spawnNavigateMs, 10);
   assert.doesNotMatch(result.stdout, /localStorage|sessionStorage|document\.cookie|authorization|bearer|password|fetch\(|XMLHttpRequest|send\(|postMessage\(/i);
+});
+
+test('reinitializing either path invalidates prior completion marks and resource generations', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  let now = 0;
+  let resources = [{ name: 'https://example.test/unrelated-before-deep' }];
+  const context = {
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => {
+        if (type === 'navigation') return [{ startTime: 0 }];
+        if (type === 'resource') return resources;
+        return [];
+      },
+    },
+  };
+  const probe = vm.runInNewContext(result.stdout, context);
+
+  probe.initFreshDeepLink();
+  resources = [...resources, { name: 'https://example.test/old-deep' }];
+  now = 10;
+  probe.markFreshHeaderVisible();
+  now = 20;
+  probe.markFreshLatestMessageComplete();
+  probe.startNewTextSession();
+  resources = [...resources, { name: 'https://example.test/old-spawn' }];
+  now = 30;
+  probe.markRouteNavigation();
+
+  probe.initFreshDeepLink();
+  resources = [...resources, { name: 'https://example.test/current-deep' }];
+  now = 50;
+  probe.markFreshHeaderVisible();
+  assert.throws(() => probe.collect(), /lifecycle mark is missing/);
+  now = 70;
+  probe.markFreshLatestMessageComplete();
+
+  probe.startNewTextSession();
+  resources = [...resources, { name: 'https://example.test/stale-before-current-spawn' }];
+  now = 80;
+  probe.markRouteNavigation();
+  probe.startNewTextSession();
+  resources = [...resources, { name: 'https://example.test/current-spawn' }];
+  assert.throws(() => probe.collect(), /lifecycle mark is missing/);
+  now = 110;
+  probe.markRouteNavigation();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
+    resources: [
+      { name: 'https://example.test/current-deep' },
+      { name: 'https://example.test/current-spawn' },
+    ],
+    deepLinkInteractiveMs: 70,
+    spawnNavigateMs: 30,
+  });
+});
+
+test('freezes each path resource snapshot before later timing-buffer eviction', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  let now = 0;
+  let resources = [{ name: 'https://example.test/unrelated-before-deep' }];
+  const context = {
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => {
+        if (type === 'navigation') return [{ startTime: 0 }];
+        if (type === 'resource') return resources;
+        return [];
+      },
+    },
+  };
+  const probe = vm.runInNewContext(result.stdout, context);
+
+  probe.initFreshDeepLink();
+  resources = [...resources, { name: 'https://example.test/v1/sessions?legacy=deep' }];
+  now = 20;
+  probe.markFreshHeaderVisible();
+  now = 40;
+  probe.markFreshLatestMessageComplete();
+  resources = [{ name: 'https://example.test/unrelated-before-spawn' }];
+
+  probe.startNewTextSession();
+  resources = [...resources, { name: 'https://example.test/new-session-route' }];
+  now = 70;
+  probe.markRouteNavigation();
+  resources = [];
+
+  assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
+    resources: [
+      { name: 'https://example.test/v1/sessions?legacy=deep' },
+      { name: 'https://example.test/new-session-route' },
+    ],
+    deepLinkInteractiveMs: 40,
+    spawnNavigateMs: 30,
+  });
 });
