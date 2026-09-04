@@ -24,6 +24,7 @@ const AUTH_TOKEN_VARIABLES = [
 export type GitHubCliAdapterDeps = {
   readonly runner: ProcessRunner;
   readonly resolveExecutable: typeof resolveExecutable;
+  readonly resolveRealpath: (path: string) => Promise<string | null>;
   readonly env: NodeJS.ProcessEnv;
   readonly platform: string;
   readonly architecture: string;
@@ -148,6 +149,11 @@ export function parseHomebrewStableVersion(stdout: string): string | null {
   }
 }
 
+function parseHomebrewFormulaPrefix(stdout: string): string | null {
+  const prefix = stdout.split(/\r?\n/u, 1)[0]?.trim() ?? '';
+  return prefix.startsWith('/') ? prefix : null;
+}
+
 export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentComponentAdapter {
   return {
     id: 'github-cli',
@@ -183,6 +189,9 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
       const brewInfoResult = brewPath === null
         ? null
         : await deps.runner.run(brewPath, ['info', '--json=v2', 'gh'], inspectOptions);
+      const brewPrefixResult = brewPath === null
+        ? null
+        : await deps.runner.run(brewPath, ['--prefix', 'gh'], inspectOptions);
       const authResult = ghPath === null
         ? null
         : await deps.runner.run(ghPath, ['auth', 'status', '--hostname', 'github.com'], {
@@ -196,6 +205,21 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
       const stableVersion = brewInfoResult !== null && isSuccessful(brewInfoResult)
         ? parseHomebrewStableVersion(brewInfoResult.stdout)
         : null;
+      const formulaPrefix = brewPrefixResult !== null && isSuccessful(brewPrefixResult)
+        ? parseHomebrewFormulaPrefix(brewPrefixResult.stdout)
+        : null;
+      let homebrewOwned = false;
+      if (ghPath !== null && formulaPrefix !== null) {
+        try {
+          const [resolvedGhPath, resolvedFormulaGhPath] = await Promise.all([
+            deps.resolveRealpath(ghPath),
+            deps.resolveRealpath(join(formulaPrefix, 'bin', 'gh')),
+          ]);
+          homebrewOwned = resolvedGhPath !== null && resolvedGhPath === resolvedFormulaGhPath;
+        } catch {
+          homebrewOwned = false;
+        }
+      }
       const authenticationStatus = authResult === null || authResult.timedOut
         ? 'unknown'
         : authResult.exitCode === 0 ? 'authenticated' : 'missing';
@@ -213,7 +237,7 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
         inspectedAt,
         ...(brewPath === null ? { reasonCode: 'homebrew-missing' as const }
           : stableVersion === null ? { reasonCode: 'formula-unavailable' as const }
-            : ghPath !== null && ghPath !== homebrewGhPath ? { reasonCode: 'version-source-mismatch' as const } : {}),
+            : ghPath !== null && !homebrewOwned ? { reasonCode: 'version-source-mismatch' as const } : {}),
       };
     },
 

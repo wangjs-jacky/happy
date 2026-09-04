@@ -17,6 +17,7 @@ type Invocation = {
 type InspectionResults = {
   ghVersion: ProcessResult;
   brewInfo: ProcessResult;
+  brewPrefix?: ProcessResult;
   authStatus: ProcessResult;
 };
 
@@ -24,6 +25,7 @@ type TestDepsOptions = {
   brewPath?: string | null;
   ghPath?: string | null;
   applyResults?: ProcessResult[];
+  realpaths?: Record<string, string | null>;
 };
 
 function desired(version: string): DesiredComponentState {
@@ -49,7 +51,17 @@ function testDeps(
   results: InspectionResults,
   options: TestDepsOptions = {},
 ): GitHubCliAdapterDeps & { invocations: Invocation[] } {
-  const queue = [results.ghVersion, results.brewInfo, results.authStatus];
+  const queue = [
+    results.ghVersion,
+    results.brewInfo,
+    results.brewPrefix ?? {
+      exitCode: 0,
+      stdout: '/opt/homebrew/Cellar/gh/2.80.0\n',
+      stderr: '',
+      timedOut: false,
+    },
+    results.authStatus,
+  ];
   const applyResults = [...(options.applyResults ?? [])];
   const invocations: Invocation[] = [];
   const runner: ProcessRunner = {
@@ -72,6 +84,8 @@ function testDeps(
       if (name === 'brew') return options.brewPath === undefined ? '/opt/homebrew/bin/brew' : options.brewPath;
       return options.ghPath === undefined ? '/opt/homebrew/bin/gh' : options.ghPath;
     },
+    resolveRealpath: async (path) => options.realpaths?.[path]
+      ?? (path === '/opt/homebrew/bin/gh' ? '/opt/homebrew/Cellar/gh/2.80.0/bin/gh' : path),
     env: {
       PATH: '/test/bin',
       GH_TOKEN: 'temporary-token',
@@ -106,10 +120,11 @@ describe('GitHub CLI environment adapter', () => {
     expect(deps.invocations.map(({ executable, args }) => [executable, args])).toEqual([
       ['/opt/homebrew/bin/gh', ['--version']],
       ['/opt/homebrew/bin/brew', ['info', '--json=v2', 'gh']],
+      ['/opt/homebrew/bin/brew', ['--prefix', 'gh']],
       ['/opt/homebrew/bin/gh', ['auth', 'status', '--hostname', 'github.com']],
     ]);
 
-    const authEnvironment = deps.invocations[2]?.options.env;
+    const authEnvironment = deps.invocations[3]?.options.env;
     expect(authEnvironment).toMatchObject({ PATH: '/test/bin', KEEP_ME: 'safe' });
     expect(authEnvironment).not.toHaveProperty('GH_TOKEN');
     expect(authEnvironment).not.toHaveProperty('GITHUB_TOKEN');
@@ -201,6 +216,31 @@ describe('GitHub CLI environment adapter', () => {
     expect(adapter.plan(desired('2.80.0'), observed, 1_000)).toMatchObject({
       action: 'manual-repair', reasonCode: 'version-source-mismatch',
     });
+  });
+
+  it('verifies Homebrew formula ownership after resolving symlinks', async () => {
+    const results = {
+      ghVersion: { exitCode: 0, stdout: 'gh version 2.79.0 (2026-08-20)\n', stderr: '', timedOut: false },
+      brewInfo: { exitCode: 0, stdout: '{"formulae":[{"versions":{"stable":"2.80.0"}}]}', stderr: '', timedOut: false },
+      brewPrefix: { exitCode: 0, stdout: '/opt/homebrew/Cellar/gh/2.80.0\n', stderr: '', timedOut: false },
+      authStatus: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+    };
+    const manuallyInstalled = createGitHubCliAdapter(testDeps(results, {
+      realpaths: {
+        '/opt/homebrew/bin/gh': '/opt/homebrew/bin/gh',
+        '/opt/homebrew/Cellar/gh/2.80.0/bin/gh': '/opt/homebrew/Cellar/gh/2.80.0/bin/gh',
+      },
+    }));
+    const homebrewSymlink = createGitHubCliAdapter(testDeps(results));
+
+    const manuallyInstalledObservation = await manuallyInstalled.inspect();
+    const homebrewSymlinkObservation = await homebrewSymlink.inspect();
+
+    expect(manuallyInstalled.plan(desired('2.80.0'), manuallyInstalledObservation, 1_000)).toMatchObject({
+      action: 'manual-repair', reasonCode: 'version-source-mismatch',
+    });
+    expect(homebrewSymlinkObservation.reasonCode).toBeUndefined();
+    expect(homebrewSymlink.plan(desired('2.80.0'), homebrewSymlinkObservation, 1_000).action).toBe('upgrade');
   });
 
   it('requires a version before treating a resolved executable as installable', async () => {
