@@ -178,6 +178,12 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                         onPress={() => navigate('/settings/account')}
                         testID="sidebar-account-details-action"
                     />
+                    <MenuAction
+                        icon="analytics-outline"
+                        label={t('settings.usage')}
+                        onPress={() => navigate('/settings/usage')}
+                        testID="sidebar-account-usage-action"
+                    />
                     <View style={styles.dangerGroup}>
                         <MenuAction
                             destructive

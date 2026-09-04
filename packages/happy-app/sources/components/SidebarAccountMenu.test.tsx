@@ -189,7 +189,7 @@ describe('SidebarAccountMenu', () => {
         expect(mocks.triggerFocus).not.toHaveBeenCalled();
     });
 
-    it('offers profile, settings, and account destinations without help actions', () => {
+    it('offers profile, settings, account, and usage destinations without help actions', () => {
         const onOpenChange = vi.fn();
         act(() => {
             renderer = TestRenderer.create(
@@ -206,11 +206,24 @@ describe('SidebarAccountMenu', () => {
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-profile-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-settings-action' }).props.onPress());
         act(() => renderer.root.findByProps({ testID: 'sidebar-account-details-action' }).props.onPress());
+        act(() => renderer.root.findByProps({ testID: 'sidebar-account-usage-action' }).props.onPress());
 
+        const actionOrder = renderer.root
+            .findByProps({ testID: 'sidebar-account-menu' })
+            .findAllByType('Pressable')
+            .map((node: any) => node.props.testID);
+        expect(actionOrder).toEqual([
+            'sidebar-account-profile-action',
+            'sidebar-account-settings-action',
+            'sidebar-account-details-action',
+            'sidebar-account-usage-action',
+            'sidebar-account-logout-action',
+        ]);
         expect(mocks.navigate.mock.calls).toEqual([
             ['/settings/profile'],
             ['/settings'],
             ['/settings/account'],
+            ['/settings/usage'],
         ]);
         expect(renderer.root.findAllByProps({ testID: 'sidebar-account-help-action' })).toHaveLength(0);
         expect(onOpenChange).toHaveBeenCalledWith(false);
