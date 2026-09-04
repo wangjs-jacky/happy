@@ -754,3 +754,75 @@ Applied 46 migration(s), including 20260904150000_harden_vercel_connection_fence
 git diff --check
 exit 0
 ```
+
+## Cluster J quality-review follow-up: cross-process credential activation
+
+- `provider:vercel` remains the active predecessor record while replacement
+  and disconnect drains run. The replacement is instead encrypted at the
+  deterministic, account-bound pending vendor key
+  `provider:vercel:pending:<epoch>:<nonce>`; its envelope carries the same
+  epoch and nonce as the durable Account operation.
+- Pending promotion is one Prisma transaction: it checks the exact
+  `finalizing` Account epoch/nonce/replacement ID, validates the encrypted
+  pending envelope, CAS-replaces the active row, removes that exact pending
+  snapshot, then CAS-marks Account `active`. Consequently a crash cannot
+  expose an active Account without its matching active credential.
+- No process-local liveness state remains. Fresh service instances use only
+  the persisted lease. A non-expired `replacing`/`finalizing` operation is
+  inactive but untouched; after the lease expires, recovery atomically moves
+  it fail-closed to `disconnected`, removes only its exact pending row, and
+  preserves the predecessor for a deliberate subsequent cleanup/reconnect.
+- Disconnect now drains with that predecessor, then uses a transactionally
+  exact Account and encrypted-row CAS to delete the predecessor/pending rows
+  and mark disconnected. A delayed disconnect cannot remove a credential
+  activated by a later reconnect.
+
+### Cluster J red/green evidence
+
+| Regression initially exposed | Green persisted coverage |
+| --- | --- |
+| A fresh process treated a live `finalizing` callback as dead because `liveReplacementIds` was empty, deleting the credential that its original callback still needed. | A PGlite write barrier persists pending state; a second service reports inactive without deleting predecessor/pending, then the original callback atomically activates with the credential present. |
+| A callback crash between credential persistence and Account activation could leave either an unauthorized active record or no durable cleanup target. | A held pending write simulates the crash; only after durable lease expiry does a fresh service remove the exact pending row, fail closed, preserve the predecessor, and complete a later reconnect. |
+| Scope-drain failure or reconnect/disconnect ordering could erase the old cleanup credential or a newer replacement. | PGlite cases retain the predecessor after a failed old-scope drain, then reconnect successfully; they cover reconnect→disconnect→reconnect and delayed disconnect→reconnect, asserting the later active credential survives. |
+
+### Cluster J verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/vercelScopeMigration.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts \
+  --reporter=dot --silent --maxWorkers=1 --minWorkers=1
+
+Test Files  10 passed (10)
+Tests       144 passed (144)
+
+pnpm --dir packages/happy-wire exec vitest run src/interactivePreview.test.ts --reporter=dot
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --dir packages/happy-cli exec vitest run src/previews/previewApi.test.ts --config /dev/null --reporter=dot
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server exec prisma generate
+pnpm --dir packages/happy-server run typecheck
+pnpm --dir packages/happy-wire run typecheck
+pnpm --dir packages/happy-cli run typecheck
+all exit 0
+
+PGLITE_DIR=$(mktemp -d /tmp/happy-task3-cluster-j.XXXXXX) \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 46 migration(s). No schema migration was needed: pending credentials
+reuse the existing per-account ServiceAccountToken vendor-key uniqueness.
+
+git diff --check
+exit 0
+```

@@ -305,55 +305,6 @@ describe('createPreviewService publication', () => {
         expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionEpoch: 2, vercelConnectionReplacementId: null });
     });
 
-    it('makes disconnect supersede a delayed reconnect without deleting a later credential in either order', async () => {
-        const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg', teamId: 'team-1', projectId: 'prj' };
-        const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg', teamId: 'team-1' };
-        let stored: any = previous;
-        let releaseWrite!: () => void;
-        let signalWrite!: () => void;
-        const writeBlocked = new Promise<void>((resolve) => { releaseWrite = resolve; });
-        const writeStarted = new Promise<void>((resolve) => { signalWrite = resolve; });
-        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionNonce: null, vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null };
-        const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => { account[key] = value?.increment === undefined ? value : account[key] + value.increment; });
-        const matches = (where: any) => Object.entries(where).every(([key, value]) => !['id', 'vercelConnectionState', 'vercelConnectionReplacementId', 'vercelConnectionNonce'].includes(key) || account[key] === value);
-        const database: any = {
-            $transaction: async (work: any) => work({
-                account: { update: vi.fn(async ({ data }: any) => { apply(data); return { vercelConnectionEpoch: account.vercelConnectionEpoch }; }) },
-                interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })) },
-            }),
-            account: { findUnique: vi.fn(async () => ({ ...account })), updateMany: vi.fn(async ({ where, data }: any) => { if (!matches(where)) return { count: 0 }; apply(data); return { count: 1 }; }) },
-            interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })), findMany: vi.fn(async () => []) },
-        };
-        const credentialStore: any = {
-            get: vi.fn(async () => stored),
-            replaceAtConnectionVersion: vi.fn(async (_accountId: string, epoch: number, nonce: string, credential: any) => {
-                signalWrite(); await writeBlocked; stored = { ...credential, connectionEpoch: epoch, connectionNonce: nonce }; return true;
-            }),
-            replaceAtConnectionEpoch: vi.fn(async (_accountId: string, epoch: number, credential: any) => {
-                signalWrite(); await writeBlocked; stored = { ...credential, connectionEpoch: epoch }; return true;
-            }),
-            deleteAtOrBeforeConnectionEpoch: vi.fn(async (accountId: string, epoch: number) => {
-                if ((stored?.connectionEpoch ?? 0) <= epoch) stored = null;
-                return true;
-            }),
-            deleteAtConnectionVersion: vi.fn(async (_accountId: string, epoch: number, nonce: string) => {
-                if (stored?.connectionEpoch === epoch && stored?.connectionNonce === nonce) stored = null;
-                return true;
-            }),
-            delete: vi.fn(async () => { stored = null; }),
-        };
-        const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: vi.fn() as any });
-
-        const reconnect = service.reconnectVercel('u1', replacement);
-        await writeStarted;
-        await service.disconnectVercel('u1');
-        releaseWrite();
-        await expect(reconnect).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
-
-        expect(account).toMatchObject({ vercelConnectionState: 'disconnected' });
-        expect(stored).toBeNull();
-    });
-
     it('does not let a delayed disconnect erase a reconnect that begins after its epoch fence', async () => {
         const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg', teamId: 'team-1', projectId: 'prj', connectionEpoch: 0 };
         const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg', teamId: 'team-1' };
@@ -486,7 +437,7 @@ describe('createPreviewService publication', () => {
             assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/18181818-1818-4181-8181-181818181818/generation-1/index', uploadedAt: claimTime }],
         };
         const account: any = {
-            vercelConnectionEpoch: 1, vercelConnectionState: 'finalizing', vercelConnectionReplacementId: 'abandoned-replacement',
+            vercelConnectionEpoch: 1, vercelConnectionState: 'finalizing', vercelConnectionNonce: 'abandoned-replacement', vercelConnectionReplacementId: 'abandoned-replacement',
             vercelConnectionReplacementStartedAt: new Date('2026-09-04T01:40:00.000Z'),
         };
         const updateMany = vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; });
@@ -512,7 +463,7 @@ describe('createPreviewService publication', () => {
             now: () => claimTime,
         });
 
-        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_RECOVERY_REQUIRED');
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
 
         expect(account).toMatchObject({ vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null, vercelConnectionEpoch: 2 });
         expect(createDeployment).not.toHaveBeenCalled();
@@ -909,115 +860,34 @@ describe('createPreviewService publication', () => {
             Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
             return { count: 1 };
         });
-        const deleteIfCurrent = vi.fn(async () => true);
         const clientFactory = vi.fn();
         const service = createPreviewService({
             database: { account: { findUnique: vi.fn(async () => ({ ...account })) }, interactivePreview: { findFirst: vi.fn(async () => row), updateMany } } as any,
             storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn(async () => {}) } as any,
-            credentialStore: { get: vi.fn(async () => staleCredential), deleteIfCurrent } as any,
+            credentialStore: { get: vi.fn(async () => staleCredential) } as any,
             clientFactory: clientFactory as any,
         });
 
         await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_NOT_CONNECTED');
 
         expect(clientFactory).not.toHaveBeenCalled();
-        expect(deleteIfCurrent).toHaveBeenCalledWith('u1', staleCredential);
+        // A mismatched active record is unauthorized, but its exact snapshot
+        // is not discarded by a status/publish read.
     });
 
-    it('treats a credential created after disconnect as inactive and conditionally cleans only that snapshot', async () => {
+    it('treats a predecessor retained after disconnect as inactive without deleting it', async () => {
         const staleCredential = { version: 1 as const, accessToken: 'stale-secret', configurationId: 'icfg', connectionEpoch: 4, connectionNonce: 'stale-nonce' };
-        const deleteIfCurrent = vi.fn(async () => true);
         const service = createPreviewService({
             database: { account: { findUnique: vi.fn(async () => ({
                 vercelConnectionEpoch: 5, vercelConnectionState: 'disconnected', vercelConnectionNonce: 'disconnect-nonce', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
             })) } } as any,
             storage: {} as any,
-            credentialStore: { get: vi.fn(async () => staleCredential), deleteIfCurrent } as any,
+            credentialStore: { get: vi.fn(async () => staleCredential) } as any,
             clientFactory: vi.fn() as any,
         });
 
         await expect(service.getActiveVercelCredential('u1')).resolves.toBeNull();
 
-        expect(deleteIfCurrent).toHaveBeenCalledWith('u1', staleCredential);
     });
 
-    it('keeps a credential-write crash barrier inactive and lets a later reconnect replace it safely', async () => {
-        const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
-        const decode = (value: Uint8Array) => new TextDecoder().decode(value);
-        const clock = new Date('2026-09-04T02:00:00.000Z');
-        let encrypted: Uint8Array | null = null;
-        let releaseFirstCreate!: () => void;
-        const firstCreateBarrier = new Promise<void>((resolve) => { releaseFirstCreate = resolve; });
-        let holdFirstCreate = true;
-        let credentialWritten!: () => void;
-        const credentialWriteObserved = new Promise<void>((resolve) => { credentialWritten = resolve; });
-        const repository: any = {
-            find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), deleteIfCurrent: vi.fn(async (_accountId: string, _key: string, expected: Uint8Array) => {
-                if (!encrypted || JSON.stringify(encrypted) !== JSON.stringify(expected)) return false;
-                encrypted = null;
-                return true;
-            }),
-            createIfAbsent: vi.fn(async (_accountId: string, _key: string, value: Uint8Array) => {
-                if (encrypted) return false;
-                encrypted = value;
-                if (holdFirstCreate) {
-                    holdFirstCreate = false;
-                    credentialWritten();
-                    await firstCreateBarrier;
-                }
-                return true;
-            }),
-            compareAndSet: vi.fn(async (_accountId: string, _key: string, expected: Uint8Array, value: Uint8Array) => {
-                if (!encrypted || JSON.stringify(encrypted) !== JSON.stringify(expected)) return false;
-                encrypted = value;
-                return true;
-            }),
-        };
-        const credentialStore = createVercelCredentialStore({
-            repository,
-            encrypt: (_path, value) => encode(JSON.parse(value)),
-            decrypt: (_path, value) => decode(value),
-        });
-        const account: any = { id: 'u1', vercelConnectionEpoch: 5, vercelConnectionState: 'disconnected', vercelConnectionNonce: 'disconnect-nonce', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null };
-        const applyAccount = (data: any) => Object.entries(data).forEach(([key, value]: any) => { account[key] = value?.increment === undefined ? value : account[key] + value.increment; });
-        const matchesAccount = (where: any) => (!where.vercelConnectionState || where.vercelConnectionState === account.vercelConnectionState)
-            && (!where.vercelConnectionNonce || where.vercelConnectionNonce === account.vercelConnectionNonce)
-            && (!where.vercelConnectionReplacementId || where.vercelConnectionReplacementId === account.vercelConnectionReplacementId);
-        const database: any = {
-            $transaction: async (work: any) => work({
-                account: { update: vi.fn(async ({ data }: any) => { applyAccount(data); return { vercelConnectionEpoch: account.vercelConnectionEpoch }; }) },
-                interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })) },
-            }),
-            account: {
-                findUnique: vi.fn(async () => ({ ...account })),
-                updateMany: vi.fn(async ({ where, data }: any) => {
-                    if (!matchesAccount(where)) return { count: 0 };
-                    applyAccount(data); return { count: 1 };
-                }),
-            },
-            interactivePreview: { findMany: vi.fn(async () => []), updateMany: vi.fn(async () => ({ count: 0 })) },
-        };
-        const service = createPreviewService({ database, storage: { deletePreview: vi.fn(async () => {}) } as any, credentialStore: credentialStore as any, clientFactory: vi.fn() as any, now: () => clock });
-
-        const interrupted = service.reconnectVercel('u1', { version: 1, accessToken: 'first-secret', configurationId: 'icfg-first', teamId: 'team-first' });
-        await credentialWriteObserved;
-
-        // This is the exact persisted state if the process stops after
-        // createIfAbsent and before the Account activation compare-and-set.
-        await expect(service.getActiveVercelCredential('u1')).resolves.toBeNull();
-        expect(account).toMatchObject({ vercelConnectionState: 'finalizing', vercelConnectionEpoch: 6 });
-
-        // A fresh process has no live callback marker. Its status path must
-        // reconcile the interrupted encrypted write before a later reconnect.
-        const restartedService = createPreviewService({ database, storage: { deletePreview: vi.fn(async () => {}) } as any, credentialStore: credentialStore as any, clientFactory: vi.fn() as any, now: () => clock });
-        await expect(restartedService.getActiveVercelCredential('u1')).resolves.toBeNull();
-        await expect(credentialStore.get('u1')).resolves.toBeNull();
-
-        await expect(restartedService.reconnectVercel('u1', { version: 1, accessToken: 'later-secret', configurationId: 'icfg-later', teamId: 'team-later' })).resolves.toBeUndefined();
-        releaseFirstCreate();
-        await expect(interrupted).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
-
-        await expect(restartedService.getActiveVercelCredential('u1')).resolves.toMatchObject({ accessToken: 'later-secret', connectionEpoch: 7 });
-        expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionEpoch: 7 });
-    });
 });

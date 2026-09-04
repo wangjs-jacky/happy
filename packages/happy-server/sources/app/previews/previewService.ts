@@ -97,7 +97,6 @@ export function createPreviewService(dependencies: {
     const credentialStore = dependencies.credentialStore;
     const clientFactory = dependencies.clientFactory;
     const now = dependencies.now || (() => new Date());
-    const liveReplacementIds = new Set<string>();
     const publicationRetryAt = (time: Date, retryCount: number) => new Date(time.getTime() + Math.min(PUBLICATION_RECONCILE_MAX_MS, PUBLICATION_RECONCILE_BASE_MS * 2 ** Math.min(retryCount, 10)));
     const accountConnection = async (accountId: string): Promise<{ epoch: number; state: string; nonce: string | null; replacementId: string | null; replacementStartedAt: Date | null }> => {
         const account = (database as any).account;
@@ -117,25 +116,47 @@ export function createPreviewService(dependencies: {
     const credentialMatchesConnection = (credential: VercelCredential, connection: Awaited<ReturnType<typeof accountConnection>>): boolean =>
         (credential.connectionEpoch ?? 0) === connection.epoch
         && (credential.connectionNonce ?? null) === connection.nonce;
+    const staleConnectionCutoff = (): Date => new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS);
+    const recoverStaleConnection = async (accountId: string, observed?: Awaited<ReturnType<typeof accountConnection>>): Promise<boolean> => {
+        observed ||= await accountConnection(accountId);
+        if (!['replacing', 'finalizing', 'disconnecting'].includes(observed.state) || !observed.replacementId || !observed.nonce
+            || !observed.replacementStartedAt || observed.replacementStartedAt > staleConnectionCutoff()) return false;
+        const recoveryNonce = randomUUID();
+        const recover = async (transaction: any): Promise<boolean> => {
+            const recovered = await transaction.account.updateMany({ where: {
+                id: accountId, vercelConnectionEpoch: observed.epoch, vercelConnectionState: observed.state,
+                vercelConnectionNonce: observed.nonce, vercelConnectionReplacementId: observed.replacementId,
+                vercelConnectionReplacementStartedAt: { lte: staleConnectionCutoff() },
+            }, data: {
+                vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: 'disconnected', vercelConnectionNonce: recoveryNonce,
+                vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+            } });
+            if (recovered.count !== 1) return false;
+            await (credentialStore as any).deletePendingConnectionReplacementInTransaction?.(
+                transaction, accountId, observed.epoch, observed.nonce,
+            );
+            return true;
+        };
+        if ((database as any).$transaction) return (database as any).$transaction(recover);
+        return recover(database as any);
+    };
     const activeCredential = async (accountId: string): Promise<VercelCredential | null> => {
+        let connection = await accountConnection(accountId);
+        if (await recoverStaleConnection(accountId, connection)) connection = await accountConnection(accountId);
         const credential = await credentialStore.get(accountId);
         if (!credential) return null;
-        const connection = await accountConnection(accountId);
         if (connection.state === 'active' && credentialMatchesConnection(credential, connection)) return credential;
-
-        // A matching credential can be between its encrypted write and the
-        // durable Account activation. Leave that narrow live callback window
-        // alone; it is nevertheless never authorized until activation.
-        const replacementIsLive = (connection.state === 'replacing' || connection.state === 'finalizing')
-            && credentialMatchesConnection(credential, connection)
-            && Boolean(connection.replacementId)
-            && liveReplacementIds.has(connection.replacementId!)
-            && Boolean(connection.replacementStartedAt)
-            && connection.replacementStartedAt! > new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS);
-        if (!replacementIsLive) {
-            await (credentialStore as any).deleteIfCurrent?.(accountId, credential).catch(() => undefined);
-        }
         return null;
+    };
+    // During a reconnect/disconnect drain, the old active credential is not
+    // authorized for normal work but remains the only safe cleanup credential.
+    const predecessorCredential = async (accountId: string): Promise<VercelCredential | null> => {
+        let connection = await accountConnection(accountId);
+        if (await recoverStaleConnection(accountId, connection)) connection = await accountConnection(accountId);
+        const credential = await credentialStore.get(accountId);
+        if (!credential) return null;
+        if (connection.state === 'active') return credentialMatchesConnection(credential, connection) ? credential : null;
+        return credential;
     };
     const connectionIsCurrent = async (accountId: string, epoch: number): Promise<boolean> => {
         const connection = await accountConnection(accountId);
@@ -143,22 +164,7 @@ export function createPreviewService(dependencies: {
     };
     const requireActiveConnection = async (accountId: string): Promise<number> => {
         let connection = await accountConnection(accountId);
-        if (connection.state !== 'active' && connection.replacementId && connection.replacementStartedAt
-            && connection.replacementStartedAt <= new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS)) {
-            const recoveryNonce = randomUUID();
-            const recovered = await (database as any).account.updateMany({ where: {
-                id: accountId, vercelConnectionState: connection.state, vercelConnectionReplacementId: connection.replacementId,
-                vercelConnectionReplacementStartedAt: { lte: new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS) },
-            }, data: {
-                vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: 'disconnected', vercelConnectionNonce: recoveryNonce,
-                vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
-            } });
-            if (recovered.count === 1) {
-                await (credentialStore as any).deleteAtOrBeforeConnectionEpoch?.(accountId, connection.epoch).catch(() => undefined);
-                throw new Error('VERCEL_CONNECTION_REPLACEMENT_RECOVERY_REQUIRED');
-            }
-            connection = await accountConnection(accountId);
-        }
+        if (await recoverStaleConnection(accountId, connection)) connection = await accountConnection(accountId);
         if (connection.state !== 'active') throw new Error('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
         return connection.epoch;
     };
@@ -658,7 +664,7 @@ export function createPreviewService(dependencies: {
     },
     async disconnectVercel(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }> {
         const disconnectId = randomUUID();
-        const credential = await activeCredential(accountId);
+        const credential = await predecessorCredential(accountId);
         const beginDisconnect = async (transaction: any): Promise<number> => {
             if (!transaction.account?.update) {
                 await transaction.interactivePreview.updateMany({ where: {
@@ -770,29 +776,35 @@ export function createPreviewService(dependencies: {
                 }, data: { errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } });
             }
         }
-        if ((credentialStore as any).deleteAtOrBeforeConnectionEpoch) {
-            await (credentialStore as any).deleteAtOrBeforeConnectionEpoch(accountId, disconnectEpoch);
+        if ((credentialStore as any).disconnectConnectionInTransaction && (database as any).$transaction) {
+            const disconnected = await (database as any).$transaction((transaction: any) =>
+                (credentialStore as any).disconnectConnectionInTransaction(transaction, accountId, disconnectEpoch, disconnectId, credential),
+            );
+            if (!disconnected) warning = true;
         } else {
-            await credentialStore.delete(accountId);
-        }
-        if ((database as any).account?.updateMany) {
-            const disconnected = await (database as any).account.updateMany({ where: {
-                id: accountId, vercelConnectionState: 'disconnecting', vercelConnectionNonce: disconnectId,
-                vercelConnectionReplacementId: disconnectId,
-            }, data: {
-                vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
-            } });
-            if (disconnected.count !== 1) warning = true;
+            if ((credentialStore as any).deleteAtOrBeforeConnectionEpoch) {
+                await (credentialStore as any).deleteAtOrBeforeConnectionEpoch(accountId, disconnectEpoch);
+            } else {
+                await credentialStore.delete(accountId);
+            }
+            if ((database as any).account?.updateMany) {
+                const disconnected = await (database as any).account.updateMany({ where: {
+                    id: accountId, vercelConnectionEpoch: disconnectEpoch, vercelConnectionState: 'disconnecting', vercelConnectionNonce: disconnectId,
+                    vercelConnectionReplacementId: disconnectId,
+                }, data: {
+                    vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+                } });
+                if (disconnected.count !== 1) warning = true;
+            }
         }
         return warning ? { warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } : {};
     },
     async reconnectVercel(accountId: string, replacement: VercelCredential): Promise<void> {
-        const previous = await activeCredential(accountId);
+        const previous = await predecessorCredential(accountId);
         const sameScope = previous !== null
             && previous.configurationId === replacement.configurationId
             && vercelTeamScope(previous.teamId) === vercelTeamScope(replacement.teamId);
         const replacementId = randomUUID();
-        liveReplacementIds.add(replacementId);
         let epoch: number;
         try {
             epoch = await (database as any).$transaction(async (transaction: any) => {
@@ -832,10 +844,7 @@ export function createPreviewService(dependencies: {
             }
             return account.vercelConnectionEpoch as number;
             });
-        } catch (error) {
-            liveReplacementIds.delete(replacementId);
-            throw error;
-        }
+        } catch (error) { throw error; }
         const replacementOwnsConnection = async (): Promise<boolean> => {
             const connection = await accountConnection(accountId);
             return connection.replacementId === replacementId
@@ -861,12 +870,11 @@ export function createPreviewService(dependencies: {
                 accountId, status: 'deleting', cleanupClaimedAt: null,
             }, data: { errorCode: 'VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING' } });
             await rollbackReplacement();
-            liveReplacementIds.delete(replacementId);
             throw new Error('VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
         };
         const replacementSuperseded = async (): Promise<never> => {
+            await (credentialStore as any).deletePendingConnectionReplacement?.(accountId, epoch, replacementId).catch(() => undefined);
             await rollbackReplacement();
-            liveReplacementIds.delete(replacementId);
             throw new Error('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
         };
 
@@ -957,49 +965,38 @@ export function createPreviewService(dependencies: {
             await replacementCleanupFailed();
         }
 
-        let finalizing: { count: number };
-        try {
-            finalizing = await (database as any).account.updateMany({ where: {
-                id: accountId, vercelConnectionState: 'replacing', vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
-            }, data: { vercelConnectionState: 'finalizing', vercelConnectionReplacementStartedAt: now() } });
-        } catch (error) {
-            liveReplacementIds.delete(replacementId);
-            throw error;
-        }
+        const finalizing = await (database as any).account.updateMany({ where: {
+            id: accountId, vercelConnectionEpoch: epoch, vercelConnectionState: 'replacing',
+            vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
+        }, data: { vercelConnectionState: 'finalizing', vercelConnectionReplacementStartedAt: now() } });
         if (finalizing.count !== 1) await replacementSuperseded();
         const credential = {
             ...replacement,
             ...(sameScope && previous?.projectId ? { projectId: previous.projectId } : {}),
         };
-        let replaced: boolean;
-        try {
-            replaced = (credentialStore as any).replaceAtConnectionVersion
-                ? await (credentialStore as any).replaceAtConnectionVersion(accountId, epoch, replacementId, credential)
-                : await (credentialStore as any).replaceAtConnectionEpoch(accountId, epoch, credential);
-        } catch (error) {
-            await rollbackReplacement();
-            liveReplacementIds.delete(replacementId);
-            throw error;
+        if ((credentialStore as any).stageConnectionReplacement && (credentialStore as any).activatePendingConnectionReplacementInTransaction
+            && (database as any).$transaction) {
+            // The pending record is durable but inactive. Promotion, pending
+            // deletion, and Account activation share one Prisma transaction.
+            await (credentialStore as any).stageConnectionReplacement(accountId, epoch, replacementId, credential);
+            const activated = await (database as any).$transaction((transaction: any) =>
+                (credentialStore as any).activatePendingConnectionReplacementInTransaction(transaction, accountId, epoch, replacementId),
+            );
+            if (!activated) await replacementSuperseded();
+            return;
         }
-        if (!replaced) {
-            await replacementSuperseded();
-        }
-        let activated: { count: number };
-        try {
-            activated = await (database as any).account.updateMany({ where: {
-                id: accountId, vercelConnectionState: 'finalizing', vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
-            }, data: { vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null } });
-        } catch (error) {
-            await (credentialStore as any).deleteAtConnectionVersion?.(accountId, epoch, replacementId).catch(() => undefined);
-            await rollbackReplacement();
-            liveReplacementIds.delete(replacementId);
-            throw error;
-        }
-        if (activated.count !== 1) {
-            await (credentialStore as any).deleteAtConnectionVersion?.(accountId, epoch, replacementId).catch(() => undefined);
-            await replacementSuperseded();
-        }
-        liveReplacementIds.delete(replacementId);
+
+        // Narrow compatibility path for legacy unit doubles. The production
+        // store always takes the pending-row transaction above.
+        const replaced = (credentialStore as any).replaceAtConnectionVersion
+            ? await (credentialStore as any).replaceAtConnectionVersion(accountId, epoch, replacementId, credential)
+            : await (credentialStore as any).replaceAtConnectionEpoch(accountId, epoch, credential);
+        if (!replaced) await replacementSuperseded();
+        const activated = await (database as any).account.updateMany({ where: {
+            id: accountId, vercelConnectionEpoch: epoch, vercelConnectionState: 'finalizing',
+            vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
+        }, data: { vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null } });
+        if (activated.count !== 1) await replacementSuperseded();
     },
     };
 }
