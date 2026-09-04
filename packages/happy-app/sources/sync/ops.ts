@@ -210,6 +210,7 @@ function normalizeSpawnSessionResult(result: unknown): SpawnSessionResult {
 export interface SpawnSessionOptions {
     machineId: string;
     directory: string;
+    traceId?: string;
     approvedNewDirectoryCreation?: boolean;
     token?: string;
     agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw';
@@ -290,12 +291,13 @@ export interface ResumeSessionOptions {
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
 
-    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
+    const { machineId, directory, traceId, approvedNewDirectoryCreation = false, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = options;
 
     try {
         const result = await apiSocket.machineRPC<SpawnSessionResult, {
             type: 'spawn-in-directory'
             directory: string
+            traceId?: string,
             approvedNewDirectoryCreation?: boolean,
             token?: string,
             agent?: 'ask' | 'codex' | 'claude' | 'gemini' | 'opencode' | 'openclaw',
@@ -307,7 +309,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
         }>(
             machineId,
             'spawn-happy-session',
-            { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId },
+            { type: 'spawn-in-directory', directory, traceId, approvedNewDirectoryCreation, token, agent, environmentVariables, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId },
             { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
         return normalizeSpawnSessionResult(result);

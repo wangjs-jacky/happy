@@ -4,10 +4,14 @@ import type { Machine } from './types';
 
 const {
     mockIo,
-    mockShouldReconnect
+    mockShouldReconnect,
+    rpcHandlers,
+    mockLoggerDebug,
 } = vi.hoisted(() => ({
     mockIo: vi.fn(),
-    mockShouldReconnect: vi.fn(() => true)
+    mockShouldReconnect: vi.fn(() => true),
+    rpcHandlers: new Map<string, (params: any) => any>(),
+    mockLoggerDebug: vi.fn(),
 }));
 
 vi.mock('socket.io-client', () => ({
@@ -24,7 +28,7 @@ vi.mock('@/configuration', () => ({
 
 vi.mock('@/ui/logger', () => ({
     logger: {
-        debug: vi.fn(),
+        debug: mockLoggerDebug,
         debugLargeJson: vi.fn()
     }
 }));
@@ -38,7 +42,10 @@ vi.mock('@/api/rpc/RpcHandlerManager', () => ({
         onSocketConnect = vi.fn();
         onSocketDisconnect = vi.fn();
         handleRequest = vi.fn(async () => '');
-        registerHandler = vi.fn();
+        hasHandler = vi.fn(() => false);
+        registerHandler = vi.fn((method: string, handler: (params: any) => any) => {
+            rpcHandlers.set(method, handler);
+        });
         unregisterHandler = vi.fn();
     }
 }));
@@ -100,6 +107,7 @@ describe('ApiMachineClient socket reconnection', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        rpcHandlers.clear();
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
         mockSocket = {
@@ -147,5 +155,33 @@ describe('ApiMachineClient socket reconnection', () => {
         expect(mockSocket.connect).toHaveBeenCalledTimes(2);
 
         client.shutdown();
+    });
+
+    it('propagates a startup trace into the daemon spawn without logging sensitive params', async () => {
+        const spawnSession = vi.fn().mockResolvedValue({ type: 'success', sessionId: 'session-1' });
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({
+            spawnSession,
+            stopSession: vi.fn(),
+            requestShutdown: vi.fn(),
+        });
+
+        const handler = rpcHandlers.get('spawn-happy-session');
+        expect(handler).toBeDefined();
+        await handler?.({
+            directory: '/private/project',
+            agent: 'codex',
+            traceId: '00000000-0000-4000-8000-000000000001',
+            token: 'token-canary',
+            prompt: 'prompt-canary',
+        });
+
+        expect(spawnSession).toHaveBeenCalledWith(expect.objectContaining({
+            directory: '/private/project',
+            agent: 'codex',
+            traceId: '00000000-0000-4000-8000-000000000001',
+            machineId: 'test-machine-id',
+        }));
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('canary');
     });
 });

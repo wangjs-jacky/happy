@@ -4,9 +4,10 @@ import axios from 'axios';
 import { connectionState } from '@/utils/serverConnectionErrors';
 
 // Use vi.hoisted to ensure mock functions are available when vi.mock factory runs
-const { mockPost, mockIsAxiosError } = vi.hoisted(() => ({
+const { mockPost, mockIsAxiosError, mockLoggerDebug } = vi.hoisted(() => ({
     mockPost: vi.fn(),
-    mockIsAxiosError: vi.fn(() => true)
+    mockIsAxiosError: vi.fn(() => true),
+    mockLoggerDebug: vi.fn(),
 }));
 
 vi.mock('axios', () => ({
@@ -19,7 +20,7 @@ vi.mock('axios', () => ({
 
 vi.mock('@/ui/logger', () => ({
     logger: {
-        debug: vi.fn()
+        debug: mockLoggerDebug,
     }
 }));
 
@@ -81,7 +82,52 @@ describe('Api server error handling', () => {
         api = await ApiClient.create(mockCredential);
     });
 
+    afterEach(() => {
+        delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+    });
+
     describe('getOrCreateSession', () => {
+        it('records worker session creation at the successful HTTP boundary with only allowlisted fields', async () => {
+            process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
+            mockPost.mockResolvedValue({
+                data: {
+                    session: {
+                        id: 'session-1',
+                        seq: 0,
+                        metadata: 'encrypted-metadata',
+                        metadataVersion: 0,
+                        agentState: null,
+                        agentStateVersion: 0,
+                    },
+                },
+            });
+
+            await api.getOrCreateSession({
+                tag: 'tag-canary',
+                metadata: { ...testMetadata, machineId: 'machine-1' },
+                state: null,
+            });
+            await api.getOrCreateSession({
+                tag: 'retry-tag-canary',
+                metadata: { ...testMetadata, machineId: 'machine-1' },
+                state: null,
+            });
+
+            const stageEvents = mockLoggerDebug.mock.calls
+                .filter(([label]) => label === '[SESSION STARTUP]')
+                .map(([, event]) => event);
+            expect(stageEvents).toEqual([
+                expect.objectContaining({
+                    traceId: '00000000-0000-4000-8000-000000000001',
+                    stage: 'worker.session.created',
+                    sessionId: 'session-1',
+                    machineId: 'machine-1',
+                    outcome: 'success',
+                }),
+            ]);
+            expect(JSON.stringify(stageEvents)).not.toContain('canary');
+        });
+
         it('should return null when Happy server is unreachable (ECONNREFUSED)', async () => {
             const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 

@@ -30,6 +30,47 @@ import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
 
+const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type TracedSpawnSessionOptions = SpawnSessionOptions & { traceId?: string };
+type DaemonStartupTraceContext = {
+  traceId: string;
+  startedAt: number;
+  machineId?: string;
+};
+
+function startupTraceContext(options: TracedSpawnSessionOptions): DaemonStartupTraceContext | undefined {
+  if (typeof options.traceId !== 'string' || !STARTUP_TRACE_ID_RE.test(options.traceId)) return undefined;
+  return {
+    traceId: options.traceId,
+    startedAt: Date.now(),
+    ...(typeof options.machineId === 'string' ? { machineId: options.machineId } : {}),
+  };
+}
+
+function logDaemonStartupStage(
+  trace: DaemonStartupTraceContext | undefined,
+  stage: 'daemon.spawn.child_started' | 'daemon.spawn.webhook_received',
+  options: {
+    outcome: 'success' | 'error';
+    sessionId?: string;
+    errorCode?: string;
+  },
+): void {
+  if (!trace) return;
+  const timestamp = Date.now();
+  logger.debug('[SESSION STARTUP]', {
+    traceId: trace.traceId,
+    stage,
+    timestamp,
+    duration: timestamp - trace.startedAt,
+    outcome: options.outcome,
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    ...(trace.machineId ? { machineId: trace.machineId } : {}),
+    ...(options.errorCode ? { errorCode: options.errorCode } : {}),
+  });
+}
+
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
     return "'" + s.replace(/'/g, "'\\''") + "'";
@@ -200,14 +241,13 @@ export async function startDaemon(): Promise<void> {
 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
+    const pidToStartupTrace = new Map<number, DaemonStartupTraceContext>();
 
     // Helper functions
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
 
     // Handle webhook from happy session reporting itself
     const onHappySessionWebhook = (sessionId: string, sessionMetadata: Metadata, encryption?: SessionEncryptionData) => {
-      logger.debugLargeJson(`[DAEMON RUN] Session reported`, sessionMetadata);
-
       const pid = sessionMetadata.hostPid;
       if (!pid) {
         logger.debug(`[DAEMON RUN] Session webhook missing hostPid for sessionId: ${sessionId}`);
@@ -234,6 +274,12 @@ export async function startDaemon(): Promise<void> {
       const existingSession = pidToTrackedSession.get(pid);
 
       if (existingSession && existingSession.startedBy === 'daemon') {
+        const trace = pidToStartupTrace.get(pid);
+        logDaemonStartupStage(trace, 'daemon.spawn.webhook_received', {
+          outcome: 'success',
+          sessionId,
+        });
+        pidToStartupTrace.delete(pid);
         // Update daemon-spawned session with reported data
         existingSession.happySessionId = sessionId;
         existingSession.happySessionMetadataFromLocalWebhook = sessionMetadata;
@@ -262,21 +308,21 @@ export async function startDaemon(): Promise<void> {
     };
 
     // Spawn a new session (sessionId reserved for future --resume functionality)
-    const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
-      logger.debugLargeJson('[DAEMON RUN] Spawning session', options);
+    const spawnSession = async (options: TracedSpawnSessionOptions): Promise<SpawnSessionResult> => {
+      const trace = startupTraceContext(options);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
 
       try {
         await fs.access(directory);
-        logger.debug(`[DAEMON RUN] Directory exists: ${directory}`);
+        logger.debug('[DAEMON RUN] Spawn directory exists');
       } catch (error) {
-        logger.debug(`[DAEMON RUN] Directory doesn't exist, creating: ${directory}`);
+        logger.debug('[DAEMON RUN] Spawn directory does not exist');
 
         // Check if directory creation is approved
         if (!approvedNewDirectoryCreation) {
-          logger.debug(`[DAEMON RUN] Directory creation not approved for: ${directory}`);
+          logger.debug('[DAEMON RUN] Spawn directory creation not approved');
           return {
             type: 'requestToApproveDirectoryCreation',
             directory
@@ -285,7 +331,7 @@ export async function startDaemon(): Promise<void> {
 
         try {
           await fs.mkdir(directory, { recursive: true });
-          logger.debug(`[DAEMON RUN] Successfully created directory: ${directory}`);
+          logger.debug('[DAEMON RUN] Spawn directory created');
           directoryCreated = true;
         } catch (mkdirError: any) {
           let errorMessage = `Unable to create directory at '${directory}'. `;
@@ -303,7 +349,7 @@ export async function startDaemon(): Promise<void> {
             errorMessage += `System error: ${mkdirError.message || mkdirError}. Please verify the path is valid and you have the necessary permissions.`;
           }
 
-          logger.debug(`[DAEMON RUN] Directory creation failed: ${errorMessage}`);
+          logger.debug('[DAEMON RUN] Spawn directory creation failed', { errorCode: 'directory-create-failed' });
           return {
             type: 'error',
             errorMessage
@@ -330,6 +376,10 @@ export async function startDaemon(): Promise<void> {
           ...authEnv,
           ...(options.environmentVariables ?? {}),
         };
+        delete extraEnv.HAPPY_SESSION_STARTUP_TRACE_ID;
+        if (trace) {
+          extraEnv.HAPPY_SESSION_STARTUP_TRACE_ID = trace.traceId;
+        }
         if (options.parentSessionId) {
           extraEnv.HAPPY_FORKED_FROM_SESSION_ID = options.parentSessionId;
         }
@@ -346,13 +396,10 @@ export async function startDaemon(): Promise<void> {
         if (options.resumeCodexThreadId) {
           extraEnv.HAPPY_FORK_CODEX_THREAD_ID = options.resumeCodexThreadId;
         }
-        logger.debug(`[DAEMON RUN] Environment variable keys (before expansion) (${Object.keys(extraEnv).length}): ${Object.keys(extraEnv).join(', ')}`);
-
         // Expand ${VAR} references from daemon's process.env
         // This ensures variable substitution works in both tmux and non-tmux modes
         // Example: ANTHROPIC_AUTH_TOKEN="${Z_AI_AUTH_TOKEN}" → ANTHROPIC_AUTH_TOKEN="sk-real-key"
         extraEnv = expandEnvironmentVariables(extraEnv, process.env);
-        logger.debug(`[DAEMON RUN] After variable expansion: ${Object.keys(extraEnv).join(', ')}`);
 
         // Fail fast if any passed-through environment variable still contains an
         // unresolved ${VAR} reference after expansion.
@@ -378,7 +425,7 @@ export async function startDaemon(): Promise<void> {
         if (unresolvedEnvEntries.length > 0) {
           const errorMessage = `Session environment is invalid - environment variables not found in daemon: ${unresolvedEnvEntries.join('; ')}. ` +
             `Ensure these variables are set in the daemon's environment before starting sessions.`;
-          logger.warn(`[DAEMON RUN] ${errorMessage}`);
+          logger.warn('[DAEMON RUN] Session environment is invalid', { errorCode: 'unresolved-environment-variable' });
           return {
             type: 'error',
             errorMessage
@@ -404,8 +451,7 @@ export async function startDaemon(): Promise<void> {
 
         if (useTmux && tmuxSessionName !== undefined) {
           // Try to spawn in tmux session
-          const sessionDesc = tmuxSessionName || 'current/most recent session';
-          logger.debug(`[DAEMON RUN] Attempting to spawn session in tmux: ${sessionDesc}`);
+          logger.debug('[DAEMON RUN] Attempting to spawn session in tmux');
 
           const tmux = getTmuxUtilities(tmuxSessionName);
 
@@ -456,7 +502,7 @@ export async function startDaemon(): Promise<void> {
           }, sessionEnv);  // Pass complete environment for tmux session
 
           if (tmuxResult.success) {
-            logger.debug(`[DAEMON RUN] Successfully spawned in tmux session: ${tmuxResult.sessionId}, PID: ${tmuxResult.pid}`);
+            logger.debug('[DAEMON RUN] Successfully spawned in tmux');
 
             // Validate we got a PID from tmux
             if (!tmuxResult.pid) {
@@ -476,6 +522,8 @@ export async function startDaemon(): Promise<void> {
 
             // Add to tracking map so webhook can find it later
             pidToTrackedSession.set(tmuxResult.pid, trackedSession);
+            if (trace) pidToStartupTrace.set(tmuxResult.pid, trace);
+            logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' });
 
             // Wait for webhook to populate session with happySessionId (exact same as regular flow)
             logger.debug(`[DAEMON RUN] Waiting for session webhook for PID ${tmuxResult.pid} (tmux)`);
@@ -484,6 +532,7 @@ export async function startDaemon(): Promise<void> {
               // Set timeout for webhook (same as regular flow)
               const timeout = setTimeout(() => {
                 pidToAwaiter.delete(tmuxResult.pid!);
+                pidToStartupTrace.delete(tmuxResult.pid!);
                 logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${tmuxResult.pid} (tmux)`);
                 resolve({
                   type: 'error',
@@ -502,7 +551,7 @@ export async function startDaemon(): Promise<void> {
               });
             });
           } else {
-            logger.debug(`[DAEMON RUN] Failed to spawn in tmux: ${tmuxResult.error}, falling back to regular spawning`);
+            logger.debug('[DAEMON RUN] Failed to spawn in tmux; using regular spawning');
             useTmux = false;
           }
         }
@@ -571,6 +620,7 @@ export async function startDaemon(): Promise<void> {
             },
             directoryCreated,
             message: directoryCreated ? `The path '${directory}' did not exist. We created a new folder and spawned a new session there.` : undefined,
+            trace,
           });
         }
 
@@ -581,7 +631,11 @@ export async function startDaemon(): Promise<void> {
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.debug('[DAEMON RUN] Failed to spawn session:', error);
+        logger.debug('[DAEMON RUN] Failed to spawn session', { errorCode: 'child-spawn-failed' });
+        logDaemonStartupStage(trace, 'daemon.spawn.child_started', {
+          outcome: 'error',
+          errorCode: 'child-spawn-failed',
+        });
         return {
           type: 'error',
           errorMessage: `Failed to spawn session: ${errorMessage}`
@@ -595,12 +649,14 @@ export async function startDaemon(): Promise<void> {
       env,
       directoryCreated = false,
       message,
+      trace,
     }: {
       args: string[];
       cwd: string;
       env: NodeJS.ProcessEnv;
       directoryCreated?: boolean;
       message?: string;
+      trace?: DaemonStartupTraceContext;
     }): Promise<SpawnSessionResult> => {
       const happyProcess = spawnHappyCLI(args, {
         cwd,
@@ -611,6 +667,10 @@ export async function startDaemon(): Promise<void> {
 
       if (!happyProcess.pid) {
         logger.debug('[DAEMON RUN] Failed to spawn process - no PID returned');
+        logDaemonStartupStage(trace, 'daemon.spawn.child_started', {
+          outcome: 'error',
+          errorCode: 'child-pid-missing',
+        });
         return Promise.resolve({
           type: 'error',
           errorMessage: 'Failed to spawn Happy process - no PID returned'
@@ -628,6 +688,8 @@ export async function startDaemon(): Promise<void> {
       };
 
       pidToTrackedSession.set(happyProcess.pid, trackedSession);
+      if (trace) pidToStartupTrace.set(happyProcess.pid, trace);
+      logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' });
 
       happyProcess.on('exit', (code, signal) => {
         logger.debug(`[DAEMON RUN] Child PID ${happyProcess.pid} exited with code ${code}, signal ${signal}`);
@@ -636,8 +698,8 @@ export async function startDaemon(): Promise<void> {
         }
       });
 
-      happyProcess.on('error', (error) => {
-        logger.debug(`[DAEMON RUN] Child process error:`, error);
+      happyProcess.on('error', () => {
+        logger.debug('[DAEMON RUN] Child process error', { errorCode: 'child-process-error' });
         if (happyProcess.pid) {
           onChildExited(happyProcess.pid);
         }
@@ -648,6 +710,7 @@ export async function startDaemon(): Promise<void> {
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
           pidToAwaiter.delete(happyProcess.pid!);
+          pidToStartupTrace.delete(happyProcess.pid!);
           logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${happyProcess.pid}`);
           resolve({
             type: 'error',
@@ -841,6 +904,7 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
       }
       pidToTrackedSession.delete(pid);
+      pidToStartupTrace.delete(pid);
     };
 
     // Start control server

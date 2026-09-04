@@ -61,6 +61,14 @@ interface RawEncryption {
     decryptRaw(encrypted: string): Promise<unknown>;
 }
 
+const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function startupTraceIdFromParams(params: unknown): string | undefined {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) return undefined;
+    const traceId = (params as { traceId?: unknown }).traceId;
+    return typeof traceId === 'string' && STARTUP_TRACE_ID_RE.test(traceId) ? traceId : undefined;
+}
+
 //
 // Main Class
 //
@@ -305,6 +313,7 @@ export class ApiSocket {
         };
 
         const encryption = getEncryption();
+        const traceId = startupTraceIdFromParams(params);
         const encryptedParams = await withinOverallDeadline(encryption.encryptRaw(params));
 
         if (this.socket !== rpcSocket || !rpcSocket.connected) {
@@ -322,6 +331,7 @@ export class ApiSocket {
             rpcSocket.timeout(remainingOverallMs).emitWithAck('rpc-call', {
                 method,
                 params: encryptedParams,
+                ...(traceId ? { traceId } : {}),
             }),
         );
 

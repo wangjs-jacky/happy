@@ -11,6 +11,8 @@ import { useSpawnSession, type SpawnSessionArgs } from './useSpawnSession';
 import TestRenderer from 'react-test-renderer';
 
 const mocks = vi.hoisted(() => ({
+    randomUUID: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
+    traceStartup: vi.fn(),
     spawnResult: { type: 'success', sessionId: 'session-1' } as SpawnSessionResult,
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
@@ -23,6 +25,13 @@ const mocks = vi.hoisted(() => ({
     applySettings: vi.fn(),
     alert: vi.fn(),
     confirm: vi.fn(),
+}));
+
+vi.mock('expo-crypto', () => ({
+    randomUUID: mocks.randomUUID,
+}));
+vi.mock('@/sync/sessionStartupTrace', () => ({
+    traceStartup: mocks.traceStartup,
 }));
 
 vi.mock('@/sync/ops', () => ({
@@ -248,8 +257,11 @@ describe('useSpawnSession', () => {
         }
     });
 
-    it('keeps spawn, hydrate, configure, local queue, and navigation in order', async () => {
+    it('creates one trace and keeps traced spawn, hydrate, configure, local queue, and navigation in order', async () => {
         const order: string[] = [];
+        mocks.traceStartup.mockImplementation((event: { stage: string }) => {
+            order.push(event.stage);
+        });
         mocks.machineSpawnNewSession.mockImplementation(async () => {
             order.push('spawn');
             return { type: 'success', sessionId: 'session-1' };
@@ -269,7 +281,50 @@ describe('useSpawnSession', () => {
             await hook.current().spawn(args);
         });
 
-        expect(order).toEqual(['spawn', 'hydrate', 'configure', 'send', 'navigate']);
+        expect(mocks.randomUUID).toHaveBeenCalledTimes(1);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledWith(expect.objectContaining({
+            traceId: '00000000-0000-4000-8000-000000000001',
+        }));
+        expect(order).toEqual([
+            'web.spawn.clicked',
+            'spawn',
+            'hydrate',
+            'web.session.hydrated',
+            'configure',
+            'send',
+            'web.first_message.queued',
+            'navigate',
+            'web.session.navigated',
+        ]);
+        expect(mocks.traceStartup.mock.calls.map(([event]) => event)).toEqual([
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+                stage: 'web.spawn.clicked',
+                machineId: 'machine-1',
+                outcome: 'success',
+            }),
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+                stage: 'web.session.hydrated',
+                sessionId: 'session-1',
+                machineId: 'machine-1',
+                outcome: 'success',
+            }),
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+                stage: 'web.first_message.queued',
+                sessionId: 'session-1',
+                machineId: 'machine-1',
+                outcome: 'success',
+            }),
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+                stage: 'web.session.navigated',
+                sessionId: 'session-1',
+                machineId: 'machine-1',
+                outcome: 'success',
+            }),
+        ]);
         hook.unmount();
     });
 
@@ -426,6 +481,24 @@ describe('useSpawnSession', () => {
         expect(mocks.machineSpawnNewSession.mock.calls[1][0].approvedNewDirectoryCreation).toBe(true);
         expect(mocks.sendMessage).not.toHaveBeenCalled();
         expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        hook.unmount();
+    });
+
+    it('reuses one wrapper trace when approved directory creation retries the spawn RPC', async () => {
+        mocks.machineSpawnNewSession
+            .mockResolvedValueOnce({ type: 'requestToApproveDirectoryCreation', directory: '/Users/jacky/new' })
+            .mockResolvedValueOnce({ type: 'success', sessionId: 'session-approved' });
+        mocks.confirm.mockResolvedValue(true);
+        const hook = renderHook();
+
+        await act(async () => {
+            await hook.current().spawn({ ...args, prompt: '', images: undefined });
+        });
+
+        expect(mocks.randomUUID).toHaveBeenCalledTimes(1);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(2);
+        expect(mocks.machineSpawnNewSession.mock.calls[0][0].traceId).toBe('00000000-0000-4000-8000-000000000001');
+        expect(mocks.machineSpawnNewSession.mock.calls[1][0].traceId).toBe('00000000-0000-4000-8000-000000000001');
         hook.unmount();
     });
 

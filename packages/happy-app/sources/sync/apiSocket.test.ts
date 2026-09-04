@@ -122,6 +122,30 @@ describe('ApiSocket RPC', () => {
         expect(machineEncryption.decryptRaw).toHaveBeenCalledWith('encrypted-result');
     });
 
+    it('mirrors only a valid encrypted-parameter traceId onto the RPC routing envelope', async () => {
+        mocks.socket.connected = true;
+        mocks.rpcEmitWithAck.mockResolvedValue({ ok: true, result: 'encrypted-result' });
+        const { encryption, machineEncryption } = createEncryption();
+        const socket = createApiSocket(encryption);
+
+        await socket.machineRPC('machine-1', 'spawn-happy-session', {
+            traceId: '00000000-0000-4000-8000-000000000001',
+            directory: '/private/project',
+            token: 'token-canary',
+        });
+
+        expect(machineEncryption.encryptRaw).toHaveBeenCalledWith({
+            traceId: '00000000-0000-4000-8000-000000000001',
+            directory: '/private/project',
+            token: 'token-canary',
+        });
+        expect(mocks.rpcEmitWithAck).toHaveBeenCalledWith('rpc-call', {
+            method: 'machine-1:spawn-happy-session',
+            params: 'encrypted-machine-params',
+            traceId: '00000000-0000-4000-8000-000000000001',
+        });
+    });
+
     it('does not emit when the socket disconnects while parameters are being encrypted', async () => {
         mocks.socket.connected = true;
         let finishEncryption!: (value: string) => void;

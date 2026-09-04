@@ -10,6 +10,25 @@ import chalk from 'chalk';
 import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
 
+const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const createdSessionTraceIds = new Set<string>();
+
+function sessionStartupTraceId(): string | undefined {
+  const traceId = process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+  return traceId && SESSION_STARTUP_TRACE_ID_RE.test(traceId) ? traceId : undefined;
+}
+
+function logWorkerSessionCreated(traceId: string, sessionId: string, machineId?: string): void {
+  logger.debug('[SESSION STARTUP]', {
+    traceId,
+    stage: 'worker.session.created',
+    timestamp: Date.now(),
+    outcome: 'success',
+    sessionId,
+    ...(machineId ? { machineId } : {}),
+  });
+}
+
 export class ApiClient {
 
   static async create(credential: Credentials) {
@@ -77,6 +96,11 @@ export class ApiClient {
 
       logger.debug(`Session created/loaded: ${response.data.session.id} (tag: ${opts.tag})`)
       let raw = response.data.session;
+      const traceId = sessionStartupTraceId();
+      if (traceId && !createdSessionTraceIds.has(traceId)) {
+        createdSessionTraceIds.add(traceId);
+        logWorkerSessionCreated(traceId, raw.id, opts.metadata.machineId);
+      }
       let session: Session = {
         id: raw.id,
         seq: raw.seq,
@@ -89,7 +113,7 @@ export class ApiClient {
       }
       return session;
     } catch (error) {
-      logger.debug('[API] [ERROR] Failed to get or create session:', error);
+      logger.debug('[API] [ERROR] Failed to get or create session', { errorCode: 'session-create-failed' });
 
       // Check if it's a connection error
       if (error && typeof error === 'object' && 'code' in error) {

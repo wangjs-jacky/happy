@@ -9,7 +9,8 @@ const {
     mockAxiosPost,
     mockBackoff,
     mockDelay,
-    mockShouldReconnect
+    mockShouldReconnect,
+    mockLoggerDebug,
 } = vi.hoisted(() => ({
     mockIo: vi.fn(),
     mockAxiosGet: vi.fn(),
@@ -26,7 +27,8 @@ const {
         throw lastError;
     }),
     mockDelay: vi.fn(async () => undefined),
-    mockShouldReconnect: vi.fn(() => true)
+    mockShouldReconnect: vi.fn(() => true),
+    mockLoggerDebug: vi.fn(),
 }));
 
 vi.mock('socket.io-client', () => ({
@@ -48,7 +50,7 @@ vi.mock('@/configuration', () => ({
 
 vi.mock('@/ui/logger', () => ({
     logger: {
-        debug: vi.fn(),
+        debug: mockLoggerDebug,
         debugLargeJson: vi.fn()
     }
 }));
@@ -82,6 +84,7 @@ function makeSession() {
         id: 'test-session-id',
         seq: 0,
         metadata: {
+            machineId: 'machine-1',
             path: '/tmp',
             host: 'localhost',
             homeDir: '/home/user',
@@ -176,6 +179,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
     });
 
     afterEach(() => {
+        delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
         vi.useRealTimers();
         vi.restoreAllMocks();
     });
@@ -187,6 +191,29 @@ describe('ApiSessionClient v3 messages API migration', () => {
         expect(mockSocket.on).toHaveBeenCalledWith('disconnect', expect.any(Function));
         expect(mockSocket.on).toHaveBeenCalledWith('update', expect.any(Function));
         expect(mockSocket.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('records worker socket readiness only at the first real socket connect boundary', () => {
+        process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
+        mockAxiosGet.mockResolvedValue({ data: { messages: [], hasMore: false } });
+        new ApiSessionClient('fake-token', session);
+
+        expect(mockLoggerDebug.mock.calls.some(([label]) => label === '[SESSION STARTUP]')).toBe(false);
+        emitSocketEvent('connect');
+        emitSocketEvent('connect');
+
+        const stageEvents = mockLoggerDebug.mock.calls
+            .filter(([label]) => label === '[SESSION STARTUP]')
+            .map(([, event]) => event);
+        expect(stageEvents).toEqual([
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+                stage: 'worker.socket.ready',
+                sessionId: 'test-session-id',
+                machineId: 'machine-1',
+                outcome: 'success',
+            }),
+        ]);
     });
 
     it('retries after initial socket connection error', async () => {

@@ -34,6 +34,15 @@ import axios from 'axios';
 import { resolveMediaArtifact } from './mediaArtifact';
 import { applyPersistedTurnStatus, clearStaleRunningTurnStatus } from './sessionTurnStatus';
 
+const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function takeSessionStartupTraceId(): string | undefined {
+    const traceId = process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+    if (!traceId || !SESSION_STARTUP_TRACE_ID_RE.test(traceId)) return undefined;
+    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+    return traceId;
+}
+
 function redactPresignedUrl(url: string): string {
     return url.replace(/([?&](?:X-Amz-Signature|Signature)=)[^&]+/g, '$1<redacted>');
 }
@@ -143,6 +152,8 @@ type V3PostSessionMessagesResponse = {
 };
 
 export class ApiSessionClient extends EventEmitter {
+    private readonly startupTraceId = takeSessionStartupTraceId();
+    private startupSocketReadyLogged = false;
     private readonly token: string;
     readonly sessionId: string;
     private metadata: Metadata | null;
@@ -240,6 +251,17 @@ export class ApiSessionClient extends EventEmitter {
 
         this.socket.on('connect', () => {
             logger.debug('Socket connected successfully');
+            if (this.startupTraceId && !this.startupSocketReadyLogged) {
+                this.startupSocketReadyLogged = true;
+                logger.debug('[SESSION STARTUP]', {
+                    traceId: this.startupTraceId,
+                    stage: 'worker.socket.ready',
+                    timestamp: Date.now(),
+                    outcome: 'success',
+                    sessionId: this.sessionId,
+                    ...(this.metadata?.machineId ? { machineId: this.metadata.machineId } : {}),
+                });
+            }
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
                 this.reconnectInterval = null;

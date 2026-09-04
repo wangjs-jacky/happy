@@ -78,6 +78,27 @@ describe('codex fork ops', () => {
         );
     });
 
+    it('keeps the optional startup trace inside the encrypted spawn parameters', async () => {
+        machineRPC.mockResolvedValue({ type: 'success', sessionId: 'happy-traced' });
+
+        const { machineSpawnNewSession, SESSION_START_RPC_TIMEOUT_MS } = await import('./ops');
+        await machineSpawnNewSession({
+            machineId: 'machine-1',
+            directory: '/tmp/project',
+            agent: 'codex',
+            traceId: '00000000-0000-4000-8000-000000000001',
+        });
+
+        expect(machineRPC).toHaveBeenCalledWith(
+            'machine-1',
+            'spawn-happy-session',
+            expect.objectContaining({
+                traceId: '00000000-0000-4000-8000-000000000001',
+            }),
+            { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
+        );
+    });
+
     it('normalizes a legacy RPC error envelope when spawning a session', async () => {
         machineRPC.mockResolvedValue({ error: 'Entrypoint does not exist' });
 

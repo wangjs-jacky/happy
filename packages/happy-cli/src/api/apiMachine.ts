@@ -32,6 +32,13 @@ import {
 } from '@/codex/codexThreadFork';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type TracedSpawnSessionOptions = SpawnSessionOptions & { traceId?: string };
+
+function traceIdFromParams(value: unknown): string | undefined {
+    return typeof value === 'string' && STARTUP_TRACE_ID_RE.test(value) ? value : undefined;
+}
 
 interface ServerToDaemonEvents {
     update: (data: Update) => void;
@@ -91,7 +98,7 @@ interface DaemonToServerEvents {
 }
 
 type MachineRpcHandlers = {
-    spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
+    spawnSession: (options: TracedSpawnSessionOptions) => Promise<SpawnSessionResult>;
     resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; effort?: string | null }) => Promise<SpawnSessionResult>;
     stopSession: (sessionId: string) => boolean;
     requestShutdown: () => void;
@@ -167,14 +174,27 @@ export class ApiMachineClient {
 
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
-            logger.debug(`[API MACHINE] Spawning session with params: ${JSON.stringify(params)}`);
+            const { directory, sessionId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId } = params || {};
+            const traceId = traceIdFromParams(params?.traceId);
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
 
-            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId });
+            const result = await spawnSession({
+                directory,
+                sessionId,
+                machineId: this.machine.id,
+                approvedNewDirectoryCreation,
+                agent,
+                environmentVariables,
+                token,
+                resumeClaudeSessionId,
+                resumeCodexThreadId,
+                parentSessionId,
+                forkedFromMessageId,
+                ...(traceId ? { traceId } : {}),
+            });
 
             switch (result.type) {
                 case 'success':
@@ -548,8 +568,7 @@ export class ApiMachineClient {
         });
 
         // Single consolidated RPC handler
-        this.socket.on('rpc-request', async (data: { method: string, params: string }, callback: (response: string) => void) => {
-            logger.debugLargeJson(`[API MACHINE] Received RPC request:`, data);
+        this.socket.on('rpc-request', async (data: { method: string, params: string, traceId?: string }, callback: (response: string) => void) => {
             callback(await this.rpcHandlerManager.handleRequest(data));
         });
 

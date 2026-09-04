@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { randomUUID } from 'expo-crypto';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { sync } from '@/sync/sync';
@@ -12,6 +13,7 @@ import type { NewSessionAgentType } from '@/sync/persistence';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { organizeSession } from '@/sync/sidebarOrganization';
 import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
+import { traceStartup } from '@/sync/sessionStartupTrace';
 
 export interface SpawnSessionArgs {
     machineId: string;
@@ -44,8 +46,36 @@ export type SpawnSessionCoreResult =
 type PendingHydration = {
     sessionId: string;
     args: SpawnSessionArgs;
+    trace: SessionStartupTraceContext;
     retrying: boolean;
 };
+
+type SessionStartupTraceContext = {
+    traceId: string;
+    startedAt: number;
+    machineId: string;
+};
+
+function traceWebStartupStage(
+    trace: SessionStartupTraceContext | undefined,
+    stage: 'web.session.hydrated' | 'web.first_message.queued' | 'web.session.navigated',
+    sessionId: string,
+    outcome: 'success' | 'error' = 'success',
+    errorCode?: string,
+): void {
+    if (!trace) return;
+    const timestamp = Date.now();
+    traceStartup({
+        traceId: trace.traceId,
+        stage,
+        timestamp,
+        duration: timestamp - trace.startedAt,
+        outcome,
+        sessionId,
+        machineId: trace.machineId,
+        ...(errorCode ? { errorCode } : {}),
+    });
+}
 
 function configureSpawnedSession(sessionId: string, args: SpawnSessionArgs): void {
     const sessionStorage = storage.getState();
@@ -105,6 +135,7 @@ export function useSpawnSession() {
     const spawnSession = React.useCallback(async (
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
+        startupTrace?: SessionStartupTraceContext,
     ): Promise<SpawnSessionCoreResult> => {
         if (!mountedRef.current) return { type: 'cancelled' };
         const { machineId, machine, path, agent, worktreeKey, environmentVariables } = args;
@@ -132,6 +163,7 @@ export function useSpawnSession() {
                     approvedNewDirectoryCreation: approved,
                     agent,
                     environmentVariables,
+                    ...(startupTrace ? { traceId: startupTrace.traceId } : {}),
                 });
 
                 switch (result.type) {
@@ -144,6 +176,7 @@ export function useSpawnSession() {
                                 sessionId: result.sessionId,
                             };
                         }
+                        traceWebStartupStage(startupTrace, 'web.session.hydrated', result.sessionId);
                         if (!mountedRef.current) return { type: 'cancelled' };
                         configureSpawnedSession(result.sessionId, args);
                         return { type: 'success', sessionId: result.sessionId };
@@ -180,9 +213,22 @@ export function useSpawnSession() {
         if (!mountedRef.current || pendingHydration.current) {
             return false;
         }
+        const startedAt = Date.now();
+        const startupTrace: SessionStartupTraceContext = {
+            traceId: randomUUID(),
+            startedAt,
+            machineId: args.machineId,
+        };
+        traceStartup({
+            traceId: startupTrace.traceId,
+            stage: 'web.spawn.clicked',
+            timestamp: startedAt,
+            outcome: 'success',
+            machineId: startupTrace.machineId,
+        });
         beginSending();
         try {
-            const result = await spawnSession(args, approvedNewDirectoryCreation);
+            const result = await spawnSession(args, approvedNewDirectoryCreation, startupTrace);
             if (!mountedRef.current) return false;
             if (result.type !== 'success') {
                 if (result.type === 'error'
@@ -191,6 +237,7 @@ export function useSpawnSession() {
                     pendingHydration.current = {
                         sessionId: result.sessionId,
                         args,
+                        trace: startupTrace,
                         retrying: false,
                     };
                     setHydrationError({ sessionId: result.sessionId });
@@ -200,10 +247,23 @@ export function useSpawnSession() {
 
             const attachments = args.images && args.images.length > 0 ? args.images : undefined;
             if (args.prompt || attachments) {
-                await sync.sendMessage(result.sessionId, args.prompt, { source: 'new_session', attachments });
+                try {
+                    await sync.sendMessage(result.sessionId, args.prompt, { source: 'new_session', attachments });
+                    traceWebStartupStage(startupTrace, 'web.first_message.queued', result.sessionId);
+                } catch (error) {
+                    traceWebStartupStage(
+                        startupTrace,
+                        'web.first_message.queued',
+                        result.sessionId,
+                        'error',
+                        'local-message-queue-failed',
+                    );
+                    throw error;
+                }
             }
             if (!mountedRef.current) return false;
             navigateToSession(result.sessionId);
+            traceWebStartupStage(startupTrace, 'web.session.navigated', result.sessionId);
             return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
@@ -229,21 +289,35 @@ export function useSpawnSession() {
             }
             if (!mountedRef.current || pendingHydration.current !== pending) return false;
 
+            traceWebStartupStage(pending.trace, 'web.session.hydrated', pending.sessionId);
             configureSpawnedSession(pending.sessionId, pending.args);
             const attachments = pending.args.images && pending.args.images.length > 0
                 ? pending.args.images
                 : undefined;
             if (pending.args.prompt || attachments) {
-                await sync.sendMessage(pending.sessionId, pending.args.prompt, {
-                    source: 'new_session',
-                    attachments,
-                });
+                try {
+                    await sync.sendMessage(pending.sessionId, pending.args.prompt, {
+                        source: 'new_session',
+                        attachments,
+                    });
+                    traceWebStartupStage(pending.trace, 'web.first_message.queued', pending.sessionId);
+                } catch (error) {
+                    traceWebStartupStage(
+                        pending.trace,
+                        'web.first_message.queued',
+                        pending.sessionId,
+                        'error',
+                        'local-message-queue-failed',
+                    );
+                    throw error;
+                }
             }
             if (!mountedRef.current || pendingHydration.current !== pending) return false;
 
             pendingHydration.current = null;
             setHydrationError(null);
             navigateToSession(pending.sessionId);
+            traceWebStartupStage(pending.trace, 'web.session.navigated', pending.sessionId);
             return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
