@@ -83,7 +83,10 @@ const defaultDependencies: VercelConnectDependencies = {
 
 function redirectUrl(config: VercelConnectConfig | null, key: string, value: string): string {
     const base = config?.webUrl || process.env.HAPPY_WEB_URL || process.env.PUBLIC_URL || 'http://localhost:5173';
-    const url = new URL('/', base);
+    // OAuth completes in a short-lived popup. Redirecting it directly to the
+    // settings route gives the web client a same-origin completion bridge
+    // without ever putting the provider token in a URL or browser storage.
+    const url = new URL('/settings/temporary-previews', base);
     url.searchParams.set(key, value);
     return url.toString();
 }

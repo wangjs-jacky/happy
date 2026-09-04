@@ -940,7 +940,7 @@ export const knownTools = {
         }
     },
     'interactive-preview': {
-        title: '临时交互预览',
+        title: () => t('interactivePreviews.title'),
         icon: (size: number, color: string) => <Ionicons name="desktop-outline" size={size} color={color} />,
         minimal: false,
         noStatus: true,

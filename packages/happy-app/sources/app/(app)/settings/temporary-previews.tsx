@@ -31,37 +31,62 @@ export default function TemporaryPreviewsSettings() {
     const [loadState, setLoadState] = React.useState<LoadState>({ kind: 'loading' });
     const [busy, setBusy] = React.useState(false);
     const pollTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
+    const popupRef = React.useRef<Window | null>(null);
+    const refreshGeneration = React.useRef(0);
+    const mounted = React.useRef(true);
 
     const stopPolling = React.useCallback(() => {
         if (pollTimer.current) clearInterval(pollTimer.current);
         pollTimer.current = null;
     }, []);
 
+    const closePopup = React.useCallback(() => {
+        const popup = popupRef.current;
+        if (popup && !popup.closed) popup.close();
+        popupRef.current = null;
+        stopPolling();
+    }, [stopPolling]);
+
     const refresh = React.useCallback(async () => {
+        const generation = ++refreshGeneration.current;
         if (!credentials) {
-            setLoadState({ kind: 'error' });
+            if (mounted.current && generation === refreshGeneration.current) setLoadState({ kind: 'error' });
             return;
         }
         try {
             const status = await getVercelPreviewStatus(credentials);
+            if (!mounted.current || generation !== refreshGeneration.current) return;
             setLoadState({ kind: 'ready', status });
-            if (status.connected) stopPolling();
+            if (status.connected) closePopup();
         } catch {
-            setLoadState({ kind: 'error' });
+            if (mounted.current && generation === refreshGeneration.current) setLoadState({ kind: 'error' });
         }
-    }, [credentials, stopPolling]);
+    }, [closePopup, credentials]);
 
     React.useEffect(() => { void refresh(); }, [refresh]);
+    React.useEffect(() => {
+        mounted.current = true;
+        return () => { mounted.current = false; };
+    }, []);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || typeof window === 'undefined') return;
         const browserWindow = window;
         const query = new URLSearchParams(browserWindow.location.search);
-        if (query.get('vercel') === 'connected' || query.has('vercel_error')) void refresh();
+        const isCallback = query.get('vercel') === 'connected' || query.has('vercel_error');
+        if (isCallback && browserWindow.opener && !browserWindow.opener.closed) {
+            browserWindow.opener.postMessage({ type: 'happy-vercel-connected' }, browserWindow.location.origin);
+            browserWindow.close();
+            return;
+        }
+        if (isCallback) void refresh();
 
         const onFocus = () => { void refresh(); };
         const onMessage = (event: MessageEvent) => {
-            if (event.origin === browserWindow.location.origin && event.data?.type === 'happy-vercel-connected') void refresh();
+            if (event.origin === browserWindow.location.origin && event.data?.type === 'happy-vercel-connected') {
+                closePopup();
+                void refresh();
+            }
         };
         browserWindow.addEventListener('focus', onFocus);
         browserWindow.addEventListener('message', onMessage);
@@ -69,25 +94,29 @@ export default function TemporaryPreviewsSettings() {
             browserWindow.removeEventListener('focus', onFocus);
             browserWindow.removeEventListener('message', onMessage);
         };
-    }, [refresh]);
+    }, [closePopup, refresh]);
 
-    React.useEffect(() => () => stopPolling(), [stopPolling]);
+    React.useEffect(() => () => closePopup(), [closePopup]);
 
     const startPolling = React.useCallback(() => {
         if (!credentials) return;
         stopPolling();
         const startedAt = Date.now();
         pollTimer.current = setInterval(() => {
+            if (popupRef.current?.closed) {
+                closePopup();
+                return;
+            }
             if (Date.now() - startedAt >= OAUTH_POLL_TIMEOUT_MS) {
                 stopPolling();
                 return;
             }
             void refresh();
         }, OAUTH_POLL_MS);
-    }, [credentials, refresh, stopPolling]);
+    }, [closePopup, credentials, refresh, stopPolling]);
 
     const connect = React.useCallback(async () => {
-        if (!credentials || busy) return;
+        if (!credentials || busy || (popupRef.current && !popupRef.current.closed)) return;
         setBusy(true);
         try {
             if (Platform.OS === 'web') {
@@ -98,11 +127,12 @@ export default function TemporaryPreviewsSettings() {
                     Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.popupBlocked'));
                     return;
                 }
+                popupRef.current = popup;
                 try {
                     popup.location.href = await getVercelPreviewConnectUrl(credentials);
                     startPolling();
                 } catch {
-                    popup.close();
+                    closePopup();
                     Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
                 }
                 return;
@@ -113,7 +143,7 @@ export default function TemporaryPreviewsSettings() {
         } finally {
             setBusy(false);
         }
-    }, [busy, credentials, startPolling]);
+    }, [busy, closePopup, credentials, startPolling]);
 
     const disconnect = React.useCallback(async () => {
         if (!credentials || busy) return;
@@ -149,7 +179,10 @@ export default function TemporaryPreviewsSettings() {
         </View>
         <ItemGroup title={t('interactivePreviews.connection')}>
             {loadState.kind === 'loading' ? <View testID="temporary-previews-status-loading" style={styles.loading}><ActivityIndicator color={theme.colors.accent} /><Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.loading')}</Text></View> : null}
-            {loadState.kind === 'error' ? <Text testID="temporary-previews-error" style={[styles.error, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.safeError')}</Text> : null}
+            {loadState.kind === 'error' ? <>
+                <Text testID="temporary-previews-error" style={[styles.error, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.safeError')}</Text>
+                <Item accessibilityLabel={t('interactivePreviews.retry')} onPress={refresh} showChevron={false} testID="temporary-previews-retry" title={t('interactivePreviews.retry')} />
+            </> : null}
             {status ? <Item
                 accessibilityLabel={t('interactivePreviews.connection')}
                 disabled={!status.available}

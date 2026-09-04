@@ -63,8 +63,9 @@ import TemporaryPreviewsSettings from './temporary-previews';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((next) => { resolve = next; });
-    return { promise, resolve };
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((next, fail) => { resolve = next; reject = fail; });
+    return { promise, reject, resolve };
 }
 
 async function renderScreen() {
@@ -89,7 +90,10 @@ describe('TemporaryPreviewsSettings', () => {
         mocks.confirm.mockResolvedValue(true);
     });
 
-    afterEach(() => { vi.unstubAllGlobals(); });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
 
     it('shows initial loading and then an unavailable capability without treating it as a network error', async () => {
         const request = deferred<any>();
@@ -166,10 +170,100 @@ describe('TemporaryPreviewsSettings', () => {
         act(() => renderer.unmount());
     });
 
+    it('bridges a same-origin OAuth callback to its opener and closes the callback popup', async () => {
+        const opener = { closed: false, postMessage: vi.fn() };
+        const close = vi.fn();
+        vi.stubGlobal('window', {
+            close,
+            location: { search: '?vercel=connected', origin: 'https://happy.test' },
+            opener,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        });
+        mocks.status.mockResolvedValue({ available: true, connected: false });
+        const renderer = await renderScreen();
+
+        expect(opener.postMessage).toHaveBeenCalledWith({ type: 'happy-vercel-connected' }, 'https://happy.test');
+        expect(close).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('closes the managed popup after a trusted completion and stops polling if the popup is cancelled', async () => {
+        vi.useFakeTimers();
+        const listeners = new Map<string, Function>();
+        const popup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { popup.closed = true; }) };
+        vi.stubGlobal('window', {
+            open: vi.fn(() => popup),
+            location: { search: '', origin: 'https://happy.test' },
+            addEventListener: vi.fn((name: string, handler: Function) => listeners.set(name, handler)),
+            removeEventListener: vi.fn((name: string) => listeners.delete(name)),
+        });
+        mocks.status.mockResolvedValueOnce({ available: true, connected: false })
+            .mockResolvedValueOnce({ available: true, connected: true, account: { teamName: 'Acme' } });
+        mocks.connectUrl.mockResolvedValue('https://vercel.com/integrations/happy/new');
+        const renderer = await renderScreen();
+
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-connect' }).props.onPress(); });
+        await act(async () => { await listeners.get('message')?.({ origin: 'https://happy.test', data: { type: 'happy-vercel-connected' } }); });
+        expect(popup.close).toHaveBeenCalledOnce();
+
+        const refreshesAfterCompletion = mocks.status.mock.calls.length;
+        popup.closed = true;
+        await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+        expect(mocks.status).toHaveBeenCalledTimes(refreshesAfterCompletion);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps the newest refresh result when an older request resolves late', async () => {
+        const first = deferred<any>();
+        const second = deferred<any>();
+        const listeners = new Map<string, Function>();
+        vi.stubGlobal('window', {
+            open: vi.fn(),
+            location: { search: '', origin: 'https://happy.test' },
+            addEventListener: vi.fn((name: string, handler: Function) => listeners.set(name, handler)),
+            removeEventListener: vi.fn((name: string) => listeners.delete(name)),
+        });
+        mocks.status.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        const renderer = await renderScreen();
+
+        await act(async () => { listeners.get('focus')?.(); });
+        await act(async () => { second.resolve({ available: true, connected: true, account: { teamName: 'Newest team' } }); });
+        expect(renderer.root.findByProps({ testID: 'temporary-previews-status' }).props.subtitle).toContain('Newest team');
+        await act(async () => { first.resolve({ available: false, connected: false }); });
+
+        expect(renderer.root.findAllByProps({ testID: 'temporary-previews-error' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'temporary-previews-status' }).props.subtitle).toContain('Newest team');
+        act(() => renderer.unmount());
+    });
+
+    it('ignores an older refresh error after a newer response is ready', async () => {
+        const first = deferred<any>();
+        const second = deferred<any>();
+        const listeners = new Map<string, Function>();
+        vi.stubGlobal('window', {
+            open: vi.fn(),
+            location: { search: '', origin: 'https://happy.test' },
+            addEventListener: vi.fn((name: string, handler: Function) => listeners.set(name, handler)),
+            removeEventListener: vi.fn((name: string) => listeners.delete(name)),
+        });
+        mocks.status.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        const renderer = await renderScreen();
+
+        await act(async () => { listeners.get('focus')?.(); });
+        await act(async () => { second.resolve({ available: true, connected: true, account: { teamName: 'Latest team' } }); });
+        await act(async () => { first.reject(new Error('old offline failure')); });
+
+        expect(renderer.root.findAllByProps({ testID: 'temporary-previews-error' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ testID: 'temporary-previews-status' }).props.subtitle).toContain('Latest team');
+        act(() => renderer.unmount());
+    });
+
     it('shows safe errors for expired credentials and other refresh failures', async () => {
         mocks.status.mockRejectedValue(new Error('expired token secret=not-for-ui'));
         const renderer = await renderScreen();
         expect(renderer.root.findByProps({ testID: 'temporary-previews-error' }).props.children).toBe('Unable to update temporary previews. Please retry.');
+        expect(renderer.root.findByProps({ testID: 'temporary-previews-retry' }).props.onPress).toBeTruthy();
         act(() => renderer.unmount());
     });
 });

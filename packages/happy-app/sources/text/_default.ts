@@ -353,6 +353,7 @@ export const en = {
 
     interactivePreviews: {
         title: 'Temporary previews',
+        provider: 'Vercel',
         connection: 'Connection',
         loading: 'Loading connection…',
         unavailable: 'Temporary previews are unavailable on this Happy Server.',
@@ -367,6 +368,7 @@ export const en = {
         disconnectWarning: 'Some published previews could not be removed. Remove them from Vercel.',
         popupBlocked: 'Allow pop-ups for Happy, then try connecting again.',
         safeError: 'Unable to update temporary previews. Please retry.',
+        retry: 'Retry',
         disclosure: 'Preview links are public and are scheduled for deletion after 24 hours.',
         publishing: 'Publishing preview…',
         ready: 'Preview ready',

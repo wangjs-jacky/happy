@@ -75,7 +75,7 @@ describe('vercelConnectRoutes', () => {
         const created = await createApp(); app = created.app;
         const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=one-use-code&state=state-token' });
         expect(response.statusCode).toBe(302);
-        expect(response.headers.location).toBe('https://happy.test/?vercel=connected');
+        expect(response.headers.location).toBe('https://happy.test/settings/temporary-previews?vercel=connected');
         expect(created.dependencies.exchangeCode).toHaveBeenCalledWith('one-use-code', created.dependencies.config);
         expect(created.dependencies.reconnect).toHaveBeenCalledWith('user-1', {
             version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1',
@@ -115,7 +115,7 @@ describe('vercelConnectRoutes', () => {
         const created = await createApp({ exchangeCode: vi.fn(async () => { throw new Error('provider-secret raw detail'); }) }); app = created.app;
         const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=bad-code&state=state-token' });
         expect(response.statusCode).toBe(302);
-        expect(response.headers.location).toBe('https://happy.test/?vercel_error=exchange_failed');
+        expect(response.headers.location).toBe('https://happy.test/settings/temporary-previews?vercel_error=exchange_failed');
         expect(response.headers.location).not.toContain('provider-secret');
         expect(response.headers.location).not.toContain('bad-code');
     });

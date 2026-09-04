@@ -10,9 +10,14 @@ import { InteractivePreviewCard } from './InteractivePreviewCard';
 const mocks = vi.hoisted(() => ({
     copy: vi.fn(async () => undefined),
     open: vi.fn(async () => undefined),
+    theme: null as any,
+    themes: null as any,
 }));
 
-vi.mock('react-native', () => ({ Pressable: 'Pressable', Text: 'Text', View: 'View' }));
+vi.mock('react-native', () => ({
+    Platform: { OS: 'web', select: (values: Record<string, unknown>) => values.web ?? values.default },
+    Pressable: 'Pressable', Text: 'Text', View: 'View',
+}));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: mocks.copy }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: mocks.open }));
@@ -25,22 +30,14 @@ vi.mock('@/text', () => ({
         'interactivePreviews.open': 'Open preview',
         'interactivePreviews.copy': 'Copy preview link',
         'interactivePreviews.expiresAt': 'Expires at',
+        'interactivePreviews.provider': 'Vercel',
     })[key] ?? key,
 }));
-vi.mock('react-native-unistyles', () => {
-    const theme = {
-        colors: {
-            accent: '#4af',
-            divider: '#333',
-            surface: '#111',
-            surfaceHigh: '#222',
-            surfacePressed: '#333',
-            text: '#fff',
-            textSecondary: '#aaa',
-            button: { primary: { background: '#4af', tint: '#fff' } },
-        },
-    };
-    return { StyleSheet: { create: (factory: (theme: any) => object) => factory(theme) }, useUnistyles: () => ({ theme }) };
+vi.mock('react-native-unistyles', async () => {
+    const { appThemes } = await vi.importActual<typeof import('@/themePacks')>('@/themePacks');
+    mocks.themes = appThemes;
+    mocks.theme = appThemes.caramelLight;
+    return { StyleSheet: { create: (factory: (theme: any) => object) => factory(mocks.theme) }, useUnistyles: () => ({ theme: mocks.theme }) };
 });
 
 function preview(state: 'publishing' | 'ready' | 'failed' | 'expired', url?: string) {
@@ -75,6 +72,7 @@ describe('InteractivePreviewCard', () => {
 
         const card = renderer.root.findByProps({ testID: 'interactive-preview-card' });
         expect(card.findAllByType('Text').map((node: any) => node.children.join(''))).toContain(label);
+        expect(card.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Vercel');
         expect(card.findAllByType('iframe')).toHaveLength(0);
         expect(card.findAllByType('WebView')).toHaveLength(0);
         expect(card.findAllByType('TextInput')).toHaveLength(0);
@@ -100,5 +98,18 @@ describe('InteractivePreviewCard', () => {
         expect(renderer.root.findAllByProps({ testID: 'interactive-preview-open' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'interactive-preview-copy' })).toHaveLength(0);
         act(() => renderer.unmount());
+    });
+
+    it('keeps the semantic primary background in default light and gingham dark pressed states', () => {
+        for (const name of ['caramelLight', 'ginghamDark'] as const) {
+            mocks.theme = mocks.themes[name];
+            const background = mocks.theme.colors.button.primary.background;
+            let renderer: any;
+            act(() => { renderer = TestRenderer.create(<InteractivePreviewCard tool={preview('ready', 'https://draft.example')} metadata={null} messages={[]} />); });
+            const style = renderer.root.findByProps({ testID: 'interactive-preview-open' }).props.style;
+            expect(style({ pressed: false })).toEqual(expect.arrayContaining([expect.objectContaining({ backgroundColor: background, opacity: 1 })]));
+            expect(style({ pressed: true })).toEqual(expect.arrayContaining([expect.objectContaining({ backgroundColor: background, opacity: expect.any(Number) })]));
+            act(() => renderer.unmount());
+        }
     });
 });

@@ -861,7 +861,12 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         const message = state.messages.get(existingMessageId);
                         if (message?.tool) {
                             message.realID = msg.id;
-                            message.tool.input = mergeToolInputs(message.tool.input, c.input);
+                            // Interactive preview events are complete lifecycle snapshots. Unlike
+                            // ordinary tool patches, a terminal event must remove fields such as
+                            // a previously-ready public URL rather than retain stale input.
+                            message.tool.input = c.name === 'interactive-preview'
+                                ? c.input
+                                : mergeToolInputs(message.tool.input, c.input);
                             message.tool.description = c.description;
                             message.tool.mcpApp = c.mcpApp;
                             message.tool.startedAt = msg.createdAt;

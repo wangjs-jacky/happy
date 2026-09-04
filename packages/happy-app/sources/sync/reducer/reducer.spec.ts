@@ -1022,6 +1022,47 @@ describe('reducer', () => {
             }
         });
 
+        it('replaces an interactive preview lifecycle snapshot for the same tool id', () => {
+            const state = createReducer();
+            const previewId = '11111111-1111-4111-8111-111111111111';
+            const event = (id: string, createdAt: number, input: Record<string, unknown>): NormalizedMessage => ({
+                id,
+                localId: null,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: `interactive-preview-${previewId}`,
+                    name: 'interactive-preview',
+                    input,
+                    description: null,
+                    uuid: id,
+                    parentUUID: null,
+                }],
+            });
+
+            reducer(state, [event('preview-publishing', 1, { id: previewId, state: 'publishing', title: 'Toolbar' })]);
+            let current = reducer(state, [event('preview-ready', 2, { id: previewId, state: 'ready', title: 'Toolbar', url: 'https://draft.example' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'ready', url: 'https://draft.example' } } });
+
+            current = reducer(state, [event('preview-failed', 3, { id: previewId, state: 'failed', title: 'Toolbar', errorCode: 'PUBLISH_FAILED' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'failed', errorCode: 'PUBLISH_FAILED' } } });
+            if (current?.kind === 'tool-call') expect(current.tool.input).not.toHaveProperty('url');
+
+            current = reducer(state, [event('preview-ready-before-delete', 4, { id: previewId, state: 'ready', title: 'Toolbar', url: 'https://draft.example/delete-me' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'ready', url: 'https://draft.example/delete-me' } } });
+
+            // Raw `deleting` events are normalized to the terminal `expired`
+            // lifecycle state before the reducer receives them.
+            current = reducer(state, [event('preview-expired-after-delete', 5, { id: previewId, state: 'expired', title: 'Toolbar' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'expired' } } });
+            if (current?.kind === 'tool-call') {
+                expect(current.tool.input).not.toHaveProperty('errorCode');
+                expect(current.tool.input).not.toHaveProperty('url');
+            }
+        });
+
         it('should merge real tool-call patch args into matched permission messages', () => {
             const state = createReducer();
             const fileChanges = {

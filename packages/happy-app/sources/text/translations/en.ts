@@ -368,13 +368,13 @@ export const en: TranslationStructure = {
     },
 
     interactivePreviews: {
-        title: 'Temporary previews', connection: 'Connection', loading: 'Loading connection…',
+        title: 'Temporary previews', provider: 'Vercel', connection: 'Connection', loading: 'Loading connection…',
         unavailable: 'Temporary previews are unavailable on this Happy Server.', disconnected: 'Not connected',
         connected: ({ name }: { name: string }) => `Connected to ${name}`, project: 'Preview project',
         connect: 'Connect Vercel', reconnect: 'Reconnect Vercel', disconnect: 'Disconnect Vercel',
         disconnectTitle: 'Disconnect Vercel?', disconnectBody: 'New previews will stop immediately. Existing previews are removed when possible.',
         disconnectWarning: 'Some published previews could not be removed. Remove them from Vercel.',
-        popupBlocked: 'Allow pop-ups for Happy, then try connecting again.', safeError: 'Unable to update temporary previews. Please retry.',
+        popupBlocked: 'Allow pop-ups for Happy, then try connecting again.', safeError: 'Unable to update temporary previews. Please retry.', retry: 'Retry',
         disclosure: 'Preview links are public and are scheduled for deletion after 24 hours.',
         publishing: 'Publishing preview…', ready: 'Preview ready', failed: 'Preview publishing failed', expired: 'Preview expired and removed',
         open: 'Open preview', copy: 'Copy preview link', expiresAt: 'Expires at',
