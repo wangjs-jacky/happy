@@ -124,4 +124,50 @@ describe('requestAttachmentDownloadSource', () => {
             { uri: 'https://api.test/second', headers: { Authorization: 'Bearer second-token' } },
         ]);
     });
+
+    it('coalesces equivalent credentials from separately allocated objects', async () => {
+        const response = deferred<Response>();
+        const firstCredentials: AuthCredentials = { token: 'equivalent-token', secret: 'first-secret' };
+        const secondCredentials: AuthCredentials = { token: 'equivalent-token', secret: 'second-secret' };
+        const fetchMock = vi.fn<typeof fetch>().mockReturnValue(response.promise);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const first = requestAttachmentDownloadSource(firstCredentials, 'session-1', 'file-1');
+        const second = requestAttachmentDownloadSource(secondCredentials, 'session-1', 'file-1');
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        response.resolve(jsonResponse({ downloadUrl: 'https://objects.test/file-1' }));
+        await expect(Promise.all([first, second])).resolves.toEqual([
+            { uri: 'https://objects.test/file-1', headers: {} },
+            { uri: 'https://objects.test/file-1', headers: {} },
+        ]);
+    });
+
+    it('does not coalesce when a shared credentials object changes token', async () => {
+        const firstResponse = deferred<Response>();
+        const secondResponse = deferred<Response>();
+        const rotatingCredentials: AuthCredentials = { token: 'old-token', secret: 'secret' };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockReturnValueOnce(firstResponse.promise)
+            .mockReturnValueOnce(secondResponse.promise);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const first = requestAttachmentDownloadSource(rotatingCredentials, 'session-1', 'file-1');
+        rotatingCredentials.token = 'new-token';
+        const second = requestAttachmentDownloadSource(rotatingCredentials, 'session-1', 'file-1');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+            headers: expect.objectContaining({ Authorization: 'Bearer old-token' }),
+        });
+        expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+            headers: expect.objectContaining({ Authorization: 'Bearer new-token' }),
+        });
+        firstResponse.resolve(jsonResponse({ downloadUrl: 'https://api.test/first' }));
+        secondResponse.resolve(jsonResponse({ downloadUrl: 'https://api.test/second' }));
+        await expect(Promise.all([first, second])).resolves.toEqual([
+            { uri: 'https://api.test/first', headers: { Authorization: 'Bearer old-token' } },
+            { uri: 'https://api.test/second', headers: { Authorization: 'Bearer new-token' } },
+        ]);
+    });
 });

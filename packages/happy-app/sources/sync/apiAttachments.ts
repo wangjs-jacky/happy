@@ -56,7 +56,7 @@ export type AttachmentDownloadSource = {
 
 const downloadSourceInFlight = new Map<
     string,
-    Map<string, Map<AuthCredentials, Promise<AttachmentDownloadSource>>>
+    Map<string, Map<string, Promise<AttachmentDownloadSource>>>
 >();
 
 /**
@@ -223,11 +223,12 @@ async function requestAttachmentDownloadSourceUncached(
     sessionId: string,
     ref: string,
 ): Promise<AttachmentDownloadSource> {
+    const token = credentials.token;
     const API_ENDPOINT = getServerUrl();
     const requestRes = await fetch(`${API_ENDPOINT}/v1/sessions/${sessionId}/attachments/request-download`, {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${credentials.token}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({ ref }),
@@ -241,7 +242,7 @@ async function requestAttachmentDownloadSourceUncached(
     const isServerUrl = downloadUrl.startsWith(API_ENDPOINT);
     const headers: Record<string, string> = {};
     if (isServerUrl) {
-        headers['Authorization'] = `Bearer ${credentials.token}`;
+        headers['Authorization'] = `Bearer ${token}`;
     }
     return { uri: downloadUrl, headers };
 }
@@ -257,23 +258,25 @@ export function requestAttachmentDownloadSource(
         downloadSourceInFlight.set(sessionId, byRef);
     }
 
-    let byCredentials = byRef.get(ref);
-    if (!byCredentials) {
-        byCredentials = new Map();
-        byRef.set(ref, byCredentials);
+    let byToken = byRef.get(ref);
+    if (!byToken) {
+        byToken = new Map();
+        byRef.set(ref, byToken);
     }
 
-    const existing = byCredentials.get(credentials);
+    const token = credentials.token;
+    const existing = byToken.get(token);
     if (existing) return existing;
 
     const request = requestAttachmentDownloadSourceUncached(credentials, sessionId, ref)
         .finally(() => {
-            byCredentials.delete(credentials);
-            if (byCredentials.size === 0) {
+            if (byToken.get(token) !== request) return;
+            byToken.delete(token);
+            if (byToken.size === 0) {
                 byRef.delete(ref);
                 if (byRef.size === 0) downloadSourceInFlight.delete(sessionId);
             }
         });
-    byCredentials.set(credentials, request);
+    byToken.set(token, request);
     return request;
 }
