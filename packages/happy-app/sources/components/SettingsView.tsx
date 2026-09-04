@@ -366,6 +366,15 @@ export const SettingsView = React.memo(function SettingsView() {
             </ItemGroup> */}
 
             {/* Machines (sorted: online first, then last seen desc) */}
+            <ItemGroup>
+                <Item
+                    testID="settings-device-environment"
+                    title={t('deviceEnvironment.title')}
+                    subtitle={t('deviceEnvironment.subtitle')}
+                    icon={<Ionicons name="desktop-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => router.push('/settings/device-environment')}
+                />
+            </ItemGroup>
             {allMachinesWithOffline.length > 0 && (
                 <ItemGroup title={t('settings.machines')}>
                     {visibleMachines.map((machine) => {

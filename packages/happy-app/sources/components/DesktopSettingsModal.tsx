@@ -35,6 +35,7 @@ const SETTINGS_TITLES: Record<string, () => string> = {
     '/settings/ask': () => t('settings.askApi'),
     '/settings/connect/claude': () => t('connectClaude.title'),
     '/settings/custom-instructions': () => t('settings.customInstructions'),
+    '/settings/device-environment': () => t('deviceEnvironment.title'),
     '/settings/features': () => t('settings.features'),
     '/settings/language': () => t('settings.language'),
     '/settings/my-agents': () => t('agents.title'),
@@ -54,6 +55,7 @@ const SettingsAppearanceScreen = React.lazy(() => import('@/app/(app)/settings/a
 const SettingsAskScreen = React.lazy(() => import('@/app/(app)/settings/ask'));
 const SettingsClaudeScreen = React.lazy(() => import('@/app/(app)/settings/connect/claude'));
 const SettingsCustomInstructionsScreen = React.lazy(() => import('@/app/(app)/settings/custom-instructions'));
+const SettingsDeviceEnvironmentScreen = React.lazy(() => import('@/app/(app)/settings/device-environment'));
 const SettingsFeaturesScreen = React.lazy(() => import('@/app/(app)/settings/features'));
 const SettingsLanguageScreen = React.lazy(() => import('@/app/(app)/settings/language'));
 const SettingsMyAgentEditScreen = React.lazy(() => import('@/app/(app)/settings/my-agent-edit'));
@@ -75,6 +77,7 @@ const SETTINGS_SCREENS: Record<string, React.ComponentType> = {
     '/settings/ask': SettingsAskScreen,
     '/settings/connect/claude': SettingsClaudeScreen,
     '/settings/custom-instructions': SettingsCustomInstructionsScreen,
+    '/settings/device-environment': SettingsDeviceEnvironmentScreen,
     '/settings/features': SettingsFeaturesScreen,
     '/settings/language': SettingsLanguageScreen,
     '/settings/my-agent-edit': SettingsMyAgentEditScreen,

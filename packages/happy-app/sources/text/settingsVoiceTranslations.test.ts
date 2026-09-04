@@ -100,3 +100,34 @@ describe('settingsLanguage restart confirmation title', () => {
         });
     }
 });
+
+describe('deviceEnvironment translations', () => {
+    const required = [
+        'title', 'subtitle', 'fleetReady', 'scanAll', 'scanning', 'previewAlignment',
+        'confirmTitle', 'confirmMessage', 'confirmAction', 'applying', 'completed',
+        'githubCli', 'daemonOnline', 'daemonOffline', 'versionInstalled', 'versionTarget',
+        'authReady', 'authMissing', 'authUnknown', 'actionNone', 'actionInstall',
+        'actionUpgrade', 'actionManualRepair', 'repairWithSsh', 'scanAgain',
+        'stateUnknown', 'partialFailure', 'versionSourceMismatch', 'homebrewMissing',
+        'unsupportedMachine', 'operationInProgress', 'planExpired',
+    ];
+    for (const [language, translation] of Object.entries(translations)) {
+        it(`${language} provides complete device labels and preserves exact action parameters`, () => {
+            const environment = (translation as unknown as Record<string, any>).deviceEnvironment;
+            expect(environment).toBeDefined();
+            for (const key of required) expect(['string', 'function']).toContain(typeof environment[key]);
+            for (const value of Object.values(environment)) {
+                if (typeof value === 'string') expect(value.trim()).not.toBe('');
+            }
+            expect(Object.keys(environment).sort()).toEqual(Object.keys((defaultEn as unknown as Record<string, any>).deviceEnvironment).sort());
+            expect(environment.fleetReady({ ready: 2, total: 3 })).toContain('2/3');
+            expect(environment.versionInstalled({ version: '2.79.0' })).toContain('2.79.0');
+            expect(environment.versionTarget({ version: '2.80.0' })).toContain('2.80.0');
+            expect(environment.actionInstall({ version: '2.80.0' })).toContain('2.80.0');
+            const upgrade = environment.actionUpgrade({ from: '2.79.0', version: '2.80.0' });
+            expect(upgrade).toContain('2.79.0');
+            expect(upgrade).toContain('2.80.0');
+            expect(environment.confirmMessage({ actions: 'MACHINE: EXACT ACTION' })).toContain('MACHINE: EXACT ACTION');
+        });
+    }
+});

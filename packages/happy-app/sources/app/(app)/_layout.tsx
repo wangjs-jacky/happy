@@ -64,6 +64,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/device-environment"
+                options={{
+                    headerShown: true,
+                    headerTitle: t('deviceEnvironment.title'),
+                    headerBackTitle: t('settings.title'),
+                }}
+            />
+            <Stack.Screen
                 name="session/[id]"
                 options={{
                     headerShown: false
