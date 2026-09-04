@@ -344,4 +344,22 @@ describe('createPreviewService publication', () => {
         expect(credentialStore.delete).toHaveBeenCalledAfter(deleteDeployment);
         expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null });
     });
+
+    it('keeps a ready deployment and persists staging cleanup pending when post-publication OSS removal fails', async () => {
+        const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const row: any = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/generation-1/index', uploadedAt: new Date() }] };
+        const database: any = { interactivePreview: {
+            findFirst: vi.fn(async () => row),
+            updateMany: vi.fn(async ({ data }: any) => { Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; }); return { count: 1 }; }),
+        } };
+        const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn(async () => { throw new Error('oss unavailable'); }) } as any,
+            credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })) } as any,
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_1' })), findDeploymentByMetadata: vi.fn(async () => null), uploadFile: vi.fn(), createDeployment: vi.fn(async (input: any) => { await input.onCreated({ id: 'dpl_ready' }); return { id: 'dpl_ready', url: 'https://ready.vercel.app', readyState: 'READY' }; }) })) as any });
+
+        await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ state: 'ready', url: 'https://ready.vercel.app' });
+
+        expect(row).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_ready', stagingCleanupPending: true, cleanupNextAttemptAt: null });
+    });
 });

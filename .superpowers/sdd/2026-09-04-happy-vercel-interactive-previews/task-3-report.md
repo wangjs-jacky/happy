@@ -157,7 +157,7 @@ pnpm --dir packages/happy-server exec vitest run \
   sources/app/session/sessionDelete.spec.ts
 
 Test Files  8 passed (8)
-Tests       87 passed (87)
+Tests       88 passed (88)
 
 pnpm --dir packages/happy-server run typecheck
 exit 0
