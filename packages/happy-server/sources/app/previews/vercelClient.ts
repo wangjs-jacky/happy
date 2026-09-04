@@ -4,6 +4,13 @@ import { z } from 'zod';
 const API_ORIGIN = 'https://api.vercel.com';
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
+function retryAfterMilliseconds(value: string | null, now: number): number | null {
+    if (value === null) return null;
+    if (/^\d+$/.test(value.trim())) return Math.min(10_000, Number(value) * 1000);
+    const target = Date.parse(value);
+    return Number.isFinite(target) ? Math.max(0, Math.min(10_000, target - now)) : null;
+}
+
 type VercelRequestInit = {
     method: string;
     headers?: Record<string, string>;
@@ -87,10 +94,8 @@ export function createVercelClient(options: {
             });
             if (response.ok) return response;
             if ((response.status === 429 || response.status >= 500) && attempt < 2) {
-                const retryAfterSeconds = Number(response.headers.get('retry-after'));
-                const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
-                    ? Math.min(10_000, retryAfterSeconds * 1000)
-                    : Math.min(10_000, 250 * 2 ** attempt);
+                const retryAfter = retryAfterMilliseconds(response.headers.get('retry-after'), now());
+                const delay = retryAfter ?? Math.min(10_000, 250 * 2 ** attempt);
                 await sleep(delay);
                 continue;
             }

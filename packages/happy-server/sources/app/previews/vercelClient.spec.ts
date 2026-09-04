@@ -309,6 +309,17 @@ describe('createVercelClient', () => {
         expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
 
+    it('uses exponential fallback only when Retry-After is absent and accepts HTTP-date Retry-After', async () => {
+        const sleep = vi.fn(async () => {}); const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'rate_limited' } }, 429))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'rate_limited' } }), { status: 429, headers: { 'retry-after': 'Thu, 01 Jan 1970 00:00:02 GMT' } }))
+            .mockResolvedValueOnce(jsonResponse({}));
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep, now: () => 1_000 });
+        await client.uploadFile('b'.repeat(64), new Uint8Array([1]), 'text/plain');
+        expect(sleep).toHaveBeenNthCalledWith(1, 250);
+        expect(sleep).toHaveBeenNthCalledWith(2, 1000);
+    });
+
     it('treats an already removed deployment as a successful idempotent delete', async () => {
         const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse({ error: { code: 'not_found' } }, 404)) });
 
