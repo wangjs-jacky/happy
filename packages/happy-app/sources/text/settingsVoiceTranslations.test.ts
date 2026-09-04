@@ -108,10 +108,25 @@ describe('deviceEnvironment translations', () => {
         'githubCli', 'daemonOnline', 'daemonOffline', 'offlineRecovery', 'versionInstalled', 'versionTarget',
         'authReady', 'authMissing', 'authUnknown', 'actionNone', 'actionInstall',
         'actionUpgrade', 'actionManualRepair', 'repairWithSsh', 'scanAgain',
-        'stateUnknown', 'partialFailure', 'versionSourceMismatch', 'homebrewMissing',
+        'stateUnknown', 'timeoutRecovery', 'partialFailure', 'versionSourceMismatch', 'homebrewMissing',
         'unsupportedMachine', 'operationInProgress', 'planExpired',
     ];
     for (const [language, translation] of Object.entries(translations)) {
+        it(`${language} preserves the Apple Silicon-only support boundary and wait-then-rescan guidance`, () => {
+            const environment = translation.deviceEnvironment;
+            const chinese = language === 'zhHans' || language === 'zhHant';
+            expect.soft(environment.unsupportedMachine).not.toMatch(/Intel/i);
+            expect.soft(environment.unsupportedMachine).toMatch(chinese
+                ? /(?:仅支持|僅支援).*Apple Silicon.*Mac.*Homebrew/
+                : /requires an Apple Silicon Mac with Homebrew installed/);
+            const guidance = language === 'zhHans'
+                ? '请等待 Homebrew 或当前操作完成，然后重新扫描，再尝试操作。'
+                : language === 'zhHant'
+                    ? '請等待 Homebrew 或目前的操作完成，然後重新掃描，再嘗試操作。'
+                    : 'Wait for Homebrew or the current operation to finish, then scan again before retrying.';
+            expect.soft(environment.timeoutRecovery).toBe(guidance);
+        });
+
         it(`${language} provides complete device labels and preserves exact action parameters`, () => {
             const environment = (translation as unknown as Record<string, any>).deviceEnvironment;
             expect(environment).toBeDefined();

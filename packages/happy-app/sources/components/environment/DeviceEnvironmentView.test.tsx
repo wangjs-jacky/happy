@@ -115,6 +115,38 @@ describe('DeviceEnvironmentView', () => {
         expect(textOf(view.root.findByProps({ testID: 'environment-machine-online' }))).not.toContain('Restore this machine’s connection');
     });
 
+    it.each(['unsupported-architecture', 'unsupported-platform'] as const)('states the Apple Silicon-only support boundary for %s', (reasonCode) => {
+        const view = renderEnvironmentView({ rows: [row('unsupported', {
+            observation: { ...observation(), platform: reasonCode === 'unsupported-platform' ? 'linux' : 'darwin',
+                architecture: 'x64', support: 'unsupported', reasonCode },
+            status: 'manual-repair', reasonCode,
+        })] });
+        const unsupported = textOf(view.root.findByProps({ testID: 'environment-machine-unsupported' }));
+        expect(unsupported).not.toMatch(/Intel/i);
+        expect(unsupported).toContain('requires an Apple Silicon Mac with Homebrew installed');
+    });
+
+    it('shows wait-then-rescan guidance only for rpc-timeout rows', () => {
+        const view = renderEnvironmentView({ rows: [
+            row('timeout', { status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true }),
+            row('timeout-without-reason', { status: 'rpc-timeout', requiresScan: true }),
+            row('healthy'),
+            row('offline', { machine: machine('offline', false), online: false, observation: undefined, status: 'offline' }),
+            row('error', { status: 'rpc-error', reasonCode: 'unexpected-error', requiresScan: true }),
+            row('failed', { status: 'failed', reasonCode: 'install-failed', requiresScan: true }),
+        ] });
+        const guidance = 'Wait for Homebrew or the current operation to finish, then scan again before retrying.';
+        for (const id of ['timeout', 'timeout-without-reason']) {
+            const timeout = textOf(view.root.findByProps({ testID: `environment-machine-${id}` }));
+            expect(timeout).toContain('State unknown; scan again');
+            expect(timeout).toContain(guidance);
+            expect(timeout).not.toMatch(/failed|did not complete/i);
+        }
+        for (const id of ['healthy', 'offline', 'error', 'failed']) {
+            expect(textOf(view.root.findByProps({ testID: `environment-machine-${id}` }))).not.toContain(guidance);
+        }
+    });
+
     it('connects the registered fleet including offline machines without automatically scanning', () => {
         const fleet = [machine('online'), machine('offline', false)];
         mocks.allMachines.mockReturnValue(fleet);

@@ -113,6 +113,7 @@ const MachineEnvironmentRow = React.memo(({ row, target, applying }: { row: Flee
                     <Text style={styles.actionText}>{pendingApply ? `${t('deviceEnvironment.applying')} · ${action}` : action}</Text>
                     {reason && !action.includes(reason) ? <Text style={styles.guidance}>{reason}</Text> : null}
                     {!row.online ? <Text style={styles.guidance}>{t('deviceEnvironment.offlineRecovery')}</Text> : null}
+                    {row.status === 'rpc-timeout' ? <Text style={styles.guidance}>{t('deviceEnvironment.timeoutRecovery')}</Text> : null}
                     {needsRepair ? <Text style={styles.guidance}>
                         {t(repair?.channel === 'local-terminal' ? 'deviceEnvironment.repairLocally' : 'deviceEnvironment.repairWithSsh')}
                     </Text> : null}
