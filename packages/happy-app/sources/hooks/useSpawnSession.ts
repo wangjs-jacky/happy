@@ -11,6 +11,7 @@ import type { Machine } from '@/sync/storageTypes';
 import type { NewSessionAgentType } from '@/sync/persistence';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { organizeSession } from '@/sync/sidebarOrganization';
+import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
 
 export interface SpawnSessionArgs {
     machineId: string;
@@ -38,7 +39,38 @@ export interface SpawnSessionArgs {
 export type SpawnSessionCoreResult =
     | { type: 'success'; sessionId: string }
     | { type: 'cancelled' }
-    | { type: 'error'; message: string };
+    | { type: 'error'; message: string; sessionId?: string };
+
+type PendingHydration = {
+    sessionId: string;
+    args: SpawnSessionArgs;
+    retrying: boolean;
+};
+
+function configureSpawnedSession(sessionId: string, args: SpawnSessionArgs): void {
+    const sessionStorage = storage.getState();
+    if (args.permissionMode !== undefined) {
+        sessionStorage.updateSessionPermissionMode(sessionId, args.permissionMode);
+    }
+    if (args.modelMode !== undefined) {
+        sessionStorage.updateSessionModelMode(sessionId, args.modelMode);
+    }
+    if (args.effortLevel !== undefined) {
+        sessionStorage.updateSessionEffortLevel(sessionId, args.effortLevel);
+    }
+    if (args.fastMode !== undefined) {
+        sessionStorage.updateSessionFastMode(sessionId, args.fastMode);
+    }
+    if (args.sidebarListId) {
+        sync.applySettings({
+            sidebarOrganization: organizeSession(
+                sessionStorage.settings.sidebarOrganization,
+                sessionId,
+                { listId: args.sidebarListId, tagIds: [] },
+            ),
+        });
+    }
+}
 
 /**
  * Inline session spawn used by the compose-first home. The non-navigating core
@@ -48,6 +80,8 @@ export type SpawnSessionCoreResult =
 export function useSpawnSession() {
     const navigateToSession = useNavigateToSession();
     const [sending, setSending] = React.useState(false);
+    const [hydrationError, setHydrationError] = React.useState<{ sessionId: string } | null>(null);
+    const pendingHydration = React.useRef<PendingHydration | null>(null);
     const sendingOperations = React.useRef(0);
     const beginSending = React.useCallback(() => {
         sendingOperations.current += 1;
@@ -62,7 +96,7 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<SpawnSessionCoreResult> => {
-        const { machineId, machine, path, agent, worktreeKey, permissionMode, modelMode, effortLevel, fastMode, environmentVariables } = args;
+        const { machineId, machine, path, agent, worktreeKey, environmentVariables } = args;
         if (!isMachineOnline(machine)) {
             const message = t('newSession.machineOffline');
             Modal.alert(t('common.error'), message);
@@ -91,36 +125,15 @@ export function useSpawnSession() {
 
                 switch (result.type) {
                     case 'success': {
-                        // 新会话的 socket 更新可能已经触发全量账户刷新。继续等待共享队列，
-                        // 会导致 /new 导航前重复解密全部历史记录，即使守护进程已经创建会话。
-                        // 因此先只补齐本次返回的会话；若旧服务端尚未返回该记录，
-                        // 或会话记录异常延迟，再回退到全量刷新以保证兼容性。
-                        const hydrated = await sync.refreshSession(result.sessionId);
+                        const hydrated = await ensureSessionHydratedWithRetry(result.sessionId);
                         if (!hydrated) {
-                            await sync.refreshSessions();
+                            return {
+                                type: 'error',
+                                message: 'newSession.sessionHydrationFailed',
+                                sessionId: result.sessionId,
+                            };
                         }
-                        const sessionStorage = storage.getState();
-                        if (permissionMode !== undefined) {
-                            sessionStorage.updateSessionPermissionMode(result.sessionId, permissionMode);
-                        }
-                        if (modelMode !== undefined) {
-                            sessionStorage.updateSessionModelMode(result.sessionId, modelMode);
-                        }
-                        if (effortLevel !== undefined) {
-                            sessionStorage.updateSessionEffortLevel(result.sessionId, effortLevel);
-                        }
-                        if (fastMode !== undefined) {
-                            sessionStorage.updateSessionFastMode(result.sessionId, fastMode);
-                        }
-                        if (args.sidebarListId) {
-                            sync.applySettings({
-                                sidebarOrganization: organizeSession(
-                                    sessionStorage.settings.sidebarOrganization,
-                                    result.sessionId,
-                                    { listId: args.sidebarListId!, tagIds: [] },
-                                ),
-                            });
-                        }
+                        configureSpawnedSession(result.sessionId, args);
                         return { type: 'success', sessionId: result.sessionId };
                     }
                     case 'requestToApproveDirectoryCreation': {
@@ -152,10 +165,23 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
+        if (pendingHydration.current) {
+            return false;
+        }
         beginSending();
         try {
             const result = await spawnSession(args, approvedNewDirectoryCreation);
             if (result.type !== 'success') {
+                if (result.type === 'error'
+                    && result.message === 'newSession.sessionHydrationFailed'
+                    && result.sessionId) {
+                    pendingHydration.current = {
+                        sessionId: result.sessionId,
+                        args,
+                        retrying: false,
+                    };
+                    setHydrationError({ sessionId: result.sessionId });
+                }
                 return false;
             }
 
@@ -174,5 +200,44 @@ export function useSpawnSession() {
         }
     }, [beginSending, endSending, navigateToSession, spawnSession]);
 
-    return { sending, spawnSession, spawn };
+    const retryHydration = React.useCallback(async (): Promise<boolean> => {
+        const pending = pendingHydration.current;
+        if (!pending || pending.retrying) {
+            return false;
+        }
+
+        pending.retrying = true;
+        beginSending();
+        try {
+            const hydrated = await ensureSessionHydratedWithRetry(pending.sessionId);
+            if (!hydrated) {
+                return false;
+            }
+
+            configureSpawnedSession(pending.sessionId, pending.args);
+            const attachments = pending.args.images && pending.args.images.length > 0
+                ? pending.args.images
+                : undefined;
+            if (pending.args.prompt || attachments) {
+                await sync.sendMessage(pending.sessionId, pending.args.prompt, {
+                    source: 'new_session',
+                    attachments,
+                });
+            }
+
+            pendingHydration.current = null;
+            setHydrationError(null);
+            navigateToSession(pending.sessionId);
+            return true;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to start session';
+            Modal.alert(t('common.error'), message);
+            return false;
+        } finally {
+            pending.retrying = false;
+            endSending();
+        }
+    }, [beginSending, endSending, navigateToSession]);
+
+    return { sending, hydrationError, retryHydration, spawnSession, spawn };
 }

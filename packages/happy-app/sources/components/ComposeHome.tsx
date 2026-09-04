@@ -163,7 +163,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         rightWidth: desktopRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { sending, spawn } = useSpawnSession();
+    const { sending, hydrationError, retryHydration, spawn } = useSpawnSession();
     const [text, setText] = React.useState('');
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
@@ -663,6 +663,15 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         }));
     }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
 
+    const clearSubmittedDraft = React.useCallback(() => {
+        composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
+        setText('');
+        if (activeImageAgent) {
+            setPendingCustomImageStyleReferences([]);
+        }
+        clearImages();
+    }, [activeImageAgent, clearImages, setPendingCustomImageStyleReferences]);
+
     const handleSend = React.useCallback(() => {
         const trimmed = text.trim();
         const userImages = hasImages ? selectedImages : [];
@@ -703,8 +712,8 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             && draft.worktreeKey !== '__new__';
         if (!canSpawn) return;
 
-        // Clear the input only once a session was actually created, so the prompt
-        // and attachments aren't lost if spawning fails or directory creation is declined.
+        // Clear only after the encrypted first message reaches the local outbox.
+        // A hydration failure keeps the draft available for the retry action.
         spawn({
             machineId: draft.selectedMachineId!,
             machine: machine!,
@@ -721,15 +730,16 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             sidebarListId,
         }).then((ok) => {
             if (ok) {
-                composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
-                setText('');
-                if (activeImageAgent) {
-                    setPendingCustomImageStyleReferences([]);
-                }
-                clearImages();
+                clearSubmittedDraft();
             }
         });
-    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, setPendingCustomImageStyleReferences, clearImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId]);
+    }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearSubmittedDraft]);
+
+    const handleRetryHydration = React.useCallback(async () => {
+        if (await retryHydration()) {
+            clearSubmittedDraft();
+        }
+    }, [clearSubmittedDraft, retryHydration]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via
@@ -1055,6 +1065,28 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                             ))}
                         </View>
                     )}
+                    {hydrationError && (
+                        <View
+                            style={styles.sessionHydrationError}
+                            testID="compose-home-session-hydration-error"
+                        >
+                            <Text style={styles.sessionHydrationErrorText}>
+                                {t('newSession.sessionHydrationFailed')}
+                            </Text>
+                            <Pressable
+                                accessibilityRole="button"
+                                onPress={handleRetryHydration}
+                                disabled={sending}
+                                style={({ pressed }) => [
+                                    styles.sessionHydrationRetry,
+                                    pressed && styles.sessionHydrationRetryPressed,
+                                ]}
+                                testID="compose-home-session-hydration-retry"
+                            >
+                                <Text style={styles.sessionHydrationRetryText}>{t('common.retry')}</Text>
+                            </Pressable>
+                        </View>
+                    )}
                     <MessageComposer
                         ref={composerInputRef}
                         mode="home"
@@ -1067,7 +1099,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
                         onChangeText={setText}
                         onSend={handleSend}
                         isSending={sending}
-                        isSendDisabled={!canSubmit}
+                        isSendDisabled={!canSubmit || Boolean(hydrationError)}
                         selectedImages={hasImages ? selectedImages : undefined}
                         selectedImagesPresentation={activeImageAgent ? 'featured' : 'compact'}
                         // Image agent needs images only; the normal composer
@@ -1325,6 +1357,43 @@ const styles = StyleSheet.create((theme) => ({
     composer: {
         paddingHorizontal: 14,
         paddingTop: 8,
+    },
+    sessionHydrationError: {
+        width: '100%',
+        maxWidth: layout.maxWidth,
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 10,
+        paddingVertical: 9,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: theme.colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.status.error,
+    },
+    sessionHydrationErrorText: {
+        ...Typography.default(),
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.textDestructive,
+    },
+    sessionHydrationRetry: {
+        minHeight: 32,
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        backgroundColor: theme.colors.surfacePressed,
+    },
+    sessionHydrationRetryPressed: {
+        opacity: 0.72,
+    },
+    sessionHydrationRetryText: {
+        ...Typography.default('semiBold'),
+        fontSize: 12,
+        color: theme.colors.text,
     },
     imageAgentPanel: {
         width: '100%',

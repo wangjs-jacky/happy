@@ -582,6 +582,7 @@ export const ru: TranslationStructure = {
         askMode: 'Спросить',
         agentMode: 'Агент',
         machineOffline: 'Машина недоступна',
+        sessionHydrationFailed: 'Сессия создана, но страница ещё не синхронизировалась. Повторите попытку, чтобы войти.',
         switchMachinesHint: '• Переключите машину, нажав на неё выше',
     },
 

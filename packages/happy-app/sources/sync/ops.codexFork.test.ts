@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { machineRPC, refreshSession, refreshSessions } = vi.hoisted(() => ({
+const { machineRPC, ensureSessionHydrated, refreshSessions } = vi.hoisted(() => ({
     machineRPC: vi.fn(),
-    refreshSession: vi.fn(),
+    ensureSessionHydrated: vi.fn(),
     refreshSessions: vi.fn(),
 }));
 
@@ -11,14 +11,14 @@ vi.mock('./apiSocket', () => ({
 }));
 
 vi.mock('./sync', () => ({
-    sync: { refreshSession, refreshSessions },
+    sync: { ensureSessionHydrated, refreshSessions },
 }));
 
 describe('codex fork ops', () => {
     beforeEach(() => {
         machineRPC.mockReset();
-        refreshSession.mockReset();
-        refreshSession.mockResolvedValue(true);
+        ensureSessionHydrated.mockReset();
+        ensureSessionHydrated.mockResolvedValue(true);
         refreshSessions.mockReset();
         refreshSessions.mockResolvedValue(undefined);
     });
@@ -148,7 +148,7 @@ describe('codex fork ops', () => {
             }),
             { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
-        expect(refreshSession).toHaveBeenCalledWith('happy-forked');
+        expect(ensureSessionHydrated).toHaveBeenCalledWith('happy-forked');
         expect(refreshSessions).not.toHaveBeenCalled();
     });
 
@@ -192,8 +192,9 @@ describe('codex fork ops', () => {
         );
     });
 
-    it('falls back to a full refresh when the spawned session is not yet available', async () => {
-        refreshSession.mockResolvedValue(false);
+    it('bounds targeted hydration without a full refresh when a forked session is delayed', async () => {
+        vi.useFakeTimers();
+        ensureSessionHydrated.mockResolvedValue(false);
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {
                 return { type: 'success', newCodexThreadId: 'thread-delayed' };
@@ -204,22 +205,29 @@ describe('codex fork ops', () => {
             throw new Error(`unexpected method ${method}`);
         });
 
-        const { forkAndSpawn } = await import('./ops');
-        const result = await forkAndSpawn({
-            kind: 'codex',
-            sessionId: 'happy-source',
-            machineId: 'machine-1',
-            directory: '/tmp/project',
-            codexThreadId: 'thread-source',
-        });
+        try {
+            const { forkAndSpawn } = await import('./ops');
+            const forkPromise = forkAndSpawn({
+                kind: 'codex',
+                sessionId: 'happy-source',
+                machineId: 'machine-1',
+                directory: '/tmp/project',
+                codexThreadId: 'thread-source',
+            });
+            await vi.runAllTimersAsync();
+            const result = await forkPromise;
 
-        expect(result).toEqual({ type: 'success', sessionId: 'happy-delayed' });
-        expect(refreshSession).toHaveBeenCalledWith('happy-delayed');
-        expect(refreshSessions).toHaveBeenCalledTimes(1);
+            expect(result).toEqual({ type: 'success', sessionId: 'happy-delayed' });
+            expect(ensureSessionHydrated).toHaveBeenCalledTimes(4);
+            expect(ensureSessionHydrated).toHaveBeenNthCalledWith(4, 'happy-delayed');
+            expect(refreshSessions).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('keeps navigation best-effort when single-session hydration fails', async () => {
-        refreshSession.mockRejectedValue(new Error('temporary sync failure'));
+        ensureSessionHydrated.mockRejectedValue(new Error('temporary sync failure'));
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {
                 return { type: 'success', newCodexThreadId: 'thread-flaky' };
@@ -238,6 +246,7 @@ describe('codex fork ops', () => {
             directory: '/tmp/project',
             codexThreadId: 'thread-source',
         })).resolves.toEqual({ type: 'success', sessionId: 'happy-flaky' });
+        expect(ensureSessionHydrated).toHaveBeenCalledTimes(4);
         expect(refreshSessions).not.toHaveBeenCalled();
     });
 
@@ -282,7 +291,7 @@ describe('codex fork ops', () => {
             }),
             { timeoutMs: SESSION_START_RPC_TIMEOUT_MS },
         );
-        expect(refreshSession).toHaveBeenCalledWith('happy-moved');
+        expect(ensureSessionHydrated).toHaveBeenCalledWith('happy-moved');
         expect(refreshSessions).not.toHaveBeenCalled();
     });
 

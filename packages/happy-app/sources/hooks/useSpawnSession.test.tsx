@@ -13,7 +13,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     spawnResult: { type: 'success', sessionId: 'session-1' } as SpawnSessionResult,
     machineSpawnNewSession: vi.fn(),
-    refreshSession: vi.fn(),
+    ensureSessionHydrated: vi.fn(),
     refreshSessions: vi.fn(),
     sendMessage: vi.fn(),
     navigateToSession: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('@/sync/ops', () => ({
 }));
 vi.mock('@/sync/sync', () => ({
     sync: {
-        refreshSession: mocks.refreshSession,
+        ensureSessionHydrated: mocks.ensureSessionHydrated,
         refreshSessions: mocks.refreshSessions,
         sendMessage: mocks.sendMessage,
         applySettings: mocks.applySettings,
@@ -129,7 +129,7 @@ describe('useSpawnSession', () => {
         vi.clearAllMocks();
         mocks.spawnResult = { type: 'success', sessionId: 'session-1' };
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
-        mocks.refreshSession.mockResolvedValue(true);
+        mocks.ensureSessionHydrated.mockResolvedValue(true);
         mocks.refreshSessions.mockResolvedValue(undefined);
         mocks.sendMessage.mockResolvedValue(undefined);
         mocks.confirm.mockResolvedValue(false);
@@ -158,7 +158,7 @@ describe('useSpawnSession', () => {
             agent: 'codex',
             environmentVariables: undefined,
         });
-        expect(mocks.refreshSession).toHaveBeenCalledWith('session-1');
+        expect(mocks.ensureSessionHydrated).toHaveBeenCalledWith('session-1');
         expect(mocks.refreshSessions).not.toHaveBeenCalled();
         expect(mocks.updatePermission).toHaveBeenCalledWith('session-1', 'yolo');
         expect(mocks.updateModel).toHaveBeenCalledWith('session-1', 'default');
@@ -206,17 +206,120 @@ describe('useSpawnSession', () => {
         hook.unmount();
     });
 
-    it('falls back to a full refresh when the spawned session is not yet visible', async () => {
-        mocks.refreshSession.mockResolvedValue(false);
+    it('does not refresh the account when one spawned session stays temporarily absent', async () => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        const hook = renderHook();
+        let result;
+
+        try {
+            await act(async () => {
+                const spawnPromise = hook.current().spawnSession(args);
+                await vi.advanceTimersByTimeAsync(0);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(1);
+                await vi.advanceTimersByTimeAsync(99);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(1);
+                await vi.advanceTimersByTimeAsync(1);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(2);
+                await vi.advanceTimersByTimeAsync(249);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(2);
+                await vi.advanceTimersByTimeAsync(1);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(3);
+                await vi.advanceTimersByTimeAsync(499);
+                expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(3);
+                await vi.advanceTimersByTimeAsync(1);
+                result = await spawnPromise;
+            });
+
+            expect(result).toEqual({
+                type: 'error',
+                message: 'newSession.sessionHydrationFailed',
+                sessionId: 'session-1',
+            });
+            expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(4);
+            expect(mocks.ensureSessionHydrated).toHaveBeenNthCalledWith(4, 'session-1');
+            expect(mocks.refreshSessions).not.toHaveBeenCalled();
+            expect(mocks.updatePermission).not.toHaveBeenCalled();
+            expect(mocks.sendMessage).not.toHaveBeenCalled();
+            expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps spawn, hydrate, configure, local queue, and navigation in order', async () => {
+        const order: string[] = [];
+        mocks.machineSpawnNewSession.mockImplementation(async () => {
+            order.push('spawn');
+            return { type: 'success', sessionId: 'session-1' };
+        });
+        mocks.ensureSessionHydrated.mockImplementation(async () => {
+            order.push('hydrate');
+            return true;
+        });
+        mocks.updatePermission.mockImplementation(() => order.push('configure'));
+        mocks.sendMessage.mockImplementation(async () => {
+            order.push('send');
+        });
+        mocks.navigateToSession.mockImplementation(() => order.push('navigate'));
         const hook = renderHook();
 
         await act(async () => {
-            await hook.current().spawnSession(args);
+            await hook.current().spawn(args);
         });
 
-        expect(mocks.refreshSession).toHaveBeenCalledWith('session-1');
-        expect(mocks.refreshSessions).toHaveBeenCalledTimes(1);
+        expect(order).toEqual(['spawn', 'hydrate', 'configure', 'send', 'navigate']);
         hook.unmount();
+    });
+
+    it('retries hydration without respawning and completes configure/send/navigation once', async () => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        const hook = renderHook();
+
+        try {
+            let firstResult;
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                firstResult = await spawnPromise;
+            });
+
+            expect(firstResult).toBe(false);
+            expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+            expect(mocks.updatePermission).not.toHaveBeenCalled();
+            expect(mocks.sendMessage).not.toHaveBeenCalled();
+            expect(mocks.navigateToSession).not.toHaveBeenCalled();
+
+            mocks.ensureSessionHydrated.mockResolvedValue(true);
+            let retryResult;
+            await act(async () => {
+                retryResult = await hook.current().retryHydration();
+            });
+
+            expect(retryResult).toBe(true);
+            expect(hook.current().hydrationError).toBeNull();
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
+            expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+            expect(mocks.sendMessage).toHaveBeenCalledWith('session-1', 'Build it', {
+                source: 'new_session',
+                attachments: [image],
+            });
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+
+            await act(async () => {
+                await hook.current().retryHydration();
+            });
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
+            expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
     });
 
     it('keeps sending true until the wrapper finishes its initial message', async () => {

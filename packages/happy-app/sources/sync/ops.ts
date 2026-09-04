@@ -5,6 +5,7 @@
 
 import { apiSocket } from './apiSocket';
 import { sync } from './sync';
+import { ensureSessionHydratedWithRetry } from './ensureSessionHydratedWithRetry';
 import type { MachineMetadata, Metadata, Session } from './storageTypes';
 import { markSessionArchiveRequested, markSessionRestored } from '@/utils/sessionLifecycle';
 import { updateEncryptedSessionMetadata } from './sessionMetadata';
@@ -983,15 +984,9 @@ type ForkOptions = {
 };
 
 async function hydrateSpawnedSession(sessionId: string): Promise<void> {
-    try {
-        const hydrated = await sync.refreshSession(sessionId);
-        if (!hydrated) {
-            await sync.refreshSessions();
-        }
-    } catch {
-        // Hydration is best-effort; the new-session broadcast will still
-        // populate local state if either fetch path flakes.
-    }
+    // Hydration remains best-effort for fork callers because the socket event
+    // may populate local state after this bounded targeted retry completes.
+    await ensureSessionHydratedWithRetry(sessionId);
 }
 
 /**
