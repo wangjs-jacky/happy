@@ -7,6 +7,13 @@ import { createVercelClient } from './vercelClient';
 
 const DRAFT_TTL_MS = 60 * 60 * 1000;
 const PUBLISHED_TTL_MS = 24 * 60 * 60 * 1000;
+const VERCEL_PREVIEW_CONFIG = JSON.stringify({
+    headers: [{ source: '/(.*)', headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+    ] }],
+});
 
 type PreviewRow = {
     id: string; title: string; status: string; url: string | null; publishedAt: Date | null; expiresAt: Date;
@@ -77,6 +84,7 @@ export function createPreviewService(dependencies: {
             if (!row) throw new Error('Preview not found');
             if (row.status === 'ready') return previewRowToEvent(row);
             if (!row.assets?.length || row.assets.some((asset) => !asset.uploadedAt)) throw new Error('Preview assets are incomplete');
+            if (row.assets.some((asset) => asset.path === 'vercel.json')) throw new Error('Preview manifest may not include vercel.json');
             const credential = await credentialStore.get(accountId);
             if (!credential) throw new Error('VERCEL_NOT_CONNECTED');
             const claimed = await database.interactivePreview.updateMany({ where: { id: previewId, accountId, status: { in: ['draft', 'failed'] } }, data: { status: 'publishing', errorCode: null } });
@@ -87,6 +95,13 @@ export function createPreviewService(dependencies: {
             }
             try {
                 const client = clientFactory({ token: credential.accessToken, teamId: credential.teamId });
+                const project = await client.ensurePreviewProject({
+                    configurationId: credential.configurationId,
+                    ...(credential.projectId ? { projectId: credential.projectId } : {}),
+                });
+                if (credential.projectId !== project.id) {
+                    await credentialStore.set(accountId, { ...credential, projectId: project.id });
+                }
                 const files = [];
                 for (const asset of row.assets) {
                     const bytes = await storage.read(previewId, asset.id, asset.size);
@@ -95,8 +110,12 @@ export function createPreviewService(dependencies: {
                     await client.uploadFile(asset.sha256, bytes, asset.mimeType);
                     files.push({ file: asset.path, sha: asset.sha256, size: asset.size });
                 }
+                const configBytes = Buffer.from(VERCEL_PREVIEW_CONFIG);
+                const configSha = createHash('sha256').update(configBytes).digest('hex');
+                await client.uploadFile(configSha, configBytes, 'application/json');
+                files.push({ file: 'vercel.json', sha: configSha, size: configBytes.byteLength });
                 const deployment = await client.createDeployment({
-                    name: 'happy-previews', projectId: credential.projectId, files,
+                    name: 'happy-previews', projectId: project.id, files,
                     meta: { happyPreviewId: previewId },
                 });
                 createdDeploymentId = deployment.id;
