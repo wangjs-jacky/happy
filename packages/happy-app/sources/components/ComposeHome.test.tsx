@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     selectedImages: [] as Array<{ id: string; uri: string }>,
     setSelectedImages: null as React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> | null,
     clearImages: vi.fn(),
+    removeImage: vi.fn(),
     setPendingReferences: vi.fn(),
     draft: {
         agentType: 'codex',
@@ -97,7 +98,10 @@ vi.mock('@/hooks/useImagePicker', async () => {
                 selectedImages,
                 pickImages: vi.fn(),
                 pickAttachment: vi.fn(),
-                removeImage: (id: string) => setSelectedImages((current) => current.filter((image) => image.id !== id)),
+                removeImage: (id: string) => {
+                    mocks.removeImage(id);
+                    setSelectedImages((current) => current.filter((image) => image.id !== id));
+                },
                 clearImages: () => {
                     mocks.clearImages();
                     setSelectedImages([]);
@@ -308,5 +312,55 @@ describe('ComposeHome session hydration recovery', () => {
         expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
         expect(renderer.root.findByType('MessageComposer').props.selectedImages).toBeUndefined();
         act(() => renderer.unmount());
+    });
+
+    it('does not queue, navigate, or clear newer edits when hydration resolves after unmount', async () => {
+        vi.useFakeTimers();
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<ComposeHome variant="screen" />);
+        });
+
+        act(() => {
+            renderer.root.findByType('MessageComposer').props.onChangeText('Submitted draft');
+        });
+        await act(async () => {
+            renderer.root.findByType('MessageComposer').props.onSend();
+            await vi.runAllTimersAsync();
+        });
+
+        act(() => {
+            const composer = renderer.root.findByType('MessageComposer');
+            composer.props.onChangeText('Unsent edit after failure');
+            composer.props.onAddImages([{ id: 'image-c', uri: 'file:///c.png' }]);
+        });
+
+        let resolveHydration: ((hydrated: boolean) => void) | undefined;
+        mocks.ensureSessionHydrated.mockImplementation(() => new Promise<boolean>((resolve) => {
+            resolveHydration = resolve;
+        }));
+        const retry = renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress;
+        let retryPromise!: Promise<void>;
+        await act(async () => {
+            retryPromise = retry();
+            await Promise.resolve();
+        });
+
+        expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(5);
+        act(() => renderer.unmount());
+        await act(async () => {
+            resolveHydration?.(true);
+            await retryPromise;
+        });
+
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.updatePermission).not.toHaveBeenCalled();
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        expect(mocks.clearImages).not.toHaveBeenCalled();
+        expect(mocks.removeImage).not.toHaveBeenCalled();
+        expect(consoleErrorSpy.mock.calls.filter((values) => (
+            values[0] !== 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer'
+        ))).toEqual([]);
     });
 });

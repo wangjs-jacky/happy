@@ -83,19 +83,30 @@ export function useSpawnSession() {
     const [hydrationError, setHydrationError] = React.useState<{ sessionId: string } | null>(null);
     const pendingHydration = React.useRef<PendingHydration | null>(null);
     const sendingOperations = React.useRef(0);
+    const mountedRef = React.useRef(true);
+
+    React.useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            pendingHydration.current = null;
+        };
+    }, []);
+
     const beginSending = React.useCallback(() => {
         sendingOperations.current += 1;
-        if (sendingOperations.current === 1) setSending(true);
+        if (mountedRef.current && sendingOperations.current === 1) setSending(true);
     }, []);
     const endSending = React.useCallback(() => {
         sendingOperations.current = Math.max(0, sendingOperations.current - 1);
-        if (sendingOperations.current === 0) setSending(false);
+        if (mountedRef.current && sendingOperations.current === 0) setSending(false);
     }, []);
 
     const spawnSession = React.useCallback(async (
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<SpawnSessionCoreResult> => {
+        if (!mountedRef.current) return { type: 'cancelled' };
         const { machineId, machine, path, agent, worktreeKey, environmentVariables } = args;
         if (!isMachineOnline(machine)) {
             const message = t('newSession.machineOffline');
@@ -133,6 +144,7 @@ export function useSpawnSession() {
                                 sessionId: result.sessionId,
                             };
                         }
+                        if (!mountedRef.current) return { type: 'cancelled' };
                         configureSpawnedSession(result.sessionId, args);
                         return { type: 'success', sessionId: result.sessionId };
                     }
@@ -142,7 +154,7 @@ export function useSpawnSession() {
                             t('composeHome.createDirectoryMessage', { path: result.directory }),
                             { cancelText: t('common.cancel'), confirmText: t('common.create') },
                         );
-                        return approved ? runSpawn(true) : { type: 'cancelled' };
+                        return approved && mountedRef.current ? runSpawn(true) : { type: 'cancelled' };
                     }
                     case 'error':
                         Modal.alert(t('common.error'), result.errorMessage);
@@ -153,7 +165,7 @@ export function useSpawnSession() {
             return await runSpawn(approvedNewDirectoryCreation);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
-            Modal.alert(t('common.error'), message);
+            if (mountedRef.current) Modal.alert(t('common.error'), message);
             return { type: 'error', message };
         } finally {
             endSending();
@@ -165,12 +177,13 @@ export function useSpawnSession() {
         args: SpawnSessionArgs,
         approvedNewDirectoryCreation: boolean = false,
     ): Promise<boolean> => {
-        if (pendingHydration.current) {
+        if (!mountedRef.current || pendingHydration.current) {
             return false;
         }
         beginSending();
         try {
             const result = await spawnSession(args, approvedNewDirectoryCreation);
+            if (!mountedRef.current) return false;
             if (result.type !== 'success') {
                 if (result.type === 'error'
                     && result.message === 'newSession.sessionHydrationFailed'
@@ -189,11 +202,12 @@ export function useSpawnSession() {
             if (args.prompt || attachments) {
                 await sync.sendMessage(result.sessionId, args.prompt, { source: 'new_session', attachments });
             }
+            if (!mountedRef.current) return false;
             navigateToSession(result.sessionId);
             return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
-            Modal.alert(t('common.error'), message);
+            if (mountedRef.current) Modal.alert(t('common.error'), message);
             return false;
         } finally {
             endSending();
@@ -202,7 +216,7 @@ export function useSpawnSession() {
 
     const retryHydration = React.useCallback(async (): Promise<boolean> => {
         const pending = pendingHydration.current;
-        if (!pending || pending.retrying) {
+        if (!mountedRef.current || !pending || pending.retrying) {
             return false;
         }
 
@@ -213,6 +227,7 @@ export function useSpawnSession() {
             if (!hydrated) {
                 return false;
             }
+            if (!mountedRef.current || pendingHydration.current !== pending) return false;
 
             configureSpawnedSession(pending.sessionId, pending.args);
             const attachments = pending.args.images && pending.args.images.length > 0
@@ -224,6 +239,7 @@ export function useSpawnSession() {
                     attachments,
                 });
             }
+            if (!mountedRef.current || pendingHydration.current !== pending) return false;
 
             pendingHydration.current = null;
             setHydrationError(null);
@@ -231,7 +247,7 @@ export function useSpawnSession() {
             return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
-            Modal.alert(t('common.error'), message);
+            if (mountedRef.current) Modal.alert(t('common.error'), message);
             return false;
         } finally {
             pending.retrying = false;
