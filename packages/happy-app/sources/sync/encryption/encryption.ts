@@ -105,7 +105,7 @@ export class Encryption {
         const existing = this.sessionEncryptions.get(sessionId);
         if (existing) {
             return {
-                sessionEncryption: existing,
+                sessionEncryption: existing.createDetached(),
                 commit: () => this.sessionEncryptions.get(sessionId) === existing,
             };
         }
