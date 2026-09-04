@@ -214,4 +214,35 @@ describe('DeviceEnvironmentView', () => {
         act(() => { button.props.onHoverOut(); button.props.onFocus(); });
         expect(background(false)).toBe(appThemes.ginghamDark.colors.surfaceSelected);
     });
+
+    it('clears Scan focus across disabled scanning even when no blur event arrives', async () => {
+        renderEnvironmentView();
+        const button = (id: string) => renderer!.root.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === id);
+        const scan = button('environment-scan-all');
+        const preview = button('environment-preview-alignment');
+        const background = (node: any) => Object.assign({}, ...node.props.style({ pressed: false }).flat()).backgroundColor;
+
+        act(() => scan.props.onFocus());
+        expect(background(scan)).toBe(appThemes.ginghamDark.colors.surfaceSelected);
+        await act(async () => {
+            scan.props.onPress();
+            controller = { ...controller, phase: 'scanning' };
+            renderer!.update(<DeviceEnvironmentView controller={controller} />);
+        });
+        expect(controller.scan).toHaveBeenCalledOnce();
+        expect(scan.props.disabled).toBe(true);
+        expect(background(scan)).toBe(appThemes.ginghamDark.colors.surface);
+
+        // A focused web control can be disabled without its blur callback firing.
+        // Re-enabling must not revive that obsolete focus after Tab moves elsewhere.
+        controller = { ...controller, phase: 'scanned' };
+        act(() => renderer!.update(<DeviceEnvironmentView controller={controller} />));
+        act(() => preview.props.onFocus());
+        expect(background(scan)).toBe(appThemes.ginghamDark.colors.surface);
+        expect(background(preview)).toBe(appThemes.ginghamDark.colors.surfaceSelected);
+        act(() => preview.props.onBlur());
+        expect(background(scan)).toBe(appThemes.ginghamDark.colors.surface);
+        expect(background(preview)).toBe(appThemes.ginghamDark.colors.surface);
+    });
 });

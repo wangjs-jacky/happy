@@ -129,6 +129,11 @@ const EnvironmentAction = React.memo(({ testID, title, disabled, loading, onPres
 }) => {
     const [hovered, setHovered] = React.useState(false);
     const [focused, setFocused] = React.useState(false);
+    React.useEffect(() => {
+        // Disabling a focused web control can suppress its blur callback.
+        // Do not restore that obsolete focus when an operation finishes.
+        if (disabled) setFocused(false);
+    }, [disabled]);
     return (
         <Pressable
             testID={testID}
