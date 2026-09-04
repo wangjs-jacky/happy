@@ -353,6 +353,8 @@ export const zhHant: TranslationStructure = {
             `${feature} 已${enabled ? '啟用' : '停用'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: '連線',
         apiKey: 'API Key',

@@ -1662,6 +1662,50 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             }
         });
 
+        it('keeps typed preview states compatible and projects deleting as expired without a URL', () => {
+            const previewId = '11111111-1111-4111-8111-111111111112';
+            for (const state of ['publishing', 'ready', 'failed', 'expired', 'deleting'] as const) {
+                const normalized = normalizeRawMessage(`db-preview-${state}`, null, 1, {
+                    role: 'session', content: { id: `env-preview-${state}`, time: 10, role: 'agent', ev: {
+                        t: 'interactive-preview', preview: {
+                            version: 1,
+                            id: previewId,
+                            title: 'Toolbar',
+                            state,
+                            url: 'https://draft.vercel.app',
+                            expiresAt: 2,
+                        },
+                    } },
+                } as any);
+
+                expect(normalized?.role).toBe('agent');
+                if (normalized?.role === 'agent') {
+                    expect(normalized.content[0]).toMatchObject({
+                        type: 'tool-call',
+                        input: { state: state === 'deleting' ? 'expired' : state },
+                    });
+                    if (state === 'deleting') {
+                        expect((normalized.content[0] as any).input.url).toBeUndefined();
+                    }
+                }
+            }
+        });
+
+        it('keeps older plain-text messages as text rather than interpreting them as preview controls', () => {
+            const normalized = normalizeRawMessage('db-preview-legacy-text', null, 1, {
+                role: 'session', content: { id: 'env-preview-legacy-text', time: 10, role: 'agent', turn: 'turn-1', ev: {
+                    t: 'text', text: 'Preview is ready: https://draft.vercel.app',
+                } },
+            } as any);
+
+            expect(normalized?.role).toBe('agent');
+            if (normalized?.role === 'agent') {
+                expect(normalized.content).toEqual([expect.objectContaining({
+                    type: 'text', text: 'Preview is ready: https://draft.vercel.app',
+                })]);
+            }
+        });
+
         it('normalizes tool-call lifecycle events', () => {
             const start = normalizeRawMessage('db-3', null, 1, {
                 ...base,

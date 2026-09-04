@@ -44,7 +44,7 @@ const SETTINGS_TITLES: Record<string, () => string> = {
     '/settings/skill': () => t('settingsSkills.detailTitle'),
     '/settings/skills': () => t('settingsSkills.title'),
     '/settings/usage': () => t('settings.usage'),
-    '/settings/temporary-previews': () => '临时交互预览',
+    '/settings/temporary-previews': () => t('interactivePreviews.title'),
     '/settings/voice': () => t('settings.voiceAssistant'),
     '/settings/voice/language': () => t('settingsVoice.languageTitle'),
 };

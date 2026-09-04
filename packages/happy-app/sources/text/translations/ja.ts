@@ -354,6 +354,8 @@ export const ja: TranslationStructure = {
             `${feature}を${enabled ? '有効' : '無効'}にしました`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',

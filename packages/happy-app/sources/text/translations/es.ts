@@ -353,6 +353,8 @@ export const es: TranslationStructure = {
             `${feature} ${enabled ? 'habilitada' : 'deshabilitada'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',

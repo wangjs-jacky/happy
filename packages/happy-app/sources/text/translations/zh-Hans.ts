@@ -354,6 +354,19 @@ export const zhHans: TranslationStructure = {
             `${feature} 已${enabled ? '启用' : '禁用'}`,
     },
 
+    interactivePreviews: {
+        title: '临时交互预览', connection: '连接状态', loading: '正在加载连接状态…',
+        unavailable: '此 Happy Server 尚未配置临时预览。', disconnected: '未连接',
+        connected: ({ name }: { name: string }) => `已连接 ${name}`, project: '预览项目',
+        connect: '连接 Vercel', reconnect: '重新连接 Vercel', disconnect: '断开 Vercel',
+        disconnectTitle: '断开 Vercel？', disconnectBody: '新的预览将立即停止发布；系统会尽力删除已有预览。',
+        disconnectWarning: '部分已发布预览未能删除，请在 Vercel 中手动移除。',
+        popupBlocked: '请允许 Happy 打开弹窗后再连接。', safeError: '无法更新临时预览，请重试。',
+        disclosure: '预览链接可公开访问，系统将在 24 小时后安排删除。',
+        publishing: '正在发布预览…', ready: '预览已就绪', failed: '预览发布失败', expired: '预览已过期并已移除',
+        open: '打开预览', copy: '复制预览链接', expiresAt: '失效时间',
+    },
+
     askApiSettings: {
         connection: '连接',
         apiKey: 'API Key',

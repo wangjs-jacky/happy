@@ -152,4 +152,25 @@ describe('MessageView fork action feedback', () => {
 
         act(() => renderer.unmount());
     });
+
+    it('routes a typed interactive preview event through the normal tool message path', () => {
+        const tool = {
+            name: 'interactive-preview', state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1,
+            input: { version: 1, id: '11111111-1111-4111-8111-111111111111', title: 'Toolbar', state: 'ready', url: 'https://draft.example' },
+            description: null,
+        } as any;
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(<MessageView
+                message={{ kind: 'tool-call', id: 'preview-message', localId: null, createdAt: 1, tool, children: [] }}
+                metadata={null}
+            />);
+        });
+
+        expect(renderer.root.findByType('ToolView').props).toMatchObject({
+            tool: expect.objectContaining({ name: 'interactive-preview', input: expect.objectContaining({ state: 'ready' }) }),
+            messageId: 'preview-message',
+        });
+        act(() => renderer.unmount());
+    });
 });

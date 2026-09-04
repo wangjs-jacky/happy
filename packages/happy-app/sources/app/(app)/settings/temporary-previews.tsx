@@ -1,47 +1,195 @@
 import * as React from 'react';
 import { ActivityIndicator, Platform, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Modal } from '@/modal';
+import { t } from '@/text';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-import { disconnectVercelPreview, getVercelPreviewConnectUrl, getVercelPreviewStatus, type VercelPreviewStatus } from '@/sync/apiInteractivePreviews';
+import {
+    disconnectVercelPreview,
+    getVercelPreviewConnectUrl,
+    getVercelPreviewStatus,
+    type VercelPreviewStatus,
+} from '@/sync/apiInteractivePreviews';
+
+type LoadState =
+    | { kind: 'loading' }
+    | { kind: 'ready'; status: VercelPreviewStatus }
+    | { kind: 'error' };
+
+const OAUTH_POLL_MS = 2_000;
+const OAUTH_POLL_TIMEOUT_MS = 120_000;
 
 export default function TemporaryPreviewsSettings() {
-    const { theme } = useUnistyles(); const auth = useAuth();
-    const [status, setStatus] = React.useState<VercelPreviewStatus | null>(null); const [busy, setBusy] = React.useState(false);
+    const { theme } = useUnistyles();
+    const { credentials } = useAuth();
+    const [loadState, setLoadState] = React.useState<LoadState>({ kind: 'loading' });
+    const [busy, setBusy] = React.useState(false);
     const pollTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
-    const refresh = React.useCallback(async () => { if (auth.credentials) setStatus(await getVercelPreviewStatus(auth.credentials)); }, [auth.credentials]);
-    React.useEffect(() => { void refresh().catch(() => setStatus({ available: false, connected: false })); }, [refresh]);
-    React.useEffect(() => () => { if (pollTimer.current) clearInterval(pollTimer.current); }, []);
-    const connect = React.useCallback(async () => {
-        if (!auth.credentials || busy) return; setBusy(true);
-        const popup = Platform.OS === 'web' && typeof window !== 'undefined'
-            ? window.open('about:blank', 'happy-vercel-connect', 'popup,width=720,height=760')
-            : null;
+
+    const stopPolling = React.useCallback(() => {
+        if (pollTimer.current) clearInterval(pollTimer.current);
+        pollTimer.current = null;
+    }, []);
+
+    const refresh = React.useCallback(async () => {
+        if (!credentials) {
+            setLoadState({ kind: 'error' });
+            return;
+        }
         try {
-            const url = await getVercelPreviewConnectUrl(auth.credentials);
-            if (popup) popup.location.href = url; else await openExternalUrl(url);
-            const started = Date.now();
-            if (pollTimer.current) clearInterval(pollTimer.current);
-            pollTimer.current = setInterval(() => { void getVercelPreviewStatus(auth.credentials!).then((next) => {
-                setStatus(next); if (next.connected || Date.now() - started > 120_000) { clearInterval(pollTimer.current!); pollTimer.current = null; }
-            }).catch(() => { /* Keep polling through transient network failures. */ }); }, 2000);
-        } catch (error) { popup?.close(); Modal.alert('Vercel', error instanceof Error ? error.message : String(error)); }
-        finally { setBusy(false); }
-    }, [auth.credentials, busy, refresh]);
+            const status = await getVercelPreviewStatus(credentials);
+            setLoadState({ kind: 'ready', status });
+            if (status.connected) stopPolling();
+        } catch {
+            setLoadState({ kind: 'error' });
+        }
+    }, [credentials, stopPolling]);
+
+    React.useEffect(() => { void refresh(); }, [refresh]);
+
+    React.useEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+        const browserWindow = window;
+        const query = new URLSearchParams(browserWindow.location.search);
+        if (query.get('vercel') === 'connected' || query.has('vercel_error')) void refresh();
+
+        const onFocus = () => { void refresh(); };
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin === browserWindow.location.origin && event.data?.type === 'happy-vercel-connected') void refresh();
+        };
+        browserWindow.addEventListener('focus', onFocus);
+        browserWindow.addEventListener('message', onMessage);
+        return () => {
+            browserWindow.removeEventListener('focus', onFocus);
+            browserWindow.removeEventListener('message', onMessage);
+        };
+    }, [refresh]);
+
+    React.useEffect(() => () => stopPolling(), [stopPolling]);
+
+    const startPolling = React.useCallback(() => {
+        if (!credentials) return;
+        stopPolling();
+        const startedAt = Date.now();
+        pollTimer.current = setInterval(() => {
+            if (Date.now() - startedAt >= OAUTH_POLL_TIMEOUT_MS) {
+                stopPolling();
+                return;
+            }
+            void refresh();
+        }, OAUTH_POLL_MS);
+    }, [credentials, refresh, stopPolling]);
+
+    const connect = React.useCallback(async () => {
+        if (!credentials || busy) return;
+        setBusy(true);
+        try {
+            if (Platform.OS === 'web') {
+                const popup = typeof window !== 'undefined'
+                    ? window.open('about:blank', 'happy-vercel-connect', 'popup,width=720,height=760')
+                    : null;
+                if (!popup) {
+                    Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.popupBlocked'));
+                    return;
+                }
+                try {
+                    popup.location.href = await getVercelPreviewConnectUrl(credentials);
+                    startPolling();
+                } catch {
+                    popup.close();
+                    Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
+                }
+                return;
+            }
+            await openExternalUrl(await getVercelPreviewConnectUrl(credentials));
+        } catch {
+            Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
+        } finally {
+            setBusy(false);
+        }
+    }, [busy, credentials, startPolling]);
+
     const disconnect = React.useCallback(async () => {
-        if (!auth.credentials || !await Modal.confirm('断开 Vercel', '之后将无法发布新的临时交互稿。', { confirmText: '断开', destructive: true })) return;
-        setBusy(true); try { await disconnectVercelPreview(auth.credentials); await refresh(); } finally { setBusy(false); }
-    }, [auth.credentials, refresh]);
-    return <ItemList><Stack.Screen options={{ title: '临时交互预览' }} />
-        <View style={styles.intro}><Ionicons color={theme.colors.accent} name="cloud-upload-outline" size={32} /><Text style={[styles.title, { color: theme.colors.text }]}>Vercel 云端预览</Text><Text style={[styles.copy, { color: theme.colors.textSecondary }]}>Happy 为当前账号统一保存加密连接。交互稿经私有 OSS 临时中转并发布为不可枚举链接，24 小时后自动删除。</Text></View>
-        <ItemGroup title="连接状态">{status === null ? <ActivityIndicator /> : <Item title="Vercel" subtitle={!status.available ? '服务器尚未完成 Vercel / 预览 OSS 配置' : status.connected ? (status.account?.teamName || status.account?.teamId || '已连接') : '未连接'} icon={<Ionicons color={status.connected ? theme.colors.status.connected : theme.colors.textSecondary} name="cloud-outline" size={28} />} onPress={status.connected ? disconnect : connect} loading={busy} showChevron={false} />}</ItemGroup>
-        <ItemGroup title="安全边界"><Item title="仅静态交互稿" subtitle="HTML / CSS / JS 与安全静态资源；不会上传任意项目或 localhost。" showChevron={false} /><Item title="不要放敏感资料" subtitle="预览链接公开可访问，但使用高熵地址且不被 Happy 列出。" showChevron={false} /></ItemGroup>
+        if (!credentials || busy) return;
+        const confirmed = await Modal.confirm(
+            t('interactivePreviews.disconnectTitle'),
+            t('interactivePreviews.disconnectBody'),
+            { confirmText: t('interactivePreviews.disconnect'), destructive: true },
+        );
+        if (!confirmed) return;
+        setBusy(true);
+        try {
+            const result = await disconnectVercelPreview(credentials);
+            await refresh();
+            if (result.warning === 'VERCEL_DEPLOYMENT_CLEANUP_PENDING') {
+                Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.disconnectWarning'));
+            }
+        } catch {
+            Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
+        } finally {
+            setBusy(false);
+        }
+    }, [busy, credentials, refresh]);
+
+    const status = loadState.kind === 'ready' ? loadState.status : null;
+    const connectedName = status?.account?.teamName || status?.account?.teamId || 'Vercel';
+
+    return <ItemList testID="temporary-previews-screen">
+        <Stack.Screen options={{ title: t('interactivePreviews.title') }} />
+        <View style={styles.intro}>
+            <Ionicons color={theme.colors.accent} name="cloud-upload-outline" size={32} />
+            <Text style={[styles.title, { color: theme.colors.text }]}>{t('interactivePreviews.title')}</Text>
+            <Text style={[styles.copy, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.disclosure')}</Text>
+        </View>
+        <ItemGroup title={t('interactivePreviews.connection')}>
+            {loadState.kind === 'loading' ? <View testID="temporary-previews-status-loading" style={styles.loading}><ActivityIndicator color={theme.colors.accent} /><Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.loading')}</Text></View> : null}
+            {loadState.kind === 'error' ? <Text testID="temporary-previews-error" style={[styles.error, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.safeError')}</Text> : null}
+            {status ? <Item
+                accessibilityLabel={t('interactivePreviews.connection')}
+                disabled={!status.available}
+                icon={<Ionicons color={status.connected ? theme.colors.status.connected : theme.colors.textSecondary} name="cloud-outline" size={28} />}
+                showChevron={false}
+                subtitle={!status.available
+                    ? t('interactivePreviews.unavailable')
+                    : status.connected
+                        ? t('interactivePreviews.connected', { name: connectedName })
+                        : t('interactivePreviews.disconnected')}
+                testID="temporary-previews-status"
+                title="Vercel"
+            /> : null}
+            {status?.connected && status.account?.projectId ? <Item
+                showChevron={false}
+                subtitle={status.account.projectId}
+                testID="temporary-previews-project"
+                title={t('interactivePreviews.project')}
+            /> : null}
+            {status?.available && !status.connected ? <Item
+                accessibilityLabel={t('interactivePreviews.connect')}
+                loading={busy}
+                onPress={connect}
+                showChevron={false}
+                testID="temporary-previews-connect"
+                title={t('interactivePreviews.connect')}
+            /> : null}
+            {status?.available && status.connected ? <>
+                <Item accessibilityLabel={t('interactivePreviews.reconnect')} loading={busy} onPress={connect} showChevron={false} testID="temporary-previews-reconnect" title={t('interactivePreviews.reconnect')} />
+                <Item accessibilityLabel={t('interactivePreviews.disconnect')} destructive loading={busy} onPress={disconnect} showChevron={false} testID="temporary-previews-disconnect" title={t('interactivePreviews.disconnect')} />
+            </> : null}
+        </ItemGroup>
     </ItemList>;
 }
-const styles = StyleSheet.create(() => ({ intro: { alignItems: 'center', gap: 8, paddingHorizontal: 28, paddingVertical: 28 }, title: { fontSize: 20, fontWeight: '700' }, copy: { fontSize: 13, lineHeight: 19, maxWidth: 520, textAlign: 'center' } }));
+
+const styles = StyleSheet.create(() => ({
+    intro: { alignItems: 'center', gap: 8, paddingHorizontal: 28, paddingVertical: 28 },
+    title: { fontSize: 20, fontWeight: '700' },
+    copy: { fontSize: 13, lineHeight: 19, maxWidth: 520, textAlign: 'center' },
+    loading: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 56, paddingHorizontal: 16 },
+    loadingText: { fontSize: 14 },
+    error: { fontSize: 14, lineHeight: 20, padding: 16 },
+}));

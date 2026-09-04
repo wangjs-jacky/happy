@@ -333,6 +333,8 @@ export const ru: TranslationStructure = {
             `${feature} ${enabled ? 'включена' : 'отключена'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',

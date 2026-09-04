@@ -351,6 +351,8 @@ export const it: TranslationStructure = {
             `${feature} ${enabled ? 'abilitata' : 'disabilitata'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',

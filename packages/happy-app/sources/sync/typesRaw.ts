@@ -105,9 +105,20 @@ const sessionStopEventSchema = z.object({
     status: z.enum(['completed', 'failed', 'cancelled']).optional(),
 });
 
+// `deleting` is an internal cleanup transition. Old and current clients must
+// present it as expired and must never retain a link while deletion is due.
+const interactivePreviewMessageEventSchema = z.union([
+    interactivePreviewEventSchema,
+    interactivePreviewEventSchema.extend({ state: z.literal('deleting') }),
+]).transform((preview): z.infer<typeof interactivePreviewEventSchema> => {
+    if (preview.state !== 'deleting') return preview;
+    const { url: _url, ...expired } = preview;
+    return { ...expired, state: 'expired' };
+});
+
 const sessionInteractivePreviewEventSchema = z.object({
     t: z.literal('interactive-preview'),
-    preview: interactivePreviewEventSchema,
+    preview: interactivePreviewMessageEventSchema,
 });
 
 const sessionEventSchema = z.discriminatedUnion('t', [
