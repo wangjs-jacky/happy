@@ -506,74 +506,119 @@ function countOccurrences(content, fragment) {
     return content.split(fragment).length - 1;
 }
 
-function upgradeSupportedFragment(source, target, previousVersions, sourcePath) {
-    if (countOccurrences(source, target) === 1) {
-        return { source, changed: false };
+const patchedSupportVersions = [
+    patchedSupportTypes,
+    previousPatchedSupportTypes,
+    weakPatchedSupportTypes,
+    weakCurrentPatchedSupportTypes,
+];
+const moduleFunctionVersions = [
+    patchedModuleFunctions,
+    intermediateModuleFunctions,
+    originalModuleFunctions,
+];
+const privateFunctionVersions = [
+    patchedPrivateFunctions,
+    dismissalSafePatchedPrivateFunctions,
+    previousPatchedPrivateFunctions,
+    intermediatePrivateFunctions,
+    originalPrivateFunctions,
+];
+const knownScannerStates = [
+    {
+        support: originalSupportTypes,
+        moduleFunctions: originalModuleFunctions,
+        privateFunctions: originalPrivateFunctions,
+    },
+    {
+        support: originalSupportTypes,
+        moduleFunctions: intermediateModuleFunctions,
+        privateFunctions: intermediatePrivateFunctions,
+    },
+    {
+        support: weakPatchedSupportTypes,
+        moduleFunctions: intermediateModuleFunctions,
+        privateFunctions: previousPatchedPrivateFunctions,
+    },
+    {
+        support: previousPatchedSupportTypes,
+        moduleFunctions: intermediateModuleFunctions,
+        privateFunctions: previousPatchedPrivateFunctions,
+    },
+    {
+        support: weakCurrentPatchedSupportTypes,
+        moduleFunctions: patchedModuleFunctions,
+        privateFunctions: dismissalSafePatchedPrivateFunctions,
+    },
+    {
+        support: patchedSupportTypes,
+        moduleFunctions: patchedModuleFunctions,
+        privateFunctions: dismissalSafePatchedPrivateFunctions,
+    },
+    {
+        support: patchedSupportTypes,
+        moduleFunctions: patchedModuleFunctions,
+        privateFunctions: patchedPrivateFunctions,
+        final: true,
+    },
+];
+
+function matchesExclusiveFragment(source, selected, versions) {
+    return versions.every((version) => (
+        countOccurrences(source, version) === (version === selected ? 1 : 0)
+    ));
+}
+
+function matchesSupportVersion(source, selected) {
+    if (countOccurrences(source, originalSupportTypes) !== 1) {
+        return false;
     }
 
-    for (const previousVersion of previousVersions) {
-        if (countOccurrences(source, previousVersion) === 1) {
-            return {
-                source: source.replace(previousVersion, target),
-                changed: true,
-            };
-        }
-    }
-
-    throw new Error(
-        `[patch] Expo Camera ${SUPPORTED_EXPO_CAMERA_VERSION} source does not match `
-        + `the expected scanner transition implementation: ${sourcePath}`,
+    const coordinatorCount = countOccurrences(
+        source,
+        '@MainActor\nprivate final class ScannerTransitionCoordinator',
     );
+    if (selected === originalSupportTypes) {
+        return coordinatorCount === 0
+            && patchedSupportVersions.every((version) => countOccurrences(source, version) === 0);
+    }
+
+    return coordinatorCount === 1
+        && matchesExclusiveFragment(source, selected, patchedSupportVersions);
+}
+
+function matchesKnownState(source, state) {
+    return matchesSupportVersion(source, state.support)
+        && matchesExclusiveFragment(source, state.moduleFunctions, moduleFunctionVersions)
+        && matchesExclusiveFragment(source, state.privateFunctions, privateFunctionVersions);
 }
 
 function patchCameraModule(source, sourcePath) {
-    const knownSupportTypes = [
-        patchedSupportTypes,
-        previousPatchedSupportTypes,
-        weakPatchedSupportTypes,
-        weakCurrentPatchedSupportTypes,
-    ];
-    if (
-        source.includes('private final class ScannerTransitionCoordinator')
-        && !knownSupportTypes.some((supportTypes) => countOccurrences(source, supportTypes) === 1)
-    ) {
+    const matchingStates = knownScannerStates.filter((state) => matchesKnownState(source, state));
+    if (matchingStates.length !== 1) {
         throw new Error(
             `[patch] Expo Camera ${SUPPORTED_EXPO_CAMERA_VERSION} source does not match `
             + `the expected scanner transition implementation: ${sourcePath}`,
         );
     }
 
-    const fragments = [
-        [
-            patchedSupportTypes,
-            [
-                previousPatchedSupportTypes,
-                weakPatchedSupportTypes,
-                weakCurrentPatchedSupportTypes,
-                originalSupportTypes,
-            ],
-        ],
-        [patchedModuleFunctions, [intermediateModuleFunctions, originalModuleFunctions]],
-        [
-            patchedPrivateFunctions,
-            [
-                dismissalSafePatchedPrivateFunctions,
-                previousPatchedPrivateFunctions,
-                intermediatePrivateFunctions,
-                originalPrivateFunctions,
-            ],
-        ],
-    ];
-    let updated = source;
-    let changed = false;
-
-    for (const [target, previousVersions] of fragments) {
-        const result = upgradeSupportedFragment(updated, target, previousVersions, sourcePath);
-        updated = result.source;
-        changed ||= result.changed;
+    const [state] = matchingStates;
+    if (state.final) {
+        return null;
     }
 
-    return changed ? updated : null;
+    let updated = source;
+    if (state.support !== patchedSupportTypes) {
+        updated = updated.replace(state.support, patchedSupportTypes);
+    }
+    if (state.moduleFunctions !== patchedModuleFunctions) {
+        updated = updated.replace(state.moduleFunctions, patchedModuleFunctions);
+    }
+    if (state.privateFunctions !== patchedPrivateFunctions) {
+        updated = updated.replace(state.privateFunctions, patchedPrivateFunctions);
+    }
+
+    return updated;
 }
 
 function applyExpoCameraScannerTransitionPatch({

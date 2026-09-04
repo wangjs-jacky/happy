@@ -66,6 +66,87 @@ const unpatchedCameraModule = `struct ScannerContext {
   }
 `;
 
+function extractScannerModuleFunctions(source) {
+    const start = source.indexOf('    AsyncFunction("launchScanner")');
+    const end = source.indexOf('\n\n  @available(iOS 16.0, *)', start);
+    assert.notEqual(start, -1);
+    assert.notEqual(end, -1);
+    return source.slice(start, end);
+}
+
+const originalModuleFunctions = extractScannerModuleFunctions(unpatchedCameraModule);
+
+function downgradeToPreviousDismissalSafePatch(latestPatch) {
+    const launchStart = latestPatch.indexOf('private func launchScanner(with options: VisionScannerOptions?) async throws');
+    const dismissStart = latestPatch.indexOf('private func dismissScanner() async throws');
+    const latestLaunch = latestPatch.slice(launchStart, dismissStart);
+    const previousLaunch = latestLaunch
+        .replace(
+            `        guard controller.presentingViewController == nil else {
+          return
+        }
+        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+            `        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+        )
+        .replace(
+            `          guard controller.presentingViewController == nil else {
+            return
+          }
+          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+            `          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+        )
+        .replace(
+            `            guard controller.presentingViewController == nil else {
+              return
+            }
+            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+            `            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+        )
+        .replace(
+            `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            guard let self, let controller else {
+              transition.reject(error)
+              return
+            }
+            guard controller.presentingViewController == nil else {
+              transition.reject(error)
+              return
+            }
+            self.clearScannerContext(for: controller)
+            transition.reject(error)
+          }`,
+            `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            if let self, let controller {
+              self.clearScannerContext(for: controller)
+            }
+            transition.reject(error)
+          }`,
+        );
+
+    assert.notEqual(launchStart, -1);
+    assert.notEqual(dismissStart, -1);
+    assert.notEqual(previousLaunch, latestLaunch);
+    return latestPatch.replace(latestLaunch, previousLaunch);
+}
+
 function writeExpoCameraInstallation(
     repositoryRoot,
     { nodeModulesPath = 'node_modules', source = unpatchedCameraModule, version = '55.0.10' } = {},
@@ -151,6 +232,55 @@ test('retains launch scanner ownership when compensating dismissal remains attac
     assert.match(launchFunction, /controller\.dismiss\(animated: true\) \{ \[weak self, weak controller\] in\s+guard let self, let controller else \{[\s\S]*guard controller\.presentingViewController == nil else \{\s+transition\.reject\(error\)\s+return\s+}\s+self\.clearScannerContext\(for: controller\)\s+transition\.reject\(error\)/);
 });
 
+test('fails closed when patched and previous module registrations coexist', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const latestPatch = fs.readFileSync(fixture.sourcePath, 'utf8');
+    const patchedModuleFunctions = extractScannerModuleFunctions(latestPatch);
+    const duplicatedSource = latestPatch.replace(
+        patchedModuleFunctions,
+        `${originalModuleFunctions}\n\n${patchedModuleFunctions}`,
+    );
+    fs.writeFileSync(fixture.sourcePath, duplicatedSource);
+
+    assert.throws(
+        () => applyExpoCameraScannerTransitionPatch({
+            repositoryRoot: fixture.repositoryRoot,
+            log: null,
+            warn: null,
+        }),
+        /source does not match the expected scanner transition implementation/,
+    );
+    assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), duplicatedSource);
+});
+
+test('fails closed when scanner support, module, and private fragments form an unknown mix', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const latestPatch = fs.readFileSync(fixture.sourcePath, 'utf8');
+    const patchedModuleFunctions = extractScannerModuleFunctions(latestPatch);
+    const mixedSource = unpatchedCameraModule.replace(originalModuleFunctions, patchedModuleFunctions);
+    fs.writeFileSync(fixture.sourcePath, mixedSource);
+
+    assert.throws(
+        () => applyExpoCameraScannerTransitionPatch({
+            repositoryRoot: fixture.repositoryRoot,
+            log: null,
+            warn: null,
+        }),
+        /source does not match the expected scanner transition implementation/,
+    );
+    assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), mixedSource);
+});
+
 test('is idempotent after Expo Camera has already been patched', (t) => {
     const fixture = createExpoCameraFixture(t);
     applyExpoCameraScannerTransitionPatch({
@@ -177,7 +307,9 @@ test('upgrades the previous watchdog implementation without accepting other drif
         log: null,
         warn: null,
     });
-    const previousPatch = fs.readFileSync(fixture.sourcePath, 'utf8')
+    const previousPatch = downgradeToPreviousDismissalSafePatch(
+        fs.readFileSync(fixture.sourcePath, 'utf8'),
+    )
         .replace('Task { @MainActor [self] in', 'Task { @MainActor [weak self] in')
         .replace('guard !Task.isCancelled, self.isPending else {', 'guard !Task.isCancelled, let self, self.isPending else {');
     fs.writeFileSync(fixture.sourcePath, previousPatch);
@@ -202,72 +334,7 @@ test('upgrades the previous dismissal-safe implementation', (t) => {
         warn: null,
     });
     const latestPatch = fs.readFileSync(fixture.sourcePath, 'utf8');
-    const launchStart = latestPatch.indexOf('private func launchScanner(with options: VisionScannerOptions?) async throws');
-    const dismissStart = latestPatch.indexOf('private func dismissScanner() async throws');
-    const latestLaunch = latestPatch.slice(launchStart, dismissStart);
-    const previousLaunch = latestLaunch
-        .replace(
-            `        guard controller.presentingViewController == nil else {
-          return
-        }
-        self.clearScannerContext(for: controller)
-      }
-
-      currentViewController.present`,
-            `        self.clearScannerContext(for: controller)
-      }
-
-      currentViewController.present`,
-        )
-        .replace(
-            `          guard controller.presentingViewController == nil else {
-            return
-          }
-          self.clearScannerContext(for: controller)
-          return
-        }
-        guard controller.presentingViewController != nil else`,
-            `          self.clearScannerContext(for: controller)
-          return
-        }
-        guard controller.presentingViewController != nil else`,
-        )
-        .replace(
-            `            guard controller.presentingViewController == nil else {
-              return
-            }
-            self.clearScannerContext(for: controller)
-            return
-          }
-        } catch`,
-            `            self.clearScannerContext(for: controller)
-            return
-          }
-        } catch`,
-        )
-        .replace(
-            `          controller.dismiss(animated: true) { [weak self, weak controller] in
-            guard let self, let controller else {
-              transition.reject(error)
-              return
-            }
-            guard controller.presentingViewController == nil else {
-              transition.reject(error)
-              return
-            }
-            self.clearScannerContext(for: controller)
-            transition.reject(error)
-          }`,
-            `          controller.dismiss(animated: true) { [weak self, weak controller] in
-            if let self, let controller {
-              self.clearScannerContext(for: controller)
-            }
-            transition.reject(error)
-          }`,
-        );
-    const previousPatch = latestPatch.replace(latestLaunch, previousLaunch);
-    assert.notEqual(launchStart, -1);
-    assert.notEqual(dismissStart, -1);
+    const previousPatch = downgradeToPreviousDismissalSafePatch(latestPatch);
     assert.notEqual(previousPatch, latestPatch);
     fs.writeFileSync(fixture.sourcePath, previousPatch);
 
