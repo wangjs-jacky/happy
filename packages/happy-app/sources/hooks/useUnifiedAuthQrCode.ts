@@ -7,7 +7,6 @@ import { useConnectAccount } from '@/hooks/useConnectAccount';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { Modal } from '@/modal';
 import { t } from '@/text';
-import { waitForIosScannerTransition } from '@/utils/iosScannerTransition';
 
 interface UnifiedAuthQrCodeContextValue {
     connectAuthQrCode: () => Promise<void>;
@@ -114,12 +113,7 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
         }
 
         const dismissal = CameraView.dismissScanner()
-            .then(async () => {
-                // Expo resolves before UIKit's animated dismissal completes.
-                // Keep the shared barrier pending until a new presentation is safe.
-                await waitForIosScannerTransition();
-                return true;
-            })
+            .then(() => true)
             .catch((error: unknown) => {
                 scannerSession.active = true;
                 console.warn('Failed to dismiss authentication scanner', error);
@@ -184,14 +178,7 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
             scannerSession.active = true;
 
             const nativeLaunch = CameraView.launchScanner({ barcodeTypes: ['qr'] });
-            const completedLaunch = nativeLaunch.then(async () => {
-                if (Platform.OS === 'ios') {
-                    // Expo resolves after scheduling presentation, before UIKit
-                    // completes the animation and starts scanning.
-                    await waitForIosScannerTransition();
-                }
-            });
-            const trackedLaunch = completedLaunch
+            const trackedLaunch = nativeLaunch
                 .then(
                     () => {
                         if (scannerSession.generation === generation && Platform.OS !== 'ios') {
@@ -210,7 +197,7 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                     }
                 });
             scannerSession.launching = trackedLaunch;
-            await completedLaunch;
+            await nativeLaunch;
         } catch (error) {
             const ownedGeneration = ownedScannerGenerationRef.current;
             if (ownedGeneration !== null && scannerSession.generation === ownedGeneration) {

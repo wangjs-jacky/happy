@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
     scannerAvailable: true,
     terminalAuth: vi.fn(async () => true),
     terminalLoading: false,
-    waitForScannerTransition: vi.fn(async () => {}),
 }));
 
 vi.mock('react-native', () => ({ Platform: { get OS() { return mocks.platformOS; } } }));
@@ -46,10 +45,6 @@ vi.mock('@/hooks/useConnectTerminal', () => ({
 }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.alert, confirm: mocks.confirm } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@/utils/iosScannerTransition', () => ({
-    waitForIosScannerTransition: mocks.waitForScannerTransition,
-}));
-
 import { UnifiedAuthQrCodeProvider, useUnifiedAuthQrCode } from './useUnifiedAuthQrCode';
 
 const accountAuthUrl = 'paws:///account?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -86,8 +81,6 @@ describe('useUnifiedAuthQrCode', () => {
         mocks.scannerAvailable = true;
         mocks.terminalAuth.mockClear();
         mocks.terminalLoading = false;
-        mocks.waitForScannerTransition.mockReset();
-        mocks.waitForScannerTransition.mockResolvedValue(undefined);
         act(() => {
             renderer = TestRenderer.create(
                 <UnifiedAuthQrCodeProvider>
@@ -166,7 +159,7 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
     });
 
-    it('waits for an old provider launch to settle and dismisses it before a replacement launches', async () => {
+    it('waits for native iOS presentation completion before replacing a provider launch', async () => {
         let resolveOldLaunch!: () => void;
         mocks.launchScanner.mockImplementationOnce(() => new Promise<void>((resolve) => {
             resolveOldLaunch = resolve;
@@ -192,43 +185,6 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
 
         resolveOldLaunch();
-        await act(async () => {
-            await oldLaunch;
-            await replacementLaunch;
-        });
-
-        expect(mocks.dismissScanner).toHaveBeenCalled();
-        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
-    });
-
-    it('waits for the native iOS presentation transition before replacing a provider launch', async () => {
-        let resolvePresentationTransition!: () => void;
-        mocks.waitForScannerTransition.mockImplementationOnce(() => new Promise<void>((resolve) => {
-            resolvePresentationTransition = resolve;
-        }));
-
-        const oldLaunch = current.connectAuthQrCode();
-        await act(async () => {
-            await Promise.resolve();
-            await Promise.resolve();
-        });
-        act(() => renderer.unmount());
-        act(() => {
-            renderer = TestRenderer.create(
-                <UnifiedAuthQrCodeProvider>
-                    <Probe onReady={(value) => { current = value; }} />
-                </UnifiedAuthQrCodeProvider>,
-            );
-        });
-
-        const replacementLaunch = current.connectAuthQrCode();
-        await act(async () => {
-            await Promise.resolve();
-        });
-
-        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
-
-        resolvePresentationTransition();
         await act(async () => {
             await oldLaunch;
             await replacementLaunch;
@@ -282,7 +238,7 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
     });
 
-    it('waits for cleanup dismissal before a replacement provider launches', async () => {
+    it('waits for native iOS dismissal completion before a replacement provider launches', async () => {
         await act(async () => {
             await current.connectAuthQrCode();
         });
@@ -353,41 +309,6 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
 
         resolveRetryDismissal();
-        await act(async () => {
-            await replacementLaunch;
-        });
-
-        expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
-    });
-
-    it('waits for the native iOS dismissal transition before a replacement provider launches', async () => {
-        await act(async () => {
-            await current.connectAuthQrCode();
-        });
-
-        let resolveDismissalTransition!: () => void;
-        mocks.waitForScannerTransition.mockImplementationOnce(() => new Promise<void>((resolve) => {
-            resolveDismissalTransition = resolve;
-        }));
-
-        act(() => renderer.unmount());
-        act(() => {
-            renderer = TestRenderer.create(
-                <UnifiedAuthQrCodeProvider>
-                    <Probe onReady={(value) => { current = value; }} />
-                </UnifiedAuthQrCodeProvider>,
-            );
-        });
-
-        const replacementLaunch = current.connectAuthQrCode();
-        await act(async () => {
-            await Promise.resolve();
-            await Promise.resolve();
-        });
-
-        expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
-
-        resolveDismissalTransition();
         await act(async () => {
             await replacementLaunch;
         });
