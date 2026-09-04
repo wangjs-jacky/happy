@@ -202,7 +202,7 @@ export class ApiMachineClient {
                     return { type: 'success', sessionId: result.sessionId };
 
                 case 'requestToApproveDirectoryCreation':
-                    logger.debug(`[API MACHINE] Requesting directory creation approval for: ${result.directory}`);
+                    logger.debug('[API MACHINE] Directory creation approval required');
                     return { type: 'requestToApproveDirectoryCreation', directory: result.directory };
 
                 case 'error':
@@ -595,13 +595,13 @@ export class ApiMachineClient {
             }
         });
 
-        this.socket.on('connect_error', (error) => {
-            logger.debug(`[API MACHINE] Connection error: ${error.message}`);
+        this.socket.on('connect_error', () => {
+            logger.debug('[API MACHINE] Connection error', { errorCode: 'machine-socket-connect-error' });
             this.startSmartReconnect();
         });
 
-        this.socket.io.on('error', (error: any) => {
-            logger.debug('[API MACHINE] Socket error:', error);
+        this.socket.io.on('error', () => {
+            logger.debug('[API MACHINE] Socket error', { errorCode: 'machine-socket-error' });
             this.startSmartReconnect();
         });
     }

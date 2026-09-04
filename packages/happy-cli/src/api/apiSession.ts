@@ -36,11 +36,19 @@ import { applyPersistedTurnStatus, clearStaleRunningTurnStatus } from './session
 
 const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function takeSessionStartupTraceId(): string | undefined {
-    const traceId = process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
-    if (!traceId || !SESSION_STARTUP_TRACE_ID_RE.test(traceId)) return undefined;
-    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
-    return traceId;
+function logWorkerSocketReady(traceId: string, sessionId: string, machineId?: string): void {
+    try {
+        logger.debug('[SESSION STARTUP]', {
+            traceId,
+            stage: 'worker.socket.ready',
+            timestamp: Date.now(),
+            outcome: 'success',
+            sessionId,
+            ...(machineId ? { machineId } : {}),
+        });
+    } catch {
+        // Startup telemetry is best-effort and must never affect socket setup.
+    }
 }
 
 function redactPresignedUrl(url: string): string {
@@ -152,7 +160,7 @@ type V3PostSessionMessagesResponse = {
 };
 
 export class ApiSessionClient extends EventEmitter {
-    private readonly startupTraceId = takeSessionStartupTraceId();
+    private readonly startupTraceId: string | undefined;
     private startupSocketReadyLogged = false;
     private readonly token: string;
     readonly sessionId: string;
@@ -205,8 +213,11 @@ export class ApiSessionClient extends EventEmitter {
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
 
-    constructor(token: string, session: Session) {
+    constructor(token: string, session: Session, startupTraceId?: string) {
         super()
+        this.startupTraceId = startupTraceId && SESSION_STARTUP_TRACE_ID_RE.test(startupTraceId)
+            ? startupTraceId
+            : undefined;
         this.token = token;
         this.sessionId = session.id;
         this.metadata = session.metadata;
@@ -253,14 +264,7 @@ export class ApiSessionClient extends EventEmitter {
             logger.debug('Socket connected successfully');
             if (this.startupTraceId && !this.startupSocketReadyLogged) {
                 this.startupSocketReadyLogged = true;
-                logger.debug('[SESSION STARTUP]', {
-                    traceId: this.startupTraceId,
-                    stage: 'worker.socket.ready',
-                    timestamp: Date.now(),
-                    outcome: 'success',
-                    sessionId: this.sessionId,
-                    ...(this.metadata?.machineId ? { machineId: this.metadata.machineId } : {}),
-                });
+                logWorkerSocketReady(this.startupTraceId, this.sessionId, this.metadata?.machineId);
             }
             if (this.reconnectInterval) {
                 clearInterval(this.reconnectInterval);
@@ -281,8 +285,8 @@ export class ApiSessionClient extends EventEmitter {
             this.startSmartReconnect();
         })
 
-        this.socket.on('connect_error', (error) => {
-            logger.debug('[API] Socket connection error:', error);
+        this.socket.on('connect_error', () => {
+            logger.debug('[API] Socket connection error', { errorCode: 'session-socket-connect-error' });
             this.rpcHandlerManager.onSocketDisconnect();
             this.startSmartReconnect();
         })
@@ -338,14 +342,14 @@ export class ApiSessionClient extends EventEmitter {
                     // If not a user message, it might be a permission response or other message type
                     this.emit('message', data.body);
                 }
-            } catch (error) {
-                logger.debug('[SOCKET] [UPDATE] [ERROR] Error handling update', { error });
+            } catch {
+                logger.debug('[SOCKET] [UPDATE] [ERROR] Error handling update', { errorCode: 'session-update-handler-error' });
             }
         });
 
         // DEATH
-        this.socket.on('error', (error) => {
-            logger.debug('[API] Socket error:', error);
+        this.socket.on('error', () => {
+            logger.debug('[API] Socket error', { errorCode: 'session-socket-error' });
         });
 
         //

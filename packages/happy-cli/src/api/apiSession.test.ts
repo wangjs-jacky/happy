@@ -154,6 +154,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockLoggerDebug.mockReset();
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
         session = makeSession();
@@ -194,9 +195,8 @@ describe('ApiSessionClient v3 messages API migration', () => {
     });
 
     it('records worker socket readiness only at the first real socket connect boundary', () => {
-        process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
         mockAxiosGet.mockResolvedValue({ data: { messages: [], hasMore: false } });
-        new ApiSessionClient('fake-token', session);
+        new ApiSessionClient('fake-token', session, '00000000-0000-4000-8000-000000000001');
 
         expect(mockLoggerDebug.mock.calls.some(([label]) => label === '[SESSION STARTUP]')).toBe(false);
         emitSocketEvent('connect');
@@ -214,6 +214,27 @@ describe('ApiSessionClient v3 messages API migration', () => {
                 outcome: 'success',
             }),
         ]);
+    });
+
+    it('continues socket setup when startup telemetry logging throws', () => {
+        mockAxiosGet.mockResolvedValue({ data: { messages: [], hasMore: false } });
+        mockLoggerDebug.mockImplementation((label) => {
+            if (label === '[SESSION STARTUP]') throw new Error('logger-canary');
+        });
+        new ApiSessionClient('fake-token', session, '00000000-0000-4000-8000-000000000001');
+
+        expect(() => emitSocketEvent('connect')).not.toThrow();
+    });
+
+    it('does not include raw socket error values in logs', () => {
+        vi.useFakeTimers();
+        mockSocket.connected = false;
+        new ApiSessionClient('fake-token', session);
+
+        emitSocketEvent('connect_error', new Error('connect-secret-canary'));
+        emitSocketEvent('error', new Error('socket-secret-canary'));
+
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('secret-canary');
     });
 
     it('retries after initial socket connection error', async () => {

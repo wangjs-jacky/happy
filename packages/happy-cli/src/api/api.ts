@@ -11,22 +11,26 @@ import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
 
 const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const createdSessionTraceIds = new Set<string>();
 
-function sessionStartupTraceId(): string | undefined {
+function takeSessionStartupTraceId(): string | undefined {
   const traceId = process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+  delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
   return traceId && SESSION_STARTUP_TRACE_ID_RE.test(traceId) ? traceId : undefined;
 }
 
 function logWorkerSessionCreated(traceId: string, sessionId: string, machineId?: string): void {
-  logger.debug('[SESSION STARTUP]', {
-    traceId,
-    stage: 'worker.session.created',
-    timestamp: Date.now(),
-    outcome: 'success',
-    sessionId,
-    ...(machineId ? { machineId } : {}),
-  });
+  try {
+    logger.debug('[SESSION STARTUP]', {
+      traceId,
+      stage: 'worker.session.created',
+      timestamp: Date.now(),
+      outcome: 'success',
+      sessionId,
+      ...(machineId ? { machineId } : {}),
+    });
+  } catch {
+    // Startup telemetry is best-effort and must never affect session creation.
+  }
 }
 
 export class ApiClient {
@@ -37,10 +41,13 @@ export class ApiClient {
 
   private readonly credential: Credentials;
   private readonly pushClient: PushNotificationClient;
+  private readonly startupTraceId: string | undefined;
+  private startupSessionCreatedLogged = false;
 
   private constructor(credential: Credentials) {
     this.credential = credential
     this.pushClient = new PushNotificationClient(credential.token, configuration.serverUrl)
+    this.startupTraceId = takeSessionStartupTraceId();
   }
 
   /**
@@ -96,10 +103,14 @@ export class ApiClient {
 
       logger.debug(`Session created/loaded: ${response.data.session.id} (tag: ${opts.tag})`)
       let raw = response.data.session;
-      const traceId = sessionStartupTraceId();
-      if (traceId && !createdSessionTraceIds.has(traceId)) {
-        createdSessionTraceIds.add(traceId);
-        logWorkerSessionCreated(traceId, raw.id, opts.metadata.machineId);
+      if (
+        this.startupTraceId
+        && !this.startupSessionCreatedLogged
+        && typeof raw.id === 'string'
+        && raw.id.trim().length > 0
+      ) {
+        this.startupSessionCreatedLogged = true;
+        logWorkerSessionCreated(this.startupTraceId, raw.id, opts.metadata.machineId);
       }
       let session: Session = {
         id: raw.id,
@@ -300,7 +311,7 @@ export class ApiClient {
   }
 
   sessionSyncClient(session: Session): ApiSessionClient {
-    return new ApiSessionClient(this.credential.token, session);
+    return new ApiSessionClient(this.credential.token, session, this.startupTraceId);
   }
 
   machineSyncClient(machine: Machine): ApiMachineClient {

@@ -29,47 +29,15 @@ import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
 import { prepareCodexHomeWithAuth } from '@/codex/codexHome';
 import { collectCodexUsageSnapshot, codexUsageSignature } from '@/codex/codexUsage';
-
-const STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import {
+  buildSessionWorkerEnvironment,
+  createDaemonStartupTraceContext,
+  DaemonStartupTraceRegistry,
+  logDaemonStartupStage,
+  type DaemonStartupTraceContext,
+} from './sessionStartupTrace';
 
 type TracedSpawnSessionOptions = SpawnSessionOptions & { traceId?: string };
-type DaemonStartupTraceContext = {
-  traceId: string;
-  startedAt: number;
-  machineId?: string;
-};
-
-function startupTraceContext(options: TracedSpawnSessionOptions): DaemonStartupTraceContext | undefined {
-  if (typeof options.traceId !== 'string' || !STARTUP_TRACE_ID_RE.test(options.traceId)) return undefined;
-  return {
-    traceId: options.traceId,
-    startedAt: Date.now(),
-    ...(typeof options.machineId === 'string' ? { machineId: options.machineId } : {}),
-  };
-}
-
-function logDaemonStartupStage(
-  trace: DaemonStartupTraceContext | undefined,
-  stage: 'daemon.spawn.child_started' | 'daemon.spawn.webhook_received',
-  options: {
-    outcome: 'success' | 'error';
-    sessionId?: string;
-    errorCode?: string;
-  },
-): void {
-  if (!trace) return;
-  const timestamp = Date.now();
-  logger.debug('[SESSION STARTUP]', {
-    traceId: trace.traceId,
-    stage,
-    timestamp,
-    duration: timestamp - trace.startedAt,
-    outcome: options.outcome,
-    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-    ...(trace.machineId ? { machineId: trace.machineId } : {}),
-    ...(options.errorCode ? { errorCode: options.errorCode } : {}),
-  });
-}
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
 function shellescape(s: string): string {
@@ -241,7 +209,7 @@ export async function startDaemon(): Promise<void> {
 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
-    const pidToStartupTrace = new Map<number, DaemonStartupTraceContext>();
+    const startupTraceRegistry = new DaemonStartupTraceRegistry();
 
     // Helper functions
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
@@ -274,12 +242,7 @@ export async function startDaemon(): Promise<void> {
       const existingSession = pidToTrackedSession.get(pid);
 
       if (existingSession && existingSession.startedBy === 'daemon') {
-        const trace = pidToStartupTrace.get(pid);
-        logDaemonStartupStage(trace, 'daemon.spawn.webhook_received', {
-          outcome: 'success',
-          sessionId,
-        });
-        pidToStartupTrace.delete(pid);
+        startupTraceRegistry.webhookReceived(pid, sessionId);
         // Update daemon-spawned session with reported data
         existingSession.happySessionId = sessionId;
         existingSession.happySessionMetadataFromLocalWebhook = sessionMetadata;
@@ -309,7 +272,7 @@ export async function startDaemon(): Promise<void> {
 
     // Spawn a new session (sessionId reserved for future --resume functionality)
     const spawnSession = async (options: TracedSpawnSessionOptions): Promise<SpawnSessionResult> => {
-      const trace = startupTraceContext(options);
+      const trace = createDaemonStartupTraceContext(options);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
@@ -377,9 +340,6 @@ export async function startDaemon(): Promise<void> {
           ...(options.environmentVariables ?? {}),
         };
         delete extraEnv.HAPPY_SESSION_STARTUP_TRACE_ID;
-        if (trace) {
-          extraEnv.HAPPY_SESSION_STARTUP_TRACE_ID = trace.traceId;
-        }
         if (options.parentSessionId) {
           extraEnv.HAPPY_FORKED_FROM_SESSION_ID = options.parentSessionId;
         }
@@ -432,6 +392,8 @@ export async function startDaemon(): Promise<void> {
           };
         }
 
+        const workerEnv = buildSessionWorkerEnvironment(process.env, extraEnv, trace?.traceId);
+
         // Check if tmux is available and should be used
         const tmuxAvailable = await isTmuxAvailable();
         let useTmux = tmuxAvailable;
@@ -481,15 +443,12 @@ export async function startDaemon(): Promise<void> {
           const windowName = `happy-${Date.now()}-${agent}`;
           const tmuxEnv: Record<string, string> = {};
 
-          // Add all daemon environment variables (filtering out undefined)
-          for (const [key, value] of Object.entries(process.env)) {
+          // Use the same scrubbed environment as regular child processes.
+          for (const [key, value] of Object.entries(workerEnv)) {
             if (value !== undefined) {
               tmuxEnv[key] = value;
             }
           }
-
-          // Add extra environment variables (these should already be filtered)
-          Object.assign(tmuxEnv, extraEnv);
           const sessionEnv = agent === 'codex' ? applyCodexNetworkEnv(tmuxEnv) : tmuxEnv;
           if (agent === 'codex' && sessionEnv.HTTP_PROXY) {
             logger.debug(`[DAEMON RUN] Applied Codex network proxy from HAPPY_CODEX_PROXY_URL/CODEX_PROXY_URL`);
@@ -522,7 +481,7 @@ export async function startDaemon(): Promise<void> {
 
             // Add to tracking map so webhook can find it later
             pidToTrackedSession.set(tmuxResult.pid, trackedSession);
-            if (trace) pidToStartupTrace.set(tmuxResult.pid, trace);
+            if (trace) startupTraceRegistry.associate(tmuxResult.pid, trace);
             logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' });
 
             // Wait for webhook to populate session with happySessionId (exact same as regular flow)
@@ -532,7 +491,7 @@ export async function startDaemon(): Promise<void> {
               // Set timeout for webhook (same as regular flow)
               const timeout = setTimeout(() => {
                 pidToAwaiter.delete(tmuxResult.pid!);
-                pidToStartupTrace.delete(tmuxResult.pid!);
+                startupTraceRegistry.delete(tmuxResult.pid!);
                 logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${tmuxResult.pid} (tmux)`);
                 resolve({
                   type: 'error',
@@ -612,12 +571,8 @@ export async function startDaemon(): Promise<void> {
             args,
             cwd: directory,
             env: agentCommand === 'codex' ? applyCodexNetworkEnv({
-              ...process.env,
-              ...extraEnv
-            }) : {
-              ...process.env,
-              ...extraEnv
-            },
+              ...workerEnv
+            }) : workerEnv,
             directoryCreated,
             message: directoryCreated ? `The path '${directory}' did not exist. We created a new folder and spawned a new session there.` : undefined,
             trace,
@@ -662,7 +617,7 @@ export async function startDaemon(): Promise<void> {
         cwd,
         detached: true,
         stdio: 'ignore',
-        env,
+        env: buildSessionWorkerEnvironment({}, env, trace?.traceId),
       });
 
       if (!happyProcess.pid) {
@@ -688,7 +643,7 @@ export async function startDaemon(): Promise<void> {
       };
 
       pidToTrackedSession.set(happyProcess.pid, trackedSession);
-      if (trace) pidToStartupTrace.set(happyProcess.pid, trace);
+      if (trace) startupTraceRegistry.associate(happyProcess.pid, trace);
       logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' });
 
       happyProcess.on('exit', (code, signal) => {
@@ -710,7 +665,7 @@ export async function startDaemon(): Promise<void> {
       return new Promise((resolve) => {
         const timeout = setTimeout(() => {
           pidToAwaiter.delete(happyProcess.pid!);
-          pidToStartupTrace.delete(happyProcess.pid!);
+          startupTraceRegistry.delete(happyProcess.pid!);
           logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${happyProcess.pid}`);
           resolve({
             type: 'error',
@@ -885,6 +840,7 @@ export async function startDaemon(): Promise<void> {
           }
 
           pidToTrackedSession.delete(pid);
+          startupTraceRegistry.delete(pid);
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from tracking`);
           return true;
         }
@@ -904,7 +860,7 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
       }
       pidToTrackedSession.delete(pid);
-      pidToStartupTrace.delete(pid);
+      startupTraceRegistry.delete(pid);
     };
 
     // Start control server
@@ -1041,6 +997,7 @@ export async function startDaemon(): Promise<void> {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
           pidToTrackedSession.delete(pid);
+          startupTraceRegistry.delete(pid);
         }
       }
 

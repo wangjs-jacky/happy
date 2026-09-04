@@ -136,6 +136,7 @@ describe('useSpawnSession', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.traceStartup.mockReset();
         mocks.spawnResult = { type: 'success', sessionId: 'session-1' };
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -326,6 +327,59 @@ describe('useSpawnSession', () => {
             }),
         ]);
         hook.unmount();
+    });
+
+    it('continues the spawn flow when startup tracing throws', async () => {
+        mocks.traceStartup.mockImplementation(() => {
+            throw new Error('trace-logger-failed');
+        });
+        const hook = renderHook();
+        let result;
+
+        await act(async () => {
+            result = await hook.current().spawn(args);
+        });
+
+        expect(result).toBe(true);
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.navigateToSession).toHaveBeenCalledWith('session-1');
+        hook.unmount();
+    });
+
+    it('does not repeat hydration telemetry when message queue recovery is retried', async () => {
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        const hook = renderHook();
+
+        try {
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                await spawnPromise;
+            });
+
+            mocks.ensureSessionHydrated.mockResolvedValue(true);
+            mocks.sendMessage.mockRejectedValueOnce(new Error('queue failed'));
+            await act(async () => {
+                expect(await hook.current().retryHydration()).toBe(false);
+            });
+
+            mocks.sendMessage.mockResolvedValueOnce(undefined);
+            await act(async () => {
+                expect(await hook.current().retryHydration()).toBe(true);
+            });
+
+            const hydratedEvents = mocks.traceStartup.mock.calls
+                .map(([event]) => event)
+                .filter((event) => event.stage === 'web.session.hydrated');
+            expect(hydratedEvents).toHaveLength(1);
+            expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
     });
 
     it('retries hydration without respawning and completes configure/send/navigation once', async () => {

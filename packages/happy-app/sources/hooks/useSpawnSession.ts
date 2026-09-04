@@ -54,7 +54,16 @@ type SessionStartupTraceContext = {
     traceId: string;
     startedAt: number;
     machineId: string;
+    emittedStages: Set<'web.session.hydrated' | 'web.first_message.queued' | 'web.session.navigated'>;
 };
+
+function safelyTraceStartup(event: Parameters<typeof traceStartup>[0]): void {
+    try {
+        traceStartup(event);
+    } catch {
+        // Startup observability is best-effort and must never affect navigation.
+    }
+}
 
 function traceWebStartupStage(
     trace: SessionStartupTraceContext | undefined,
@@ -64,8 +73,12 @@ function traceWebStartupStage(
     errorCode?: string,
 ): void {
     if (!trace) return;
+    if (outcome === 'success') {
+        if (trace.emittedStages.has(stage)) return;
+        trace.emittedStages.add(stage);
+    }
     const timestamp = Date.now();
-    traceStartup({
+    safelyTraceStartup({
         traceId: trace.traceId,
         stage,
         timestamp,
@@ -218,8 +231,9 @@ export function useSpawnSession() {
             traceId: randomUUID(),
             startedAt,
             machineId: args.machineId,
+            emittedStages: new Set(),
         };
-        traceStartup({
+        safelyTraceStartup({
             traceId: startupTrace.traceId,
             stage: 'web.spawn.clicked',
             timestamp: startedAt,

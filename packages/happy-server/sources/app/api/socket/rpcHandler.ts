@@ -65,7 +65,11 @@ function logServerStartupStage(event: {
         ...(event.machineId ? { machineId: event.machineId } : {}),
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
     };
-    log(sanitized, 'session startup stage');
+    try {
+        log(sanitized, 'session startup stage');
+    } catch {
+        // Startup telemetry must never interfere with RPC routing.
+    }
 }
 
 const rpcCallCounter = new Counter({

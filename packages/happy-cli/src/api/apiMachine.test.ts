@@ -98,6 +98,7 @@ function makeMachine(): Machine {
 
 describe('ApiMachineClient socket reconnection', () => {
     let socketHandlers: SocketHandlers;
+    let managerHandlers: SocketHandlers;
     let mockSocket: any;
 
     const emitSocketEvent = (event: string, ...args: any[]) => {
@@ -110,6 +111,7 @@ describe('ApiMachineClient socket reconnection', () => {
         rpcHandlers.clear();
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
+        managerHandlers = {};
         mockSocket = {
             connected: false,
             connect: vi.fn(),
@@ -123,7 +125,10 @@ describe('ApiMachineClient socket reconnection', () => {
             emitWithAck: vi.fn(),
             close: vi.fn(),
             io: {
-                on: vi.fn()
+                on: vi.fn((event: string, handler: SocketHandler) => {
+                    if (!managerHandlers[event]) managerHandlers[event] = [];
+                    managerHandlers[event].push(handler);
+                })
             }
         };
 
@@ -183,5 +188,33 @@ describe('ApiMachineClient socket reconnection', () => {
             machineId: 'test-machine-id',
         }));
         expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('canary');
+    });
+
+    it('does not log an absolute directory when approval is required', async () => {
+        const spawnSession = vi.fn().mockResolvedValue({
+            type: 'requestToApproveDirectoryCreation',
+            directory: '/private/approval-directory-canary',
+        });
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.setRPCHandlers({ spawnSession, stopSession: vi.fn(), requestShutdown: vi.fn() });
+
+        await rpcHandlers.get('spawn-happy-session')?.({
+            directory: '/private/approval-directory-canary',
+            agent: 'codex',
+        });
+
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('approval-directory-canary');
+    });
+
+    it('does not include raw socket error values in logs', () => {
+        vi.useFakeTimers();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.connect();
+
+        emitSocketEvent('connect_error', new Error('connect-secret-canary'));
+        managerHandlers.error?.forEach((handler) => handler(new Error('socket-secret-canary')));
+
+        expect(JSON.stringify(mockLoggerDebug.mock.calls)).not.toContain('secret-canary');
+        client.shutdown();
     });
 });
