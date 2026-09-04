@@ -169,15 +169,24 @@ describe('DeviceEnvironmentView', () => {
 
     it('preserves mixed results and presents timeout as unknown with scan guidance', () => {
         const after = observation();
+        const unchanged = observation('2.79.0');
+        const notInstalled = observation(null, 'missing');
         const view = renderEnvironmentView({ phase: 'completed', rows: [
             row('done', { status: 'succeeded', result: { componentId: 'github-cli', status: 'succeeded', before: observation('2.79.0'), after, changed: true } }),
-            row('repair', { status: 'failed', reasonCode: 'verification-failed', result: { componentId: 'github-cli', status: 'failed', before: after, after, changed: true,
+            row('repair', { status: 'failed', observation: unchanged, reasonCode: 'verification-failed', result: { componentId: 'github-cli', status: 'failed', before: unchanged, after: unchanged, changed: false,
                 repairGuide: { channel: 'ssh', reasonCode: 'verification-failed', commands: ['gh --version'] } } }),
+            row('install-repair', { status: 'failed', observation: notInstalled, reasonCode: 'install-failed', result: { componentId: 'github-cli', status: 'failed', before: notInstalled, after: notInstalled, changed: false } }),
             row('timeout', { status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true }),
         ] });
         expect(textOf(view.root.findByProps({ testID: 'environment-machine-done' }))).toContain('Completed');
         expect(textOf(view.root.findByProps({ testID: 'environment-machine-done' }))).toContain('Upgrade gh 2.79.0 → 2.80.0');
-        expect(textOf(view.root.findByProps({ testID: 'environment-machine-repair' }))).toContain('gh --version');
+        const repair = textOf(view.root.findByProps({ testID: 'environment-machine-repair' }));
+        expect(repair).toContain('Alignment did not complete');
+        expect(repair).toContain('Upgrade gh 2.79.0 → 2.80.0');
+        expect(repair).toContain('gh --version');
+        const installRepair = textOf(view.root.findByProps({ testID: 'environment-machine-install-repair' }));
+        expect(installRepair).toContain('Alignment did not complete');
+        expect(installRepair).toContain('Install gh 2.80.0');
         const timeout = textOf(view.root.findByProps({ testID: 'environment-machine-timeout' }));
         expect(timeout).toContain('State unknown; scan again');
         expect(timeout).not.toMatch(/failed/i);

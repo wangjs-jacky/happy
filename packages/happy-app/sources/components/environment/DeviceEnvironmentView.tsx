@@ -39,19 +39,22 @@ function reasonLabel(reason?: EnvironmentReasonCode): string | undefined {
     }
 }
 
-function actionLabel(row: FleetRow): string {
+function actionLabel(row: FleetRow, target: FleetTarget): string {
     if (!row.online) return t('deviceEnvironment.daemonOffline');
     if (row.status === 'rpc-timeout' || row.status === 'rpc-error') return t('deviceEnvironment.stateUnknown');
     if (row.status === 'stale-plan') return t('deviceEnvironment.planExpired');
-    if (row.status === 'failed') return t('deviceEnvironment.alignmentFailed');
-    if (row.status === 'succeeded') {
-        if (!row.result) return t('deviceEnvironment.completed');
+    if (row.status === 'failed' || row.status === 'succeeded') {
+        const failed = row.status === 'failed';
+        const outcome = t(failed ? 'deviceEnvironment.alignmentFailed' : 'deviceEnvironment.completed');
+        if (!row.result) return outcome;
         const { before, after, changed } = row.result;
-        const version = after.installedVersion ?? t('common.unknown');
-        const action = !changed ? t('deviceEnvironment.actionNone')
+        // A failed operation may leave the installed version unchanged. The
+        // retained fleet target identifies what was attempted after plan cleanup.
+        const version = (failed && target.kind === 'ready' ? target.targetVersion : after.installedVersion) ?? t('common.unknown');
+        const action = !failed && !changed ? t('deviceEnvironment.actionNone')
             : before.installed ? t('deviceEnvironment.actionUpgrade', { from: before.installedVersion ?? t('common.unknown'), version })
                 : t('deviceEnvironment.actionInstall', { version });
-        return `${t('deviceEnvironment.completed')} · ${action}`;
+        return `${outcome} · ${action}`;
     }
     if (row.plan) {
         switch (row.plan.action) {
@@ -88,6 +91,7 @@ const MachineEnvironmentRow = React.memo(({ row, target, applying }: { row: Flee
     const repair = row.result?.repairGuide;
     const needsRepair = repair || row.status === 'manual-repair' || row.status === 'failed' || auth === 'missing';
     const pendingApply = applying && (row.plan?.action === 'install' || row.plan?.action === 'upgrade');
+    const action = actionLabel(row, target);
 
     return (
         <ItemGroup>
@@ -106,8 +110,8 @@ const MachineEnvironmentRow = React.memo(({ row, target, applying }: { row: Flee
                         </Text>
                     </View>
                     <Text style={auth === 'authenticated' ? styles.ready : styles.secondary}>{authLabel}</Text>
-                    <Text style={styles.actionText}>{pendingApply ? `${t('deviceEnvironment.applying')} · ${actionLabel(row)}` : actionLabel(row)}</Text>
-                    {reason && reason !== actionLabel(row) ? <Text style={styles.guidance}>{reason}</Text> : null}
+                    <Text style={styles.actionText}>{pendingApply ? `${t('deviceEnvironment.applying')} · ${action}` : action}</Text>
+                    {reason && !action.includes(reason) ? <Text style={styles.guidance}>{reason}</Text> : null}
                     {needsRepair ? <Text style={styles.guidance}>
                         {t(repair?.channel === 'local-terminal' ? 'deviceEnvironment.repairLocally' : 'deviceEnvironment.repairWithSsh')}
                     </Text> : null}
@@ -168,7 +172,7 @@ const DeviceEnvironmentContent = React.memo(({ controller }: { controller: Devic
             const approved = await Modal.confirm(
                 t('deviceEnvironment.confirmTitle'),
                 t('deviceEnvironment.confirmMessage', {
-                    actions: controller.rows.map((row) => `${machineName(row)}: ${actionLabel(row)}`).join('\n'),
+                    actions: controller.rows.map((row) => `${machineName(row)}: ${actionLabel(row, controller.target)}`).join('\n'),
                 }),
                 { confirmText: t('deviceEnvironment.confirmAction'), cancelText: t('common.cancel') },
             );
