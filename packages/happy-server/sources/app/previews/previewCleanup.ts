@@ -19,7 +19,7 @@ function vercelTeamScope(teamId: string | null | undefined): string | null {
 
 export type CleanupPreviewRow = {
     id: string; status: string; accountId: string; stagingGeneration: string; vercelDeploymentId: string | null;
-    stagingCleanupPending?: boolean; expiresAt?: Date; vercelTeamId?: string | null;
+    stagingCleanupPending?: boolean; expiresAt?: Date; vercelTeamId?: string | null; vercelScopeKnown?: boolean;
     assets?: Array<{ storageKey: string }>;
 };
 export interface PreviewCleanupDependencies {
@@ -99,7 +99,7 @@ export function createPreviewCleanup(dependencies: {
                 ],
             },
             take: 50, orderBy: { expiresAt: 'asc' },
-            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true, vercelTeamId: true, stagingCleanupPending: true, expiresAt: true, assets: { select: { storageKey: true } } },
+            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true, vercelTeamId: true, vercelScopeKnown: true, stagingCleanupPending: true, expiresAt: true, assets: { select: { storageKey: true } } },
         }) as CleanupPreviewRow[];
         const claimed: CleanupPreviewRow[] = [];
         const claims = new Map<string, { status: string; stagingCleanupPending: boolean }>();
@@ -128,10 +128,23 @@ export function createPreviewCleanup(dependencies: {
                 const credential = await dependencies.credentialStore.get(accountId);
                 if (!credential) throw new Error('Vercel credential unavailable');
                 const row = claimed.find((candidate) => candidate.accountId === accountId && candidate.vercelDeploymentId === deploymentId);
-                if (!row || vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential.teamId)) {
+                if (!row) throw new Error('Vercel cleanup row is unavailable');
+                const client = dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId });
+                if (row.vercelScopeKnown === false) {
+                    const resolved = await client.resolveDeploymentScope?.(deploymentId);
+                    if (!resolved || resolved.visibility === 'not_found') return;
+                    if (vercelTeamScope(resolved.teamId) !== vercelTeamScope(credential.teamId)) {
+                        throw new Error('Vercel credential scope cannot prove legacy deployment ownership');
+                    }
+                    const proven = await dependencies.database.interactivePreview.updateMany({ where: {
+                        id: row.id, status: 'deleting', cleanupClaimedAt: now(), vercelDeploymentId: deploymentId, vercelScopeKnown: false,
+                    }, data: { vercelTeamId: resolved.teamId ?? null, vercelScopeKnown: true } });
+                    if (proven.count !== 1) throw new Error('Vercel legacy scope proof lost its cleanup claim');
+                }
+                if (vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential.teamId) && row.vercelScopeKnown !== false) {
                     throw new Error('Vercel credential scope no longer owns this deployment');
                 }
-                await dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId }).deleteDeployment(deploymentId);
+                await client.deleteDeployment(deploymentId);
             },
             async markExpired(previewId) {
                 await dependencies.database.interactivePreview.updateMany({ where: {

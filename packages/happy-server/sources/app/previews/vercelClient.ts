@@ -48,6 +48,11 @@ const deploymentListResponseSchema = z.object({
     deployments: z.array(deploymentResponseSchema),
 }).passthrough();
 
+const deploymentScopeResponseSchema = z.object({
+    id: z.string().min(1),
+    teamId: z.string().min(1).optional(),
+}).passthrough();
+
 export type VercelDeployment = {
     id: string;
     url: string;
@@ -96,6 +101,10 @@ export function createVercelClient(options: {
         const url = new URL(path, options.apiOrigin ?? API_ORIGIN);
         if (options.teamId) url.searchParams.set('teamId', options.teamId);
         return url.toString();
+    }
+
+    function unscopedEndpoint(path: string): string {
+        return new URL(path, options.apiOrigin ?? API_ORIGIN).toString();
     }
 
     function projectName(configurationId: string): string {
@@ -257,6 +266,20 @@ export function createVercelClient(options: {
             assertSafeIdentifier(deployment.id);
             const response = await request(`/v13/deployments/${deployment.id}`, { method: 'GET' }, deploymentTimeoutMs);
             return waitForDeploymentReady(deploymentResponseSchema.parse(await response.json()));
+        },
+
+        async resolveDeploymentScope(deploymentId: string): Promise<{ visibility: 'not_found' } | { visibility: 'found'; teamId?: string }> {
+            assertSafeIdentifier(deploymentId);
+            const response = await fetchImpl(unscopedEndpoint(`/v13/deployments/${deploymentId}`), {
+                method: 'GET', redirect: 'error', signal: timeoutSignal(30_000), headers: { Authorization: `Bearer ${options.token}` },
+            });
+            if (response.status === 404) return { visibility: 'not_found' };
+            if (!response.ok) {
+                const data = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+                throw new VercelApiError(data?.error?.code || `http_${response.status}`, response.status);
+            }
+            const deployment = deploymentScopeResponseSchema.parse(await response.json());
+            return deployment.teamId ? { visibility: 'found', teamId: deployment.teamId } : { visibility: 'found' };
         },
 
         async createDeployment(input: {

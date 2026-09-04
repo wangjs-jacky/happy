@@ -30,6 +30,7 @@ model Account {
     settingsVersion Int         @default(0)
     vercelConnectionEpoch             Int     @default(0)
     vercelConnectionState             String  @default("active")
+    vercelConnectionNonce             String?
     vercelConnectionReplacementId     String?
     vercelConnectionReplacementStartedAt DateTime?
     githubUserId    String?     @unique
@@ -212,6 +213,7 @@ model InteractivePreview {
     publicationGeneration Int @default(0)
     connectionGeneration Int @default(0)
     vercelTeamId        String?
+    vercelScopeKnown    Boolean  @default(true)
     stagingGeneration   String
     stagingCleanupPending Boolean @default(false)
     url                 String?

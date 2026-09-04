@@ -32,6 +32,34 @@ describe('createVercelCredentialStore', () => {
         expect(JSON.parse(decode(encrypted))).toEqual(newer);
     });
 
+    it('does not let a delayed disconnect delete a credential activated at a newer epoch', async () => {
+        const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+        const decode = (value: Uint8Array) => new TextDecoder().decode(value);
+        let encrypted = encode({ version: 1, accessToken: 'old-secret', configurationId: 'cfg-old', connectionEpoch: 4, connectionNonce: 'old' });
+        const repository = {
+            find: vi.fn(async () => encrypted), upsert: vi.fn(), createIfAbsent: vi.fn(),
+            compareAndSet: vi.fn(async (_accountId, _key, expected, replacement) => {
+                if (JSON.stringify(expected) !== JSON.stringify(encrypted)) return false;
+                encrypted = replacement;
+                return true;
+            }),
+            delete: vi.fn(),
+        };
+        const store = createVercelCredentialStore({
+            repository,
+            encrypt: (_path, value) => encode(JSON.parse(value)),
+            decrypt: (_path, value) => decode(value),
+        });
+
+        await expect((store as any).replaceAtConnectionVersion('account-1', 6, 'new', {
+            version: 1, accessToken: 'new-secret', configurationId: 'cfg-new',
+        })).resolves.toBe(true);
+        await expect((store as any).deleteAtOrBeforeConnectionEpoch('account-1', 5)).resolves.toBe(false);
+
+        expect(JSON.parse(decode(encrypted))).toMatchObject({ accessToken: 'new-secret', connectionEpoch: 6, connectionNonce: 'new' });
+        expect(repository.delete).not.toHaveBeenCalled();
+    });
+
     it('atomically updates only projectId when the encrypted credential snapshot is still current', async () => {
         const encrypted = new Uint8Array([7, 7, 7]);
         const compareAndSet = vi.fn(async () => false);

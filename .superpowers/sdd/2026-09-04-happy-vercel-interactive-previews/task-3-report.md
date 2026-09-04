@@ -121,6 +121,94 @@ git diff --check
 exit 0
 ```
 
+## Cluster H quality-review follow-up: disconnect fencing, recovery, and proven scope
+
+- Disconnect is now a durable connection-state transition: it advances the
+  account epoch, installs its own nonce/replacement identity, and atomically
+  tombstones all nonterminal previews. It only finalizes to `disconnected` if
+  it still owns that identity. The encrypted credential record carries the
+  same epoch and nonce; conditional delete can remove only its observed
+  version, so a delayed disconnect cannot erase a replacement credential.
+- Reconnect handles same-scope work explicitly. Existing drafts, uploads,
+  failed drafts, and ready rows advance to the new connection generation and
+  stay publishable; in-flight provider publications become deleting
+  reconciliation tombstones. Long old-scope drains renew their durable lease
+  before and after each external operation, so a live operation is not stolen
+  merely because fifteen minutes elapsed.
+- Stale replacement recovery is fail-closed. It advances to a fresh durable
+  generation/nonce, removes only the stale credential version, and leaves the
+  account `disconnected` for a deliberate reconnect rather than restoring
+  `active` without a proven credential. Credential storage remains outside the
+  relational transaction, so its encrypted record is a versioned CAS phase;
+  final account activation is a nonce/state CAS and a losing finalizer deletes
+  only its exact credential version.
+- Draft creation now reads and locks the active account epoch, validates the
+  session, and inserts/reuses the draft in one database transaction. This
+  prevents a reconnect from passing the pre-read and missing the new draft.
+- `InteractivePreview.vercelScopeKnown` distinguishes a known personal scope
+  from a legacy unknown `vercelTeamId = null`. Migration backfill marks legacy
+  null-team provider rows unknown. Before deletion, recovery and cleanup use
+  an unscoped deployment lookup to prove the current credential owns that
+  scope; unproven rows remain tombstones, while provider 404 is checkpointed
+  as a successful provider deletion. No token or provider response is stored
+  or logged.
+
+### Cluster H red/green evidence
+
+| Behavior | Red evidence | Green evidence |
+| --- | --- | --- |
+| Disconnect/reconnect ordering | a delayed disconnect could use unconditional delete after a reconnect wrote a new credential | controlled barriers cover reconnect-then-disconnect and disconnect-then-reconnect; only the winning epoch/nonce may retain a credential |
+| Same-scope reconnect | same-scope drafts retained an old connection generation and a publisher could remain stranded | draft generation advances and remains publishable; delayed provider creation is fenced and becomes a deleting reconciliation tombstone |
+| Abandoned replacement | stale recovery restored `active` despite no proven replacement credential | recovery advances generation, fences the old finalizer, conditionally removes its record, and requires reconnect from `disconnected` |
+| Draft/reconnect race | draft account check and insert were separable | a transaction barrier shows the account fence remains held until the new draft is inserted |
+| Legacy null-team provider row | a null `vercelTeamId` was treated as personal and could be deleted with an unproven credential | migration test backfills unknown; cleanup proves matching scope, retains mismatch, and treats unscoped 404 as success |
+
+### Cluster H verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \\
+  sources/app/previews/interactivePreview.integration.spec.ts --reporter=dot --silent
+
+Test Files  1 passed (1)
+Tests       16 passed (16)
+
+pnpm --dir packages/happy-server exec vitest run \\
+  sources/app/previews/previewStorage.spec.ts \\
+  sources/app/previews/previewService.spec.ts \\
+  sources/app/previews/previewCleanup.spec.ts \\
+  sources/app/previews/vercelCredentialStore.spec.ts \\
+  sources/app/previews/vercelClient.spec.ts \\
+  sources/app/previews/vercelScopeMigration.spec.ts \\
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \\
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \\
+  sources/app/session/sessionDelete.spec.ts --reporter=dot --silent
+
+Test Files  9 passed (9)
+Tests       115 passed (115)
+
+pnpm --dir packages/happy-wire exec vitest run src/interactivePreview.test.ts
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --dir packages/happy-cli exec vitest run src/previews/previewApi.test.ts --config /dev/null
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server exec prisma generate
+pnpm --dir packages/happy-server run typecheck
+pnpm --dir packages/happy-wire run typecheck
+pnpm --dir packages/happy-cli run typecheck
+exit 0
+
+PGLITE_DIR=/tmp/happy-task3-cluster-h.<random> \\
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 46 migration(s), including
+20260904150000_harden_vercel_connection_fences
+
+git diff --check
+exit 0
+```
+
 ## Cluster F quality-review follow-up: Vercel digests, ownership, reconnect fences, and legacy staging
 
 ### Delivered corrections

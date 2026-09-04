@@ -27,7 +27,7 @@ type PreviewRow = {
     id: string; title: string; status: string; url: string | null; publishedAt: Date | null; expiresAt: Date;
     errorCode: string | null; accountId?: string; sessionId?: string | null; manifest?: unknown; stagingGeneration?: string; vercelDeploymentId?: string | null;
     publicationAttemptId?: string | null; publicationGeneration?: number; connectionGeneration?: number; stagingCleanupPending?: boolean;
-    publicationCreateStartedAt?: Date | null; publicationReconcileRetryCount?: number; publicationReconcileNextAttemptAt?: Date | null; cleanupClaimedAt?: Date | null; vercelTeamId?: string | null;
+    publicationCreateStartedAt?: Date | null; publicationReconcileRetryCount?: number; publicationReconcileNextAttemptAt?: Date | null; cleanupClaimedAt?: Date | null; vercelTeamId?: string | null; vercelScopeKnown?: boolean;
     assets?: Array<{ id: string; path: string; mimeType: string; size: number; sha256: string; storageKey: string; uploadedAt: Date | null }>;
 };
 
@@ -98,15 +98,16 @@ export function createPreviewService(dependencies: {
     const clientFactory = dependencies.clientFactory;
     const now = dependencies.now || (() => new Date());
     const publicationRetryAt = (time: Date, retryCount: number) => new Date(time.getTime() + Math.min(PUBLICATION_RECONCILE_MAX_MS, PUBLICATION_RECONCILE_BASE_MS * 2 ** Math.min(retryCount, 10)));
-    const accountConnection = async (accountId: string): Promise<{ epoch: number; state: string; replacementId: string | null; replacementStartedAt: Date | null }> => {
+    const accountConnection = async (accountId: string): Promise<{ epoch: number; state: string; nonce: string | null; replacementId: string | null; replacementStartedAt: Date | null }> => {
         const account = (database as any).account;
-        if (!account?.findUnique) return { epoch: 0, state: 'active', replacementId: null, replacementStartedAt: null };
+        if (!account?.findUnique) return { epoch: 0, state: 'active', nonce: null, replacementId: null, replacementStartedAt: null };
         const row = await account.findUnique({ where: { id: accountId }, select: {
-            vercelConnectionEpoch: true, vercelConnectionState: true, vercelConnectionReplacementId: true, vercelConnectionReplacementStartedAt: true,
+            vercelConnectionEpoch: true, vercelConnectionState: true, vercelConnectionNonce: true, vercelConnectionReplacementId: true, vercelConnectionReplacementStartedAt: true,
         } });
         return {
             epoch: row?.vercelConnectionEpoch ?? 0,
             state: row?.vercelConnectionState ?? 'active',
+            nonce: row?.vercelConnectionNonce ?? null,
             replacementId: row?.vercelConnectionReplacementId ?? null,
             replacementStartedAt: row?.vercelConnectionReplacementStartedAt ?? null,
         };
@@ -120,13 +121,19 @@ export function createPreviewService(dependencies: {
         let connection = await accountConnection(accountId);
         if (connection.state !== 'active' && connection.replacementId && connection.replacementStartedAt
             && connection.replacementStartedAt <= new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS)) {
+            const recoveryNonce = randomUUID();
             const recovered = await (database as any).account.updateMany({ where: {
                 id: accountId, vercelConnectionState: connection.state, vercelConnectionReplacementId: connection.replacementId,
                 vercelConnectionReplacementStartedAt: { lte: new Date(now().getTime() - CONNECTION_REPLACEMENT_STALE_MS) },
             }, data: {
-                vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+                vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: 'disconnected', vercelConnectionNonce: recoveryNonce,
+                vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
             } });
-            if (recovered.count === 1) connection = await accountConnection(accountId);
+            if (recovered.count === 1) {
+                await (credentialStore as any).deleteAtOrBeforeConnectionEpoch?.(accountId, connection.epoch).catch(() => undefined);
+                throw new Error('VERCEL_CONNECTION_REPLACEMENT_RECOVERY_REQUIRED');
+            }
+            connection = await accountConnection(accountId);
         }
         if (connection.state !== 'active') throw new Error('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
         return connection.epoch;
@@ -137,9 +144,6 @@ export function createPreviewService(dependencies: {
     sessionOwnedBy,
     async createDraft(accountId: string, sessionId: string, rawManifest: InteractivePreviewManifest) {
         const manifest = canonicalManifest(rawManifest);
-        if (!await sessionOwnedBy(accountId, sessionId)) throw previewNotFound();
-        await requireActiveConnection(accountId);
-        const existing = await database.interactivePreview.findUnique({ where: { id: manifest.previewId }, include: { assets: true } }) as PreviewRow | null;
         const describeUploads = async (row: PreviewRow) => ({
             previewId: row.id,
             uploads: await Promise.all((row.assets || []).map(async (asset) => ({ assetId: asset.id, ...await storage.createUpload(asset.storageKey, asset.size) }))),
@@ -147,23 +151,43 @@ export function createPreviewService(dependencies: {
         const isReusableDraft = (row: PreviewRow): boolean => row.status === 'draft'
             && row.expiresAt > now()
             && row.cleanupClaimedAt === null;
-        if (existing) {
-            if (existing.accountId !== accountId || existing.sessionId !== sessionId || !manifestsMatch(existing.manifest, manifest)) throw previewNotFound();
-            if (!isReusableDraft(existing)) throw previewNotFound();
-            return describeUploads(existing);
-        }
-        const expiresAt = new Date(now().getTime() + DRAFT_TTL_MS);
-        const stagingGeneration = randomUUID();
-        const connectionGeneration = await accountConnectionEpoch(accountId);
-        const assetRecords = manifest.assets.map((asset) => ({
-            ...asset,
-            storageKey: storage.storageKey({ accountId, previewId: manifest.previewId, stagingGeneration }, asset.id),
-        }));
-        try {
-            const created = await database.interactivePreview.create({ data: {
-                id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt, stagingGeneration, connectionGeneration,
+        const createWithinFence = async (transaction: any): Promise<PreviewRow> => {
+            if (!await transaction.session.findFirst({ where: { id: sessionId, accountId }, select: { id: true } })) throw previewNotFound();
+            const connection = await transaction.account?.findUnique?.({ where: { id: accountId }, select: { vercelConnectionEpoch: true, vercelConnectionState: true } });
+            const epoch = connection?.vercelConnectionEpoch ?? 0;
+            const state = connection?.vercelConnectionState ?? 'active';
+            if (state !== 'active') throw new Error('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
+            if (transaction.account?.updateMany) {
+                const fenced = await transaction.account.updateMany({ where: {
+                    id: accountId, vercelConnectionEpoch: epoch, vercelConnectionState: 'active',
+                }, data: { vercelConnectionEpoch: epoch } });
+                if (fenced.count !== 1) throw new Error('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
+            }
+            const existing = await transaction.interactivePreview.findUnique({ where: { id: manifest.previewId }, include: { assets: true } }) as PreviewRow | null;
+            if (existing) {
+                if (existing.accountId !== accountId || existing.sessionId !== sessionId || !manifestsMatch(existing.manifest, manifest)) throw previewNotFound();
+                if (!isReusableDraft(existing)) throw previewNotFound();
+                return existing;
+            }
+            const expiresAt = new Date(now().getTime() + DRAFT_TTL_MS);
+            const stagingGeneration = randomUUID();
+            const assetRecords = manifest.assets.map((asset) => ({
+                ...asset,
+                storageKey: storage.storageKey({ accountId, previewId: manifest.previewId, stagingGeneration }, asset.id),
+            }));
+            return transaction.interactivePreview.create({ data: {
+                id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt, stagingGeneration, connectionGeneration: epoch,
                 assets: { create: assetRecords },
-            }, include: { assets: true } }) as PreviewRow;
+            }, include: { assets: true } }) as Promise<PreviewRow>;
+        };
+        try {
+            const created = (database as any).$transaction
+                ? await (database as any).$transaction(createWithinFence)
+                : await (async () => {
+                    if (!await sessionOwnedBy(accountId, sessionId)) throw previewNotFound();
+                    await requireActiveConnection(accountId);
+                    return createWithinFence({ ...database, session: database.session, account: undefined });
+                })();
             return describeUploads(created);
         } catch (error) {
             if (!uniqueViolation(error)) throw error;
@@ -287,7 +311,7 @@ export function createPreviewService(dependencies: {
                 const credential = await credentialStore.get(accountId);
                 if (!credential) throw new Error('VERCEL_NOT_CONNECTED');
                 if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Vercel connection changed during publication');
-                const scoped = await database.interactivePreview.updateMany({ where: publicationWhere, data: { vercelTeamId: credential.teamId ?? null } });
+                const scoped = await database.interactivePreview.updateMany({ where: publicationWhere, data: { vercelTeamId: credential.teamId ?? null, vercelScopeKnown: true } });
                 if (scoped.count !== 1) throw new Error('Vercel connection changed during publication');
                 const client = clientFactory({ token: credential.accessToken, teamId: credential.teamId });
                 const project = await client.ensurePreviewProject({
@@ -334,13 +358,13 @@ export function createPreviewService(dependencies: {
                     if (createStarted.count !== 1) throw new Error('Preview publication was fenced before deployment creation');
                     publicationCreateStarted = true;
                     publicationInconclusive = true;
-                    if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Vercel connection changed during deployment creation');
+                    if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Preview publication was fenced by Vercel connection change during deployment creation');
                     deployment = await client.createDeployment({
                         name: 'happy-previews', projectId: project.id, files,
                         meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
                         onCreated: async ({ id }) => {
                             try {
-                                if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Vercel connection changed during deployment creation');
+                                if (!await connectionIsCurrent(accountId, connectionGeneration)) throw new Error('Preview publication was fenced by Vercel connection change during deployment creation');
                                 await bindDeployment(id);
                             }
                             catch (error) { await deleteUnclaimedDeployment(client, id); throw error; }
@@ -446,6 +470,41 @@ export function createPreviewService(dependencies: {
                 try {
                     const credential = await credentialStore.get(candidate.accountId!);
                     if (!credential?.projectId) throw new Error('VERCEL_NOT_CONNECTED');
+                    if (candidate.vercelScopeKnown === false) {
+                        if (!candidate.vercelDeploymentId) {
+                            await retainDeletingAttempt();
+                            return;
+                        }
+                        const unscopedClient = clientFactory({ token: credential.accessToken, teamId: credential.teamId });
+                        const resolved = await unscopedClient.resolveDeploymentScope?.(candidate.vercelDeploymentId);
+                        if (!resolved) {
+                            await retainDeletingAttempt();
+                            return;
+                        }
+                        if (resolved.visibility === 'not_found') {
+                            const checkpointed = await database.interactivePreview.updateMany({ where: {
+                                id: candidate.id, accountId: candidate.accountId, status: 'deleting', publicationAttemptId: attemptId,
+                                cleanupClaimedAt: time, vercelDeploymentId: candidate.vercelDeploymentId,
+                            }, data: {
+                                vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                                publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null, errorCode: 'OSS_CLEANUP_PENDING',
+                                cleanupClaimedAt: null, cleanupNextAttemptAt: time,
+                            } });
+                            if (checkpointed.count !== 1) await retainDeletingAttempt();
+                            return;
+                        }
+                        if (vercelTeamScope(resolved.teamId) !== vercelTeamScope(credential.teamId)) {
+                            await retainDeletingAttempt();
+                            return;
+                        }
+                        const proven = await database.interactivePreview.updateMany({ where: {
+                            id: candidate.id, accountId: candidate.accountId, status: 'deleting', publicationAttemptId: attemptId,
+                            cleanupClaimedAt: time, vercelDeploymentId: candidate.vercelDeploymentId, vercelScopeKnown: false,
+                        }, data: { vercelTeamId: resolved.teamId ?? null, vercelScopeKnown: true } });
+                        if (proven.count !== 1) { await retainDeletingAttempt(); return; }
+                        candidate.vercelTeamId = resolved.teamId ?? null;
+                        candidate.vercelScopeKnown = true;
+                    }
                     if (vercelTeamScope(candidate.vercelTeamId) !== vercelTeamScope(credential.teamId)) {
                         await retainDeletingAttempt();
                         return;
@@ -502,6 +561,10 @@ export function createPreviewService(dependencies: {
             };
             try {
                 if (!await connectionIsCurrent(candidate.accountId!, candidate.connectionGeneration ?? 0)) {
+                    await schedule('PUBLISH_RECONCILIATION_PENDING');
+                    return;
+                }
+                if (candidate.vercelScopeKnown === false) {
                     await schedule('PUBLISH_RECONCILIATION_PENDING');
                     return;
                 }
@@ -572,29 +635,80 @@ export function createPreviewService(dependencies: {
         });
     },
     async disconnectVercel(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }> {
-        await database.interactivePreview.updateMany({ where: {
-            accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
-        }, data: {
-            status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
-            publicationGeneration: { increment: 1 }, connectionGeneration: { increment: 1 },
-            publicationReconcileNextAttemptAt: now(),
-        } });
+        const disconnectId = randomUUID();
         const credential = await credentialStore.get(accountId);
+        const beginDisconnect = async (transaction: any): Promise<number> => {
+            if (!transaction.account?.update) {
+                await transaction.interactivePreview.updateMany({ where: {
+                    accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+                }, data: {
+                    status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+                    publicationGeneration: { increment: 1 }, connectionGeneration: { increment: 1 }, publicationReconcileNextAttemptAt: now(),
+                } });
+                return 0;
+            }
+            const account = await transaction.account.update({ where: { id: accountId }, data: {
+                vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: 'disconnecting', vercelConnectionNonce: disconnectId,
+                vercelConnectionReplacementId: disconnectId, vercelConnectionReplacementStartedAt: now(),
+            }, select: { vercelConnectionEpoch: true } });
+            await transaction.interactivePreview.updateMany({ where: {
+                accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+            }, data: {
+                status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+                publicationGeneration: { increment: 1 }, connectionGeneration: account.vercelConnectionEpoch,
+                publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
+            } });
+            return account.vercelConnectionEpoch;
+        };
+        const disconnectEpoch = (database as any).$transaction
+            ? await (database as any).$transaction(beginDisconnect)
+            : await beginDisconnect({ ...database, account: undefined });
+        const disconnectOwnsConnection = async (): Promise<boolean> => {
+            if (!(database as any).account?.findUnique) return true;
+            const connection = await accountConnection(accountId);
+            return connection.state === 'disconnecting' && connection.nonce === disconnectId && connection.replacementId === disconnectId;
+        };
         const rows = await database.interactivePreview.findMany({ where: {
             accountId, status: { in: ['draft', 'publishing', 'failed', 'ready', 'deleting'] },
-        }, select: { id: true, vercelDeploymentId: true, vercelTeamId: true, stagingGeneration: true, publicationAttemptId: true, publicationCreateStartedAt: true, cleanupClaimedAt: true, cleanupNextAttemptAt: true, assets: { select: { storageKey: true } } } }) as unknown as Array<PreviewRow>;
+        }, select: { id: true, vercelDeploymentId: true, vercelTeamId: true, vercelScopeKnown: true, stagingGeneration: true, publicationAttemptId: true, publicationCreateStartedAt: true, cleanupClaimedAt: true, cleanupNextAttemptAt: true, assets: { select: { storageKey: true } } } }) as unknown as Array<PreviewRow>;
         let warning = false;
         const client = credential ? clientFactory({ token: credential.accessToken, teamId: credential.teamId }) : null;
         for (const row of rows) {
+            if (!await disconnectOwnsConnection()) { warning = true; break; }
             if (row.cleanupClaimedAt) {
                 warning = true;
                 continue;
             }
             try {
-                if (vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential?.teamId) && (row.vercelDeploymentId || row.publicationAttemptId)) {
+                let deploymentId = row.vercelDeploymentId;
+                let provenScope = row.vercelTeamId;
+                if (row.vercelScopeKnown === false && deploymentId) {
+                    const resolved = await client?.resolveDeploymentScope?.(deploymentId);
+                    if (!resolved) throw new Error('Vercel legacy deployment scope is unavailable');
+                    if (resolved.visibility === 'not_found') {
+                        const checkpointed = await database.interactivePreview.updateMany({ where: {
+                            id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId, cleanupClaimedAt: null,
+                        }, data: {
+                            vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                            publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null, errorCode: 'OSS_CLEANUP_PENDING',
+                        } });
+                        if (checkpointed.count !== 1) throw new Error('Legacy Vercel 404 checkpoint changed during disconnect');
+                        deploymentId = null;
+                    } else {
+                        provenScope = resolved.teamId ?? null;
+                        if (vercelTeamScope(provenScope) !== vercelTeamScope(credential?.teamId)) throw new Error('Vercel credential cannot prove legacy deployment ownership');
+                        const proven = await database.interactivePreview.updateMany({ where: {
+                            id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId, cleanupClaimedAt: null, vercelScopeKnown: false,
+                        }, data: { vercelTeamId: provenScope, vercelScopeKnown: true } });
+                        if (proven.count !== 1) throw new Error('Legacy Vercel scope proof changed during disconnect');
+                    }
+                }
+                if (row.vercelScopeKnown === false && !deploymentId && row.publicationAttemptId) {
+                    throw new Error('Legacy Vercel attempt scope cannot be proven');
+                }
+                if (vercelTeamScope(provenScope) !== vercelTeamScope(credential?.teamId) && (deploymentId || row.publicationAttemptId)) {
                     throw new Error('Vercel credential scope no longer owns this deployment');
                 }
-                let deploymentId = row.vercelDeploymentId;
                 if (!deploymentId && row.publicationAttemptId && credential?.projectId) {
                     const lookup = await client?.lookupDeploymentByMetadata?.({ projectId: credential.projectId, happyPreviewId: row.id, publicationAttemptId: row.publicationAttemptId });
                     deploymentId = lookup && lookup.visibility !== 'not_found' ? lookup.deployment.id : null;
@@ -640,7 +754,20 @@ export function createPreviewService(dependencies: {
                 }, data: { errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } });
             }
         }
-        await credentialStore.delete(accountId);
+        if ((credentialStore as any).deleteAtOrBeforeConnectionEpoch) {
+            await (credentialStore as any).deleteAtOrBeforeConnectionEpoch(accountId, disconnectEpoch);
+        } else {
+            await credentialStore.delete(accountId);
+        }
+        if ((database as any).account?.updateMany) {
+            const disconnected = await (database as any).account.updateMany({ where: {
+                id: accountId, vercelConnectionState: 'disconnecting', vercelConnectionNonce: disconnectId,
+                vercelConnectionReplacementId: disconnectId,
+            }, data: {
+                vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+            } });
+            if (disconnected.count !== 1) warning = true;
+        }
         return warning ? { warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } : {};
     },
     async reconnectVercel(accountId: string, replacement: VercelCredential): Promise<void> {
@@ -654,7 +781,8 @@ export function createPreviewService(dependencies: {
                 where: { id: accountId },
                 data: {
                     vercelConnectionEpoch: { increment: 1 },
-                    vercelConnectionState: 'replacing', vercelConnectionReplacementId: replacementId, vercelConnectionReplacementStartedAt: now(),
+                    vercelConnectionState: 'replacing', vercelConnectionNonce: replacementId,
+                    vercelConnectionReplacementId: replacementId, vercelConnectionReplacementStartedAt: now(),
                 },
                 select: { vercelConnectionEpoch: true },
             });
@@ -667,18 +795,42 @@ export function createPreviewService(dependencies: {
                     publicationReconcileNextAttemptAt: now(),
                 } });
             }
+            if (sameScope) {
+                // Drafts have no provider side effect yet, so they advance to
+                // the new epoch and remain publishable.  A provider create is
+                // never replayed with a replacement credential: publishing
+                // attempts become durable tombstones for reconciliation.
+                await transaction.interactivePreview.updateMany({ where: {
+                    accountId, status: { in: ['draft', 'uploading', 'failed', 'ready'] },
+                }, data: { connectionGeneration: account.vercelConnectionEpoch } });
+                await transaction.interactivePreview.updateMany({ where: {
+                    accountId, status: 'publishing',
+                }, data: {
+                    status: 'deleting', url: null, errorCode: 'VERCEL_CONNECTION_REPLACED',
+                    connectionGeneration: account.vercelConnectionEpoch, publicationGeneration: { increment: 1 },
+                    publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
+                } });
+            }
             return account.vercelConnectionEpoch as number;
         });
         const replacementOwnsConnection = async (): Promise<boolean> => {
             const connection = await accountConnection(accountId);
             return connection.replacementId === replacementId
+                && connection.nonce === replacementId
                 && (connection.state === 'replacing' || connection.state === 'finalizing');
+        };
+        const renewReplacementLease = async (): Promise<void> => {
+            const renewed = await (database as any).account.updateMany({ where: {
+                id: accountId, vercelConnectionNonce: replacementId,
+                vercelConnectionReplacementId: replacementId, vercelConnectionState: { in: ['replacing', 'finalizing'] },
+            }, data: { vercelConnectionReplacementStartedAt: now() } });
+            if (renewed.count !== 1) await replacementSuperseded();
         };
         const rollbackReplacement = async (): Promise<void> => {
             await (database as any).account.updateMany({ where: {
-                id: accountId, vercelConnectionReplacementId: replacementId,
+                id: accountId, vercelConnectionReplacementId: replacementId, vercelConnectionNonce: replacementId,
             }, data: {
-                vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
+                vercelConnectionState: 'disconnected', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null,
             } });
         };
         const replacementCleanupFailed = async (): Promise<never> => {
@@ -698,22 +850,45 @@ export function createPreviewService(dependencies: {
                 const rows = await database.interactivePreview.findMany({ where: {
                     accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready', 'deleting'] },
                 }, select: {
-                    id: true, accountId: true, status: true, vercelDeploymentId: true, vercelTeamId: true,
+                    id: true, accountId: true, status: true, vercelDeploymentId: true, vercelTeamId: true, vercelScopeKnown: true,
                     stagingGeneration: true, publicationAttemptId: true, publicationCreateStartedAt: true,
                     cleanupClaimedAt: true, assets: { select: { storageKey: true } },
                 } }) as PreviewRow[];
                 let client: ReturnType<typeof createVercelClient> | null = null;
                 const oldClient = () => client ||= clientFactory({ token: previous.accessToken, teamId: previous.teamId });
                 for (const row of rows) {
-                    if (!await replacementOwnsConnection()) await replacementSuperseded();
+                    await renewReplacementLease();
                     if (row.cleanupClaimedAt) throw new Error('Preview cleanup is already claimed');
                     let deploymentId = row.vercelDeploymentId;
                     const unresolved = Boolean(row.publicationAttemptId && row.publicationCreateStartedAt && !deploymentId);
                     const providerBound = Boolean(deploymentId || unresolved);
+                    let provenScope = row.vercelTeamId;
+                    if (row.vercelScopeKnown === false) {
+                        if (!deploymentId) throw new Error('Old Vercel scope cannot be proven');
+                        const resolved = await oldClient().resolveDeploymentScope?.(deploymentId);
+                        if (!resolved) throw new Error('Old Vercel scope resolver is unavailable');
+                        if (resolved.visibility === 'not_found') {
+                            const checkpointed = await database.interactivePreview.updateMany({ where: {
+                                id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId, cleanupClaimedAt: null,
+                            }, data: {
+                                vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                                publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null, errorCode: 'OSS_CLEANUP_PENDING',
+                            } });
+                            if (checkpointed.count !== 1) throw new Error('Old Vercel 404 checkpoint lost its tombstone');
+                            deploymentId = null;
+                        } else {
+                            provenScope = resolved.teamId ?? null;
+                            if (vercelTeamScope(provenScope) !== vercelTeamScope(previous.teamId)) throw new Error('Old Vercel scope cannot be proven');
+                            const proven = await database.interactivePreview.updateMany({ where: {
+                                id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId, cleanupClaimedAt: null, vercelScopeKnown: false,
+                            }, data: { vercelTeamId: provenScope, vercelScopeKnown: true } });
+                            if (proven.count !== 1) throw new Error('Old Vercel scope proof lost its tombstone');
+                        }
+                    }
                     // Exact equality deliberately treats null as the personal
                     // scope. A team credential may never delete a legacy/null
                     // personal deployment, nor vice versa.
-                    if (providerBound && vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(previous.teamId)) {
+                    if (providerBound && deploymentId && vercelTeamScope(provenScope) !== vercelTeamScope(previous.teamId)) {
                         throw new Error('Old Vercel scope cannot be proven');
                     }
                     if (unresolved) {
@@ -733,6 +908,7 @@ export function createPreviewService(dependencies: {
                         if (bound.count !== 1) throw new Error('Old Vercel deployment reconciliation lost its tombstone');
                     }
                     if (deploymentId) {
+                        await renewReplacementLease();
                         await oldClient().deleteDeployment(deploymentId);
                         const checkpointed = await database.interactivePreview.updateMany({ where: {
                             id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId,
@@ -745,6 +921,7 @@ export function createPreviewService(dependencies: {
                         } });
                         if (checkpointed.count !== 1) throw new Error('Old Vercel deployment checkpoint lost its tombstone');
                     }
+                    await renewReplacementLease();
                     await deletePersistedPreviewStaging(storage, row, accountId);
                     const expired = await database.interactivePreview.updateMany({ where: {
                         id: row.id, accountId, status: 'deleting', vercelDeploymentId: null,
@@ -762,20 +939,26 @@ export function createPreviewService(dependencies: {
         }
 
         const finalizing = await (database as any).account.updateMany({ where: {
-            id: accountId, vercelConnectionState: 'replacing', vercelConnectionReplacementId: replacementId,
+            id: accountId, vercelConnectionState: 'replacing', vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
         }, data: { vercelConnectionState: 'finalizing', vercelConnectionReplacementStartedAt: now() } });
         if (finalizing.count !== 1) await replacementSuperseded();
         const credential = {
             ...replacement,
             ...(sameScope && previous?.projectId ? { projectId: previous.projectId } : {}),
         };
-        if (!await (credentialStore as any).replaceAtConnectionEpoch(accountId, epoch, credential)) {
+        const replaced = (credentialStore as any).replaceAtConnectionVersion
+            ? await (credentialStore as any).replaceAtConnectionVersion(accountId, epoch, replacementId, credential)
+            : await (credentialStore as any).replaceAtConnectionEpoch(accountId, epoch, credential);
+        if (!replaced) {
             await replacementSuperseded();
         }
         const activated = await (database as any).account.updateMany({ where: {
-            id: accountId, vercelConnectionState: 'finalizing', vercelConnectionReplacementId: replacementId,
+            id: accountId, vercelConnectionState: 'finalizing', vercelConnectionNonce: replacementId, vercelConnectionReplacementId: replacementId,
         }, data: { vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null } });
-        if (activated.count !== 1) await replacementSuperseded();
+        if (activated.count !== 1) {
+            await (credentialStore as any).deleteAtConnectionVersion?.(accountId, epoch, replacementId).catch(() => undefined);
+            await replacementSuperseded();
+        }
     },
     };
 }

@@ -6,6 +6,19 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('createVercelClient', () => {
+    it('resolves a legacy deployment scope before deletion and treats a missing deployment as already removed', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ id: 'dpl_team', teamId: 'team_1' }))
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'not_found' } }, 404));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect((client as any).resolveDeploymentScope('dpl_team')).resolves.toEqual({ visibility: 'found', teamId: 'team_1' });
+        await expect((client as any).resolveDeploymentScope('dpl_missing')).resolves.toEqual({ visibility: 'not_found' });
+        expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+            'https://api.vercel.com/v13/deployments/dpl_team',
+            'https://api.vercel.com/v13/deployments/dpl_missing',
+        ]);
+    });
     it('creates a configuration-derived project after refusing a colliding generic project name', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))

@@ -10,6 +10,7 @@ export const vercelCredentialSchema = z.object({
     teamName: z.string().min(1).max(256).optional(),
     projectId: z.string().min(1).max(256).optional(),
     connectionEpoch: z.number().int().nonnegative().optional(),
+    connectionNonce: z.string().min(1).max(256).optional(),
 }).strict();
 
 export type VercelCredential = z.infer<typeof vercelCredentialSchema>;
@@ -19,6 +20,7 @@ interface CredentialRepository {
     upsert: (accountId: string, key: string, value: Uint8Array<ArrayBuffer>) => Promise<void>;
     compareAndSet: (accountId: string, key: string, expected: Uint8Array<ArrayBuffer>, value: Uint8Array<ArrayBuffer>) => Promise<boolean>;
     createIfAbsent?: (accountId: string, key: string, value: Uint8Array<ArrayBuffer>) => Promise<boolean>;
+    deleteIfCurrent?: (accountId: string, key: string, expected: Uint8Array<ArrayBuffer>) => Promise<boolean>;
     delete: (accountId: string, key: string) => Promise<void>;
 }
 
@@ -71,8 +73,8 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
                 accountId, STORAGE_KEY, encrypted, dependencies.encrypt(encryptionPath(accountId), JSON.stringify(replacementValue)),
             );
         },
-        async replaceAtConnectionEpoch(accountId: string, connectionEpoch: number, replacement: VercelCredential): Promise<boolean> {
-            const replacementValue = vercelCredentialSchema.parse({ ...replacement, connectionEpoch });
+        async replaceAtConnectionVersion(accountId: string, connectionEpoch: number, connectionNonce: string, replacement: VercelCredential): Promise<boolean> {
+            const replacementValue = vercelCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
             for (let attempt = 0; attempt < 3; attempt++) {
                 const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
                 if (!encrypted) {
@@ -89,6 +91,23 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             }
             return false;
         },
+        async replaceAtConnectionEpoch(accountId: string, connectionEpoch: number, replacement: VercelCredential): Promise<boolean> {
+            return this.replaceAtConnectionVersion(accountId, connectionEpoch, `legacy-${connectionEpoch}`, replacement);
+        },
+        async deleteAtOrBeforeConnectionEpoch(accountId: string, connectionEpoch: number): Promise<boolean> {
+            const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
+            if (!encrypted) return false;
+            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            if ((current.connectionEpoch ?? 0) > connectionEpoch) return false;
+            return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
+        },
+        async deleteAtConnectionVersion(accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
+            const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
+            if (!encrypted) return false;
+            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            if (current.connectionEpoch !== connectionEpoch || current.connectionNonce !== connectionNonce) return false;
+            return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
+        },
         async delete(accountId: string): Promise<void> {
             await dependencies.repository.delete(accountId, STORAGE_KEY);
         },
@@ -101,7 +120,7 @@ interface ServiceAccountDatabase {
         upsert: (args: unknown) => Promise<unknown>;
         updateMany: (args: unknown) => Promise<{ count: number }>;
         createMany: (args: unknown) => Promise<{ count: number }>;
-        deleteMany: (args: unknown) => Promise<unknown>;
+        deleteMany: (args: unknown) => Promise<{ count: number }>;
     };
 }
 
@@ -130,6 +149,12 @@ export function createVercelCredentialRepository(database: ServiceAccountDatabas
         async createIfAbsent(accountId, vendor, token) {
             const result = await database.serviceAccountToken.createMany({
                 data: { accountId, vendor, token }, skipDuplicates: true,
+            });
+            return result.count === 1;
+        },
+        async deleteIfCurrent(accountId, vendor, token) {
+            const result = await database.serviceAccountToken.deleteMany({
+                where: { accountId, vendor, token },
             });
             return result.count === 1;
         },
