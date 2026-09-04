@@ -172,6 +172,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     const navigateTo = React.useCallback((index: number) => {
         const next = Math.max(0, Math.min(index, sources.length - 1));
         if (next === currentIndex) return;
+        setPagingEnabled(true);
         setCurrentIndex(next);
         scrollRef.current?.scrollTo({ x: next * screenW, y: 0, animated: true });
     }, [currentIndex, screenW, sources.length]);
@@ -260,7 +261,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                         onPress={() => navigateTo(currentIndex - 1)}
                         disabled={currentIndex === 0}
                         accessibilityRole="button"
-                        accessibilityLabel={t('common.back')}
+                        accessibilityLabel={t('imageViewer.previousImage')}
                         style={[
                             styles.navigationButton,
                             styles.previousButton,
@@ -274,7 +275,7 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                         onPress={() => navigateTo(currentIndex + 1)}
                         disabled={currentIndex === sources.length - 1}
                         accessibilityRole="button"
-                        accessibilityLabel={t('common.continue')}
+                        accessibilityLabel={t('imageViewer.nextImage')}
                         style={[
                             styles.navigationButton,
                             styles.nextButton,

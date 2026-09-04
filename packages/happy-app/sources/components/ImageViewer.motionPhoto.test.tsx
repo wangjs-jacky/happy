@@ -9,6 +9,10 @@ import { ImageViewer } from './ImageViewer';
 
 const mocks = vi.hoisted(() => ({
     release: vi.fn(),
+    pinchHandlers: [] as Array<{
+        onUpdate?: (event: { scale: number }) => void;
+        onEnd?: () => void;
+    }>,
     resolveMotionSource: vi.fn(async () => ({
         uri: 'file:///cache/photo.jpg.mp4',
         headers: {},
@@ -52,10 +56,15 @@ vi.mock('react-native-reanimated', () => ({
     withTiming: (value: number) => value,
 }));
 vi.mock('react-native-gesture-handler', () => {
-    const gesture = () => {
+    const gesture = (handlers?: Record<string, (...args: any[]) => void>) => {
         const chain: Record<string, any> = {};
         for (const method of ['activeOffsetY', 'enabled', 'failOffsetX', 'numberOfTaps', 'onEnd', 'onUpdate']) {
-            chain[method] = () => chain;
+            chain[method] = (handler?: (...args: any[]) => void) => {
+                if (handlers && (method === 'onEnd' || method === 'onUpdate') && handler) {
+                    handlers[method] = handler;
+                }
+                return chain;
+            };
         }
         return chain;
     };
@@ -63,7 +72,11 @@ vi.mock('react-native-gesture-handler', () => {
         Gesture: {
             Exclusive: gesture,
             Pan: gesture,
-            Pinch: gesture,
+            Pinch: () => {
+                const handlers: Record<string, (...args: any[]) => void> = {};
+                mocks.pinchHandlers.push(handlers);
+                return gesture(handlers);
+            },
             Simultaneous: gesture,
             Tap: gesture,
         },
@@ -102,6 +115,7 @@ describe('ImageViewer motion photos', () => {
     beforeEach(() => {
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         mocks.release.mockClear();
+        mocks.pinchHandlers.length = 0;
         mocks.resolveMotionSource.mockReset();
         mocks.resolveMotionSource.mockResolvedValue({
             uri: 'file:///cache/photo.jpg.mp4',
@@ -158,7 +172,7 @@ describe('ImageViewer motion photos', () => {
         act(() => renderer.unmount());
     });
 
-    it('offers explicit desktop previous and next controls for a multi-image gallery', () => {
+    it('offers desktop navigation, restores paging after zoom, and selects the requested image', () => {
         let renderer: any;
         act(() => {
             renderer = TestRenderer.create(
@@ -177,13 +191,21 @@ describe('ImageViewer motion photos', () => {
         const next = renderer.root.findByProps({ testID: 'image-viewer-next' });
         expect(previous.props.disabled).toBe(true);
         expect(next.props.disabled).toBe(false);
+        expect(renderer.root.findByType('ScrollView').props.scrollEnabled).toBe(true);
+
+        act(() => {
+            mocks.pinchHandlers[0].onUpdate?.({ scale: 2 });
+            mocks.pinchHandlers[0].onEnd?.();
+        });
+        expect(renderer.root.findByType('ScrollView').props.scrollEnabled).toBe(false);
 
         act(() => next.props.onPress());
 
+        expect(renderer.root.findByType('ScrollView').props.scrollEnabled).toBe(true);
         expect(renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.disabled).toBe(false);
         expect(renderer.root.findByProps({ testID: 'image-viewer-next' }).props.disabled).toBe(true);
-        expect(renderer.root.findByProps({ testID: 'image-viewer' }).findAllByProps({ testID: 'image-viewer-image' }))
-            .toHaveLength(1);
+        expect(renderer.root.findByProps({ testID: 'image-viewer-image' }).props.source.uri)
+            .toBe('data:image/jpeg;base64,BB==');
         act(() => renderer.unmount());
     });
 

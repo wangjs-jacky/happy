@@ -796,6 +796,60 @@ describe('useGroupedMessages', () => {
         });
     });
 
+    it.each([true, false])(
+        'keeps promptless agent output separate from an adjacent reference when grouping=%s',
+        (groupingEnabled) => {
+            const messages: Message[] = [
+                fileMessage('output', 5, { source: 'generated' }),
+                fileMessage('reference', 4),
+                {
+                    kind: 'user-text',
+                    id: 'user',
+                    localId: null,
+                    createdAt: 3,
+                    text: '把终端截图和参考图都发给我。',
+                },
+            ];
+
+            const galleries = groupMessagesForDisplay(messages, groupingEnabled)
+                .filter((item) => item.type === 'image-group');
+
+            expect(galleries.map((gallery) => gallery.messages.map((message) => message.id))).toEqual([
+                ['output'],
+                ['reference'],
+            ]);
+        },
+    );
+
+    it('does not collide an ordinary output group with a real agent-output batch id', () => {
+        const messages: Message[] = [
+            fileMessage('explicit-batch', 6, {
+                source: 'generated',
+                batchId: 'agent-output',
+                prompt: 'explicit generation prompt',
+            }),
+            fileMessage('ordinary-output', 5, {
+                source: 'generated',
+                batchId: 'legacy-random',
+            }),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 4,
+                text: '把结果发到终端。',
+            },
+        ];
+
+        const galleries = groupMessagesForDisplay(messages, true)
+            .filter((item) => item.type === 'image-group');
+
+        expect(galleries.map((gallery) => gallery.messages.map((message) => message.id))).toEqual([
+            ['explicit-batch'],
+            ['ordinary-output'],
+        ]);
+    });
+
     it('keeps the same generated batch id in separate galleries across turns', () => {
         const messages: Message[] = [
             fileMessage('current-generated', 9, { source: 'generated', batchId: 'shared-batch' }),

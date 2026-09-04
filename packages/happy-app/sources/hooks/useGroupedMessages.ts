@@ -555,15 +555,6 @@ function collectImageAttachmentGroups(
     turnOf: number[],
     hiddenWorkIndexes: Set<number>,
 ): Map<number, { msgs: Message[]; oldestIdx: number }> {
-    const groups = collectToolRuns(
-        messages,
-        (message, index) => (
-            !hiddenWorkIndexes.has(index)
-            && isImageAttachment(message)
-            && getImageAttachmentBatchId(message) === null
-        ),
-    );
-    const batchGroups = new Map<string, { indexes: number[]; msgs: Message[] }>();
     const imageAgentTurns = new Set<number>();
 
     for (let index = 0; index < messages.length; index++) {
@@ -573,14 +564,26 @@ function collectImageAttachmentGroups(
         }
     }
 
+    const isOrdinaryAgentOutput = (message: Message, index: number) => (
+        isGeneratedImageAttachment(message)
+        && !hasGeneratedImagePrompt(message)
+        && !imageAgentTurns.has(turnOf[index])
+    );
+    const groups = collectToolRuns(
+        messages,
+        (message, index) => (
+            !hiddenWorkIndexes.has(index)
+            && isImageAttachment(message)
+            && getImageAttachmentBatchId(message) === null
+            && !isOrdinaryAgentOutput(message, index)
+        ),
+    );
+    const batchGroups = new Map<string, { indexes: number[]; msgs: Message[] }>();
+
     for (let index = 0; index < messages.length; index++) {
         if (hiddenWorkIndexes.has(index) || !isImageAttachment(messages[index])) continue;
-        if (
-            isGeneratedImageAttachment(messages[index])
-            && !hasGeneratedImagePrompt(messages[index])
-            && !imageAgentTurns.has(turnOf[index])
-        ) {
-            const key = `${turnOf[index]}:agent-output`;
+        if (isOrdinaryAgentOutput(messages[index], index)) {
+            const key = `turn:${turnOf[index]}:ordinary-output`;
             const group = batchGroups.get(key) ?? { indexes: [], msgs: [] };
             group.indexes.push(index);
             group.msgs.push(messages[index]);
@@ -589,7 +592,7 @@ function collectImageAttachmentGroups(
         }
         const batchId = getImageAttachmentBatchId(messages[index]);
         if (!batchId) continue;
-        const key = `${turnOf[index]}:${batchId}`;
+        const key = `turn:${turnOf[index]}:batch:${batchId}`;
         const group = batchGroups.get(key) ?? { indexes: [], msgs: [] };
         group.indexes.push(index);
         group.msgs.push(messages[index]);
