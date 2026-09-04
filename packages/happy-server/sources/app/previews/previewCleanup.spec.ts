@@ -36,7 +36,7 @@ describe('cleanupInteractivePreviewRows', () => {
         expect(row).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_legacy' });
     });
 
-    it('treats a missing unknown-scope deployment as provider cleanup success', async () => {
+    it('retains an unknown legacy deployment when the current team candidate returns 404', async () => {
         const row: any = { id: 'legacy-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_gone', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
         const updateMany = vi.fn(async ({ where, data }: any) => {
             if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
@@ -47,13 +47,58 @@ describe('cleanupInteractivePreviewRows', () => {
         const cleanup = createPreviewCleanup({
             database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [row]), findFirst: vi.fn(async () => row), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
             storage: { deletePreview: vi.fn(async () => {}) } as any,
-            credentialStore: { get: vi.fn(async () => ({ accessToken: 'personal-secret', configurationId: 'icfg' })) } as any,
+            credentialStore: { get: vi.fn(async () => ({ accessToken: 'team-secret', configurationId: 'icfg', teamId: 'team-current' })) } as any,
             clientFactory: vi.fn(() => ({ resolveDeploymentScope: vi.fn(async () => ({ visibility: 'not_found' })), deleteDeployment })) as any,
         });
 
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
         expect(deleteDeployment).not.toHaveBeenCalled();
+        expect(row).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_gone' });
+        expect(row.cleanupNextAttemptAt).toEqual(new Date('2026-09-04T01:01:00Z'));
+    });
+
+    it('deletes a legacy deployment after the current encrypted team candidate proves ownership', async () => {
+        const row: any = { id: 'legacy-team', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_team', vercelTeamId: null, vercelScopeKnown: false, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
+            return { count: 1 };
+        });
+        const deleteDeployment = vi.fn(async () => {});
+        const clientFactory = vi.fn(() => ({ resolveDeploymentScope: vi.fn(async () => ({ visibility: 'found' })), deleteDeployment }));
+        const cleanup = createPreviewCleanup({
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [row]), findFirst: vi.fn(async () => row), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
+            storage: { deletePreview: vi.fn(async () => {}) } as any,
+            credentialStore: { get: vi.fn(async () => ({ accessToken: 'team-secret', configurationId: 'icfg', teamId: 'team-current' })) } as any,
+            clientFactory: clientFactory as any,
+        });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(clientFactory).toHaveBeenCalledWith({ token: 'team-secret', teamId: 'team-current' });
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_team');
+        expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null, vercelTeamId: 'team-current', vercelScopeKnown: true });
+    });
+
+    it('accepts an idempotent 404 only after an explicitly personal scope was persisted', async () => {
+        const row: any = { id: 'personal-404', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_personal', vercelTeamId: null, vercelScopeKnown: true, cleanupClaimedAt: null, cleanupRetryCount: 0 };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.status && where.status !== row.status || 'vercelDeploymentId' in where && where.vercelDeploymentId !== row.vercelDeploymentId) return { count: 0 };
+            Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
+            return { count: 1 };
+        });
+        const deleteDeployment = vi.fn(async () => {});
+        const cleanup = createPreviewCleanup({
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [row]), findFirst: vi.fn(async () => row), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
+            storage: { deletePreview: vi.fn(async () => {}) } as any,
+            credentialStore: { get: vi.fn(async () => ({ accessToken: 'personal-secret', configurationId: 'icfg' })) } as any,
+            clientFactory: vi.fn(() => ({ deleteDeployment })) as any,
+        });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_personal');
         expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null });
     });
 

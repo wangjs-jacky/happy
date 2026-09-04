@@ -103,10 +103,6 @@ export function createVercelClient(options: {
         return url.toString();
     }
 
-    function unscopedEndpoint(path: string): string {
-        return new URL(path, options.apiOrigin ?? API_ORIGIN).toString();
-    }
-
     function projectName(configurationId: string): string {
         return `happy-previews-${createHash('sha256').update(configurationId).digest('hex').slice(0, 12)}`;
     }
@@ -270,7 +266,10 @@ export function createVercelClient(options: {
 
         async resolveDeploymentScope(deploymentId: string): Promise<{ visibility: 'not_found' } | { visibility: 'found'; teamId?: string }> {
             assertSafeIdentifier(deploymentId);
-            const response = await fetchImpl(unscopedEndpoint(`/v13/deployments/${deploymentId}`), {
+            // A deployment 404 is meaningful only for this client’s selected
+            // scope. Never issue a global lookup for legacy rows: a team
+            // deployment can be invisible to the unscoped/personal endpoint.
+            const response = await fetchImpl(endpoint(`/v13/deployments/${deploymentId}`), {
                 method: 'GET', redirect: 'error', signal: timeoutSignal(30_000), headers: { Authorization: `Bearer ${options.token}` },
             });
             if (response.status === 404) return { visibility: 'not_found' };
@@ -279,7 +278,9 @@ export function createVercelClient(options: {
                 throw new VercelApiError(data?.error?.code || `http_${response.status}`, response.status);
             }
             const deployment = deploymentScopeResponseSchema.parse(await response.json());
-            return deployment.teamId ? { visibility: 'found', teamId: deployment.teamId } : { visibility: 'found' };
+            return deployment.teamId ? { visibility: 'found', teamId: deployment.teamId }
+                : options.teamId ? { visibility: 'found', teamId: options.teamId }
+                    : { visibility: 'found' };
         },
 
         async createDeployment(input: {

@@ -131,14 +131,21 @@ export function createPreviewCleanup(dependencies: {
                 if (!row) throw new Error('Vercel cleanup row is unavailable');
                 const client = dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId });
                 if (row.vercelScopeKnown === false) {
+                    // Null used to mean both “personal” and “unknown”. Only a
+                    // configured team is a candidate scope for an unknown
+                    // legacy row; an unscoped 404 cannot prove global absence.
+                    if (!credential.teamId) throw new Error('Vercel legacy deployment scope is unknown');
                     const resolved = await client.resolveDeploymentScope?.(deploymentId);
-                    if (!resolved || resolved.visibility === 'not_found') return;
-                    if (vercelTeamScope(resolved.teamId) !== vercelTeamScope(credential.teamId)) {
+                    if (!resolved || resolved.visibility === 'not_found') {
+                        throw new Error('Vercel legacy deployment remains unresolved');
+                    }
+                    const provenTeamId = resolved.teamId ?? credential.teamId;
+                    if (vercelTeamScope(provenTeamId) !== vercelTeamScope(credential.teamId)) {
                         throw new Error('Vercel credential scope cannot prove legacy deployment ownership');
                     }
                     const proven = await dependencies.database.interactivePreview.updateMany({ where: {
                         id: row.id, status: 'deleting', cleanupClaimedAt: now(), vercelDeploymentId: deploymentId, vercelScopeKnown: false,
-                    }, data: { vercelTeamId: resolved.teamId ?? null, vercelScopeKnown: true } });
+                    }, data: { vercelTeamId: provenTeamId, vercelScopeKnown: true } });
                     if (proven.count !== 1) throw new Error('Vercel legacy scope proof lost its cleanup claim');
                 }
                 if (vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential.teamId) && row.vercelScopeKnown !== false) {

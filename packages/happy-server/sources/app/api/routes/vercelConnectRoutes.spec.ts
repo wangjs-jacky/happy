@@ -14,7 +14,7 @@ async function createApp(overrides: Partial<VercelConnectDependencies> = {}) {
         if (typeof userId !== 'string') return reply.code(401).send({ error: 'Unauthorized' });
         request.userId = userId;
     });
-    const dependencies: VercelConnectDependencies = {
+    const dependencies = {
         config: {
             clientId: 'client-id', clientSecret: 'client-secret', integrationSlug: 'happy-preview',
             redirectUri: 'https://happy.test/v1/connect/vercel/callback', webUrl: 'https://happy.test',
@@ -25,7 +25,8 @@ async function createApp(overrides: Partial<VercelConnectDependencies> = {}) {
         reconnect: vi.fn(async () => {}),
         exchangeCode: vi.fn(async () => ({ accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1' })),
         ...overrides,
-    };
+    } as VercelConnectDependencies;
+    if (!overrides.activeCredential) dependencies.activeCredential = (accountId) => dependencies.credentialStore.get(accountId);
     vercelConnectRoutes(typed, dependencies);
     await typed.ready();
     return { app: typed, dependencies };
@@ -51,6 +52,23 @@ describe('vercelConnectRoutes', () => {
         const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/status', headers: { 'x-user-id': 'user-1' } });
         expect(response.json()).toEqual({ available: true, connected: true, account: { teamId: 'team_1', teamName: 'Acme' } });
         expect(response.body).not.toContain('hidden');
+    });
+
+    it('does not report a stale credential as connected after account activation was interrupted', async () => {
+        const activeCredential = vi.fn(async () => null);
+        const created = await createApp({
+            credentialStore: {
+                get: vi.fn(async () => ({ version: 1 as const, accessToken: 'stale-secret', configurationId: 'icfg_1', connectionEpoch: 4, connectionNonce: 'stale' })),
+                delete: vi.fn(async () => {}),
+            },
+            activeCredential,
+        } as any); app = created.app;
+
+        const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/status', headers: { 'x-user-id': 'user-1' } });
+
+        expect(response.json()).toEqual({ available: true, connected: false });
+        expect(activeCredential).toHaveBeenCalledWith('user-1');
+        expect(response.body).not.toContain('stale-secret');
     });
 
     it('consumes OAuth state, stores the token server-side, and redirects with a stable success flag', async () => {

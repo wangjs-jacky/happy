@@ -2,6 +2,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { createVercelCredentialStore } from './vercelCredentialStore';
 
 describe('createVercelCredentialStore', () => {
+    it('conditionally removes a stale crash credential without deleting a newer replacement', async () => {
+        const encode = (value: unknown): Uint8Array<ArrayBuffer> => new TextEncoder().encode(JSON.stringify(value)) as Uint8Array<ArrayBuffer>;
+        const decode = (value: Uint8Array) => new TextDecoder().decode(value);
+        const stale = { version: 1 as const, accessToken: 'stale-secret', configurationId: 'icfg-stale', connectionEpoch: 4, connectionNonce: 'stale' };
+        const newer = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg-new', connectionEpoch: 5, connectionNonce: 'new' };
+        let encrypted: Uint8Array<ArrayBuffer> | null = encode(stale);
+        const deleteIfCurrent = vi.fn(async (_accountId, _key, expected) => {
+            if (!encrypted || JSON.stringify(expected) !== JSON.stringify(encrypted)) return false;
+            encrypted = null;
+            return true;
+        });
+        const store = createVercelCredentialStore({
+            repository: {
+                find: vi.fn(async () => encrypted), upsert: vi.fn(), compareAndSet: vi.fn(), createIfAbsent: vi.fn(), deleteIfCurrent, delete: vi.fn(),
+            },
+            encrypt: (_path, value) => encode(JSON.parse(value)),
+            decrypt: (_path, value) => decode(value),
+        });
+
+        await expect((store as any).deleteIfCurrent('account-1', stale)).resolves.toBe(true);
+        encrypted = encode(newer);
+        await expect((store as any).deleteIfCurrent('account-1', stale)).resolves.toBe(false);
+
+        expect(JSON.parse(decode(encrypted))).toEqual(newer);
+        expect(deleteIfCurrent).toHaveBeenCalledTimes(1);
+    });
+
     it('does not let a stale callback overwrite a credential written at a newer connection epoch', async () => {
         const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
         const decode = (value: Uint8Array) => new TextDecoder().decode(value);

@@ -6,18 +6,26 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('createVercelClient', () => {
-    it('resolves a legacy deployment scope before deletion and treats a missing deployment as already removed', async () => {
+    it('resolves legacy deployments only inside the encrypted credential team candidate', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse({ id: 'dpl_team', teamId: 'team_1' }))
             .mockResolvedValueOnce(jsonResponse({ error: { code: 'not_found' } }, 404));
-        const client = createVercelClient({ token: 'secret', fetchImpl });
+        const client = createVercelClient({ token: 'secret', teamId: 'team_1', fetchImpl });
 
         await expect((client as any).resolveDeploymentScope('dpl_team')).resolves.toEqual({ visibility: 'found', teamId: 'team_1' });
         await expect((client as any).resolveDeploymentScope('dpl_missing')).resolves.toEqual({ visibility: 'not_found' });
         expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-            'https://api.vercel.com/v13/deployments/dpl_team',
-            'https://api.vercel.com/v13/deployments/dpl_missing',
+            'https://api.vercel.com/v13/deployments/dpl_team?teamId=team_1',
+            'https://api.vercel.com/v13/deployments/dpl_missing?teamId=team_1',
         ]);
+    });
+
+    it('treats a 404 in an explicitly personal candidate scope as idempotent deletion', async () => {
+        const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'not_found' } }, 404));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.deleteDeployment('dpl_personal_removed')).resolves.toBeUndefined();
+        expect(fetchImpl).toHaveBeenCalledWith('https://api.vercel.com/v13/deployments/dpl_personal_removed', expect.any(Object));
     });
     it('creates a configuration-derived project after refusing a colliding generic project name', async () => {
         const fetchImpl = vi.fn()

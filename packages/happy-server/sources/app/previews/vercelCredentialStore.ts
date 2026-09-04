@@ -108,6 +108,14 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             if (current.connectionEpoch !== connectionEpoch || current.connectionNonce !== connectionNonce) return false;
             return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
         },
+        async deleteIfCurrent(accountId: string, expected: VercelCredential): Promise<boolean> {
+            const expectedValue = vercelCredentialSchema.parse(expected);
+            const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
+            if (!encrypted) return false;
+            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            if (JSON.stringify(current) !== JSON.stringify(expectedValue)) return false;
+            return Boolean(await dependencies.repository.deleteIfCurrent?.(accountId, STORAGE_KEY, encrypted));
+        },
         async delete(accountId: string): Promise<void> {
             await dependencies.repository.delete(accountId, STORAGE_KEY);
         },

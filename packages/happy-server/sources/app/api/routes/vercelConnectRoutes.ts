@@ -21,6 +21,7 @@ export interface VercelConnectDependencies {
         get(accountId: string): Promise<VercelCredential | null>;
         delete(accountId: string): Promise<void>;
     };
+    activeCredential(accountId: string): Promise<VercelCredential | null>;
     disconnect(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }>;
     reconnect(accountId: string, credential: VercelCredential): Promise<void>;
     exchangeCode(code: string, config: VercelConnectConfig): Promise<Omit<VercelCredential, 'version'>>;
@@ -76,6 +77,7 @@ const defaultDependencies: VercelConnectDependencies = {
     stateStore: vercelOAuthStateStore, credentialStore: vercelCredentialStore,
     disconnect: (accountId) => previewService.disconnectVercel(accountId),
     reconnect: (accountId, credential) => previewService.reconnectVercel(accountId, credential),
+    activeCredential: (accountId) => previewService.getActiveVercelCredential(accountId),
     exchangeCode,
 };
 
@@ -94,7 +96,7 @@ export function vercelConnectRoutes(app: Fastify, dependencies: VercelConnectDep
             account: z.object({ teamId: z.string().optional(), teamName: z.string().optional(), projectId: z.string().optional() }).optional(),
         }) } },
     }, async (request, reply) => {
-        const credential = await dependencies.credentialStore.get(request.userId);
+        const credential = await dependencies.activeCredential(request.userId);
         return reply.send({
             available: dependencies.config !== null,
             connected: credential !== null,

@@ -671,3 +671,86 @@ Applied 42 migration(s), including 20260904090000_add_interactive_previews,
 git diff --check
 exit 0
 ```
+
+## Cluster I quality-review follow-up: scoped legacy deletion and activation consistency
+
+This supersedes the Cluster H statement that an unscoped deployment 404 can
+prove an unknown legacy deployment is absent. It cannot: Vercel can hide a
+team deployment from the personal endpoint.
+
+- Legacy-scope resolution now uses only the current encrypted credential's
+  proven team candidate. The Vercel request itself carries that `teamId`; a
+  found row is bound to that team before deletion. An unknown legacy row has no
+  personal candidate, so it is never queried/deleted as personal.
+- A 404 for an unknown legacy row is inconclusive. Scheduled recovery,
+  disconnect, and scope-changing reconnect retain its deployment ID and
+  `deleting` tombstone, persist the bounded cleanup retry, and expose the
+  existing fixed manual-cleanup warning on disconnect. A provider 404 remains
+  an idempotent success only when the stored row already proves the matching
+  team or explicitly proves personal scope.
+- Encrypted credentials are now authorized only if the Account is `active` and
+  its epoch/nonce exactly match the encrypted envelope (legacy zero/null values
+  match only the zero/null Account baseline). Status consumes this guarded
+  view, and publication/recovery/disconnect/reconnect do likewise; the raw
+  credential’s presence no longer means connected.
+- The encrypted repository provides an exact-snapshot conditional delete.
+  Therefore a stale credential written after disconnect can be reconciled by a
+  later status or reconnect without deleting a concurrently installed newer
+  credential. A live process records its own short `replacing`/`finalizing`
+  callback window, so its matching credential remains inactive but intact
+  until activation. A fresh process has no such marker: its next status read
+  conditionally deletes the interrupted snapshot before recovery/reconnect.
+
+### Cluster I red/green evidence
+
+| Behavior | Red evidence | Green regression coverage |
+| --- | --- | --- |
+| Unknown scope 404 | The current team’s 404 cleared `vercelDeploymentId` and expired the row. | Cleanup, disconnect, and stale-publication recovery keep the deleting tombstone, deployment ID, and retry deadline. |
+| Candidate-scoped team proof | Legacy resolution issued an unscoped request. | The client includes the encrypted candidate `teamId`; a matching found deployment is bound then deleted. |
+| Explicit personal 404 | Personal and unknown null scopes had the same behavior. | An explicitly known personal row retains normal idempotent 404 deletion, while unknown remains manual cleanup. |
+| Credential/Account crash gap | A present encrypted token made status connected and could authorize a publisher before Account activation. | Status returns disconnected, publisher makes no Vercel call for a version mismatch, and a fresh-process status read conditionally reconciles a `createIfAbsent` barrier before later reconnect safely activates its newer credential. |
+| Stale cleanup safety | Conditional reconciliation could delete a replacement credential. | Exact ciphertext snapshot deletion removes the stale record only; a newer record survives. |
+
+No new migration is required for Cluster I: the existing connection epoch/nonce
+columns and encrypted credential envelope fields from
+`20260904150000_harden_vercel_connection_fences` are reused.
+
+### Cluster I verification
+
+```text
+pnpm --filter happy-server-self-host exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/vercelScopeMigration.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts \
+  --reporter=dot --silent --maxWorkers=1 --minWorkers=1
+
+Test Files  10 passed (10)
+Tests       141 passed (141)
+
+pnpm --filter @slopus/happy-wire exec vitest run src/interactivePreview.test.ts --reporter=dot
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --filter @wangjs-jacky/paws exec vitest run src/previews/previewApi.test.ts --config /dev/null --reporter=dot
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --filter happy-server-self-host run typecheck
+pnpm --filter @slopus/happy-wire run typecheck
+pnpm --filter @wangjs-jacky/paws run typecheck
+all exit 0
+
+PGLITE_DIR=$(mktemp -d /tmp/happy-task3-cluster-i.XXXXXX) \
+  pnpm --filter happy-server-self-host exec tsx sources/standalone.ts migrate
+Applied 46 migration(s), including 20260904150000_harden_vercel_connection_fences
+
+git diff --check
+exit 0
+```
