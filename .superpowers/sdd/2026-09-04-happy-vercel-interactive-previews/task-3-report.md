@@ -52,6 +52,75 @@ git diff --check
 exit 0
 ```
 
+## Cluster G review-fix follow-up: durable Vercel replacement ownership
+
+- `Account` now carries a durable Vercel connection epoch, replacement state,
+  nonce, and start time. Reconnect atomically increments and fences the epoch
+  before an out-of-transaction encrypted credential write; only the callback
+  holding that nonce may finalize the state. A stale callback cannot overwrite
+  a newer epoch, and an abandoned replacement lease is safely recovered.
+- Draft creation and publication are blocked while a replacement is in progress.
+  Publication additionally requires the draft/failed row's `expiresAt` to be
+  strictly later than the captured claim time, so an expired preview cannot
+  publish if cleanup has not yet run.
+- A scope-changing reconnect drains all old-scope nonterminal/deleting rows
+  using the old encrypted credential before credentials are replaced. It
+  reconciles unresolved creation attempts, checkpoints provider deletion before
+  staging deletion, and preserves old credentials plus deleting tombstones with
+  `VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING` when cleanup is ambiguous or
+  fails. Scope comparison normalizes `null` and `undefined` as the personal
+  scope; old deployments are never deleted with a new credential.
+
+### Cluster G red/green evidence
+
+| Behavior | Red evidence | Green evidence |
+| --- | --- | --- |
+| Expiry claim fence | an expired `draft` was claimed and published when the scheduler had not run | a controlled clock makes the publication CAS reject `expiresAt <= claimTime` before credential/provider access |
+| Replacement cleanup failure | scope-changing reconnect completed after an old deployment deletion failure | reconnect returns the fixed pending-cleanup error, retains the old encrypted credential, and keeps the tombstone deleting |
+| Callback reordering | an older callback could complete after a newer callback and replace its credential | an encrypted-store write barrier leaves the newer epoch/credential active and rejects the stale finalizer |
+| Publication during credential gap | a draft could claim and publish while replacement storage was pending | replacement state rejects publication (and draft creation) without reading credentials or calling Vercel |
+| Old-scope drain | ready/deleting/unresolved old-scope deployments did not share a persisted end-to-end cleanup case | persisted PGlite/S3/Vercel integration drains all three via the old team credential, then activates the new scope |
+
+### Cluster G verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts
+
+Test Files  9 passed (9)
+Tests       121 passed (121)
+
+pnpm --dir packages/happy-wire exec vitest run src/interactivePreview.test.ts
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --dir packages/happy-cli exec vitest run src/previews/previewApi.test.ts --config /dev/null
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-wire run typecheck
+pnpm --dir packages/happy-cli run typecheck
+pnpm --dir packages/happy-server run typecheck
+exit 0
+
+pnpm --dir packages/happy-server exec prisma generate
+PGLITE_DIR=/tmp/happy-task3-cluster-g.<random> \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 45 migration(s), including
+20260904140000_durable_vercel_connection_replacement
+
+git diff --check
+exit 0
+```
+
 ## Cluster F quality-review follow-up: Vercel digests, ownership, reconnect fences, and legacy staging
 
 ### Delivered corrections

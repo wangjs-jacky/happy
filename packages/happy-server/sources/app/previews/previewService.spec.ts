@@ -89,6 +89,44 @@ describe('createPreviewService publication', () => {
         await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ id: row.id, state: 'publishing' });
     });
 
+    it('rejects an expired draft at its publication claim even when cleanup has not run', async () => {
+        const claimTime = new Date('2026-09-04T02:00:00.000Z');
+        const bytes = Buffer.from('<h1>expired</h1>');
+        const row: any = {
+            id: '90909090-9090-4090-8090-909090909090', accountId: 'u1', sessionId: 's1', title: 'Expired', status: 'draft',
+            url: null, publishedAt: null, expiresAt: claimTime, errorCode: null, publicationGeneration: 0, connectionGeneration: 0,
+            stagingGeneration: 'generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/90909090-9090-4090-8090-909090909090/generation-1/index', uploadedAt: claimTime }],
+        };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.status?.in?.includes(row.status) && where.expiresAt?.gt?.getTime?.() === claimTime.getTime()) {
+                return { count: 0 };
+            }
+            Object.assign(row, data);
+            return { count: 1 };
+        });
+        const credentialStore = { get: vi.fn(async () => ({ version: 1 as const, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_happy' })) };
+        const createDeployment = vi.fn(async (input: any) => {
+            await input.onCreated({ id: 'dpl_expired' });
+            return { id: 'dpl_expired', url: 'https://expired.preview.local', readyState: 'READY' };
+        });
+        const service = createPreviewService({
+            database: { interactivePreview: { findFirst: vi.fn(async () => row), updateMany } } as any,
+            storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
+            credentialStore: credentialStore as any,
+            clientFactory: vi.fn(() => ({
+                ensurePreviewProject: vi.fn(async () => ({ id: 'prj_happy' })),
+                lookupDeploymentByMetadata: vi.fn(async () => ({ visibility: 'not_found' })), uploadFile: vi.fn(), createDeployment,
+            })) as any,
+            now: () => claimTime,
+        });
+
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('Preview has expired');
+
+        expect(credentialStore.get).not.toHaveBeenCalled();
+        expect(createDeployment).not.toHaveBeenCalled();
+    });
+
     it('turns an explicit delete into a retryable tombstone when credentials are unavailable', async () => {
         const row: any = { id: '77777777-7777-4777-8777-777777777777', accountId: 'u1', sessionId: 's1', status: 'ready', vercelDeploymentId: 'dpl_7' };
         const updateMany = vi.fn(async () => ({ count: 1 }));
@@ -113,23 +151,214 @@ describe('createPreviewService publication', () => {
         await expect(service.delete('u1', 's1', '88888888-8888-4888-8888-888888888888')).resolves.toBeUndefined();
     });
 
-    it('atomically fences active previews before replacing an encrypted reconnect credential', async () => {
-        const calls: string[] = [];
-        const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg', teamId: 'team-1', projectId: 'prj_happy' };
-        const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg', teamId: 'team-1' };
+    it('preserves the old credential and deletion tombstone when old-scope cleanup fails during a scope-changing reconnect', async () => {
+        const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg-old', teamId: 'team-old', projectId: 'prj_old' };
+        const replacement = { version: 1 as const, accessToken: 'new-secret', configurationId: 'icfg-new', teamId: 'team-new' };
+        const row: any = {
+            id: '16161616-1616-4161-8161-161616161616', accountId: 'u1', status: 'ready', vercelDeploymentId: 'dpl_old',
+            vercelTeamId: 'team-old', stagingGeneration: 'generation-1', cleanupClaimedAt: null, assets: [],
+        };
+        let stored: any = previous;
+        const account: any = { vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionReplacementId: null };
+        const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => {
+            account[key] = value?.increment === undefined ? value : account[key] + value.increment;
+        });
         const database: any = {
             $transaction: async (work: any) => work({
-                account: { update: vi.fn(async () => { calls.push('advance-epoch'); return { vercelConnectionEpoch: 7 }; }) },
-                interactivePreview: { updateMany: vi.fn(async () => { calls.push('fence-previews'); return { count: 2 }; }) },
+                account: { update: vi.fn(async ({ data }: any) => { apply(data); return { ...account }; }) },
+                interactivePreview: { updateMany: vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }) },
             }),
+            account: {
+                findUnique: vi.fn(async () => ({ ...account })),
+                updateMany: vi.fn(async ({ data }: any) => { apply(data); return { count: 1 }; }),
+            },
+            interactivePreview: {
+                findMany: vi.fn(async () => [row]),
+                updateMany: vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }),
+            },
         };
-        const set = vi.fn(async () => { calls.push('replace-credential'); });
-        const service = createPreviewService({ database, storage: {} as any, credentialStore: { get: vi.fn(async () => previous), set } as any, clientFactory: vi.fn() as any });
+        const deleteDeployment = vi.fn(async () => { throw new Error('provider unavailable'); });
+        const credentialStore: any = {
+            get: vi.fn(async () => stored),
+            set: vi.fn(async (_accountId: string, credential: typeof previous) => { stored = credential; }),
+            replaceIfCurrent: vi.fn(async () => true),
+            replaceAtConnectionEpoch: vi.fn(async () => true),
+        };
+        const clientFactory = vi.fn((credential: { token: string; teamId?: string }) => ({ deleteDeployment, credential }));
+        const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: clientFactory as any });
 
-        await service.reconnectVercel('u1', replacement);
+        await expect(service.reconnectVercel('u1', replacement)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING');
 
-        expect(calls).toEqual(['advance-epoch', 'fence-previews', 'replace-credential']);
-        expect(set).toHaveBeenCalledWith('u1', { ...replacement, projectId: 'prj_happy' });
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_old');
+        expect(clientFactory).toHaveBeenCalledWith({ token: 'old-secret', teamId: 'team-old' });
+        expect(stored).toEqual(previous);
+        expect(row).toMatchObject({ status: 'deleting', errorCode: 'VERCEL_CONNECTION_REPLACEMENT_CLEANUP_PENDING' });
+        expect(credentialStore.replaceAtConnectionEpoch).not.toHaveBeenCalled();
+    });
+
+    it('keeps the later callback credential active when reconnect writes complete out of order', async () => {
+        const previous = { version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg-old', teamId: 'team-old', projectId: 'prj_old' };
+        const firstReplacement = { version: 1 as const, accessToken: 'first-secret', configurationId: 'icfg-first', teamId: 'team-first' };
+        const laterReplacement = { version: 1 as const, accessToken: 'later-secret', configurationId: 'icfg-later', teamId: 'team-later' };
+        let stored: any = previous;
+        let releaseFirstWrite!: () => void;
+        const firstWriteBlocked = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+        let signalFirstWrite!: () => void;
+        const firstWriteStarted = new Promise<void>((resolve) => { signalFirstWrite = resolve; });
+        let writes = 0;
+        const account: any = { id: 'u1', vercelConnectionEpoch: 0, vercelConnectionState: 'active', vercelConnectionReplacementId: null };
+        const matches = (where: any) => (!where.vercelConnectionState || where.vercelConnectionState === account.vercelConnectionState)
+            && (!where.vercelConnectionReplacementId || where.vercelConnectionReplacementId === account.vercelConnectionReplacementId);
+        const apply = (data: any) => Object.entries(data).forEach(([key, value]: any) => {
+            account[key] = value?.increment === undefined ? value : account[key] + value.increment;
+        });
+        const database: any = {
+            $transaction: async (work: any) => work({
+                account: { update: vi.fn(async ({ data }: any) => { apply(data); return { ...account }; }) },
+                interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })) },
+            }),
+            account: {
+                findUnique: vi.fn(async () => ({ ...account })),
+                updateMany: vi.fn(async ({ where, data }: any) => {
+                    if (!matches(where)) return { count: 0 };
+                    apply(data); return { count: 1 };
+                }),
+            },
+            interactivePreview: { findMany: vi.fn(async () => []), updateMany: vi.fn(async () => ({ count: 0 })) },
+        };
+        const set = vi.fn(async (_accountId: string, credential: typeof previous) => {
+            writes++;
+            if (writes === 1) {
+                signalFirstWrite();
+                await firstWriteBlocked;
+            }
+            stored = credential;
+        });
+        const replaceIfCurrent = vi.fn(async (_accountId: string, expected: typeof previous | null, credential: typeof previous) => {
+            if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+            writes++;
+            if (writes === 1) {
+                signalFirstWrite();
+                await firstWriteBlocked;
+            }
+            stored = credential;
+            return true;
+        });
+        const replaceAtConnectionEpoch = vi.fn(async (_accountId: string, epoch: number, credential: typeof previous) => {
+            if ((stored.connectionEpoch ?? 0) >= epoch) return false;
+            const observed = stored;
+            writes++;
+            if (writes === 1) {
+                signalFirstWrite();
+                await firstWriteBlocked;
+            }
+            if (stored !== observed) return false;
+            stored = { ...credential, connectionEpoch: epoch };
+            return true;
+        });
+        const service = createPreviewService({
+            database, storage: { deletePreview: vi.fn() } as any,
+            credentialStore: { get: vi.fn(async () => stored), set, replaceIfCurrent, replaceAtConnectionEpoch } as any,
+            clientFactory: vi.fn() as any,
+        });
+
+        const first = service.reconnectVercel('u1', firstReplacement);
+        await firstWriteStarted;
+        const later = service.reconnectVercel('u1', laterReplacement);
+        await expect(later).resolves.toBeUndefined();
+        releaseFirstWrite();
+        await expect(first).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+
+        expect(stored).toMatchObject({ ...laterReplacement, connectionEpoch: 2 });
+        expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionEpoch: 2, vercelConnectionReplacementId: null });
+    });
+
+    it('does not claim a newly created draft while a reconnect credential-write barrier is open', async () => {
+        const bytes = Buffer.from('<h1>blocked</h1>');
+        const claimTime = new Date('2026-09-04T02:00:00.000Z');
+        const row: any = {
+            id: '17171717-1717-4171-8171-171717171717', accountId: 'u1', sessionId: 's1', title: 'Blocked', status: 'draft',
+            url: null, publishedAt: null, expiresAt: new Date('2026-09-04T03:00:00.000Z'), errorCode: null,
+            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/17171717-1717-4171-8171-171717171717/generation-1/index', uploadedAt: claimTime }],
+        };
+        const account: any = { vercelConnectionEpoch: 1, vercelConnectionState: 'replacing', vercelConnectionReplacementId: 'replacement-1' };
+        let releaseCredentialWrite!: () => void;
+        const credentialWriteBarrier = new Promise<void>((resolve) => { releaseCredentialWrite = resolve; });
+        let barrierOpen!: () => void;
+        const barrierObserved = new Promise<void>((resolve) => { barrierOpen = resolve; });
+        const replacement = (async () => {
+            barrierOpen();
+            await credentialWriteBarrier;
+            account.vercelConnectionState = 'active';
+            account.vercelConnectionReplacementId = null;
+        })();
+        const credentialStore = { get: vi.fn(async () => ({ version: 1 as const, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj' })) };
+        const createDeployment = vi.fn(async (input: any) => {
+            await input.onCreated({ id: 'dpl_blocked' });
+            return { id: 'dpl_blocked', url: 'https://blocked.preview.local', readyState: 'READY' };
+        });
+        const service = createPreviewService({
+            database: {
+                account: { findUnique: vi.fn(async () => ({ ...account })) },
+                interactivePreview: {
+                    findFirst: vi.fn(async () => row),
+                    updateMany: vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; }),
+                },
+            } as any,
+            storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
+            credentialStore: credentialStore as any,
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj' })), lookupDeploymentByMetadata: vi.fn(async () => ({ visibility: 'not_found' })), uploadFile: vi.fn(), createDeployment })) as any,
+            now: () => claimTime,
+        });
+
+        await barrierObserved;
+        await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_IN_PROGRESS');
+        releaseCredentialWrite();
+        await replacement;
+
+        expect(credentialStore.get).not.toHaveBeenCalled();
+        expect(createDeployment).not.toHaveBeenCalled();
+    });
+
+    it('recovers a stale replacement lease before admitting a new publication', async () => {
+        const claimTime = new Date('2026-09-04T02:00:00.000Z');
+        const bytes = Buffer.from('<h1>recovered</h1>');
+        const row: any = {
+            id: '18181818-1818-4181-8181-181818181818', accountId: 'u1', sessionId: 's1', title: 'Recovered', status: 'draft',
+            url: null, publishedAt: null, expiresAt: new Date('2026-09-04T03:00:00.000Z'), errorCode: null,
+            publicationGeneration: 0, connectionGeneration: 1, stagingGeneration: 'generation-1', cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), storageKey: 'private/interactive-previews/u1/18181818-1818-4181-8181-181818181818/generation-1/index', uploadedAt: claimTime }],
+        };
+        const account: any = {
+            vercelConnectionEpoch: 1, vercelConnectionState: 'finalizing', vercelConnectionReplacementId: 'abandoned-replacement',
+            vercelConnectionReplacementStartedAt: new Date('2026-09-04T01:40:00.000Z'),
+        };
+        const updateMany = vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; });
+        const createDeployment = vi.fn(async (input: any) => {
+            await input.onCreated({ id: 'dpl_recovered' });
+            return { id: 'dpl_recovered', url: 'https://recovered.preview.local', readyState: 'READY' };
+        });
+        const service = createPreviewService({
+            database: {
+                account: {
+                    findUnique: vi.fn(async () => ({ ...account })),
+                    updateMany: vi.fn(async ({ where, data }: any) => {
+                        if (where.vercelConnectionReplacementId !== account.vercelConnectionReplacementId) return { count: 0 };
+                        Object.assign(account, data); return { count: 1 };
+                    }),
+                },
+                interactivePreview: { findFirst: vi.fn(async () => row), updateMany },
+            } as any,
+            storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
+            credentialStore: { get: vi.fn(async () => ({ version: 1 as const, accessToken: 'old-secret', configurationId: 'cfg-old', projectId: 'prj' })) } as any,
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj' })), lookupDeploymentByMetadata: vi.fn(async () => ({ visibility: 'not_found' })), uploadFile: vi.fn(), createDeployment })) as any,
+            now: () => claimTime,
+        });
+
+        await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ state: 'ready', url: 'https://recovered.preview.local' });
+
+        expect(account).toMatchObject({ vercelConnectionState: 'active', vercelConnectionReplacementId: null, vercelConnectionReplacementStartedAt: null });
     });
 
     it('does not publish when atomic project persistence loses a reconnect or disconnect race', async () => {

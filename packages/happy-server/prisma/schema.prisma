@@ -28,7 +28,10 @@ model Account {
     updatedAt       DateTime    @updatedAt
     settings        String?
     settingsVersion Int         @default(0)
-    vercelConnectionEpoch Int  @default(0)
+    vercelConnectionEpoch             Int     @default(0)
+    vercelConnectionState             String  @default("active")
+    vercelConnectionReplacementId     String?
+    vercelConnectionReplacementStartedAt DateTime?
     githubUserId    String?     @unique
     githubUser      GithubUser? @relation(fields: [githubUserId], references: [id])
 

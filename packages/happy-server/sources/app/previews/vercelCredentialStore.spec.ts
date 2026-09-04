@@ -2,6 +2,36 @@ import { describe, expect, it, vi } from 'vitest';
 import { createVercelCredentialStore } from './vercelCredentialStore';
 
 describe('createVercelCredentialStore', () => {
+    it('does not let a stale callback overwrite a credential written at a newer connection epoch', async () => {
+        const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+        const decode = (value: Uint8Array) => new TextDecoder().decode(value);
+        let encrypted = encode({ version: 1, accessToken: 'old-secret', configurationId: 'cfg-old', connectionEpoch: 0 });
+        const newer = { version: 1 as const, accessToken: 'newer-secret', configurationId: 'cfg-newer', connectionEpoch: 2 };
+        let concurrentWrite = true;
+        const store = createVercelCredentialStore({
+            repository: {
+                find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), createIfAbsent: vi.fn(),
+                compareAndSet: vi.fn(async (_accountId, _key, _expected, value) => {
+                    if (concurrentWrite) {
+                        concurrentWrite = false;
+                        encrypted = encode(newer);
+                        return false;
+                    }
+                    encrypted = value;
+                    return true;
+                }),
+            },
+            encrypt: (_path, value) => encode(JSON.parse(value)),
+            decrypt: (_path, value) => decode(value),
+        });
+
+        await expect((store as any).replaceAtConnectionEpoch('account-1', 1, {
+            version: 1, accessToken: 'stale-secret', configurationId: 'cfg-stale',
+        })).resolves.toBe(false);
+
+        expect(JSON.parse(decode(encrypted))).toEqual(newer);
+    });
+
     it('atomically updates only projectId when the encrypted credential snapshot is still current', async () => {
         const encrypted = new Uint8Array([7, 7, 7]);
         const compareAndSet = vi.fn(async () => false);

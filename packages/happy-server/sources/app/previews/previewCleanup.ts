@@ -13,6 +13,10 @@ const RETRY_MAX_MS = 60 * 60 * 1000;
 
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
+function vercelTeamScope(teamId: string | null | undefined): string | null {
+    return teamId ?? null;
+}
+
 export type CleanupPreviewRow = {
     id: string; status: string; accountId: string; stagingGeneration: string; vercelDeploymentId: string | null;
     stagingCleanupPending?: boolean; expiresAt?: Date; vercelTeamId?: string | null;
@@ -124,7 +128,7 @@ export function createPreviewCleanup(dependencies: {
                 const credential = await dependencies.credentialStore.get(accountId);
                 if (!credential) throw new Error('Vercel credential unavailable');
                 const row = claimed.find((candidate) => candidate.accountId === accountId && candidate.vercelDeploymentId === deploymentId);
-                if (row?.vercelTeamId && row.vercelTeamId !== credential.teamId) {
+                if (!row || vercelTeamScope(row.vercelTeamId) !== vercelTeamScope(credential.teamId)) {
                     throw new Error('Vercel credential scope no longer owns this deployment');
                 }
                 await dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId }).deleteDeployment(deploymentId);

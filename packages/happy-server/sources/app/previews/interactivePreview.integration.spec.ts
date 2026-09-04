@@ -295,7 +295,7 @@ class VercelWireServer {
         await new Promise<void>((resolve) => this.server.close(() => resolve()));
     }
 
-    addReconciledDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_reconciled'): void {
+    addReconciledDeployment(previewId: string, publicationAttemptId: string, id = 'dpl_reconciled', teamId: string | null = null): void {
         this.deployments.set(id, {
             id,
             url: `${id}.preview.local`,
@@ -304,7 +304,7 @@ class VercelWireServer {
             aliasAssigned: false,
             meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
             projectId: 'prj',
-            teamId: null,
+            teamId,
         });
     }
 
@@ -753,28 +753,46 @@ describe('interactive preview persisted integration', () => {
         expect(harness.vercel.deployments.has('dpl_1')).toBe(true);
     }, 30_000);
 
-    it('fences an old-team publisher on reconnect and compensates through its old provider scope', async () => {
+    it('drains ready, deleting, and reconciled unresolved old-scope previews with the old credential before activating a new scope', async () => {
         const harness = await setup();
-        const previewId = '49494949-4949-4494-8494-494949494949';
-        await harness.credentialStore.set(accountA, { version: 1, accessToken: 'token-old-team', configurationId: 'cfg-a', teamId: 'team-old', projectId: 'prj' });
-        await harness.createAndUpload(previewId, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>reconnect</h1>') }]);
-        harness.vercel.holdDeploymentCreates = true;
-        const publication = harness.service.publish(accountA, sessionA, previewId);
-        await eventually(() => harness.vercel.createRequests.length === 1, 'the old-team delayed deployment');
+        const readyId = '49494949-4949-4494-8494-494949494949';
+        const deletingId = '4a4a4a4a-4a4a-4a4a-8a4a-4a4a4a4a4a4a';
+        const unresolvedId = '4b4b4b4b-4b4b-4b4b-8b4b-4b4b4b4b4b4b';
+        const asset = (id: string) => [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from(`<h1>${id}</h1>`) }];
+        await harness.credentialStore.set(accountA, { version: 1, accessToken: 'token-old-team', configurationId: 'cfg-old', teamId: 'team-old', projectId: 'prj' });
+        await harness.createAndUpload(readyId, asset(readyId));
+        await harness.createAndUpload(deletingId, asset(deletingId));
+        await harness.createAndUpload(unresolvedId, asset(unresolvedId));
+        harness.vercel.addReconciledDeployment(readyId, 'attempt-ready', 'dpl_ready_old', 'team-old');
+        harness.vercel.addReconciledDeployment(deletingId, 'attempt-deleting', 'dpl_deleting_old', 'team-old');
+        harness.vercel.addReconciledDeployment(unresolvedId, 'attempt-unresolved', 'dpl_unresolved_old', 'team-old');
+        await harness.database.interactivePreview.update({ where: { id: readyId }, data: {
+            status: 'ready', vercelDeploymentId: 'dpl_ready_old', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-ready', publicationGeneration: 1,
+        } });
+        await harness.database.interactivePreview.update({ where: { id: deletingId }, data: {
+            status: 'deleting', vercelDeploymentId: 'dpl_deleting_old', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-deleting', publicationGeneration: 1,
+        } });
+        await harness.database.interactivePreview.update({ where: { id: unresolvedId }, data: {
+            status: 'deleting', vercelTeamId: 'team-old', publicationAttemptId: 'attempt-unresolved', publicationGeneration: 1,
+            publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
+        } });
 
-        await harness.service.reconnectVercel(accountA, { version: 1, accessToken: 'token-new-team', configurationId: 'cfg-a', teamId: 'team-new' });
-        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({ vercelConnectionEpoch: 1 });
-        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'deleting', url: null });
-        expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-new-team', teamId: 'team-new' });
+        await harness.service.reconnectVercel(accountA, { version: 1, accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new' });
 
-        harness.vercel.holdDeploymentCreates = false;
-        harness.vercel.releaseOneDeployment();
-        await expect(publication).rejects.toThrow(/connection changed/i);
-
-        expect(harness.vercel.providerScopes).toContainEqual({ operation: 'create', teamId: 'team-old' });
-        expect(harness.vercel.providerScopes).toContainEqual({ operation: 'delete', deploymentId: 'dpl_1', teamId: 'team-old' });
-        expect(harness.vercel.deployments.has('dpl_1')).toBe(false);
-        expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'expired', vercelDeploymentId: null });
+        expect(await harness.database.account.findUnique({ where: { id: accountA } })).toMatchObject({
+            vercelConnectionEpoch: 1, vercelConnectionState: 'active', vercelConnectionReplacementId: null,
+        });
+        expect(await harness.credentialStore.get(accountA)).toMatchObject({ accessToken: 'token-new-team', configurationId: 'cfg-new', teamId: 'team-new', connectionEpoch: 1 });
+        for (const previewId of [readyId, deletingId, unresolvedId]) {
+            expect(await harness.database.interactivePreview.findUnique({ where: { id: previewId } })).toMatchObject({ status: 'expired', vercelDeploymentId: null, publicationAttemptId: null });
+        }
+        expect(harness.vercel.providerScopes.filter((call) => call.operation === 'delete')).toEqual(expect.arrayContaining([
+            { operation: 'delete', deploymentId: 'dpl_ready_old', teamId: 'team-old' },
+            { operation: 'delete', deploymentId: 'dpl_deleting_old', teamId: 'team-old' },
+            { operation: 'delete', deploymentId: 'dpl_unresolved_old', teamId: 'team-old' },
+        ]));
+        expect(harness.vercel.providerScopes.some((call) => call.operation === 'delete' && call.teamId === 'team-new')).toBe(false);
+        expect([...harness.s3.objects.keys()].filter((key) => [readyId, deletingId, unresolvedId].some((id) => key.includes(`/${id}/`)))).toEqual([]);
     }, 30_000);
 
     it('restarts over PGlite and lets the scheduler alone recover a delayed visible deployment without a second create', async () => {
