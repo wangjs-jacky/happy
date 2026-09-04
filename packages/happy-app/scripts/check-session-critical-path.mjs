@@ -8,6 +8,13 @@ const REQUIRED_EVIDENCE_FIELDS = new Set([
   'spawnNavigateMs',
 ]);
 
+class CliFailure extends Error {
+  constructor(code) {
+    super(code);
+    this.code = code;
+  }
+}
+
 export function evaluateCriticalPath(run) {
   const legacyCalls = run.resources.filter((resource) => (
     new URL(resource.name).pathname === '/v1/sessions'
@@ -30,39 +37,31 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!expected.has(flag)) {
-      throw new Error(`Unknown argument: ${flag ?? '(missing)'}`);
-    }
-    if (value === undefined || value.startsWith('--')) {
-      throw new Error(`Missing value for ${flag}`);
-    }
-    if (options[flag] !== undefined) {
-      throw new Error(`Duplicate argument: ${flag}`);
+    if (!expected.has(flag) || value === undefined || value.startsWith('--') || options[flag] !== undefined) {
+      throw new CliFailure('INVALID_ARGS');
     }
     options[flag] = value;
   }
 
-  for (const flag of ['--origin', '--session-id', '--mode']) {
-    if (options[flag] === undefined) {
-      throw new Error(`Missing required ${flag}`);
-    }
+  if (options['--origin'] === undefined || options['--session-id'] === undefined || options['--mode'] === undefined) {
+    throw new CliFailure('INVALID_ARGS');
   }
 
   const origin = validateOrigin(options['--origin']);
   const sessionId = options['--session-id'];
   if (sessionId.trim() === '') {
-    throw new Error('Invalid --session-id: expected a non-empty value');
+    throw new CliFailure('INVALID_SESSION');
   }
 
   const mode = options['--mode'];
   if (!MODES.has(mode)) {
-    throw new Error('Invalid --mode: expected evaluate-json or print-ego-probe');
+    throw new CliFailure('INVALID_MODE');
   }
   if (mode === 'evaluate-json' && options['--input'] === undefined) {
-    throw new Error('Missing required --input for --mode evaluate-json');
+    throw new CliFailure('MISSING_INPUT');
   }
   if (mode === 'print-ego-probe' && options['--input'] !== undefined) {
-    throw new Error('--input is only valid for --mode evaluate-json');
+    throw new CliFailure('INVALID_ARGS');
   }
 
   return { origin, sessionId, mode, input: options['--input'] };
@@ -73,7 +72,7 @@ function validateOrigin(value) {
   try {
     parsed = new URL(value);
   } catch {
-    throw new Error('Invalid --origin: expected an HTTPS origin without path, query, or fragment');
+    throw new CliFailure('INVALID_ORIGIN');
   }
 
   if (parsed.protocol !== 'https:'
@@ -82,46 +81,40 @@ function validateOrigin(value) {
     || parsed.pathname !== '/'
     || parsed.search !== ''
     || parsed.hash !== '') {
-    throw new Error('Invalid --origin: expected an HTTPS origin without path, query, or fragment');
+    throw new CliFailure('INVALID_ORIGIN');
   }
   return parsed.origin;
 }
 
 function validateEvidence(run) {
   if (run === null || typeof run !== 'object' || Array.isArray(run)) {
-    throw new Error('Invalid measurement evidence: expected an object');
+    throw new CliFailure('INVALID_EVIDENCE');
   }
-  for (const key of Object.keys(run)) {
-    if (!REQUIRED_EVIDENCE_FIELDS.has(key)) {
-      throw new Error(`Invalid measurement evidence: unexpected field ${key}`);
-    }
+  if (Object.keys(run).length !== REQUIRED_EVIDENCE_FIELDS.size
+    || Object.keys(run).some((key) => !REQUIRED_EVIDENCE_FIELDS.has(key))) {
+    throw new CliFailure('INVALID_EVIDENCE');
   }
-  for (const field of REQUIRED_EVIDENCE_FIELDS) {
-    if (!(field in run)) {
-      throw new Error(`Invalid measurement evidence: missing ${field}`);
-    }
+  if (![...REQUIRED_EVIDENCE_FIELDS].every((field) => Object.hasOwn(run, field))) {
+    throw new CliFailure('INVALID_EVIDENCE');
   }
   if (!Array.isArray(run.resources)) {
-    throw new Error('Invalid measurement evidence: resources must be an array');
+    throw new CliFailure('INVALID_EVIDENCE');
   }
-  for (const [index, resource] of run.resources.entries()) {
+  for (const resource of run.resources) {
     if (resource === null || typeof resource !== 'object' || Array.isArray(resource)
       || Object.keys(resource).length !== 1 || !Object.hasOwn(resource, 'name')
       || typeof resource.name !== 'string') {
-      throw new Error(`Invalid measurement evidence: resources[${index}] must contain only a string name`);
+      throw new CliFailure('INVALID_EVIDENCE');
     }
     try {
       new URL(resource.name);
     } catch {
-      throw new Error(`Invalid measurement evidence: resources[${index}].name must be an absolute URL`);
+      throw new CliFailure('INVALID_EVIDENCE');
     }
   }
   for (const field of ['deepLinkInteractiveMs', 'spawnNavigateMs']) {
-    if (typeof run[field] !== 'number' || !Number.isFinite(run[field])) {
-      throw new Error(`Invalid measurement evidence: ${field} must be a finite number`);
-    }
-    if (run[field] < 0) {
-      throw new Error(`Invalid measurement evidence: ${field} must be non-negative`);
+    if (typeof run[field] !== 'number' || !Number.isFinite(run[field]) || run[field] < 0) {
+      throw new CliFailure('INVALID_EVIDENCE');
     }
   }
   return run;
@@ -132,13 +125,13 @@ function readEvidence(inputPath) {
   try {
     source = readFileSync(inputPath, 'utf8');
   } catch {
-    throw new Error(`Unable to read measurement input: ${inputPath}`);
+    throw new CliFailure('UNREADABLE_INPUT');
   }
   try {
     return validateEvidence(JSON.parse(source));
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error(`Invalid measurement JSON: ${error.message}`);
+      throw new CliFailure('INVALID_JSON');
     }
     throw error;
   }
@@ -146,20 +139,50 @@ function readEvidence(inputPath) {
 
 function renderEgoProbe(origin, sessionId) {
   return `(() => {
-  const origin = ${JSON.stringify(origin)};
-  const sessionId = ${JSON.stringify(sessionId)};
-  const timings = globalThis.__happySessionCriticalPathTimings;
+  const namespace = '__happySessionCriticalPathProbe';
+  if (globalThis[namespace]) return globalThis[namespace];
 
-  if (!timings || typeof timings.deepLinkInteractiveMs !== 'number'
-    || typeof timings.spawnNavigateMs !== 'number') {
-    throw new Error('Set the two critical-path timing values before collecting evidence.');
-  }
-
-  return {
-    resources: performance.getEntriesByType('resource').map(({ name }) => ({ name })),
-    deepLinkInteractiveMs: timings.deepLinkInteractiveMs,
-    spawnNavigateMs: timings.spawnNavigateMs,
+  const state = {
+    origin: ${JSON.stringify(origin)},
+    sessionId: ${JSON.stringify(sessionId)},
+    marks: {},
   };
+  const now = () => performance.now();
+  const mark = (name) => { state.marks[name] = now(); };
+  const requiredMark = (name) => {
+    if (typeof state.marks[name] !== 'number') throw new Error('Critical-path lifecycle mark is missing.');
+    return state.marks[name];
+  };
+  const navigationStart = () => {
+    const entry = performance.getEntriesByType('navigation')[0];
+    return entry && typeof entry.startTime === 'number' ? entry.startTime : 0;
+  };
+
+  const probe = {
+    initFreshDeepLink() { state.marks.deepLinkStart = navigationStart(); },
+    markFreshHeaderVisible() { mark('freshHeaderVisible'); },
+    markFreshLatestMessageComplete() { mark('freshLatestMessageComplete'); },
+    startNewTextSession() { mark('newSessionSendClick'); },
+    markNewSessionEvent() { mark('newSessionEvent'); },
+    markLocalQueue() { mark('localQueue'); },
+    markRouteNavigation() { mark('routeNavigation'); },
+    markFirstAgentEvent() { mark('firstAgentEvent'); },
+    markTurnCompletion() { mark('turnCompletion'); },
+    collect() {
+      const deepLinkInteractiveMs = Math.max(
+        requiredMark('freshHeaderVisible'),
+        requiredMark('freshLatestMessageComplete'),
+      ) - requiredMark('deepLinkStart');
+      const spawnNavigateMs = requiredMark('routeNavigation') - requiredMark('newSessionSendClick');
+      return {
+        resources: performance.getEntriesByType('resource').map(({ name }) => ({ name })),
+        deepLinkInteractiveMs,
+        spawnNavigateMs,
+      };
+    },
+  };
+  globalThis[namespace] = probe;
+  return probe;
 })()`;
 }
 
@@ -175,11 +198,16 @@ function main(argv) {
   return result.ok ? 0 : 1;
 }
 
+function writeFailure(error) {
+  const code = error instanceof CliFailure ? error.code : 'INTERNAL_ERROR';
+  process.stderr.write(`${JSON.stringify({ ok: false, error: { code } })}\n`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (error) {
-    process.stderr.write(`${error.message}\n`);
+    writeFailure(error);
     process.exitCode = 1;
   }
 }

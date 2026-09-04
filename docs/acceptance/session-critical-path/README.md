@@ -6,7 +6,7 @@ Before collecting or storing evidence, redact it. Never include login or account
 
 ## Gate commands
 
-Print the read-only browser-side collection contract after the workflow has navigated and measured both paths:
+Print the self-contained browser-side collection contract before starting the two paths:
 
 ```sh
 pnpm --filter happy-app perf:session-critical-path -- \
@@ -15,7 +15,13 @@ pnpm --filter happy-app perf:session-critical-path -- \
   --mode print-ego-probe
 ```
 
-The printed expression only reads `performance` resource entries and the two timing values that the existing Ego workflow sets. It does not read storage, use credentials, send a message, or create data. Copy its result into a minimal JSON file with this shape and no additional fields:
+Paste the printed expression into the existing Ego workflow's browser-side evaluation step. It installs and returns the same in-memory `__happySessionCriticalPathProbe` object; evaluating the expression again during a same-document route transition returns that existing object. It does not rely on a page-global producer. The probe only reads `performance` resource entries and records its own in-memory timing marks. It does not read storage, use credentials, send a request or message, or create application data.
+
+Run both paths in the same fresh authenticated Ego document so the probe can collect the two required durations:
+
+1. Immediately after opening the known deep link, evaluate the expression and call `probe.initFreshDeepLink()`. This records navigation timing's `startTime` as the deep-link start. When the header is visible, call `probe.markFreshHeaderVisible()`. When the latest message is complete, call `probe.markFreshLatestMessageComplete()`.
+2. At the new text session's send click, call `probe.startNewTextSession()` immediately before the click. Call `probe.markNewSessionEvent()`, `probe.markLocalQueue()`, `probe.markFirstAgentEvent()`, and `probe.markTurnCompletion()` when each optional event occurs. Call `probe.markRouteNavigation()` when the new-session route navigation completes. This route-navigation mark is the required new-session completion. If the route changes without a document reload, re-evaluate the printed expression and retain the returned probe before calling the remaining marks.
+3. After both required completions, call `probe.collect()`. It returns only the minimal JSON below; save exactly that returned object with no additional fields:
 
 ```json
 {
@@ -35,12 +41,14 @@ pnpm --filter happy-app perf:session-critical-path -- \
   --input <measurement-json-path>
 ```
 
-The command prints `{ ok, legacySessionCalls, deepLinkInteractiveMs, spawnNavigateMs }`. It exits non-zero if either duration exceeds its limit or a resource URL has the exact pathname `/v1/sessions`. Query strings and fragments do not bypass that check. The boundary values 2000 ms and 7000 ms pass.
+The command prints `{ ok, legacySessionCalls, deepLinkInteractiveMs, spawnNavigateMs }` to stdout for valid evidence, including an evaluator failure, so it is always parseable JSON. It exits non-zero if either duration exceeds its limit or a resource URL has the exact pathname `/v1/sessions`. Query strings and fragments do not bypass that check. The boundary values 2000 ms and 7000 ms pass.
+
+Invalid invocation or evidence emits exactly one JSON object to stderr and exits non-zero: `{ "ok": false, "error": { "code": "..." } }`. Defined fixed codes are `INVALID_ARGS`, `INVALID_ORIGIN`, `INVALID_SESSION`, `INVALID_MODE`, `MISSING_INPUT`, `UNREADABLE_INPUT`, `INVALID_JSON`, and `INVALID_EVIDENCE`; no input path, parser detail, stack, or environment detail is emitted.
 
 ## Required two runs
 
-1. **Fresh-context deep link.** In a fresh authenticated context, open the known session deep link. Measure navigation start to both visible header and latest-message completion; record the resulting deep-link interactive duration as `deepLinkInteractiveMs`.
-2. **New text session.** Send a safe test message in a new text session. Measure send click to the new-session event, message queue, route navigation, first agent event, and turn completion; record the resulting new-session navigation duration as `spawnNavigateMs`.
+1. **Fresh-context deep link.** In a fresh authenticated context, open the known session deep link. The probe measures navigation start to both visible header and latest-message completion; it records the later completion as `deepLinkInteractiveMs`.
+2. **New text session.** Send a safe test message in a new text session. The probe measures send click to route navigation as `spawnNavigateMs`, while retaining the new-session event, message queue, first agent event, and turn-completion marks as diagnostic context inside its in-memory namespace only.
 
 For both critical paths, perform the final resource assertion: exact-path `/v1/sessions` calls must be **0**. The evaluator accepts only the minimum evidence fields shown above and rejects malformed JSON, malformed shapes, and malformed resource URLs.
 
