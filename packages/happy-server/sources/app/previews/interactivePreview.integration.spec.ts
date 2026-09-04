@@ -66,4 +66,24 @@ describe('interactive preview integration', () => {
         expect((await typed.inject({ method: 'POST', url: `/v1/interactive-previews/${previewId}/publish`, headers: { 'x-user-id': 'b' } })).statusCode).not.toBe(200);
         rows.get(previewId).expiresAt = new Date(0); const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any, clientFactory: clientFactory as any }); await cleanup.cleanupExpired(new Date()); expect(rows.get(previewId).status).toBe('expired'); expect(deletes).toBe(1); await typed.close();
     });
+
+    it('holds a global two-publication cap, keeps per-preview uploads sequential, and returns an in-flight duplicate', async () => {
+        const { database, rows } = store(); const { storage, objects } = s3(); const releases: Array<() => void> = []; let active = 0; let maximum = 0; let deployments = 0;
+        const make = (id: string) => { const body = Buffer.from(id); const sha = createHash('sha256').update(body).digest('hex'); const row: any = { id, accountId: 'a', title: id, status: 'draft', url: null, publishedAt: null, expiresAt: new Date(Date.now() + 60_000), errorCode: null, cleanupClaimedAt: null, assets: [{ id: 'one', path: 'index.html', mimeType: 'text/html', size: body.length, sha256: sha, uploadedAt: new Date() }, { id: 'two', path: 'app.js', mimeType: 'text/javascript', size: body.length, sha256: sha, uploadedAt: new Date() }] }; rows.set(id, row); objects.set(storage.storageKey(id, 'one'), body); objects.set(storage.storageKey(id, 'two'), body); return row; };
+        const ids = ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444']; ids.forEach(make);
+        const uploads = new Map<string, number>(); const client = { ensurePreviewProject: async () => ({ id: 'prj' }), uploadFile: async () => {}, createDeployment: async (input: any) => { deployments++; active++; maximum = Math.max(maximum, active); const id = input.meta.happyPreviewId; await new Promise<void>((resolve) => releases.push(resolve)); active--; await input.onCreated({ id: `dpl_${id}` }); return { id: `dpl_${id}`, url: `${id}.local`, readyState: 'READY' }; } };
+        const service = createPreviewService({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token', configurationId: 'cfg' })), setProjectIdIfCurrent: vi.fn(async () => true) } as any, clientFactory: vi.fn(() => client) as any });
+        const first = service.publish('a', ids[0]); const second = service.publish('a', ids[1]); const third = service.publish('a', ids[2]); await new Promise((resolve) => setTimeout(resolve, 0));
+        await expect(service.publish('a', ids[0])).resolves.toMatchObject({ state: 'publishing' }); expect(deployments).toBe(2); expect(maximum).toBe(2);
+        releases.shift()!(); releases.shift()!(); await new Promise((resolve) => setTimeout(resolve, 0)); expect(deployments).toBe(3); releases.shift()!(); await Promise.all([first, second, third]); expect(maximum).toBe(2);
+    });
+
+    it('replays persisted stale/deleting tombstones without creating a deployment and honors retry deadlines', async () => {
+        const { database, rows } = store(); const { storage } = s3(); const stale: any = { id: '55555555-5555-4555-8555-555555555555', accountId: 'a', status: 'publishing', vercelDeploymentId: 'dpl_old', expiresAt: new Date(0), updatedAt: new Date(0), cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null }; rows.set(stale.id, stale);
+        const deleted: string[] = []; const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any, clientFactory: vi.fn(() => ({ deleteDeployment: async (id: string) => deleted.push(id) })) as any });
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z')); expect(deleted).toEqual(['dpl_old']); expect(stale.status).toBe('expired');
+        const deferred: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'a', status: 'deleting', vercelDeploymentId: 'dpl_later', expiresAt: new Date(0), updatedAt: new Date(0), cleanupClaimedAt: null, cleanupRetryCount: 1, cleanupNextAttemptAt: new Date('2026-09-04T02:00:00Z') }; rows.set(deferred.id, deferred);
+        // The production query carries the durable deadline; this fake DB exposes it as the cross-replica boundary assertion.
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:30:00Z')); expect(database.interactivePreview.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ AND: expect.arrayContaining([expect.objectContaining({ OR: expect.arrayContaining([expect.objectContaining({ cleanupNextAttemptAt: { lte: new Date('2026-09-04T01:30:00Z') } })]) })]) }) }));
+    });
 });

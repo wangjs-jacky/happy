@@ -78,6 +78,9 @@ export function createPreviewService(dependencies: {
         await database.interactivePreviewAsset.update({ where: { previewId_id: { previewId, id: assetId } }, data: { uploadedAt: now() } });
     },
     async publish(accountId: string, previewId: string): Promise<InteractivePreviewEvent> {
+        const current = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
+        if (!current) throw new Error('Preview not found');
+        if (current.status === 'ready' || current.status === 'publishing') return previewRowToEvent(current);
         return publishGate.run(async () => {
             let createdDeploymentId: string | null = null;
             let row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
