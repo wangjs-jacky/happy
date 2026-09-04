@@ -155,6 +155,34 @@ describe('createVercelClient', () => {
         expect(result).toEqual({ id: 'dpl_1', url: 'https://happy-preview.vercel.app', readyState: 'READY' });
     });
 
+    it('persists the validated deployment id before polling Vercel readiness', async () => {
+        let persistedId: string | undefined;
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ id: 'dpl_tracked', url: 'preview.vercel.app', readyState: 'BUILDING', target: null, aliasAssigned: false }))
+            .mockImplementationOnce(async () => {
+                if (persistedId !== 'dpl_tracked') throw new Error('deployment id was not persisted before polling');
+                return jsonResponse({ id: 'dpl_tracked', url: 'preview.vercel.app', readyState: 'READY', target: null, aliasAssigned: false });
+            });
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {} });
+
+        await client.createDeployment({
+            name: 'happy-previews', files: [{ file: 'index.html', sha: '0'.repeat(64), size: 1 }], meta: {},
+            onCreated: async ({ id }) => { persistedId = id; },
+        });
+        expect(persistedId).toBe('dpl_tracked');
+    });
+
+    it('does not poll an untracked deployment when created-id persistence fails', async () => {
+        const fetchImpl = vi.fn(async () => jsonResponse({ id: 'dpl_untracked', url: 'preview.vercel.app', readyState: 'BUILDING', target: null, aliasAssigned: false }));
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => { throw new Error('unexpected poll'); } });
+
+        await expect(client.createDeployment({
+            name: 'happy-previews', files: [{ file: 'index.html', sha: '9'.repeat(64), size: 1 }], meta: {},
+            onCreated: async () => { throw new Error('durable persistence failed'); },
+        })).rejects.toThrow('durable persistence failed');
+        expect(fetchImpl).toHaveBeenCalledOnce();
+    });
+
     it.each([
         [{ id: 'dpl_target', url: 'preview.vercel.app', readyState: 'READY', target: 'staging', aliasAssigned: false }, 'staging target'],
         [{ id: 'dpl_custom', url: 'preview.vercel.app', readyState: 'READY', target: 'custom', aliasAssigned: false }, 'custom target'],

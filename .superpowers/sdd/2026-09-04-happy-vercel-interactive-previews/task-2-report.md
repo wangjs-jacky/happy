@@ -17,6 +17,8 @@ Token storage, per-account credential paths, authenticated connection routes, an
 - `packages/happy-server/sources/app/previews/vercelClient.spec.ts`
 - `packages/happy-server/sources/app/previews/previewService.ts`
 - `packages/happy-server/sources/app/previews/previewService.spec.ts`
+- `packages/happy-server/sources/app/previews/vercelCredentialStore.ts`
+- `packages/happy-server/sources/app/previews/vercelCredentialStore.spec.ts`
 - `.superpowers/sdd/2026-09-04-happy-vercel-interactive-previews/task-2-report.md`
 
 ## TDD evidence
@@ -49,6 +51,38 @@ Tests       23 passed (23)
 ```text
 pnpm --dir packages/happy-server run typecheck
 > tsc --noEmit
+exit 0
+```
+
+## Quality review remediation (follow-up commit)
+
+- A validated Vercel deployment ID is now handed to an awaited `onCreated` callback immediately after the create response is parsed and preview-only safety checks pass, but before the first readiness poll. `previewService` writes that ID to the `InteractivePreview` row in the callback. If the durable write fails, the client never polls; the publish error path retains the ID in the failed row when its error-state write succeeds, leaving Task 3 cleanup an identifier it can consume.
+- Project-ID persistence is now compare-and-set against the encrypted credential snapshot read from the provider-token row. The database repository performs the compare-and-set using a conditional `updateMany` over `(accountId, vendor, token)`, which makes the check safe across server replicas. A disconnect, reconnect, changed token, or changed configuration/team scope fails the update instead of recreating or overwriting the connection.
+
+### Quality review red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Persist deployment ID before provider polling | The poll ran without the callback having recorded its ID; a callback write failure could still enter polling | Client tests prove the callback runs after validation and before the first poll, and that a failed callback stops after the create request with no poll. Service tests prove the callback writes `vercelDeploymentId` before the final ready update and retains it in the failed-row path for cleanup. |
+| Atomic project-ID persistence | `setProjectIdIfCurrent` did not exist and project provisioning rewrote the stale full credential using `set` | Credential-store tests verify encrypted-snapshot CAS and reject a missing row, changed token, changed team, and changed configuration. Preview-service race coverage verifies that a failed CAS aborts before deployment creation. |
+
+Final quality-review verification:
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts
+
+Test Files  4 passed (4)
+Tests       50 passed (50)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+
+git diff --check
 exit 0
 ```
 

@@ -166,6 +166,7 @@ export function createVercelClient(options: {
             projectId?: string;
             files: Array<{ file: string; sha: string; size: number }>;
             meta: Record<string, string>;
+            onCreated?: (deployment: { id: string }) => Promise<void>;
         }): Promise<{ id: string; url: string; readyState?: string }> {
             const deadline = now() + deploymentTimeoutMs;
             const remaining = (): number => {
@@ -193,6 +194,8 @@ export function createVercelClient(options: {
                 }),
             }, remaining());
             let parsed = deploymentResponseSchema.parse(await response.json());
+            assertPreviewSemantics(parsed);
+            await input.onCreated?.({ id: parsed.id });
             while (true) {
                 remaining();
                 assertPreviewSemantics(parsed);

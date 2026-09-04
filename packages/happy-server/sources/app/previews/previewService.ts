@@ -100,7 +100,8 @@ export function createPreviewService(dependencies: {
                     ...(credential.projectId ? { projectId: credential.projectId } : {}),
                 });
                 if (credential.projectId !== project.id) {
-                    await credentialStore.set(accountId, { ...credential, projectId: project.id });
+                    const persisted = await credentialStore.setProjectIdIfCurrent(accountId, credential, project.id);
+                    if (!persisted) throw new Error('Vercel connection changed during project provisioning');
                 }
                 const files = [];
                 for (const asset of row.assets) {
@@ -117,6 +118,10 @@ export function createPreviewService(dependencies: {
                 const deployment = await client.createDeployment({
                     name: 'happy-previews', projectId: project.id, files,
                     meta: { happyPreviewId: previewId },
+                    onCreated: async ({ id }) => {
+                        createdDeploymentId = id;
+                        await database.interactivePreview.update({ where: { id: previewId }, data: { vercelDeploymentId: id } });
+                    },
                 });
                 createdDeploymentId = deployment.id;
                 const publishedAt = now(); const expiresAt = new Date(publishedAt.getTime() + PUBLISHED_TTL_MS);

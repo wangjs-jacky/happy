@@ -2,11 +2,50 @@ import { describe, expect, it, vi } from 'vitest';
 import { createVercelCredentialStore } from './vercelCredentialStore';
 
 describe('createVercelCredentialStore', () => {
+    it('atomically updates only projectId when the encrypted credential snapshot is still current', async () => {
+        const encrypted = new Uint8Array([7, 7, 7]);
+        const compareAndSet = vi.fn(async () => false);
+        const encrypt = vi.fn(() => new Uint8Array([8, 8, 8]));
+        const store = createVercelCredentialStore({
+            repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), compareAndSet },
+            encrypt,
+            decrypt: vi.fn(() => JSON.stringify({ version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1' })),
+        });
+
+        await expect((store as any).setProjectIdIfCurrent('account-1', {
+            version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1',
+        }, 'prj_happy')).resolves.toBe(false);
+        expect(encrypt).toHaveBeenCalledWith(
+            ['user', 'account-1', 'providers', 'vercel', 'credential'],
+            JSON.stringify({ version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' }),
+        );
+        expect(compareAndSet).toHaveBeenCalledWith('account-1', 'provider:vercel', encrypted, new Uint8Array([8, 8, 8]));
+    });
+
+    it.each([
+        ['disconnect', null, null],
+        ['changed token', new Uint8Array([4]), { version: 1, accessToken: 'token-b', configurationId: 'icfg_1', teamId: 'team_1' }],
+        ['changed team scope', new Uint8Array([5]), { version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_2' }],
+        ['changed configuration scope', new Uint8Array([6]), { version: 1, accessToken: 'token-a', configurationId: 'icfg_2', teamId: 'team_1' }],
+    ])('does not resurrect a %s connection while persisting projectId', async (_race, encrypted, current) => {
+        const compareAndSet = vi.fn(async () => true);
+        const store = createVercelCredentialStore({
+            repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(), delete: vi.fn(), compareAndSet },
+            encrypt: vi.fn(),
+            decrypt: vi.fn(() => JSON.stringify(current)),
+        });
+
+        await expect((store as any).setProjectIdIfCurrent('account-1', {
+            version: 1, accessToken: 'token-a', configurationId: 'icfg_1', teamId: 'team_1',
+        }, 'prj_happy')).resolves.toBe(false);
+        expect(compareAndSet).not.toHaveBeenCalled();
+    });
+
     it('encrypts the complete credential with an account-scoped provider path', async () => {
         const upsert = vi.fn(async () => undefined);
         const encrypt = vi.fn(() => new Uint8Array([1, 2, 3]));
         const store = createVercelCredentialStore({
-            repository: { find: vi.fn(async () => null), upsert, delete: vi.fn(async () => undefined) },
+            repository: { find: vi.fn(async () => null), upsert, delete: vi.fn(async () => undefined), compareAndSet: vi.fn() },
             encrypt,
             decrypt: vi.fn(),
         });
@@ -41,7 +80,7 @@ describe('createVercelCredentialStore', () => {
             configurationId: 'icfg_456',
         }));
         const store = createVercelCredentialStore({
-            repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(async () => undefined), delete: remove },
+            repository: { find: vi.fn(async () => encrypted), upsert: vi.fn(async () => undefined), delete: remove, compareAndSet: vi.fn() },
             encrypt: vi.fn(),
             decrypt,
         });
@@ -61,7 +100,7 @@ describe('createVercelCredentialStore', () => {
 
     it('fails closed for malformed decrypted records', async () => {
         const store = createVercelCredentialStore({
-            repository: { find: vi.fn(async () => new Uint8Array([1])), upsert: vi.fn(), delete: vi.fn() },
+            repository: { find: vi.fn(async () => new Uint8Array([1])), upsert: vi.fn(), delete: vi.fn(), compareAndSet: vi.fn() },
             encrypt: vi.fn(),
             decrypt: vi.fn(() => JSON.stringify({ version: 1, accessToken: '', configurationId: 'x', extra: true })),
         });

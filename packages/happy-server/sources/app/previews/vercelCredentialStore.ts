@@ -16,6 +16,7 @@ export type VercelCredential = z.infer<typeof vercelCredentialSchema>;
 interface CredentialRepository {
     find: (accountId: string, key: string) => Promise<Uint8Array<ArrayBuffer> | null>;
     upsert: (accountId: string, key: string, value: Uint8Array<ArrayBuffer>) => Promise<void>;
+    compareAndSet: (accountId: string, key: string, expected: Uint8Array<ArrayBuffer>, value: Uint8Array<ArrayBuffer>) => Promise<boolean>;
     delete: (accountId: string, key: string) => Promise<void>;
 }
 
@@ -43,6 +44,14 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             if (!encrypted) return null;
             return vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
         },
+        async setProjectIdIfCurrent(accountId: string, expected: VercelCredential, projectId: string): Promise<boolean> {
+            const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
+            if (!encrypted) return false;
+            const current = vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+            if (JSON.stringify(current) !== JSON.stringify(vercelCredentialSchema.parse(expected))) return false;
+            const replacement = vercelCredentialSchema.parse({ ...current, projectId });
+            return dependencies.repository.compareAndSet(accountId, STORAGE_KEY, encrypted, dependencies.encrypt(encryptionPath(accountId), JSON.stringify(replacement)));
+        },
         async delete(accountId: string): Promise<void> {
             await dependencies.repository.delete(accountId, STORAGE_KEY);
         },
@@ -53,6 +62,7 @@ interface ServiceAccountDatabase {
     serviceAccountToken: {
         findUnique: (args: unknown) => Promise<{ token: Uint8Array<ArrayBuffer> } | null>;
         upsert: (args: unknown) => Promise<unknown>;
+        updateMany: (args: unknown) => Promise<{ count: number }>;
         deleteMany: (args: unknown) => Promise<unknown>;
     };
 }
@@ -72,6 +82,12 @@ export function createVercelCredentialRepository(database: ServiceAccountDatabas
                 update: { token },
                 create: { accountId, vendor, token },
             });
+        },
+        async compareAndSet(accountId, vendor, expected, token) {
+            const result = await database.serviceAccountToken.updateMany({
+                where: { accountId, vendor, token: expected }, data: { token },
+            });
+            return result.count === 1;
         },
         async delete(accountId, vendor) {
             await database.serviceAccountToken.deleteMany({ where: { accountId, vendor } });
