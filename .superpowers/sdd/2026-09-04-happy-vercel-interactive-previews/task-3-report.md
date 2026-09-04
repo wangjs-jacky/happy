@@ -69,3 +69,59 @@ git diff --check: exit 0
 Durable cleanup retries now persist `cleanupRetryCount` and `cleanupNextAttemptAt` in migration `20260904100000_add_interactive_preview_cleanup_retries`. Failures use capped exponential delays (one minute, doubling to one hour); cleanup claims only rows whose retry deadline is due.
 
 Vercel client requests retry transient 429 and 5xx responses up to two times, honoring `Retry-After` (capped at ten seconds) or a bounded exponential delay. The deterministic client test proves the 429 path.
+
+## Cluster A review-fix follow-up
+
+### Contract migration delivered
+
+- Staging identity is now `accountId + previewId + stagingGeneration + assetId`. New keys are `private/interactive-previews/<account>/<preview>/<generation>/<asset>`; relative filenames remain manifest-only and never participate in storage-key construction.
+- Upload descriptors expire after exactly ten minutes. All asset completion and publication reads take the persisted `InteractivePreviewAsset.storageKey`, while cleanup and Vercel disconnect delete only the exact persisted account/preview/generation prefix.
+- Draft creation canonicalizes immutable manifests, checks session ownership, creates the preview and asset records atomically through Prisma's nested create, and treats a unique-key race as an idempotent retry only when account, session, and canonical manifest all match. Matching retries receive fresh upload descriptors from the persisted asset keys; owner/session/manifest mismatches return the same not-found error without exposing an existing record.
+- Every preview route is now session-scoped: `/v1/sessions/:sessionId/previews/:previewId/{draft,assets/:assetId/uploaded,publish}`, `GET /v1/sessions/:sessionId/previews`, and `DELETE /v1/sessions/:sessionId/previews/:previewId`. Route and service layers both enforce account plus session ownership. Scoped misses are normalized to `404 { error: 'Preview not found' }`.
+- The CLI follows the new routes, sends the workspace preview ID in the draft path, and rejects a descriptor response whose preview ID does not match the locally issued workspace.
+- The existing lifecycle migration `20260904110000_harden_interactive_preview_lifecycle` already contains the required `stagingGeneration` and persisted `storageKey` foundation. No data-destructive migration was added; fresh PGlite applies the current migration chain successfully.
+
+### Review-fix TDD evidence
+
+| Behavior | Red evidence | Green evidence |
+| --- | --- | --- |
+| Scoped opaque storage and exact expiry | Storage test expected an account/preview/generation key and 10-minute expiry but received the prior preview-only key | `previewStorage.spec.ts`: 7 passing |
+| Idempotent immutable draft reuse | Service test observed a duplicate Prisma create and leaked unique-constraint error for a reused ID | `previewService.spec.ts`: 15 passing |
+| Session route contract | New canonical URLs returned 404 under the legacy routing implementation | `interactivePreviewRoutes.spec.ts`: 5 passing |
+| Scoped missing preview response | A service `Preview not found` initially surfaced as HTTP 500 | Route response is now safe HTTP 404 |
+| CLI URL migration | The CLI test received an invalid draft response because it still called the old `/drafts` endpoint | `previewApi.test.ts`: 1 passing |
+| Cleanup staging isolation | Cleanup passed only a preview ID rather than full generation scope | `previewCleanup.spec.ts`: 5 passing |
+| End-to-end persisted storage identity | Local integration initially failed against legacy routes and old storage identity calls | `interactivePreview.integration.spec.ts`: 4 passing |
+
+### Follow-up verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts
+
+Test Files  5 passed (5)
+Tests       36 passed (36)
+
+pnpm --dir packages/happy-cli exec vitest run \
+  src/previews/previewApi.test.ts --config /dev/null --reporter=verbose
+
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server run typecheck
+pnpm --dir packages/happy-cli run typecheck
+exit 0
+
+PGLITE_DIR=/tmp/happy-preview-pglite.TwoQ5v \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 42 migration(s), including 20260904090000_add_interactive_previews,
+20260904100000_add_interactive_preview_cleanup_retries, and
+20260904110000_harden_interactive_preview_lifecycle.
+
+git diff --check
+exit 0
+```

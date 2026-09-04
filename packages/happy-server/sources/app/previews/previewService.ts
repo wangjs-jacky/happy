@@ -17,9 +17,33 @@ const VERCEL_PREVIEW_CONFIG = JSON.stringify({
 
 type PreviewRow = {
     id: string; title: string; status: string; url: string | null; publishedAt: Date | null; expiresAt: Date;
-    errorCode: string | null; accountId?: string; vercelDeploymentId?: string | null;
-    assets?: Array<{ id: string; path: string; mimeType: string; size: number; sha256: string; uploadedAt: Date | null }>;
+    errorCode: string | null; accountId?: string; sessionId?: string | null; manifest?: unknown; stagingGeneration?: string; vercelDeploymentId?: string | null;
+    assets?: Array<{ id: string; path: string; mimeType: string; size: number; sha256: string; storageKey: string; uploadedAt: Date | null }>;
 };
+
+function canonicalManifest(rawManifest: unknown): InteractivePreviewManifest {
+    const manifest = validateInteractivePreviewManifest(rawManifest);
+    return {
+        ...manifest,
+        assets: [...manifest.assets].sort((left, right) => left.path.localeCompare(right.path) || left.id.localeCompare(right.id)),
+    };
+}
+
+function manifestsMatch(left: unknown, right: InteractivePreviewManifest): boolean {
+    try {
+        return JSON.stringify(canonicalManifest(left)) === JSON.stringify(right);
+    } catch {
+        return false;
+    }
+}
+
+function previewNotFound(): Error {
+    return new Error('Preview not found');
+}
+
+function uniqueViolation(error: unknown): boolean {
+    return (error as { code?: unknown } | null)?.code === 'P2002';
+}
 
 export function previewRowToEvent(row: PreviewRow): InteractivePreviewEvent {
     const state = row.status === 'ready' ? 'ready' : row.status === 'expired' || row.status === 'deleting' ? 'expired' : row.status === 'failed' ? 'failed' : 'publishing';
@@ -56,44 +80,65 @@ export function createPreviewService(dependencies: {
     const credentialStore = dependencies.credentialStore;
     const clientFactory = dependencies.clientFactory;
     const now = dependencies.now || (() => new Date());
+    const sessionOwnedBy = async (accountId: string, sessionId: string): Promise<boolean> =>
+        Boolean(await database.session.findFirst({ where: { id: sessionId, accountId }, select: { id: true } }));
     return {
-    async sessionOwnedBy(accountId: string, sessionId: string): Promise<boolean> {
-        return Boolean(await database.session.findFirst({ where: { id: sessionId, accountId }, select: { id: true } }));
-    },
+    sessionOwnedBy,
     async createDraft(accountId: string, sessionId: string, rawManifest: InteractivePreviewManifest) {
-        const manifest = validateInteractivePreviewManifest(rawManifest);
+        const manifest = canonicalManifest(rawManifest);
+        if (!await sessionOwnedBy(accountId, sessionId)) throw previewNotFound();
+        const existing = await database.interactivePreview.findUnique({ where: { id: manifest.previewId }, include: { assets: true } }) as PreviewRow | null;
+        const describeUploads = async (row: PreviewRow) => ({
+            previewId: row.id,
+            uploads: await Promise.all((row.assets || []).map(async (asset) => ({ assetId: asset.id, ...await storage.createUpload(asset.storageKey, asset.size) }))),
+        });
+        if (existing) {
+            if (existing.accountId !== accountId || existing.sessionId !== sessionId || !manifestsMatch(existing.manifest, manifest)) throw previewNotFound();
+            return describeUploads(existing);
+        }
         const expiresAt = new Date(now().getTime() + DRAFT_TTL_MS);
-        await database.interactivePreview.create({ data: {
-            id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt, stagingGeneration: randomUUID(),
-            assets: { create: manifest.assets.map((asset) => ({ ...asset, storageKey: storage.storageKey(manifest.previewId, asset.id) })) },
-        } });
-        const uploads = await Promise.all(manifest.assets.map(async (asset) => ({ assetId: asset.id, ...await storage.createUpload(manifest.previewId, asset.id, asset.size) })));
-        return { previewId: manifest.previewId, uploads };
+        const stagingGeneration = randomUUID();
+        const assetRecords = manifest.assets.map((asset) => ({
+            ...asset,
+            storageKey: storage.storageKey({ accountId, previewId: manifest.previewId, stagingGeneration }, asset.id),
+        }));
+        try {
+            const created = await database.interactivePreview.create({ data: {
+                id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt, stagingGeneration,
+                assets: { create: assetRecords },
+            }, include: { assets: true } }) as PreviewRow;
+            return describeUploads(created);
+        } catch (error) {
+            if (!uniqueViolation(error)) throw error;
+            const raced = await database.interactivePreview.findUnique({ where: { id: manifest.previewId }, include: { assets: true } }) as PreviewRow | null;
+            if (!raced || raced.accountId !== accountId || raced.sessionId !== sessionId || !manifestsMatch(raced.manifest, manifest)) throw previewNotFound();
+            return describeUploads(raced);
+        }
     },
-    async completeAsset(accountId: string, previewId: string, assetId: string): Promise<void> {
-        const preview = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, status: 'draft' }, include: { assets: true } });
+    async completeAsset(accountId: string, sessionId: string, previewId: string, assetId: string): Promise<void> {
+        const preview = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId, status: 'draft' }, include: { assets: true } });
         const asset = preview?.assets.find((candidate) => candidate.id === assetId);
-        if (!asset) throw new Error('Preview asset not found');
-        await storage.assertUploaded(previewId, assetId, asset.size);
+        if (!asset) throw previewNotFound();
+        await storage.assertUploaded(asset.storageKey, asset.size);
         await database.interactivePreviewAsset.update({ where: { previewId_id: { previewId, id: assetId } }, data: { uploadedAt: now() } });
     },
-    async publish(accountId: string, previewId: string): Promise<InteractivePreviewEvent> {
-        const current = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
-        if (!current) throw new Error('Preview not found');
+    async publish(accountId: string, sessionId: string, previewId: string): Promise<InteractivePreviewEvent> {
+        const current = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId }, include: { assets: true } }) as PreviewRow | null;
+        if (!current) throw previewNotFound();
         if (current.status === 'ready' || current.status === 'publishing') return previewRowToEvent(current);
         return publishGate.run(async () => {
             let createdDeploymentId: string | null = null;
-            let row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
-            if (!row) throw new Error('Preview not found');
+            let row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId }, include: { assets: true } }) as PreviewRow | null;
+            if (!row) throw previewNotFound();
             if (row.status === 'ready') return previewRowToEvent(row);
             if (row.status === 'publishing') return previewRowToEvent(row);
             if (!row.assets?.length || row.assets.some((asset) => !asset.uploadedAt)) throw new Error('Preview assets are incomplete');
             if (row.assets.some((asset) => asset.path === 'vercel.json')) throw new Error('Preview manifest may not include vercel.json');
             const credential = await credentialStore.get(accountId);
             if (!credential) throw new Error('VERCEL_NOT_CONNECTED');
-            const claimed = await database.interactivePreview.updateMany({ where: { id: previewId, accountId, status: { in: ['draft', 'failed'] } }, data: { status: 'publishing', errorCode: null } });
+            const claimed = await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId, status: { in: ['draft', 'failed'] } }, data: { status: 'publishing', errorCode: null } });
             if (claimed.count !== 1) {
-                row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId }, include: { assets: true } }) as PreviewRow | null;
+                row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId }, include: { assets: true } }) as PreviewRow | null;
                 if (row?.status === 'ready') return previewRowToEvent(row);
                 if (row?.status === 'publishing') return previewRowToEvent(row);
                 throw new Error('Preview publication already in progress');
@@ -110,7 +155,7 @@ export function createPreviewService(dependencies: {
                 }
                 const files = [];
                 for (const asset of row.assets) {
-                    const bytes = await storage.read(previewId, asset.id, asset.size);
+                    const bytes = await storage.read(asset.storageKey, asset.size);
                     const digest = createHash('sha256').update(bytes).digest('hex');
                     if (digest !== asset.sha256 || bytes.length !== asset.size) throw new Error('Preview asset integrity mismatch');
                     await client.uploadFile(asset.sha256, bytes, asset.mimeType);
@@ -125,33 +170,35 @@ export function createPreviewService(dependencies: {
                     meta: { happyPreviewId: previewId },
                     onCreated: async ({ id }) => {
                         createdDeploymentId = id;
-                        await database.interactivePreview.update({ where: { id: previewId }, data: { vercelDeploymentId: id } });
+                        await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: { vercelDeploymentId: id } });
                     },
                 });
                 createdDeploymentId = deployment.id;
                 const publishedAt = now(); const expiresAt = new Date(publishedAt.getTime() + PUBLISHED_TTL_MS);
-                const updated = await database.interactivePreview.update({ where: { id: previewId }, data: {
+                await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
                     status: 'ready', url: deployment.url, vercelDeploymentId: deployment.id, publishedAt, expiresAt,
-                } }) as PreviewRow;
-                try { await storage.deletePreview(previewId); }
+                } });
+                const updated = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId } }) as PreviewRow | null;
+                if (!updated) throw previewNotFound();
+                try { await storage.deletePreview({ accountId, previewId, stagingGeneration: row.stagingGeneration! }); }
                 catch { /* durable preview row is ready; scheduled cleanup removes leftover staging */ }
                 return previewRowToEvent(updated);
             } catch (error) {
-                await database.interactivePreview.update({ where: { id: previewId }, data: {
+                await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
                     status: 'failed', errorCode: 'PUBLISH_FAILED', ...(createdDeploymentId ? { vercelDeploymentId: createdDeploymentId } : {}),
                 } });
                 throw error;
             }
         });
     },
-    async list(accountId: string): Promise<InteractivePreviewEvent[]> {
-        const rows = await database.interactivePreview.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' }, take: 50 });
+    async list(accountId: string, sessionId: string): Promise<InteractivePreviewEvent[]> {
+        const rows = await database.interactivePreview.findMany({ where: { accountId, sessionId }, orderBy: { createdAt: 'desc' }, take: 50 });
         return rows.map((row) => previewRowToEvent(row));
     },
-    async delete(accountId: string, previewId: string): Promise<void> {
-        const row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId } }) as PreviewRow | null;
+    async delete(accountId: string, sessionId: string, previewId: string): Promise<void> {
+        const row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId } }) as PreviewRow | null;
         if (!row) return;
-        await database.interactivePreview.updateMany({ where: { id: previewId, accountId }, data: {
+        await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
             status: 'deleting', url: null, errorCode: null, cleanupClaimedAt: null,
         } });
     },
@@ -159,7 +206,7 @@ export function createPreviewService(dependencies: {
         const credential = await credentialStore.get(accountId);
         const rows = await database.interactivePreview.findMany({ where: {
             accountId, status: { in: ['draft', 'publishing', 'failed', 'ready', 'deleting'] },
-        }, select: { id: true, vercelDeploymentId: true } }) as Array<{ id: string; vercelDeploymentId: string | null }>;
+        }, select: { id: true, vercelDeploymentId: true, stagingGeneration: true } }) as Array<{ id: string; vercelDeploymentId: string | null; stagingGeneration: string }>;
         let warning = false;
         const client = credential ? clientFactory({ token: credential.accessToken, teamId: credential.teamId }) : null;
         for (const row of rows) {
@@ -171,7 +218,7 @@ export function createPreviewService(dependencies: {
                     if (!client) throw new Error('Vercel credential unavailable');
                     await client.deleteDeployment(row.vercelDeploymentId);
                 }
-                await storage.deletePreview(row.id);
+                await storage.deletePreview({ accountId, previewId: row.id, stagingGeneration: row.stagingGeneration });
                 await database.interactivePreview.update({ where: { id: row.id }, data: { status: 'expired', url: null, cleanupClaimedAt: null } });
             } catch {
                 warning = true;

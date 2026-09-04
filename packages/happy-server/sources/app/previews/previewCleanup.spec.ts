@@ -4,13 +4,13 @@ import { cleanupInteractivePreviewRows, createPreviewCleanup } from './previewCl
 describe('cleanupInteractivePreviewRows', () => {
     it('removes expired draft staging without calling Vercel', async () => {
         const dependencies: any = { deleteStaging: vi.fn(), deleteDeployment: vi.fn(), markExpired: vi.fn() };
-        await cleanupInteractivePreviewRows([{ id: 'p1', status: 'draft', accountId: 'u1', vercelDeploymentId: null }], dependencies);
-        expect(dependencies.deleteStaging).toHaveBeenCalledWith('p1'); expect(dependencies.deleteDeployment).not.toHaveBeenCalled();
+        await cleanupInteractivePreviewRows([{ id: 'p1', status: 'draft', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }], dependencies);
+        expect(dependencies.deleteStaging).toHaveBeenCalledWith('u1', 'p1', 'generation-1'); expect(dependencies.deleteDeployment).not.toHaveBeenCalled();
         expect(dependencies.markExpired).toHaveBeenCalledWith('p1');
     });
     it('retains the row for retry when provider deletion fails', async () => {
         const dependencies: any = { deleteStaging: vi.fn(), deleteDeployment: vi.fn(async () => { throw new Error('provider down'); }), markExpired: vi.fn(), retainForRetry: vi.fn() };
-        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'failed', accountId: 'u1', vercelDeploymentId: 'dpl_1' }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p2', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_1' }], dependencies);
         expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_1');
         expect(dependencies.markExpired).not.toHaveBeenCalled();
         expect(dependencies.retainForRetry).toHaveBeenCalledWith('p2');
@@ -22,7 +22,7 @@ describe('cleanupInteractivePreviewRows', () => {
             deleteDeployment: vi.fn(), markExpired: vi.fn(), retainForRetry: vi.fn(),
         };
 
-        await cleanupInteractivePreviewRows([{ id: 'p3', status: 'ready', accountId: 'u1', vercelDeploymentId: 'dpl_3' }], dependencies);
+        await cleanupInteractivePreviewRows([{ id: 'p3', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_3' }], dependencies);
 
         expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_3');
         expect(dependencies.markExpired).not.toHaveBeenCalled();
@@ -37,7 +37,7 @@ describe('cleanupInteractivePreviewRows', () => {
         const cleanup = createPreviewCleanup({
             database: { interactivePreview: {
                 updateMany,
-                findMany: vi.fn(async () => [{ id: 'p4', status: 'failed', accountId: 'u1', vercelDeploymentId: 'dpl_4' }]),
+                findMany: vi.fn(async () => [{ id: 'p4', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_4' }]),
                 update,
             } } as any,
             storage: { deletePreview: vi.fn(async () => {}) } as any,
@@ -61,7 +61,7 @@ describe('cleanupInteractivePreviewRows', () => {
         const updateMany = vi.fn().mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
         const update = vi.fn(async () => {});
         const cleanup = createPreviewCleanup({
-            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), update } } as any,
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), update } } as any,
             storage: { deletePreview: vi.fn(async () => { throw new Error('oss down'); }) } as any,
             credentialStore: { get: vi.fn() } as any, clientFactory: vi.fn() as any,
         });

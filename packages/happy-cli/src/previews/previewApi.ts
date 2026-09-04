@@ -19,11 +19,13 @@ export async function publishPreviewWorkspace(input: {
     const fetchImpl = input.fetchImpl || (fetch as unknown as FetchLike);
     const server = input.serverUrl.replace(/\/$/, '');
     const authHeaders = { Authorization: `Bearer ${input.token}`, 'Content-Type': 'application/json' };
+    const previewBaseUrl = `${server}/v1/sessions/${encodeURIComponent(input.sessionId)}/previews/${encodeURIComponent(input.workspace.manifest.previewId)}`;
     const draftResponse = await expectOk(await fetchImpl(
-        `${server}/v1/sessions/${encodeURIComponent(input.sessionId)}/interactive-previews/drafts`,
+        `${previewBaseUrl}/draft`,
         { method: 'POST', headers: authHeaders, body: JSON.stringify(input.workspace.manifest), redirect: 'error' },
     ), 'draft creation');
     const draft = draftResponseSchema.parse(await draftResponse.json());
+    if (draft.previewId !== input.workspace.manifest.previewId) throw new Error('Preview draft descriptor did not match workspace');
     const files = new Map(input.workspace.files.map((file) => [file.assetId, file.absolutePath]));
     for (const upload of draft.uploads) {
         const absolutePath = files.get(upload.assetId); if (!absolutePath) throw new Error('Preview upload descriptor did not match workspace');
@@ -31,12 +33,12 @@ export async function publishPreviewWorkspace(input: {
         form.append('file', new Blob([await readFile(absolutePath)]));
         await expectOk(await fetchImpl(upload.uploadUrl, { method: 'POST', body: form, redirect: 'error' }), 'asset upload');
         await expectOk(await fetchImpl(
-            `${server}/v1/interactive-previews/${encodeURIComponent(draft.previewId)}/assets/${encodeURIComponent(upload.assetId)}/complete`,
+            `${previewBaseUrl}/assets/${encodeURIComponent(upload.assetId)}/uploaded`,
             { method: 'POST', headers: { Authorization: `Bearer ${input.token}` }, redirect: 'error' },
         ), 'asset completion');
     }
     const published = await expectOk(await fetchImpl(
-        `${server}/v1/interactive-previews/${encodeURIComponent(draft.previewId)}/publish`,
+        `${previewBaseUrl}/publish`,
         { method: 'POST', headers: { Authorization: `Bearer ${input.token}` }, redirect: 'error' },
     ), 'publication');
     return interactivePreviewEventSchema.parse((await published.json() as { preview: unknown }).preview);

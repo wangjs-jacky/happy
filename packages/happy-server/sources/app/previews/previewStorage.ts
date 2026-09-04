@@ -3,7 +3,14 @@ import { Client } from 'minio';
 
 const PREVIEW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ASSET_ID = /^[A-Za-z0-9_-]{1,96}$/;
-const PRESIGNED_TTL_SECONDS = 15 * 60;
+const OPAQUE_SCOPE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const PRESIGNED_TTL_SECONDS = 10 * 60;
+
+export type PreviewStagingScope = {
+    accountId: string;
+    previewId: string;
+    stagingGeneration: string;
+};
 
 export interface PreviewStorageConfig {
     host: string;
@@ -72,32 +79,47 @@ interface PreviewS3Client {
     removeObjects(bucket: string, keys: string[]): Promise<unknown>;
 }
 
-function keyFor(previewId: string, assetId?: string): string {
-    if (!PREVIEW_ID.test(previewId)) throw new Error('Invalid preview id');
-    if (assetId && !ASSET_ID.test(assetId)) throw new Error('Invalid preview asset id');
-    return `private/interactive-previews/${previewId}/${assetId || ''}`;
+function prefixFor(scope: PreviewStagingScope): string {
+    if (!OPAQUE_SCOPE_ID.test(scope.accountId)) throw new Error('Invalid preview account id');
+    if (!PREVIEW_ID.test(scope.previewId)) throw new Error('Invalid preview id');
+    if (!OPAQUE_SCOPE_ID.test(scope.stagingGeneration)) throw new Error('Invalid preview staging generation');
+    return `private/interactive-previews/${scope.accountId}/${scope.previewId}/${scope.stagingGeneration}/`;
+}
+
+function keyFor(scope: PreviewStagingScope, assetId: string): string {
+    if (!ASSET_ID.test(assetId)) throw new Error('Invalid preview asset id');
+    return `${prefixFor(scope)}${assetId}`;
+}
+
+function assertStorageKey(storageKey: string): void {
+    if (!/^private\/interactive-previews\/[A-Za-z0-9_-]{1,128}\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,96}$/i.test(storageKey)) {
+        throw new Error('Invalid preview storage key');
+    }
 }
 
 export function createPreviewStorage(options: { client: PreviewS3Client; bucket: string; now?: () => Date }) {
     const now = options.now || (() => new Date());
     return {
-        storageKey(previewId: string, assetId: string): string { return keyFor(previewId, assetId); },
-        async createUpload(previewId: string, assetId: string, size: number) {
+        storageKey(scope: PreviewStagingScope, assetId: string): string { return keyFor(scope, assetId); },
+        async createUpload(storageKey: string, size: number) {
             if (!Number.isSafeInteger(size) || size < 0 || size > PREVIEW_LIMITS.maxFileBytes) throw new Error('Invalid preview asset size');
+            assertStorageKey(storageKey);
             const policy = options.client.newPostPolicy();
             policy.setBucket(options.bucket);
-            policy.setKey(keyFor(previewId, assetId));
+            policy.setKey(storageKey);
             policy.setExpires(new Date(now().getTime() + PRESIGNED_TTL_SECONDS * 1000));
             policy.setContentLengthRange(size, size);
             const signed = await options.client.presignedPostPolicy(policy);
             return { method: 'POST' as const, uploadUrl: signed.postURL, formFields: signed.formData };
         },
-        async assertUploaded(previewId: string, assetId: string, expectedSize: number): Promise<void> {
-            const stat = await options.client.statObject(options.bucket, keyFor(previewId, assetId));
+        async assertUploaded(storageKey: string, expectedSize: number): Promise<void> {
+            assertStorageKey(storageKey);
+            const stat = await options.client.statObject(options.bucket, storageKey);
             if (stat.size !== expectedSize) throw new Error('Uploaded preview asset size mismatch');
         },
-        async read(previewId: string, assetId: string, maxBytes = PREVIEW_LIMITS.maxFileBytes): Promise<Buffer> {
-            const stream = await options.client.getObject(options.bucket, keyFor(previewId, assetId));
+        async read(storageKey: string, maxBytes = PREVIEW_LIMITS.maxFileBytes): Promise<Buffer> {
+            assertStorageKey(storageKey);
+            const stream = await options.client.getObject(options.bucket, storageKey);
             const chunks: Buffer[] = [];
             let total = 0;
             for await (const chunk of stream as AsyncIterable<Buffer | Uint8Array | string>) {
@@ -108,8 +130,8 @@ export function createPreviewStorage(options: { client: PreviewS3Client; bucket:
             }
             return Buffer.concat(chunks);
         },
-        async deletePreview(previewId: string): Promise<void> {
-            const prefix = keyFor(previewId);
+        async deletePreview(scope: PreviewStagingScope): Promise<void> {
+            const prefix = prefixFor(scope);
             const stream = options.client.listObjects(options.bucket, prefix, true);
             const keys = await new Promise<string[]>((resolve, reject) => {
                 const values: string[] = [];

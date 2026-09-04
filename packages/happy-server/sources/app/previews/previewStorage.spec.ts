@@ -68,16 +68,19 @@ describe('createPreviewStorage', () => {
         expect(() => readPreviewStorageConfig({ ...base, PREVIEW_S3_PATH_STYLE: 'sometimes' })).toThrow(/PREVIEW_S3_PATH_STYLE/);
     });
 
-    it('issues a size-limited private upload under an opaque preview prefix', async () => {
+    it('issues a ten-minute size-limited private upload under the exact account preview generation prefix', async () => {
         const policy = { setBucket: vi.fn(), setKey: vi.fn(), setExpires: vi.fn(), setContentLengthRange: vi.fn() };
         const client = {
             newPostPolicy: vi.fn(() => policy),
             presignedPostPolicy: vi.fn(async () => ({ postURL: 'https://oss.test', formData: { key: 'signed' } })),
             statObject: vi.fn(), getObject: vi.fn(), listObjects: vi.fn(), removeObjects: vi.fn(),
         };
-        const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket' });
-        const result = await storage.createUpload('11111111-1111-4111-8111-111111111111', 'asset_1', 123);
-        expect(policy.setKey).toHaveBeenCalledWith('private/interactive-previews/11111111-1111-4111-8111-111111111111/asset_1');
+        const now = new Date('2026-09-04T12:00:00.000Z');
+        const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket', now: () => now });
+        const storageKey = storage.storageKey({ accountId: 'account-1', previewId: '11111111-1111-4111-8111-111111111111', stagingGeneration: 'generation-1' }, 'asset_1');
+        const result = await storage.createUpload(storageKey, 123);
+        expect(policy.setKey).toHaveBeenCalledWith('private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/asset_1');
+        expect(policy.setExpires).toHaveBeenCalledWith(new Date('2026-09-04T12:10:00.000Z'));
         expect(policy.setContentLengthRange).toHaveBeenCalledWith(123, 123);
         expect(result).toEqual({ method: 'POST', uploadUrl: 'https://oss.test', formFields: { key: 'signed' } });
     });
@@ -85,7 +88,7 @@ describe('createPreviewStorage', () => {
     it('rejects an object whose observed size differs from the manifest', async () => {
         const client = { statObject: vi.fn(async () => ({ size: 9 })) };
         const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket' });
-        await expect(storage.assertUploaded('11111111-1111-4111-8111-111111111111', 'asset_1', 10)).rejects.toThrow(/size/i);
+        await expect(storage.assertUploaded(storage.storageKey({ accountId: 'account-1', previewId: '11111111-1111-4111-8111-111111111111', stagingGeneration: 'generation-1' }, 'asset_1'), 10)).rejects.toThrow(/size/i);
     });
 
     it('deletes only the exact preview prefix', async () => {
@@ -93,11 +96,14 @@ describe('createPreviewStorage', () => {
         const stream = { on: vi.fn((name: string, fn: Function) => { listeners[name] = fn; return stream; }) };
         const client = { listObjects: vi.fn(() => stream), removeObjects: vi.fn(async () => {}) };
         const storage = createPreviewStorage({ client: client as any, bucket: 'private-bucket' });
-        const promise = storage.deletePreview('11111111-1111-4111-8111-111111111111');
-        listeners.data({ name: 'private/interactive-previews/11111111-1111-4111-8111-111111111111/asset_1' });
+        const scope = { accountId: 'account-1', previewId: '11111111-1111-4111-8111-111111111111', stagingGeneration: 'generation-1' };
+        const promise = storage.deletePreview(scope);
+        listeners.data({ name: 'private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/asset_1' });
+        listeners.data({ name: 'private/interactive-previews/account-2/11111111-1111-4111-8111-111111111111/generation-1/asset_2' });
+        listeners.data({ name: 'private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-2/asset_3' });
         listeners.end();
         await promise;
-        expect(client.listObjects).toHaveBeenCalledWith('private-bucket', 'private/interactive-previews/11111111-1111-4111-8111-111111111111/', true);
-        expect(client.removeObjects).toHaveBeenCalledWith('private-bucket', ['private/interactive-previews/11111111-1111-4111-8111-111111111111/asset_1']);
+        expect(client.listObjects).toHaveBeenCalledWith('private-bucket', 'private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/', true);
+        expect(client.removeObjects).toHaveBeenCalledWith('private-bucket', ['private/interactive-previews/account-1/11111111-1111-4111-8111-111111111111/generation-1/asset_1']);
     });
 });

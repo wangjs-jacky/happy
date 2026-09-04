@@ -10,9 +10,9 @@ const CLAIM_TTL_MS = 15 * 60 * 1000;
 const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
 
-export type CleanupPreviewRow = { id: string; status: string; accountId: string; vercelDeploymentId: string | null };
+export type CleanupPreviewRow = { id: string; status: string; accountId: string; stagingGeneration: string; vercelDeploymentId: string | null };
 export interface PreviewCleanupDependencies {
-    deleteStaging(previewId: string): Promise<void>;
+    deleteStaging(accountId: string, previewId: string, stagingGeneration: string): Promise<void>;
     deleteDeployment(accountId: string, deploymentId: string): Promise<void>;
     markExpired(previewId: string): Promise<void>;
     retainForRetry(previewId: string): Promise<void>;
@@ -23,7 +23,7 @@ export async function cleanupInteractivePreviewRows(rows: CleanupPreviewRow[], d
     for (const row of rows) {
         try {
             if (row.vercelDeploymentId) await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
-            await dependencies.deleteStaging(row.id);
+            await dependencies.deleteStaging(row.accountId, row.id, row.stagingGeneration);
             await dependencies.markExpired(row.id);
             cleaned++;
         } catch (error) {
@@ -69,7 +69,7 @@ export function createPreviewCleanup(dependencies: {
                 ],
             },
             take: 50, orderBy: { expiresAt: 'asc' },
-            select: { id: true, status: true, accountId: true, vercelDeploymentId: true },
+            select: { id: true, status: true, accountId: true, stagingGeneration: true, vercelDeploymentId: true },
         }) as CleanupPreviewRow[];
         const claimed: CleanupPreviewRow[] = [];
         for (const row of due) {
@@ -81,7 +81,7 @@ export function createPreviewCleanup(dependencies: {
             if (result.count === 1) claimed.push(row);
         }
         return cleanupInteractivePreviewRows(claimed, {
-            deleteStaging: (previewId) => dependencies.storage.deletePreview(previewId),
+            deleteStaging: (accountId, previewId, stagingGeneration) => dependencies.storage.deletePreview({ accountId, previewId, stagingGeneration }),
             async deleteDeployment(accountId, deploymentId) {
                 const credential = await dependencies.credentialStore.get(accountId);
                 if (!credential) throw new Error('Vercel credential unavailable');
