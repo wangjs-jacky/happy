@@ -295,7 +295,7 @@ describe('createPreviewService publication', () => {
         release();
 
         await expect(publication).rejects.toThrow(/fenced/i);
-        expect(row).toMatchObject({ status: 'deleting', url: null });
+        expect(row).toMatchObject({ status: 'expired', url: null, vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null });
         expect(deleteDeployment).toHaveBeenCalledWith('dpl_fenced');
     });
 

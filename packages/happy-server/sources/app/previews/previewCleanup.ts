@@ -20,6 +20,7 @@ export type CleanupPreviewRow = {
 export interface PreviewCleanupDependencies {
     deleteStaging(accountId: string, previewId: string, stagingGeneration: string): Promise<void>;
     deleteDeployment(accountId: string, deploymentId: string): Promise<void>;
+    markProviderDeleted(previewId: string, deploymentId: string): Promise<void>;
     markExpired(previewId: string): Promise<void>;
     retainForRetry(previewId: string): Promise<void>;
     markStagingClean?(previewId: string): Promise<void>;
@@ -36,7 +37,10 @@ export async function cleanupInteractivePreviewRows(rows: CleanupPreviewRow[], d
                 cleaned++;
                 continue;
             }
-            if (row.vercelDeploymentId) await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
+            if (row.vercelDeploymentId) {
+                await dependencies.deleteDeployment(row.accountId, row.vercelDeploymentId);
+                await dependencies.markProviderDeleted(row.id, row.vercelDeploymentId);
+            }
             await dependencies.deleteStaging(row.accountId, row.id, row.stagingGeneration);
             await dependencies.markExpired(row.id);
             cleaned++;
@@ -84,6 +88,7 @@ export function createPreviewCleanup(dependencies: {
                     { status: { in: ['draft', 'failed', 'ready'] }, expiresAt: { lte: time } },
                 ],
                 AND: [
+                    { OR: [{ publicationCreateStartedAt: null }, { vercelDeploymentId: { not: null } }] },
                     { OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }] },
                     { OR: [{ cleanupNextAttemptAt: null }, { cleanupNextAttemptAt: { lte: time } }] },
                 ],
@@ -119,8 +124,22 @@ export function createPreviewCleanup(dependencies: {
                     id: previewId, status: 'deleting', cleanupClaimedAt: time,
                 }, data: {
                     status: 'expired', url: null, vercelDeploymentId: null, stagingCleanupPending: false,
-                    cleanupClaimedAt: null, cleanupNextAttemptAt: null,
+                    publicationAttemptId: null, publicationCreateStartedAt: null,
+                    publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
+                    errorCode: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null,
                 } });
+            },
+            async markProviderDeleted(previewId, deploymentId) {
+                const claim = claims.get(previewId);
+                if (!claim || claim.status !== 'deleting') throw new Error('Preview cleanup claim is unavailable');
+                const checkpointed = await dependencies.database.interactivePreview.updateMany({ where: {
+                    id: previewId, status: 'deleting', cleanupClaimedAt: time, vercelDeploymentId: deploymentId,
+                }, data: {
+                    vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                    publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
+                    errorCode: 'OSS_CLEANUP_PENDING',
+                } });
+                if (checkpointed.count !== 1) throw new Error('Preview provider deletion checkpoint lost its cleanup claim');
             },
             async markStagingClean(previewId) {
                 await dependencies.database.interactivePreview.updateMany({ where: {

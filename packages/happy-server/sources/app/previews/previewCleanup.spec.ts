@@ -16,23 +16,24 @@ describe('cleanupInteractivePreviewRows', () => {
         expect(dependencies.retainForRetry).toHaveBeenCalledWith('p2');
     });
 
-    it('retains the provider deployment id for retry when staging cleanup fails', async () => {
+    it('checkpoints provider deletion before a staging failure so the retry is OSS-only', async () => {
         const dependencies: any = {
             deleteStaging: vi.fn(async () => { throw new Error('oss unavailable'); }),
-            deleteDeployment: vi.fn(), markExpired: vi.fn(), retainForRetry: vi.fn(),
+            deleteDeployment: vi.fn(), markProviderDeleted: vi.fn(), markExpired: vi.fn(), retainForRetry: vi.fn(),
         };
 
         await cleanupInteractivePreviewRows([{ id: 'p3', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_3' }], dependencies);
 
         expect(dependencies.deleteDeployment).toHaveBeenCalledWith('u1', 'dpl_3');
+        expect(dependencies.markProviderDeleted).toHaveBeenCalledWith('p3', 'dpl_3');
+        expect(dependencies.markProviderDeleted).toHaveBeenCalledAfter(dependencies.deleteDeployment);
+        expect(dependencies.markProviderDeleted).toHaveBeenCalledBefore(dependencies.deleteStaging);
         expect(dependencies.markExpired).not.toHaveBeenCalled();
         expect(dependencies.retainForRetry).toHaveBeenCalledWith('p3');
     });
 
     it('recovers an expired publishing lease through a cross-replica compare-and-set claim', async () => {
-        const updateMany = vi.fn()
-            .mockResolvedValueOnce({ count: 1 })
-            .mockResolvedValueOnce({ count: 1 });
+        const updateMany = vi.fn(async () => ({ count: 1 }));
         const cleanup = createPreviewCleanup({
             database: { interactivePreview: {
                 updateMany,
@@ -54,6 +55,10 @@ describe('cleanupInteractivePreviewRows', () => {
             where: expect.objectContaining({ id: 'p4', status: 'failed' }), data: expect.objectContaining({ status: 'deleting' }),
         }));
         expect(updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({
+            where: expect.objectContaining({ id: 'p4', status: 'deleting', vercelDeploymentId: 'dpl_4', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
+            data: expect.objectContaining({ vercelDeploymentId: null, publicationAttemptId: null }),
+        }));
+        expect(updateMany).toHaveBeenNthCalledWith(4, expect.objectContaining({
             where: expect.objectContaining({ id: 'p4', status: 'deleting', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
             data: expect.objectContaining({ status: 'expired', url: null, vercelDeploymentId: null }),
         }));

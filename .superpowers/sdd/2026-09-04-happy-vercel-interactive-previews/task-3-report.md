@@ -52,6 +52,75 @@ git diff --check
 exit 0
 ```
 
+## Cluster E review-fix follow-up: expiry ambiguity and provider-delete checkpoints
+
+An attempt for which Vercel creation has started but no deployment ID is yet
+bound is now treated as externally ambiguous throughout expiry. At the expiry
+deadline a failed reconciliation moves that row to `deleting` with durable
+provider-reconciliation and cleanup retry deadlines; it is never converted to
+an ordinary `failed` expiry candidate. Ordinary cleanup excludes every row
+with `publicationCreateStartedAt` and no bound provider ID, so it cannot prune
+staging while a provider outcome remains unknown. Recovery processes batches
+until the candidate set is drained for the pass, with already-handled IDs
+excluded from later queries; a 51-row persisted regression proves the former
+50-row cap cannot let overflow rows race normal cleanup.
+
+Provider deletion is now checkpointed before any OSS deletion. The checkpoint
+is a claimed CAS that clears `vercelDeploymentId` and resolves the publication
+attempt before staging is touched. Therefore an OSS failure leaves a durable
+OSS-only retry that no longer needs Vercel credentials. This path is used by
+the scheduled cleanup worker, disconnect drain, ordinary explicit/session
+deletion through the cleanup worker, and delayed-create compensation. The
+checkpoint clears only lifecycle identifiers and stable error codes; no
+provider credential, response body, signed URL, or token is persisted or
+logged.
+
+### Cluster E red/green evidence
+
+| Regression | Red observation | Green result |
+| --- | --- | --- |
+| Provider 503 exactly at expiry | The persisted row became `expired` with `PUBLISH_RECONCILIATION_EXPIRED` and no retry deadline. | It remains `deleting`, retains its create marker/staging, and records both reconciliation and cleanup backoff at `+1 minute`. |
+| More than 50 ambiguous rows | The former recovery query stopped at `take: 50`, allowing the first batch to become ordinary cleanup candidates while the overflow was untouched. | All 51 persisted attempts finish the pass as ambiguous deleting tombstones; no overflow row is expired. |
+| Provider succeeds then OSS fails | The cleanup helper called staging deletion immediately after provider deletion, leaving the provider ID for the next retry. | The provider checkpoint is observed between provider and OSS operations; the retry operates with no provider ID. |
+| Disconnect checkpoint | Disconnect deleted the provider deployment then failed OSS cleanup without durably resolving its provider boundary. | After credential removal, a cleanup pass removes only OSS state and makes no second Vercel delete request. |
+| Late create compensation | A successful compensating delete left the durable provider ID/attempt for a later worker. | The fenced explicit-delete case clears the provider ID and attempt, removes OSS staging, and ends expired. |
+
+### Cluster E verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts \
+  --silent --reporter=dot
+
+Test Files  9 passed (9)
+Tests       105 passed (105)
+
+pnpm --dir packages/happy-cli exec vitest run \
+  src/previews/previewApi.test.ts --config /dev/null --reporter=verbose
+
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server run typecheck
+exit 0
+
+PGLITE_DIR=$(mktemp -d /tmp/happy-task3-pglite.XXXXXX) \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 43 migration(s), including
+20260904120000_reconcile_interactive_preview_attempts.
+
+git diff --check
+exit 0
+```
+
 ## Cluster D review-fix follow-up: autonomous recovery and unresolved cleanup
 
 The publication attempt is now a durable recovery record rather than a

@@ -46,6 +46,9 @@ const ids = {
     fencedExplicitDelete: '88888888-8888-4888-8888-888888888888',
     fencedSessionDelete: '99999999-9999-4999-8999-999999999999',
     fencedDisconnect: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    providerOutage: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    disconnectCheckpoint: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    lateCompensation: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 } as const;
 
 type AssetInput = { id: string; path: string; mimeType: string; bytes: Buffer };
@@ -263,6 +266,7 @@ class VercelWireServer {
     activeDeployments = 0;
     holdDeploymentCreates = false;
     failDeleteRequests = 0;
+    failMetadataLookups = 0;
     private readonly delayedVisibility = new Map<string, { visibleAfterLookups: number; readyOnPoll: boolean }>();
     server!: Server;
     port!: number;
@@ -347,6 +351,10 @@ class VercelWireServer {
         }
         if (url.pathname === '/v6/deployments' && request.method === 'GET') {
             this.metadataLookups++;
+            if (this.failMetadataLookups > 0) {
+                this.failMetadataLookups--;
+                return this.sendJson(response, 503, { error: { code: 'provider_unavailable' } });
+            }
             const matching = [...this.deployments.values()].filter((deployment) =>
                 deployment.projectId === url.searchParams.get('projectId')
                 && deployment.meta.happyPreviewId === url.searchParams.get('meta-happyPreviewId')
@@ -758,6 +766,102 @@ describe('interactive preview persisted integration', () => {
             status: 'deleting', vercelDeploymentId: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
             cleanupNextAttemptAt: after(cleanupTime, 60_000), publicationReconcileNextAttemptAt: after(cleanupTime, 60_000),
         });
+    }, 30_000);
+
+    it('moves an expired create-started attempt into durable deleting reconciliation when Vercel metadata returns 503', async () => {
+        const harness = await setup();
+        const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>outage</h1>') }];
+        await harness.createAndUpload(ids.providerOutage, assets);
+        const expiry = after(clockStart, 2 * 60 * 60 * 1000);
+        await harness.database.interactivePreview.update({ where: { id: ids.providerOutage }, data: {
+            status: 'publishing', publicationAttemptId: 'attempt-provider-503', publicationGeneration: 1,
+            publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
+            expiresAt: expiry, updatedAt: clockStart,
+        } });
+        harness.vercel.failMetadataLookups = 3;
+
+        await harness.cleanup().cleanupExpired(expiry);
+
+        const row = await harness.database.interactivePreview.findUnique({ where: { id: ids.providerOutage }, include: { assets: true } });
+        expect(row).toMatchObject({
+            status: 'deleting', vercelDeploymentId: null, publicationAttemptId: 'attempt-provider-503',
+            publicationCreateStartedAt: clockStart, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+            publicationReconcileNextAttemptAt: after(expiry, 60_000), cleanupNextAttemptAt: after(expiry, 60_000),
+        });
+        expect(row?.assets.every((asset) => harness.s3.objects.has(asset.storageKey))).toBe(true);
+        expect(harness.vercel.deleteRequests).toEqual([]);
+    }, 30_000);
+
+    it('reconciles every expired ambiguous create across batches before ordinary cleanup can claim an overflow row', async () => {
+        const harness = await setup();
+        const expiry = after(clockStart, 2 * 60 * 60 * 1000);
+        const rows = Array.from({ length: 51 }, (_, index) => {
+            const id = `bulk-expiry-${String(index + 1).padStart(2, '0')}`;
+            return {
+                id, accountId: accountA, sessionId: sessionA, title: `Bulk ${index + 1}`, status: 'publishing',
+                manifest: manifest(id, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>bulk</h1>') }]) as any,
+                expiresAt: expiry, stagingGeneration: `bulk-generation-${index + 1}`,
+                publicationAttemptId: `attempt-bulk-${index + 1}`, publicationGeneration: 1,
+                publicationCreateStartedAt: clockStart, publicationReconcileNextAttemptAt: clockStart,
+                createdAt: clockStart, updatedAt: clockStart,
+            };
+        });
+        await harness.database.interactivePreview.createMany({ data: rows });
+        harness.vercel.failMetadataLookups = rows.length * 3;
+
+        await harness.cleanup().cleanupExpired(expiry);
+
+        const persisted = await harness.database.interactivePreview.findMany({ where: { id: { in: rows.map((row) => row.id) } }, orderBy: { id: 'asc' } });
+        expect(persisted).toHaveLength(51);
+        expect(persisted.every((row) => row.status === 'deleting' && row.vercelDeploymentId === null && row.publicationCreateStartedAt !== null)).toBe(true);
+        expect(persisted.every((row) => row.publicationReconcileNextAttemptAt?.getTime() === after(expiry, 60_000).getTime())).toBe(true);
+    }, 30_000);
+
+    it('retries only OSS cleanup after disconnect checkpointed a successful provider deletion and removed the credential', async () => {
+        const harness = await setup();
+        const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>disconnect checkpoint</h1>') }];
+        await harness.createAndUpload(ids.disconnectCheckpoint, assets);
+        const attempt = 'attempt-disconnect-checkpoint';
+        harness.vercel.addReconciledDeployment(ids.disconnectCheckpoint, attempt, 'dpl_disconnect_checkpoint');
+        await harness.database.interactivePreview.update({ where: { id: ids.disconnectCheckpoint }, data: {
+            status: 'ready', vercelDeploymentId: 'dpl_disconnect_checkpoint', publicationAttemptId: attempt,
+            publicationGeneration: 1, publicationCreateStartedAt: clockStart,
+        } });
+        harness.s3.failDeleteRequests = 1;
+
+        await expect(harness.service.disconnectVercel(accountA)).resolves.toEqual({ warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' });
+
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.disconnectCheckpoint } })).toMatchObject({
+            status: 'deleting', vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+        });
+        expect(await harness.credentialStore.get(accountA)).toBeNull();
+        expect(harness.vercel.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
+
+        await harness.cleanup().cleanupExpired(after(clockStart, 1));
+
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.disconnectCheckpoint } })).toMatchObject({ status: 'expired', vercelDeploymentId: null });
+        expect(harness.vercel.deleteRequests).toEqual(['dpl_disconnect_checkpoint']);
+    }, 30_000);
+
+    it('checkpoints and completes a successful late compensation after an explicit delete fences publication', async () => {
+        const harness = await setup();
+        const assets = [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>late compensation</h1>') }];
+        await harness.createAndUpload(ids.lateCompensation, assets);
+        harness.vercel.holdDeploymentCreates = true;
+        const publication = harness.service.publish(accountA, sessionA, ids.lateCompensation);
+        await eventually(() => harness.vercel.createRequests.length === 1, 'the held late-compensation deployment');
+        const deleted = await harness.app.inject({ method: 'DELETE', url: `/v1/sessions/${sessionA}/previews/${ids.lateCompensation}`, headers: { 'x-user-id': accountA } });
+        expect(deleted.statusCode).toBe(200);
+        harness.vercel.holdDeploymentCreates = false;
+        harness.vercel.releaseOneDeployment();
+
+        await expect(publication).rejects.toThrow(/fenced|publish/i);
+
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.lateCompensation } })).toMatchObject({
+            status: 'expired', vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+        });
+        expect(harness.vercel.deleteRequests).toEqual(['dpl_1']);
+        expect([...harness.s3.objects.keys()].filter((key) => key.includes(`/${ids.lateCompensation}/`))).toEqual([]);
     }, 30_000);
 
     it('keeps an explicit delete durable through provider failure, then prunes its expired tombstone after thirty days', async () => {

@@ -177,7 +177,7 @@ export function createPreviewService(dependencies: {
                 return bound.count === 1;
             };
             const deleteUnclaimedDeployment = async (client: { deleteDeployment?: (deploymentId: string) => Promise<void> }, deploymentId: string) => {
-                await retainUnresolvedDeployment(deploymentId);
+                const bound = await retainUnresolvedDeployment(deploymentId);
                 try {
                     await client.deleteDeployment?.(deploymentId);
                 } catch {
@@ -188,7 +188,36 @@ export function createPreviewService(dependencies: {
                         errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupRetryCount: { increment: 1 },
                         cleanupNextAttemptAt: publicationRetryAt(now(), persisted?.cleanupRetryCount ?? 0),
                     } });
+                    return;
                 }
+                if (!bound) return;
+                const checkpointed = await database.interactivePreview.updateMany({ where: {
+                    id: previewId, accountId, status: 'deleting', publicationAttemptId, vercelDeploymentId: deploymentId,
+                    cleanupClaimedAt: null,
+                }, data: {
+                    vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                    publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
+                    errorCode: 'OSS_CLEANUP_PENDING',
+                } });
+                if (checkpointed.count !== 1) return;
+                try {
+                    await storage.deletePreview({ accountId, previewId, stagingGeneration: row.stagingGeneration! });
+                } catch {
+                    const persisted = await database.interactivePreview.findFirst({ where: { id: previewId }, select: { cleanupRetryCount: true } }) as { cleanupRetryCount: number } | null;
+                    await database.interactivePreview.updateMany({ where: {
+                        id: previewId, accountId, status: 'deleting', vercelDeploymentId: null, publicationAttemptId: null, cleanupClaimedAt: null,
+                    }, data: {
+                        errorCode: 'OSS_CLEANUP_PENDING', cleanupRetryCount: { increment: 1 },
+                        cleanupNextAttemptAt: publicationRetryAt(now(), persisted?.cleanupRetryCount ?? 0),
+                    } });
+                    return;
+                }
+                await database.interactivePreview.updateMany({ where: {
+                    id: previewId, accountId, status: 'deleting', vercelDeploymentId: null, publicationAttemptId: null, cleanupClaimedAt: null,
+                }, data: {
+                    status: 'expired', url: null, stagingCleanupPending: false, errorCode: null,
+                    cleanupClaimedAt: null, cleanupNextAttemptAt: null,
+                } });
             };
             const bindDeployment = async (deploymentId: string): Promise<void> => {
                 createdDeploymentId = deploymentId;
@@ -291,23 +320,35 @@ export function createPreviewService(dependencies: {
     },
     async recoverStalePublications(time = now()): Promise<void> {
         const staleBefore = new Date(time.getTime() - PUBLICATION_STALE_MS);
-        const candidates = await database.interactivePreview.findMany({ where: {
-            publicationAttemptId: { not: null },
-            OR: [
-                { status: 'publishing' },
-                { status: 'deleting', publicationCreateStartedAt: { not: null } },
-            ],
-            AND: [
-                { OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: staleBefore } }] },
-                { OR: [
-                    { updatedAt: { lte: staleBefore } },
-                    { publicationReconcileNextAttemptAt: { lte: time } },
-                    { expiresAt: { lte: time } },
-                ] },
-            ],
-        }, include: { assets: true }, take: 50, orderBy: { expiresAt: 'asc' } }) as PreviewRow[];
+        const handledIds: string[] = [];
+        while (true) {
+            const candidates = await database.interactivePreview.findMany({ where: {
+                publicationAttemptId: { not: null },
+                ...(handledIds.length ? { id: { notIn: handledIds } } : {}),
+                OR: [
+                    { status: 'publishing', OR: [
+                        { updatedAt: { lte: staleBefore } },
+                        { publicationReconcileNextAttemptAt: { lte: time } },
+                        { expiresAt: { lte: time } },
+                    ] },
+                    { status: 'deleting', vercelDeploymentId: null, publicationCreateStartedAt: { not: null }, OR: [
+                        { updatedAt: { lte: staleBefore } },
+                        { publicationReconcileNextAttemptAt: { lte: time } },
+                    ] },
+                    { status: 'failed', vercelDeploymentId: null, publicationCreateStartedAt: { not: null }, OR: [
+                        { updatedAt: { lte: staleBefore } },
+                        { publicationReconcileNextAttemptAt: { lte: time } },
+                        { expiresAt: { lte: time } },
+                    ] },
+                ],
+                AND: [
+                    { OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: staleBefore } }] },
+                ],
+            }, include: { assets: true }, take: 50, orderBy: { expiresAt: 'asc' } }) as PreviewRow[];
+            if (!candidates.length) return;
+            handledIds.push(...candidates.map((candidate) => candidate.id));
 
-        for (const candidate of candidates) await publishGate.run(async () => {
+            for (const candidate of candidates) await publishGate.run(async () => {
             const attemptId = candidate.publicationAttemptId;
             if (!attemptId) return;
             const claimed = await database.interactivePreview.updateMany({ where: {
@@ -316,6 +357,15 @@ export function createPreviewService(dependencies: {
                 OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: staleBefore } }],
             }, data: { cleanupClaimedAt: time } });
             if (claimed.count !== 1) return;
+            if (candidate.status === 'failed') {
+                await database.interactivePreview.updateMany({ where: {
+                    id: candidate.id, accountId: candidate.accountId, status: 'failed', publicationAttemptId: attemptId, cleanupClaimedAt: time,
+                }, data: {
+                    status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null,
+                    publicationReconcileNextAttemptAt: time, cleanupNextAttemptAt: time,
+                } });
+                return;
+            }
             if (candidate.status === 'deleting') {
                 const retainDeletingAttempt = async () => {
                     const retryCount = candidate.publicationReconcileRetryCount ?? 0;
@@ -358,7 +408,11 @@ export function createPreviewService(dependencies: {
             const schedule = async (errorCode: string) => {
                 const retryCount = candidate.publicationReconcileRetryCount ?? 0;
                 await database.interactivePreview.updateMany({ where, data: time >= candidate.expiresAt
-                    ? { status: 'failed', errorCode: 'PUBLISH_RECONCILIATION_EXPIRED', cleanupClaimedAt: null, publicationReconcileNextAttemptAt: null }
+                    ? {
+                        status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null,
+                        publicationReconcileRetryCount: { increment: 1 }, publicationReconcileNextAttemptAt: publicationRetryAt(time, retryCount),
+                        cleanupNextAttemptAt: publicationRetryAt(time, retryCount),
+                    }
                     : {
                         errorCode, cleanupClaimedAt: null, publicationReconcileRetryCount: { increment: 1 },
                         publicationReconcileNextAttemptAt: publicationRetryAt(time, retryCount),
@@ -425,7 +479,9 @@ export function createPreviewService(dependencies: {
             } catch {
                 await schedule('PUBLISH_RECONCILIATION_PENDING');
             }
-        });
+            });
+            if (candidates.length < 50) return;
+        }
     },
     async list(accountId: string, sessionId: string): Promise<InteractivePreviewEvent[]> {
         const rows = await database.interactivePreview.findMany({ where: { accountId, sessionId }, orderBy: { createdAt: 'desc' }, take: 50 });
@@ -484,11 +540,21 @@ export function createPreviewService(dependencies: {
                 if (deploymentId) {
                     if (!client) throw new Error('Vercel credential unavailable');
                     await client.deleteDeployment(deploymentId);
+                    const checkpointed = await database.interactivePreview.updateMany({ where: {
+                        id: row.id, accountId, status: 'deleting', vercelDeploymentId: deploymentId, cleanupClaimedAt: null,
+                        ...(row.publicationAttemptId ? { publicationAttemptId: row.publicationAttemptId } : {}),
+                    }, data: {
+                        vercelDeploymentId: null, publicationAttemptId: null, publicationCreateStartedAt: null,
+                        publicationReconcileRetryCount: 0, publicationReconcileNextAttemptAt: null,
+                        errorCode: 'OSS_CLEANUP_PENDING',
+                    } });
+                    if (checkpointed.count !== 1) throw new Error('Preview provider deletion checkpoint changed during disconnect');
+                    deploymentId = null;
                 }
                 await storage.deletePreview({ accountId, previewId: row.id, stagingGeneration: row.stagingGeneration });
                 const expired = await database.interactivePreview.updateMany({
-                    where: { id: row.id, accountId, status: 'deleting', cleanupClaimedAt: null, ...(deploymentId ? { vercelDeploymentId: deploymentId } : {}) },
-                    data: { status: 'expired', url: null, vercelDeploymentId: null, stagingCleanupPending: false, cleanupClaimedAt: null, cleanupNextAttemptAt: null },
+                    where: { id: row.id, accountId, status: 'deleting', cleanupClaimedAt: null, vercelDeploymentId: null, publicationAttemptId: null },
+                    data: { status: 'expired', url: null, vercelDeploymentId: null, stagingCleanupPending: false, errorCode: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null },
                 });
                 if (expired.count !== 1) throw new Error('Preview cleanup claim changed during disconnect');
             } catch {
