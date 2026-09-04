@@ -105,6 +105,13 @@ type V3GetSessionMessagesResponse = {
     hasMore: boolean;
 };
 
+type SessionOpenResolution = 'ready' | 'not-found';
+type SessionOpenPromise = Promise<SessionOpenResolution>;
+type SessionRouteOperation = {
+    sessionId: string;
+    cancelled: boolean;
+};
+
 // Sentinel used as `before_seq` for the very first backward fetch of a
 // session. It must exceed any real `seq` value the server can produce.
 // `seq` is stored as Postgres int4 on the server, so the maximum is
@@ -170,6 +177,36 @@ function deduplicateSessionSnapshots(snapshots: ApiSessionSnapshot[]): ApiSessio
     return [...byId.values()];
 }
 
+function mergeHydratedSessions(sessions: HydratedSession[]): HydratedSession {
+    let merged = sessions[0];
+    for (let index = 1; index < sessions.length; index += 1) {
+        const candidate = sessions[index];
+        const base = candidate.seq > merged.seq
+            || (candidate.seq === merged.seq && candidate.updatedAt >= merged.updatedAt)
+            ? candidate
+            : merged;
+        const metadataWinner = candidate.metadataVersion >= merged.metadataVersion
+            ? candidate
+            : merged;
+        const agentStateWinner = candidate.agentStateVersion >= merged.agentStateVersion
+            ? candidate
+            : merged;
+        if (base === merged
+            && metadataWinner === merged
+            && agentStateWinner === merged) {
+            continue;
+        }
+        merged = {
+            ...base,
+            metadata: metadataWinner.metadata,
+            metadataVersion: metadataWinner.metadataVersion,
+            agentState: agentStateWinner.agentState,
+            agentStateVersion: agentStateWinner.agentStateVersion,
+        };
+    }
+    return merged;
+}
+
 class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
@@ -179,7 +216,7 @@ class Sync {
     public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
     private sessionBootstrapSync: InvalidateSync;
-    private sessionHistorySync: InvalidateSync;
+    private sessionHistoryInFlight: Promise<void> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
     private initialSessionHistoryScheduled = false;
     private messagesSync = new Map<string, InvalidateSync>();
@@ -191,8 +228,8 @@ class Sync {
     // load older history. Set after the initial latest-page fetch and
     // advanced downward by loadOlderMessages.
     private sessionOldestSeq = new Map<string, number>();
-    private messageLoadEpoch = 0;
-    private activeOpenSession: { sessionId: string; epoch: number } | null = null;
+    private activeOpenSession: SessionRouteOperation | null = null;
+    private sessionRouteOperations = new WeakMap<SessionOpenPromise, SessionRouteOperation>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
     private sessionQueueProcessing = new Set<string>();
@@ -242,7 +279,6 @@ class Sync {
     constructor() {
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
         this.sessionBootstrapSync = new InvalidateSync(this.fetchActiveSessions);
-        this.sessionHistorySync = new InvalidateSync(this.fetchNextSessionHistoryPage);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
         this.purchasesSync = new InvalidateSync(this.syncPurchases);
@@ -1267,22 +1303,30 @@ class Sync {
         return page.hasNext ? page.nextCursor : null;
     }
 
-    private fetchNextSessionHistoryPage = async () => {
-        if (this.nextSessionHistoryCursor === null) return;
-        this.nextSessionHistoryCursor = await this.hydrateHistoricalSessionPage(
-            this.nextSessionHistoryCursor,
-        );
-    }
-
     public sessionRouteBecameInteractive = async (): Promise<void> => {
         if (this.initialSessionHistoryScheduled) return;
         this.initialSessionHistoryScheduled = true;
-        await this.sessionHistorySync.invalidateAndAwait();
+        await this.loadNextSessionHistoryPage();
     }
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
         if (this.nextSessionHistoryCursor === null) return;
-        await this.sessionHistorySync.invalidateAndAwait();
+        if (this.sessionHistoryInFlight) {
+            await this.sessionHistoryInFlight;
+            return;
+        }
+
+        const cursor = this.nextSessionHistoryCursor;
+        const request = (async () => {
+            this.nextSessionHistoryCursor = await this.hydrateHistoricalSessionPage(cursor);
+        })();
+        const trackedRequest = request.finally(() => {
+            if (this.sessionHistoryInFlight === trackedRequest) {
+                this.sessionHistoryInFlight = null;
+            }
+        });
+        this.sessionHistoryInFlight = trackedRequest;
+        await trackedRequest;
     }
 
     private fetchSessions = async () => {
@@ -1338,49 +1382,76 @@ class Sync {
      * reply could already exist while the compose page kept spinning.
      */
     public ensureSessionHydrated = async (sessionId: string): Promise<boolean> => {
+        return this.hydrateSessionSnapshot(sessionId);
+    }
+
+    private hydrateSessionSnapshot = async (
+        sessionId: string,
+        operation?: SessionRouteOperation,
+    ): Promise<boolean> => {
+        if (operation) this.assertSessionRouteCurrent(operation);
         if (!this.credentials) return false;
 
         if (storage.getState().sessions[sessionId]
             && this.encryption.getSessionEncryption(sessionId)) return true;
 
         const raw = await fetchSessionSnapshot(this.credentials, sessionId);
+        if (operation) this.assertSessionRouteCurrent(operation);
         if (!raw) return false;
 
         const hydrated = await hydrateSessionSnapshots([raw], this.encryption);
+        if (operation) this.assertSessionRouteCurrent(operation);
         if (hydrated.length !== 1) return false;
         this.applySessions(hydrated, { replace: false });
         return true;
     }
 
-    public openSession = async (sessionId: string): Promise<'ready' | 'not-found'> => {
-        const epoch = ++this.messageLoadEpoch;
-        this.activeOpenSession = { sessionId, epoch };
+    private ensureRealtimeSessionReady = async (sessionId: string): Promise<boolean> => {
+        const isReady = () => Boolean(
+            storage.getState().sessions[sessionId]
+            && this.encryption.getSessionEncryption(sessionId),
+        );
+        if (isReady()) return true;
+
+        await this.sessionBootstrapSync.awaitQueue();
+        if (isReady()) return true;
+
+        if (!await this.ensureSessionHydrated(sessionId)) return false;
+        return isReady();
+    }
+
+    public openSession = (sessionId: string): SessionOpenPromise => {
+        const operation: SessionRouteOperation = { sessionId, cancelled: false };
+        this.activeOpenSession = operation;
         const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         // A missing target can be resolved before its concurrently-started
         // message request finishes. Attach a rejection observer immediately so
         // that discarded 404/network results never become unhandled promises.
         void latestPagePromise.catch(() => undefined);
 
-        const found = await this.ensureSessionHydrated(sessionId);
-        this.assertSessionRouteCurrent(sessionId, epoch);
-        if (!found) return 'not-found';
+        const opening = (async (): SessionOpenPromise => {
+            const found = await this.hydrateSessionSnapshot(sessionId, operation);
+            this.assertSessionRouteCurrent(operation);
+            if (!found) return 'not-found';
 
-        const latestPage = await latestPagePromise;
-        this.assertSessionRouteCurrent(sessionId, epoch);
-        await this.applyLatestMessagePage(sessionId, latestPage, epoch);
-        return 'ready';
+            const latestPage = await latestPagePromise;
+            this.assertSessionRouteCurrent(operation);
+            await this.applyLatestMessagePage(sessionId, latestPage, operation);
+            return 'ready';
+        })();
+        this.sessionRouteOperations.set(opening, operation);
+        return opening;
     }
 
-    public abandonSessionRoute = (sessionId: string): void => {
-        if (this.activeOpenSession?.sessionId !== sessionId) return;
-        this.activeOpenSession = null;
-        this.messageLoadEpoch += 1;
+    public abandonSessionRoute = (sessionId: string, opening: SessionOpenPromise): void => {
+        const operation = this.sessionRouteOperations.get(opening);
+        if (!operation || operation.sessionId !== sessionId) return;
+        operation.cancelled = true;
+        if (this.activeOpenSession === operation) this.activeOpenSession = null;
     }
 
-    private assertSessionRouteCurrent(sessionId: string, epoch: number): void {
-        if (this.activeOpenSession?.sessionId !== sessionId
-            || this.activeOpenSession.epoch !== epoch
-            || this.messageLoadEpoch !== epoch) {
+    private assertSessionRouteCurrent(operation: SessionRouteOperation): void {
+        if (operation.cancelled || this.activeOpenSession !== operation) {
             throw new Error('Session route abandoned');
         }
     }
@@ -2333,9 +2404,9 @@ class Sync {
     private applyLatestMessagePage = async (
         sessionId: string,
         data: V3GetSessionMessagesResponse,
-        epoch?: number,
+        operation?: SessionRouteOperation,
     ): Promise<void> => {
-        if (epoch !== undefined) this.assertSessionRouteCurrent(sessionId, epoch);
+        if (operation) this.assertSessionRouteCurrent(operation);
         const encryption = this.encryption.getSessionEncryption(sessionId);
         if (!encryption) {
             throw new Error(`Session encryption not ready for ${sessionId}`);
@@ -2345,7 +2416,7 @@ class Sync {
         const decryptedMessages = messages.length > 0
             ? await encryption.decryptMessages(messages)
             : [];
-        if (epoch !== undefined) this.assertSessionRouteCurrent(sessionId, epoch);
+        if (operation) this.assertSessionRouteCurrent(operation);
 
         const normalizedMessages: NormalizedMessage[] = [];
         for (const decrypted of decryptedMessages) {
@@ -2559,16 +2630,11 @@ class Sync {
         if (updateData.body.t === 'new-message') {
 
             // Get encryption — may not be ready if sessions are still syncing
-            let encryption = this.encryption.getSessionEncryption(updateData.body.sid);
-            if (!encryption) {
-                await this.sessionsSync.awaitQueue();
-                encryption = this.encryption.getSessionEncryption(updateData.body.sid);
-                if (!encryption) {
-                    console.error(`Session ${updateData.body.sid} not found after sync`);
-                    this.fetchSessions();
-                    return;
-                }
+            if (!await this.ensureRealtimeSessionReady(updateData.body.sid)) {
+                console.error(`Session ${updateData.body.sid} not found after bootstrap`);
+                return;
             }
+            const encryption = this.encryption.getSessionEncryption(updateData.body.sid)!;
 
             // Decrypt message
             let lastMessage: NormalizedMessage | null = null;
@@ -2622,9 +2688,6 @@ class Sync {
                             ...(isTaskComplete ? { thinking: false } : {}),
                             ...(isTaskStarted ? { thinking: true } : {})
                         }])
-                    } else {
-                        // Fetch sessions again if we don't have this session
-                        this.fetchSessions();
                     }
 
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
@@ -2671,21 +2734,19 @@ class Sync {
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
             // Session + encryption may not be initialized yet if sessions are
-            // still syncing on startup. Mirror the new-message path: await the
-            // sessions sync queue and re-check before giving up — dropping here
-            // silently loses the metadata update that carries the chat title
-            // (#1251: every chat stuck on "New chat" after the lazy-load change).
-            let session = storage.getState().sessions[updateData.body.id];
-            let sessionEncryption = this.encryption.getSessionEncryption(updateData.body.id);
-            if (!session || !sessionEncryption) {
-                await this.sessionsSync.awaitQueue();
-                session = storage.getState().sessions[updateData.body.id];
-                sessionEncryption = this.encryption.getSessionEncryption(updateData.body.id);
+            // still hydrating on startup. Await the active bootstrap, then use
+            // one targeted snapshot if needed before applying this same event;
+            // dropping here silently loses the metadata update that carries the
+            // chat title (#1251: every chat stuck on "New chat").
+            if (!await this.ensureRealtimeSessionReady(updateData.body.id)) {
+                console.error(`Session ${updateData.body.id} not found after bootstrap`);
+                return;
             }
+            const session = storage.getState().sessions[updateData.body.id];
+            const sessionEncryption = this.encryption.getSessionEncryption(updateData.body.id);
             if (session) {
                 if (!sessionEncryption) {
-                    console.error(`Session encryption not found for ${updateData.body.id} after sync`);
-                    this.fetchSessions();
+                    console.error(`Session encryption not found for ${updateData.body.id} after bootstrap`);
                     return;
                 }
 
@@ -3187,27 +3248,23 @@ class Sync {
         options?: SessionApplyOptions,
         refreshMutationGeneration?: number,
     ) => {
-        const mergedSessions = sessions.flatMap((session) => {
+        const incomingById = new Map<string, HydratedSession[]>();
+        for (const session of sessions) {
+            const incoming = incomingById.get(session.id);
+            if (incoming) incoming.push(session);
+            else incomingById.set(session.id, [session]);
+        }
+
+        const mergedSessions = [...incomingById.entries()].flatMap(([sessionId, incoming]) => {
             const deletedAfterRefresh = options?.replace
                 && refreshMutationGeneration !== undefined
-                && (this.sessionDeletionMutationGenerations.get(session.id) ?? 0) > refreshMutationGeneration;
+                && (this.sessionDeletionMutationGenerations.get(sessionId) ?? 0) > refreshMutationGeneration;
             if (deletedAfterRefresh) return [];
 
-            const existing = storage.getState().sessions[session.id];
-            if (!existing) return [session];
-            if (session.seq < existing.seq) return options?.replace ? [existing] : [];
-
-            return [{
-                ...session,
-                metadata: session.metadataVersion < existing.metadataVersion
-                    ? existing.metadata
-                    : session.metadata,
-                metadataVersion: Math.max(session.metadataVersion, existing.metadataVersion),
-                agentState: session.agentStateVersion < existing.agentStateVersion
-                    ? existing.agentState
-                    : session.agentState,
-                agentStateVersion: Math.max(session.agentStateVersion, existing.agentStateVersion),
-            }];
+            const existing = storage.getState().sessions[sessionId];
+            const merged = mergeHydratedSessions(existing ? [existing, ...incoming] : incoming);
+            if (!options?.replace && existing && merged === existing) return [];
+            return [merged];
         });
 
         if (options?.replace && refreshMutationGeneration !== undefined) {

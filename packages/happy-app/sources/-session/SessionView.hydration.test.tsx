@@ -246,7 +246,7 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { renderer.update(<SessionView id="second-session" />); });
         await act(async () => { first.resolve('not-found'); await first.promise; });
 
-        expect(mocks.abandonSessionRoute).toHaveBeenCalledWith('first-session');
+        expect(mocks.abandonSessionRoute).toHaveBeenCalledWith('first-session', first.promise);
         expect(renderer.root.findByProps({ testID: 'session-loading' })).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
         second.resolve('ready');

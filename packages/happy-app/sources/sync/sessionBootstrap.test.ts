@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
             isLoadingOlder: boolean;
         }>,
         readyCount: 0,
+        settings: { expImageUpload: false },
         getActiveSessions: () => Object.values(state.sessions).filter((session) => session.active),
         applyReady: () => { state.readyCount += 1; },
         applySessions: (sessions: HydratedSession[], options?: { replace?: boolean }) => {
@@ -54,6 +55,7 @@ const mocks = vi.hoisted(() => {
             const existing = state.sessionMessages[sessionId];
             if (existing) existing.isLoadingOlder = loading;
         },
+        isMutableToolCall: () => false,
     };
     return {
         apiRequest: vi.fn(),
@@ -111,6 +113,7 @@ vi.mock('@/realtime/hooks/voiceHooks', () => ({
         onPermissionRequested: vi.fn(),
         onMessages: vi.fn(),
         onReady: vi.fn(),
+        onSessionFocus: vi.fn(),
     },
 }));
 vi.mock('react-native', () => ({
@@ -129,6 +132,8 @@ vi.mock('expo-secure-store', () => ({
 import { sync } from './sync';
 
 const syncForTest = sync as any;
+const originalSessionsSync = syncForTest.sessionsSync;
+const originalFetchSessions = syncForTest.fetchSessions;
 
 function snapshot(id: string, overrides: Partial<ApiSessionSnapshot> = {}): ApiSessionSnapshot {
     return {
@@ -151,7 +156,9 @@ function hydrated(raw: ApiSessionSnapshot): HydratedSession {
     return {
         ...raw,
         metadata: { path: `/${raw.id}`, host: 'test', name: raw.metadata } as any,
-        agentState: raw.agentState ? { controlledByUser: false } : null,
+        agentState: raw.agentState
+            ? { controlledByUser: false, marker: raw.agentState } as any
+            : null,
         thinking: false,
         thinkingAt: 0,
     };
@@ -183,24 +190,40 @@ describe('active-first session bootstrap', () => {
         mocks.fetchSnapshot.mockResolvedValue(null);
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         syncForTest.credentials = { token: 'test-token', secret: 'test-secret' };
-        const sessionEncryptions = new Map<string, { decryptMessages: ReturnType<typeof vi.fn> }>();
+        const sessionEncryptions = new Map<string, {
+            decryptMessage: ReturnType<typeof vi.fn>;
+            decryptMessages: ReturnType<typeof vi.fn>;
+            decryptMetadata: ReturnType<typeof vi.fn>;
+            decryptAgentState: ReturnType<typeof vi.fn>;
+        }>();
         syncForTest.encryption = {
             getSessionEncryption: vi.fn((id: string) => sessionEncryptions.get(id) ?? null),
             removeSessionEncryption: vi.fn(),
         };
         mocks.hydrate.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => {
             for (const item of snapshots) {
-                sessionEncryptions.set(item.id, { decryptMessages: vi.fn(async () => []) });
+                sessionEncryptions.set(item.id, {
+                    decryptMessage: vi.fn(async (message) => ({
+                        id: message.id,
+                        localId: message.localId,
+                        createdAt: message.createdAt,
+                        content: { role: 'user', content: { type: 'text', text: 'Realtime message' } },
+                    })),
+                    decryptMessages: vi.fn(async () => []),
+                    decryptMetadata: vi.fn(async () => ({ name: 'Realtime title' })),
+                    decryptAgentState: vi.fn(async () => null),
+                });
             }
             return snapshots.map(hydrated);
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
-        syncForTest.messageLoadEpoch = 0;
         syncForTest.activeOpenSession = null;
     });
 
     afterEach(() => {
+        syncForTest.sessionsSync = originalSessionsSync;
+        syncForTest.fetchSessions = originalFetchSessions;
         vi.unstubAllGlobals();
     });
 
@@ -263,6 +286,54 @@ describe('active-first session bootstrap', () => {
         expect(mocks.state.sessions['historical-session']).toBeDefined();
     });
 
+    it('coalesces pending history requests without automatically consuming the next cursor', async () => {
+        const firstPage = deferred<{ sessions: ApiSessionSnapshot[]; nextCursor: string | null; hasNext: boolean }>();
+        const secondPage = deferred<{ sessions: ApiSessionSnapshot[]; nextCursor: string | null; hasNext: boolean }>();
+        mocks.fetchPage
+            .mockReturnValueOnce(firstPage.promise)
+            .mockReturnValueOnce(secondPage.promise);
+        await syncForTest.bootstrapSessions();
+
+        const initial = syncForTest.sessionRouteBecameInteractive();
+        const repeatedInteractive = syncForTest.sessionRouteBecameInteractive();
+        const repeatedNearEnd = [
+            syncForTest.loadNextSessionHistoryPage(),
+            syncForTest.loadNextSessionHistoryPage(),
+        ];
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
+
+        firstPage.resolve({
+            sessions: [snapshot('history-page-1', { active: false })],
+            nextCursor: 'cursor-page-2',
+            hasNext: true,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.state.sessions['history-page-1']).toBeDefined();
+        });
+        const callsAfterFirstPage = mocks.fetchPage.mock.calls.length;
+        secondPage.resolve({
+            sessions: [snapshot('history-page-2', { active: false })],
+            nextCursor: null,
+            hasNext: false,
+        });
+        await Promise.all([initial, repeatedInteractive, ...repeatedNearEnd]);
+
+        expect(callsAfterFirstPage).toBe(1);
+        expect(mocks.state.sessions['history-page-2']).toBeUndefined();
+
+        await Promise.all([
+            syncForTest.loadNextSessionHistoryPage(),
+            syncForTest.loadNextSessionHistoryPage(),
+        ]);
+
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(2);
+        expect(mocks.fetchPage).toHaveBeenLastCalledWith(syncForTest.credentials, {
+            cursor: 'cursor-page-2',
+            limit: 50,
+        });
+        expect(mocks.state.sessions['history-page-2']).toBeDefined();
+    });
+
     it('keeps newer store fields when an older history page arrives', async () => {
         mocks.state.sessions['same-session'] = hydrated(snapshot('same-session', {
             seq: 9,
@@ -292,6 +363,148 @@ describe('active-first session bootstrap', () => {
             agentStateVersion: 7,
         });
     });
+
+    it('merges duplicate sessions independently by seq, metadata version, and agent-state version in either order', () => {
+        const baseWinner = hydrated(snapshot('mixed-session', {
+            seq: 20,
+            updatedAt: 200,
+            metadata: 'base metadata',
+            metadataVersion: 2,
+            agentState: 'base agent state',
+            agentStateVersion: 3,
+        }));
+        const metadataWinner = hydrated(snapshot('mixed-session', {
+            seq: 5,
+            updatedAt: 50,
+            metadata: 'winning metadata',
+            metadataVersion: 30,
+            agentState: 'middle agent state',
+            agentStateVersion: 10,
+        }));
+        const agentStateWinner = hydrated(snapshot('mixed-session', {
+            seq: 7,
+            updatedAt: 70,
+            metadata: 'middle metadata',
+            metadataVersion: 11,
+            agentState: 'winning agent state',
+            agentStateVersion: 40,
+        }));
+
+        for (const incoming of [
+            [metadataWinner, agentStateWinner],
+            [agentStateWinner, metadataWinner],
+        ]) {
+            mocks.state.sessions = { 'mixed-session': baseWinner };
+
+            syncForTest.applySessions(incoming, { replace: false });
+
+            expect(mocks.state.sessions['mixed-session']).toMatchObject({
+                seq: 20,
+                updatedAt: 200,
+                metadataVersion: 30,
+                metadata: { name: 'winning metadata' },
+                agentStateVersion: 40,
+                agentState: { marker: 'winning agent state' },
+            });
+        }
+    });
+
+    it('continues startup realtime events after their active-session bootstrap resolves', async () => {
+        const active = deferred<ApiSessionSnapshot[]>();
+        const legacyAwait = vi.fn(async () => undefined);
+        const legacyFetch = vi.fn();
+        const onSessionVisible = vi.spyOn(syncForTest, 'onSessionVisible').mockImplementation(() => undefined);
+        mocks.fetchActive.mockReturnValue(active.promise);
+        syncForTest.sessionsSync = { awaitQueue: legacyAwait };
+        syncForTest.fetchSessions = legacyFetch;
+
+        const bootstrapping = syncForTest.bootstrapSessions();
+        const messageUpdate = syncForTest.handleUpdate({
+            id: 'message-update',
+            seq: 11,
+            createdAt: 110,
+            body: {
+                t: 'new-message',
+                sid: 'startup-session',
+                message: {
+                    id: 'message-11',
+                    seq: 11,
+                    localId: null,
+                    content: { t: 'encrypted', c: 'message-ciphertext' },
+                    createdAt: 110,
+                    updatedAt: 110,
+                },
+            },
+        });
+        const sessionUpdate = syncForTest.handleUpdate({
+            id: 'session-update',
+            seq: 12,
+            createdAt: 120,
+            body: {
+                t: 'update-session',
+                id: 'startup-session',
+                metadata: { version: 4, value: 'metadata-ciphertext' },
+                agentState: null,
+            },
+        });
+        await Promise.resolve();
+
+        expect(mocks.state.sessions['startup-session']).toBeUndefined();
+        active.resolve([snapshot('startup-session')]);
+        await Promise.all([bootstrapping, messageUpdate, sessionUpdate]);
+
+        const encryption = syncForTest.encryption.getSessionEncryption('startup-session');
+        expect(encryption.decryptMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 'message-11' }));
+        expect(encryption.decryptMetadata).toHaveBeenCalledWith(4, 'metadata-ciphertext');
+        expect(mocks.state.sessions['startup-session']).toMatchObject({
+            seq: 12,
+            metadataVersion: 4,
+            metadata: { name: 'Realtime title' },
+        });
+        expect(legacyAwait).not.toHaveBeenCalled();
+        expect(legacyFetch).not.toHaveBeenCalled();
+        onSessionVisible.mockRestore();
+    });
+
+    it('target-hydrates a startup realtime session once when active bootstrap does not contain it', async () => {
+        const active = deferred<ApiSessionSnapshot[]>();
+        const legacyAwait = vi.fn(async () => undefined);
+        const legacyFetch = vi.fn();
+        const onSessionVisible = vi.spyOn(syncForTest, 'onSessionVisible').mockImplementation(() => undefined);
+        mocks.fetchActive.mockReturnValue(active.promise);
+        mocks.fetchSnapshot.mockResolvedValue(snapshot('late-session'));
+        syncForTest.sessionsSync = { awaitQueue: legacyAwait };
+        syncForTest.fetchSessions = legacyFetch;
+
+        const bootstrapping = syncForTest.bootstrapSessions();
+        const handling = syncForTest.handleUpdate({
+            id: 'late-session-update',
+            seq: 8,
+            createdAt: 80,
+            body: {
+                t: 'update-session',
+                id: 'late-session',
+                metadata: { version: 5, value: 'metadata-ciphertext' },
+                agentState: null,
+            },
+        });
+        await Promise.resolve();
+        expect(mocks.fetchSnapshot).not.toHaveBeenCalled();
+
+        active.resolve([]);
+        await Promise.all([bootstrapping, handling]);
+
+        expect(mocks.fetchSnapshot).toHaveBeenCalledTimes(1);
+        expect(mocks.fetchSnapshot).toHaveBeenCalledWith(syncForTest.credentials, 'late-session');
+        expect(mocks.state.sessions['late-session']).toMatchObject({
+            seq: 8,
+            metadataVersion: 5,
+            metadata: { name: 'Realtime title' },
+        });
+        expect(legacyAwait).not.toHaveBeenCalled();
+        expect(legacyFetch).not.toHaveBeenCalled();
+        onSessionVisible.mockRestore();
+    });
 });
 
 describe('deep-link session opening', () => {
@@ -314,7 +527,6 @@ describe('deep-link session opening', () => {
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
-        syncForTest.messageLoadEpoch = 0;
         syncForTest.activeOpenSession = null;
     });
 
@@ -373,11 +585,58 @@ describe('deep-link session opening', () => {
         await vi.waitFor(() => {
             expect(mocks.state.sessions['abandoned-session']).toBeDefined();
         });
-        syncForTest.abandonSessionRoute('abandoned-session');
+        syncForTest.abandonSessionRoute('abandoned-session', opening);
         latest.resolve(response({ messages: [], hasMore: false }));
 
         await expect(opening).rejects.toThrow('abandoned');
         expect(mocks.state.sessionMessages['abandoned-session']).toBeUndefined();
         expect(syncForTest.getSessionLastMessageSeq('abandoned-session')).toBeNull();
+    });
+
+    it('does not mutate session state when the route is abandoned before its snapshot resolves', async () => {
+        const target = deferred<ApiSessionSnapshot | null>();
+        mocks.fetchSnapshot.mockReturnValue(target.promise);
+        mocks.apiRequest.mockResolvedValue(response({
+            messages: [
+                { id: 'message-4', seq: 4, localId: null, createdAt: 40, updatedAt: 40, content: 'ciphertext' },
+            ],
+            hasMore: true,
+        }));
+
+        const opening = syncForTest.openSession('cancelled-session');
+        syncForTest.abandonSessionRoute('cancelled-session', opening);
+        target.resolve(snapshot('cancelled-session'));
+
+        await expect(opening).rejects.toThrow('abandoned');
+        expect(mocks.state.sessions['cancelled-session']).toBeUndefined();
+        expect(syncForTest.encryption.getSessionEncryption('cancelled-session')).toBeNull();
+        expect(mocks.state.sessionMessages['cancelled-session']).toBeUndefined();
+        expect(syncForTest.getSessionLastMessageSeq('cancelled-session')).toBeNull();
+        expect(syncForTest.sessionOldestSeq.has('cancelled-session')).toBe(false);
+    });
+
+    it('does not let an old same-session cleanup cancel a newer open operation', async () => {
+        const oldTarget = deferred<ApiSessionSnapshot | null>();
+        const newLatest = deferred<Response>();
+        mocks.fetchSnapshot
+            .mockReturnValueOnce(oldTarget.promise)
+            .mockResolvedValueOnce(snapshot('same-session'));
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [], hasMore: false }))
+            .mockReturnValueOnce(newLatest.promise);
+
+        const oldOpening = syncForTest.openSession('same-session');
+        const newOpening = syncForTest.openSession('same-session');
+        await vi.waitFor(() => {
+            expect(mocks.state.sessions['same-session']).toBeDefined();
+        });
+
+        syncForTest.abandonSessionRoute('same-session', oldOpening);
+        newLatest.resolve(response({ messages: [], hasMore: false }));
+
+        await expect(newOpening).resolves.toBe('ready');
+        oldTarget.resolve(snapshot('same-session', { seq: 1 }));
+        await expect(oldOpening).rejects.toThrow('abandoned');
+        expect(mocks.state.sessionMessages['same-session']).toMatchObject({ isLoaded: true });
     });
 });

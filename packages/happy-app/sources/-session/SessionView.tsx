@@ -484,7 +484,8 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     React.useEffect(() => {
         let cancelled = false;
         setSessionResolution(session ? 'ready' : 'loading');
-        void sync.openSession(sessionId).then((resolution) => {
+        const opening = sync.openSession(sessionId);
+        void opening.then((resolution) => {
             if (cancelled) return;
             setSessionResolution(resolution);
             if (resolution === 'ready') {
@@ -496,7 +497,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         });
         return () => {
             cancelled = true;
-            sync.abandonSessionRoute(sessionId);
+            sync.abandonSessionRoute(sessionId, opening);
         };
         // `session` intentionally is not a dependency: hydration inserts the
         // target into the store before its concurrently-started message page
