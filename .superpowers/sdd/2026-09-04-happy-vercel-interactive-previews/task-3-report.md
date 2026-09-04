@@ -166,3 +166,80 @@ PGLITE_DIR=/tmp/happy-preview-pglite.<random> \
   pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
 Applied 42 migration(s)
 ```
+
+## Cluster C review-fix follow-up: persisted provider boundaries
+
+`interactivePreview.integration.spec.ts` now replaces its Map database and
+in-process S3 fake with a deterministic persisted-boundary harness:
+
+- Each case applies all current migrations to a fresh on-disk PGlite directory,
+  opens Prisma through the production PGlite adapter, and creates authenticated
+  account/session fixtures. Restart cases close Fastify, Prisma, and PGlite,
+  then recreate all three objects against that same directory.
+- A local HTTP S3-compatible server is driven by the production MinIO client
+  and `createPreviewStorage`. It implements only bucket-region discovery,
+  policy POST upload, HEAD/GET, prefix listing, and multi-object deletion;
+  tests assert the private bucket, persisted opaque key, exact uploaded body,
+  and object size at the HTTP boundary.
+- A local HTTP Vercel server is driven solely by `createVercelClient`. It
+  verifies bearer scope, serial file upload behavior, deployment metadata
+  reconciliation, creation, and deletion/retry responses. The fixture uses
+  the production encrypted credential repository/store and confirms distinct
+  account-scoped encryption paths and ciphertext records.
+
+### Persisted integration cases
+
+| Case | Boundary assertion |
+| --- | --- |
+| Draft → upload → publish | Authenticated routes issue direct presigned S3 POST descriptors; completion HEAD-checks exact bytes; production Vercel uploads assets one at a time; the typed ready event is returned and the exact staging prefix is empty. |
+| Global publication cap | Three persisted previews hold at two simultaneous Vercel create requests; duplicate in-flight publication returns `publishing` and creates no extra deployment. |
+| Restart/reconciliation | A stale persisted `publishing` attempt is recovered after app/database recreation, reconciled by both Vercel metadata keys without a new create, then a restarted deletion tombstone obeys `nextAttemptAt` before provider and S3 cleanup. |
+| Delete/prune/ownership | Explicit deletion survives provider failure as a retry tombstone, expires after the due retry, and is pruned after 30 days; cross-account and cross-session list/complete/publish/delete calls receive 404. |
+| Ready staging retry | A failed staging delete stays `ready` with its live deployment; cleanup retries only staging and never deletes the provider deployment before expiry. |
+
+### Cluster C red/green evidence
+
+The first replacement run failed before implementation of the test harness was
+complete: fresh 42-migration PGlite setup exceeded Vitest's five-second default
+test timeout, canonical persisted asset ordering invalidated a manifest-order
+assumption, and concurrent fake deployment responses accidentally reused an ID.
+The harness now gives the migration cases a bounded 30-second allowance,
+asserts persisted ordering, and allocates a deployment ID when the provider
+request arrives. The resulting cases exercise production behavior rather than
+test doubles.
+
+### Cluster C verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/interactivePreview.integration.spec.ts
+
+Test Files  1 passed (1)
+Tests       5 passed (5)
+
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts
+
+Test Files  9 passed (9)
+Tests       96 passed (96)
+
+pnpm --dir packages/happy-server run typecheck
+exit 0
+
+PGLITE_DIR=/tmp/happy-task3-pglite.<random> \\
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 42 migration(s), including 20260904090000_add_interactive_previews,
+20260904100000_add_interactive_preview_cleanup_retries, and
+20260904110000_harden_interactive_preview_lifecycle.
+
+git diff --check
+exit 0
+```
