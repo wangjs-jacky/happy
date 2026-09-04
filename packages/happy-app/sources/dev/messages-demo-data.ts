@@ -257,6 +257,69 @@ const GENERATED_BATCH_DEMO_THUMBHASHES = [
 
 const GENERATED_BATCH_DEMO_IMAGE_REF = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+const AGENT_OUTPUT_DEMO_IMAGE_REFS = [
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2n8sAAAAASUVORK5CYII=',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+] as const;
+
+/** Reproduces ordinary terminal image output written by older send_image calls. */
+export function createAgentOutputImageDemoMessages(): Message[] {
+    const baseTime = Date.now() - 5_000;
+    return [
+        {
+            id: 'agent-output-image-2',
+            localId: null,
+            createdAt: baseTime + 2_000,
+            kind: 'tool-call',
+            tool: {
+                name: 'file',
+                state: 'completed',
+                input: {
+                    ref: AGENT_OUTPUT_DEMO_IMAGE_REFS[1],
+                    name: 'pr-after.png',
+                    source: 'generated',
+                    batchId: 'legacy-random-batch-b',
+                    image: { width: 1600, height: 900 },
+                },
+                createdAt: baseTime + 2_000,
+                startedAt: baseTime + 2_000,
+                completedAt: baseTime + 2_050,
+                description: 'PR 页面修复后截图',
+            },
+            children: [],
+        },
+        {
+            id: 'agent-output-image-1',
+            localId: null,
+            createdAt: baseTime + 1_000,
+            kind: 'tool-call',
+            tool: {
+                name: 'file',
+                state: 'completed',
+                input: {
+                    ref: AGENT_OUTPUT_DEMO_IMAGE_REFS[0],
+                    name: 'pr-before.png',
+                    source: 'generated',
+                    batchId: 'legacy-random-batch-a',
+                    image: { width: 1600, height: 900 },
+                },
+                createdAt: baseTime + 1_000,
+                startedAt: baseTime + 1_000,
+                completedAt: baseTime + 1_050,
+                description: 'PR 页面修复前截图',
+            },
+            children: [],
+        },
+        {
+            id: 'agent-output-user',
+            localId: null,
+            createdAt: baseTime,
+            kind: 'user-text',
+            text: '请检查 PR 页面，并把修复前后的截图发到终端。',
+        },
+    ];
+}
+
 /**
  * Deterministic browser fixture for the incremental generated-image batch E2E.
  * Progress messages deliberately sit between file events so the real grouping
