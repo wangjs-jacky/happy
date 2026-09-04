@@ -158,6 +158,35 @@ describe('ImageViewer motion photos', () => {
         act(() => renderer.unmount());
     });
 
+    it('offers explicit desktop previous and next controls for a multi-image gallery', () => {
+        let renderer: any;
+        act(() => {
+            renderer = TestRenderer.create(
+                <ImageViewer
+                    sources={[
+                        { uri: 'data:image/jpeg;base64,AA==', filename: 'first.jpg' },
+                        { uri: 'data:image/jpeg;base64,BB==', filename: 'second.jpg' },
+                    ]}
+                    initialIndex={0}
+                    onClose={() => {}}
+                />,
+            );
+        });
+
+        const previous = renderer.root.findByProps({ testID: 'image-viewer-previous' });
+        const next = renderer.root.findByProps({ testID: 'image-viewer-next' });
+        expect(previous.props.disabled).toBe(true);
+        expect(next.props.disabled).toBe(false);
+
+        act(() => next.props.onPress());
+
+        expect(renderer.root.findByProps({ testID: 'image-viewer-previous' }).props.disabled).toBe(false);
+        expect(renderer.root.findByProps({ testID: 'image-viewer-next' }).props.disabled).toBe(true);
+        expect(renderer.root.findByProps({ testID: 'image-viewer' }).findAllByProps({ testID: 'image-viewer-image' }))
+            .toHaveLength(1);
+        act(() => renderer.unmount());
+    });
+
     it('shows the state-aware motion tooltip on hover and keyboard focus', async () => {
         let renderer: any;
         await act(async () => {

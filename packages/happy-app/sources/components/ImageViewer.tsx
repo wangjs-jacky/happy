@@ -169,6 +169,13 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
         onClose();
     }, [onClose, stopMotionPhoto]);
 
+    const navigateTo = React.useCallback((index: number) => {
+        const next = Math.max(0, Math.min(index, sources.length - 1));
+        if (next === currentIndex) return;
+        setCurrentIndex(next);
+        scrollRef.current?.scrollTo({ x: next * screenW, y: 0, animated: true });
+    }, [currentIndex, screenW, sources.length]);
+
     const handleDownload = React.useCallback(() => {
         if (!currentSource || downloadBusy) return;
         setDownloadBusy(true);
@@ -244,6 +251,39 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                 <View style={[styles.counter, { top: insets.top + 14, pointerEvents: 'none' }]}>
                     <Text style={styles.counterText}>{currentIndex + 1} / {sources.length}</Text>
                 </View>
+            )}
+
+            {Platform.OS === 'web' && !single && (
+                <>
+                    <Pressable
+                        testID="image-viewer-previous"
+                        onPress={() => navigateTo(currentIndex - 1)}
+                        disabled={currentIndex === 0}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('common.back')}
+                        style={[
+                            styles.navigationButton,
+                            styles.previousButton,
+                            currentIndex === 0 && styles.navigationButtonDisabled,
+                        ]}
+                    >
+                        <Ionicons name="chevron-back" size={28} color="#fff" />
+                    </Pressable>
+                    <Pressable
+                        testID="image-viewer-next"
+                        onPress={() => navigateTo(currentIndex + 1)}
+                        disabled={currentIndex === sources.length - 1}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('common.continue')}
+                        style={[
+                            styles.navigationButton,
+                            styles.nextButton,
+                            currentIndex === sources.length - 1 && styles.navigationButtonDisabled,
+                        ]}
+                    >
+                        <Ionicons name="chevron-forward" size={28} color="#fff" />
+                    </Pressable>
+                </>
             )}
 
             <View style={[styles.topActions, { top: insets.top + 8 }]}>
@@ -546,6 +586,26 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
+    },
+    navigationButton: {
+        position: 'absolute',
+        top: '50%',
+        marginTop: -24,
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(0,0,0,0.48)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    previousButton: {
+        left: 16,
+    },
+    nextButton: {
+        right: 16,
+    },
+    navigationButtonDisabled: {
+        opacity: 0.28,
     },
     iconButton: {
         width: 40,

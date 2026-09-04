@@ -770,6 +770,32 @@ describe('useGroupedMessages', () => {
         ]);
     });
 
+    it('groups unprompted agent output images into one featured gallery despite legacy batch ids', () => {
+        const messages: Message[] = [
+            fileMessage('output-new', 6, { source: 'generated', batchId: 'legacy-random-b' }),
+            fileMessage('output-old', 5, { source: 'generated', batchId: 'legacy-random-a' }),
+            {
+                kind: 'user-text',
+                id: 'user',
+                localId: null,
+                createdAt: 4,
+                text: '请检查 PR 页面并把两张验收截图发到终端。',
+            },
+        ];
+
+        const galleries = groupMessagesForDisplay(messages, true)
+            .filter((item) => item.type === 'image-group');
+
+        expect(galleries).toHaveLength(1);
+        expect(galleries[0]).toMatchObject({
+            presentation: 'featured',
+            messages: [
+                { id: 'output-old' },
+                { id: 'output-new' },
+            ],
+        });
+    });
+
     it('keeps the same generated batch id in separate galleries across turns', () => {
         const messages: Message[] = [
             fileMessage('current-generated', 9, { source: 'generated', batchId: 'shared-batch' }),

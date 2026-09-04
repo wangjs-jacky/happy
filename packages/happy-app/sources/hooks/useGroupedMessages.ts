@@ -348,13 +348,24 @@ function getImageAgentPresentationState(
 }
 
 function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
-    if (messages.some(isGeneratedImageAttachment)) return 'generated-grid';
+    if (messages.some(isGeneratedImageAttachment)) {
+        if (messages.some((message) => hasGeneratedImagePrompt(message) || featuredAttachmentIds.has(message.id))) {
+            return 'generated-grid';
+        }
+        return 'featured';
+    }
     return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
 }
 
 function isGeneratedImageAttachment(message: Message): boolean {
     if (!isImageAttachment(message) || message.kind !== 'tool-call') return false;
     return isGeneratedImageFileInput(message.tool.input);
+}
+
+function hasGeneratedImagePrompt(message: Message): boolean {
+    if (message.kind !== 'tool-call') return false;
+    const prompt = message.tool.input?.prompt;
+    return typeof prompt === 'string' && prompt.trim().length > 0;
 }
 
 function getPendingStateForImageGroup(
@@ -553,9 +564,29 @@ function collectImageAttachmentGroups(
         ),
     );
     const batchGroups = new Map<string, { indexes: number[]; msgs: Message[] }>();
+    const imageAgentTurns = new Set<number>();
+
+    for (let index = 0; index < messages.length; index++) {
+        const message = messages[index];
+        if (message.kind === 'user-text' && isGeneratedImageBatchPromptText(message.text)) {
+            imageAgentTurns.add(turnOf[index]);
+        }
+    }
 
     for (let index = 0; index < messages.length; index++) {
         if (hiddenWorkIndexes.has(index) || !isImageAttachment(messages[index])) continue;
+        if (
+            isGeneratedImageAttachment(messages[index])
+            && !hasGeneratedImagePrompt(messages[index])
+            && !imageAgentTurns.has(turnOf[index])
+        ) {
+            const key = `${turnOf[index]}:agent-output`;
+            const group = batchGroups.get(key) ?? { indexes: [], msgs: [] };
+            group.indexes.push(index);
+            group.msgs.push(messages[index]);
+            batchGroups.set(key, group);
+            continue;
+        }
         const batchId = getImageAttachmentBatchId(messages[index]);
         if (!batchId) continue;
         const key = `${turnOf[index]}:${batchId}`;
