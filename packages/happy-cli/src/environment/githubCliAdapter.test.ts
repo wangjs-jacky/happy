@@ -20,6 +20,12 @@ type InspectionResults = {
   authStatus: ProcessResult;
 };
 
+type TestDepsOptions = {
+  brewPath?: string | null;
+  ghPath?: string | null;
+  applyResults?: ProcessResult[];
+};
+
 function desired(version: string): DesiredComponentState {
   return { componentId: 'github-cli', targetVersion: version };
 }
@@ -39,12 +45,21 @@ function observation(installedVersion: string | null, stableVersion: string | nu
   };
 }
 
-function testDeps(results: InspectionResults): GitHubCliAdapterDeps & { invocations: Invocation[] } {
+function testDeps(
+  results: InspectionResults,
+  options: TestDepsOptions = {},
+): GitHubCliAdapterDeps & { invocations: Invocation[] } {
   const queue = [results.ghVersion, results.brewInfo, results.authStatus];
+  const applyResults = [...(options.applyResults ?? [])];
   const invocations: Invocation[] = [];
   const runner: ProcessRunner = {
     async run(executable, args, options) {
       invocations.push({ executable, args: [...args], options });
+      if (options.timeoutMs === 8 * 60_000) {
+        const applyResult = applyResults.shift();
+        if (applyResult === undefined) throw new Error('unexpected package operation');
+        return applyResult;
+      }
       const result = queue.shift();
       if (result === undefined) throw new Error('unexpected process invocation');
       return result;
@@ -53,7 +68,10 @@ function testDeps(results: InspectionResults): GitHubCliAdapterDeps & { invocati
 
   return {
     runner,
-    resolveExecutable: async (name) => name === 'brew' ? '/opt/homebrew/bin/brew' : '/opt/homebrew/bin/gh',
+    resolveExecutable: async (name) => {
+      if (name === 'brew') return options.brewPath === undefined ? '/opt/homebrew/bin/brew' : options.brewPath;
+      return options.ghPath === undefined ? '/opt/homebrew/bin/gh' : options.ghPath;
+    },
     env: {
       PATH: '/test/bin',
       GH_TOKEN: 'temporary-token',
@@ -114,8 +132,26 @@ describe('GitHub CLI environment adapter', () => {
     expect(adapter.plan(desired('2.80.0'), observation('2.81.0', '2.80.0'), 1_000)).toMatchObject({
       action: 'manual-repair', reasonCode: 'version-ahead',
     });
-    expect(adapter.plan(desired('2.80.0'), observation('2.79.0', '2.80.0'), 1_000).planFingerprint)
-      .toMatch(/^[a-f0-9]{64}$/u);
+    const baseline = adapter.plan(desired('2.80.0'), observation('2.79.0', '2.80.0'), 1_000).planFingerprint;
+    expect(baseline).toMatch(/^[a-f0-9]{64}$/u);
+    expect(adapter.plan(desired('2.80.0'), {
+      ...observation('2.79.0', '2.80.0'),
+      authentication: { provider: 'github.com', status: 'missing' },
+      inspectedAt: 2_000,
+    }, 1_000).planFingerprint).toBe(baseline);
+    expect(adapter.plan(desired('2.81.0'), observation('2.79.0', '2.80.0'), 1_000).planFingerprint).not.toBe(baseline);
+    expect(adapter.plan(desired('2.80.0'), {
+      ...observation('2.79.1', '2.80.0'),
+    }, 1_000).planFingerprint).not.toBe(baseline);
+    expect(adapter.plan(desired('2.80.0'), {
+      ...observation('2.79.0', '2.80.0'),
+      resolvedExecutable: '/custom/bin/gh',
+    }, 1_000).planFingerprint).not.toBe(baseline);
+    expect(adapter.plan(desired('2.80.0'), observation('2.79.0', '2.81.0'), 1_000).planFingerprint).not.toBe(baseline);
+    expect(adapter.plan(desired('2.80.0'), {
+      ...observation('2.79.0', '2.80.0'),
+      packageManager: { kind: 'homebrew', available: false, stableVersion: '2.80.0' },
+    }, 1_000).planFingerprint).not.toBe(baseline);
   });
 
   it('refuses unsupported states and version-source mismatches', async () => {
@@ -146,5 +182,86 @@ describe('GitHub CLI environment adapter', () => {
     expect(parseGitHubCliVersion('GitHub CLI version 2.80.0')).toBeNull();
     expect(parseHomebrewStableVersion('{"formulae":[{"versions":{"stable":"2.80.0"}}]}')).toBe('2.80.0');
     expect(parseHomebrewStableVersion('{"formulae":[]}')).toBeNull();
+  });
+
+  it('requires the resolved gh executable to be owned by the selected Homebrew installation', async () => {
+    const deps = testDeps({
+      ghVersion: { exitCode: 0, stdout: 'gh version 2.79.0 (2026-08-20)\n', stderr: '', timedOut: false },
+      brewInfo: { exitCode: 0, stdout: '{"formulae":[{"versions":{"stable":"2.80.0"}}]}', stderr: '', timedOut: false },
+      authStatus: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+    }, { ghPath: '/custom/bin/gh' });
+    const adapter = createGitHubCliAdapter(deps);
+
+    const observed = await adapter.inspect();
+
+    expect(observed).toMatchObject({
+      resolvedExecutable: '/custom/bin/gh',
+      reasonCode: 'version-source-mismatch',
+    });
+    expect(adapter.plan(desired('2.80.0'), observed, 1_000)).toMatchObject({
+      action: 'manual-repair', reasonCode: 'version-source-mismatch',
+    });
+  });
+
+  it('requires a version before treating a resolved executable as installable', async () => {
+    const adapter = createGitHubCliAdapter(testDeps({
+      ghVersion: { exitCode: 0, stdout: 'gh version 2.81.0-rc1\n', stderr: '', timedOut: false },
+      brewInfo: { exitCode: 0, stdout: '{"formulae":[{"versions":{"stable":"2.80.0"}}]}', stderr: '', timedOut: false },
+      authStatus: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+    }));
+
+    const observed = await adapter.inspect();
+
+    expect(observed).toMatchObject({ installed: true, installedVersion: null });
+    expect(adapter.plan(desired('2.80.0'), observed, 1_000)).toMatchObject({
+      action: 'manual-repair', reasonCode: 'unexpected-error',
+    });
+  });
+
+  it('runs only fixed Homebrew operations and rejects non-actionable plans', async () => {
+    const deps = testDeps({
+      ghVersion: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+      brewInfo: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+      authStatus: { exitCode: 0, stdout: '', stderr: '', timedOut: false },
+    }, {
+      applyResults: [
+        { exitCode: 0, stdout: 'installed', stderr: '', timedOut: false },
+        { exitCode: 0, stdout: 'upgraded', stderr: '', timedOut: false },
+      ],
+    });
+    const adapter = createGitHubCliAdapter(deps);
+    const install = adapter.plan(desired('2.80.0'), observation(null, '2.80.0'), 1_000);
+    const upgrade = adapter.plan(desired('2.80.0'), observation('2.79.0', '2.80.0'), 1_000);
+    const noOp = adapter.plan(desired('2.80.0'), observation('2.80.0', '2.80.0'), 1_000);
+    const manualRepair = adapter.plan(desired('2.80.0'), observation('2.81.0', '2.80.0'), 1_000);
+
+    await expect(adapter.apply(install)).resolves.toMatchObject({ stdout: 'installed' });
+    await expect(adapter.apply(upgrade)).resolves.toMatchObject({ stdout: 'upgraded' });
+    const packageInvocations = deps.invocations.filter(({ options }) => options.timeoutMs === 8 * 60_000);
+    expect(packageInvocations).toEqual([
+      expect.objectContaining({
+        executable: '/opt/homebrew/bin/brew',
+        args: ['install', 'gh'],
+        options: expect.objectContaining({
+          timeoutMs: 8 * 60_000,
+          maxOutputBytes: 64 * 1024,
+          env: expect.objectContaining({ HOMEBREW_NO_AUTO_UPDATE: '1' }),
+        }),
+      }),
+      expect.objectContaining({
+        executable: '/opt/homebrew/bin/brew',
+        args: ['upgrade', 'gh'],
+        options: expect.objectContaining({
+          timeoutMs: 8 * 60_000,
+          maxOutputBytes: 64 * 1024,
+          env: expect.objectContaining({ HOMEBREW_NO_AUTO_UPDATE: '1' }),
+        }),
+      }),
+    ]);
+
+    const invocationCount = deps.invocations.length;
+    await expect(adapter.apply(noOp)).resolves.toEqual({ exitCode: 0, stdout: '', stderr: '', timedOut: false });
+    await expect(adapter.apply(manualRepair)).rejects.toThrow('manual-repair plans cannot be applied');
+    expect(deps.invocations).toHaveLength(invocationCount);
   });
 });

@@ -100,6 +100,8 @@ function manualRepairReason(observed: ComponentObservation): EnvironmentReasonCo
   if (observed.support !== 'supported') return observed.reasonCode ?? 'unexpected-error';
   if (!observed.packageManager.available) return 'homebrew-missing';
   if (observed.packageManager.stableVersion === null) return 'formula-unavailable';
+  if (observed.reasonCode === 'version-source-mismatch') return 'version-source-mismatch';
+  if (observed.installed && observed.installedVersion === null) return 'unexpected-error';
   return undefined;
 }
 
@@ -112,7 +114,11 @@ function planAction(desired: DesiredComponentState, observed: ComponentObservati
   if (observed.packageManager.stableVersion !== desired.targetVersion) {
     return { action: 'manual-repair', reasonCode: 'version-source-mismatch' };
   }
-  if (observed.installedVersion === null) return { action: 'install' };
+  const executableAbsent = !observed.installed
+    && observed.installedVersion === null
+    && observed.resolvedExecutable === null;
+  if (executableAbsent) return { action: 'install' };
+  if (observed.installedVersion === null) return { action: 'manual-repair', reasonCode: 'unexpected-error' };
 
   const versionComparison = compareVersions(observed.installedVersion, desired.targetVersion);
   if (versionComparison === null || versionComparison > 0) {
@@ -166,7 +172,8 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
       if (deps.architecture !== 'arm64') return unsupported('unsupported-architecture');
 
       const brewPath = await deps.resolveExecutable('brew', deps.env.PATH, BREW_CANDIDATES);
-      const ghCandidates = brewPath === null ? [] : [join(dirname(brewPath), 'gh')];
+      const homebrewGhPath = brewPath === null ? null : join(dirname(brewPath), 'gh');
+      const ghCandidates = homebrewGhPath === null ? [] : [homebrewGhPath];
       const ghPath = await deps.resolveExecutable('gh', deps.env.PATH, ghCandidates);
       const inspectOptions = { timeoutMs: INSPECT_TIMEOUT_MS, maxOutputBytes: MAX_OUTPUT_BYTES, env: deps.env };
 
@@ -205,7 +212,8 @@ export function createGitHubCliAdapter(deps: GitHubCliAdapterDeps): EnvironmentC
         authentication: { provider: 'github.com', status: authenticationStatus },
         inspectedAt,
         ...(brewPath === null ? { reasonCode: 'homebrew-missing' as const }
-          : stableVersion === null ? { reasonCode: 'formula-unavailable' as const } : {}),
+          : stableVersion === null ? { reasonCode: 'formula-unavailable' as const }
+            : ghPath !== null && ghPath !== homebrewGhPath ? { reasonCode: 'version-source-mismatch' as const } : {}),
       };
     },
 
