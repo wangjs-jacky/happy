@@ -12,7 +12,10 @@ const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } =
     const storageState = {
         sessions: {} as Record<string, HydratedSession>,
         getActiveSessions: () => [],
-        applySessions: (sessions: HydratedSession[]) => {
+        applySessions: (sessions: HydratedSession[], options?: { replace?: boolean }) => {
+            if (options?.replace) {
+                storageState.sessions = {};
+            }
             for (const session of sessions) {
                 storageState.sessions[session.id] = session;
             }
@@ -125,7 +128,10 @@ describe('new-session updates', () => {
         storageState.sessions = {};
         applySessions = vi.spyOn(syncForTest, 'applySessions');
         sessionsSyncInvalidate = vi.fn();
-        syncForTest.encryption = { getSessionEncryption: vi.fn(() => null) };
+        syncForTest.encryption = {
+            getSessionEncryption: vi.fn(() => null),
+            removeSessionEncryption: vi.fn(),
+        };
         syncForTest.credentials = { token: 'test-token', secret: 'test-secret' };
         syncForTest.sessionsSync = { invalidate: sessionsSyncInvalidate };
     });
@@ -133,6 +139,7 @@ describe('new-session updates', () => {
     afterEach(() => {
         applySessions.mockRestore();
         storageState.sessions = {};
+        vi.unstubAllGlobals();
     });
 
     // Regression: invalidating the full sessions sync here makes a newly
@@ -189,5 +196,46 @@ describe('new-session updates', () => {
 
         expect(fetchSessionSnapshot).toHaveBeenCalledWith(syncForTest.credentials, 'missing-session');
         expect(applySessions).not.toHaveBeenCalled();
+    });
+
+    // Regression: a full refresh can start before a socket update, then return
+    // afterwards with a stale list. Its replace write must not revert newer
+    // fields, remove a session created during the request, or retain cache rows
+    // that were already stale when the request began.
+    it('reconciles a stale full refresh against realtime sessions applied while it was in flight', async () => {
+        const staleSnapshot = { ...update.body, seq: 2, metadataVersion: 2 };
+        const realtimeSnapshot = { ...update.body, seq: 5, metadataVersion: 5 };
+        const createdSnapshot = { ...update.body, id: 'session-2', seq: 1, metadataVersion: 1 };
+        let resolveResponse: (response: Response) => void;
+        const response = new Promise<Response>((resolve) => {
+            resolveResponse = resolve;
+        });
+        vi.stubGlobal('fetch', vi.fn(() => response));
+        hydrateSessionSnapshots.mockImplementation(async (snapshots) => snapshots.map((snapshot) => ({
+            ...snapshot,
+            metadata: { name: `Session ${snapshot.metadataVersion}` } as any,
+            agentState: null,
+            thinking: false,
+            thinkingAt: 0,
+        })));
+        storageState.sessions = {
+            'session-1': { ...hydratedSession, seq: 1, metadataVersion: 1 },
+            'old-cache': { ...hydratedSession, id: 'old-cache', seq: 1 },
+        };
+
+        const refresh = syncForTest.fetchSessions();
+        await Promise.resolve();
+        await syncForTest.handleUpdate({ ...update, body: realtimeSnapshot });
+        await syncForTest.handleUpdate({ ...update, id: 'update-2', body: createdSnapshot });
+        resolveResponse!({ ok: true, json: async () => ({ sessions: [staleSnapshot] }) } as Response);
+        await refresh;
+
+        expect(storageState.sessions['session-1']).toMatchObject({
+            seq: 5,
+            metadata: { name: 'Session 5' },
+            metadataVersion: 5,
+        });
+        expect(storageState.sessions['session-2']).toMatchObject({ id: 'session-2' });
+        expect(storageState.sessions['old-cache']).toBeUndefined();
     });
 });

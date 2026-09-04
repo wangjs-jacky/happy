@@ -160,6 +160,11 @@ class Sync {
     private sessionQueueProcessing = new Set<string>();
     private sessionFallbackTitleInFlight = new Set<string>();
     private sessionMessageLocks = new Map<string, AsyncLock>();
+    // Tracks incremental session writes so a full refresh can retain sessions
+    // that appeared after its request began, even when they are absent from
+    // that response's snapshot.
+    private sessionMutationGeneration = 0;
+    private sessionMutationGenerations = new Map<string, number>();
     private sessionDataKeys = new Map<string, Uint8Array>(); // Store session data encryption keys internally
     private machineDataKeys = new Map<string, Uint8Array>(); // Store machine data encryption keys internally
     private artifactDataKeys = new Map<string, Uint8Array>(); // Store artifact data encryption keys internally
@@ -1198,6 +1203,7 @@ class Sync {
 
     private fetchSessions = async () => {
         if (!this.credentials) return;
+        const refreshMutationGeneration = this.sessionMutationGeneration;
 
         const API_ENDPOINT = getServerUrl();
         const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
@@ -1218,7 +1224,7 @@ class Sync {
         const decryptedSessions = await hydrateSessionSnapshots(sessions, this.encryption);
 
         // Apply to storage
-        this.applySessions(decryptedSessions, { replace: true });
+        this.applySessions(decryptedSessions, { replace: true }, refreshMutationGeneration);
         log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
 
     }
@@ -3058,26 +3064,45 @@ class Sync {
         }
     }
 
-    private applySessions = (sessions: HydratedSession[], options?: SessionApplyOptions) => {
-        const mergedSessions = options?.replace
-            ? sessions
-            : sessions.flatMap((session) => {
-                const existing = storage.getState().sessions[session.id];
-                if (!existing) return [session];
-                if (session.seq < existing.seq) return [];
+    private applySessions = (
+        sessions: HydratedSession[],
+        options?: SessionApplyOptions,
+        refreshMutationGeneration?: number,
+    ) => {
+        const mergedSessions = sessions.flatMap((session) => {
+            const existing = storage.getState().sessions[session.id];
+            if (!existing) return [session];
+            if (session.seq < existing.seq) return options?.replace ? [existing] : [];
 
-                return [{
-                    ...session,
-                    metadata: session.metadataVersion < existing.metadataVersion
-                        ? existing.metadata
-                        : session.metadata,
-                    metadataVersion: Math.max(session.metadataVersion, existing.metadataVersion),
-                    agentState: session.agentStateVersion < existing.agentStateVersion
-                        ? existing.agentState
-                        : session.agentState,
-                    agentStateVersion: Math.max(session.agentStateVersion, existing.agentStateVersion),
-                }];
-            });
+            return [{
+                ...session,
+                metadata: session.metadataVersion < existing.metadataVersion
+                    ? existing.metadata
+                    : session.metadata,
+                metadataVersion: Math.max(session.metadataVersion, existing.metadataVersion),
+                agentState: session.agentStateVersion < existing.agentStateVersion
+                    ? existing.agentState
+                    : session.agentState,
+                agentStateVersion: Math.max(session.agentStateVersion, existing.agentStateVersion),
+            }];
+        });
+
+        if (options?.replace && refreshMutationGeneration !== undefined) {
+            const incomingIds = new Set(mergedSessions.map((session) => session.id));
+            for (const [sessionId, existing] of Object.entries(storage.getState().sessions)) {
+                if (!incomingIds.has(sessionId)
+                    && (this.sessionMutationGenerations.get(sessionId) ?? 0) > refreshMutationGeneration) {
+                    mergedSessions.push(existing);
+                }
+            }
+        }
+
+        if (!options?.replace && mergedSessions.length > 0) {
+            const mutationGeneration = ++this.sessionMutationGeneration;
+            for (const session of mergedSessions) {
+                this.sessionMutationGenerations.set(session.id, mutationGeneration);
+            }
+        }
         const removedSessionIds = options?.replace
             ? this.getSessionIdsMissingFromSnapshot(mergedSessions)
             : [];
