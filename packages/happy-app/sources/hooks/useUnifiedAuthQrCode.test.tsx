@@ -47,7 +47,7 @@ vi.mock('@/modal', () => ({ Modal: { alert: mocks.alert, confirm: mocks.confirm 
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 import { UnifiedAuthQrCodeProvider, useUnifiedAuthQrCode } from './useUnifiedAuthQrCode';
 
-const accountAuthUrl = 'paws:///account?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const accountAuthUrl = 'paws:///account?dh2I7IMEE5Gd_p1NHVbxfmU8jJlAgt9bE3uQoK5u33Q';
 const terminalAuthUrl = 'paws://terminal?AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8';
 
 function Probe({ onReady }: { onReady: (value: ReturnType<typeof useUnifiedAuthQrCode>) => void }) {

@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import sodium from '@/encryption/libsodium.lib';
 import { getAuthQrCodeKind } from './authQrCodeKind';
 
 describe('getAuthQrCodeKind', () => {
+    beforeAll(async () => {
+        await sodium.ready;
+    });
+
     it.each([
-        ['paws:///account?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 'account'],
+        ['paws:///account?dh2I7IMEE5Gd_p1NHVbxfmU8jJlAgt9bE3uQoK5u33Q', 'account'],
         ['paws://terminal?AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8', 'terminal'],
+        ['paws:///account?AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', null],
+        ['paws://terminal?AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', null],
         ['paws:///account?', null],
         ['paws://terminal?', null],
         ['paws:///account?A', null],

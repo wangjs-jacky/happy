@@ -8,7 +8,12 @@ const {
     applyExpoCameraScannerTransitionPatch,
 } = require('./fix-expo-camera-scanner-transitions.cjs');
 
-const unpatchedCameraModule = `    AsyncFunction("launchScanner") { (options: VisionScannerOptions?) in
+const unpatchedCameraModule = `struct ScannerContext {
+  var controller: Any?
+  var delegate: Any?
+}
+
+    AsyncFunction("launchScanner") { (options: VisionScannerOptions?) in
       if #available(iOS 16.0, *) {
         try await MainActor.run {
           guard DataScannerViewController.isSupported, DataScannerViewController.isAvailable else {
@@ -61,13 +66,21 @@ const unpatchedCameraModule = `    AsyncFunction("launchScanner") { (options: Vi
   }
 `;
 
-function createExpoCameraFixture(t, { source = unpatchedCameraModule, version = '55.0.10' } = {}) {
-    const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'paws-expo-camera-patch-'));
-    const packageRoot = path.join(repositoryRoot, 'node_modules', 'expo-camera');
+function writeExpoCameraInstallation(
+    repositoryRoot,
+    { nodeModulesPath = 'node_modules', source = unpatchedCameraModule, version = '55.0.10' } = {},
+) {
+    const packageRoot = path.join(repositoryRoot, nodeModulesPath, 'expo-camera');
     const sourcePath = path.join(packageRoot, 'ios', 'CameraViewModule.swift');
     fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
     fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ version }));
     fs.writeFileSync(sourcePath, source);
+    return sourcePath;
+}
+
+function createExpoCameraFixture(t, options = {}) {
+    const repositoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'paws-expo-camera-patch-'));
+    const sourcePath = writeExpoCameraInstallation(repositoryRoot, options);
     t.after(() => fs.rmSync(repositoryRoot, { recursive: true, force: true }));
     return { repositoryRoot, sourcePath };
 }
@@ -85,14 +98,34 @@ test('makes Expo Camera scanner promises settle from UIKit transition completion
     assert.deepEqual(result, { found: 1, patched: 1 });
     assert.match(patched, /try await launchScanner\(with: options\)/);
     assert.match(patched, /private func launchScanner\(with options: VisionScannerOptions\?\) async throws/);
-    assert.match(patched, /guard let currentViewController = appContext\?\.utilities\?\.currentViewController\(\) else \{\s+throw InitScannerFailed\(\)/);
-    assert.match(patched, /guard controller\.presentingViewController != nil else \{\s+continuation\.resume\(throwing: InitScannerFailed\(\)\)\s+return/);
+    assert.match(patched, /private final class ScannerTransitionCoordinator/);
+    assert.match(patched, /guard let continuation else \{\s+return false\s+\}\s+self\.continuation = nil/);
+    assert.match(patched, /watchdog\?\.cancel\(\)/);
+    assert.match(patched, /guard let currentViewController = appContext\?\.utilities\?\.currentViewController\(\),\s+currentViewController\.viewIfLoaded\?\.window != nil,\s+!currentViewController\.isBeingPresented,\s+!currentViewController\.isBeingDismissed,\s+currentViewController\.transitionCoordinator == nil,\s+currentViewController\.presentedViewController == nil else/);
     assert.match(patched, /currentViewController\.present\(controller, animated: true\)/);
-    assert.match(patched, /do \{\s+try controller\.startScanning\(\)\s+continuation\.resume\(\)/);
-    assert.match(patched, /catch \{\s+controller\.dismiss\(animated: true\) \{\s+continuation\.resume\(throwing: error\)/);
+    assert.match(patched, /guard controller\.presentingViewController != nil else \{\s+clearScannerContext\(for: controller\)\s+transition\.reject\(InitScannerFailed\(\)\)/);
+    assert.match(patched, /transition\.armWatchdog/);
+    assert.match(patched, /guard transition\.isPending else \{\s+controller\.stopScanning\(\)/);
+    assert.match(patched, /try controller\.startScanning\(\)\s+guard transition\.resolve\(\) else/);
+    assert.match(patched, /controller\.dismiss\(animated: true\) \{[\s\S]*transition\.reject\(error\)/);
     assert.match(patched, /private func dismissScanner\(\) async/);
-    assert.match(patched, /controller\.dismiss\(animated: true\) \{\s+continuation\.resume\(\)\s+\}/);
+    assert.match(patched, /controller\.dismiss\(animated: true\) \{[\s\S]*transition\.resolve\(\)/);
     assert.doesNotMatch(patched, /try\? controller\.startScanning\(\)/);
+    assert.equal((patched.match(/continuation\.resume/g) ?? []).length, 2);
+});
+
+test('uses a rejecting watchdog when a UIKit presenter omits its completion callback', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const patched = fs.readFileSync(fixture.sourcePath, 'utf8');
+
+    assert.match(patched, /Task \{ @MainActor \[self\] in\s+try\? await Task\.sleep\(nanoseconds: timeout\)/);
+    assert.match(patched, /guard !Task\.isCancelled, self\.isPending else \{\s+return\s+\}\s+onTimeout\(\)\s+self\.reject\(InitScannerFailed\(\)\)/);
+    assert.match(patched, /transition\.armWatchdog \{ \[weak self, weak controller\] in[\s\S]*controller\.dismiss\(animated: false\)[\s\S]*clearScannerContext\(for: controller\)/);
 });
 
 test('is idempotent after Expo Camera has already been patched', (t) => {
@@ -112,6 +145,30 @@ test('is idempotent after Expo Camera has already been patched', (t) => {
 
     assert.deepEqual(result, { found: 1, patched: 0 });
     assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), once);
+});
+
+test('upgrades the previous watchdog implementation without accepting other drift', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const previousPatch = fs.readFileSync(fixture.sourcePath, 'utf8')
+        .replace('Task { @MainActor [self] in', 'Task { @MainActor [weak self] in')
+        .replace('guard !Task.isCancelled, self.isPending else {', 'guard !Task.isCancelled, let self, self.isPending else {');
+    fs.writeFileSync(fixture.sourcePath, previousPatch);
+
+    const result = applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const upgraded = fs.readFileSync(fixture.sourcePath, 'utf8');
+
+    assert.deepEqual(result, { found: 1, patched: 1 });
+    assert.match(upgraded, /Task \{ @MainActor \[self\] in/);
+    assert.doesNotMatch(upgraded, /\[weak self\]/);
 });
 
 test('fails closed without modifying files when the installed Expo Camera source drifts', (t) => {
@@ -144,4 +201,27 @@ test('fails closed for an unverified Expo Camera version', (t) => {
         /supports expo-camera 55\.0\.10, found 55\.0\.11/,
     );
     assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), unpatchedCameraModule);
+});
+
+test('validates every Expo Camera installation before writing either one', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    const appSource = unpatchedCameraModule.replace(
+        'private func dismissScanner() {',
+        'private func dismissScanner(animated: Bool) {',
+    );
+    const appSourcePath = writeExpoCameraInstallation(fixture.repositoryRoot, {
+        nodeModulesPath: path.join('packages', 'happy-app', 'node_modules'),
+        source: appSource,
+    });
+
+    assert.throws(
+        () => applyExpoCameraScannerTransitionPatch({
+            repositoryRoot: fixture.repositoryRoot,
+            log: null,
+            warn: null,
+        }),
+        /Expo Camera 55\.0\.10 source does not match the expected scanner transition implementation/,
+    );
+    assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), unpatchedCameraModule);
+    assert.equal(fs.readFileSync(appSourcePath, 'utf8'), appSource);
 });
