@@ -62,6 +62,35 @@ describe('vercelConnectRoutes', () => {
         });
     });
 
+    it('preserves the dedicated project when reconnecting the same Vercel configuration and scope', async () => {
+        const created = await createApp({ credentialStore: {
+            get: vi.fn(async () => ({ version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' })),
+            set: vi.fn(async () => {}), delete: vi.fn(async () => {}),
+        } }); app = created.app;
+
+        await created.app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=one-use-code&state=state-token' });
+
+        expect(created.dependencies.credentialStore.set).toHaveBeenCalledWith('user-1', {
+            version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy',
+        });
+    });
+
+    it('clears the dedicated project when reconnecting a different Vercel scope', async () => {
+        const created = await createApp({
+            credentialStore: {
+                get: vi.fn(async () => ({ version: 1 as const, accessToken: 'old-secret', configurationId: 'icfg_1', teamId: 'team_1', projectId: 'prj_happy' })),
+                set: vi.fn(async () => {}), delete: vi.fn(async () => {}),
+            },
+            exchangeCode: vi.fn(async () => ({ accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_2' })),
+        }); app = created.app;
+
+        await created.app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=one-use-code&state=state-token' });
+
+        expect(created.dependencies.credentialStore.set).toHaveBeenCalledWith('user-1', {
+            version: 1, accessToken: 'provider-secret', configurationId: 'icfg_1', teamId: 'team_2',
+        });
+    });
+
     it('never includes provider secrets or errors in a failed callback redirect', async () => {
         const created = await createApp({ exchangeCode: vi.fn(async () => { throw new Error('provider-secret raw detail'); }) }); app = created.app;
         const response = await app.inject({ method: 'GET', url: '/v1/connect/vercel/callback?code=bad-code&state=state-token' });

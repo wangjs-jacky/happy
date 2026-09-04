@@ -9,25 +9,81 @@ describe('createVercelClient', () => {
     it('creates a configuration-derived project after refusing a colliding generic project name', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
-            .mockResolvedValueOnce(jsonResponse({ id: 'prj_happy', name: 'happy-previews-a3863a34b6bb' }));
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_unrelated', name: 'happy-previews', installCommand: 'echo somebody-else' }))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_happy', name: 'happy-previews-a3863a34b6bb', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
         const client = createVercelClient({ token: 'secret', fetchImpl });
 
         await expect((client as any).ensurePreviewProject({ configurationId: 'icfg_123' })).resolves.toEqual({ id: 'prj_happy' });
 
         expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
             'https://api.vercel.com/v11/projects',
+            'https://api.vercel.com/v9/projects/happy-previews',
             'https://api.vercel.com/v11/projects',
         ]);
         expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({
-            name: 'happy-previews', framework: null, publicSource: false,
+            name: 'happy-previews', framework: null, publicSource: false, installCommand: 'echo happy-preview-owner:a3863a34b6bb238e',
         });
-        expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toEqual({
-            name: 'happy-previews-a3863a34b6bb', framework: null, publicSource: false,
+        expect(JSON.parse(String(fetchImpl.mock.calls[2][1]?.body))).toEqual({
+            name: 'happy-previews-a3863a34b6bb', framework: null, publicSource: false, installCommand: 'echo happy-preview-owner:a3863a34b6bb238e',
         });
     });
 
+    it('adopts a concurrently created project only after its provider ownership marker matches', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_concurrent', name: 'happy-previews', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.ensurePreviewProject({ configurationId: 'icfg_123' })).resolves.toEqual({ id: 'prj_concurrent' });
+        expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+            'https://api.vercel.com/v11/projects',
+            'https://api.vercel.com/v9/projects/happy-previews',
+        ]);
+    });
+
+    it('adopts an existing configuration-derived project after a create-then-store retry', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_unrelated', name: 'happy-previews', installCommand: 'echo somebody-else' }))
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_retry', name: 'happy-previews-a3863a34b6bb', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.ensurePreviewProject({ configurationId: 'icfg_123' })).resolves.toEqual({ id: 'prj_retry' });
+        expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+            'https://api.vercel.com/v11/projects',
+            'https://api.vercel.com/v9/projects/happy-previews',
+            'https://api.vercel.com/v11/projects',
+            'https://api.vercel.com/v9/projects/happy-previews-a3863a34b6bb',
+        ]);
+    });
+
+    it('skips unrelated collisions and deterministically creates the next safe project name', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_unrelated', name: 'happy-previews', installCommand: 'echo somebody-else' }))
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'project_name_in_use' } }, 409))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_unrelated_derived', name: 'happy-previews-a3863a34b6bb', installCommand: 'echo somebody-else' }))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_safe', name: 'happy-previews-a3863a34b6bb-1', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.ensurePreviewProject({ configurationId: 'icfg_123' })).resolves.toEqual({ id: 'prj_safe' });
+        expect(JSON.parse(String(fetchImpl.mock.calls[4][1]?.body))).toEqual({
+            name: 'happy-previews-a3863a34b6bb-1', framework: null, publicSource: false, installCommand: 'echo happy-preview-owner:a3863a34b6bb238e',
+        });
+    });
+
+    it('recovers from a deleted saved project by provisioning a replacement', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ error: { code: 'not_found' } }, 404))
+            .mockResolvedValueOnce(jsonResponse({ id: 'prj_replacement', name: 'happy-previews', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect(client.ensurePreviewProject({ configurationId: 'icfg_123', projectId: 'prj_deleted' })).resolves.toEqual({ id: 'prj_replacement' });
+    });
+
     it('validates and reuses the encrypted credential project identifier', async () => {
-        const fetchImpl = vi.fn(async (_url: string, _init?: unknown) => jsonResponse({ id: 'prj_saved', name: 'happy-previews' }));
+        const fetchImpl = vi.fn(async (_url: string, _init?: unknown) => jsonResponse({ id: 'prj_saved', name: 'happy-previews', installCommand: 'echo happy-preview-owner:a3863a34b6bb238e' }));
         const client = createVercelClient({ token: 'secret', teamId: 'team_1', fetchImpl });
 
         await expect((client as any).ensurePreviewProject({ configurationId: 'icfg_123', projectId: 'prj_saved' })).resolves.toEqual({ id: 'prj_saved' });
@@ -76,6 +132,56 @@ describe('createVercelClient', () => {
         expect(result).toEqual({ id: 'dpl_1', url: 'https://happy-preview.vercel.app', readyState: 'READY' });
     });
 
+    it.each([
+        [{ id: 'dpl_target', url: 'preview.vercel.app', readyState: 'READY', target: 'staging' }, 'staging target'],
+        [{ id: 'dpl_custom', url: 'preview.vercel.app', readyState: 'READY', target: 'custom' }, 'custom target'],
+        [{ id: 'dpl_missing', url: 'preview.vercel.app', readyState: 'READY' }, 'missing target'],
+        [{ id: 'dpl_alias', url: 'preview.vercel.app', readyState: 'READY', target: null, alias: ['preview.example.com'] }, 'unexpected alias'],
+    ])('rejects %s so only unaliased preview deployments are accepted', async (response, _label) => {
+        const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse(response)) });
+
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '1'.repeat(64), size: 1 }], meta: {} }))
+            .rejects.toThrow(/preview|alias|target/i);
+    });
+
+    it.each(['DELETED', 'UNKNOWN'])('rejects terminal or unknown Vercel state %s without publishing a URL', async (readyState) => {
+        const client = createVercelClient({
+            token: 'secret', fetchImpl: vi.fn(async () => jsonResponse({ id: 'dpl_state', url: 'preview.vercel.app', readyState, target: null })),
+            sleep: async () => { throw new Error('unexpected polling'); },
+        });
+
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '2'.repeat(64), size: 1 }], meta: {} }))
+            .rejects.toThrow(/terminal|invalid/i);
+    });
+
+    it('caps sleep to the remaining readiness deadline and does not poll after it expires', async () => {
+        let clock = 0;
+        const fetchImpl = vi.fn(async () => jsonResponse({ id: 'dpl_deadline', url: 'preview.vercel.app', readyState: 'BUILDING', target: null }));
+        const sleep = vi.fn(async (milliseconds: number) => { clock += milliseconds; });
+        const timeoutSignal = vi.fn(() => new AbortController().signal);
+        const client = createVercelClient({ token: 'secret', fetchImpl, now: () => clock, sleep, pollIntervalMs: 1_000, deploymentTimeoutMs: 100, timeoutSignal });
+
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '3'.repeat(64), size: 1 }], meta: {} }))
+            .rejects.toThrow(/timed out/i);
+        expect(sleep).toHaveBeenCalledWith(100);
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        expect(timeoutSignal).toHaveBeenCalledWith(100);
+    });
+
+    it('caps each poll request to the remaining deadline and rejects a late READY response', async () => {
+        let clock = 0;
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ id: 'dpl_late', url: 'preview.vercel.app', readyState: 'BUILDING', target: null }))
+            .mockImplementationOnce(async () => { clock = 101; return jsonResponse({ id: 'dpl_late', url: 'preview.vercel.app', readyState: 'READY', target: null }); });
+        const timeoutSignal = vi.fn(() => new AbortController().signal);
+        const client = createVercelClient({ token: 'secret', fetchImpl, now: () => clock, sleep: async () => { clock = 90; }, pollIntervalMs: 90, deploymentTimeoutMs: 100, timeoutSignal });
+
+        await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: '4'.repeat(64), size: 1 }], meta: {} }))
+            .rejects.toThrow(/timed out/i);
+        expect(timeoutSignal).toHaveBeenNthCalledWith(1, 100);
+        expect(timeoutSignal).toHaveBeenNthCalledWith(2, 10);
+    });
+
     it('polls a preview deployment until Vercel confirms it is ready', async () => {
         const fetchImpl = vi.fn()
             .mockResolvedValueOnce(jsonResponse({ id: 'dpl_wait', url: 'happy-preview.vercel.app', readyState: 'BUILDING', target: null }))
@@ -105,7 +211,7 @@ describe('createVercelClient', () => {
 
     it('times out an unready Vercel deployment instead of returning an unverified URL', async () => {
         const fetchImpl = vi.fn(async () => jsonResponse({ id: 'dpl_slow', url: 'happy-preview.vercel.app', readyState: 'BUILDING', target: null }));
-        const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(101);
+        const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(101);
         const client = createVercelClient({ token: 'secret', fetchImpl, now, sleep: async () => {}, pollIntervalMs: 0, deploymentTimeoutMs: 100 });
 
         await expect(client.createDeployment({ name: 'happy-previews', files: [{ file: 'index.html', sha: 'f'.repeat(64), size: 1 }], meta: {} }))
@@ -116,7 +222,7 @@ describe('createVercelClient', () => {
     it('rejects an unexpected production deployment response', async () => {
         const client = createVercelClient({
             token: 'secret',
-            fetchImpl: vi.fn(async (_url: string, _init?: any) => jsonResponse({ id: 'dpl_2', url: 'prod.vercel.app', target: 'production' })),
+            fetchImpl: vi.fn(async (_url: string, _init?: any) => jsonResponse({ id: 'dpl_2', url: 'prod.vercel.app', readyState: 'READY', target: 'production' })),
         });
         await expect(client.createDeployment({
             name: 'happy-previews', files: [{ file: 'index.html', sha: 'c'.repeat(64), size: 1 }], meta: {},

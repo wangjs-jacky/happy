@@ -60,3 +60,39 @@ exit 0
 - Background deployment/staging cleanup, retries, and expiry deletion.
 - Disconnect-time deployment cleanup and provider revocation handling.
 - Any lifecycle schema or scheduler changes beyond storing/reusing the already-supported encrypted `projectId` field.
+
+## Review remediation (follow-up commit)
+
+The specification review identified reconnect and provider-safety gaps. The follow-up fixes are intentionally confined to Task 2 routes and provider client behavior.
+
+- OAuth reconnect now reads the existing encrypted credential. It retains `projectId` only when both the Vercel `configurationId` and selected `teamId` match; a changed configuration or scope clears it.
+- The Vercel project carries a deterministic provider-side ownership marker in its project configuration. After a create conflict, Happy reads that provider project and adopts it only if the marker matches the encrypted integration configuration. Otherwise it tries deterministic collision-safe names. This supports concurrent server replicas and the retry after a project was created but credential persistence failed, without an in-memory lock. A saved project that Vercel reports as deleted is reprovisioned; a present saved project must also retain the correct marker.
+- Deployment responses now require an explicit `target`, a known `readyState`, and an empty/absent alias list. Any non-null target, missing target, alias assignment, terminal `DELETED`, or unknown state fails closed.
+- The 120-second deployment deadline starts before the create request. Every request timeout and sleep is capped to the remaining deadline, and time is checked again after each await before a `READY` response can be returned.
+
+### Review red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Reconnect project preservation | Same-scope callback stored a credential without `projectId` | Route spec: 7/7 passing |
+| Project collision/retry ownership | Conflict handling either rejected or adopted by name alone; deleted saved project threw `not_found` | Client spec covers concurrent marker adoption, create-then-store retry adoption, unrelated collisions, deterministic fallback, and deleted-ID recovery |
+| Preview-only deployment validation | Staging/custom/missing targets and alias responses returned URLs | Client spec rejects all four cases |
+| Terminal/strict provider states | `DELETED` and unknown states polled until test timeout | Client spec rejects `DELETED` immediately and rejects unknown enum values |
+| Hard deadline | Sleep used the full poll interval and a late `READY` response returned a URL | Fake-clock tests verify capped sleep, capped request signals, and post-await timeout checks |
+
+Final review verification command:
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts
+
+Test Files  4 passed (4)
+Tests       37 passed (37)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+```

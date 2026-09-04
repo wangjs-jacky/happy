@@ -122,7 +122,12 @@ export function vercelConnectRoutes(app: Fastify, dependencies: VercelConnectDep
         if (!accountId) return reply.redirect(redirectUrl(config, 'vercel_error', 'invalid_state'));
         try {
             const credential = await dependencies.exchangeCode(request.query.code, config);
-            await dependencies.credentialStore.set(accountId, { version: 1, ...credential });
+            const existing = await dependencies.credentialStore.get(accountId);
+            const sameScope = existing?.configurationId === credential.configurationId && existing.teamId === credential.teamId;
+            await dependencies.credentialStore.set(accountId, {
+                version: 1, ...credential,
+                ...(sameScope && existing?.projectId ? { projectId: existing.projectId } : {}),
+            });
             return reply.redirect(redirectUrl(config, 'vercel', 'connected'));
         } catch (error) {
             log({ module: 'vercel-oauth', level: 'error' }, `Vercel OAuth exchange failed: ${error instanceof Error ? error.name : 'unknown'}`);
