@@ -10,6 +10,10 @@ export interface SessionSnapshotHydrationLogger {
     warn(message: string): void;
 }
 
+export interface SessionSnapshotHydrationGuard {
+    assertCurrent(): void;
+}
+
 const defaultLogger: SessionSnapshotHydrationLogger = {
     warn(message) {
         console.warn(message);
@@ -65,4 +69,43 @@ export async function hydrateSessionSnapshots(
             thinkingAt: 0,
         };
     }));
+}
+
+export async function hydrateSessionSnapshotForRoute(
+    snapshot: ApiSessionSnapshot,
+    encryption: Encryption,
+    guard: SessionSnapshotHydrationGuard,
+    logger: SessionSnapshotHydrationLogger = defaultLogger,
+): Promise<HydratedSession | null> {
+    guard.assertCurrent();
+    let key: Uint8Array | null = null;
+    if (snapshot.dataEncryptionKey) {
+        try {
+            key = await encryption.decryptEncryptionKey(snapshot.dataEncryptionKey);
+        } catch {
+            key = null;
+        }
+        guard.assertCurrent();
+        if (!key) {
+            logger.warn('Skipping session snapshot because its data key could not be decrypted');
+            return null;
+        }
+    }
+
+    const prepared = await encryption.prepareSessionEncryption(snapshot.id, key);
+    guard.assertCurrent();
+    const [metadata, agentState] = await Promise.all([
+        prepared.sessionEncryption.decryptMetadata(snapshot.metadataVersion, snapshot.metadata),
+        prepared.sessionEncryption.decryptAgentState(snapshot.agentStateVersion, snapshot.agentState),
+    ]);
+    guard.assertCurrent();
+    prepared.commit();
+
+    return {
+        ...snapshot,
+        metadata,
+        agentState,
+        thinking: false,
+        thinkingAt: 0,
+    };
 }

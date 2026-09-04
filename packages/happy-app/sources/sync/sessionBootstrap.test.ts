@@ -63,6 +63,8 @@ const mocks = vi.hoisted(() => {
         fetchPage: vi.fn(),
         fetchSnapshot: vi.fn(),
         hydrate: vi.fn(),
+        hydrateRoute: vi.fn(),
+        sessionEncryptions: new Map<string, any>(),
         state,
         storage: { getState: () => state },
     };
@@ -73,7 +75,10 @@ vi.mock('./apiSessions', () => ({
     fetchSessionSnapshot: mocks.fetchSnapshot,
     fetchSessionSnapshotPage: mocks.fetchPage,
 }));
-vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots: mocks.hydrate }));
+vi.mock('./sessionSnapshotHydration', () => ({
+    hydrateSessionSnapshotForRoute: mocks.hydrateRoute,
+    hydrateSessionSnapshots: mocks.hydrate,
+}));
 vi.mock('./storage', () => ({ storage: mocks.storage }));
 vi.mock('./apiSocket', () => ({
     apiSocket: {
@@ -190,19 +195,14 @@ describe('active-first session bootstrap', () => {
         mocks.fetchSnapshot.mockResolvedValue(null);
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         syncForTest.credentials = { token: 'test-token', secret: 'test-secret' };
-        const sessionEncryptions = new Map<string, {
-            decryptMessage: ReturnType<typeof vi.fn>;
-            decryptMessages: ReturnType<typeof vi.fn>;
-            decryptMetadata: ReturnType<typeof vi.fn>;
-            decryptAgentState: ReturnType<typeof vi.fn>;
-        }>();
+        mocks.sessionEncryptions.clear();
         syncForTest.encryption = {
-            getSessionEncryption: vi.fn((id: string) => sessionEncryptions.get(id) ?? null),
+            getSessionEncryption: vi.fn((id: string) => mocks.sessionEncryptions.get(id) ?? null),
             removeSessionEncryption: vi.fn(),
         };
         mocks.hydrate.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => {
             for (const item of snapshots) {
-                sessionEncryptions.set(item.id, {
+                mocks.sessionEncryptions.set(item.id, {
                     decryptMessage: vi.fn(async (message) => ({
                         id: message.id,
                         localId: message.localId,
@@ -332,6 +332,33 @@ describe('active-first session bootstrap', () => {
             limit: 50,
         });
         expect(mocks.state.sessions['history-page-2']).toBeDefined();
+    });
+
+    it('safely settles failed history callers and retries the same initial cursor on a later signal', async () => {
+        const failedPage = deferred<{ sessions: ApiSessionSnapshot[]; nextCursor: string | null; hasNext: boolean }>();
+        mocks.fetchPage
+            .mockReturnValueOnce(failedPage.promise)
+            .mockResolvedValueOnce({
+                sessions: [snapshot('retried-history', { active: false })],
+                nextCursor: null,
+                hasNext: false,
+            });
+        await syncForTest.bootstrapSessions();
+
+        const initial = syncForTest.sessionRouteBecameInteractive();
+        const concurrent = syncForTest.loadNextSessionHistoryPage();
+        failedPage.reject(new Error('history unavailable'));
+
+        await expect(Promise.all([initial, concurrent])).resolves.toEqual([undefined, undefined]);
+        expect(syncForTest.nextSessionHistoryCursor).toBeUndefined();
+        expect(syncForTest.initialSessionHistoryScheduled).toBe(false);
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(1);
+
+        await syncForTest.sessionRouteBecameInteractive();
+
+        expect(mocks.fetchPage).toHaveBeenCalledTimes(2);
+        expect(mocks.fetchPage).toHaveBeenLastCalledWith(syncForTest.credentials, { limit: 50 });
+        expect(mocks.state.sessions['retried-history']).toBeDefined();
     });
 
     it('keeps newer store fields when an older history page arrives', async () => {
@@ -514,16 +541,27 @@ describe('deep-link session opening', () => {
         mocks.state.sessionMessages = {};
         mocks.fetchSnapshot.mockResolvedValue(null);
         syncForTest.credentials = { token: 'test-token', secret: 'test-secret' };
-        const sessionEncryptions = new Map<string, { decryptMessages: ReturnType<typeof vi.fn> }>();
+        mocks.sessionEncryptions.clear();
         syncForTest.encryption = {
-            getSessionEncryption: vi.fn((id: string) => sessionEncryptions.get(id) ?? null),
+            getSessionEncryption: vi.fn((id: string) => mocks.sessionEncryptions.get(id) ?? null),
             removeSessionEncryption: vi.fn(),
         };
         mocks.hydrate.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => {
             for (const item of snapshots) {
-                sessionEncryptions.set(item.id, { decryptMessages: vi.fn(async () => []) });
+                mocks.sessionEncryptions.set(item.id, { decryptMessages: vi.fn(async () => []) });
             }
             return snapshots.map(hydrated);
+        });
+        mocks.hydrateRoute.mockImplementation(async (
+            raw: ApiSessionSnapshot,
+            _encryption: unknown,
+            guard: { assertCurrent(): void },
+        ) => {
+            guard.assertCurrent();
+            const sessionEncryption = { decryptMessages: vi.fn(async () => []) };
+            guard.assertCurrent();
+            mocks.sessionEncryptions.set(raw.id, sessionEncryption);
+            return hydrated(raw);
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
@@ -638,5 +676,74 @@ describe('deep-link session opening', () => {
         oldTarget.resolve(snapshot('same-session', { seq: 1 }));
         await expect(oldOpening).rejects.toThrow('abandoned');
         expect(mocks.state.sessionMessages['same-session']).toMatchObject({ isLoaded: true });
+    });
+
+    it('does not let cancelled in-progress hydration overwrite a newer same-session key or state', async () => {
+        const oldHydration = deferred<void>();
+        const oldEncryption = {
+            decryptMessages: vi.fn(async () => []),
+        };
+        const newEncryption = {
+            decryptMessages: vi.fn(async (messages) => messages.map((message: any) => ({
+                id: message.id,
+                localId: message.localId,
+                createdAt: message.createdAt,
+                content: { role: 'user', content: { type: 'text', text: 'New operation message' } },
+            }))),
+        };
+        mocks.fetchSnapshot
+            .mockResolvedValueOnce(snapshot('racing-session', { seq: 2, metadata: 'old operation' }))
+            .mockResolvedValueOnce(snapshot('racing-session', { seq: 20, metadata: 'new operation' }));
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({
+                messages: [
+                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+                ],
+                hasMore: true,
+            }))
+            .mockResolvedValueOnce(response({
+                messages: [
+                    { id: 'new-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: 'new' },
+                ],
+                hasMore: false,
+            }));
+        mocks.hydrateRoute
+            .mockImplementationOnce(async (
+                raw: ApiSessionSnapshot,
+                _encryption: unknown,
+                guard: { assertCurrent(): void },
+            ) => {
+                await oldHydration.promise;
+                guard.assertCurrent();
+                mocks.sessionEncryptions.set('racing-session', oldEncryption);
+                return hydrated(raw);
+            })
+            .mockImplementationOnce(async (
+                raw: ApiSessionSnapshot,
+                _encryption: unknown,
+                guard: { assertCurrent(): void },
+            ) => {
+                guard.assertCurrent();
+                mocks.sessionEncryptions.set('racing-session', newEncryption);
+                return hydrated(raw);
+            });
+
+        const oldOpening = syncForTest.openSession('racing-session');
+        await vi.waitFor(() => expect(mocks.hydrateRoute).toHaveBeenCalledTimes(1));
+        const newOpening = syncForTest.openSession('racing-session');
+        await expect(newOpening).resolves.toBe('ready');
+
+        syncForTest.abandonSessionRoute('racing-session', oldOpening);
+        oldHydration.resolve();
+        await expect(oldOpening).rejects.toThrow('abandoned');
+
+        expect(syncForTest.encryption.getSessionEncryption('racing-session')).toBe(newEncryption);
+        expect(mocks.state.sessions['racing-session']).toMatchObject({
+            seq: 20,
+            metadata: { name: 'new operation' },
+        });
+        expect(syncForTest.getSessionLastMessageSeq('racing-session')).toBe(22);
+        expect(syncForTest.sessionOldestSeq.get('racing-session')).toBe(22);
+        expect(mocks.state.sessionMessages['racing-session']).toMatchObject({ isLoaded: true });
     });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiSessionSnapshot } from './apiTypes';
 import type { Encryption } from './encryption/encryption';
-import { hydrateSessionSnapshots } from './sessionSnapshotHydration';
+import { hydrateSessionSnapshotForRoute, hydrateSessionSnapshots } from './sessionSnapshotHydration';
 
 const snapshot: ApiSessionSnapshot = {
     id: 'session-1',
@@ -78,5 +78,38 @@ describe('hydrateSessionSnapshots', () => {
 
         expect(result.map((session) => session.id)).toEqual(['session-2']);
         expect(logger.warn).toHaveBeenCalledWith('Skipping session snapshot because its data key could not be decrypted');
+    });
+
+    it('does not commit a prepared route encryption after the operation becomes stale during decryption', async () => {
+        let resolveMetadata!: (value: { title: string }) => void;
+        const metadata = new Promise<{ title: string }>((resolve) => {
+            resolveMetadata = resolve;
+        });
+        let current = true;
+        const commit = vi.fn();
+        const routeEncryption = {
+            decryptMetadata: vi.fn(() => metadata),
+            decryptAgentState: vi.fn(async () => ({ state: 'new-agent-state' })),
+        };
+        const encryption = {
+            decryptEncryptionKey: vi.fn(async () => new Uint8Array([7, 8, 9])),
+            prepareSessionEncryption: vi.fn(async () => ({
+                sessionEncryption: routeEncryption,
+                commit,
+            })),
+        } as unknown as Encryption;
+        const guard = {
+            assertCurrent: () => {
+                if (!current) throw new Error('Session route abandoned');
+            },
+        };
+
+        const hydrating = hydrateSessionSnapshotForRoute(snapshot, encryption, guard);
+        await vi.waitFor(() => expect(routeEncryption.decryptMetadata).toHaveBeenCalledTimes(1));
+        current = false;
+        resolveMetadata({ title: 'stale-title' });
+
+        await expect(hydrating).rejects.toThrow('abandoned');
+        expect(commit).not.toHaveBeenCalled();
     });
 });

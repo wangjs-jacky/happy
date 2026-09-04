@@ -98,7 +98,11 @@ import {
     fetchSessionSnapshot,
     fetchSessionSnapshotPage,
 } from './apiSessions';
-import { hydrateSessionSnapshots, type HydratedSession } from './sessionSnapshotHydration';
+import {
+    hydrateSessionSnapshotForRoute,
+    hydrateSessionSnapshots,
+    type HydratedSession,
+} from './sessionSnapshotHydration';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -216,7 +220,7 @@ class Sync {
     public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
     private sessionBootstrapSync: InvalidateSync;
-    private sessionHistoryInFlight: Promise<void> | null = null;
+    private sessionHistoryInFlight: Promise<boolean> | null = null;
     private nextSessionHistoryCursor: string | null | undefined = undefined;
     private initialSessionHistoryScheduled = false;
     private messagesSync = new Map<string, InvalidateSync>();
@@ -1306,19 +1310,30 @@ class Sync {
     public sessionRouteBecameInteractive = async (): Promise<void> => {
         if (this.initialSessionHistoryScheduled) return;
         this.initialSessionHistoryScheduled = true;
-        await this.loadNextSessionHistoryPage();
+        const loaded = await this.requestNextSessionHistoryPage();
+        if (!loaded) this.initialSessionHistoryScheduled = false;
     }
 
     public loadNextSessionHistoryPage = async (): Promise<void> => {
-        if (this.nextSessionHistoryCursor === null) return;
+        await this.requestNextSessionHistoryPage();
+    }
+
+    private requestNextSessionHistoryPage = async (): Promise<boolean> => {
+        if (this.nextSessionHistoryCursor === null) return true;
         if (this.sessionHistoryInFlight) {
-            await this.sessionHistoryInFlight;
-            return;
+            return this.sessionHistoryInFlight;
         }
 
         const cursor = this.nextSessionHistoryCursor;
         const request = (async () => {
-            this.nextSessionHistoryCursor = await this.hydrateHistoricalSessionPage(cursor);
+            try {
+                const nextCursor = await this.hydrateHistoricalSessionPage(cursor);
+                this.nextSessionHistoryCursor = nextCursor;
+                return true;
+            } catch (error) {
+                log.log(`Failed to load session history page: ${String(error)}`);
+                return false;
+            }
         })();
         const trackedRequest = request.finally(() => {
             if (this.sessionHistoryInFlight === trackedRequest) {
@@ -1326,7 +1341,7 @@ class Sync {
             }
         });
         this.sessionHistoryInFlight = trackedRequest;
-        await trackedRequest;
+        return trackedRequest;
     }
 
     private fetchSessions = async () => {
@@ -1399,10 +1414,14 @@ class Sync {
         if (operation) this.assertSessionRouteCurrent(operation);
         if (!raw) return false;
 
-        const hydrated = await hydrateSessionSnapshots([raw], this.encryption);
+        const hydrated = operation
+            ? await hydrateSessionSnapshotForRoute(raw, this.encryption, {
+                assertCurrent: () => this.assertSessionRouteCurrent(operation),
+            })
+            : (await hydrateSessionSnapshots([raw], this.encryption))[0] ?? null;
         if (operation) this.assertSessionRouteCurrent(operation);
-        if (hydrated.length !== 1) return false;
-        this.applySessions(hydrated, { replace: false });
+        if (!hydrated) return false;
+        this.applySessions([hydrated], { replace: false });
         return true;
     }
 
