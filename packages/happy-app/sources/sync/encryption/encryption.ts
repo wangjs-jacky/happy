@@ -100,11 +100,14 @@ export class Encryption {
 
     async prepareSessionEncryption(sessionId: string, dataKey: Uint8Array | null): Promise<{
         sessionEncryption: SessionEncryption;
-        commit: () => void;
+        commit: () => boolean;
     }> {
         const existing = this.sessionEncryptions.get(sessionId);
         if (existing) {
-            return { sessionEncryption: existing, commit: () => undefined };
+            return {
+                sessionEncryption: existing,
+                commit: () => this.sessionEncryptions.get(sessionId) === existing,
+            };
         }
 
         const encryptor = await this.openEncryption(dataKey);
@@ -118,11 +121,14 @@ export class Encryption {
         return {
             sessionEncryption,
             commit: () => {
-                if (committed) return;
+                if (committed) {
+                    return this.sessionEncryptions.get(sessionId) === committedSessionEncryption;
+                }
                 committed = true;
-                if (this.sessionEncryptions.has(sessionId)) return;
+                if (this.sessionEncryptions.has(sessionId)) return false;
                 this.sessionEncryptions.set(sessionId, committedSessionEncryption);
                 this.sessionBlobKeys.set(sessionId, blobKey);
+                return true;
             },
         };
     }

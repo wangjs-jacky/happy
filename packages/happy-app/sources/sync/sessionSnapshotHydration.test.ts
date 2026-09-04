@@ -112,4 +112,33 @@ describe('hydrateSessionSnapshots', () => {
         await expect(hydrating).rejects.toThrow('abandoned');
         expect(commit).not.toHaveBeenCalled();
     });
+
+    it('returns route hydration as an uncommitted transaction', async () => {
+        const commit = vi.fn(() => true);
+        const routeEncryption = {
+            decryptMetadata: vi.fn(async () => ({ title: 'prepared-title' })),
+            decryptAgentState: vi.fn(async () => ({ state: 'prepared-agent-state' })),
+        };
+        const encryption = {
+            decryptEncryptionKey: vi.fn(async () => new Uint8Array([7, 8, 9])),
+            prepareSessionEncryption: vi.fn(async () => ({
+                sessionEncryption: routeEncryption,
+                commit,
+            })),
+        } as unknown as Encryption;
+
+        const transaction = await hydrateSessionSnapshotForRoute(snapshot, encryption, {
+            assertCurrent: () => undefined,
+        });
+
+        expect(commit).not.toHaveBeenCalled();
+        expect(transaction).toEqual({
+            session: expect.objectContaining({
+                id: 'session-1',
+                metadata: { title: 'prepared-title' },
+                agentState: { state: 'prepared-agent-state' },
+            }),
+            commitEncryption: commit,
+        });
+    });
 });

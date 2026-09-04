@@ -14,6 +14,11 @@ export interface SessionSnapshotHydrationGuard {
     assertCurrent(): void;
 }
 
+export interface PreparedRouteSessionHydration {
+    session: HydratedSession;
+    commitEncryption(): boolean;
+}
+
 const defaultLogger: SessionSnapshotHydrationLogger = {
     warn(message) {
         console.warn(message);
@@ -76,7 +81,7 @@ export async function hydrateSessionSnapshotForRoute(
     encryption: Encryption,
     guard: SessionSnapshotHydrationGuard,
     logger: SessionSnapshotHydrationLogger = defaultLogger,
-): Promise<HydratedSession | null> {
+): Promise<PreparedRouteSessionHydration | null> {
     guard.assertCurrent();
     let key: Uint8Array | null = null;
     if (snapshot.dataEncryptionKey) {
@@ -99,13 +104,15 @@ export async function hydrateSessionSnapshotForRoute(
         prepared.sessionEncryption.decryptAgentState(snapshot.agentStateVersion, snapshot.agentState),
     ]);
     guard.assertCurrent();
-    prepared.commit();
 
     return {
-        ...snapshot,
-        metadata,
-        agentState,
-        thinking: false,
-        thinkingAt: 0,
+        session: {
+            ...snapshot,
+            metadata,
+            agentState,
+            thinking: false,
+            thinkingAt: 0,
+        },
+        commitEncryption: prepared.commit,
     };
 }

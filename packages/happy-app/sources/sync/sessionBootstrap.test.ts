@@ -560,8 +560,14 @@ describe('deep-link session opening', () => {
             guard.assertCurrent();
             const sessionEncryption = { decryptMessages: vi.fn(async () => []) };
             guard.assertCurrent();
-            mocks.sessionEncryptions.set(raw.id, sessionEncryption);
-            return hydrated(raw);
+            return {
+                session: hydrated(raw),
+                commitEncryption: () => {
+                    if (mocks.sessionEncryptions.has(raw.id)) return false;
+                    mocks.sessionEncryptions.set(raw.id, sessionEncryption);
+                    return true;
+                },
+            };
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
@@ -715,8 +721,14 @@ describe('deep-link session opening', () => {
             ) => {
                 await oldHydration.promise;
                 guard.assertCurrent();
-                mocks.sessionEncryptions.set('racing-session', oldEncryption);
-                return hydrated(raw);
+                return {
+                    session: hydrated(raw),
+                    commitEncryption: () => {
+                        if (mocks.sessionEncryptions.has(raw.id)) return false;
+                        mocks.sessionEncryptions.set(raw.id, oldEncryption);
+                        return true;
+                    },
+                };
             })
             .mockImplementationOnce(async (
                 raw: ApiSessionSnapshot,
@@ -724,8 +736,14 @@ describe('deep-link session opening', () => {
                 guard: { assertCurrent(): void },
             ) => {
                 guard.assertCurrent();
-                mocks.sessionEncryptions.set('racing-session', newEncryption);
-                return hydrated(raw);
+                return {
+                    session: hydrated(raw),
+                    commitEncryption: () => {
+                        if (mocks.sessionEncryptions.has(raw.id)) return false;
+                        mocks.sessionEncryptions.set(raw.id, newEncryption);
+                        return true;
+                    },
+                };
             });
 
         const oldOpening = syncForTest.openSession('racing-session');
@@ -745,5 +763,116 @@ describe('deep-link session opening', () => {
         expect(syncForTest.getSessionLastMessageSeq('racing-session')).toBe(22);
         expect(syncForTest.sessionOldestSeq.get('racing-session')).toBe(22);
         expect(mocks.state.sessionMessages['racing-session']).toMatchObject({ isLoaded: true });
+    });
+
+    it('does not apply an old same-session transaction when its encryption commit loses', async () => {
+        const oldPreparation = deferred<{
+            session: HydratedSession;
+            commitEncryption: () => boolean;
+        }>();
+        const newEncryption = {
+            decryptMessages: vi.fn(async (messages) => messages.map((message: any) => ({
+                id: message.id,
+                localId: message.localId,
+                createdAt: message.createdAt,
+                content: { role: 'user', content: { type: 'text', text: 'Winning message' } },
+            }))),
+        };
+        const oldRaw = snapshot('transaction-session', { seq: 2, metadata: 'old transaction' });
+        const newRaw = snapshot('transaction-session', { seq: 20, metadata: 'new transaction' });
+        mocks.fetchSnapshot
+            .mockResolvedValueOnce(oldRaw)
+            .mockResolvedValueOnce(newRaw);
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({
+                messages: [
+                    { id: 'old-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+                ],
+                hasMore: true,
+            }))
+            .mockResolvedValueOnce(response({
+                messages: [
+                    { id: 'winning-message', seq: 22, localId: null, createdAt: 220, updatedAt: 220, content: 'new' },
+                ],
+                hasMore: false,
+            }));
+        mocks.hydrateRoute
+            .mockReturnValueOnce(oldPreparation.promise)
+            .mockResolvedValueOnce({
+                session: hydrated(newRaw),
+                commitEncryption: () => {
+                    mocks.sessionEncryptions.set('transaction-session', newEncryption);
+                    return true;
+                },
+            });
+
+        const oldOpening = syncForTest.openSession('transaction-session');
+        await vi.waitFor(() => expect(mocks.hydrateRoute).toHaveBeenCalledTimes(1));
+        const newOpening = syncForTest.openSession('transaction-session');
+        await expect(newOpening).resolves.toBe('ready');
+
+        oldPreparation.resolve({
+            session: hydrated(oldRaw),
+            commitEncryption: () => false,
+        });
+        await expect(oldOpening).rejects.toThrow('abandoned');
+
+        expect(syncForTest.encryption.getSessionEncryption('transaction-session')).toBe(newEncryption);
+        expect(mocks.state.sessions['transaction-session']).toMatchObject({
+            seq: 20,
+            metadata: { name: 'new transaction' },
+        });
+        expect(syncForTest.getSessionLastMessageSeq('transaction-session')).toBe(22);
+        expect(syncForTest.sessionOldestSeq.get('transaction-session')).toBe(22);
+        expect(mocks.state.sessionMessages['transaction-session']).toMatchObject({ isLoaded: true });
+    });
+
+    it('leaves newer same-session state untouched when a current operation commit is refused', async () => {
+        const preparation = deferred<{
+            session: HydratedSession;
+            commitEncryption: () => boolean;
+        }>();
+        const winningEncryption = { decryptMessages: vi.fn(async () => []) };
+        const oldRaw = snapshot('refused-session', { seq: 2, metadata: 'refused transaction' });
+        const winningSession = hydrated(snapshot('refused-session', {
+            seq: 30,
+            metadata: 'winning state',
+        }));
+        const refusedCommit = vi.fn(() => false);
+        mocks.fetchSnapshot.mockResolvedValue(oldRaw);
+        mocks.apiRequest.mockResolvedValue(response({
+            messages: [
+                { id: 'stale-message', seq: 9, localId: null, createdAt: 90, updatedAt: 90, content: 'old' },
+            ],
+            hasMore: true,
+        }));
+        mocks.hydrateRoute.mockReturnValue(preparation.promise);
+
+        const opening = syncForTest.openSession('refused-session');
+        await vi.waitFor(() => expect(mocks.hydrateRoute).toHaveBeenCalledTimes(1));
+        mocks.sessionEncryptions.set('refused-session', winningEncryption);
+        mocks.state.sessions['refused-session'] = winningSession;
+        mocks.state.sessionMessages['refused-session'] = {
+            isLoaded: true,
+            hasMoreOlder: false,
+            isLoadingOlder: false,
+        };
+        syncForTest.sessionLastSeq.set('refused-session', 44);
+        syncForTest.sessionOldestSeq.set('refused-session', 33);
+        preparation.resolve({
+            session: hydrated(oldRaw),
+            commitEncryption: refusedCommit,
+        });
+
+        await expect(opening).rejects.toThrow('abandoned');
+        expect(refusedCommit).toHaveBeenCalledTimes(1);
+        expect(syncForTest.encryption.getSessionEncryption('refused-session')).toBe(winningEncryption);
+        expect(mocks.state.sessions['refused-session']).toBe(winningSession);
+        expect(syncForTest.getSessionLastMessageSeq('refused-session')).toBe(44);
+        expect(syncForTest.sessionOldestSeq.get('refused-session')).toBe(33);
+        expect(mocks.state.sessionMessages['refused-session']).toMatchObject({
+            isLoaded: true,
+            hasMoreOlder: false,
+        });
     });
 });

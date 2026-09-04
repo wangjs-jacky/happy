@@ -48,7 +48,7 @@ describe('route session encryption staging', () => {
         const prepared = await preparing;
 
         expect(encryption.getSessionEncryption('session-1')).toBeNull();
-        prepared.commit();
+        expect(prepared.commit()).toBe(true);
         expect(encryption.getSessionEncryption('session-1')).not.toBeNull();
     });
 
@@ -57,10 +57,23 @@ describe('route session encryption staging', () => {
         const older = await encryption.prepareSessionEncryption('session-1', null);
         const newer = await encryption.prepareSessionEncryption('session-1', null);
 
-        newer.commit();
+        expect(newer.commit()).toBe(true);
         const newerCommitted = encryption.getSessionEncryption('session-1');
-        older.commit();
+        expect(older.commit()).toBe(false);
 
         expect(encryption.getSessionEncryption('session-1')).toBe(newerCommitted);
+    });
+
+    it('refuses an existing-encryption transaction after that encryption is replaced', async () => {
+        const encryption = createEncryptionForRouteTest();
+        const existing = { id: 'existing' };
+        const replacement = { id: 'replacement' };
+        encryption.sessionEncryptions.set('session-1', existing);
+        const prepared = await encryption.prepareSessionEncryption('session-1', null);
+
+        encryption.sessionEncryptions.set('session-1', replacement);
+
+        expect(prepared.commit()).toBe(false);
+        expect(encryption.getSessionEncryption('session-1')).toBe(replacement);
     });
 });

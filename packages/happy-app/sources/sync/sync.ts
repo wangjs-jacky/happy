@@ -1414,12 +1414,20 @@ class Sync {
         if (operation) this.assertSessionRouteCurrent(operation);
         if (!raw) return false;
 
-        const hydrated = operation
-            ? await hydrateSessionSnapshotForRoute(raw, this.encryption, {
+        if (operation) {
+            const transaction = await hydrateSessionSnapshotForRoute(raw, this.encryption, {
                 assertCurrent: () => this.assertSessionRouteCurrent(operation),
-            })
-            : (await hydrateSessionSnapshots([raw], this.encryption))[0] ?? null;
-        if (operation) this.assertSessionRouteCurrent(operation);
+            });
+            this.assertSessionRouteCurrent(operation);
+            if (!transaction) return false;
+            if (!transaction.commitEncryption()) {
+                throw new Error('Session route abandoned');
+            }
+            this.applySessions([transaction.session], { replace: false });
+            return true;
+        }
+
+        const hydrated = (await hydrateSessionSnapshots([raw], this.encryption))[0] ?? null;
         if (!hydrated) return false;
         this.applySessions([hydrated], { replace: false });
         return true;
