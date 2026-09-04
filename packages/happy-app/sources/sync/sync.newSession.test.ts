@@ -12,6 +12,7 @@ vi.hoisted(() => {
 const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } = vi.hoisted(() => {
     const storageState = {
         sessions: {} as Record<string, HydratedSession>,
+        sessionMessages: {} as Record<string, unknown>,
         getActiveSessions: () => [],
         applySessions: (sessions: HydratedSession[], options?: { replace?: boolean }) => {
             if (options?.replace) {
@@ -28,7 +29,13 @@ const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } =
     return {
         fetchSessionSnapshot: vi.fn(),
         hydrateSessionSnapshots: vi.fn(),
-        storage: { getState: () => storageState },
+        storage: {
+            getState: () => storageState,
+            setState: (update: any) => {
+                const next = typeof update === 'function' ? update(storageState) : update;
+                Object.assign(storageState, next);
+            },
+        },
         storageState,
     };
 });
@@ -130,6 +137,7 @@ describe('new-session updates', () => {
         hydrateSessionSnapshots.mockReset();
         hydrateSessionSnapshots.mockResolvedValue([hydratedSession]);
         storageState.sessions = {};
+        storageState.sessionMessages = {};
         applySessions = vi.spyOn(syncForTest, 'applySessions');
         sessionsSyncInvalidate = vi.fn();
         syncForTest.encryption = {

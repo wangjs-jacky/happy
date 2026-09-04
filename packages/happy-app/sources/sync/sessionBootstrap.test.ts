@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
+import { SessionMessageLoadGate } from './sessionMessageLoadGate';
+import { SessionMessageRetention } from './sessionMessageRetention';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -66,7 +68,13 @@ const mocks = vi.hoisted(() => {
         hydrateRoute: vi.fn(),
         sessionEncryptions: new Map<string, any>(),
         state,
-        storage: { getState: () => state },
+        storage: {
+            getState: () => state,
+            setState: (update: any) => {
+                const next = typeof update === 'function' ? update(state) : update;
+                Object.assign(state, next);
+            },
+        },
     };
 });
 
@@ -218,6 +226,8 @@ describe('active-first session bootstrap', () => {
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
+        syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
+        syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
     });
 
@@ -571,6 +581,8 @@ describe('deep-link session opening', () => {
         });
         syncForTest.sessionLastSeq.clear();
         syncForTest.sessionOldestSeq.clear();
+        syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
+        syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
     });
 

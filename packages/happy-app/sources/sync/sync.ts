@@ -103,6 +103,11 @@ import {
     hydrateSessionSnapshots,
     type HydratedSession,
 } from './sessionSnapshotHydration';
+import {
+    SessionMessageLoadGate,
+    type SessionMessageLoadOperation,
+} from './sessionMessageLoadGate';
+import { SessionMessageRetention } from './sessionMessageRetention';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -114,6 +119,7 @@ type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
     cancelled: boolean;
+    messageLoad: SessionMessageLoadOperation;
 };
 
 // Sentinel used as `before_seq` for the very first backward fetch of a
@@ -232,6 +238,8 @@ class Sync {
     // load older history. Set after the initial latest-page fetch and
     // advanced downward by loadOlderMessages.
     private sessionOldestSeq = new Map<string, number>();
+    private sessionMessageLoadGate = new SessionMessageLoadGate();
+    private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
     private sessionRouteOperations = new WeakMap<SessionOpenPromise, SessionRouteOperation>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
@@ -485,6 +493,7 @@ class Sync {
 
 
     onSessionVisible = (sessionId: string, options?: { loadMessages?: boolean }) => {
+        this.retainSessionMessageCache(sessionId);
         if (options?.loadMessages !== false) {
             this.getMessagesSync(sessionId).invalidate();
         }
@@ -506,10 +515,39 @@ class Sync {
     private getMessagesSync(sessionId: string): InvalidateSync {
         let sync = this.messagesSync.get(sessionId);
         if (!sync) {
-            sync = new InvalidateSync(() => this.fetchMessages(sessionId));
+            sync = new InvalidateSync(() => {
+                const operation = this.sessionMessageLoadGate.begin(sessionId);
+                return this.fetchMessages(sessionId, operation);
+            });
             this.messagesSync.set(sessionId, sync);
         }
         return sync;
+    }
+
+    private retainSessionMessageCache(sessionId: string): void {
+        for (const evictedSessionId of this.sessionMessageRetention.touch(sessionId)) {
+            this.releaseSessionMessageCache(evictedSessionId, false);
+        }
+    }
+
+    private releaseSessionMessageCache(sessionId: string, removeFromRetention = true): void {
+        const messageSync = this.messagesSync.get(sessionId);
+        messageSync?.stop();
+        this.messagesSync.delete(sessionId);
+        this.sessionMessageLoadGate.invalidate(sessionId);
+        this.sessionLastSeq.delete(sessionId);
+        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageLocks.delete(sessionId);
+        this.sessionMessageQueue.delete(sessionId);
+        this.sessionQueueProcessing.delete(sessionId);
+        if (removeFromRetention) {
+            this.sessionMessageRetention.remove(sessionId);
+        }
+        storage.setState((state) => {
+            if (!state.sessionMessages[sessionId]) return state;
+            const { [sessionId]: _released, ...sessionMessages } = state.sessionMessages;
+            return { sessionMessages };
+        });
     }
 
     private getSendSync(sessionId: string): InvalidateSync {
@@ -534,6 +572,16 @@ class Sync {
         queue.push(...messages);
 
         this.scheduleQueuedMessagesProcessing(sessionId);
+    }
+
+    private containsMutableToolResult(sessionId: string, messages: NormalizedMessage[]): boolean {
+        return messages.some((message) => (
+            message.role === 'agent'
+            && message.content.some((content) => (
+                content.type === 'tool-result'
+                && storage.getState().isMutableToolCall(sessionId, content.tool_use_id)
+            ))
+        ));
     }
 
     private getSessionMessageLock(sessionId: string): AsyncLock {
@@ -1448,7 +1496,12 @@ class Sync {
     }
 
     public openSession = (sessionId: string): SessionOpenPromise => {
-        const operation: SessionRouteOperation = { sessionId, cancelled: false };
+        this.retainSessionMessageCache(sessionId);
+        const operation: SessionRouteOperation = {
+            sessionId,
+            cancelled: false,
+            messageLoad: this.sessionMessageLoadGate.begin(sessionId),
+        };
         this.activeOpenSession = operation;
         const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         // A missing target can be resolved before its concurrently-started
@@ -1463,7 +1516,8 @@ class Sync {
 
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
-            await this.applyLatestMessagePage(sessionId, latestPage, operation);
+            await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
+            this.assertSessionRouteCurrent(operation);
             return 'ready';
         })();
         this.sessionRouteOperations.set(opening, operation);
@@ -1474,6 +1528,7 @@ class Sync {
         const operation = this.sessionRouteOperations.get(opening);
         if (!operation || operation.sessionId !== sessionId) return;
         operation.cancelled = true;
+        this.sessionMessageLoadGate.leave(operation.messageLoad);
         if (this.activeOpenSession === operation) this.activeOpenSession = null;
     }
 
@@ -1481,6 +1536,7 @@ class Sync {
         if (operation.cancelled || this.activeOpenSession !== operation) {
             throw new Error('Session route abandoned');
         }
+        this.sessionMessageLoadGate.assertCurrent(operation.messageLoad);
     }
 
     // Kept as a compatibility alias while call sites migrate to the more
@@ -2377,10 +2433,14 @@ class Sync {
         }
     }
 
-    private fetchMessages = async (sessionId: string) => {
+    private fetchMessages = async (
+        sessionId: string,
+        operation: SessionMessageLoadOperation,
+    ) => {
         log.log(`💬 fetchMessages starting for session ${sessionId} - acquiring lock`);
         const lock = this.getSessionMessageLock(sessionId);
         await lock.inLock(async () => {
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             const encryption = this.encryption.getSessionEncryption(sessionId);
             if (!encryption) {
                 log.log(`💬 fetchMessages: Session encryption not ready for ${sessionId}, will retry`);
@@ -2399,14 +2459,15 @@ class Sync {
                 // from displaying anything for sessions with thousands of
                 // messages. The user's reported pain point was "opening a long
                 // session feels frozen" — this is the fix.
-                await this.fetchInitialLatestPage(sessionId, encryption);
+                await this.fetchInitialLatestPage(sessionId, encryption, operation);
             } else {
                 // Forward incremental sync. Used after reconnect, invalidate,
                 // or any subsequent visit. Only pulls messages newer than what
                 // we already have, so it's bounded and fast in normal use.
-                await this.fetchForwardSince(sessionId, encryption, knownLastSeq);
+                await this.fetchForwardSince(sessionId, encryption, knownLastSeq, operation);
             }
 
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             storage.getState().applyMessagesLoaded(sessionId);
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
         });
@@ -2431,9 +2492,9 @@ class Sync {
     private applyLatestMessagePage = async (
         sessionId: string,
         data: V3GetSessionMessagesResponse,
-        operation?: SessionRouteOperation,
-    ): Promise<void> => {
-        if (operation) this.assertSessionRouteCurrent(operation);
+        operation: SessionMessageLoadOperation,
+    ): Promise<boolean> => {
+        if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
         const encryption = this.encryption.getSessionEncryption(sessionId);
         if (!encryption) {
             throw new Error(`Session encryption not ready for ${sessionId}`);
@@ -2443,7 +2504,7 @@ class Sync {
         const decryptedMessages = messages.length > 0
             ? await encryption.decryptMessages(messages)
             : [];
-        if (operation) this.assertSessionRouteCurrent(operation);
+        if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
 
         const normalizedMessages: NormalizedMessage[] = [];
         for (const decrypted of decryptedMessages) {
@@ -2472,23 +2533,28 @@ class Sync {
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: data.hasMore && messages.length > 0,
         });
+        return true;
     }
 
     private fetchInitialLatestPage = async (
         sessionId: string,
-        _encryption: ReturnType<Encryption['getSessionEncryption']> & {}
+        _encryption: ReturnType<Encryption['getSessionEncryption']> & {},
+        operation: SessionMessageLoadOperation,
     ) => {
         const data = await this.fetchLatestMessagePageRaw(sessionId);
-        await this.applyLatestMessagePage(sessionId, data);
+        await this.applyLatestMessagePage(sessionId, data, operation);
     }
 
     private fetchForwardSince = async (
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
-        fromSeq: number
+        fromSeq: number,
+        operation: SessionMessageLoadOperation,
     ) => {
         let afterSeq = fromSeq;
+        let hasMutableToolResult = false;
         while (true) {
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
             if (!response.ok) {
                 throw new Error(`Failed to forward-sync ${sessionId}: ${response.status}`);
@@ -2496,12 +2562,15 @@ class Sync {
             const data = await response.json() as V3GetSessionMessagesResponse;
             const messages = Array.isArray(data.messages) ? data.messages : [];
 
-            await this.applyFetchedMessages(sessionId, encryption, messages);
+            const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+            if (!applied.current) return;
+            hasMutableToolResult ||= applied.hasMutableToolResult;
 
             let maxSeq = afterSeq;
             for (const message of messages) {
                 if (message.seq > maxSeq) maxSeq = message.seq;
             }
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             this.sessionLastSeq.set(sessionId, maxSeq);
 
             if (!data.hasMore) break;
@@ -2511,15 +2580,28 @@ class Sync {
             }
             afterSeq = maxSeq;
         }
+        if (hasMutableToolResult
+            && storage.getState().currentViewingSessionId === sessionId) {
+            gitStatusSync.invalidate(sessionId);
+        }
     }
 
     private applyFetchedMessages = async (
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {},
-        messages: ApiMessage[]
-    ) => {
-        if (messages.length === 0) return;
+        messages: ApiMessage[],
+        operation: SessionMessageLoadOperation,
+    ): Promise<{ current: boolean; hasMutableToolResult: boolean }> => {
+        if (!this.sessionMessageLoadGate.isCurrent(operation)) {
+            return { current: false, hasMutableToolResult: false };
+        }
+        if (messages.length === 0) {
+            return { current: true, hasMutableToolResult: false };
+        }
         const decryptedMessages = await encryption.decryptMessages(messages);
+        if (!this.sessionMessageLoadGate.isCurrent(operation)) {
+            return { current: false, hasMutableToolResult: false };
+        }
         const normalizedMessages: NormalizedMessage[] = [];
         for (let i = 0; i < decryptedMessages.length; i++) {
             const decrypted = decryptedMessages[i];
@@ -2532,6 +2614,10 @@ class Sync {
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages);
         }
+        return {
+            current: true,
+            hasMutableToolResult: this.containsMutableToolResult(sessionId, normalizedMessages),
+        };
     }
 
     /**
@@ -2551,10 +2637,12 @@ class Sync {
             return;
         }
 
+        const operation = this.sessionMessageLoadGate.begin(sessionId);
         storage.getState().applyOlderMessagesLoading(sessionId, true);
         const lock = this.getSessionMessageLock(sessionId);
         try {
             await lock.inLock(async () => {
+                if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
                 const encryption = this.encryption.getSessionEncryption(sessionId);
                 if (!encryption) {
                     log.log(`💬 loadOlderMessages: encryption not ready for ${sessionId}`);
@@ -2575,12 +2663,14 @@ class Sync {
                 const data = await response.json() as V3GetSessionMessagesResponse;
                 const messages = Array.isArray(data.messages) ? data.messages : [];
 
-                await this.applyFetchedMessages(sessionId, encryption, messages);
+                const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
+                if (!applied.current) return;
 
                 let minSeq = beforeSeq;
                 for (const message of messages) {
                     if (message.seq < minSeq) minSeq = message.seq;
                 }
+                if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
                 if (messages.length > 0) {
                     this.sessionOldestSeq.set(sessionId, minSeq);
                 }
@@ -2589,7 +2679,9 @@ class Sync {
                 });
             });
         } finally {
-            storage.getState().applyOlderMessagesLoading(sessionId, false);
+            if (this.sessionMessageLoadGate.isCurrent(operation)) {
+                storage.getState().applyOlderMessagesLoading(sessionId, false);
+            }
         }
     }
 
@@ -2720,24 +2812,20 @@ class Sync {
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
                     const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
                     const incomingSeq = updateData.body.message.seq;
+                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid;
                     if (lastMessage && currentLastSeq !== undefined && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.sessionLastSeq.set(updateData.body.sid, incomingSeq);
-                        let hasMutableTool = false;
-                        if (lastMessage.role === 'agent' && lastMessage.content[0] && lastMessage.content[0].type === 'tool-result') {
-                            hasMutableTool = storage.getState().isMutableToolCall(updateData.body.sid, lastMessage.content[0].tool_use_id);
-                        }
-                        if (hasMutableTool) {
+                        if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
-                    } else {
+                    } else if (isVisible) {
                         this.getMessagesSync(updateData.body.sid).invalidate();
+                    } else {
+                        this.releaseSessionMessageCache(updateData.body.sid);
                     }
                 }
             }
-
-            // Ping session
-            this.onSessionVisible(updateData.body.sid);
 
         } else if (updateData.body.t === 'new-session') {
             log.log('🆕 New session update received');
@@ -2817,9 +2905,10 @@ class Sync {
                     seq: updateData.seq
                 }]);
 
-                // Invalidate git status when agent state changes (files may have been modified)
+                // Agent-state updates carry permissions/control state, not a
+                // concrete mutable tool result, so they do not refresh Git.
                 if (updateData.body.agentState) {
-                    gitStatusSync.invalidate(updateData.body.id);
+                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.id;
 
                     // Check for new permission requests and notify voice assistant
                     if (agentState?.requests && Object.keys(agentState.requests).length > 0) {
@@ -2833,9 +2922,9 @@ class Sync {
                     // This catches up on any messages that were exchanged while desktop had control
                     const wasControlledByUser = session.agentState?.controlledByUser;
                     const isNowControlledByUser = agentState?.controlledByUser;
-                    if (!wasControlledByUser && isNowControlledByUser) {
+                    if (isVisible && !wasControlledByUser && isNowControlledByUser) {
                         log.log(`🔄 Control returned to mobile for session ${updateData.body.id}, re-fetching messages`);
-                        this.onSessionVisible(updateData.body.id);
+                        this.getMessagesSync(updateData.body.id).invalidate();
                     }
                 }
             }
@@ -3340,16 +3429,11 @@ class Sync {
     }
 
     private clearSessionRuntimeState(sessionId: string) {
+        this.releaseSessionMessageCache(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);
-        this.messagesSync.delete(sessionId);
         this.sendSync.delete(sessionId);
         this.pendingOutbox.delete(sessionId);
-        this.sessionLastSeq.delete(sessionId);
-        this.sessionOldestSeq.delete(sessionId);
-        this.sessionMessageLocks.delete(sessionId);
-        this.sessionMessageQueue.delete(sessionId);
-        this.sessionQueueProcessing.delete(sessionId);
     }
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {
