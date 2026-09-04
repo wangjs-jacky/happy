@@ -145,7 +145,7 @@ describe('useUnifiedAuthQrCode', () => {
         expect(mocks.launchScanner).toHaveBeenCalledTimes(1);
     });
 
-    it('releases the scanner guard when launching the scanner rejects', async () => {
+    it('dismisses a possibly attached iOS scanner before retrying after launch rejection', async () => {
         mocks.launchScanner
             .mockRejectedValueOnce(new Error('launch failed'))
             .mockResolvedValueOnce(undefined);
@@ -156,7 +156,11 @@ describe('useUnifiedAuthQrCode', () => {
         });
 
         expect(mocks.alert).toHaveBeenCalledTimes(1);
+        expect(mocks.dismissScanner).toHaveBeenCalledTimes(1);
         expect(mocks.launchScanner).toHaveBeenCalledTimes(2);
+        expect(mocks.dismissScanner.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.launchScanner.mock.invocationCallOrder[1],
+        );
     });
 
     it('waits for native iOS presentation completion before replacing a provider launch', async () => {

@@ -376,7 +376,7 @@ const previousPatchedPrivateFunctions = `  @available(iOS 16.0, *)
     scannerContext = nil
   }`;
 
-const patchedPrivateFunctions = previousPatchedPrivateFunctions
+const dismissalSafePatchedPrivateFunctions = previousPatchedPrivateFunctions
     .replace('private func dismissScanner() async {', 'private func dismissScanner() async throws {')
     .replace('    try? await withCheckedThrowingContinuation', '    try await withCheckedThrowingContinuation')
     .replace(
@@ -421,6 +421,85 @@ const patchedPrivateFunctions = previousPatchedPrivateFunctions
         self.clearScannerContext(for: controller)
         transition.resolve()
       }`,
+    );
+
+const patchedPrivateFunctions = dismissalSafePatchedPrivateFunctions
+    .replace(
+        `        if controller.presentingViewController != nil {
+          controller.dismiss(animated: false)
+        }
+        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+        `        if controller.presentingViewController != nil {
+          controller.dismiss(animated: false)
+        }
+        guard controller.presentingViewController == nil else {
+          return
+        }
+        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+    )
+    .replace(
+        `          if controller.presentingViewController != nil {
+            controller.dismiss(animated: false)
+          }
+          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+        `          if controller.presentingViewController != nil {
+            controller.dismiss(animated: false)
+          }
+          guard controller.presentingViewController == nil else {
+            return
+          }
+          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+    )
+    .replace(
+        `            if controller.presentingViewController != nil {
+              controller.dismiss(animated: false)
+            }
+            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+        `            if controller.presentingViewController != nil {
+              controller.dismiss(animated: false)
+            }
+            guard controller.presentingViewController == nil else {
+              return
+            }
+            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+    )
+    .replace(
+        `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            if let self, let controller {
+              self.clearScannerContext(for: controller)
+            }
+            transition.reject(error)
+          }`,
+        `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            guard let self, let controller else {
+              transition.reject(error)
+              return
+            }
+            guard controller.presentingViewController == nil else {
+              transition.reject(error)
+              return
+            }
+            self.clearScannerContext(for: controller)
+            transition.reject(error)
+          }`,
     );
 
 function countOccurrences(content, fragment) {
@@ -477,7 +556,12 @@ function patchCameraModule(source, sourcePath) {
         [patchedModuleFunctions, [intermediateModuleFunctions, originalModuleFunctions]],
         [
             patchedPrivateFunctions,
-            [previousPatchedPrivateFunctions, intermediatePrivateFunctions, originalPrivateFunctions],
+            [
+                dismissalSafePatchedPrivateFunctions,
+                previousPatchedPrivateFunctions,
+                intermediatePrivateFunctions,
+                originalPrivateFunctions,
+            ],
         ],
     ];
     let updated = source;

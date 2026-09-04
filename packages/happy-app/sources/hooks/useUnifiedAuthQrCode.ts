@@ -186,7 +186,7 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
                         }
                     },
                     () => {
-                        if (scannerSession.generation === generation) {
+                        if (scannerSession.generation === generation && Platform.OS !== 'ios') {
                             scannerSession.active = false;
                         }
                     },
@@ -200,7 +200,11 @@ export function UnifiedAuthQrCodeProvider({ children }: { children: React.ReactN
             await nativeLaunch;
         } catch (error) {
             const ownedGeneration = ownedScannerGenerationRef.current;
-            if (ownedGeneration !== null && scannerSession.generation === ownedGeneration) {
+            if (
+                Platform.OS !== 'ios'
+                && ownedGeneration !== null
+                && scannerSession.generation === ownedGeneration
+            ) {
                 scannerSession.active = false;
             }
             if (isMountedRef.current && !isScannerCancellation(error)) {

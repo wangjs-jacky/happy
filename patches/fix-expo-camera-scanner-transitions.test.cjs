@@ -131,6 +131,26 @@ test('uses a rejecting watchdog when a UIKit presenter omits its completion call
     assert.match(patched, /transition\.armWatchdog \{ \[weak self, weak controller\] in[\s\S]*controller\.dismiss\(animated: false\)[\s\S]*guard controller\.presentingViewController == nil else \{\s+return\s+\}\s+self\.clearScannerContext\(for: controller\)/);
 });
 
+test('retains launch scanner ownership when compensating dismissal remains attached', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const patched = fs.readFileSync(fixture.sourcePath, 'utf8');
+    const launchStart = patched.indexOf('private func launchScanner(with options: VisionScannerOptions?) async throws');
+    const dismissStart = patched.indexOf('private func dismissScanner() async throws');
+    const launchFunction = patched.slice(launchStart, dismissStart);
+
+    assert.notEqual(launchStart, -1);
+    assert.notEqual(dismissStart, -1);
+    assert.match(launchFunction, /transition\.armWatchdog \{ \[weak self, weak controller\] in[\s\S]*controller\.dismiss\(animated: false\)\s+}\s+guard controller\.presentingViewController == nil else \{\s+return\s+}\s+self\.clearScannerContext\(for: controller\)/);
+    assert.match(launchFunction, /guard transition\.isPending else \{[\s\S]*controller\.dismiss\(animated: false\)\s+}\s+guard controller\.presentingViewController == nil else \{\s+return\s+}\s+self\.clearScannerContext\(for: controller\)/);
+    assert.match(launchFunction, /guard transition\.resolve\(\) else \{[\s\S]*controller\.dismiss\(animated: false\)\s+}\s+guard controller\.presentingViewController == nil else \{\s+return\s+}\s+self\.clearScannerContext\(for: controller\)/);
+    assert.match(launchFunction, /controller\.dismiss\(animated: true\) \{ \[weak self, weak controller\] in\s+guard let self, let controller else \{[\s\S]*guard controller\.presentingViewController == nil else \{\s+transition\.reject\(error\)\s+return\s+}\s+self\.clearScannerContext\(for: controller\)\s+transition\.reject\(error\)/);
+});
+
 test('is idempotent after Expo Camera has already been patched', (t) => {
     const fixture = createExpoCameraFixture(t);
     applyExpoCameraScannerTransitionPatch({
@@ -172,6 +192,93 @@ test('upgrades the previous watchdog implementation without accepting other drif
     assert.deepEqual(result, { found: 1, patched: 1 });
     assert.match(upgraded, /Task \{ @MainActor \[self\] in/);
     assert.doesNotMatch(upgraded, /\[weak self\]/);
+});
+
+test('upgrades the previous dismissal-safe implementation', (t) => {
+    const fixture = createExpoCameraFixture(t);
+    applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+    const latestPatch = fs.readFileSync(fixture.sourcePath, 'utf8');
+    const launchStart = latestPatch.indexOf('private func launchScanner(with options: VisionScannerOptions?) async throws');
+    const dismissStart = latestPatch.indexOf('private func dismissScanner() async throws');
+    const latestLaunch = latestPatch.slice(launchStart, dismissStart);
+    const previousLaunch = latestLaunch
+        .replace(
+            `        guard controller.presentingViewController == nil else {
+          return
+        }
+        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+            `        self.clearScannerContext(for: controller)
+      }
+
+      currentViewController.present`,
+        )
+        .replace(
+            `          guard controller.presentingViewController == nil else {
+            return
+          }
+          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+            `          self.clearScannerContext(for: controller)
+          return
+        }
+        guard controller.presentingViewController != nil else`,
+        )
+        .replace(
+            `            guard controller.presentingViewController == nil else {
+              return
+            }
+            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+            `            self.clearScannerContext(for: controller)
+            return
+          }
+        } catch`,
+        )
+        .replace(
+            `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            guard let self, let controller else {
+              transition.reject(error)
+              return
+            }
+            guard controller.presentingViewController == nil else {
+              transition.reject(error)
+              return
+            }
+            self.clearScannerContext(for: controller)
+            transition.reject(error)
+          }`,
+            `          controller.dismiss(animated: true) { [weak self, weak controller] in
+            if let self, let controller {
+              self.clearScannerContext(for: controller)
+            }
+            transition.reject(error)
+          }`,
+        );
+    const previousPatch = latestPatch.replace(latestLaunch, previousLaunch);
+    assert.notEqual(launchStart, -1);
+    assert.notEqual(dismissStart, -1);
+    assert.notEqual(previousPatch, latestPatch);
+    fs.writeFileSync(fixture.sourcePath, previousPatch);
+
+    const result = applyExpoCameraScannerTransitionPatch({
+        repositoryRoot: fixture.repositoryRoot,
+        log: null,
+        warn: null,
+    });
+
+    assert.deepEqual(result, { found: 1, patched: 1 });
+    assert.equal(fs.readFileSync(fixture.sourcePath, 'utf8'), latestPatch);
 });
 
 test('fails closed without modifying files when the installed Expo Camera source drifts', (t) => {
