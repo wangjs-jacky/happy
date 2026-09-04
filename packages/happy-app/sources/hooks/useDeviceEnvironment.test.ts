@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from 'react';
+import { act, createElement, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentPlan, EnvironmentInspectResponse, EnvironmentApplyResponse } from '@slopus/happy-wire';
@@ -71,13 +71,14 @@ describe('useDeviceEnvironment', () => {
     let inspect: ReturnType<typeof vi.fn<DeviceEnvironmentDependencies['inspect']>>;
     let apply: ReturnType<typeof vi.fn<DeviceEnvironmentDependencies['apply']>>;
 
-    function Harness({ machines }: { machines: Machine[] }) {
+    function Harness({ machines, onLayout }: { machines: Machine[]; onLayout?: () => void }) {
         controller = useDeviceEnvironment(machines, { inspect, apply, now: () => now });
+        useLayoutEffect(() => { onLayout?.(); }, [onLayout]);
         return null;
     }
 
-    function mount(machines = [machine('air')]) {
-        act(() => root.render(createElement(Harness, { machines })));
+    function mount(machines = [machine('air')], onLayout?: () => void) {
+        act(() => root.render(createElement(Harness, { machines, onLayout })));
     }
 
     beforeEach(() => {
@@ -265,6 +266,24 @@ describe('useDeviceEnvironment', () => {
         inspect.mockClear();
         await act(() => controller.scan());
         expect(inspect.mock.calls.map(([id]) => id)).toEqual(['new']);
+    });
+
+    it.each(['applyApproved', 'preview'] as const)('rejects saved %s before passive registry invalidation', async (operation) => {
+        mount();
+        await prepare();
+        const savedOperation = controller[operation];
+        inspect.mockClear();
+        let phaseAtLayout: string | undefined;
+        let pending!: Promise<void>;
+        mount([machine('air'), machine('new')], () => {
+            phaseAtLayout = controller.phase;
+            pending = savedOperation();
+        });
+        await act(() => pending);
+        expect(phaseAtLayout).toBe('previewed');
+        expect(apply).not.toHaveBeenCalled();
+        expect(inspect).not.toHaveBeenCalled();
+        expect(controller.phase).toBe('idle');
     });
 
     it('preserves daemon failure, stale, and repair details alongside successful rows', async () => {

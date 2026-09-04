@@ -25,6 +25,7 @@ export type DeviceEnvironmentDependencies = {
 
 type FleetState = Pick<DeviceEnvironmentController, 'phase' | 'rows' | 'target'> & {
     epoch: number;
+    registryKey: string;
     previewStartedAt?: number;
 };
 
@@ -48,8 +49,11 @@ export function useDeviceEnvironment(
     machines: readonly Machine[],
     dependencies: Partial<DeviceEnvironmentDependencies> = {},
 ): DeviceEnvironmentController {
+    const registryKey = JSON.stringify(machines.map((machine) => [machine.id, isMachineOnline(machine)]));
+    const latestRegistry = useRef(registryKey);
+    latestRegistry.current = registryKey;
     const [state, setState] = useState<FleetState>(() => ({
-        epoch: 0, phase: 'idle', rows: initialRows(machines), target: { kind: 'unavailable' },
+        epoch: 0, registryKey, phase: 'idle', rows: initialRows(machines), target: { kind: 'unavailable' },
     }));
     const current = useRef(state);
     const latestMachines = useRef(machines);
@@ -59,13 +63,14 @@ export function useDeviceEnvironment(
     const inspect = dependencies.inspect ?? inspectMachineEnvironment;
     const apply = dependencies.apply ?? applyMachineEnvironment;
     const now = dependencies.now ?? Date.now;
-    const registryKey = JSON.stringify(machines.map((machine) => [machine.id, isMachineOnline(machine)]));
     const currentRegistry = useRef(registryKey);
 
     function commit(next: FleetState) {
-        if (!mounted.current) return;
+        // A result can settle before the passive registry-reset effect runs.
+        // Check both now and when React processes the queued state update.
+        if (!mounted.current || next.registryKey !== latestRegistry.current) return;
         current.current = next;
-        setState((previous) => previous.epoch > next.epoch ? previous : next);
+        setState((previous) => previous.epoch > next.epoch || next.registryKey !== latestRegistry.current ? previous : next);
     }
 
     function update(epoch: number, transform: (previous: FleetState) => FleetState) {
@@ -73,7 +78,8 @@ export function useDeviceEnvironment(
     }
 
     function reset() {
-        commit({ epoch: current.current.epoch + 1, phase: 'idle', rows: initialRows(latestMachines.current), target: { kind: 'unavailable' } });
+        commit({ epoch: current.current.epoch + 1, registryKey: latestRegistry.current,
+            phase: 'idle', rows: initialRows(latestMachines.current), target: { kind: 'unavailable' } });
     }
 
     useEffect(() => {
@@ -108,14 +114,15 @@ export function useDeviceEnvironment(
         if (!mounted.current) return;
         const fleet = [...latestMachines.current];
         const epoch = current.current.epoch + 1;
-        commit({ epoch, phase: 'scanning', rows: initialRows(fleet), target: { kind: 'unavailable' } });
+        commit({ epoch, registryKey: latestRegistry.current, phase: 'scanning', rows: initialRows(fleet), target: { kind: 'unavailable' } });
         const rows = await inspectFleet(fleet);
         update(epoch, (previous) => ({ ...previous, phase: 'scanned', rows, target: resolveFleetTarget(rows) }));
     }
 
     async function preview() {
         const previous = current.current;
-        if (!mounted.current || (previous.phase !== 'scanned' && previous.phase !== 'previewed') || previous.target.kind !== 'ready') return;
+        if (!mounted.current || previous.registryKey !== latestRegistry.current
+            || (previous.phase !== 'scanned' && previous.phase !== 'previewed') || previous.target.kind !== 'ready') return;
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         const previewStartedAt = now();
@@ -133,7 +140,8 @@ export function useDeviceEnvironment(
 
     async function applyApproved() {
         const previous = current.current;
-        if (!mounted.current || applyInFlight.current || previous.phase !== 'previewed' || previous.target.kind !== 'ready') return;
+        if (!mounted.current || previous.registryKey !== latestRegistry.current
+            || applyInFlight.current || previous.phase !== 'previewed' || previous.target.kind !== 'ready') return;
         const approvedAt = now();
         if (previous.previewStartedAt === undefined || approvedAt - previous.previewStartedAt >= PLAN_MAX_AGE_MS
             || previous.rows.some((row) => row.plan && row.plan.expiresAt <= approvedAt)) {
