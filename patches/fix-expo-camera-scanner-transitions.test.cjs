@@ -97,6 +97,7 @@ test('makes Expo Camera scanner promises settle from UIKit transition completion
 
     assert.deepEqual(result, { found: 1, patched: 1 });
     assert.match(patched, /try await launchScanner\(with: options\)/);
+    assert.match(patched, /try await dismissScanner\(\)/);
     assert.match(patched, /private func launchScanner\(with options: VisionScannerOptions\?\) async throws/);
     assert.match(patched, /private final class ScannerTransitionCoordinator/);
     assert.match(patched, /guard let continuation else \{\s+return false\s+\}\s+self\.continuation = nil/);
@@ -108,7 +109,9 @@ test('makes Expo Camera scanner promises settle from UIKit transition completion
     assert.match(patched, /guard transition\.isPending else \{\s+controller\.stopScanning\(\)/);
     assert.match(patched, /try controller\.startScanning\(\)\s+guard transition\.resolve\(\) else/);
     assert.match(patched, /controller\.dismiss\(animated: true\) \{[\s\S]*transition\.reject\(error\)/);
-    assert.match(patched, /private func dismissScanner\(\) async/);
+    assert.match(patched, /private func dismissScanner\(\) async throws/);
+    assert.doesNotMatch(patched, /try\? await withCheckedThrowingContinuation/);
+    assert.match(patched, /guard controller\.presentingViewController == nil else \{\s+transition\.reject\(InitScannerFailed\(\)\)\s+return\s+\}\s+self\.clearScannerContext\(for: controller\)\s+transition\.resolve\(\)/);
     assert.match(patched, /controller\.dismiss\(animated: true\) \{[\s\S]*transition\.resolve\(\)/);
     assert.doesNotMatch(patched, /try\? controller\.startScanning\(\)/);
     assert.equal((patched.match(/continuation\.resume/g) ?? []).length, 2);
@@ -124,8 +127,8 @@ test('uses a rejecting watchdog when a UIKit presenter omits its completion call
     const patched = fs.readFileSync(fixture.sourcePath, 'utf8');
 
     assert.match(patched, /Task \{ @MainActor \[self\] in\s+try\? await Task\.sleep\(nanoseconds: timeout\)/);
-    assert.match(patched, /guard !Task\.isCancelled, self\.isPending else \{\s+return\s+\}\s+onTimeout\(\)\s+self\.reject\(InitScannerFailed\(\)\)/);
-    assert.match(patched, /transition\.armWatchdog \{ \[weak self, weak controller\] in[\s\S]*controller\.dismiss\(animated: false\)[\s\S]*clearScannerContext\(for: controller\)/);
+    assert.match(patched, /guard !Task\.isCancelled, self\.isPending else \{\s+return\s+\}\s+guard self\.reject\(InitScannerFailed\(\)\) else \{\s+return\s+\}\s+onTimeout\(\)/);
+    assert.match(patched, /transition\.armWatchdog \{ \[weak self, weak controller\] in[\s\S]*controller\.dismiss\(animated: false\)[\s\S]*guard controller\.presentingViewController == nil else \{\s+return\s+\}\s+self\.clearScannerContext\(for: controller\)/);
 });
 
 test('is idempotent after Expo Camera has already been patched', (t) => {

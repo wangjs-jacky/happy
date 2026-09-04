@@ -48,8 +48,10 @@ private final class ScannerTransitionCoordinator {
       guard !Task.isCancelled, self.isPending else {
         return
       }
+      guard self.reject(InitScannerFailed()) else {
+        return
+      }
       onTimeout()
-      self.reject(InitScannerFailed())
     }
   }
 
@@ -81,7 +83,23 @@ private final class ScannerTransitionCoordinator {
   }
 }`;
 
-const previousPatchedSupportTypes = patchedSupportTypes
+const previousPatchedSupportTypes = patchedSupportTypes.replace(
+    `      guard self.reject(InitScannerFailed()) else {
+        return
+      }
+      onTimeout()`,
+    `      onTimeout()
+      self.reject(InitScannerFailed())`,
+);
+
+const weakPatchedSupportTypes = previousPatchedSupportTypes
+    .replace('Task { @MainActor [self] in', 'Task { @MainActor [weak self] in')
+    .replace(
+        'guard !Task.isCancelled, self.isPending else {',
+        'guard !Task.isCancelled, let self, self.isPending else {',
+    );
+
+const weakCurrentPatchedSupportTypes = patchedSupportTypes
     .replace('Task { @MainActor [self] in', 'Task { @MainActor [weak self] in')
     .replace(
         'guard !Task.isCancelled, self.isPending else {',
@@ -109,7 +127,7 @@ const originalModuleFunctions = `    AsyncFunction("launchScanner") { (options: 
       }
     }`;
 
-const patchedModuleFunctions = `    AsyncFunction("launchScanner") { (options: VisionScannerOptions?) in
+const intermediateModuleFunctions = `    AsyncFunction("launchScanner") { (options: VisionScannerOptions?) in
       if #available(iOS 16.0, *) {
         try await launchScanner(with: options)
       }
@@ -118,6 +136,18 @@ const patchedModuleFunctions = `    AsyncFunction("launchScanner") { (options: V
     AsyncFunction("dismissScanner") {
       if #available(iOS 16.0, *) {
         await dismissScanner()
+      }
+    }`;
+
+const patchedModuleFunctions = `    AsyncFunction("launchScanner") { (options: VisionScannerOptions?) in
+      if #available(iOS 16.0, *) {
+        try await launchScanner(with: options)
+      }
+    }
+
+    AsyncFunction("dismissScanner") {
+      if #available(iOS 16.0, *) {
+        try await dismissScanner()
       }
     }`;
 
@@ -215,7 +245,7 @@ const intermediatePrivateFunctions = `  @available(iOS 16.0, *)
     }
   }`;
 
-const patchedPrivateFunctions = `  @available(iOS 16.0, *)
+const previousPatchedPrivateFunctions = `  @available(iOS 16.0, *)
   @MainActor
   private func launchScanner(with options: VisionScannerOptions?) async throws {
     guard DataScannerViewController.isSupported, DataScannerViewController.isAvailable else {
@@ -346,45 +376,120 @@ const patchedPrivateFunctions = `  @available(iOS 16.0, *)
     scannerContext = nil
   }`;
 
+const patchedPrivateFunctions = previousPatchedPrivateFunctions
+    .replace('private func dismissScanner() async {', 'private func dismissScanner() async throws {')
+    .replace('    try? await withCheckedThrowingContinuation', '    try await withCheckedThrowingContinuation')
+    .replace(
+        `      transition.armWatchdog { [weak self, weak controller] in
+        guard let self, let controller else {
+          return
+        }
+        if controller.presentingViewController != nil {
+          controller.dismiss(animated: false)
+        }
+        self.clearScannerContext(for: controller)
+      }`,
+        `      transition.armWatchdog { [weak self, weak controller] in
+        guard let self, let controller else {
+          return
+        }
+        if controller.presentingViewController != nil {
+          controller.dismiss(animated: false)
+        }
+        guard controller.presentingViewController == nil else {
+          return
+        }
+        self.clearScannerContext(for: controller)
+      }`,
+    )
+    .replace(
+        `      controller.dismiss(animated: true) { [weak self, weak controller] in
+        if let self, let controller {
+          self.clearScannerContext(for: controller)
+        }
+        transition.resolve()
+      }`,
+        `      controller.dismiss(animated: true) { [weak self, weak controller] in
+        guard let self, let controller else {
+          transition.reject(InitScannerFailed())
+          return
+        }
+        guard controller.presentingViewController == nil else {
+          transition.reject(InitScannerFailed())
+          return
+        }
+        self.clearScannerContext(for: controller)
+        transition.resolve()
+      }`,
+    );
+
 function countOccurrences(content, fragment) {
     return content.split(fragment).length - 1;
 }
 
-function patchCameraModule(source, sourcePath) {
-    const originalSupportMatches = countOccurrences(source, originalSupportTypes) === 1;
-    const previousPatchedSupportMatches = countOccurrences(source, previousPatchedSupportTypes) === 1;
-    const patchedSupportMatches = countOccurrences(source, patchedSupportTypes) === 1;
-    const originalModuleMatches = countOccurrences(source, originalModuleFunctions) === 1;
-    const patchedModuleMatches = countOccurrences(source, patchedModuleFunctions) === 1;
-    const originalPrivateMatches = countOccurrences(source, originalPrivateFunctions) === 1;
-    const intermediatePrivateMatches = countOccurrences(source, intermediatePrivateFunctions) === 1;
-    const patchedPrivateMatches = countOccurrences(source, patchedPrivateFunctions) === 1;
-
-    if (patchedSupportMatches && patchedModuleMatches && patchedPrivateMatches) {
-        return null;
+function upgradeSupportedFragment(source, target, previousVersions, sourcePath) {
+    if (countOccurrences(source, target) === 1) {
+        return { source, changed: false };
     }
 
-    if (previousPatchedSupportMatches && patchedModuleMatches && patchedPrivateMatches) {
-        return source.replace(previousPatchedSupportTypes, patchedSupportTypes);
-    }
-
-    if (originalSupportMatches && originalModuleMatches && originalPrivateMatches) {
-        return source
-            .replace(originalSupportTypes, patchedSupportTypes)
-            .replace(originalModuleFunctions, patchedModuleFunctions)
-            .replace(originalPrivateFunctions, patchedPrivateFunctions);
-    }
-
-    if (originalSupportMatches && patchedModuleMatches && intermediatePrivateMatches) {
-        return source
-            .replace(originalSupportTypes, patchedSupportTypes)
-            .replace(intermediatePrivateFunctions, patchedPrivateFunctions);
+    for (const previousVersion of previousVersions) {
+        if (countOccurrences(source, previousVersion) === 1) {
+            return {
+                source: source.replace(previousVersion, target),
+                changed: true,
+            };
+        }
     }
 
     throw new Error(
         `[patch] Expo Camera ${SUPPORTED_EXPO_CAMERA_VERSION} source does not match `
         + `the expected scanner transition implementation: ${sourcePath}`,
     );
+}
+
+function patchCameraModule(source, sourcePath) {
+    const knownSupportTypes = [
+        patchedSupportTypes,
+        previousPatchedSupportTypes,
+        weakPatchedSupportTypes,
+        weakCurrentPatchedSupportTypes,
+    ];
+    if (
+        source.includes('private final class ScannerTransitionCoordinator')
+        && !knownSupportTypes.some((supportTypes) => countOccurrences(source, supportTypes) === 1)
+    ) {
+        throw new Error(
+            `[patch] Expo Camera ${SUPPORTED_EXPO_CAMERA_VERSION} source does not match `
+            + `the expected scanner transition implementation: ${sourcePath}`,
+        );
+    }
+
+    const fragments = [
+        [
+            patchedSupportTypes,
+            [
+                previousPatchedSupportTypes,
+                weakPatchedSupportTypes,
+                weakCurrentPatchedSupportTypes,
+                originalSupportTypes,
+            ],
+        ],
+        [patchedModuleFunctions, [intermediateModuleFunctions, originalModuleFunctions]],
+        [
+            patchedPrivateFunctions,
+            [previousPatchedPrivateFunctions, intermediatePrivateFunctions, originalPrivateFunctions],
+        ],
+    ];
+    let updated = source;
+    let changed = false;
+
+    for (const [target, previousVersions] of fragments) {
+        const result = upgradeSupportedFragment(updated, target, previousVersions, sourcePath);
+        updated = result.source;
+        changed ||= result.changed;
+    }
+
+    return changed ? updated : null;
 }
 
 function applyExpoCameraScannerTransitionPatch({
