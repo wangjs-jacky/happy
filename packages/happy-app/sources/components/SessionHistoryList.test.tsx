@@ -1,11 +1,12 @@
 import * as React from 'react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { SessionHistoryList } from './SessionHistoryList';
 
 const mocks = vi.hoisted(() => ({
+    loadNextSessionHistoryPage: vi.fn(),
     navigateToSession: vi.fn(),
     pathname: '/session/older',
     sessions: [
@@ -64,13 +65,30 @@ vi.mock('@/components/EmptySessionsTablet', () => ({
     EmptySessionsTablet: 'EmptySessionsTablet',
     shouldShowSessionEmptyState: (count: number) => count === 0,
 }));
+vi.mock('@/sync/sync', () => ({
+    sync: { loadNextSessionHistoryPage: mocks.loadNextSessionHistoryPage },
+}));
 
 describe('SessionHistoryList', () => {
+    const originalConsoleError = console.error;
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         vi.setSystemTime(new Date(2026, 8, 4, 12));
         mocks.pathname = '/session/older';
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
+            if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+            originalConsoleError(...values);
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        consoleErrorSpy.mockRestore();
+        delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
     });
 
     it('groups newest conversations first and opens the selected conversation in the existing session route', () => {
@@ -90,6 +108,18 @@ describe('SessionHistoryList', () => {
         expect(mocks.navigateToSession).toHaveBeenCalledWith('newest');
 
         act(() => renderer.unmount());
-        vi.useRealTimers();
+    });
+
+    it('requests the next history page only when the sidebar reaches its near-end threshold', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
+
+        const list = renderer.root.findByType('FlatList');
+        expect(list.props.onEndReachedThreshold).toBe(0.5);
+        expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.unmount());
     });
 });

@@ -441,7 +441,7 @@ function SessionHeaderMoreAction({
 
 export const SessionView = React.memo((props: { id: string }) => (
     <SubagentInspectorProvider sessionId={props.id}>
-        <SessionViewContent {...props} />
+        <SessionViewContent key={props.id} {...props} />
     </SubagentInspectorProvider>
 ));
 
@@ -451,6 +451,9 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const navigation = useNavigation();
     const session = useSession(sessionId);
     const isDataReady = useIsDataReady();
+    const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'ready' | 'not-found'>(
+        session ? 'ready' : 'loading',
+    );
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const isLandscape = useIsLandscape();
@@ -477,6 +480,29 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
     const subagentInspector = useSubagentInspector();
     const subagentSelection = subagentInspector?.selection ?? null;
+
+    React.useEffect(() => {
+        let cancelled = false;
+        setSessionResolution(session ? 'ready' : 'loading');
+        void sync.openSession(sessionId).then((resolution) => {
+            if (cancelled) return;
+            setSessionResolution(resolution);
+            if (resolution === 'ready') {
+                void sync.sessionRouteBecameInteractive();
+            }
+        }).catch(() => {
+            // Route abandonment and transient network failures must not turn
+            // a still-resolving deep link into a global not-found state.
+        });
+        return () => {
+            cancelled = true;
+            sync.abandonSessionRoute(sessionId);
+        };
+        // `session` intentionally is not a dependency: hydration inserts the
+        // target into the store before its concurrently-started message page
+        // completes, and restarting here would abandon that valid first load.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
@@ -670,7 +696,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
     // Compute header props based on session state
     const headerProps = useMemo(() => {
-        if (!isDataReady) {
+        if (!session && sessionResolution !== 'not-found') {
             return { title: '', folderName: undefined, isConnected: false };
         }
         if (!session) {
@@ -685,7 +711,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
             folderName,
             isConnected,
         };
-    }, [session, isDataReady]);
+    }, [session, sessionResolution]);
 
     // Header chip (replaces the breadcrumb title): shows the running session's
     // agent + machine + connection state. The dropdown keeps runtime identity
@@ -964,12 +990,12 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
             {/* Content based on state */}
             <View style={{ flex: 1, paddingTop: !(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') ? safeArea.top + headerHeight : 0 }}>
-                {!isDataReady ? (
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                {!session && sessionResolution !== 'not-found' ? (
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                     </View>
                 ) : !session ? (
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
@@ -1540,7 +1566,7 @@ function SessionViewLoaded({
     React.useLayoutEffect(() => {
 
         // Trigger session sync
-        sync.onSessionVisible(sessionId);
+        sync.onSessionVisible(sessionId, { loadMessages: false });
 
         // Mark session as currently being viewed (clears unread)
         storage.getState().setCurrentViewingSession(sessionId);

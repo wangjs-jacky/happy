@@ -53,6 +53,9 @@ const mocks = vi.hoisted(() => ({
     sessionAbort: vi.fn(),
     overlayPublish: vi.fn(),
     overlayReset: vi.fn(),
+    abandonSessionRoute: vi.fn(),
+    openSession: vi.fn(),
+    sessionRouteBecameInteractive: vi.fn(),
     suspendFileViewPanel: false,
     fileViewPanelSuspender: null as Promise<void> | null,
     sessionMessages: [] as Message[],
@@ -353,7 +356,13 @@ vi.mock('@/sync/screenshotGallery', () => ({
     useHasNewScreenshots: () => ({ hasNew: false }),
 }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: vi.fn() } }));
-vi.mock('@/sync/sync', () => ({ sync: { onSessionVisible: vi.fn(), sendMessage: vi.fn() } }));
+vi.mock('@/sync/sync', () => ({ sync: {
+    abandonSessionRoute: mocks.abandonSessionRoute,
+    onSessionVisible: vi.fn(),
+    openSession: mocks.openSession,
+    sendMessage: vi.fn(),
+    sessionRouteBecameInteractive: mocks.sessionRouteBecameInteractive,
+} }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), show: mocks.modalShow } }));
 vi.mock('@/utils/platform', () => ({ isRunningOnMac: () => mocks.runningOnMac }));
 vi.mock('@/utils/responsive', () => ({
@@ -433,6 +442,7 @@ describe('SessionView Agent-space boundary', () => {
         mocks.globalRightSidebarShortcut = undefined;
         mocks.spaceAgent = null;
         mocks.useSpaceAgentForSession.mockImplementation(() => mocks.spaceAgent);
+        mocks.openSession.mockImplementation(async () => mocks.sessionAvailable ? 'ready' : 'not-found');
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;

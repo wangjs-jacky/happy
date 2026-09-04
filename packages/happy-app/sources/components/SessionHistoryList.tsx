@@ -9,6 +9,7 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { useAllSessions } from '@/sync/storage';
+import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
@@ -113,6 +114,9 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
     const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const loadNextHistoryPage = React.useCallback(() => {
+        if (sidebar) void sync.loadNextSessionHistoryPage();
+    }, [sidebar]);
 
     const renderItem = React.useCallback(({ item, index }: { item: SessionHistoryItem; index: number }) => {
         if (item.type === 'date-header') {
@@ -173,6 +177,8 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
                 ]}
                 data={groupedItems}
                 keyExtractor={(item) => item.key}
+                onEndReached={sidebar ? loadNextHistoryPage : undefined}
+                onEndReachedThreshold={sidebar ? 0.5 : undefined}
                 renderItem={renderItem}
             />
         );

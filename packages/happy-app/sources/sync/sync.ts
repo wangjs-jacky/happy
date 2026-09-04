@@ -93,7 +93,11 @@ import { deriveSessionFallbackTitle, ensureSessionFallbackTitle } from './sessio
 import { getPluginCatalog } from './plugins';
 import { shouldMarkSessionEventUnread } from '@/utils/sessionAttentionBadge';
 import { PluginCatalogStore, type PluginCatalogSnapshot } from './pluginCatalogStore';
-import { fetchSessionSnapshot } from './apiSessions';
+import {
+    fetchActiveSessionSnapshots,
+    fetchSessionSnapshot,
+    fetchSessionSnapshotPage,
+} from './apiSessions';
 import { hydrateSessionSnapshots, type HydratedSession } from './sessionSnapshotHydration';
 
 type V3GetSessionMessagesResponse = {
@@ -138,6 +142,34 @@ function stripNewSessionDiscriminator(
     return snapshot;
 }
 
+function deduplicateSessionSnapshots(snapshots: ApiSessionSnapshot[]): ApiSessionSnapshot[] {
+    const byId = new Map<string, ApiSessionSnapshot>();
+    for (const snapshot of snapshots) {
+        const existing = byId.get(snapshot.id);
+        if (!existing) {
+            byId.set(snapshot.id, snapshot);
+            continue;
+        }
+
+        const newest = snapshot.seq > existing.seq
+            || (snapshot.seq === existing.seq && snapshot.updatedAt >= existing.updatedAt)
+            ? snapshot
+            : existing;
+        const older = newest === snapshot ? existing : snapshot;
+        const newestMetadata = snapshot.metadataVersion >= existing.metadataVersion ? snapshot : existing;
+        const newestAgentState = snapshot.agentStateVersion >= existing.agentStateVersion ? snapshot : existing;
+        byId.set(snapshot.id, {
+            ...newest,
+            metadata: newestMetadata.metadata,
+            metadataVersion: newestMetadata.metadataVersion,
+            agentState: newestAgentState.agentState,
+            agentStateVersion: newestAgentState.agentStateVersion,
+            dataEncryptionKey: newest.dataEncryptionKey ?? older.dataEncryptionKey,
+        });
+    }
+    return [...byId.values()];
+}
+
 class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
@@ -146,6 +178,10 @@ class Sync {
     private credentials!: AuthCredentials;
     public encryptionCache = new EncryptionCache();
     private sessionsSync: InvalidateSync;
+    private sessionBootstrapSync: InvalidateSync;
+    private sessionHistorySync: InvalidateSync;
+    private nextSessionHistoryCursor: string | null | undefined = undefined;
+    private initialSessionHistoryScheduled = false;
     private messagesSync = new Map<string, InvalidateSync>();
     private sendSync = new Map<string, InvalidateSync>();
     private sendAbortControllers = new Map<string, AbortController>();
@@ -155,6 +191,8 @@ class Sync {
     // load older history. Set after the initial latest-page fetch and
     // advanced downward by loadOlderMessages.
     private sessionOldestSeq = new Map<string, number>();
+    private messageLoadEpoch = 0;
+    private activeOpenSession: { sessionId: string; epoch: number } | null = null;
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
     private sessionQueueProcessing = new Set<string>();
@@ -203,6 +241,8 @@ class Sync {
 
     constructor() {
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
+        this.sessionBootstrapSync = new InvalidateSync(this.fetchActiveSessions);
+        this.sessionHistorySync = new InvalidateSync(this.fetchNextSessionHistoryPage);
         this.settingsSync = new InvalidateSync(this.syncSettings);
         this.profileSync = new InvalidateSync(this.fetchProfile);
         this.purchasesSync = new InvalidateSync(this.syncPurchases);
@@ -249,7 +289,7 @@ class Sync {
                         this.profileSync,
                         this.machinesSync,
                         this.pushTokenSync,
-                        this.sessionsSync,
+                        this.sessionBootstrapSync,
                         this.nativeUpdateSync,
                         this.artifactsSync,
                         this.friendsSync,
@@ -324,7 +364,7 @@ class Sync {
 
         // Invalidate sync
         log.log('🔄 #init: Invalidating all syncs');
-        this.sessionsSync.invalidate();
+        void this.bootstrapSessions();
         this.settingsSync.invalidate();
         this.profileSync.invalidate();
         this.purchasesSync.invalidate();
@@ -339,16 +379,6 @@ class Sync {
         this.pluginCatalogSync.invalidate();
         log.log('🔄 #init: All syncs invalidated, including artifacts');
 
-        // Mark UI ready as soon as sessions load. Machines sync may hang
-        // when encryption keys are unavailable (e.g. V1 auth fallback) —
-        // let it resolve in the background instead of blocking the UI.
-        this.sessionsSync.awaitQueue().then(() => {
-            storage.getState().applyReady();
-        }).catch((error) => {
-            console.error('Failed to load sessions:', error);
-            // Still mark ready so the UI doesn't stay on a blank screen forever
-            storage.getState().applyReady();
-        });
     }
 
     private fetchPluginCatalog = async () => {
@@ -414,8 +444,10 @@ class Sync {
     }
 
 
-    onSessionVisible = (sessionId: string) => {
-        this.getMessagesSync(sessionId).invalidate();
+    onSessionVisible = (sessionId: string, options?: { loadMessages?: boolean }) => {
+        if (options?.loadMessages !== false) {
+            this.getMessagesSync(sessionId).invalidate();
+        }
 
         // Also invalidate git status sync for this session
         gitStatusSync.getSync(sessionId).invalidate();
@@ -1203,6 +1235,56 @@ class Sync {
     // Private
     //
 
+    private fetchActiveSessions = async () => {
+        if (!this.credentials) return;
+        const snapshots = deduplicateSessionSnapshots(
+            await fetchActiveSessionSnapshots(this.credentials, 150),
+        );
+        const hydrated = await hydrateSessionSnapshots(snapshots, this.encryption);
+        this.applySessions(hydrated, { replace: false });
+    }
+
+    public bootstrapSessions = async (): Promise<void> => {
+        this.nextSessionHistoryCursor = undefined;
+        this.initialSessionHistoryScheduled = false;
+        await this.sessionBootstrapSync.invalidateAndAwait();
+        storage.getState().applyReady();
+    }
+
+    public hydrateHistoricalSessionPage = async (
+        cursor?: string,
+    ): Promise<string | null> => {
+        if (!this.credentials) return null;
+        const page = await fetchSessionSnapshotPage(this.credentials, {
+            ...(cursor === undefined ? {} : { cursor }),
+            limit: 50,
+        });
+        const hydrated = await hydrateSessionSnapshots(
+            deduplicateSessionSnapshots(page.sessions),
+            this.encryption,
+        );
+        this.applySessions(hydrated, { replace: false });
+        return page.hasNext ? page.nextCursor : null;
+    }
+
+    private fetchNextSessionHistoryPage = async () => {
+        if (this.nextSessionHistoryCursor === null) return;
+        this.nextSessionHistoryCursor = await this.hydrateHistoricalSessionPage(
+            this.nextSessionHistoryCursor,
+        );
+    }
+
+    public sessionRouteBecameInteractive = async (): Promise<void> => {
+        if (this.initialSessionHistoryScheduled) return;
+        this.initialSessionHistoryScheduled = true;
+        await this.sessionHistorySync.invalidateAndAwait();
+    }
+
+    public loadNextSessionHistoryPage = async (): Promise<void> => {
+        if (this.nextSessionHistoryCursor === null) return;
+        await this.sessionHistorySync.invalidateAndAwait();
+    }
+
     private fetchSessions = async () => {
         if (!this.credentials) return;
         const refreshMutationGeneration = this.sessionMutationGeneration;
@@ -1268,6 +1350,39 @@ class Sync {
         if (hydrated.length !== 1) return false;
         this.applySessions(hydrated, { replace: false });
         return true;
+    }
+
+    public openSession = async (sessionId: string): Promise<'ready' | 'not-found'> => {
+        const epoch = ++this.messageLoadEpoch;
+        this.activeOpenSession = { sessionId, epoch };
+        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
+        // A missing target can be resolved before its concurrently-started
+        // message request finishes. Attach a rejection observer immediately so
+        // that discarded 404/network results never become unhandled promises.
+        void latestPagePromise.catch(() => undefined);
+
+        const found = await this.ensureSessionHydrated(sessionId);
+        this.assertSessionRouteCurrent(sessionId, epoch);
+        if (!found) return 'not-found';
+
+        const latestPage = await latestPagePromise;
+        this.assertSessionRouteCurrent(sessionId, epoch);
+        await this.applyLatestMessagePage(sessionId, latestPage, epoch);
+        return 'ready';
+    }
+
+    public abandonSessionRoute = (sessionId: string): void => {
+        if (this.activeOpenSession?.sessionId !== sessionId) return;
+        this.activeOpenSession = null;
+        this.messageLoadEpoch += 1;
+    }
+
+    private assertSessionRouteCurrent(sessionId: string, epoch: number): void {
+        if (this.activeOpenSession?.sessionId !== sessionId
+            || this.activeOpenSession.epoch !== epoch
+            || this.messageLoadEpoch !== epoch) {
+            throw new Error('Session route abandoned');
+        }
     }
 
     // Kept as a compatibility alias while call sites migrate to the more
@@ -2179,9 +2294,7 @@ class Sync {
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
                 // start chatting immediately. Older history streams in lazily
-                // through loadOlderMessages() when the user scrolls up — and
-                // also through a background prefetch kicked off below, so the
-                // history fills in even when the user doesn't scroll.
+                // through loadOlderMessages() only when the user scrolls up.
                 //
                 // Previously this method walked forward from seq=0 until every
                 // page had been fetched and decrypted, which blocked the chat
@@ -2198,70 +2311,57 @@ class Sync {
 
             storage.getState().applyMessagesLoaded(sessionId);
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
-
-            if (isInitialLoad) {
-                // Fire-and-forget. The chat is interactive at this point;
-                // background pages stream in without blocking either the
-                // surrounding lock or the UI. loadOlderMessages takes the
-                // same lock internally, so the loop naturally serialises
-                // with on-scroll triggers and live socket updates.
-                void this.prefetchOlderMessagesInBackground(sessionId);
-            }
         });
     }
 
-    private prefetchOlderMessagesInBackground = async (sessionId: string) => {
-        const SLEEP_BETWEEN_PAGES_MS = 250;
-        // While loadOlderMessages handles the actual work, this loop is what
-        // keeps it going without user input. We keep stepping until either:
-        //   - the server says there is no more older history, or
-        //   - the session is no longer present in the store (user navigated
-        //     away and the session was unloaded), or
-        //   - we hit seq = 1 (the very first message), or
-        //   - the encryption key is gone (logged out).
-        // The loop yields between pages to keep the UI thread responsive
-        // and to spread out server load.
-        while (true) {
-            const sessionMessages = storage.getState().sessionMessages[sessionId];
-            if (!sessionMessages || !sessionMessages.hasMoreOlder) {
-                return;
-            }
-            if (!this.encryption.getSessionEncryption(sessionId)) {
-                return;
-            }
-            const oldestSeq = this.sessionOldestSeq.get(sessionId);
-            if (oldestSeq === undefined || oldestSeq <= 1) {
-                return;
-            }
-
-            try {
-                await this.loadOlderMessages(sessionId);
-            } catch (error) {
-                log.log(`💬 prefetchOlderMessagesInBackground: error for ${sessionId}, stopping: ${String(error)}`);
-                return;
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, SLEEP_BETWEEN_PAGES_MS));
-        }
-    }
-
-    private fetchInitialLatestPage = async (
+    private fetchLatestMessagePageRaw = async (
         sessionId: string,
-        encryption: ReturnType<Encryption['getSessionEncryption']> & {}
-    ) => {
+    ): Promise<V3GetSessionMessagesResponse> => {
         const response = await apiSocket.request(
-            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`
+            `/v3/sessions/${sessionId}/messages?before_seq=${SEQ_BACKWARD_INITIAL_SENTINEL}&limit=100`,
         );
         if (!response.ok) {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
         }
         const data = await response.json() as V3GetSessionMessagesResponse;
-        const messages = Array.isArray(data.messages) ? data.messages : [];
+        return {
+            messages: Array.isArray(data.messages) ? data.messages : [],
+            hasMore: !!data.hasMore,
+        };
+    }
 
-        await this.applyFetchedMessages(sessionId, encryption, messages);
+    private applyLatestMessagePage = async (
+        sessionId: string,
+        data: V3GetSessionMessagesResponse,
+        epoch?: number,
+    ): Promise<void> => {
+        if (epoch !== undefined) this.assertSessionRouteCurrent(sessionId, epoch);
+        const encryption = this.encryption.getSessionEncryption(sessionId);
+        if (!encryption) {
+            throw new Error(`Session encryption not ready for ${sessionId}`);
+        }
 
-        // Anchor both ends so future incremental forward sync resumes from
-        // maxSeq, and loadOlderMessages can page backward from minSeq.
+        const messages = data.messages;
+        const decryptedMessages = messages.length > 0
+            ? await encryption.decryptMessages(messages)
+            : [];
+        if (epoch !== undefined) this.assertSessionRouteCurrent(sessionId, epoch);
+
+        const normalizedMessages: NormalizedMessage[] = [];
+        for (const decrypted of decryptedMessages) {
+            if (!decrypted) continue;
+            const normalized = normalizeRawMessage(
+                decrypted.id,
+                decrypted.localId,
+                decrypted.createdAt,
+                decrypted.content,
+            );
+            if (normalized) normalizedMessages.push(normalized);
+        }
+        if (normalizedMessages.length > 0) {
+            this.applyMessages(sessionId, normalizedMessages);
+        }
+
         let maxSeq = 0;
         let minSeq = Number.POSITIVE_INFINITY;
         for (const message of messages) {
@@ -2269,12 +2369,19 @@ class Sync {
             if (message.seq < minSeq) minSeq = message.seq;
         }
         this.sessionLastSeq.set(sessionId, maxSeq);
-        if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, minSeq);
-        }
+        if (messages.length > 0) this.sessionOldestSeq.set(sessionId, minSeq);
+        storage.getState().applyMessagesLoaded(sessionId);
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: !!data.hasMore && messages.length > 0
+            hasMore: data.hasMore && messages.length > 0,
         });
+    }
+
+    private fetchInitialLatestPage = async (
+        sessionId: string,
+        _encryption: ReturnType<Encryption['getSessionEncryption']> & {}
+    ) => {
+        const data = await this.fetchLatestMessagePageRaw(sessionId);
+        await this.applyLatestMessagePage(sessionId, data);
     }
 
     private fetchForwardSince = async (
