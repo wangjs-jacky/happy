@@ -15,6 +15,13 @@ export const vercelCredentialSchema = z.object({
 
 export type VercelCredential = z.infer<typeof vercelCredentialSchema>;
 
+type VercelConnectionSnapshot = {
+    epoch: number;
+    state: string;
+    nonce: string | null;
+    replacementId: string | null;
+};
+
 interface CredentialRepository {
     find: (accountId: string, key: string) => Promise<Uint8Array<ArrayBuffer> | null>;
     upsert: (accountId: string, key: string, value: Uint8Array<ArrayBuffer>) => Promise<void>;
@@ -48,6 +55,13 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
         vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
     const matchesConnection = (credential: VercelCredential, connectionEpoch: number, connectionNonce: string): boolean =>
         credential.connectionEpoch === connectionEpoch && credential.connectionNonce === connectionNonce;
+    const connectionWhere = (accountId: string, connection: VercelConnectionSnapshot) => ({
+        id: accountId,
+        vercelConnectionEpoch: connection.epoch,
+        vercelConnectionState: connection.state,
+        vercelConnectionNonce: connection.nonce,
+        vercelConnectionReplacementId: connection.replacementId,
+    });
     const deletePendingInTransaction = async (transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> => {
         const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
         const pending = await transaction.serviceAccountToken.findUnique({
@@ -69,6 +83,40 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
             if (!encrypted) return null;
             return vercelCredentialSchema.parse(JSON.parse(dependencies.decrypt(encryptionPath(accountId), encrypted)));
+        },
+        async beginConnectionTransitionInTransaction(
+            transaction: any,
+            accountId: string,
+            expected: VercelConnectionSnapshot,
+            state: 'replacing' | 'disconnecting',
+            connectionNonce: string,
+            startedAt: Date,
+        ): Promise<{ epoch: number; predecessor: VercelCredential | null } | null> {
+            // PostgreSQL/PGlite takes a row-update lock here.  The exact version
+            // predicate makes a callback that observed an older Account state
+            // lose before it can read an active credential or mutate previews.
+            const claimed = await transaction.account.updateMany({
+                where: connectionWhere(accountId, expected),
+                data: {
+                    vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: state,
+                    vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
+                    vercelConnectionReplacementStartedAt: startedAt,
+                },
+            });
+            if (claimed.count !== 1) return null;
+            const account = await transaction.account.findUnique({ where: { id: accountId }, select: { vercelConnectionEpoch: true } });
+            if (!account) throw new Error('Vercel connection account disappeared during transition');
+            const active = await transaction.serviceAccountToken.findUnique({
+                where: { accountId_vendor: { accountId, vendor: STORAGE_KEY } }, select: { token: true },
+            });
+            const predecessor = active ? parseEncrypted(accountId, active.token) : null;
+            // This transition precedes its own pending write.  Removing every
+            // existing pending row therefore consumes abandoned predecessors
+            // without ever deleting this successor's future pending snapshot.
+            await transaction.serviceAccountToken.deleteMany({ where: {
+                accountId, vendor: { startsWith: PENDING_STORAGE_KEY_PREFIX },
+            } });
+            return { epoch: account.vercelConnectionEpoch, predecessor };
         },
         async setProjectIdIfCurrent(accountId: string, expected: VercelCredential, projectId: string): Promise<boolean> {
             const encrypted = await dependencies.repository.find(accountId, STORAGE_KEY);
@@ -116,13 +164,23 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
         async replaceAtConnectionEpoch(accountId: string, connectionEpoch: number, replacement: VercelCredential): Promise<boolean> {
             return this.replaceAtConnectionVersion(accountId, connectionEpoch, `legacy-${connectionEpoch}`, replacement);
         },
-        async stageConnectionReplacement(accountId: string, connectionEpoch: number, connectionNonce: string, replacement: VercelCredential): Promise<void> {
+        async stageConnectionReplacementInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, replacement: VercelCredential): Promise<boolean> {
+            // A no-op update is intentionally the Account lock/CAS.  Do not
+            // stage an encrypted row after a successor has changed ownership.
+            const owns = await transaction.account.updateMany({ where: {
+                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'finalizing',
+                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
+            }, data: { vercelConnectionEpoch: connectionEpoch } });
+            if (owns.count !== 1) return false;
             const value = vercelCredentialSchema.parse({ ...replacement, connectionEpoch, connectionNonce });
-            await dependencies.repository.upsert(
-                accountId,
-                pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce),
-                dependencies.encrypt(encryptionPath(accountId), JSON.stringify(value)),
-            );
+            const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
+            const encrypted = dependencies.encrypt(encryptionPath(accountId), JSON.stringify(value));
+            await transaction.serviceAccountToken.upsert({
+                where: { accountId_vendor: { accountId, vendor } },
+                update: { token: encrypted },
+                create: { accountId, vendor, token: encrypted },
+            });
+            return true;
         },
         async deletePendingConnectionReplacement(accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
             const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
@@ -134,16 +192,16 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             return deletePendingInTransaction(transaction, accountId, connectionEpoch, connectionNonce);
         },
         async activatePendingConnectionReplacementInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string): Promise<boolean> {
+            const owns = await transaction.account.updateMany({ where: {
+                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'finalizing',
+                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
+            }, data: { vercelConnectionEpoch: connectionEpoch } });
+            if (owns.count !== 1) return false;
             const vendor = pendingVercelCredentialStorageKey(connectionEpoch, connectionNonce);
             const pending = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor } }, select: { token: true },
             });
             if (!pending || !matchesConnection(parseEncrypted(accountId, pending.token), connectionEpoch, connectionNonce)) return false;
-            const account = await transaction.account.findUnique({ where: { id: accountId }, select: {
-                vercelConnectionEpoch: true, vercelConnectionState: true, vercelConnectionNonce: true, vercelConnectionReplacementId: true,
-            } });
-            if (account?.vercelConnectionEpoch !== connectionEpoch || account.vercelConnectionState !== 'finalizing'
-                || account.vercelConnectionNonce !== connectionNonce || account.vercelConnectionReplacementId !== connectionNonce) return false;
             const active = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor: STORAGE_KEY } }, select: { token: true },
             });
@@ -170,11 +228,11 @@ export function createVercelCredentialStore(dependencies: Dependencies) {
             return true;
         },
         async disconnectConnectionInTransaction(transaction: any, accountId: string, connectionEpoch: number, connectionNonce: string, expected: VercelCredential | null): Promise<boolean> {
-            const account = await transaction.account.findUnique({ where: { id: accountId }, select: {
-                vercelConnectionEpoch: true, vercelConnectionState: true, vercelConnectionNonce: true, vercelConnectionReplacementId: true,
-            } });
-            if (account?.vercelConnectionEpoch !== connectionEpoch || account.vercelConnectionState !== 'disconnecting'
-                || account.vercelConnectionNonce !== connectionNonce || account.vercelConnectionReplacementId !== connectionNonce) return false;
+            const owns = await transaction.account.updateMany({ where: {
+                id: accountId, vercelConnectionEpoch: connectionEpoch, vercelConnectionState: 'disconnecting',
+                vercelConnectionNonce: connectionNonce, vercelConnectionReplacementId: connectionNonce,
+            }, data: { vercelConnectionEpoch: connectionEpoch } });
+            if (owns.count !== 1) return false;
             const active = await transaction.serviceAccountToken.findUnique({
                 where: { accountId_vendor: { accountId, vendor: STORAGE_KEY } }, select: { token: true },
             });

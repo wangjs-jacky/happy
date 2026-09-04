@@ -129,6 +129,38 @@ async function eventually(predicate: () => boolean, label: string, timeoutMs = 5
     throw new Error(`Timed out waiting for ${label}`);
 }
 
+function gatePendingCredentialStaging(database: PrismaClient, onPersisted: () => Promise<void>): Pick<PrismaClient, 'account' | 'interactivePreview' | 'session' | '$transaction'> {
+    return {
+        account: database.account,
+        interactivePreview: database.interactivePreview,
+        session: database.session,
+        $transaction: async (work: any) => {
+            let stagedPending = false;
+            const result = await database.$transaction(async (transaction) => {
+                const tokens = transaction.serviceAccountToken;
+                return work({
+                    account: transaction.account,
+                    interactivePreview: transaction.interactivePreview,
+                    session: transaction.session,
+                    serviceAccountToken: {
+                        findUnique: tokens.findUnique.bind(tokens),
+                        updateMany: tokens.updateMany.bind(tokens),
+                        createMany: tokens.createMany.bind(tokens),
+                        deleteMany: tokens.deleteMany.bind(tokens),
+                        upsert: async (args: any) => {
+                            const persisted = await tokens.upsert(args);
+                            if (args.where?.accountId_vendor?.vendor?.startsWith('provider:vercel:pending:')) stagedPending = true;
+                            return persisted;
+                        },
+                    },
+                });
+            });
+            if (stagedPending) await onPersisted();
+            return result;
+        },
+    } as Pick<PrismaClient, 'account' | 'interactivePreview' | 'session' | '$transaction'>;
+}
+
 /**
  * A deliberately small S3 protocol implementation. The production MinIO client
  * still performs every request over HTTP; this only implements the operations
@@ -800,26 +832,13 @@ describe('interactive preview persisted integration', () => {
         let releasePendingWrite!: () => void;
         let pendingPersisted = false;
         const pendingWriteBarrier = new Promise<void>((resolve) => { releasePendingWrite = resolve; });
-        const repository = createVercelCredentialRepository(harness.database as never);
-        const persist = repository.upsert;
-        const gatedCredentialStore = createVercelCredentialStore({
-            repository: {
-                ...repository,
-                upsert: async (accountId, vendor, token) => {
-                    await persist(accountId, vendor, token);
-                    if (vendor.startsWith('provider:vercel:pending:')) {
-                        pendingPersisted = true;
-                        await pendingWriteBarrier;
-                    }
-                },
-            },
-            encrypt: encryptString,
-            decrypt: decryptString,
-        });
         const original = createPreviewService({
-            database: harness.database as never,
+            database: gatePendingCredentialStaging(harness.database, async () => {
+                pendingPersisted = true;
+                await pendingWriteBarrier;
+            }) as never,
             storage: { deletePreview: vi.fn() } as never,
-            credentialStore: gatedCredentialStore as never,
+            credentialStore: harness.credentialStore as never,
             clientFactory: vi.fn() as never,
             now: () => new Date(clockStart),
         });
@@ -860,26 +879,13 @@ describe('interactive preview persisted integration', () => {
         let releasePendingWrite!: () => void;
         let pendingPersisted = false;
         const pendingWriteBarrier = new Promise<void>((resolve) => { releasePendingWrite = resolve; });
-        const repository = createVercelCredentialRepository(harness.database as never);
-        const persist = repository.upsert;
-        const interruptedCredentialStore = createVercelCredentialStore({
-            repository: {
-                ...repository,
-                upsert: async (accountId, vendor, token) => {
-                    await persist(accountId, vendor, token);
-                    if (vendor.startsWith('provider:vercel:pending:')) {
-                        pendingPersisted = true;
-                        await pendingWriteBarrier;
-                    }
-                },
-            },
-            encrypt: encryptString,
-            decrypt: decryptString,
-        });
         const interrupted = createPreviewService({
-            database: harness.database as never,
+            database: gatePendingCredentialStaging(harness.database, async () => {
+                pendingPersisted = true;
+                await pendingWriteBarrier;
+            }) as never,
             storage: { deletePreview: vi.fn() } as never,
-            credentialStore: interruptedCredentialStore as never,
+            credentialStore: harness.credentialStore as never,
             clientFactory: vi.fn() as never,
             now: () => new Date(clockStart),
         });
@@ -910,6 +916,92 @@ describe('interactive preview persisted integration', () => {
         expect(await recovered.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-later' });
     }, 30_000);
 
+    it('has a successor consume a crashed callback pending credential before a later reconnect activates', async () => {
+        const harness = await setup();
+        const crashedEpoch = 1;
+        const crashedNonce = 'crashed-callback-nonce';
+        await harness.database.account.update({ where: { id: accountA }, data: {
+            vercelConnectionEpoch: crashedEpoch,
+            vercelConnectionState: 'finalizing',
+            vercelConnectionNonce: crashedNonce,
+            vercelConnectionReplacementId: crashedNonce,
+            vercelConnectionReplacementStartedAt: clockStart,
+        } });
+        await harness.database.$transaction((transaction) =>
+            (harness.credentialStore as any).stageConnectionReplacementInTransaction(transaction, accountA, crashedEpoch, crashedNonce, {
+                version: 1, accessToken: 'token-crashed-callback', configurationId: 'cfg-a',
+            }),
+        );
+        expect(await harness.database.serviceAccountToken.findMany({ where: {
+            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+        } })).toHaveLength(1);
+
+        await expect(harness.service.disconnectVercel(accountA)).resolves.toEqual({});
+        await expect(harness.service.reconnectVercel(accountA, {
+            version: 1, accessToken: 'token-successor', configurationId: 'cfg-a',
+        })).resolves.toBeUndefined();
+
+        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-successor' });
+        expect(await harness.database.serviceAccountToken.findMany({ where: {
+            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+        } })).toEqual([]);
+    }, 30_000);
+
+    it('rejects a callback that resumes after a successor activated a newer predecessor', async () => {
+        const harness = await setup();
+        let releaseOldAccountRead!: () => void;
+        let oldAccountRead = false;
+        const oldAccountReadBarrier = new Promise<void>((resolve) => { releaseOldAccountRead = resolve; });
+        const oldAccount = await harness.database.account.findUnique({ where: { id: accountA } });
+        if (!oldAccount) throw new Error('Missing test account');
+        let interceptFirstRead = true;
+        const delayedDatabase = {
+            account: {
+                ...harness.database.account,
+                findUnique: async (args: unknown) => {
+                    if (!interceptFirstRead) return harness.database.account.findUnique(args as never);
+                    interceptFirstRead = false;
+                    oldAccountRead = true;
+                    await oldAccountReadBarrier;
+                    return oldAccount;
+                },
+            },
+            interactivePreview: harness.database.interactivePreview,
+            $transaction: harness.database.$transaction.bind(harness.database),
+        };
+        const delayedCallback = createPreviewService({
+            database: delayedDatabase as never,
+            storage: { deletePreview: vi.fn() } as never,
+            credentialStore: harness.credentialStore as never,
+            clientFactory: vi.fn() as never,
+            now: () => new Date(clockStart),
+        });
+
+        const callbackA = delayedCallback.reconnectVercel(accountA, {
+            version: 1, accessToken: 'token-callback-a', configurationId: 'cfg-a',
+        });
+        await eventually(() => oldAccountRead, 'callback A predecessor account read');
+
+        await expect(harness.service.reconnectVercel(accountA, {
+            version: 1, accessToken: 'token-successor-b', configurationId: 'cfg-b', teamId: 'team-b',
+        })).resolves.toBeUndefined();
+        await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>successor B</h1>') }]);
+        const successorAccount = await harness.database.account.findUnique({ where: { id: accountA } });
+        const successorPreview = await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } });
+        expect(successorPreview).toMatchObject({ status: 'draft', connectionGeneration: successorAccount?.vercelConnectionEpoch });
+
+        releaseOldAccountRead();
+        await expect(callbackA).rejects.toThrow('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+
+        expect(await harness.service.getActiveVercelCredential(accountA)).toMatchObject({ accessToken: 'token-successor-b' });
+        expect(await harness.database.interactivePreview.findUnique({ where: { id: ids.primary } })).toMatchObject({
+            status: 'draft', connectionGeneration: successorAccount?.vercelConnectionEpoch,
+        });
+        expect(await harness.database.serviceAccountToken.findMany({ where: {
+            accountId: accountA, vendor: { startsWith: 'provider:vercel:pending:' },
+        } })).toEqual([]);
+    }, 30_000);
+
     it('keeps the active predecessor through a failed scope drain, then uses it for a later reconnect', async () => {
         const harness = await setup();
         await harness.createAndUpload(ids.primary, [{ id: 'index', path: 'index.html', mimeType: 'text/html', bytes: Buffer.from('<h1>drain</h1>') }]);
@@ -936,25 +1028,13 @@ describe('interactive preview persisted integration', () => {
         let releasePendingWrite!: () => void;
         let pendingPersisted = false;
         const pendingWriteBarrier = new Promise<void>((resolve) => { releasePendingWrite = resolve; });
-        const repository = createVercelCredentialRepository(harness.database as never);
-        const persist = repository.upsert;
-        const gatedStore = createVercelCredentialStore({
-            repository: {
-                ...repository,
-                upsert: async (accountId, vendor, token) => {
-                    await persist(accountId, vendor, token);
-                    if (vendor.startsWith('provider:vercel:pending:')) {
-                        pendingPersisted = true;
-                        await pendingWriteBarrier;
-                    }
-                },
-            },
-            encrypt: encryptString,
-            decrypt: decryptString,
-        });
         const reconnecting = createPreviewService({
-            database: harness.database as never, storage: { deletePreview: vi.fn() } as never,
-            credentialStore: gatedStore as never, clientFactory: vi.fn() as never, now: () => new Date(clockStart),
+            database: gatePendingCredentialStaging(harness.database, async () => {
+                pendingPersisted = true;
+                await pendingWriteBarrier;
+            }) as never,
+            storage: { deletePreview: vi.fn() } as never,
+            credentialStore: harness.credentialStore as never, clientFactory: vi.fn() as never, now: () => new Date(clockStart),
         });
         const callback = reconnecting.reconnectVercel(accountA, {
             version: 1, accessToken: 'token-interrupted', configurationId: 'cfg-a',

@@ -2,6 +2,72 @@ import { describe, expect, it, vi } from 'vitest';
 import { createVercelCredentialStore } from './vercelCredentialStore';
 
 describe('createVercelCredentialStore', () => {
+    it('fences a successor transition with its account version before reading the encrypted predecessor and staging pending state', async () => {
+        const encode = (value: unknown): Uint8Array<ArrayBuffer> => new TextEncoder().encode(JSON.stringify(value)) as Uint8Array<ArrayBuffer>;
+        const decode = (value: Uint8Array) => new TextDecoder().decode(value);
+        const predecessor = { version: 1 as const, accessToken: 'predecessor-secret', configurationId: 'cfg-a', connectionEpoch: 3, connectionNonce: 'active-nonce' };
+        const supersededPending = encode({ version: 1, accessToken: 'crashed-secret', configurationId: 'cfg-a', connectionEpoch: 4, connectionNonce: 'crashed-nonce' });
+        let account = {
+            vercelConnectionEpoch: 3, vercelConnectionState: 'active', vercelConnectionNonce: 'active-nonce',
+            vercelConnectionReplacementId: null as string | null, vercelConnectionReplacementStartedAt: null as Date | null,
+        };
+        const active = encode(predecessor);
+        const pendingRows = new Map<string, Uint8Array<ArrayBuffer>>([['provider:vercel:pending:4:crashed-nonce', supersededPending]]);
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.vercelConnectionEpoch !== account.vercelConnectionEpoch || where.vercelConnectionState !== account.vercelConnectionState
+                || (where.vercelConnectionNonce ?? null) !== account.vercelConnectionNonce || (where.vercelConnectionReplacementId ?? null) !== account.vercelConnectionReplacementId) return { count: 0 };
+            account = {
+                ...account,
+                vercelConnectionEpoch: data.vercelConnectionEpoch?.increment === undefined ? data.vercelConnectionEpoch : account.vercelConnectionEpoch + data.vercelConnectionEpoch.increment,
+                vercelConnectionState: data.vercelConnectionState ?? account.vercelConnectionState,
+                vercelConnectionNonce: data.vercelConnectionNonce ?? account.vercelConnectionNonce,
+                vercelConnectionReplacementId: data.vercelConnectionReplacementId ?? account.vercelConnectionReplacementId,
+                vercelConnectionReplacementStartedAt: data.vercelConnectionReplacementStartedAt ?? account.vercelConnectionReplacementStartedAt,
+            };
+            return { count: 1 };
+        });
+        const tokenUpsert = vi.fn(async ({ where, create }: any) => { pendingRows.set(where.accountId_vendor.vendor, create.token); });
+        const transaction: any = {
+            account: { updateMany, findUnique: vi.fn(async () => ({ ...account })) },
+            serviceAccountToken: {
+                findUnique: vi.fn(async ({ where }: any) => where.accountId_vendor.vendor === 'provider:vercel' ? { token: active } : null),
+                deleteMany: vi.fn(async ({ where }: any) => {
+                    if (where.vendor?.startsWith === 'provider:vercel:pending:') {
+                        const count = pendingRows.size;
+                        pendingRows.clear();
+                        return { count };
+                    }
+                    return { count: 0 };
+                }),
+                upsert: tokenUpsert,
+            },
+        };
+        const store = createVercelCredentialStore({
+            repository: { find: vi.fn(), upsert: vi.fn(), delete: vi.fn(), compareAndSet: vi.fn() },
+            encrypt: (_path, value) => encode(JSON.parse(value)), decrypt: (_path, value) => decode(value),
+        });
+
+        const transition = await (store as any).beginConnectionTransitionInTransaction(transaction, 'account-1', {
+            epoch: 3, state: 'active', nonce: 'active-nonce', replacementId: null,
+        }, 'replacing', 'replacement-nonce', new Date('2026-09-04T01:00:00.000Z'));
+
+        expect(transition).toMatchObject({ epoch: 4, predecessor });
+        expect(pendingRows).toEqual(new Map());
+        account = { ...account, vercelConnectionState: 'finalizing' };
+        await expect((store as any).stageConnectionReplacementInTransaction(transaction, 'account-1', 4, 'replacement-nonce', {
+            version: 1, accessToken: 'replacement-secret', configurationId: 'cfg-a',
+        })).resolves.toBe(true);
+        expect(tokenUpsert).toHaveBeenCalledWith(expect.objectContaining({
+            where: { accountId_vendor: { accountId: 'account-1', vendor: 'provider:vercel:pending:4:replacement-nonce' } },
+        }));
+
+        account = { ...account, vercelConnectionEpoch: 5, vercelConnectionState: 'active', vercelConnectionNonce: 'later-nonce', vercelConnectionReplacementId: null };
+        await expect((store as any).stageConnectionReplacementInTransaction(transaction, 'account-1', 4, 'replacement-nonce', {
+            version: 1, accessToken: 'late-secret', configurationId: 'cfg-a',
+        })).resolves.toBe(false);
+        expect(tokenUpsert).toHaveBeenCalledTimes(1);
+    });
+
     it('conditionally removes a stale crash credential without deleting a newer replacement', async () => {
         const encode = (value: unknown): Uint8Array<ArrayBuffer> => new TextEncoder().encode(JSON.stringify(value)) as Uint8Array<ArrayBuffer>;
         const decode = (value: Uint8Array) => new TextDecoder().decode(value);

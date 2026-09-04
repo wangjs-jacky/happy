@@ -664,8 +664,25 @@ export function createPreviewService(dependencies: {
     },
     async disconnectVercel(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }> {
         const disconnectId = randomUUID();
-        const credential = await predecessorCredential(accountId);
-        const beginDisconnect = async (transaction: any): Promise<number> => {
+        let expectedConnection = await accountConnection(accountId);
+        if (await recoverStaleConnection(accountId, expectedConnection)) expectedConnection = await accountConnection(accountId);
+        const usesTransactionalTransition = Boolean((credentialStore as any).beginConnectionTransitionInTransaction);
+        const legacyCredential = usesTransactionalTransition ? null : await predecessorCredential(accountId);
+        const beginDisconnect = async (transaction: any): Promise<{ epoch: number; predecessor: VercelCredential | null } | null> => {
+            if (usesTransactionalTransition && transaction.account?.updateMany) {
+                const transition = await (credentialStore as any).beginConnectionTransitionInTransaction(
+                    transaction, accountId, expectedConnection, 'disconnecting', disconnectId, now(),
+                );
+                if (!transition) return null;
+                await transaction.interactivePreview.updateMany({ where: {
+                    accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+                }, data: {
+                    status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+                    publicationGeneration: { increment: 1 }, connectionGeneration: transition.epoch,
+                    publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
+                } });
+                return transition;
+            }
             if (!transaction.account?.update) {
                 await transaction.interactivePreview.updateMany({ where: {
                     accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
@@ -673,7 +690,7 @@ export function createPreviewService(dependencies: {
                     status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
                     publicationGeneration: { increment: 1 }, connectionGeneration: { increment: 1 }, publicationReconcileNextAttemptAt: now(),
                 } });
-                return 0;
+                return { epoch: 0, predecessor: legacyCredential };
             }
             const account = await transaction.account.update({ where: { id: accountId }, data: {
                 vercelConnectionEpoch: { increment: 1 }, vercelConnectionState: 'disconnecting', vercelConnectionNonce: disconnectId,
@@ -686,11 +703,14 @@ export function createPreviewService(dependencies: {
                 publicationGeneration: { increment: 1 }, connectionGeneration: account.vercelConnectionEpoch,
                 publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
             } });
-            return account.vercelConnectionEpoch;
+            return { epoch: account.vercelConnectionEpoch, predecessor: legacyCredential };
         };
-        const disconnectEpoch = (database as any).$transaction
+        const transition = (database as any).$transaction
             ? await (database as any).$transaction(beginDisconnect)
             : await beginDisconnect({ ...database, account: undefined });
+        if (!transition) throw new Error('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+        const disconnectEpoch = transition.epoch;
+        const credential = transition.predecessor;
         const disconnectOwnsConnection = async (): Promise<boolean> => {
             if (!(database as any).account?.findUnique) return true;
             const connection = await accountConnection(accountId);
@@ -800,14 +820,47 @@ export function createPreviewService(dependencies: {
         return warning ? { warning: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } : {};
     },
     async reconnectVercel(accountId: string, replacement: VercelCredential): Promise<void> {
-        const previous = await predecessorCredential(accountId);
-        const sameScope = previous !== null
-            && previous.configurationId === replacement.configurationId
-            && vercelTeamScope(previous.teamId) === vercelTeamScope(replacement.teamId);
+        let expectedConnection = await accountConnection(accountId);
+        if (await recoverStaleConnection(accountId, expectedConnection)) expectedConnection = await accountConnection(accountId);
         const replacementId = randomUUID();
-        let epoch: number;
-        try {
-            epoch = await (database as any).$transaction(async (transaction: any) => {
+        const usesTransactionalTransition = Boolean((credentialStore as any).beginConnectionTransitionInTransaction);
+        const legacyPrevious = usesTransactionalTransition ? null : await predecessorCredential(accountId);
+        const beginReconnect = async (transaction: any): Promise<{ epoch: number; predecessor: VercelCredential | null; sameScope: boolean } | null> => {
+            if (usesTransactionalTransition && transaction.account?.updateMany) {
+                const transition = await (credentialStore as any).beginConnectionTransitionInTransaction(
+                    transaction, accountId, expectedConnection, 'replacing', replacementId, now(),
+                );
+                if (!transition) return null;
+                const sameScope = transition.predecessor !== null
+                    && transition.predecessor.configurationId === replacement.configurationId
+                    && vercelTeamScope(transition.predecessor.teamId) === vercelTeamScope(replacement.teamId);
+                if (!sameScope && transition.predecessor) {
+                    await transaction.interactivePreview.updateMany({ where: {
+                        accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+                    }, data: {
+                        status: 'deleting', url: null, errorCode: 'VERCEL_CONNECTION_REPLACED',
+                        connectionGeneration: transition.epoch, publicationGeneration: { increment: 1 },
+                        publicationReconcileNextAttemptAt: now(),
+                    } });
+                }
+                if (sameScope) {
+                    // Drafts have no provider side effect yet, so they advance to
+                    // the new epoch and remain publishable.  A provider create is
+                    // never replayed with a replacement credential: publishing
+                    // attempts become durable tombstones for reconciliation.
+                    await transaction.interactivePreview.updateMany({ where: {
+                        accountId, status: { in: ['draft', 'uploading', 'failed', 'ready'] },
+                    }, data: { connectionGeneration: transition.epoch } });
+                    await transaction.interactivePreview.updateMany({ where: {
+                        accountId, status: 'publishing',
+                    }, data: {
+                        status: 'deleting', url: null, errorCode: 'VERCEL_CONNECTION_REPLACED',
+                        connectionGeneration: transition.epoch, publicationGeneration: { increment: 1 },
+                        publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
+                    } });
+                }
+                return { ...transition, sameScope };
+            }
             const account = await transaction.account.update({
                 where: { id: accountId },
                 data: {
@@ -817,7 +870,10 @@ export function createPreviewService(dependencies: {
                 },
                 select: { vercelConnectionEpoch: true },
             });
-            if (!sameScope && previous) {
+            const sameScope = legacyPrevious !== null
+                && legacyPrevious.configurationId === replacement.configurationId
+                && vercelTeamScope(legacyPrevious.teamId) === vercelTeamScope(replacement.teamId);
+            if (!sameScope && legacyPrevious) {
                 await transaction.interactivePreview.updateMany({ where: {
                     accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
                 }, data: {
@@ -842,9 +898,13 @@ export function createPreviewService(dependencies: {
                     publicationReconcileNextAttemptAt: now(), cleanupNextAttemptAt: now(),
                 } });
             }
-            return account.vercelConnectionEpoch as number;
-            });
-        } catch (error) { throw error; }
+            return { epoch: account.vercelConnectionEpoch as number, predecessor: legacyPrevious, sameScope };
+        };
+        const began = (database as any).$transaction
+            ? await (database as any).$transaction(beginReconnect)
+            : await beginReconnect({ ...database, account: undefined });
+        if (!began) throw new Error('VERCEL_CONNECTION_REPLACEMENT_SUPERSEDED');
+        const { epoch, predecessor: previous, sameScope } = began;
         const replacementOwnsConnection = async (): Promise<boolean> => {
             const connection = await accountConnection(accountId);
             return connection.replacementId === replacementId
@@ -974,11 +1034,14 @@ export function createPreviewService(dependencies: {
             ...replacement,
             ...(sameScope && previous?.projectId ? { projectId: previous.projectId } : {}),
         };
-        if ((credentialStore as any).stageConnectionReplacement && (credentialStore as any).activatePendingConnectionReplacementInTransaction
+        if ((credentialStore as any).stageConnectionReplacementInTransaction && (credentialStore as any).activatePendingConnectionReplacementInTransaction
             && (database as any).$transaction) {
             // The pending record is durable but inactive. Promotion, pending
             // deletion, and Account activation share one Prisma transaction.
-            await (credentialStore as any).stageConnectionReplacement(accountId, epoch, replacementId, credential);
+            const staged = await (database as any).$transaction((transaction: any) =>
+                (credentialStore as any).stageConnectionReplacementInTransaction(transaction, accountId, epoch, replacementId, credential),
+            );
+            if (!staged) await replacementSuperseded();
             const activated = await (database as any).$transaction((transaction: any) =>
                 (credentialStore as any).activatePendingConnectionReplacementInTransaction(transaction, accountId, epoch, replacementId),
             );

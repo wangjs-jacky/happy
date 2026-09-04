@@ -826,3 +826,70 @@ reuse the existing per-account ServiceAccountToken vendor-key uniqueness.
 git diff --check
 exit 0
 ```
+
+## Cluster K final concurrency fix: transactional successor ownership
+
+- Reconnect and disconnect now obtain an Account-version snapshot first, then
+  enter one Prisma transaction that conditionally updates/locks that exact
+  Account row, reads the encrypted active predecessor in the same transaction,
+  advances the epoch/nonce, and removes every older Vercel pending vendor row
+  before a successor can stage its own future pending row.
+- Scope comparison and preview fencing use only that returned,
+  transactionally-read predecessor snapshot. A callback that observed an older
+  Account version loses the CAS before it can preserve a newer scope, alter its
+  previews, stage a pending credential, or activate itself.
+- Pending credential staging now has no non-transactional API. It first locks
+  the exact `finalizing` Account epoch/state/nonce and only then upserts its
+  encrypted pending row. Activation and disconnect finalization take the same
+  exact Account lock before touching encrypted rows.
+- The predecessor remains active only for the existing old-scope drain. Tokens
+  remain encrypted under the account-scoped provider path and neither token
+  material nor provider responses are logged or persisted in lifecycle state.
+
+### Cluster K red/green evidence
+
+| Regression initially exposed | Green regression coverage |
+| --- | --- |
+| A crashed callback's pending credential survived a later disconnect/reconnect because finalization deleted only its exact pending key. | Persisted PGlite state stages a crashed `finalizing` row, completes a successor disconnect plus reconnect without resuming the old callback, and asserts no pending vendor row remains. |
+| Callback A could read predecessor A, then callback B activate a different scope; A resumed, treated stale A as same-scope, and activated itself. | A persisted Account-read barrier lets B activate and create a B-scoped draft; A's exact Account CAS fails, B remains active, the B draft keeps its generation, and no A pending row exists. |
+| Pending staging could occur after ownership was lost. | Store-level transaction test verifies the exact Account lock, returned encrypted predecessor snapshot, vendor-prefix pending cleanup, and rejection of a late stage after a newer Account version. |
+
+### Cluster K verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/vercelScopeMigration.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts
+
+Test Files  10 passed (10)
+Tests       147 passed (147)
+
+pnpm --dir packages/happy-wire exec vitest run src/interactivePreview.test.ts
+Test Files  1 passed (1)
+Tests       14 passed (14)
+
+pnpm --dir packages/happy-cli exec vitest run src/previews/previewApi.test.ts --config /dev/null
+Test Files  1 passed (1)
+Tests       1 passed (1)
+
+pnpm --dir packages/happy-server exec prisma generate
+pnpm --dir packages/happy-server run typecheck
+pnpm --dir packages/happy-wire run typecheck
+pnpm --dir packages/happy-cli run typecheck
+all exit 0
+
+PGLITE_DIR=$(mktemp -d /tmp/happy-task3-cluster-k-migrate.XXXXXX) \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 46 migration(s). No schema migration was needed.
+
+git diff --check
+exit 0
+```
