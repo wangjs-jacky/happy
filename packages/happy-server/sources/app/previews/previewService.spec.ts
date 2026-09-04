@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { createPreviewService } from './previewService';
+import { createPreviewService, previewRowToEvent } from './previewService';
 
 describe('createPreviewService publication', () => {
+    it('projects a deleting tombstone as an expired preview without its URL', () => {
+        expect(previewRowToEvent({ id: '00000000-0000-4000-8000-000000000000', title: 'Deleted', status: 'deleting', url: 'https://must-not-leak.test', publishedAt: null, expiresAt: new Date(0), errorCode: null })).toMatchObject({ state: 'expired' });
+        expect(previewRowToEvent({ id: '00000000-0000-4000-8000-000000000000', title: 'Deleted', status: 'deleting', url: 'https://must-not-leak.test', publishedAt: null, expiresAt: new Date(0), errorCode: null })).not.toHaveProperty('url');
+    });
     it('returns the current publishing event for a duplicate in-flight publish request', async () => {
         const row: any = { id: '99999999-9999-4999-8999-999999999999', title: 'Draft', status: 'publishing', url: null, publishedAt: null, expiresAt: new Date('2026-09-05T00:00:00Z'), errorCode: null, assets: [] };
         const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany: vi.fn(async () => ({ count: 0 })) } };

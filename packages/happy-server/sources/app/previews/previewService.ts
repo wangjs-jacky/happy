@@ -22,7 +22,7 @@ type PreviewRow = {
 };
 
 export function previewRowToEvent(row: PreviewRow): InteractivePreviewEvent {
-    const state = row.status === 'ready' ? 'ready' : row.status === 'expired' ? 'expired' : row.status === 'failed' ? 'failed' : 'publishing';
+    const state = row.status === 'ready' ? 'ready' : row.status === 'expired' || row.status === 'deleting' ? 'expired' : row.status === 'failed' ? 'failed' : 'publishing';
     return {
         version: 1, id: row.id, title: row.title, state,
         ...(state === 'ready' && row.url ? { url: row.url } : {}),
