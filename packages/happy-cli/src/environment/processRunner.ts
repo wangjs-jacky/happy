@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
-import { access, constants } from 'node:fs/promises';
+import { access, constants, stat } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
+
+const TERMINATION_GRACE_MS = 100;
+const SETTLEMENT_GRACE_MS = 100;
 
 export type ProcessResult = {
   exitCode: number | null;
@@ -37,11 +40,29 @@ export function createProcessRunner(): ProcessRunner {
         const stderrChunks: Buffer[] = [];
         let timedOut = false;
         let settled = false;
+        let deadlineTimer: NodeJS.Timeout | undefined;
+        let terminationTimer: NodeJS.Timeout | undefined;
+        let settlementTimer: NodeJS.Timeout | undefined;
+
+        const child = spawn(executable, [...args], {
+          shell: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          cwd: options.cwd,
+          env: options.env,
+        });
+
+        const closePipes = (): void => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        };
 
         const finish = (exitCode: number | null): void => {
           if (settled) return;
           settled = true;
-          clearTimeout(timeout);
+          clearTimeout(deadlineTimer);
+          clearTimeout(terminationTimer);
+          clearTimeout(settlementTimer);
+          if (timedOut) closePipes();
           resolve({
             exitCode,
             stdout: Buffer.concat(stdoutChunks).toString('utf8'),
@@ -50,20 +71,22 @@ export function createProcessRunner(): ProcessRunner {
           });
         };
 
-        const child = spawn(executable, [...args], {
-          shell: false,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          cwd: options.cwd,
-          env: options.env,
-        });
-        const timeout = setTimeout(() => {
+        deadlineTimer = setTimeout(() => {
           timedOut = true;
-          child.kill();
+          closePipes();
+          child.kill('SIGTERM');
+          terminationTimer = setTimeout(() => {
+            child.kill('SIGKILL');
+            settlementTimer = setTimeout(() => finish(null), SETTLEMENT_GRACE_MS);
+          }, TERMINATION_GRACE_MS);
         }, options.timeoutMs);
 
         child.stdout.on('data', (chunk: Buffer) => appendBounded(stdoutChunks, chunk, options.maxOutputBytes));
         child.stderr.on('data', (chunk: Buffer) => appendBounded(stderrChunks, chunk, options.maxOutputBytes));
         child.once('error', () => finish(null));
+        child.once('exit', (exitCode) => {
+          if (timedOut) finish(exitCode);
+        });
         child.once('close', (exitCode) => finish(exitCode));
       });
     },
@@ -80,7 +103,7 @@ export async function resolveExecutable(
   for (const candidate of [...pathCandidates, ...candidates]) {
     try {
       await access(candidate, constants.X_OK);
-      return candidate;
+      if ((await stat(candidate)).isFile()) return candidate;
     } catch {
       // Continue until an executable candidate is found.
     }
