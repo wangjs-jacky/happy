@@ -155,6 +155,50 @@ describe('createVercelClient', () => {
         expect(result).toEqual({ id: 'dpl_1', url: 'https://happy-preview.vercel.app', readyState: 'READY' });
     });
 
+    it('reconciles a deployment by its Happy preview and publication-attempt metadata in the scoped project', async () => {
+        const fetchImpl = vi.fn(async () => jsonResponse({ deployments: [{
+            id: 'dpl_recovered', url: 'recovered.vercel.app', readyState: 'READY', target: null, aliasAssigned: false,
+            meta: { happyPreviewId: 'preview-1', happyPublicationAttemptId: 'attempt-1' },
+        }] }));
+        const client = createVercelClient({ token: 'secret', fetchImpl });
+
+        await expect((client as any).findDeploymentByMetadata({
+            projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
+        })).resolves.toEqual({ id: 'dpl_recovered', url: 'https://recovered.vercel.app', readyState: 'READY' });
+
+        expect((fetchImpl as any).mock.calls[0][0]).toBe('https://api.vercel.com/v6/deployments?projectId=prj_1&meta-happyPreviewId=preview-1&meta-happyPublicationAttemptId=attempt-1');
+    });
+
+    it('waits for a reconciled deployment to become ready instead of treating its build URL as published', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(jsonResponse({ deployments: [{
+                id: 'dpl_building', url: 'building.vercel.app', readyState: 'BUILDING', target: null, aliasAssigned: false,
+                meta: { happyPreviewId: 'preview-1', happyPublicationAttemptId: 'attempt-1' },
+            }] }))
+            .mockResolvedValueOnce(jsonResponse({ id: 'dpl_building', url: 'building.vercel.app', readyState: 'READY', target: null, aliasAssigned: false }));
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {}, pollIntervalMs: 0 });
+
+        await expect((client as any).findDeploymentByMetadata({
+            projectId: 'prj_1', happyPreviewId: 'preview-1', publicationAttemptId: 'attempt-1',
+        })).resolves.toEqual({ id: 'dpl_building', url: 'https://building.vercel.app', readyState: 'READY' });
+
+        expect((fetchImpl as any).mock.calls.map(([url]: [string]) => url)).toEqual([
+            'https://api.vercel.com/v6/deployments?projectId=prj_1&meta-happyPreviewId=preview-1&meta-happyPublicationAttemptId=attempt-1',
+            'https://api.vercel.com/v13/deployments/dpl_building',
+        ]);
+    });
+
+    it('does not automatically retry the non-idempotent deployment create request', async () => {
+        const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'temporary_unavailable' } }, 503));
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep: async () => {} });
+
+        await expect(client.createDeployment({
+            name: 'happy-previews', files: [{ file: 'index.html', sha: 'b'.repeat(64), size: 42 }], meta: {},
+        })).rejects.toMatchObject({ code: 'temporary_unavailable', status: 503 });
+
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
     it('persists the validated deployment id before polling Vercel readiness', async () => {
         let persistedId: string | undefined;
         const fetchImpl = vi.fn()

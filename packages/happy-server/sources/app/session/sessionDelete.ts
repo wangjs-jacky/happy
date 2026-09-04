@@ -74,7 +74,24 @@ export async function sessionDelete(ctx: Context, sessionId: string): Promise<bo
             deletedCount: deletedAccessKeys.count
         }, `Deleted ${deletedAccessKeys.count} access keys`);
 
-        // 4. Delete the session itself
+        // 4. Fence externally-backed previews before `Session` sets their relation
+        // to null. The cleanup worker owns Vercel/OSS deletion after the transaction.
+        await tx.interactivePreview.updateMany({
+            where: {
+                accountId: ctx.uid,
+                sessionId,
+                status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+            },
+            data: {
+                status: 'deleting',
+                url: null,
+                errorCode: 'SESSION_DELETED_CLEANUP_PENDING',
+                publicationGeneration: { increment: 1 },
+                connectionGeneration: { increment: 1 },
+            },
+        });
+
+        // 5. Delete the session itself
         await tx.session.delete({
             where: { id: sessionId }
         });

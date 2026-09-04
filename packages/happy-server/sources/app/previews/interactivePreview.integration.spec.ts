@@ -18,13 +18,14 @@ const manifest = { version: 1 as const, previewId, title: 'Preview', assets: [{ 
 
 function store() {
     const rows = new Map<string, any>(); const sessions = new Set(['s-a']);
-    const matches = (row: any, where: any) => !where || Object.entries(where).every(([key, value]: any) => key === 'OR' || key === 'AND' ? true : key === 'status' && value?.in ? value.in.includes(row.status) : row[key] === value);
+    const matches = (row: any, where: any) => !where || Object.entries(where).every(([key, value]: any) => key === 'OR' || key === 'AND' ? true : key === 'status' && value?.in ? value.in.includes(row.status) : (key === 'publicationGeneration' || key === 'connectionGeneration') && row[key] === undefined && value === 0 ? true : row[key] === value);
     const apply = (row: any, data: any) => Object.entries(data).forEach(([key, value]: any) => { row[key] = value && typeof value === 'object' && 'increment' in value ? (row[key] || 0) + value.increment : value; });
     return { rows, database: { session: { findFirst: vi.fn(async ({ where }: any) => where.accountId === 'a' && sessions.has(where.id) ? { id: where.id } : null) }, interactivePreview: {
-        create: vi.fn(async ({ data }: any) => { const row = { ...data, status: 'draft', url: null, publishedAt: null, errorCode: null, cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null, createdAt: new Date(), updatedAt: new Date(), assets: data.assets.create.map((asset: any) => ({ ...asset, uploadedAt: null })) }; rows.set(row.id, row); return row; }),
+        create: vi.fn(async ({ data }: any) => { const row = { ...data, status: 'draft', url: null, publishedAt: null, errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, stagingCleanupPending: false, cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null, createdAt: new Date(), updatedAt: new Date(), assets: data.assets.create.map((asset: any) => ({ ...asset, uploadedAt: null })) }; rows.set(row.id, row); return row; }),
         findUnique: vi.fn(async ({ where }: any) => rows.get(where.id) || null),
         findFirst: vi.fn(async ({ where }: any) => [...rows.values()].find((row) => matches(row, where)) || null),
         findMany: vi.fn(async ({ where }: any) => [...rows.values()].filter((row) => !where?.accountId || row.accountId === where.accountId)),
+        deleteMany: vi.fn(async () => ({ count: 0 })),
         updateMany: vi.fn(async ({ where, data }: any) => { const row = [...rows.values()].find((candidate) => matches(candidate, where)); if (!row) return { count: 0 }; apply(row, data); row.updatedAt = new Date(); return { count: 1 }; }),
         update: vi.fn(async ({ where, data }: any) => { const row = rows.get(where.id); if (!row) throw new Error('missing'); apply(row, data); return row; }),
     }, interactivePreviewAsset: { update: vi.fn(async ({ where, data }: any) => { const row = rows.get(where.previewId_id.previewId); const asset = row.assets.find((item: any) => item.id === where.previewId_id.id); apply(asset, data); return asset; }) } } } as any;
@@ -49,6 +50,7 @@ describe('interactive preview integration', () => {
         const uploads: Buffer[] = []; let deletes = 0;
         const server = createServer(async (request, response) => { const body: Buffer[] = []; for await (const chunk of request) body.push(Buffer.from(chunk)); const send = (value: unknown) => response.end(JSON.stringify(value));
             if (request.url?.startsWith('/v9/projects/')) return send({ id: 'prj', name: 'happy-previews', installCommand: 'echo happy-preview-owner:e67d23e7820c49a8' });
+            if (request.url?.startsWith('/v6/deployments')) return send({ deployments: [] });
             if (request.url === '/v2/files') { uploads.push(Buffer.concat(body)); return send({}); }
             if (request.url === '/v13/deployments' && request.method === 'POST') return send({ id: 'dpl', url: 'preview.local', readyState: 'READY', target: null, aliasAssigned: false });
             if (request.url === '/v13/deployments/dpl' && request.method === 'DELETE') { deletes++; return send({}); }
@@ -97,5 +99,22 @@ describe('interactive preview integration', () => {
         await service.delete('a', 's-a', id); await service.delete('a', 's-a', id); expect(rows.get(id)).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delete' });
         const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any, clientFactory: factory as any }); await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z')); expect(rows.get(id)).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delete', cleanupRetryCount: 1, cleanupNextAttemptAt: new Date('2026-09-04T01:01:00Z') }); expect(objects.size).toBe(1);
         await cleanup.cleanupExpired(new Date('2026-09-04T01:01:00Z')); expect(rows.get(id).status).toBe('expired'); expect(objects.size).toBe(0); expect(providerDeletes).toBe(2);
+    });
+
+    it('cleans Vercel and OSS resources from a session-delete tombstone after its session relation is SetNull', async () => {
+        const { database, rows } = store(); const { storage, objects } = s3();
+        const id = '88888888-8888-4888-8888-888888888888'; const stagingGeneration = 'generation-1';
+        rows.set(id, { id, accountId: 'a', sessionId: null, stagingGeneration, status: 'deleting', url: null, vercelDeploymentId: 'dpl_session_delete',
+            expiresAt: new Date(0), cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null, stagingCleanupPending: false });
+        objects.set(storage.storageKey({ accountId: 'a', previewId: id, stagingGeneration }, 'asset'), Buffer.from('x'));
+        const deleteDeployment = vi.fn(async () => {});
+        const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any,
+            clientFactory: vi.fn(() => ({ deleteDeployment })) as any });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_session_delete');
+        expect(objects.size).toBe(0);
+        expect(rows.get(id)).toMatchObject({ status: 'expired', vercelDeploymentId: null });
     });
 });

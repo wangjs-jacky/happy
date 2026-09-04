@@ -33,12 +33,11 @@ describe('cleanupInteractivePreviewRows', () => {
         const updateMany = vi.fn()
             .mockResolvedValueOnce({ count: 1 })
             .mockResolvedValueOnce({ count: 1 });
-        const update = vi.fn(async () => {});
         const cleanup = createPreviewCleanup({
             database: { interactivePreview: {
                 updateMany,
                 findMany: vi.fn(async () => [{ id: 'p4', status: 'failed', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_4' }]),
-                update,
+                deleteMany: vi.fn(async () => ({ count: 0 })),
             } } as any,
             storage: { deletePreview: vi.fn(async () => {}) } as any,
             credentialStore: { get: vi.fn(async () => ({ accessToken: 'secret', configurationId: 'icfg' })) } as any,
@@ -54,22 +53,64 @@ describe('cleanupInteractivePreviewRows', () => {
         expect(updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
             where: expect.objectContaining({ id: 'p4', status: 'failed' }), data: expect.objectContaining({ status: 'deleting' }),
         }));
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'p4' }, data: expect.objectContaining({ status: 'expired', url: null }) }));
+        expect(updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({
+            where: expect.objectContaining({ id: 'p4', status: 'deleting', cleanupClaimedAt: new Date('2026-09-04T01:00:00Z') }),
+            data: expect.objectContaining({ status: 'expired', url: null, vercelDeploymentId: null }),
+        }));
     });
 
     it('persists a bounded first retry delay after cleanup failure', async () => {
         const updateMany = vi.fn().mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
-        const update = vi.fn(async () => {});
         const cleanup = createPreviewCleanup({
-            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), update } } as any,
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
             storage: { deletePreview: vi.fn(async () => { throw new Error('oss down'); }) } as any,
             credentialStore: { get: vi.fn() } as any, clientFactory: vi.fn() as any,
         });
 
         await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
 
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        expect(updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({ data: expect.objectContaining({
             cleanupRetryCount: { increment: 1 }, cleanupNextAttemptAt: new Date('2026-09-04T01:01:00Z'),
         }) }));
+    });
+
+    it('retries ready staging cleanup without deleting the live deployment before its 24-hour expiry', async () => {
+        const row: any = { id: 'p6', status: 'ready', accountId: 'u1', stagingGeneration: 'generation-1', vercelDeploymentId: 'dpl_live', stagingCleanupPending: true,
+            expiresAt: new Date('2026-09-05T01:00:00Z'), cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.status === 'publishing') return { count: 0 };
+            if (where.status && where.status !== row.status) return { count: 0 };
+            Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
+            return { count: 1 };
+        });
+        const deleteDeployment = vi.fn(async () => {});
+        const cleanup = createPreviewCleanup({
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [row]), findFirst: vi.fn(async () => row), deleteMany: vi.fn(async () => ({ count: 0 })) } } as any,
+            storage: { deletePreview: vi.fn(async () => {}) } as any,
+            credentialStore: { get: vi.fn(async () => ({ accessToken: 'secret', configurationId: 'icfg' })) } as any,
+            clientFactory: vi.fn(() => ({ deleteDeployment })) as any,
+        });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(deleteDeployment).not.toHaveBeenCalled();
+        expect(row).toMatchObject({ status: 'ready', vercelDeploymentId: 'dpl_live', stagingCleanupPending: false });
+    });
+
+    it('prunes only fully cleaned expired tombstones after the 30-day retention window', async () => {
+        const deleteMany = vi.fn(async () => ({ count: 1 }));
+        const cleanup = createPreviewCleanup({
+            database: { interactivePreview: { updateMany: vi.fn(async () => ({ count: 0 })), findMany: vi.fn(async () => []), deleteMany } } as any,
+            storage: { deletePreview: vi.fn() } as any,
+            credentialStore: { get: vi.fn() } as any,
+            clientFactory: vi.fn() as any,
+        });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(deleteMany).toHaveBeenCalledWith({ where: {
+            status: 'expired', vercelDeploymentId: null, stagingCleanupPending: false,
+            updatedAt: { lte: new Date('2026-08-05T01:00:00Z') },
+        } });
     });
 });

@@ -40,6 +40,11 @@ const deploymentResponseSchema = z.object({
     target: z.union([z.string().min(1), z.null()]),
     alias: z.array(z.string().min(1)).optional(),
     aliasAssigned: z.boolean(),
+    meta: z.record(z.string(), z.string()).optional(),
+}).passthrough();
+
+const deploymentListResponseSchema = z.object({
+    deployments: z.array(deploymentResponseSchema),
 }).passthrough();
 
 const projectResponseSchema = z.object({
@@ -84,7 +89,7 @@ export function createVercelClient(options: {
         return `echo happy-preview-owner:${createHash('sha256').update(configurationId).digest('hex').slice(0, 16)}`;
     }
 
-    async function request(path: string, init: VercelRequestInit, timeoutMs = 30_000): Promise<Response> {
+    async function request(path: string, init: VercelRequestInit, timeoutMs = 30_000, retryTransient = true): Promise<Response> {
         for (let attempt = 0; ; attempt++) {
             const response = await fetchImpl(endpoint(path), {
                 ...init,
@@ -93,7 +98,7 @@ export function createVercelClient(options: {
                 headers: { Authorization: `Bearer ${options.token}`, ...init.headers },
             });
             if (response.ok) return response;
-            if ((response.status === 429 || response.status >= 500) && attempt < 2) {
+            if (retryTransient && (response.status === 429 || response.status >= 500) && attempt < 2) {
                 const retryAfter = retryAfterMilliseconds(response.headers.get('retry-after'), now());
                 const delay = retryAfter ?? Math.min(10_000, 250 * 2 ** attempt);
                 await sleep(delay);
@@ -101,6 +106,43 @@ export function createVercelClient(options: {
             }
             const data = await response.json().catch(() => null) as { error?: { code?: string } } | null;
             throw new VercelApiError(data?.error?.code || `http_${response.status}`, response.status);
+        }
+    }
+
+    const assertPreviewSemantics = (deployment: z.infer<typeof deploymentResponseSchema>): void => {
+        if (deployment.target !== null) {
+            if (deployment.target === 'production') throw new Error('Vercel returned an unexpected production deployment');
+            throw new Error(`Vercel returned a non-preview deployment target: ${deployment.target}`);
+        }
+        if (deployment.alias?.length || deployment.aliasAssigned !== false) throw new Error('Vercel returned an unexpected deployment alias');
+    };
+
+    const deploymentResult = (deployment: z.infer<typeof deploymentResponseSchema>) => ({
+        id: deployment.id,
+        url: `https://${deployment.url.replace(/^https?:\/\//, '')}`,
+        readyState: deployment.readyState,
+    });
+
+    async function waitForDeploymentReady(initial: z.infer<typeof deploymentResponseSchema>): Promise<{ id: string; url: string; readyState: string }> {
+        const deadline = now() + deploymentTimeoutMs;
+        const remaining = (): number => {
+            const milliseconds = deadline - now();
+            if (milliseconds <= 0) throw new Error('Vercel deployment timed out before becoming ready');
+            return milliseconds;
+        };
+        let parsed = initial;
+        while (true) {
+            remaining();
+            assertPreviewSemantics(parsed);
+            if (parsed.readyState === 'READY') return deploymentResult(parsed);
+            if (parsed.readyState === 'ERROR' || parsed.readyState === 'CANCELED' || parsed.readyState === 'DELETED') {
+                throw new Error(`Vercel deployment reached terminal state: ${parsed.readyState}`);
+            }
+            await sleep(Math.min(pollIntervalMs, remaining()));
+            const pollTimeoutMs = remaining();
+            assertSafeIdentifier(parsed.id);
+            const statusResponse = await request(`/v13/deployments/${parsed.id}`, { method: 'GET' }, pollTimeoutMs);
+            parsed = deploymentResponseSchema.parse(await statusResponse.json());
         }
     }
 
@@ -172,6 +214,25 @@ export function createVercelClient(options: {
             });
         },
 
+        async findDeploymentByMetadata(input: { projectId: string; happyPreviewId: string; publicationAttemptId: string }): Promise<{ id: string; url: string; readyState: string } | null> {
+            assertSafeIdentifier(input.projectId);
+            if (!input.happyPreviewId || !input.publicationAttemptId) throw new Error('Missing Happy deployment metadata');
+            const query = new URLSearchParams({
+                projectId: input.projectId,
+                'meta-happyPreviewId': input.happyPreviewId,
+                'meta-happyPublicationAttemptId': input.publicationAttemptId,
+            });
+            const response = await request(`/v6/deployments?${query.toString()}`, { method: 'GET' });
+            const deployments = deploymentListResponseSchema.parse(await response.json()).deployments;
+            const deployment = deployments.find((candidate) =>
+                candidate.meta?.happyPreviewId === input.happyPreviewId
+                && candidate.meta?.happyPublicationAttemptId === input.publicationAttemptId,
+            );
+            if (!deployment) return null;
+            assertPreviewSemantics(deployment);
+            return waitForDeploymentReady(deployment);
+        },
+
         async createDeployment(input: {
             name: string;
             projectId?: string;
@@ -179,19 +240,6 @@ export function createVercelClient(options: {
             meta: Record<string, string>;
             onCreated?: (deployment: { id: string }) => Promise<void>;
         }): Promise<{ id: string; url: string; readyState?: string }> {
-            const deadline = now() + deploymentTimeoutMs;
-            const remaining = (): number => {
-                const milliseconds = deadline - now();
-                if (milliseconds <= 0) throw new Error('Vercel deployment timed out before becoming ready');
-                return milliseconds;
-            };
-            const assertPreviewSemantics = (deployment: z.infer<typeof deploymentResponseSchema>): void => {
-                if (deployment.target !== null) {
-                    if (deployment.target === 'production') throw new Error('Vercel returned an unexpected production deployment');
-                    throw new Error(`Vercel returned a non-preview deployment target: ${deployment.target}`);
-                }
-                if (deployment.alias?.length || deployment.aliasAssigned !== false) throw new Error('Vercel returned an unexpected deployment alias');
-            };
             const response = await request('/v13/deployments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -203,29 +251,11 @@ export function createVercelClient(options: {
                     meta: input.meta,
                     projectSettings: { framework: null },
                 }),
-            }, remaining());
-            let parsed = deploymentResponseSchema.parse(await response.json());
+            }, deploymentTimeoutMs, false);
+            const parsed = deploymentResponseSchema.parse(await response.json());
             assertPreviewSemantics(parsed);
             await input.onCreated?.({ id: parsed.id });
-            while (true) {
-                remaining();
-                assertPreviewSemantics(parsed);
-                if (parsed.readyState === 'READY') {
-                    return {
-                        id: parsed.id,
-                        url: `https://${parsed.url.replace(/^https?:\/\//, '')}`,
-                        readyState: parsed.readyState,
-                    };
-                }
-                if (parsed.readyState === 'ERROR' || parsed.readyState === 'CANCELED' || parsed.readyState === 'DELETED') {
-                    throw new Error(`Vercel deployment reached terminal state: ${parsed.readyState}`);
-                }
-                await sleep(Math.min(pollIntervalMs, remaining()));
-                const pollTimeoutMs = remaining();
-                assertSafeIdentifier(parsed.id);
-                const statusResponse = await request(`/v13/deployments/${parsed.id}`, { method: 'GET' }, pollTimeoutMs);
-                parsed = deploymentResponseSchema.parse(await statusResponse.json());
-            }
+            return waitForDeploymentReady(parsed);
         },
 
         async deleteDeployment(deploymentId: string): Promise<void> {

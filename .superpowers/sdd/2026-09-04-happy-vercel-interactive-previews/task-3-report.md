@@ -125,3 +125,44 @@ Applied 42 migration(s), including 20260904090000_add_interactive_previews,
 git diff --check
 exit 0
 ```
+
+## Cluster B review-fix follow-up: durable publication and cleanup state machine
+
+- Publication now writes a durable `publicationAttemptId` before any provider operation, reuses it after a restart, and binds `publicationGeneration` plus `connectionGeneration` into the claim, deployment-created, and ready transitions. A stale publisher that loses either fence cannot restore a deleted/disconnected preview to `ready` or overwrite another live deployment ID.
+- The Vercel client scopes metadata reconciliation to the resolved project and both Happy metadata keys (`happyPreviewId`, `happyPublicationAttemptId`). It waits for a reconciled deployment to become `READY`; deployment creation is deliberately excluded from the transient HTTP retry loop, so a lost create response is reconciled instead of retried blindly.
+- Explicit delete and disconnect preserve an existing worker's cleanup claim/retry deadline. Disconnect first fences all nonterminal rows, reconciles active attempts where credentials and a project are available, performs best-effort provider and staging removal, and only then discards the encrypted credential. A live worker claim or failed reconciliation returns the fixed `VERCEL_DEPLOYMENT_CLEANUP_PENDING` warning; no plaintext token is retained.
+- Session deletion now fences its nonterminal previews into `deleting` tombstones before deleting the session. Because the FK uses `SetNull`, those tombstones retain account, staging, attempt, and provider metadata for the cleanup loop. The integration regression verifies a `sessionId = null` tombstone removes both the Vercel deployment and its exact staging prefix.
+- Successful publication persists `stagingCleanupPending` before staging removal. If that removal fails, cleanup retries staging only with durable backoff while the ready deployment remains live until its unchanged 24-hour expiry. Cleanup ownership is now an exact-claim CAS for success and retry paths; it clears provider IDs only after external deletion and prunes only fully-cleaned `expired` rows after 30 days.
+
+### Cluster B red/green evidence
+
+| Behavior | Red evidence | Green evidence |
+| --- | --- | --- |
+| Provider reconciliation | metadata lookup method was absent; a retry issued a second deployment create | client resolves the existing attempt within the project and create POST is called once on 503 |
+| Generation fencing | a delayed publisher could make a deleted row ready | delayed `onCreated` loses its CAS and removes the unclaimed provider deployment |
+| Ready staging retry | cleanup deleted `dpl_live` while staging cleanup was pending before expiry | cleanup clears only `stagingCleanupPending` and leaves ready/deployment intact |
+| Session deletion | no preview tombstone was written before `Session.delete` | session test observes the fenced tombstone before relation removal; SetNull integration cleanup deletes Vercel and OSS resources |
+
+### Cluster B verification
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/previewStorage.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/previews/previewCleanup.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/interactivePreview.integration.spec.ts \
+  sources/app/api/routes/interactivePreviewRoutes.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts \
+  sources/app/session/sessionDelete.spec.ts
+
+Test Files  8 passed (8)
+Tests       87 passed (87)
+
+pnpm --dir packages/happy-server run typecheck
+exit 0
+
+PGLITE_DIR=/tmp/happy-preview-pglite.<random> \
+  pnpm --dir packages/happy-server exec tsx sources/standalone.ts migrate
+Applied 42 migration(s)
+```

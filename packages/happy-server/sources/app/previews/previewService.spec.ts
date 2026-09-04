@@ -82,7 +82,8 @@ describe('createPreviewService publication', () => {
         await expect(service.delete('u1', 's1', row.id)).resolves.toBeUndefined();
 
         expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: row.id, accountId: 'u1', sessionId: 's1' }, data: expect.objectContaining({ status: 'deleting', url: null }),
+            where: expect.objectContaining({ id: row.id, accountId: 'u1', sessionId: 's1', status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] } }),
+            data: expect.objectContaining({ status: 'deleting', url: null, publicationGeneration: { increment: 1 } }),
         }));
         expect(database.interactivePreview.delete).not.toHaveBeenCalled();
         expect(storage.deletePreview).not.toHaveBeenCalled();
@@ -237,5 +238,110 @@ describe('createPreviewService publication', () => {
 
         await expect(service.publish('u1', 's1', row.id)).rejects.toThrow('database unavailable');
         expect(updateMany).toHaveBeenNthCalledWith(4, expect.objectContaining({ data: expect.objectContaining({ status: 'failed', vercelDeploymentId: 'dpl_orphan' }) }));
+    });
+
+    it('reconciles a persisted publication attempt before issuing another deployment create', async () => {
+        const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const row: any = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'failed', url: null, publishedAt: null,
+            expiresAt: new Date('2026-09-04T01:00:00Z'), errorCode: 'PUBLISH_LEASE_EXPIRED', publicationAttemptId: 'attempt-1', publicationGeneration: 1, connectionGeneration: 0, vercelDeploymentId: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/generation-1/index', uploadedAt: new Date() }] };
+        const updateMany = vi.fn(async ({ data }: any) => { Object.assign(row, data); return { count: 1 }; });
+        const findDeploymentByMetadata = vi.fn(async () => ({ id: 'dpl_recovered', url: 'https://recovered.vercel.app', readyState: 'READY' }));
+        const createDeployment = vi.fn(async () => { throw new Error('must not create a second deployment'); });
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany } };
+        const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
+            credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })) } as any,
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_1' })), uploadFile: vi.fn(), findDeploymentByMetadata, createDeployment })) as any,
+            now: () => new Date('2026-09-04T02:00:00Z') });
+
+        await expect(service.publish('u1', 's1', row.id)).resolves.toMatchObject({ state: 'ready', url: 'https://recovered.vercel.app' });
+
+        expect(updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ data: expect.objectContaining({ publicationAttemptId: 'attempt-1' }) }));
+        expect(findDeploymentByMetadata).toHaveBeenCalledWith({ projectId: 'prj_1', happyPreviewId: row.id, publicationAttemptId: 'attempt-1' });
+        expect(createDeployment).not.toHaveBeenCalled();
+    });
+
+    it('does not allow a publisher fenced by delete to restore a preview to ready', async () => {
+        const bytes = Buffer.from('<h1>x</h1>'); const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const row: any = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', accountId: 'u1', sessionId: 's1', stagingGeneration: 'generation-1', title: 'Draft', status: 'draft', url: null, publishedAt: null,
+            expiresAt: new Date(), errorCode: null, publicationAttemptId: null, publicationGeneration: 0, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null,
+            assets: [{ id: 'index', path: 'index.html', mimeType: 'text/html', size: bytes.length, sha256, storageKey: 'private/interactive-previews/u1/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/generation-1/index', uploadedAt: new Date() }] };
+        const matches = (where: any): boolean => {
+            if (where.id && row.id !== where.id || where.accountId && row.accountId !== where.accountId || where.sessionId && row.sessionId !== where.sessionId) return false;
+            if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return false;
+            for (const key of ['publicationAttemptId', 'publicationGeneration', 'connectionGeneration', 'vercelDeploymentId', 'cleanupClaimedAt']) if (key in where && row[key] !== where[key]) return false;
+            return !where.OR || where.OR.some((candidate: any) => matches({ ...candidate, id: row.id, accountId: row.accountId, sessionId: row.sessionId, status: row.status, publicationAttemptId: row.publicationAttemptId, publicationGeneration: row.publicationGeneration, connectionGeneration: row.connectionGeneration }));
+        };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (!matches(where)) return { count: 0 };
+            Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
+            return { count: 1 };
+        });
+        let release!: () => void;
+        const createDeployment = vi.fn(async (input: any) => {
+            await new Promise<void>((resolve) => { release = resolve; });
+            await input.onCreated({ id: 'dpl_fenced' });
+            return { id: 'dpl_fenced', url: 'https://fenced.vercel.app', readyState: 'READY' };
+        });
+        const deleteDeployment = vi.fn(async () => {});
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), updateMany } };
+        const service = createPreviewService({ database, storage: { read: vi.fn(async () => bytes), deletePreview: vi.fn() } as any,
+            credentialStore: { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })) } as any,
+            clientFactory: vi.fn(() => ({ ensurePreviewProject: vi.fn(async () => ({ id: 'prj_1' })), uploadFile: vi.fn(), findDeploymentByMetadata: vi.fn(async () => null), createDeployment, deleteDeployment })) as any });
+
+        const publication = service.publish('u1', 's1', row.id);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await service.delete('u1', 's1', row.id);
+        release();
+
+        await expect(publication).rejects.toThrow(/fenced/i);
+        expect(row).toMatchObject({ status: 'deleting', url: null });
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_fenced');
+    });
+
+    it('keeps a different cleanup worker claim and its retry deadline through repeated delete and disconnect', async () => {
+        const claimedAt = new Date('2026-09-04T01:00:00Z');
+        const retryAt = new Date('2026-09-04T02:00:00Z');
+        const row: any = { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', accountId: 'u1', sessionId: 's1', status: 'deleting', url: null, stagingGeneration: 'generation-1',
+            vercelDeploymentId: 'dpl_claimed', cleanupClaimedAt: claimedAt, cleanupNextAttemptAt: retryAt };
+        const updateMany = vi.fn(async () => ({ count: 0 }));
+        const database: any = { interactivePreview: { findFirst: vi.fn(async () => row), findMany: vi.fn(async () => [row]), updateMany } };
+        const credentialStore: any = { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })), delete: vi.fn(async () => {}) };
+        const service = createPreviewService({ database, storage: { deletePreview: vi.fn() } as any, credentialStore, clientFactory: vi.fn() as any });
+
+        await service.delete('u1', 's1', row.id);
+        await service.disconnectVercel('u1');
+
+        expect(row.cleanupClaimedAt).toBe(claimedAt);
+        expect(row.cleanupNextAttemptAt).toBe(retryAt);
+        expect(credentialStore.delete).toHaveBeenCalledWith('u1');
+        expect(updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ cleanupClaimedAt: null }) }));
+    });
+
+    it('reconciles an active publication attempt before disconnecting its credential', async () => {
+        const row: any = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', accountId: 'u1', sessionId: 's1', status: 'publishing', url: null, stagingGeneration: 'generation-1',
+            publicationAttemptId: 'attempt-1', publicationGeneration: 1, connectionGeneration: 0, vercelDeploymentId: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null };
+        const updateMany = vi.fn(async ({ where, data }: any) => {
+            if (where.status?.in && !where.status.in.includes(row.status) || typeof where.status === 'string' && where.status !== row.status) return { count: 0 };
+            if ('vercelDeploymentId' in where && row.vercelDeploymentId !== where.vercelDeploymentId) return { count: 0 };
+            if ('cleanupClaimedAt' in where && row.cleanupClaimedAt !== where.cleanupClaimedAt) return { count: 0 };
+            Object.entries(data).forEach(([key, value]: any) => { row[key] = value?.increment === undefined ? value : row[key] + value.increment; });
+            return { count: 1 };
+        });
+        const findDeploymentByMetadata = vi.fn(async () => ({ id: 'dpl_reconciled', url: 'https://reconciled.vercel.app', readyState: 'READY' }));
+        const deleteDeployment = vi.fn(async () => {});
+        const deletePreview = vi.fn(async () => {});
+        const credentialStore: any = { get: vi.fn(async () => ({ version: 1, accessToken: 'secret', configurationId: 'icfg', projectId: 'prj_1' })), delete: vi.fn(async () => {}) };
+        const database: any = { interactivePreview: { updateMany, findMany: vi.fn(async () => [row]) } };
+        const service = createPreviewService({ database, storage: { deletePreview } as any, credentialStore,
+            clientFactory: vi.fn(() => ({ findDeploymentByMetadata, deleteDeployment })) as any });
+
+        await expect(service.disconnectVercel('u1')).resolves.toEqual({});
+
+        expect(findDeploymentByMetadata).toHaveBeenCalledWith({ projectId: 'prj_1', happyPreviewId: row.id, publicationAttemptId: 'attempt-1' });
+        expect(deleteDeployment).toHaveBeenCalledWith('dpl_reconciled');
+        expect(deletePreview).toHaveBeenCalledWith({ accountId: 'u1', previewId: row.id, stagingGeneration: 'generation-1' });
+        expect(credentialStore.delete).toHaveBeenCalledAfter(deleteDeployment);
+        expect(row).toMatchObject({ status: 'expired', vercelDeploymentId: null });
     });
 });

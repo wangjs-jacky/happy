@@ -18,6 +18,7 @@ const VERCEL_PREVIEW_CONFIG = JSON.stringify({
 type PreviewRow = {
     id: string; title: string; status: string; url: string | null; publishedAt: Date | null; expiresAt: Date;
     errorCode: string | null; accountId?: string; sessionId?: string | null; manifest?: unknown; stagingGeneration?: string; vercelDeploymentId?: string | null;
+    publicationAttemptId?: string | null; publicationGeneration?: number; connectionGeneration?: number; stagingCleanupPending?: boolean;
     assets?: Array<{ id: string; path: string; mimeType: string; size: number; sha256: string; storageKey: string; uploadedAt: Date | null }>;
 };
 
@@ -134,16 +135,40 @@ export function createPreviewService(dependencies: {
             if (row.status === 'publishing') return previewRowToEvent(row);
             if (!row.assets?.length || row.assets.some((asset) => !asset.uploadedAt)) throw new Error('Preview assets are incomplete');
             if (row.assets.some((asset) => asset.path === 'vercel.json')) throw new Error('Preview manifest may not include vercel.json');
-            const credential = await credentialStore.get(accountId);
-            if (!credential) throw new Error('VERCEL_NOT_CONNECTED');
-            const claimed = await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId, status: { in: ['draft', 'failed'] } }, data: { status: 'publishing', errorCode: null } });
+            const publicationAttemptId = row.publicationAttemptId || randomUUID();
+            const publicationGeneration = (row.publicationGeneration ?? 0) + 1;
+            const connectionGeneration = row.connectionGeneration ?? 0;
+            const publicationWhere = {
+                id: previewId, accountId, sessionId, status: 'publishing', publicationAttemptId, publicationGeneration, connectionGeneration,
+            };
+            const claimed = await database.interactivePreview.updateMany({
+                where: {
+                    id: previewId, accountId, sessionId, status: { in: ['draft', 'failed'] },
+                    publicationGeneration: row.publicationGeneration ?? 0, connectionGeneration,
+                    cleanupClaimedAt: null,
+                },
+                data: { status: 'publishing', errorCode: null, publicationAttemptId, publicationGeneration },
+            });
             if (claimed.count !== 1) {
                 row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId }, include: { assets: true } }) as PreviewRow | null;
                 if (row?.status === 'ready') return previewRowToEvent(row);
                 if (row?.status === 'publishing') return previewRowToEvent(row);
                 throw new Error('Preview publication already in progress');
             }
+            const deleteUnclaimedDeployment = async (client: { deleteDeployment?: (deploymentId: string) => Promise<void> }, deploymentId: string) => {
+                try { await client.deleteDeployment?.(deploymentId); } catch { /* the durable tombstone will reconcile this attempt */ }
+            };
+            const bindDeployment = async (deploymentId: string): Promise<void> => {
+                createdDeploymentId = deploymentId;
+                const bound = await database.interactivePreview.updateMany({
+                    where: { ...publicationWhere, OR: [{ vercelDeploymentId: null }, { vercelDeploymentId: deploymentId }] },
+                    data: { vercelDeploymentId: deploymentId },
+                });
+                if (bound.count !== 1) throw new Error('Preview publication was fenced before deployment tracking');
+            };
             try {
+                const credential = await credentialStore.get(accountId);
+                if (!credential) throw new Error('VERCEL_NOT_CONNECTED');
                 const client = clientFactory({ token: credential.accessToken, teamId: credential.teamId });
                 const project = await client.ensurePreviewProject({
                     configurationId: credential.configurationId,
@@ -153,40 +178,63 @@ export function createPreviewService(dependencies: {
                     const persisted = await credentialStore.setProjectIdIfCurrent(accountId, credential, project.id);
                     if (!persisted) throw new Error('Vercel connection changed during project provisioning');
                 }
-                const files = [];
-                for (const asset of row.assets) {
-                    const bytes = await storage.read(asset.storageKey, asset.size);
-                    const digest = createHash('sha256').update(bytes).digest('hex');
-                    if (digest !== asset.sha256 || bytes.length !== asset.size) throw new Error('Preview asset integrity mismatch');
-                    await client.uploadFile(asset.sha256, bytes, asset.mimeType);
-                    files.push({ file: asset.path, sha: asset.sha256, size: asset.size });
+                const recoveredDeployment = await client.findDeploymentByMetadata?.({ projectId: project.id, happyPreviewId: previewId, publicationAttemptId }) ?? null;
+                let deployment: { id: string; url: string; readyState?: string } | null = recoveredDeployment;
+                if (deployment) {
+                    try { await bindDeployment(deployment.id); }
+                    catch (error) { await deleteUnclaimedDeployment(client, deployment.id); throw error; }
                 }
-                const configBytes = Buffer.from(VERCEL_PREVIEW_CONFIG);
-                const configSha = createHash('sha256').update(configBytes).digest('hex');
-                await client.uploadFile(configSha, configBytes, 'application/json');
-                files.push({ file: 'vercel.json', sha: configSha, size: configBytes.byteLength });
-                const deployment = await client.createDeployment({
-                    name: 'happy-previews', projectId: project.id, files,
-                    meta: { happyPreviewId: previewId },
-                    onCreated: async ({ id }) => {
-                        createdDeploymentId = id;
-                        await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: { vercelDeploymentId: id } });
-                    },
-                });
+                const files = [];
+                if (!deployment) {
+                    for (const asset of row.assets) {
+                        const bytes = await storage.read(asset.storageKey, asset.size);
+                        const digest = createHash('sha256').update(bytes).digest('hex');
+                        if (digest !== asset.sha256 || bytes.length !== asset.size) throw new Error('Preview asset integrity mismatch');
+                        await client.uploadFile(asset.sha256, bytes, asset.mimeType);
+                        files.push({ file: asset.path, sha: asset.sha256, size: asset.size });
+                    }
+                    const configBytes = Buffer.from(VERCEL_PREVIEW_CONFIG);
+                    const configSha = createHash('sha256').update(configBytes).digest('hex');
+                    await client.uploadFile(configSha, configBytes, 'application/json');
+                    files.push({ file: 'vercel.json', sha: configSha, size: configBytes.byteLength });
+                    deployment = await client.createDeployment({
+                        name: 'happy-previews', projectId: project.id, files,
+                        meta: { happyPreviewId: previewId, happyPublicationAttemptId: publicationAttemptId },
+                        onCreated: async ({ id }) => {
+                            try { await bindDeployment(id); }
+                            catch (error) { await deleteUnclaimedDeployment(client, id); throw error; }
+                        },
+                    });
+                }
+                if (!deployment) throw new Error('Vercel deployment reconciliation returned no deployment');
                 createdDeploymentId = deployment.id;
                 const publishedAt = now(); const expiresAt = new Date(publishedAt.getTime() + PUBLISHED_TTL_MS);
-                await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
-                    status: 'ready', url: deployment.url, vercelDeploymentId: deployment.id, publishedAt, expiresAt,
-                } });
+                const readied = await database.interactivePreview.updateMany({
+                    where: { ...publicationWhere, OR: [{ vercelDeploymentId: null }, { vercelDeploymentId: deployment.id }] },
+                    data: {
+                        status: 'ready', url: deployment.url, vercelDeploymentId: deployment.id, publishedAt, expiresAt,
+                        stagingCleanupPending: true, cleanupRetryCount: 0, cleanupNextAttemptAt: null,
+                    },
+                });
+                if (readied.count !== 1) {
+                    await deleteUnclaimedDeployment(client, deployment.id);
+                    throw new Error('Preview publication was fenced before becoming ready');
+                }
                 const updated = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId } }) as PreviewRow | null;
                 if (!updated) throw previewNotFound();
-                try { await storage.deletePreview({ accountId, previewId, stagingGeneration: row.stagingGeneration! }); }
-                catch { /* durable preview row is ready; scheduled cleanup removes leftover staging */ }
+                try {
+                    await storage.deletePreview({ accountId, previewId, stagingGeneration: row.stagingGeneration! });
+                    await database.interactivePreview.updateMany({
+                        where: { ...publicationWhere, status: 'ready', stagingCleanupPending: true },
+                        data: { stagingCleanupPending: false, cleanupRetryCount: 0, cleanupNextAttemptAt: null },
+                    });
+                } catch { /* ready rows retain a durable, immediately due staging cleanup obligation */ }
                 return previewRowToEvent(updated);
             } catch (error) {
-                await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
-                    status: 'failed', errorCode: 'PUBLISH_FAILED', ...(createdDeploymentId ? { vercelDeploymentId: createdDeploymentId } : {}),
-                } });
+                await database.interactivePreview.updateMany({
+                    where: { ...publicationWhere, ...(createdDeploymentId ? { OR: [{ vercelDeploymentId: null }, { vercelDeploymentId: createdDeploymentId }] } : {}) },
+                    data: { status: 'failed', errorCode: 'PUBLISH_FAILED', ...(createdDeploymentId ? { vercelDeploymentId: createdDeploymentId } : {}) },
+                });
                 throw error;
             }
         });
@@ -198,33 +246,56 @@ export function createPreviewService(dependencies: {
     async delete(accountId: string, sessionId: string, previewId: string): Promise<void> {
         const row = await database.interactivePreview.findFirst({ where: { id: previewId, accountId, sessionId } }) as PreviewRow | null;
         if (!row) return;
-        await database.interactivePreview.updateMany({ where: { id: previewId, accountId, sessionId }, data: {
-            status: 'deleting', url: null, errorCode: null, cleanupClaimedAt: null,
-        } });
+        await database.interactivePreview.updateMany({
+            where: { id: previewId, accountId, sessionId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] } },
+            data: { status: 'deleting', url: null, errorCode: null, publicationGeneration: { increment: 1 } },
+        });
     },
     async disconnectVercel(accountId: string): Promise<{ warning?: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' }> {
+        await database.interactivePreview.updateMany({ where: {
+            accountId, status: { in: ['draft', 'uploading', 'publishing', 'failed', 'ready'] },
+        }, data: {
+            status: 'deleting', url: null, errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING',
+            publicationGeneration: { increment: 1 }, connectionGeneration: { increment: 1 },
+        } });
         const credential = await credentialStore.get(accountId);
         const rows = await database.interactivePreview.findMany({ where: {
             accountId, status: { in: ['draft', 'publishing', 'failed', 'ready', 'deleting'] },
-        }, select: { id: true, vercelDeploymentId: true, stagingGeneration: true } }) as Array<{ id: string; vercelDeploymentId: string | null; stagingGeneration: string }>;
+        }, select: { id: true, vercelDeploymentId: true, stagingGeneration: true, publicationAttemptId: true, cleanupClaimedAt: true, cleanupNextAttemptAt: true } }) as Array<{ id: string; vercelDeploymentId: string | null; stagingGeneration: string; publicationAttemptId: string | null; cleanupClaimedAt: Date | null; cleanupNextAttemptAt: Date | null }>;
         let warning = false;
         const client = credential ? clientFactory({ token: credential.accessToken, teamId: credential.teamId }) : null;
         for (const row of rows) {
-            await database.interactivePreview.updateMany({ where: { id: row.id, accountId }, data: {
-                status: 'deleting', url: null, cleanupClaimedAt: null,
-            } });
+            if (row.cleanupClaimedAt) {
+                warning = true;
+                continue;
+            }
             try {
-                if (row.vercelDeploymentId) {
+                let deploymentId = row.vercelDeploymentId;
+                if (!deploymentId && row.publicationAttemptId && credential?.projectId) {
+                    deploymentId = (await client?.findDeploymentByMetadata?.({ projectId: credential.projectId, happyPreviewId: row.id, publicationAttemptId: row.publicationAttemptId }))?.id || null;
+                    if (deploymentId) {
+                        const persisted = await database.interactivePreview.updateMany({
+                            where: { id: row.id, accountId, status: 'deleting', vercelDeploymentId: null, cleanupClaimedAt: null },
+                            data: { vercelDeploymentId: deploymentId },
+                        });
+                        if (persisted.count !== 1) throw new Error('Preview cleanup claim changed during disconnect');
+                    }
+                }
+                if (deploymentId) {
                     if (!client) throw new Error('Vercel credential unavailable');
-                    await client.deleteDeployment(row.vercelDeploymentId);
+                    await client.deleteDeployment(deploymentId);
                 }
                 await storage.deletePreview({ accountId, previewId: row.id, stagingGeneration: row.stagingGeneration });
-                await database.interactivePreview.update({ where: { id: row.id }, data: { status: 'expired', url: null, cleanupClaimedAt: null } });
+                const expired = await database.interactivePreview.updateMany({
+                    where: { id: row.id, accountId, status: 'deleting', cleanupClaimedAt: null, ...(deploymentId ? { vercelDeploymentId: deploymentId } : {}) },
+                    data: { status: 'expired', url: null, vercelDeploymentId: null, stagingCleanupPending: false, cleanupClaimedAt: null, cleanupNextAttemptAt: null },
+                });
+                if (expired.count !== 1) throw new Error('Preview cleanup claim changed during disconnect');
             } catch {
                 warning = true;
-                await database.interactivePreview.update({ where: { id: row.id }, data: {
-                    status: 'deleting', errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING', cleanupClaimedAt: null,
-                } });
+                await database.interactivePreview.updateMany({ where: {
+                    id: row.id, accountId, status: 'deleting', cleanupClaimedAt: null,
+                }, data: { errorCode: 'VERCEL_DEPLOYMENT_CLEANUP_PENDING' } });
             }
         }
         await credentialStore.delete(accountId);
