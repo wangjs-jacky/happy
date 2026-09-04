@@ -20,6 +20,9 @@ const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } =
                 storageState.sessions[session.id] = session;
             }
         },
+        deleteSession: (sessionId: string) => {
+            delete storageState.sessions[sessionId];
+        },
     };
     return {
         fetchSessionSnapshot: vi.fn(),
@@ -237,5 +240,38 @@ describe('new-session updates', () => {
         });
         expect(storageState.sessions['session-2']).toMatchObject({ id: 'session-2' });
         expect(storageState.sessions['old-cache']).toBeUndefined();
+    });
+
+    // Regression: a realtime delete is newer than a refresh that was already
+    // in flight, so the refresh's stale row must not resurrect that session.
+    it('does not resurrect a session deleted while a full refresh was in flight', async () => {
+        const staleSnapshot = { ...update.body, seq: 2, metadataVersion: 2 };
+        let resolveResponse: (response: Response) => void;
+        const response = new Promise<Response>((resolve) => {
+            resolveResponse = resolve;
+        });
+        vi.stubGlobal('fetch', vi.fn(() => response));
+        hydrateSessionSnapshots.mockImplementation(async (snapshots) => snapshots.map((snapshot) => ({
+            ...snapshot,
+            metadata: { name: `Session ${snapshot.metadataVersion}` } as any,
+            agentState: null,
+            thinking: false,
+            thinkingAt: 0,
+        })));
+        storageState.sessions = {
+            'session-1': { ...hydratedSession, seq: 1, metadataVersion: 1 },
+        };
+
+        const refresh = syncForTest.fetchSessions();
+        await Promise.resolve();
+        await syncForTest.handleUpdate({
+            ...update,
+            body: { t: 'delete-session', sid: 'session-1' },
+        });
+        resolveResponse!({ ok: true, json: async () => ({ sessions: [staleSnapshot] }) } as Response);
+        await refresh;
+
+        expect(storageState.sessions['session-1']).toBeUndefined();
+        expect(syncForTest.sessionDeletionMutationGenerations.size).toBe(0);
     });
 });

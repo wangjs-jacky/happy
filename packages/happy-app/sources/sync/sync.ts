@@ -165,6 +165,8 @@ class Sync {
     // that response's snapshot.
     private sessionMutationGeneration = 0;
     private sessionMutationGenerations = new Map<string, number>();
+    private sessionDeletionMutationGenerations = new Map<string, number>();
+    private inFlightSessionRefreshes = new Set<{ mutationGeneration: number }>();
     private sessionDataKeys = new Map<string, Uint8Array>(); // Store session data encryption keys internally
     private machineDataKeys = new Map<string, Uint8Array>(); // Store machine data encryption keys internally
     private artifactDataKeys = new Map<string, Uint8Array>(); // Store artifact data encryption keys internally
@@ -1204,29 +1206,35 @@ class Sync {
     private fetchSessions = async () => {
         if (!this.credentials) return;
         const refreshMutationGeneration = this.sessionMutationGeneration;
+        const refresh = { mutationGeneration: refreshMutationGeneration };
+        this.inFlightSessionRefreshes.add(refresh);
 
-        const API_ENDPOINT = getServerUrl();
-        const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
-            headers: {
-                'Authorization': `Bearer ${this.credentials.token}`,
-                'Content-Type': 'application/json',
-                'X-Happy-Client': getHappyClientId(),
+        try {
+            const API_ENDPOINT = getServerUrl();
+            const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
+                headers: {
+                    'Authorization': `Bearer ${this.credentials.token}`,
+                    'Content-Type': 'application/json',
+                    'X-Happy-Client': getHappyClientId(),
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch sessions: ${response.status}`);
             }
-        });
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch sessions: ${response.status}`);
+            const data = await response.json();
+            const sessions = data.sessions as ApiSessionSnapshot[];
+
+            const decryptedSessions = await hydrateSessionSnapshots(sessions, this.encryption);
+
+            // Apply to storage
+            this.applySessions(decryptedSessions, { replace: true }, refreshMutationGeneration);
+            log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
+        } finally {
+            this.inFlightSessionRefreshes.delete(refresh);
+            this.pruneSessionDeletionTombstones();
         }
-
-        const data = await response.json();
-        const sessions = data.sessions as ApiSessionSnapshot[];
-
-        const decryptedSessions = await hydrateSessionSnapshots(sessions, this.encryption);
-
-        // Apply to storage
-        this.applySessions(decryptedSessions, { replace: true }, refreshMutationGeneration);
-        log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
-
     }
 
     public refreshMachines = async () => {
@@ -2544,6 +2552,9 @@ class Sync {
         } else if (updateData.body.t === 'delete-session') {
             log.log('🗑️ Delete session update received');
             const sessionId = updateData.body.sid;
+            const deletionMutationGeneration = ++this.sessionMutationGeneration;
+            this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
+            this.pruneSessionDeletionTombstones();
 
             // Remove session from storage
             storage.getState().deleteSession(sessionId);
@@ -3070,6 +3081,11 @@ class Sync {
         refreshMutationGeneration?: number,
     ) => {
         const mergedSessions = sessions.flatMap((session) => {
+            const deletedAfterRefresh = options?.replace
+                && refreshMutationGeneration !== undefined
+                && (this.sessionDeletionMutationGenerations.get(session.id) ?? 0) > refreshMutationGeneration;
+            if (deletedAfterRefresh) return [];
+
             const existing = storage.getState().sessions[session.id];
             if (!existing) return [session];
             if (session.seq < existing.seq) return options?.replace ? [existing] : [];
@@ -3101,6 +3117,7 @@ class Sync {
             const mutationGeneration = ++this.sessionMutationGeneration;
             for (const session of mergedSessions) {
                 this.sessionMutationGenerations.set(session.id, mutationGeneration);
+                this.sessionDeletionMutationGenerations.delete(session.id);
             }
         }
         const removedSessionIds = options?.replace
@@ -3113,6 +3130,17 @@ class Sync {
         }
         const newActive = storage.getState().getActiveSessions();
         this.applySessionDiff(active, newActive);
+    }
+
+    private pruneSessionDeletionTombstones() {
+        for (const [sessionId, deletionMutationGeneration] of this.sessionDeletionMutationGenerations) {
+            const hasOlderRefreshInFlight = [...this.inFlightSessionRefreshes].some(
+                (refresh) => refresh.mutationGeneration < deletionMutationGeneration,
+            );
+            if (!hasOlderRefreshInFlight) {
+                this.sessionDeletionMutationGenerations.delete(sessionId);
+            }
+        }
     }
 
     private getSessionIdsMissingFromSnapshot(sessions: Array<{ id: string }>): string[] {
