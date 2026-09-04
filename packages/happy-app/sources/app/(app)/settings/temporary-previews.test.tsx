@@ -214,6 +214,86 @@ describe('TemporaryPreviewsSettings', () => {
         act(() => renderer.unmount());
     });
 
+    it('keeps a reconnect popup open across unchanged connected polling until its trusted callback arrives', async () => {
+        vi.useFakeTimers();
+        const listeners = new Map<string, Function>();
+        const popup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { popup.closed = true; }) };
+        vi.stubGlobal('window', {
+            open: vi.fn(() => popup),
+            location: { search: '', origin: 'https://happy.test' },
+            addEventListener: vi.fn((name: string, handler: Function) => listeners.set(name, handler)),
+            removeEventListener: vi.fn((name: string) => listeners.delete(name)),
+        });
+        mocks.status.mockResolvedValue({ available: true, connected: true, account: { teamId: 'team-acme', projectId: 'happy-previews' } });
+        mocks.connectUrl.mockResolvedValue('https://vercel.com/integrations/happy/new');
+        const renderer = await renderScreen();
+
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-reconnect' }).props.onPress(); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+        expect(popup.close).not.toHaveBeenCalled();
+
+        await act(async () => { await listeners.get('message')?.({ origin: 'https://happy.test', data: { type: 'happy-vercel-connected' } }); });
+        expect(popup.close).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('closes a reconnect popup when polling observes a changed Vercel connection scope', async () => {
+        vi.useFakeTimers();
+        const popup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { popup.closed = true; }) };
+        vi.stubGlobal('window', {
+            open: vi.fn(() => popup), location: { search: '', origin: 'https://happy.test' },
+            addEventListener: vi.fn(), removeEventListener: vi.fn(),
+        });
+        mocks.status.mockResolvedValueOnce({ available: true, connected: true, account: { teamId: 'team-acme', projectId: 'happy-previews' } })
+            .mockResolvedValueOnce({ available: true, connected: true, account: { teamId: 'team-new', projectId: 'happy-previews' } });
+        mocks.connectUrl.mockResolvedValue('https://vercel.com/integrations/happy/new');
+        const renderer = await renderScreen();
+
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-reconnect' }).props.onPress(); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+        expect(popup.close).toHaveBeenCalledOnce();
+        act(() => renderer.unmount());
+    });
+
+    it('does not navigate or start polling when a pending popup URL resolves after unmount', async () => {
+        const popup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { popup.closed = true; }) };
+        const url = deferred<string>();
+        vi.stubGlobal('window', { open: vi.fn(() => popup), addEventListener: vi.fn(), removeEventListener: vi.fn(), location: { search: '' } });
+        mocks.status.mockResolvedValue({ available: true, connected: false });
+        mocks.connectUrl.mockReturnValue(url.promise);
+        const renderer = await renderScreen();
+
+        act(() => { void renderer.root.findByProps({ testID: 'temporary-previews-connect' }).props.onPress(); });
+        act(() => renderer.unmount());
+        await act(async () => { url.resolve('https://vercel.com/integrations/happy/new'); });
+
+        expect(popup.location.href).toBe('');
+        expect(popup.close).toHaveBeenCalledOnce();
+    });
+
+    it('closes a timed-out popup, shows retry, and allows a fresh connect attempt', async () => {
+        vi.useFakeTimers();
+        const firstPopup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { firstPopup.closed = true; }) };
+        const secondPopup: any = { closed: false, location: { href: '' }, close: vi.fn(() => { secondPopup.closed = true; }) };
+        vi.stubGlobal('window', {
+            open: vi.fn().mockReturnValueOnce(firstPopup).mockReturnValueOnce(secondPopup),
+            addEventListener: vi.fn(), removeEventListener: vi.fn(), location: { search: '' },
+        });
+        mocks.status.mockResolvedValue({ available: true, connected: false });
+        mocks.connectUrl.mockResolvedValue('https://vercel.com/integrations/happy/new');
+        const renderer = await renderScreen();
+
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-connect' }).props.onPress(); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+        expect(firstPopup.close).toHaveBeenCalledOnce();
+        expect(renderer.root.findByProps({ testID: 'temporary-previews-retry' })).toBeTruthy();
+
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-retry' }).props.onPress(); });
+        await act(async () => { await renderer.root.findByProps({ testID: 'temporary-previews-connect' }).props.onPress(); });
+        expect(window.open).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
+    });
+
     it('keeps the newest refresh result when an older request resolves late', async () => {
         const first = deferred<any>();
         const second = deferred<any>();

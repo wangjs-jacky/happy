@@ -32,8 +32,10 @@ export default function TemporaryPreviewsSettings() {
     const [busy, setBusy] = React.useState(false);
     const pollTimer = React.useRef<ReturnType<typeof setInterval> | null>(null);
     const popupRef = React.useRef<Window | null>(null);
+    const popupConnectionRef = React.useRef<string | null>(null);
     const refreshGeneration = React.useRef(0);
     const mounted = React.useRef(true);
+    const status = loadState.kind === 'ready' ? loadState.status : null;
 
     const stopPolling = React.useCallback(() => {
         if (pollTimer.current) clearInterval(pollTimer.current);
@@ -44,6 +46,7 @@ export default function TemporaryPreviewsSettings() {
         const popup = popupRef.current;
         if (popup && !popup.closed) popup.close();
         popupRef.current = null;
+        popupConnectionRef.current = null;
         stopPolling();
     }, [stopPolling]);
 
@@ -57,7 +60,12 @@ export default function TemporaryPreviewsSettings() {
             const status = await getVercelPreviewStatus(credentials);
             if (!mounted.current || generation !== refreshGeneration.current) return;
             setLoadState({ kind: 'ready', status });
-            if (status.connected) closePopup();
+            const connectionKey = status.account
+                ? `${status.account.teamId ?? ''}:${status.account.projectId ?? ''}`
+                : '';
+            if (status.connected && popupRef.current && (
+                popupConnectionRef.current === null || popupConnectionRef.current !== connectionKey
+            )) closePopup();
         } catch {
             if (mounted.current && generation === refreshGeneration.current) setLoadState({ kind: 'error' });
         }
@@ -98,17 +106,20 @@ export default function TemporaryPreviewsSettings() {
 
     React.useEffect(() => () => closePopup(), [closePopup]);
 
-    const startPolling = React.useCallback(() => {
-        if (!credentials) return;
+    const startPolling = React.useCallback((popup: Window) => {
+        if (!credentials || !mounted.current || popupRef.current !== popup || popup.closed) return;
         stopPolling();
         const startedAt = Date.now();
         pollTimer.current = setInterval(() => {
-            if (popupRef.current?.closed) {
+            if (popupRef.current !== popup || popup.closed) {
                 closePopup();
                 return;
             }
             if (Date.now() - startedAt >= OAUTH_POLL_TIMEOUT_MS) {
-                stopPolling();
+                // Invalidate any in-flight poll before making the timeout retryable.
+                refreshGeneration.current += 1;
+                closePopup();
+                if (mounted.current) setLoadState({ kind: 'error' });
                 return;
             }
             void refresh();
@@ -128,12 +139,19 @@ export default function TemporaryPreviewsSettings() {
                     return;
                 }
                 popupRef.current = popup;
+                popupConnectionRef.current = status?.connected
+                    ? `${status.account?.teamId ?? ''}:${status.account?.projectId ?? ''}`
+                    : null;
                 try {
-                    popup.location.href = await getVercelPreviewConnectUrl(credentials);
-                    startPolling();
+                    const url = await getVercelPreviewConnectUrl(credentials);
+                    if (!mounted.current || popupRef.current !== popup || popup.closed) return;
+                    popup.location.href = url;
+                    startPolling(popup);
                 } catch {
-                    closePopup();
-                    Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
+                    if (mounted.current && popupRef.current === popup) {
+                        closePopup();
+                        Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
+                    }
                 }
                 return;
             }
@@ -141,9 +159,9 @@ export default function TemporaryPreviewsSettings() {
         } catch {
             Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.safeError'));
         } finally {
-            setBusy(false);
+            if (mounted.current) setBusy(false);
         }
-    }, [busy, closePopup, credentials, startPolling]);
+    }, [busy, closePopup, credentials, startPolling, status?.account?.projectId, status?.account?.teamId, status?.connected]);
 
     const disconnect = React.useCallback(async () => {
         if (!credentials || busy) return;
@@ -167,7 +185,6 @@ export default function TemporaryPreviewsSettings() {
         }
     }, [busy, credentials, refresh]);
 
-    const status = loadState.kind === 'ready' ? loadState.status : null;
     const connectedName = status?.account?.teamName || status?.account?.teamId || 'Vercel';
 
     return <ItemList testID="temporary-previews-screen">

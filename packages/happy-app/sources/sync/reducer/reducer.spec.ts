@@ -1063,6 +1063,27 @@ describe('reducer', () => {
             }
         });
 
+        it('sets interactive preview ToolCall state from each lifecycle snapshot, including failed-to-ready recovery', () => {
+            const state = createReducer();
+            const previewId = '22222222-2222-4222-8222-222222222222';
+            const event = (id: string, createdAt: number, previewState: string): NormalizedMessage => ({
+                id, localId: null, createdAt, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-call', id: `interactive-preview-${previewId}`, name: 'interactive-preview',
+                    input: { id: previewId, state: previewState, title: 'Recovery preview' }, description: null, uuid: id, parentUUID: null,
+                }],
+            });
+
+            const failed = reducer(state, [event('preview-failed-first', 1, 'failed')]).messages[0];
+            expect(failed).toMatchObject({ kind: 'tool-call', tool: { state: 'error' } });
+
+            const recovered = reducer(state, [
+                event('preview-publishing-retry', 2, 'publishing'),
+                event('preview-ready-retry', 3, 'ready'),
+            ]).messages[0];
+            expect(recovered).toMatchObject({ kind: 'tool-call', tool: { state: 'completed', input: { state: 'ready' }, result: undefined, failure: undefined } });
+        });
+
         it('should merge real tool-call patch args into matched permission messages', () => {
             const state = createReducer();
             const fileChanges = {

@@ -19,14 +19,17 @@
 | Card state projection, labelled controls, and safe URL actions | 5 failing assertions: fixed Chinese copy/no fixture hooks | `InteractivePreviewCard.test.tsx`: 6/6 |
 | Deleting projection and legacy text compatibility | `deleting` envelope rejected by raw event schema | `typesRaw.spec.ts`: 64/64 |
 | Settings lifecycle and OAuth refresh | 6 failing assertions: no fixtures, popup handling, refresh listeners, or safe error state | `temporary-previews.test.tsx`: 6/6 |
-| Lifecycle reducer replacement | ready event retained the prior `publishing` state under the same tool id | `reducer.spec.ts`: 70/70, including publishing → ready → failed → expired |
+| Lifecycle reducer replacement | ready event retained the prior `publishing` state under the same tool id | `reducer.spec.ts`: 71/71, including publishing → ready → failed → expired and failed → ready recovery |
 | Refresh race and callback popup cleanup | stale response/error could win; callback was not an opener bridge and popup was orphaned | `temporary-previews.test.tsx`: 10/10, including out-of-order response/error, callback bridge, cancellation, and retry id |
 | Server callback route | callback redirected to root rather than the settings completion bridge | `vercelConnectRoutes.spec.ts`: 9/9 |
 | Localized ToolView/provider and pressed contrast | known tool used fixed Chinese title; pressed state used a surface color | `ToolView.interactivePreview.test.tsx`: 2/2; `InteractivePreviewCard.test.tsx`: 7/7; `interactivePreviewTranslations.test.ts`: 1/1 |
+| Reconnect, pending URL, and timeout lifecycle | unchanged connected polling closed a reconnect popup; late URL navigation and timeout left it orphaned | `temporary-previews.test.tsx`: 14/14, including fake-timer unchanged/scope-change reconnect, unmount, and timeout retry |
 
 ## Verification
 
 Follow-up review fix: corrected the ToolView fixture's self-referential mock callback type (`TS2502`) without changing runtime behavior.
+
+Quality follow-up: reconnect polling now preserves an already-connected predecessor popup until a trusted callback or Vercel scope change; pending connect URL resolution is guarded across unmount/close; timeout closes the popup and exposes retry. Interactive-preview snapshots also reset `ToolCall.state`, result, and failure so failed → ready recovery cannot retain error chrome.
 
 ```text
 pnpm exec vitest run \
@@ -38,7 +41,7 @@ pnpm exec vitest run \
   sources/components/tools/views/_all.test.ts
 
 Test Files  9 passed (9)
-Tests       164 passed (164)
+Tests       169 passed (169)
 
 pnpm --filter happy-app typecheck
 > tsc --noEmit
