@@ -52,6 +52,16 @@ git diff --check
 exit 0
 ```
 
+Final completion pass after integration additions:
+
+```text
+interactivePreview.integration.spec.ts: 4 passed (4)
+all six focused Task 3 files: 61 passed (61)
+pnpm --dir packages/happy-server run typecheck: exit 0
+fresh PGlite smoke: Applied 41 migration(s)
+git diff --check: exit 0
+```
+
 ## Integration boundary and limitation
 
 `interactivePreview.integration.spec.ts` now starts a real local Vercel HTTP server and passes its origin into the production Vercel client. It uses Fastify injection, a persisted test database boundary, and the production preview service/storage to cover authenticated/session-owned draft creation, direct private-stage upload/completion, typed ready response, sequential Vercel uploads, Preview readiness, staging removal, cross-account list/publish denial, expiry deletion, global two-job publication gating, duplicate in-flight publication, stale-publishing recovery, and deletion tombstone retry-deadline claims. MinIO is not provisioned by the local test runner, so S3 is an in-process S3-compatible client boundary rather than a wire-level S3 server.

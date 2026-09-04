@@ -63,7 +63,9 @@ describe('interactive preview integration', () => {
         expect((await typed.inject({ method: 'POST', url: `/v1/interactive-previews/${previewId}/assets/index/complete`, headers: { 'x-user-id': 'a' } })).statusCode).toBe(200);
         const published = await typed.inject({ method: 'POST', url: `/v1/interactive-previews/${previewId}/publish`, headers: { 'x-user-id': 'a' } }); expect(published.statusCode, published.body).toBe(200); expect(published.json().preview).toMatchObject({ version: 1, id: previewId, state: 'ready', url: 'https://preview.local' }); expect(objects.size).toBe(0); expect(uploads).toHaveLength(2);
         expect((await typed.inject({ method: 'GET', url: '/v1/interactive-previews', headers: { 'x-user-id': 'b' } })).json().previews).toEqual([]);
+        expect((await typed.inject({ method: 'POST', url: `/v1/interactive-previews/${previewId}/assets/index/complete`, headers: { 'x-user-id': 'b' } })).statusCode).not.toBe(200);
         expect((await typed.inject({ method: 'POST', url: `/v1/interactive-previews/${previewId}/publish`, headers: { 'x-user-id': 'b' } })).statusCode).not.toBe(200);
+        await typed.inject({ method: 'DELETE', url: `/v1/interactive-previews/${previewId}`, headers: { 'x-user-id': 'b' } }); expect(rows.get(previewId).status).toBe('ready');
         rows.get(previewId).expiresAt = new Date(0); const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any, clientFactory: clientFactory as any }); await cleanup.cleanupExpired(new Date()); expect(rows.get(previewId).status).toBe('expired'); expect(deletes).toBe(1); await typed.close();
     });
 
@@ -85,5 +87,13 @@ describe('interactive preview integration', () => {
         const deferred: any = { id: '66666666-6666-4666-8666-666666666666', accountId: 'a', status: 'deleting', vercelDeploymentId: 'dpl_later', expiresAt: new Date(0), updatedAt: new Date(0), cleanupClaimedAt: null, cleanupRetryCount: 1, cleanupNextAttemptAt: new Date('2026-09-04T02:00:00Z') }; rows.set(deferred.id, deferred);
         // The production query carries the durable deadline; this fake DB exposes it as the cross-replica boundary assertion.
         await cleanup.cleanupExpired(new Date('2026-09-04T01:30:00Z')); expect(database.interactivePreview.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ AND: expect.arrayContaining([expect.objectContaining({ OR: expect.arrayContaining([expect.objectContaining({ cleanupNextAttemptAt: { lte: new Date('2026-09-04T01:30:00Z') } })]) })]) }) }));
+    });
+
+    it('retains an explicit delete tombstone through provider failure then expires it after the durable retry deadline', async () => {
+        const { database, rows } = store(); const { storage, objects } = s3(); const id = '77777777-7777-4777-8777-777777777777'; rows.set(id, { id, accountId: 'a', title: 'delete', status: 'ready', url: 'https://preview.local', vercelDeploymentId: 'dpl_delete', expiresAt: new Date(0), cleanupClaimedAt: null, cleanupRetryCount: 0, cleanupNextAttemptAt: null }); objects.set(storage.storageKey(id, 'asset'), Buffer.from('x'));
+        let failures = 1; let providerDeletes = 0; const factory = vi.fn(() => ({ deleteDeployment: async () => { providerDeletes++; if (failures--) throw new Error('down'); } })); const service = createPreviewService({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => null) } as any, clientFactory: factory as any });
+        await service.delete('a', id); await service.delete('a', id); expect(rows.get(id)).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delete' });
+        const cleanup = createPreviewCleanup({ database, storage: storage as any, credentialStore: { get: vi.fn(async () => ({ accessToken: 'token' })) } as any, clientFactory: factory as any }); await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z')); expect(rows.get(id)).toMatchObject({ status: 'deleting', vercelDeploymentId: 'dpl_delete', cleanupRetryCount: 1, cleanupNextAttemptAt: new Date('2026-09-04T01:01:00Z') }); expect(objects.size).toBe(1);
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:01:00Z')); expect(rows.get(id).status).toBe('expired'); expect(objects.size).toBe(0); expect(providerDeletes).toBe(2);
     });
 });
