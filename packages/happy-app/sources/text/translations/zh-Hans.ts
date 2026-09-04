@@ -610,6 +610,9 @@ export const zhHans: TranslationStructure = {
         // Used by session history screen
         title: '会话历史',
         empty: '未找到会话',
+        archiveTitle: '已归档会话',
+        archiveEmpty: '暂无已归档会话',
+        archiveEmptyDescription: '已归档的会话会显示在这里。',
         today: '今天',
         yesterday: '昨天',
         daysAgo: ({ count }: { count: number }) => `${count} 天前`,

@@ -360,40 +360,48 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 export const DesktopSidebarSessionsNavigation = React.memo(() => {
     const [mode, setMode] = useLocalSettingMutable('desktopSidebarMode');
+    const [, setListMode] = useLocalSettingMutable('desktopSidebarListMode');
     const styles = stylesheet;
+
+    const selectListMode = React.useCallback((value: 'projects' | 'lists' | 'timeline') => {
+        setListMode(value);
+        setMode(value);
+    }, [setListMode, setMode]);
 
     return (
         <View style={styles.container} testID="desktop-sidebar-session-navigation">
-            <View accessibilityRole="tablist" style={styles.tabs}>
-                <View pointerEvents="none" style={styles.tabTrack} />
-                {(['projects', 'lists', 'timeline'] as const).map((value) => {
-                    const selected = mode === value;
-                    return (
-                        <Pressable
-                            aria-selected={selected}
-                            accessibilityRole="tab"
-                            accessibilityState={{ selected }}
-                            key={value}
-                            onPress={() => setMode(value)}
-                            style={styles.tab}
-                            testID={`desktop-sidebar-tab-${value}`}
-                        >
-                            {({ pressed }) => (
-                                <View style={[styles.tabVisual, selected && styles.tabSelected, pressed && styles.tabPressed]} testID={`desktop-sidebar-tab-${value}-visual`}>
-                                    <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
-                                        {value === 'projects'
-                                            ? t('sidebar.projectsTab')
-                                            : value === 'lists'
-                                                ? t('sidebar.listsTab')
-                                                : t('sidebar.timelineTab')}
-                                    </Text>
-                                </View>
-                            )}
-                        </Pressable>
-                    );
-                })}
-            </View>
-            {mode === 'history'
+            {mode !== 'archive' ? (
+                <View accessibilityRole="tablist" style={styles.tabs}>
+                    <View pointerEvents="none" style={styles.tabTrack} />
+                    {(['projects', 'lists', 'timeline'] as const).map((value) => {
+                        const selected = mode === value;
+                        return (
+                            <Pressable
+                                aria-selected={selected}
+                                accessibilityRole="tab"
+                                accessibilityState={{ selected }}
+                                key={value}
+                                onPress={() => selectListMode(value)}
+                                style={styles.tab}
+                                testID={`desktop-sidebar-tab-${value}`}
+                            >
+                                {({ pressed }) => (
+                                    <View style={[styles.tabVisual, selected && styles.tabSelected, pressed && styles.tabPressed]} testID={`desktop-sidebar-tab-${value}-visual`}>
+                                        <Text style={[styles.tabText, selected && styles.tabTextSelected]}>
+                                            {value === 'projects'
+                                                ? t('sidebar.projectsTab')
+                                                : value === 'lists'
+                                                    ? t('sidebar.listsTab')
+                                                    : t('sidebar.timelineTab')}
+                                        </Text>
+                                    </View>
+                                )}
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            ) : null}
+            {mode === 'archive'
                 ? <SessionHistoryList variant="sidebar" />
                 : mode === 'lists'
                 ? <SidebarListsView />

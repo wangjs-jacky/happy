@@ -607,6 +607,9 @@ export const it: TranslationStructure = {
         // Used by session history screen
         title: 'Cronologia sessioni',
         empty: 'Nessuna sessione trovata',
+        archiveTitle: 'Sessioni archiviate',
+        archiveEmpty: 'Nessuna sessione archiviata',
+        archiveEmptyDescription: 'Le sessioni archiviate appariranno qui.',
         today: 'Oggi',
         yesterday: 'Ieri',
         daysAgo: ({ count }: { count: number }) => `${count} ${count === 1 ? 'giorno' : 'giorni'} fa`,

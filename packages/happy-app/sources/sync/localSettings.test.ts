@@ -101,10 +101,21 @@ describe('localSettings session list layout', () => {
 describe('localSettings desktop Lists and Tags', () => {
     it('keeps Projects as the default desktop sidebar mode', () => {
         expect(localSettingsDefaults.desktopSidebarMode).toBe('projects');
+        expect(localSettingsDefaults.desktopSidebarListMode).toBe('projects');
         expect(localSettingsParse({}).desktopSidebarMode).toBe('projects');
         expect(localSettingsParse({ desktopSidebarMode: 'lists' }).desktopSidebarMode).toBe('lists');
         expect(localSettingsParse({ desktopSidebarMode: 'timeline' }).desktopSidebarMode).toBe('timeline');
-        expect(localSettingsParse({ desktopSidebarMode: 'history' }).desktopSidebarMode).toBe('history');
+        expect(localSettingsParse({ desktopSidebarMode: 'archive' }).desktopSidebarMode).toBe('archive');
+    });
+
+    it('migrates the removed History surface to Archive while preserving the last session-list view', () => {
+        expect(localSettingsParse({
+            desktopSidebarMode: 'history',
+            sessionListLayout: 'time',
+        })).toMatchObject({
+            desktopSidebarMode: 'archive',
+            desktopSidebarListMode: 'timeline',
+        });
     });
 
     it('persists one List and multiple Tags for a session', () => {

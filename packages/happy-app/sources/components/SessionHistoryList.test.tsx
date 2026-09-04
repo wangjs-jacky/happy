@@ -9,9 +9,10 @@ const mocks = vi.hoisted(() => ({
     navigateToSession: vi.fn(),
     pathname: '/session/older',
     sessions: [
-        { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session' },
-        { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session' },
-        { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session' },
+        { id: 'regular', updatedAt: Date.UTC(2026, 8, 5, 9), name: 'Regular session', metadata: { lifecycleState: 'running' } },
+        { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session', metadata: { lifecycleState: 'archived' } },
+        { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session', metadata: { lifecycleState: 'archiveRequested' } },
+        { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session', metadata: { lifecycleState: 'archived' } },
     ] as any[],
 }));
 
@@ -71,9 +72,15 @@ describe('SessionHistoryList', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date(2026, 8, 4, 12));
         mocks.pathname = '/session/older';
+        mocks.sessions = [
+            { id: 'regular', updatedAt: Date.UTC(2026, 8, 5, 9), name: 'Regular session', metadata: { lifecycleState: 'running' } },
+            { id: 'older', updatedAt: Date.UTC(2026, 8, 2, 9), name: 'Older session', metadata: { lifecycleState: 'archived' } },
+            { id: 'newest', updatedAt: Date.UTC(2026, 8, 4, 9), name: 'Newest session', metadata: { lifecycleState: 'archiveRequested' } },
+            { id: 'same-day', updatedAt: Date.UTC(2026, 8, 4, 8), name: 'Same-day session', metadata: { lifecycleState: 'archived' } },
+        ];
     });
 
-    it('groups newest conversations first and opens the selected conversation in the existing session route', () => {
+    it('shows only archived conversations, newest first, and opens them in the existing session route', () => {
         let renderer: any;
         act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
 
@@ -84,10 +91,33 @@ describe('SessionHistoryList', () => {
             'session-history-row-same-day',
             'session-history-row-older',
         ]);
+        expect(renderer.root.findAllByProps({ testID: 'session-history-row-regular' })).toHaveLength(0);
         expect(renderer.root.findByProps({ testID: 'session-history-row-older' }).props.accessibilityState).toEqual({ selected: true });
 
         act(() => renderer.root.findByProps({ testID: 'session-history-row-newest' }).props.onPress());
         expect(mocks.navigateToSession).toHaveBeenCalledWith('newest');
+
+        act(() => renderer.unmount());
+        vi.useRealTimers();
+    });
+
+    it('shows archive-specific empty guidance when no archived conversations exist', () => {
+        mocks.sessions = [{
+            id: 'regular',
+            updatedAt: Date.UTC(2026, 8, 5, 9),
+            name: 'Regular session',
+            metadata: { lifecycleState: 'running' },
+        }];
+        let renderer: any;
+
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
+
+        expect(renderer.root.findByType('EmptySessionsTablet').props).toMatchObject({
+            description: 'sessionHistory.archiveEmptyDescription',
+            icon: 'archive-outline',
+            showNewSessionAction: false,
+            title: 'sessionHistory.archiveEmpty',
+        });
 
         act(() => renderer.unmount());
         vi.useRealTimers();

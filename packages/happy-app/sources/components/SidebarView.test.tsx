@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     helpTriggerFocus: vi.fn(),
     navigate: vi.fn(),
     openCommandPalette: vi.fn(),
+    setDesktopSidebarListMode: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
     commandPaletteAvailable: false,
     pluginSurfaceViews: [{
@@ -28,6 +29,8 @@ const mocks = vi.hoisted(() => ({
         surface: 'left-sidebar',
         viewId: 'relationship-advisor.history',
     }],
+    desktopSidebarListMode: 'timeline',
+    desktopSidebarMode: 'projects',
     spaceAgent: {
         id: 'health',
         name: 'Health',
@@ -72,7 +75,7 @@ vi.mock('react-native-unistyles', () => ({
                     divider: '#ddd',
                     text: '#111',
                     textSecondary: '#666',
-                    status: { error: '#f00' },
+                    status: { connected: '#0a6', error: '#f00' },
                 },
             })
             : factory,
@@ -85,8 +88,10 @@ vi.mock('@/sync/storage', () => ({
     useProfile: () => null,
     useLocalSetting: () => [],
     useLocalSettingMutable: (name: string) => name === 'desktopSidebarMode'
-        ? ['projects', mocks.setDesktopSidebarMode]
-        : [[], vi.fn()],
+        ? [mocks.desktopSidebarMode, mocks.setDesktopSidebarMode]
+        : name === 'desktopSidebarListMode'
+            ? [mocks.desktopSidebarListMode, mocks.setDesktopSidebarListMode]
+            : [[], vi.fn()],
     useLocalSettingUpdater: () => vi.fn(),
 }));
 vi.mock('@/sync/profile', () => ({ getDisplayName: () => null }));
@@ -195,6 +200,8 @@ describe('SidebarView Agent space exit', () => {
             presets: [],
         };
         mocks.commandPaletteAvailable = false;
+        mocks.desktopSidebarListMode = 'timeline';
+        mocks.desktopSidebarMode = 'projects';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -419,7 +426,7 @@ describe('SidebarView Agent space exit', () => {
         act(() => renderer.unmount());
     });
 
-    it('renders fixed and installed plugin destinations in the narrow desktop icon rail', () => {
+    it('renders separate session destinations, installed plugins, and a green new-session plus icon', () => {
         mocks.spaceAgent = null;
         let renderer: any;
 
@@ -437,8 +444,9 @@ describe('SidebarView Agent space exit', () => {
             'sidebar-command-palette-button',
             'sidebar-plugins-button',
             'sidebar-my-agents-button',
-            'sidebar-history-button',
             'sidebar-plugin-relationship-advisor-button',
+            'sidebar-session-list-button',
+            'sidebar-archive-button',
         ]));
         expect(primaryColumn.findAllByType('DesktopSidebarSessionsNavigation')).toHaveLength(0);
         expect(primaryColumn.findAllByProps({ testID: 'desktop-navigation-rail' })).toHaveLength(1);
@@ -448,6 +456,9 @@ describe('SidebarView Agent space exit', () => {
             .find((node: any) => node.props.testID === 'sidebar-new-session-button')!;
         expect(newSession).toBeDefined();
         expect(newSession.findAllByType('Text')).toHaveLength(0);
+        expect(newSession.findByType('Ionicons').props).toMatchObject({ name: 'add', color: '#0a6' });
+        act(() => newSession.props.onPress());
+        expect(mocks.navigate).toHaveBeenCalledWith('/new');
         act(() => newSession.props.onHoverIn());
         const tooltip = primaryColumn.findByProps({ testID: 'desktop-navigation-rail-tooltip-new-session' });
         expect(tooltip.props.style).toEqual(expect.objectContaining({ minWidth: 92 }));
@@ -464,13 +475,46 @@ describe('SidebarView Agent space exit', () => {
 
         expect(primaryColumn.findAllByProps({ testID: 'sidebar-add-agent-button' })).toHaveLength(0);
 
-        act(() => primaryColumn.findByProps({ testID: 'sidebar-history-button' }).props.onPress());
-        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('history');
+        const sessionListButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
+        expect(sessionListButton.props.accessibilityState).toEqual({ selected: true });
+        expect(sessionListButton.findByType('Ionicons').props.name).toBe('list-outline');
+
+        const archiveButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
+        act(() => archiveButton.props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('archive');
 
         act(() => primaryColumn.findByProps({
             testID: 'sidebar-plugin-relationship-advisor-button',
         }).props.onPress());
         expect(mocks.navigate).toHaveBeenCalledWith('/relationship-advisor');
+
+        act(() => renderer.unmount());
+    });
+
+    it('restores the last Projects / Lists / Timeline view when leaving the archive surface', () => {
+        mocks.spaceAgent = null;
+        mocks.desktopSidebarMode = 'archive';
+        mocks.desktopSidebarListMode = 'timeline';
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarView closeDrawerOnNavigate={false} desktopDensity desktopPrimaryNavigation />,
+            );
+        });
+
+        const primaryColumn = renderer.root.findByProps({ testID: 'desktop-primary-navigation-column' });
+        const archiveButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
+        expect(archiveButton.props.accessibilityState).toEqual({ selected: true });
+        expect(archiveButton.findByType('Ionicons').props.name).toBe('archive-outline');
+
+        const sessionListButton = primaryColumn.findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
+        act(() => sessionListButton.props.onPress());
+        expect(mocks.setDesktopSidebarMode).toHaveBeenCalledWith('timeline');
 
         act(() => renderer.unmount());
     });

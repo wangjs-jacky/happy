@@ -609,6 +609,9 @@ export const ca: TranslationStructure = {
         // Used by session history screen
         title: 'Historial de sessions',
         empty: 'No s\'han trobat sessions',
+        archiveTitle: 'Sessions arxivades',
+        archiveEmpty: 'No hi ha sessions arxivades',
+        archiveEmptyDescription: 'Les sessions arxivades apareixeran aquí.',
         today: 'Avui',
         yesterday: 'Ahir',
         daysAgo: ({ count }: { count: number }) => `fa ${count} ${count === 1 ? 'dia' : 'dies'}`,

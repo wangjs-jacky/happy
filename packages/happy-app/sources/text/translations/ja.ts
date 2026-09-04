@@ -610,6 +610,9 @@ export const ja: TranslationStructure = {
         // Used by session history screen
         title: 'セッション履歴',
         empty: 'セッションが見つかりません',
+        archiveTitle: 'アーカイブ済みセッション',
+        archiveEmpty: 'アーカイブ済みのセッションはありません',
+        archiveEmptyDescription: 'アーカイブ済みのセッションがここに表示されます。',
         today: '今日',
         yesterday: '昨日',
         daysAgo: ({ count }: { count: number }) => `${count}日前`,

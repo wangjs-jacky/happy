@@ -118,6 +118,31 @@ describe('EmptySessionsTablet i18n empty state', () => {
         act(() => renderer.unmount());
     });
 
+    it('supports an archive-only empty state without unrelated recovery actions', () => {
+        state.machines = [{ online: true }];
+        let renderer: any;
+
+        act(() => {
+            renderer = TestRenderer.create(
+                <EmptySessionsTablet
+                    description="已归档的会话会显示在这里。"
+                    icon="archive-outline"
+                    showNewSessionAction={false}
+                    title="暂无已归档会话"
+                />,
+            );
+        });
+
+        expect(renderedText(renderer)).toEqual([
+            '暂无已归档会话',
+            '已归档的会话会显示在这里。',
+        ]);
+        expect(renderer.root.findByType('Ionicons').props.name).toBe('archive-outline');
+        expect(renderer.root.findAllByType('Pressable')).toHaveLength(0);
+
+        act(() => renderer.unmount());
+    });
+
     it('renders translated offline guidance without the new-session action', () => {
         state.machines = [{ online: false }];
         let renderer: any;
