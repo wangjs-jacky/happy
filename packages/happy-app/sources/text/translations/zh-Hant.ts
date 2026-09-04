@@ -609,6 +609,9 @@ export const zhHant: TranslationStructure = {
         // Used by session history screen
         title: '工作階段歷史',
         empty: '未找到工作階段',
+        archiveTitle: '已封存的工作階段',
+        archiveEmpty: '尚無已封存的工作階段',
+        archiveEmptyDescription: '已封存的工作階段會顯示在這裡。',
         today: '今天',
         yesterday: '昨天',
         daysAgo: ({ count }: { count: number }) => `${count} 天前`,

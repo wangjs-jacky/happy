@@ -609,6 +609,9 @@ export const es: TranslationStructure = {
         // Used by session history screen
         title: 'Historial de sesiones',
         empty: 'No se encontraron sesiones',
+        archiveTitle: 'Sesiones archivadas',
+        archiveEmpty: 'No hay sesiones archivadas',
+        archiveEmptyDescription: 'Las sesiones archivadas aparecerán aquí.',
         today: 'Hoy',
         yesterday: 'Ayer',
         daysAgo: ({ count }: { count: number }) => `hace ${count} ${count === 1 ? 'día' : 'días'}`,

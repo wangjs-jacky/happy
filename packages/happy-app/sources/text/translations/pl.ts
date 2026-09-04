@@ -626,6 +626,9 @@ export const pl: TranslationStructure = {
         // Used by session history screen
         title: 'Historia sesji',
         empty: 'Nie znaleziono sesji',
+        archiveTitle: 'Zarchiwizowane sesje',
+        archiveEmpty: 'Brak zarchiwizowanych sesji',
+        archiveEmptyDescription: 'Zarchiwizowane sesje pojawią się tutaj.',
         today: 'Dzisiaj',
         yesterday: 'Wczoraj',
         daysAgo: ({ count }: { count: number }) => `${count} ${plural({ count, one: 'dzień', few: 'dni', many: 'dni' })} temu`,

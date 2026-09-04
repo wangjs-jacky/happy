@@ -589,6 +589,9 @@ export const ru: TranslationStructure = {
         // Used by session history screen
         title: 'История сессий',
         empty: 'Сессии не найдены',
+        archiveTitle: 'Архивные сессии',
+        archiveEmpty: 'Нет архивных сессий',
+        archiveEmptyDescription: 'Архивные сессии будут отображаться здесь.',
         today: 'Сегодня',
         yesterday: 'Вчера',
         daysAgo: ({ count }: { count: number }) => `${count} ${plural({ count, one: 'день', few: 'дня', many: 'дней' })} назад`,

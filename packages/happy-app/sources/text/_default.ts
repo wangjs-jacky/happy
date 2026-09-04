@@ -654,6 +654,9 @@ export const en = {
         // Used by session history screen
         title: 'Session History',
         empty: 'No sessions found',
+        archiveTitle: 'Archived Sessions',
+        archiveEmpty: 'No archived sessions',
+        archiveEmptyDescription: 'Archived sessions will appear here.',
         today: 'Today',
         yesterday: 'Yesterday',
         daysAgo: ({ count }: { count: number }) => `${count} ${count === 1 ? 'day' : 'days'} ago`,

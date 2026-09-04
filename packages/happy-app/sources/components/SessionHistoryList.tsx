@@ -11,6 +11,7 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { useAllSessions } from '@/sync/storage';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
+import { isSessionArchived } from '@/utils/sessionLifecycle';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 
 type SessionHistoryListVariant = 'page' | 'sidebar';
@@ -112,7 +113,10 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const groupedItems = React.useMemo(
+        () => groupSessionsByDate((allSessions ?? []).filter(isSessionArchived)),
+        [allSessions],
+    );
 
     const renderItem = React.useCallback(({ item, index }: { item: SessionHistoryItem; index: number }) => {
         if (item.type === 'date-header') {
@@ -164,7 +168,14 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
 
     const content = shouldShowSessionEmptyState(groupedItems.length)
-        ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
+        ? (
+            <EmptySessionsTablet
+                description={t('sessionHistory.archiveEmptyDescription')}
+                icon="archive-outline"
+                showNewSessionAction={false}
+                title={t('sessionHistory.archiveEmpty')}
+            />
+        )
         : (
             <FlatList
                 contentContainerStyle={[
@@ -180,7 +191,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     return (
         <View
             style={[styles.container, !sidebar && styles.pageContainer]}
-            testID={sidebar ? 'desktop-sidebar-history-list' : 'session-history-list'}
+            testID={sidebar ? 'desktop-sidebar-archive-list' : 'session-archive-list'}
         >
             <View style={!sidebar ? styles.pageContent : undefined}>{content}</View>
         </View>
