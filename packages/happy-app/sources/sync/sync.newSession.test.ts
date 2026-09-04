@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 
 vi.hoisted(() => {
@@ -214,7 +215,7 @@ describe('new-session updates', () => {
             resolveResponse = resolve;
         });
         vi.stubGlobal('fetch', vi.fn(() => response));
-        hydrateSessionSnapshots.mockImplementation(async (snapshots) => snapshots.map((snapshot) => ({
+        hydrateSessionSnapshots.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => snapshots.map((snapshot) => ({
             ...snapshot,
             metadata: { name: `Session ${snapshot.metadataVersion}` } as any,
             agentState: null,
@@ -251,7 +252,7 @@ describe('new-session updates', () => {
             resolveResponse = resolve;
         });
         vi.stubGlobal('fetch', vi.fn(() => response));
-        hydrateSessionSnapshots.mockImplementation(async (snapshots) => snapshots.map((snapshot) => ({
+        hydrateSessionSnapshots.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => snapshots.map((snapshot) => ({
             ...snapshot,
             metadata: { name: `Session ${snapshot.metadataVersion}` } as any,
             agentState: null,
