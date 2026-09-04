@@ -54,6 +54,8 @@ export type AttachmentDownloadSource = {
     headers: Record<string, string>;
 };
 
+const downloadSourceInFlight = new Map<string, Promise<AttachmentDownloadSource>>();
+
 /**
  * Request a presigned (or server-hosted) upload URL for an attachment.
  * Returns the storage ref and the correct upload method for its lane.
@@ -213,7 +215,7 @@ export async function downloadEncryptedAttachment(
 }
 
 /** Resolve an authenticated local URL or a presigned object-storage URL. */
-export async function requestAttachmentDownloadSource(
+async function requestAttachmentDownloadSourceUncached(
     credentials: AuthCredentials,
     sessionId: string,
     ref: string,
@@ -239,4 +241,19 @@ export async function requestAttachmentDownloadSource(
         headers['Authorization'] = `Bearer ${credentials.token}`;
     }
     return { uri: downloadUrl, headers };
+}
+
+export function requestAttachmentDownloadSource(
+    credentials: AuthCredentials,
+    sessionId: string,
+    ref: string,
+): Promise<AttachmentDownloadSource> {
+    const key = `${sessionId}:${ref}`;
+    const existing = downloadSourceInFlight.get(key);
+    if (existing) return existing;
+
+    const request = requestAttachmentDownloadSourceUncached(credentials, sessionId, ref)
+        .finally(() => downloadSourceInFlight.delete(key));
+    downloadSourceInFlight.set(key, request);
+    return request;
 }
