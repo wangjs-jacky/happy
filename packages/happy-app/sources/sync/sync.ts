@@ -127,21 +127,28 @@ type SessionRouteOperation = {
 class CoalescingMessageSync {
     private readonly sync: InvalidateSync;
     private inFlight: Promise<void> | null = null;
+    private desiredTargetSeq: number | null = null;
+    private stopped = false;
 
     constructor(
         readonly lease: SessionMessageLease,
         command: () => Promise<void>,
+        private readonly getCurrentSeq: () => number | null,
+        private readonly isLeaseCurrent: () => boolean,
     ) {
         this.sync = new InvalidateSync(command);
     }
 
-    invalidate(): void {
-        void this.invalidateAndAwait();
+    invalidate(targetSeq?: number): void {
+        void this.invalidateAndAwait(targetSeq);
     }
 
-    invalidateAndAwait(): Promise<void> {
+    invalidateAndAwait(targetSeq?: number): Promise<void> {
+        if (targetSeq !== undefined) {
+            this.desiredTargetSeq = Math.max(this.desiredTargetSeq ?? targetSeq, targetSeq);
+        }
         if (this.inFlight) return this.inFlight;
-        const pending = this.sync.invalidateAndAwait().finally(() => {
+        const pending = this.runUntilTargetOrStalled().finally(() => {
             if (this.inFlight === pending) this.inFlight = null;
         });
         this.inFlight = pending;
@@ -153,7 +160,32 @@ class CoalescingMessageSync {
     }
 
     stop(): void {
+        this.stopped = true;
+        this.desiredTargetSeq = null;
         this.sync.stop();
+    }
+
+    private async runUntilTargetOrStalled(): Promise<void> {
+        while (!this.stopped && this.isLeaseCurrent()) {
+            const previousSeq = this.getCurrentSeq();
+            await this.sync.invalidateAndAwait();
+            if (this.stopped || !this.isLeaseCurrent()) {
+                this.desiredTargetSeq = null;
+                return;
+            }
+
+            const targetSeq = this.desiredTargetSeq;
+            if (targetSeq === null) return;
+            const currentSeq = this.getCurrentSeq();
+            if (currentSeq !== null && currentSeq >= targetSeq) {
+                this.desiredTargetSeq = null;
+                return;
+            }
+            if (currentSeq === null || (previousSeq !== null && currentSeq <= previousSeq)) {
+                return;
+            }
+        }
+        this.desiredTargetSeq = null;
     }
 }
 
@@ -558,7 +590,9 @@ class Sync {
             sync = new CoalescingMessageSync(lease, () => {
                 const operation = this.sessionMessageLoadGate.begin(lease);
                 return this.fetchMessages(sessionId, operation);
-            });
+            }, () => this.getSessionLastMessageSeq(sessionId), () => (
+                this.sessionMessageLoadGate.isLeaseCurrent(lease)
+            ));
             this.messagesSync.set(sessionId, sync);
         }
         return sync;
@@ -2883,7 +2917,7 @@ class Sync {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
                     } else if (isVisible) {
-                        this.getMessagesSync(updateData.body.sid).invalidate();
+                        this.getMessagesSync(updateData.body.sid).invalidate(incomingSeq);
                     } else {
                         this.releaseSessionMessageCache(updateData.body.sid);
                     }

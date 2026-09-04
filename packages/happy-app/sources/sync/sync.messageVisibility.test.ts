@@ -378,6 +378,35 @@ describe('message visibility synchronization', () => {
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(8);
     });
 
+    it('runs one follow-up forward operation when an in-flight response misses a newer gap target', async () => {
+        installSession('visible-session');
+        mocks.state.currentViewingSessionId = 'visible-session';
+        syncForTest.sessionLastSeq.set('visible-session', 4);
+        const firstPage = deferred<Response>();
+        mocks.apiRequest
+            .mockReturnValueOnce(firstPage.promise)
+            .mockResolvedValueOnce(response({ messages: [apiMessage(8)], hasMore: false }));
+
+        await syncForTest.handleUpdate(newMessageUpdate('visible-session', 7));
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(1));
+        await syncForTest.handleUpdate(newMessageUpdate('visible-session', 8));
+        firstPage.resolve(response({
+            messages: [apiMessage(5), apiMessage(6), apiMessage(7)],
+            hasMore: false,
+        }));
+
+        await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+        await syncForTest.messagesSync.get('visible-session').awaitQueue();
+
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+        expect(mocks.apiRequest).toHaveBeenNthCalledWith(
+            2,
+            '/v3/sessions/visible-session/messages?after_seq=7&limit=100',
+        );
+        expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-8']).toBeDefined();
+        expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(8);
+    });
+
     it.each([
         ['equal duplicate', 8],
         ['lower out-of-order', 7],
@@ -629,6 +658,7 @@ describe('message visibility synchronization', () => {
 
         await syncForTest.handleUpdate(newMessageUpdate('leased-session', 7));
         await vi.waitFor(() => expect(encryption.decryptMessages).toHaveBeenCalledTimes(1));
+        await syncForTest.handleUpdate(newMessageUpdate('leased-session', 8));
         const messageSync = syncForTest.messagesSync.get('leased-session');
         syncForTest.abandonSessionRoute('leased-session', opening);
         mocks.state.currentViewingSessionId = null;
@@ -642,6 +672,7 @@ describe('message visibility synchronization', () => {
 
         expect(mocks.state.sessionMessages['leased-session']?.messagesMap['message-5']).toBeUndefined();
         expect(syncForTest.getSessionLastMessageSeq('leased-session')).toBe(4);
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
         expect(mocks.gitInvalidate).not.toHaveBeenCalled();
     });
 
