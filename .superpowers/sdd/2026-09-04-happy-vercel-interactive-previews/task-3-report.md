@@ -54,4 +54,8 @@ exit 0
 
 ## Integration boundary and limitation
 
-Focused unit/route tests use injected provider and storage boundaries; no live MinIO service was available in this worktree. A comprehensive `interactivePreview.integration.spec.ts` using an in-process S3-compatible fake and fake Vercel provider remains outstanding. It should cover the complete draft/upload/publish/event flow and observe the existing two-job gate under concurrent requests; this remediation did not add that file, so it is an explicit follow-up rather than a claim of complete end-to-end coverage.
+`interactivePreview.integration.spec.ts` now starts a real local Vercel HTTP server and passes its origin into the production Vercel client. It validates real HTTP request bodies for sequential file upload, deployment creation/readiness, and uses an in-process S3-compatible client surface to exercise bounded staging reads and prefix cleanup. MinIO is not provisioned by the local test runner, so this is intentionally not a wire-level S3 server.
+
+Durable cleanup retries now persist `cleanupRetryCount` and `cleanupNextAttemptAt` in migration `20260904100000_add_interactive_preview_cleanup_retries`. Failures use capped exponential delays (one minute, doubling to one hour); cleanup claims only rows whose retry deadline is due. The integration boundary test does not yet model the full authenticated route/database/session event pipeline, cross-account authorization matrix, restart replay, or the two-slot gate in one fixture; focused route/service/cleanup tests cover the relevant isolated contracts.
+
+Vercel client requests retry transient 429 and 5xx responses up to two times, honoring `Retry-After` (capped at ten seconds) or a bounded exponential delay. The deterministic client test proves the 429 path.

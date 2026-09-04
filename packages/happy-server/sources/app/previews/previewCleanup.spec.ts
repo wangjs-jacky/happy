@@ -56,4 +56,20 @@ describe('cleanupInteractivePreviewRows', () => {
         }));
         expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'p4' }, data: expect.objectContaining({ status: 'expired', url: null }) }));
     });
+
+    it('persists a bounded first retry delay after cleanup failure', async () => {
+        const updateMany = vi.fn().mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+        const update = vi.fn(async () => {});
+        const cleanup = createPreviewCleanup({
+            database: { interactivePreview: { updateMany, findMany: vi.fn(async () => [{ id: 'p5', status: 'deleting', accountId: 'u1', vercelDeploymentId: null }]), findFirst: vi.fn(async () => ({ cleanupRetryCount: 0 })), update } } as any,
+            storage: { deletePreview: vi.fn(async () => { throw new Error('oss down'); }) } as any,
+            credentialStore: { get: vi.fn() } as any, clientFactory: vi.fn() as any,
+        });
+
+        await cleanup.cleanupExpired(new Date('2026-09-04T01:00:00Z'));
+
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+            cleanupRetryCount: { increment: 1 }, cleanupNextAttemptAt: new Date('2026-09-04T01:01:00Z'),
+        }) }));
+    });
 });

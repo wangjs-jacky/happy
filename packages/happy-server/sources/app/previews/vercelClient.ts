@@ -54,6 +54,7 @@ export function createVercelClient(options: {
     pollIntervalMs?: number;
     deploymentTimeoutMs?: number;
     timeoutSignal?: (milliseconds: number) => unknown;
+    apiOrigin?: string;
 }) {
     const fetchImpl: FetchLike = options.fetchImpl ?? (fetch as unknown as FetchLike);
     const now = options.now ?? Date.now;
@@ -63,7 +64,7 @@ export function createVercelClient(options: {
     const timeoutSignal = options.timeoutSignal ?? ((milliseconds: number) => AbortSignal.timeout(milliseconds));
 
     function endpoint(path: string): string {
-        const url = new URL(path, API_ORIGIN);
+        const url = new URL(path, options.apiOrigin ?? API_ORIGIN);
         if (options.teamId) url.searchParams.set('teamId', options.teamId);
         return url.toString();
     }
@@ -77,20 +78,25 @@ export function createVercelClient(options: {
     }
 
     async function request(path: string, init: VercelRequestInit, timeoutMs = 30_000): Promise<Response> {
-        const response = await fetchImpl(endpoint(path), {
-            ...init,
-            redirect: 'error',
-            signal: init.signal ?? timeoutSignal(Math.max(1, Math.min(30_000, timeoutMs))),
-            headers: {
-                Authorization: `Bearer ${options.token}`,
-                ...init.headers,
-            },
-        });
-        if (!response.ok) {
+        for (let attempt = 0; ; attempt++) {
+            const response = await fetchImpl(endpoint(path), {
+                ...init,
+                redirect: 'error',
+                signal: init.signal ?? timeoutSignal(Math.max(1, Math.min(30_000, timeoutMs))),
+                headers: { Authorization: `Bearer ${options.token}`, ...init.headers },
+            });
+            if (response.ok) return response;
+            if ((response.status === 429 || response.status >= 500) && attempt < 2) {
+                const retryAfterSeconds = Number(response.headers.get('retry-after'));
+                const delay = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+                    ? Math.min(10_000, retryAfterSeconds * 1000)
+                    : Math.min(10_000, 250 * 2 ** attempt);
+                await sleep(delay);
+                continue;
+            }
             const data = await response.json().catch(() => null) as { error?: { code?: string } } | null;
             throw new VercelApiError(data?.error?.code || `http_${response.status}`, response.status);
         }
-        return response;
     }
 
     return {

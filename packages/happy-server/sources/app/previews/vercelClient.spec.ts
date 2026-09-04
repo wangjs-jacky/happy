@@ -297,6 +297,18 @@ describe('createVercelClient', () => {
         expect(fetchImpl.mock.calls[0][0]).toBe('https://api.vercel.com/v13/deployments/dpl_safe-1');
     });
 
+    it('honors Retry-After before retrying a transient Vercel rate limit', async () => {
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'rate_limited' } }), { status: 429, headers: { 'retry-after': '2' } }))
+            .mockResolvedValueOnce(jsonResponse({}));
+        const sleep = vi.fn(async () => {});
+        const client = createVercelClient({ token: 'secret', fetchImpl, sleep });
+
+        await expect(client.uploadFile('a'.repeat(64), new Uint8Array([1]), 'text/plain')).resolves.toBeUndefined();
+        expect(sleep).toHaveBeenCalledWith(2000);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
     it('treats an already removed deployment as a successful idempotent delete', async () => {
         const client = createVercelClient({ token: 'secret', fetchImpl: vi.fn(async () => jsonResponse({ error: { code: 'not_found' } }, 404)) });
 

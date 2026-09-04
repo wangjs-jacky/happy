@@ -7,6 +7,8 @@ import { createVercelClient } from './vercelClient';
 
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const CLAIM_TTL_MS = 15 * 60 * 1000;
+const RETRY_BASE_MS = 60 * 1000;
+const RETRY_MAX_MS = 60 * 60 * 1000;
 
 export type CleanupPreviewRow = { id: string; status: string; accountId: string; vercelDeploymentId: string | null };
 export interface PreviewCleanupDependencies {
@@ -43,11 +45,12 @@ export function createPreviewCleanup(dependencies: {
 }) {
     const now = dependencies.now ?? (() => new Date());
     const staleClaim = (time: Date) => new Date(time.getTime() - CLAIM_TTL_MS);
+    const retryAt = (time: Date, retryCount: number) => new Date(time.getTime() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(retryCount, 10)));
 
     async function recoverStalePublications(time: Date): Promise<void> {
         await dependencies.database.interactivePreview.updateMany({
             where: { status: 'publishing', updatedAt: { lte: staleClaim(time) } },
-            data: { status: 'failed', errorCode: 'PUBLISH_LEASE_EXPIRED', cleanupClaimedAt: null },
+            data: { status: 'failed', errorCode: 'PUBLISH_LEASE_EXPIRED', cleanupClaimedAt: null, cleanupNextAttemptAt: null },
         });
     }
 
@@ -60,7 +63,10 @@ export function createPreviewCleanup(dependencies: {
                     { status: 'deleting' },
                     { status: { in: ['draft', 'failed', 'ready'] }, expiresAt: { lte: time } },
                 ],
-                AND: [{ OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }] }],
+                AND: [
+                    { OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }] },
+                    { OR: [{ cleanupNextAttemptAt: null }, { cleanupNextAttemptAt: { lte: time } }] },
+                ],
             },
             take: 50, orderBy: { expiresAt: 'asc' },
             select: { id: true, status: true, accountId: true, vercelDeploymentId: true },
@@ -70,6 +76,7 @@ export function createPreviewCleanup(dependencies: {
             const result = await dependencies.database.interactivePreview.updateMany({ where: {
                 id: row.id, status: row.status,
                 OR: [{ cleanupClaimedAt: null }, { cleanupClaimedAt: { lte: claimBefore } }],
+                AND: [{ OR: [{ cleanupNextAttemptAt: null }, { cleanupNextAttemptAt: { lte: time } }] }],
             }, data: { status: 'deleting', cleanupClaimedAt: time } });
             if (result.count === 1) claimed.push(row);
         }
@@ -81,10 +88,13 @@ export function createPreviewCleanup(dependencies: {
                 await dependencies.clientFactory({ token: credential.accessToken, teamId: credential.teamId }).deleteDeployment(deploymentId);
             },
             async markExpired(previewId) {
-                await dependencies.database.interactivePreview.update({ where: { id: previewId }, data: { status: 'expired', url: null, cleanupClaimedAt: null } });
+                await dependencies.database.interactivePreview.update({ where: { id: previewId }, data: { status: 'expired', url: null, cleanupClaimedAt: null, cleanupNextAttemptAt: null } });
             },
             async retainForRetry(previewId) {
-                await dependencies.database.interactivePreview.update({ where: { id: previewId }, data: { status: 'deleting', cleanupClaimedAt: null } });
+                const row = await dependencies.database.interactivePreview.findFirst({ where: { id: previewId }, select: { cleanupRetryCount: true } }) as { cleanupRetryCount: number } | null;
+                await dependencies.database.interactivePreview.update({ where: { id: previewId }, data: {
+                    status: 'deleting', cleanupClaimedAt: null, cleanupRetryCount: { increment: 1 }, cleanupNextAttemptAt: retryAt(time, row?.cleanupRetryCount ?? 0),
+                } });
             },
         });
     }

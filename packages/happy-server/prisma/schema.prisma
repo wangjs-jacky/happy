@@ -205,6 +205,8 @@ model InteractivePreview {
     publishedAt         DateTime?
     expiresAt           DateTime
     cleanupClaimedAt    DateTime?
+    cleanupRetryCount   Int      @default(0)
+    cleanupNextAttemptAt DateTime?
     errorCode           String?
     createdAt           DateTime @default(now())
     updatedAt           DateTime @updatedAt
@@ -212,6 +214,7 @@ model InteractivePreview {
 
     @@index([accountId, createdAt(sort: Desc)])
     @@index([status, expiresAt])
+    @@index([status, cleanupNextAttemptAt])
 }
 
 model InteractivePreviewAsset {
