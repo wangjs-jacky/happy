@@ -6,7 +6,7 @@ import { AuthCredentials } from '@/auth/tokenStorage';
 import { Encryption } from '@/sync/encryption/encryption';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { storage } from './storage';
-import { ApiEphemeralUpdateSchema, ApiMessage, ApiUpdateContainerSchema, type ApiSessionSnapshot } from './apiTypes';
+import { ApiEphemeralUpdateSchema, ApiMessage, ApiUpdateContainerSchema, type ApiSessionSnapshot, type ApiUpdate } from './apiTypes';
 import type { ApiEphemeralActivityUpdate } from './apiTypes';
 import { Session, Machine } from './storageTypes';
 import { InvalidateSync } from '@/utils/sync';
@@ -93,6 +93,8 @@ import { deriveSessionFallbackTitle, ensureSessionFallbackTitle } from './sessio
 import { getPluginCatalog } from './plugins';
 import { shouldMarkSessionEventUnread } from '@/utils/sessionAttentionBadge';
 import { PluginCatalogStore, type PluginCatalogSnapshot } from './pluginCatalogStore';
+import { fetchSessionSnapshot } from './apiSessions';
+import { hydrateSessionSnapshots, type HydratedSession } from './sessionSnapshotHydration';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -128,6 +130,13 @@ type SendMessageOptions = {
     /** Optional image attachments to send before the text message. */
     attachments?: AttachmentPreview[];
 };
+
+function stripNewSessionDiscriminator(
+    update: Extract<ApiUpdate, { t: 'new-session' }>,
+): ApiSessionSnapshot {
+    const { t: _type, ...snapshot } = update;
+    return snapshot;
+}
 
 class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
@@ -1206,48 +1215,7 @@ class Sync {
         const data = await response.json();
         const sessions = data.sessions as ApiSessionSnapshot[];
 
-        // Initialize all session encryptions first
-        const sessionKeys = new Map<string, Uint8Array | null>();
-        for (const session of sessions) {
-            if (session.dataEncryptionKey) {
-                let decrypted = await this.encryption.decryptEncryptionKey(session.dataEncryptionKey);
-                if (!decrypted) {
-                    console.error(`Failed to decrypt data encryption key for session ${session.id}`);
-                    continue;
-                }
-                sessionKeys.set(session.id, decrypted);
-            } else {
-                sessionKeys.set(session.id, null);
-            }
-        }
-        await this.encryption.initializeSessions(sessionKeys);
-
-        // Decrypt sessions
-        let decryptedSessions: (Omit<Session, 'presence'> & { presence?: "online" | number })[] = [];
-        for (const session of sessions) {
-            // Get session encryption (should always exist after initialization)
-            const sessionEncryption = this.encryption.getSessionEncryption(session.id);
-            if (!sessionEncryption) {
-                console.error(`Session encryption not found for ${session.id} - this should never happen`);
-                continue;
-            }
-
-            // Decrypt metadata using session-specific encryption
-            let metadata = await sessionEncryption.decryptMetadata(session.metadataVersion, session.metadata);
-
-            // Decrypt agent state using session-specific encryption
-            let agentState = await sessionEncryption.decryptAgentState(session.agentStateVersion, session.agentState);
-
-            // Put it all together
-            const processedSession = {
-                ...session,
-                thinking: false,
-                thinkingAt: 0,
-                metadata,
-                agentState
-            };
-            decryptedSessions.push(processedSession);
-        }
+        const decryptedSessions = await hydrateSessionSnapshots(sessions, this.encryption);
 
         // Apply to storage
         this.applySessions(decryptedSessions, { replace: true });
@@ -1273,52 +1241,24 @@ class Sync {
      * broadcast also invalidates the same sync. The session and even its first
      * reply could already exist while the compose page kept spinning.
      */
-    public refreshSession = async (sessionId: string): Promise<boolean> => {
+    public ensureSessionHydrated = async (sessionId: string): Promise<boolean> => {
         if (!this.credentials) return false;
 
-        const response = await fetch(`${getServerUrl()}/v1/sessions`, {
-            headers: {
-                'Authorization': `Bearer ${this.credentials.token}`,
-                'Content-Type': 'application/json',
-                'X-Happy-Client': getHappyClientId(),
-            }
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to fetch session ${sessionId}: ${response.status}`);
-        }
+        if (storage.getState().sessions[sessionId]
+            && this.encryption.getSessionEncryption(sessionId)) return true;
 
-        const data = await response.json() as { sessions?: ApiSessionSnapshot[] };
-        const raw = data.sessions?.find((session) => session.id === sessionId);
+        const raw = await fetchSessionSnapshot(this.credentials, sessionId);
         if (!raw) return false;
 
-        let dataKey: Uint8Array | null = null;
-        if (raw.dataEncryptionKey) {
-            dataKey = await this.encryption.decryptEncryptionKey(raw.dataEncryptionKey);
-            if (!dataKey) {
-                throw new Error(`Failed to decrypt data encryption key for session ${sessionId}`);
-            }
-        }
-
-        await this.encryption.initializeSessions(new Map([[sessionId, dataKey]]));
-        const sessionEncryption = this.encryption.getSessionEncryption(sessionId);
-        if (!sessionEncryption) {
-            throw new Error(`Session encryption not found for ${sessionId}`);
-        }
-
-        const [metadata, agentState] = await Promise.all([
-            sessionEncryption.decryptMetadata(raw.metadataVersion, raw.metadata),
-            sessionEncryption.decryptAgentState(raw.agentStateVersion, raw.agentState),
-        ]);
-
-        this.applySessions([{
-            ...raw,
-            thinking: false,
-            thinkingAt: 0,
-            metadata,
-            agentState,
-        }]);
+        const hydrated = await hydrateSessionSnapshots([raw], this.encryption);
+        if (hydrated.length !== 1) return false;
+        this.applySessions(hydrated, { replace: false });
         return true;
     }
+
+    // Kept as a compatibility alias while call sites migrate to the more
+    // precise ensureSessionHydrated() name.
+    public refreshSession = this.ensureSessionHydrated;
 
     public getCredentials() {
         return this.credentials;
@@ -2590,7 +2530,11 @@ class Sync {
 
         } else if (updateData.body.t === 'new-session') {
             log.log('🆕 New session update received');
-            this.sessionsSync.invalidate();
+            const snapshot = stripNewSessionDiscriminator(updateData.body);
+            const hydrated = await hydrateSessionSnapshots([snapshot], this.encryption);
+            if (hydrated.length === 1) {
+                this.applySessions(hydrated, { replace: false });
+            }
         } else if (updateData.body.t === 'delete-session') {
             log.log('🗑️ Delete session update received');
             const sessionId = updateData.body.sid;
@@ -3114,14 +3058,31 @@ class Sync {
         }
     }
 
-    private applySessions = (sessions: (Omit<Session, "presence"> & {
-        presence?: "online" | number;
-    })[], options?: SessionApplyOptions) => {
+    private applySessions = (sessions: HydratedSession[], options?: SessionApplyOptions) => {
+        const mergedSessions = options?.replace
+            ? sessions
+            : sessions.flatMap((session) => {
+                const existing = storage.getState().sessions[session.id];
+                if (!existing) return [session];
+                if (session.seq < existing.seq) return [];
+
+                return [{
+                    ...session,
+                    metadata: session.metadataVersion < existing.metadataVersion
+                        ? existing.metadata
+                        : session.metadata,
+                    metadataVersion: Math.max(session.metadataVersion, existing.metadataVersion),
+                    agentState: session.agentStateVersion < existing.agentStateVersion
+                        ? existing.agentState
+                        : session.agentState,
+                    agentStateVersion: Math.max(session.agentStateVersion, existing.agentStateVersion),
+                }];
+            });
         const removedSessionIds = options?.replace
-            ? this.getSessionIdsMissingFromSnapshot(sessions)
+            ? this.getSessionIdsMissingFromSnapshot(mergedSessions)
             : [];
         const active = storage.getState().getActiveSessions();
-        storage.getState().applySessions(sessions, options);
+        storage.getState().applySessions(mergedSessions, options);
         for (const sessionId of removedSessionIds) {
             this.clearSessionRuntimeState(sessionId);
         }
