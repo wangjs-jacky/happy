@@ -39,6 +39,16 @@ function initialRows(machines: readonly Machine[]): FleetRow[] {
     }));
 }
 
+function inspectionTarget(rows: FleetRow[], desired?: DesiredComponentState): FleetTarget {
+    const target = resolveFleetTarget(rows);
+    // Keep the scanned target pinned throughout preview, including partial results.
+    if (desired && ((target.kind === 'ready' && target.targetVersion !== desired.targetVersion)
+        || rows.some((row) => row.plan && row.plan.targetVersion !== desired.targetVersion))) {
+        return { kind: 'blocked', reasonCode: 'version-source-mismatch' };
+    }
+    return target;
+}
+
 /**
  * Callers supply the complete registered fleet (including offline machines).
  * Epochs discard superseded reads/results; the synchronous state ref closes the
@@ -98,14 +108,28 @@ export function useDeviceEnvironment(
         }
     }, [registryKey]);
 
-    async function inspectFleet(fleet: readonly Machine[], desired?: DesiredComponentState): Promise<FleetRow[]> {
+    async function inspectFleet(fleet: readonly Machine[], epoch: number, desired?: DesiredComponentState): Promise<FleetRow[]> {
         const results = await Promise.allSettled(fleet.map(async (machine): Promise<FleetMachineScan> => {
             if (!isMachineOnline(machine)) return { machineId: machine.id, online: false };
-            const response = await inspect(machine.id, {
-                componentIds: ['github-cli'], ...(desired ? { desired } : {}),
-            });
-            if (desired && !response.plans?.[0]) throw new Error('Missing daemon plan');
-            return { machineId: machine.id, online: true, observation: response.observations[0], plan: desired ? response.plans?.[0] : undefined };
+            function publish(settled: PromiseSettledResult<FleetMachineScan>) {
+                const row = buildFleetRows([machine], [settled])[0];
+                update(epoch, (latest) => {
+                    const rows = latest.rows.map((existing) => existing.machineId === machine.id ? row : existing);
+                    return { ...latest, rows, target: inspectionTarget(rows, desired) };
+                });
+            }
+            try {
+                const response = await inspect(machine.id, {
+                    componentIds: ['github-cli'], ...(desired ? { desired } : {}),
+                });
+                if (desired && !response.plans?.[0]) throw new Error('Missing daemon plan');
+                const scan = { machineId: machine.id, online: true, observation: response.observations[0], plan: desired ? response.plans?.[0] : undefined };
+                publish({ status: 'fulfilled', value: scan });
+                return scan;
+            } catch (reason) {
+                publish({ status: 'rejected', reason });
+                throw reason;
+            }
         }));
         return buildFleetRows(fleet, results);
     }
@@ -115,7 +139,7 @@ export function useDeviceEnvironment(
         const fleet = [...latestMachines.current];
         const epoch = current.current.epoch + 1;
         commit({ epoch, registryKey: latestRegistry.current, phase: 'scanning', rows: initialRows(fleet), target: { kind: 'unavailable' } });
-        const rows = await inspectFleet(fleet);
+        const rows = await inspectFleet(fleet, epoch);
         update(epoch, (previous) => ({ ...previous, phase: 'scanned', rows, target: resolveFleetTarget(rows) }));
     }
 
@@ -126,16 +150,10 @@ export function useDeviceEnvironment(
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         const previewStartedAt = now();
-        commit({ ...previous, epoch, phase: 'previewing', previewStartedAt });
-        const rows = await inspectFleet([...latestMachines.current], desired);
-        let target = resolveFleetTarget(rows);
-        // Approval must retain the target selected by scan, even if every source
-        // moved to the same new version while preview was in flight.
-        if ((target.kind === 'ready' && target.targetVersion !== desired.targetVersion)
-            || rows.some((row) => row.plan && row.plan.targetVersion !== desired.targetVersion)) {
-            target = { kind: 'blocked', reasonCode: 'version-source-mismatch' };
-        }
-        update(epoch, (latest) => ({ ...latest, phase: 'previewed', rows, target }));
+        const fleet = [...latestMachines.current];
+        commit({ ...previous, epoch, phase: 'previewing', previewStartedAt, rows: initialRows(fleet), target: { kind: 'unavailable' } });
+        const rows = await inspectFleet(fleet, epoch, desired);
+        update(epoch, (latest) => ({ ...latest, phase: 'previewed', rows, target: inspectionTarget(rows, desired) }));
     }
 
     async function applyApproved() {
@@ -150,26 +168,31 @@ export function useDeviceEnvironment(
             return;
         }
         const candidates = previous.rows.filter((row) => row.online
+            && row.observation?.support === 'supported'
+            && (row.status === 'ready' || row.status === 'install' || row.status === 'upgrade')
             && latestMachines.current.some((machine) => machine.id === row.machineId && isMachineOnline(machine))
-            && (row.plan?.action === 'install' || row.plan?.action === 'upgrade'));
+            && (row.plan?.action === 'none' || row.plan?.action === 'install' || row.plan?.action === 'upgrade'));
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         applyInFlight.current = true;
         commit({ ...previous, epoch, phase: 'applying' });
         try {
-            const results = await Promise.allSettled(candidates.map(async (row) => apply(row.machineId, {
-                desired, plan: row.plan!, approvedAt,
-            })));
-            const byMachine = new Map(candidates.map((row, index) => [row.machineId, results[index]]));
-            update(epoch, (latest) => ({ ...latest, phase: 'completed', rows: latest.rows.map((row) => {
-                const settled = byMachine.get(row.machineId);
-                if (!settled) return row;
-                if (settled.status === 'rejected') return { ...row, plan: undefined, ...fleetRpcError(settled.reason) };
-                const result = settled.value.result;
-                return { ...row, plan: undefined, result, observation: result.after,
-                    status: result.reasonCode === 'rpc-timeout' ? 'rpc-timeout' : result.status,
-                    reasonCode: result.reasonCode, requiresScan: result.status === 'stale-plan' || result.reasonCode === 'rpc-timeout' };
-            }) }));
+            await Promise.allSettled(candidates.map(async (row) => {
+                function publish(resultRow: FleetRow) {
+                    update(epoch, (latest) => ({ ...latest, rows: latest.rows.map((existing) =>
+                        existing.machineId === row.machineId ? resultRow : existing) }));
+                }
+                try {
+                    const { result } = await apply(row.machineId, { desired, plan: row.plan!, approvedAt });
+                    publish({ ...row, plan: undefined, result, observation: result.after,
+                        status: result.reasonCode === 'rpc-timeout' ? 'rpc-timeout' : result.status,
+                        reasonCode: result.reasonCode, requiresScan: result.status === 'stale-plan' || result.reasonCode === 'rpc-timeout' });
+                } catch (reason) {
+                    publish({ ...row, plan: undefined, ...fleetRpcError(reason) });
+                    throw reason;
+                }
+            }));
+            update(epoch, (latest) => ({ ...latest, phase: 'completed' }));
         } finally {
             applyInFlight.current = false;
         }

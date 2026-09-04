@@ -144,12 +144,12 @@ describe('useDeviceEnvironment', () => {
         await prepare();
         await act(() => controller.applyApproved());
         expect(controller.phase).toBe('completed');
-        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'rpc-timeout', 'ready', 'manual-repair', 'rpc-error', 'offline']);
+        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'rpc-timeout', 'succeeded', 'manual-repair', 'rpc-error', 'offline']);
         expect(controller.rows[1]).toMatchObject({ reasonCode: 'rpc-timeout', requiresScan: true });
-        expect(apply.mock.calls.map(([id]) => id)).toEqual(['ok', 'unknown']);
+        expect(apply.mock.calls.map(([id]) => id)).toEqual(['ok', 'unknown', 'noop']);
         await act(() => controller.applyApproved());
         await act(() => controller.preview());
-        expect(apply).toHaveBeenCalledTimes(2);
+        expect(apply).toHaveBeenCalledTimes(3);
         expect(controller.phase).toBe('completed');
     });
 
@@ -311,5 +311,127 @@ describe('useDeviceEnvironment', () => {
         await prepare();
         await act(() => controller.applyApproved());
         expect(controller.rows[0]).toMatchObject({ status: 'rpc-timeout', reasonCode: 'rpc-timeout', requiresScan: true });
+    });
+
+    it('publishes each scan row before the slowest settles without enabling an early preview', async () => {
+        const slow = deferred<EnvironmentInspectResponse>();
+        const fast = deferred<EnvironmentInspectResponse>();
+        inspect.mockImplementation((id) => id === 'slow' ? slow.promise : fast.promise);
+        mount([machine('slow'), machine('offline', false), machine('fast')]);
+        let pending!: Promise<void>;
+        act(() => { pending = controller.scan(); });
+        await act(async () => { fast.resolve(response()); });
+        expect(controller.phase).toBe('scanning');
+        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+            ['slow', 'pending'], ['offline', 'offline'], ['fast', 'ready'],
+        ]);
+        expect(controller.target).toEqual({ kind: 'ready', targetVersion: '2.80.0' });
+        await act(() => controller.preview());
+        expect(inspect).toHaveBeenCalledTimes(2);
+        await act(async () => { slow.resolve(response(undefined, '2.81.0')); await pending; });
+        expect(controller.phase).toBe('scanned');
+        expect(controller.target).toEqual({ kind: 'blocked', reasonCode: 'version-source-mismatch' });
+        expect(controller.rows.map((row) => row.machineId)).toEqual(['slow', 'offline', 'fast']);
+    });
+
+    it('publishes preview plans independently but waits for all plans before approving', async () => {
+        mount([machine('slow'), machine('offline', false), machine('fast')]);
+        await act(() => controller.scan());
+        const slow = deferred<EnvironmentInspectResponse>();
+        const fast = deferred<EnvironmentInspectResponse>();
+        inspect.mockImplementation((id) => id === 'slow' ? slow.promise : fast.promise);
+        let pending!: Promise<void>;
+        act(() => { pending = controller.preview(); });
+        await act(async () => { fast.resolve(response('upgrade')); });
+        expect(controller.phase).toBe('previewing');
+        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+            ['slow', 'pending'], ['offline', 'offline'], ['fast', 'upgrade'],
+        ]);
+        expect(controller.rows[2].plan).toEqual(response('upgrade').plans![0]);
+        await act(() => controller.applyApproved());
+        expect(apply).not.toHaveBeenCalled();
+        await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
+        expect(controller.phase).toBe('previewed');
+        expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'upgrade']);
+        expect(controller.rows[0].requiresScan).toBe(true);
+    });
+
+    it('publishes each apply result independently and holds the phase and duplicate guard until all settle', async () => {
+        mount([machine('slow'), machine('offline', false), machine('fast')]);
+        await prepare();
+        const slow = deferred<EnvironmentApplyResponse>();
+        const fast = deferred<EnvironmentApplyResponse>();
+        apply.mockImplementation((id) => id === 'slow' ? slow.promise : fast.promise);
+        let pending!: Promise<void>;
+        act(() => { pending = controller.applyApproved(); });
+        await act(async () => { fast.resolve(success()); });
+        expect(controller.phase).toBe('applying');
+        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+            ['slow', 'upgrade'], ['offline', 'offline'], ['fast', 'succeeded'],
+        ]);
+        expect(controller.rows[2].result?.changed).toBe(true);
+        await act(() => controller.applyApproved());
+        expect(apply).toHaveBeenCalledTimes(2);
+        await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
+        expect(controller.phase).toBe('completed');
+        expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'succeeded']);
+    });
+
+    it.each(['scan', 'preview', 'applyApproved'] as const)('publishes an early %s timeout while another machine is pending', async (operation) => {
+        mount([machine('slow'), machine('fast'), machine('offline', false)]);
+        if (operation !== 'scan') await act(() => controller.scan());
+        if (operation === 'applyApproved') await act(() => controller.preview());
+        const slowInspect = deferred<EnvironmentInspectResponse>();
+        const fastInspect = deferred<EnvironmentInspectResponse>();
+        const slowApply = deferred<EnvironmentApplyResponse>();
+        const fastApply = deferred<EnvironmentApplyResponse>();
+        inspect.mockImplementation((id) => id === 'slow' ? slowInspect.promise : fastInspect.promise);
+        apply.mockImplementation((id) => id === 'slow' ? slowApply.promise : fastApply.promise);
+        let pending!: Promise<void>;
+        act(() => { pending = controller[operation](); });
+        await act(async () => {
+            (operation === 'applyApproved' ? fastApply : fastInspect).reject(new Error('operation has timed out'));
+        });
+        expect(controller.phase).toBe(operation === 'scan' ? 'scanning' : operation === 'preview' ? 'previewing' : 'applying');
+        expect(controller.rows[1]).toMatchObject({ machineId: 'fast', status: 'rpc-timeout', requiresScan: true });
+        expect(controller.rows.map((row) => row.machineId)).toEqual(['slow', 'fast', 'offline']);
+        await act(async () => {
+            if (operation === 'applyApproved') slowApply.resolve(success());
+            else slowInspect.resolve(response(operation === 'preview' ? 'upgrade' : undefined));
+            await pending;
+        });
+        expect(controller.phase).toBe(operation === 'scan' ? 'scanned' : operation === 'preview' ? 'previewed' : 'completed');
+        expect(controller.rows[1].status).toBe('rpc-timeout');
+    });
+
+    it.each(['all-none', 'mixed'] as const)('broadcasts the exact approved %s plans and retains unchanged verification', async (mode) => {
+        const ids = ['air', 'mini-1', 'mini-2'];
+        const plans = ids.map((_, index) => {
+            const value = response(mode === 'mixed' && index === 1 ? 'upgrade' : 'none');
+            value.plans![0].planFingerprint = String(index + 1).repeat(64);
+            return value;
+        });
+        inspect.mockImplementation(async (id, request) => request.desired ? plans[ids.indexOf(id)] : response());
+        apply.mockImplementation(async (_id, request) => {
+            const value = success();
+            if (request.plan.action === 'none') {
+                value.result.before = response('none').observations[0];
+                value.result.after = value.result.before;
+                value.result.changed = false;
+            }
+            return value;
+        });
+        mount(ids.map((id) => machine(id)).concat(machine('offline', false)));
+        await prepare();
+        expect(apply).not.toHaveBeenCalled();
+        await act(() => controller.applyApproved());
+        expect(apply.mock.calls).toEqual(ids.map((id, index) => [id, {
+            desired: { componentId: 'github-cli', targetVersion: '2.80.0' },
+            plan: plans[index].plans![0], approvedAt: 1_000_000,
+        }]));
+        expect(controller.phase).toBe('completed');
+        expect(controller.rows.map((row) => row.status)).toEqual(['succeeded', 'succeeded', 'succeeded', 'offline']);
+        expect(controller.rows.slice(0, 3).map((row) => row.result?.changed))
+            .toEqual(mode === 'mixed' ? [false, true, false] : [false, false, false]);
     });
 });
