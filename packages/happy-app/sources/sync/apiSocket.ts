@@ -75,6 +75,7 @@ export class ApiSocket {
     private reconnectedListeners: Set<() => void> = new Set();
     private statusListeners: Set<(status: 'disconnected' | 'connecting' | 'connected' | 'error') => void> = new Set();
     private currentStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
+    private hasConnectedOnce = false;
 
     //
     // Initialization
@@ -120,6 +121,7 @@ export class ApiSocket {
             this.socket.disconnect();
             this.socket = null;
         }
+        this.hasConnectedOnce = false;
         this.updateStatus('disconnected');
     }
 
@@ -362,12 +364,14 @@ export class ApiSocket {
 
         // Connection events
         this.socket.on('connect', () => {
+            const isReconnect = this.hasConnectedOnce;
+            this.hasConnectedOnce = true;
             if (this.isVerboseLogging()) {
                 console.log('🔌 SyncSocket: Connected, recovered: ' + this.socket?.recovered);
                 console.log('🔌 SyncSocket: Socket ID:', this.socket?.id);
             }
             this.updateStatus('connected');
-            if (!this.socket?.recovered) {
+            if (isReconnect && !this.socket?.recovered) {
                 this.reconnectedListeners.forEach(listener => listener());
             }
         });

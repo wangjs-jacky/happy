@@ -2,19 +2,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Encryption } from './encryption/encryption';
 
 const mocks = vi.hoisted(() => {
+    const handlers = new Map<string, (...args: unknown[]) => void>();
     const rpcEmitWithAck = vi.fn();
     const socket = {
         connected: false,
         disconnect: vi.fn(),
         emit: vi.fn(),
         emitWithAck: vi.fn(),
-        on: vi.fn(),
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+            handlers.set(event, handler);
+            return socket;
+        }),
         onAny: vi.fn(),
         recovered: false,
         timeout: vi.fn(() => ({ emitWithAck: rpcEmitWithAck })),
     };
 
-    return { rpcEmitWithAck, socket };
+    return { handlers, rpcEmitWithAck, socket };
 });
 
 vi.mock('socket.io-client', () => ({
@@ -222,5 +226,65 @@ describe('ApiSocket RPC', () => {
 
         await expect(socket.sessionRPC('session-1', 'abort', {}))
             .rejects.toThrow('operation has timed out');
+    });
+});
+
+describe('ApiSocket connection events', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.handlers.clear();
+        mocks.socket.connected = false;
+        mocks.socket.recovered = false;
+    });
+
+    it('does not report the first connection as a reconnect', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        const listener = vi.fn();
+        api.onReconnected(listener);
+
+        mocks.handlers.get('connect')?.();
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('reports a later unrecovered connection once', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        const listener = vi.fn();
+        api.onReconnected(listener);
+
+        mocks.handlers.get('connect')?.();
+        mocks.socket.recovered = false;
+        mocks.handlers.get('connect')?.();
+
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not compensate a recovered reconnect', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        const listener = vi.fn();
+        api.onReconnected(listener);
+
+        mocks.handlers.get('connect')?.();
+        mocks.socket.recovered = true;
+        mocks.handlers.get('connect')?.();
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('treats a connection after explicit disconnect as initial', () => {
+        const { encryption } = createEncryption();
+        const api = createApiSocket(encryption);
+        const listener = vi.fn();
+        api.onReconnected(listener);
+
+        mocks.handlers.get('connect')?.();
+        api.disconnect();
+        api.connect();
+        mocks.handlers.get('connect')?.();
+
+        expect(listener).not.toHaveBeenCalled();
     });
 });
