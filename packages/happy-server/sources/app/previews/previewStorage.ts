@@ -1,9 +1,64 @@
 import { PREVIEW_LIMITS } from '@slopus/happy-wire';
-import { s3bucket, s3client } from '@/storage/files';
+import { Client } from 'minio';
 
 const PREVIEW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ASSET_ID = /^[A-Za-z0-9_-]{1,96}$/;
 const PRESIGNED_TTL_SECONDS = 15 * 60;
+
+export interface PreviewStorageConfig {
+    host: string;
+    port?: number;
+    useSSL: boolean;
+    accessKey: string;
+    secretKey: string;
+    region: string;
+    pathStyle?: boolean;
+    bucket: string;
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    return trimmed || undefined;
+}
+
+function parseBooleanSetting(name: string, value: string | undefined, fallback: boolean | undefined): boolean | undefined {
+    if (value === undefined) return fallback;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new Error(`${name} must be true or false`);
+}
+
+function parsePortSetting(name: string, value: string | undefined): number | undefined {
+    if (value === undefined) return undefined;
+    if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer between 1 and 65535`);
+    const port = Number(value);
+    if (port < 1 || port > 65_535) throw new Error(`${name} must be an integer between 1 and 65535`);
+    return port;
+}
+
+export function readPreviewStorageConfig(environment: NodeJS.ProcessEnv): PreviewStorageConfig | null {
+    const host = nonEmpty(environment.PREVIEW_S3_HOST) || nonEmpty(environment.S3_HOST);
+    const accessKey = nonEmpty(environment.PREVIEW_S3_ACCESS_KEY) || nonEmpty(environment.S3_ACCESS_KEY);
+    const secretKey = nonEmpty(environment.PREVIEW_S3_SECRET_KEY) || nonEmpty(environment.S3_SECRET_KEY);
+    const bucket = nonEmpty(environment.PREVIEW_S3_BUCKET);
+    if (!host || !accessKey || !secretKey || !bucket) return null;
+    const rawPort = nonEmpty(environment.PREVIEW_S3_PORT) || nonEmpty(environment.S3_PORT);
+    const rawUseSSL = nonEmpty(environment.PREVIEW_S3_USE_SSL) || nonEmpty(environment.S3_USE_SSL);
+    const rawPathStyle = nonEmpty(environment.PREVIEW_S3_PATH_STYLE) || nonEmpty(environment.S3_PATH_STYLE);
+    const portName = nonEmpty(environment.PREVIEW_S3_PORT) ? 'PREVIEW_S3_PORT' : 'S3_PORT';
+    const useSSLName = nonEmpty(environment.PREVIEW_S3_USE_SSL) ? 'PREVIEW_S3_USE_SSL' : 'S3_USE_SSL';
+    const pathStyleName = nonEmpty(environment.PREVIEW_S3_PATH_STYLE) ? 'PREVIEW_S3_PATH_STYLE' : 'S3_PATH_STYLE';
+    return {
+        host,
+        accessKey,
+        secretKey,
+        bucket,
+        region: nonEmpty(environment.PREVIEW_S3_REGION) || nonEmpty(environment.S3_REGION) || 'us-east-1',
+        pathStyle: parseBooleanSetting(pathStyleName, rawPathStyle, undefined),
+        useSSL: parseBooleanSetting(useSSLName, rawUseSSL, true)!,
+        port: parsePortSetting(portName, rawPort),
+    };
+}
 
 interface PreviewS3Client {
     newPostPolicy(): {
@@ -67,4 +122,32 @@ export function createPreviewStorage(options: { client: PreviewS3Client; bucket:
     };
 }
 
-export const previewStorage = createPreviewStorage({ client: s3client as PreviewS3Client, bucket: s3bucket });
+const previewStorageConfig = readPreviewStorageConfig(process.env);
+const previewS3Client = previewStorageConfig ? new Client({
+    endPoint: previewStorageConfig.host,
+    port: previewStorageConfig.port,
+    useSSL: previewStorageConfig.useSSL,
+    accessKey: previewStorageConfig.accessKey,
+    secretKey: previewStorageConfig.secretKey,
+    region: previewStorageConfig.region,
+    pathStyle: previewStorageConfig.pathStyle,
+}) : null;
+
+export function isPreviewStorageConfigured(): boolean {
+    return previewStorageConfig !== null;
+}
+
+export async function loadPreviewStorage(): Promise<void> {
+    if (previewStorageConfig && !await previewS3Client!.bucketExists(previewStorageConfig.bucket)) {
+        throw new Error(`Preview storage bucket does not exist: ${previewStorageConfig.bucket}`);
+    }
+}
+
+const unavailableClient = new Proxy({}, {
+    get() { return () => { throw new Error('PREVIEW_STORAGE_NOT_CONFIGURED'); }; },
+}) as PreviewS3Client;
+
+export const previewStorage = createPreviewStorage({
+    client: (previewS3Client as PreviewS3Client | null) || unavailableClient,
+    bucket: previewStorageConfig?.bucket || '',
+});

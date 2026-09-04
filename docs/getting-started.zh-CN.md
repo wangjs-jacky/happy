@@ -341,6 +341,8 @@ standalone 最小配置：
 | `DATABASE_URL` | 使用外部 PostgreSQL 替代 PGlite |
 | `REDIS_URL` | Redis 支持的多进程 Socket.IO 行为 |
 | `S3_HOST`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL` | S3 兼容对象存储 |
+| `PREVIEW_S3_BUCKET` | 临时交互预览专用私有桶；endpoint 和凭证默认继承 `S3_*` |
+| `PREVIEW_S3_HOST`, `PREVIEW_S3_ACCESS_KEY`, `PREVIEW_S3_SECRET_KEY` | 可选：为预览桶使用完全独立的 OSS endpoint 和凭证 |
 | `ELEVENLABS_API_KEY`, `REVENUECAT_API_KEY` | 语音和付费能力集成 |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` 等 | GitHub OAuth / 集成能力 |
 

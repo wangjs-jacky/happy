@@ -12,6 +12,7 @@ import { startTimeout } from "./app/presence/timeout";
 import { onShutdown } from "./utils/shutdown";
 import { startPublicSessionShareCleanup } from "./app/sessionSharing/publicSessionShareCleanup";
 import { startInteractivePreviewCleanup } from "./app/previews/previewCleanup";
+import { loadPreviewStorage } from "./app/previews/previewStorage";
 
 export { runMigrations } from "./standalone";
 export type { StartApiOptions } from "./app/api/api";
@@ -37,6 +38,7 @@ export async function startServer(opts: StartServerOptions): Promise<{ port: num
     await initEncrypt();
     await initGithub();
     await loadFiles();
+    await loadPreviewStorage();
     await auth.init();
 
     const { port, host } = await startApi({

@@ -40,7 +40,7 @@ export default function TemporaryPreviewsSettings() {
     }, [auth.credentials, refresh]);
     return <ItemList><Stack.Screen options={{ title: '临时交互预览' }} />
         <View style={styles.intro}><Ionicons color={theme.colors.accent} name="cloud-upload-outline" size={32} /><Text style={[styles.title, { color: theme.colors.text }]}>Vercel 云端预览</Text><Text style={[styles.copy, { color: theme.colors.textSecondary }]}>Happy 为当前账号统一保存加密连接。交互稿经私有 OSS 临时中转并发布为不可枚举链接，24 小时后自动删除。</Text></View>
-        <ItemGroup title="连接状态">{status === null ? <ActivityIndicator /> : <Item title="Vercel" subtitle={!status.available ? '服务器尚未配置 Vercel Integration' : status.connected ? (status.account?.teamName || status.account?.teamId || '已连接') : '未连接'} icon={<Ionicons color={status.connected ? theme.colors.status.connected : theme.colors.textSecondary} name="cloud-outline" size={28} />} onPress={status.connected ? disconnect : connect} loading={busy} showChevron={false} />}</ItemGroup>
+        <ItemGroup title="连接状态">{status === null ? <ActivityIndicator /> : <Item title="Vercel" subtitle={!status.available ? '服务器尚未完成 Vercel / 预览 OSS 配置' : status.connected ? (status.account?.teamName || status.account?.teamId || '已连接') : '未连接'} icon={<Ionicons color={status.connected ? theme.colors.status.connected : theme.colors.textSecondary} name="cloud-outline" size={28} />} onPress={status.connected ? disconnect : connect} loading={busy} showChevron={false} />}</ItemGroup>
         <ItemGroup title="安全边界"><Item title="仅静态交互稿" subtitle="HTML / CSS / JS 与安全静态资源；不会上传任意项目或 localhost。" showChevron={false} /><Item title="不要放敏感资料" subtitle="预览链接公开可访问，但使用高熵地址且不被 Happy 列出。" showChevron={false} /></ItemGroup>
     </ItemList>;
 }

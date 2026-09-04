@@ -80,12 +80,20 @@ To use external Postgres or Redis instead of the embedded defaults, set:
 | `S3_SECRET_KEY` | S3 secret key (secret) |
 | `S3_BUCKET` | S3 bucket name |
 | `S3_PUBLIC_URL` | Optional public base URL for non-share objects |
+| `PREVIEW_S3_BUCKET` | Dedicated private bucket for temporary previews; required to enable managed previews |
+| `PREVIEW_S3_HOST` | Optional preview-specific endpoint; defaults to `S3_HOST` |
+| `PREVIEW_S3_PORT` | Optional preview-specific port; defaults to `S3_PORT` |
+| `PREVIEW_S3_USE_SSL` | Optional preview-specific TLS setting; defaults to `S3_USE_SSL` |
+| `PREVIEW_S3_REGION` | Optional preview-specific region; defaults to `S3_REGION` |
+| `PREVIEW_S3_PATH_STYLE` | Optional preview-specific path-style setting; defaults to `S3_PATH_STYLE` |
+| `PREVIEW_S3_ACCESS_KEY` | Optional preview-only access key; defaults to `S3_ACCESS_KEY` |
+| `PREVIEW_S3_SECRET_KEY` | Optional preview-only secret key; defaults to `S3_SECRET_KEY` |
 | `PEXELS_API_KEY` | Server-only Pexels API key for random/imported share covers |
 | `PUBLIC_SHARE_LOCAL_STORAGE` | Set to `enabled` only to explicitly allow local public-share storage in a production self-host deployment |
 
 ### Managed temporary previews
 
-Temporary interaction previews require both the Vercel Integration variables above and private S3-compatible storage. Happy issues exact-size presigned uploads under `private/interactive-previews/`; clients cannot publish arbitrary directories or localhost ports. The server verifies every object against the immutable manifest, creates only non-production Vercel deployments, and retries deletion after the fixed 24-hour lifetime. Apply a private lifecycle rule to the same prefix as a final orphan-safety net (for example, delete objects older than two days); do not make the bucket or prefix public.
+Temporary interaction previews require both the Vercel Integration variables above and a dedicated private S3-compatible bucket configured with `PREVIEW_S3_BUCKET`. The endpoint and credentials inherit from `S3_*` by default; set the remaining `PREVIEW_S3_*` variables to use a fully isolated OSS identity. The server verifies that the bucket exists during startup and never falls back to the attachments bucket. Happy issues exact-size presigned uploads under `private/interactive-previews/`; clients cannot publish arbitrary directories or localhost ports. The server verifies every object against the immutable manifest, creates only non-production Vercel deployments, and retries deletion after the fixed 24-hour lifetime. Apply a private lifecycle rule to the preview bucket as a final orphan-safety net (for example, delete objects older than two days); do not make the bucket public.
 
 Hosted production public shares fail closed unless `S3_HOST`, `S3_ACCESS_KEY`,
 `S3_SECRET_KEY`, and `S3_BUCKET` are all configured. A production self-host may

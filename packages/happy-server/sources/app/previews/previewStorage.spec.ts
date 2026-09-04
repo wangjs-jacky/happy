@@ -1,7 +1,73 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPreviewStorage } from './previewStorage';
+import { createPreviewStorage, readPreviewStorageConfig } from './previewStorage';
 
 describe('createPreviewStorage', () => {
+    it('requires a dedicated preview bucket while reusing the existing OSS connection by default', () => {
+        expect(readPreviewStorageConfig({
+            S3_HOST: 'oss-cn-hangzhou.aliyuncs.com',
+            S3_ACCESS_KEY: 'attachments-access',
+            S3_SECRET_KEY: 'attachments-secret',
+            S3_REGION: 'cn-hangzhou',
+            S3_PATH_STYLE: 'false',
+            PREVIEW_S3_BUCKET: 'happy-temporary-previews',
+        })).toEqual({
+            host: 'oss-cn-hangzhou.aliyuncs.com',
+            accessKey: 'attachments-access',
+            secretKey: 'attachments-secret',
+            bucket: 'happy-temporary-previews',
+            region: 'cn-hangzhou',
+            pathStyle: false,
+            useSSL: true,
+            port: undefined,
+        });
+    });
+
+    it('does not silently fall back to the attachments bucket', () => {
+        expect(readPreviewStorageConfig({
+            S3_HOST: 'oss-cn-hangzhou.aliyuncs.com',
+            S3_ACCESS_KEY: 'attachments-access',
+            S3_SECRET_KEY: 'attachments-secret',
+            S3_BUCKET: 'attachments',
+        })).toBeNull();
+    });
+
+    it('supports a fully isolated preview OSS identity', () => {
+        expect(readPreviewStorageConfig({
+            S3_HOST: 'attachments.example.com',
+            S3_ACCESS_KEY: 'attachments-access',
+            S3_SECRET_KEY: 'attachments-secret',
+            PREVIEW_S3_HOST: 'previews.example.com',
+            PREVIEW_S3_PORT: '9443',
+            PREVIEW_S3_USE_SSL: 'false',
+            PREVIEW_S3_REGION: 'preview-region',
+            PREVIEW_S3_PATH_STYLE: 'true',
+            PREVIEW_S3_ACCESS_KEY: 'preview-access',
+            PREVIEW_S3_SECRET_KEY: 'preview-secret',
+            PREVIEW_S3_BUCKET: 'preview-bucket',
+        })).toEqual({
+            host: 'previews.example.com',
+            accessKey: 'preview-access',
+            secretKey: 'preview-secret',
+            bucket: 'preview-bucket',
+            region: 'preview-region',
+            pathStyle: true,
+            useSSL: false,
+            port: 9443,
+        });
+    });
+
+    it('rejects malformed preview transport settings during startup', () => {
+        const base = {
+            S3_HOST: 'oss.example.com',
+            S3_ACCESS_KEY: 'access',
+            S3_SECRET_KEY: 'secret',
+            PREVIEW_S3_BUCKET: 'preview-bucket',
+        };
+        expect(() => readPreviewStorageConfig({ ...base, PREVIEW_S3_PORT: 'not-a-port' })).toThrow(/PREVIEW_S3_PORT/);
+        expect(() => readPreviewStorageConfig({ ...base, PREVIEW_S3_USE_SSL: 'sometimes' })).toThrow(/PREVIEW_S3_USE_SSL/);
+        expect(() => readPreviewStorageConfig({ ...base, PREVIEW_S3_PATH_STYLE: 'sometimes' })).toThrow(/PREVIEW_S3_PATH_STYLE/);
+    });
+
     it('issues a size-limited private upload under an opaque preview prefix', async () => {
         const policy = { setBucket: vi.fn(), setKey: vi.fn(), setExpires: vi.fn(), setContentLengthRange: vi.fn() };
         const client = {

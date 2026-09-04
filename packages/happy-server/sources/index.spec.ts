@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     initEncrypt: vi.fn(),
     initGithub: vi.fn(),
     loadFiles: vi.fn(),
+    loadPreviewStorage: vi.fn(),
     authInit: vi.fn(),
     startApi: vi.fn(),
     startCleanup: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('./storage/db', () => ({ db: { $connect: mocks.dbConnect, $disconnect: m
 vi.mock('./modules/encrypt', () => ({ initEncrypt: mocks.initEncrypt }));
 vi.mock('./modules/github', () => ({ initGithub: mocks.initGithub }));
 vi.mock('./storage/files', () => ({ loadFiles: mocks.loadFiles }));
+vi.mock('./app/previews/previewStorage', () => ({ loadPreviewStorage: mocks.loadPreviewStorage }));
 vi.mock('./app/auth/auth', () => ({ auth: { init: mocks.authInit } }));
 vi.mock('./app/presence/sessionCache', () => ({ activityCache: { shutdown: vi.fn() } }));
 vi.mock('./app/api/api', () => ({ startApi: mocks.startApi }));
@@ -46,6 +48,8 @@ describe('startServer', () => {
 
         expect(mocks.startCleanup).toHaveBeenCalledTimes(1);
         expect(mocks.startPreviewCleanup).toHaveBeenCalledTimes(1);
+        expect(mocks.loadPreviewStorage).toHaveBeenCalledTimes(1);
+        expect(mocks.loadPreviewStorage).toHaveBeenCalledBefore(mocks.startApi);
         expect(mocks.startApi).toHaveBeenCalledBefore(mocks.startCleanup);
     });
 });

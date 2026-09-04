@@ -12,6 +12,7 @@ import { initGithub } from "./modules/github";
 import { loadFiles } from "./storage/files";
 import { startPublicSessionShareCleanup } from './app/sessionSharing/publicSessionShareCleanup';
 import { startInteractivePreviewCleanup } from './app/previews/previewCleanup';
+import { loadPreviewStorage } from './app/previews/previewStorage';
 
 async function main() {
 
@@ -33,6 +34,7 @@ async function main() {
     await initEncrypt();
     await initGithub();
     await loadFiles();
+    await loadPreviewStorage();
     await auth.init();
 
     //
