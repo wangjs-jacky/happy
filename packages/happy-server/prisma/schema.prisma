@@ -195,12 +195,17 @@ model InteractivePreview {
     id                  String   @id
     accountId           String
     account             Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-    sessionId           String
-    session             Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+    sessionId           String?
+    session             Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
     title               String
     status              String   @default("draft")
     manifest            Json
     vercelDeploymentId  String?
+    publicationAttemptId String?
+    publicationGeneration Int @default(0)
+    connectionGeneration Int @default(0)
+    stagingGeneration   String
+    stagingCleanupPending Boolean @default(false)
     url                 String?
     publishedAt         DateTime?
     expiresAt           DateTime
@@ -215,6 +220,7 @@ model InteractivePreview {
     @@index([accountId, createdAt(sort: Desc)])
     @@index([status, expiresAt])
     @@index([status, cleanupNextAttemptAt])
+    @@index([sessionId, status])
 }
 
 model InteractivePreviewAsset {

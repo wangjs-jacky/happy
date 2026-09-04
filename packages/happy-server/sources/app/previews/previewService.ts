@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { type InteractivePreviewEvent, type InteractivePreviewManifest, validateInteractivePreviewManifest } from '@slopus/happy-wire';
 import { db } from '@/storage/db';
 import { previewStorage } from './previewStorage';
@@ -64,7 +64,7 @@ export function createPreviewService(dependencies: {
         const manifest = validateInteractivePreviewManifest(rawManifest);
         const expiresAt = new Date(now().getTime() + DRAFT_TTL_MS);
         await database.interactivePreview.create({ data: {
-            id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt,
+            id: manifest.previewId, accountId, sessionId, title: manifest.title, manifest: manifest as any, expiresAt, stagingGeneration: randomUUID(),
             assets: { create: manifest.assets.map((asset) => ({ ...asset, storageKey: storage.storageKey(manifest.previewId, asset.id) })) },
         } });
         const uploads = await Promise.all(manifest.assets.map(async (asset) => ({ assetId: asset.id, ...await storage.createUpload(manifest.previewId, asset.id, asset.size) })));
