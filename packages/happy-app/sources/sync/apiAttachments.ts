@@ -54,7 +54,10 @@ export type AttachmentDownloadSource = {
     headers: Record<string, string>;
 };
 
-const downloadSourceInFlight = new Map<string, Promise<AttachmentDownloadSource>>();
+const downloadSourceInFlight = new Map<
+    string,
+    Map<string, Map<AuthCredentials, Promise<AttachmentDownloadSource>>>
+>();
 
 /**
  * Request a presigned (or server-hosted) upload URL for an attachment.
@@ -248,12 +251,29 @@ export function requestAttachmentDownloadSource(
     sessionId: string,
     ref: string,
 ): Promise<AttachmentDownloadSource> {
-    const key = `${sessionId}:${ref}`;
-    const existing = downloadSourceInFlight.get(key);
+    let byRef = downloadSourceInFlight.get(sessionId);
+    if (!byRef) {
+        byRef = new Map();
+        downloadSourceInFlight.set(sessionId, byRef);
+    }
+
+    let byCredentials = byRef.get(ref);
+    if (!byCredentials) {
+        byCredentials = new Map();
+        byRef.set(ref, byCredentials);
+    }
+
+    const existing = byCredentials.get(credentials);
     if (existing) return existing;
 
     const request = requestAttachmentDownloadSourceUncached(credentials, sessionId, ref)
-        .finally(() => downloadSourceInFlight.delete(key));
-    downloadSourceInFlight.set(key, request);
+        .finally(() => {
+            byCredentials.delete(credentials);
+            if (byCredentials.size === 0) {
+                byRef.delete(ref);
+                if (byRef.size === 0) downloadSourceInFlight.delete(sessionId);
+            }
+        });
+    byCredentials.set(credentials, request);
     return request;
 }
