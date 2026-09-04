@@ -222,7 +222,7 @@ The machine daemon registers two typed handlers:
 - `environment-inspect`
 - `environment-apply`
 
-`environment-inspect` accepts a bounded array of registered component IDs. The PoC limit is one component.
+`environment-inspect` accepts a bounded array of registered component IDs and an optional desired component state. The PoC limit is one component. A scan without desired state returns observations only. After the App resolves one common stable target from the fleet, a second inspection includes that target and each daemon returns its own plan and fingerprint for preview. The App never creates or signs a mutation plan itself.
 
 `environment-apply` accepts the desired state, the approved plan, and its fingerprint. It does not accept a command, executable path, package name, or environment-variable map.
 
