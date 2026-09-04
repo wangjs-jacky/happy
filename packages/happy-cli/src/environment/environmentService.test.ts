@@ -42,7 +42,7 @@ function adapterFixture(overrides: Partial<ComponentObservation> = {}) {
 }
 
 function serviceWithAdapter(adapter: EnvironmentComponentAdapter, now = () => 100_000) {
-  return createEnvironmentService([adapter], now);
+  return createEnvironmentService([adapter], now, () => {});
 }
 
 async function validApplyRequest(service: ReturnType<typeof createEnvironmentService>): Promise<EnvironmentApplyRequest> {
@@ -279,5 +279,109 @@ describe('environment service authorization and verification', () => {
     await expect(serviceWithAdapter(adapter).apply({ desired, command: 'rm -rf /' } as never)).rejects.toThrow();
     expect(adapter.inspect).not.toHaveBeenCalled();
     expect(adapter.apply).not.toHaveBeenCalled();
+  });
+});
+
+describe('environment apply lifecycle logging', () => {
+  it.each([
+    { scenario: 'success', exitStatus: 0, verification: 'passed', resultStatus: 'succeeded', durationMs: 35 },
+    { scenario: 'no-op', exitStatus: 'not-executed', verification: 'passed', resultStatus: 'succeeded', durationMs: 35 },
+    { scenario: 'stale', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'stale-plan', durationMs: 11, reasonCode: 'plan-stale' },
+    { scenario: 'manual', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'manual-repair', durationMs: 11, reasonCode: 'version-ahead' },
+    { scenario: 'process-failure', exitStatus: 7, verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
+    { scenario: 'timeout', exitStatus: 'timeout', verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
+    { scenario: 'exception', exitStatus: 'error', verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'install-failed' },
+    { scenario: 'verification-failure', exitStatus: 0, verification: 'failed', resultStatus: 'failed', durationMs: 35, reasonCode: 'verification-failed' },
+    { scenario: 'inspection-failure', exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'failed', durationMs: 11, reasonCode: 'unexpected-error' },
+    { scenario: 'verification-unavailable', exitStatus: 0, verification: 'unavailable', resultStatus: 'failed', durationMs: 35, reasonCode: 'verification-failed' },
+  ])('records only bounded completion fields for $scenario', async ({ scenario, ...expected }) => {
+    let time = 100_000;
+    const logs: string[] = [];
+    const { adapter } = adapterFixture({
+      ...(scenario === 'no-op' ? { installedVersion: '2.80.0' } : {}),
+      ...(scenario === 'manual' ? { installedVersion: '2.81.0' } : {}),
+    });
+    const service = createEnvironmentService([adapter], () => time, (message: string) => { logs.push(message); });
+    const request = await validApplyRequest(service);
+    const inspect = adapter.inspect.getMockImplementation()!;
+    let inspections = 0;
+    adapter.inspect.mockImplementation(async () => {
+      time += 11;
+      inspections += 1;
+      if (scenario === 'inspection-failure' || (scenario === 'verification-unavailable' && inspections === 2)) {
+        throw new Error('PRIVATE_INSPECTION_EXCEPTION');
+      }
+      return inspect();
+    });
+    const apply = adapter.apply.getMockImplementation()!;
+    adapter.apply.mockImplementation(async (plan) => {
+      time += 13;
+      if (scenario === 'exception') throw new Error('PRIVATE_APPLY_EXCEPTION');
+      const output = { stdout: 'GH_TOKEN=PRIVATE_STDOUT', stderr: 'PRIVATE_STDERR'.repeat(2_000) };
+      if (scenario === 'process-failure') return { ...success, ...output, exitCode: 7 };
+      if (scenario === 'timeout') return { ...success, ...output, timedOut: true };
+      if (scenario === 'verification-failure') return { ...success, ...output };
+      return { ...await apply(plan), ...output };
+    });
+    if (scenario === 'stale') request.plan.expiresAt -= 1;
+
+    const response = await service.apply(request);
+
+    expect(response.result.status).toBe(expected.resultStatus);
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]!)).toEqual({
+      event: 'environment.apply.completed', componentId: 'github-cli', targetVersion: '2.80.0', ...expected,
+    });
+    expect(logs[0]!.length).toBeLessThanOrEqual(512);
+    expect(logs[0]).not.toMatch(/PRIVATE_|GH_TOKEN|homebrew|authentication|planFingerprint|approvedAt|stdout|stderr/u);
+  });
+
+  it('logs contention without affecting the active operation', async () => {
+    const logs: string[] = [];
+    const { adapter } = adapterFixture();
+    const service = createEnvironmentService([adapter], () => 100_000, (message: string) => { logs.push(message); });
+    const request = await validApplyRequest(service);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = adapter.apply.getMockImplementation()!;
+    adapter.apply.mockImplementationOnce(async (plan) => { await gate; return original(plan); });
+    const first = service.apply(request);
+    const second = await service.apply(request);
+    expect(second.result.reasonCode).toBe('operation-in-progress');
+    expect(logs.map((line) => JSON.parse(line))).toEqual([{
+      event: 'environment.apply.completed', componentId: 'github-cli', targetVersion: '2.80.0',
+      durationMs: 0, exitStatus: 'not-executed', verification: 'not-run', resultStatus: 'failed',
+      reasonCode: 'operation-in-progress',
+    }]);
+    release();
+    expect((await first).result.status).toBe('succeeded');
+    expect(logs).toHaveLength(2);
+  });
+
+  it('caps log target fields independently of wire input length', async () => {
+    const logs: string[] = [];
+    const { adapter } = adapterFixture();
+    const service = createEnvironmentService([adapter], () => 100_000, (message: string) => { logs.push(message); });
+    const request = await validApplyRequest(service);
+    request.desired = { ...desired, targetVersion: `2.80.0-${'a'.repeat(4_000)}` };
+    expect((await service.apply(request)).result.status).toBe('stale-plan');
+    expect(logs).toHaveLength(1);
+    expect(JSON.parse(logs[0]!).targetVersion).toHaveLength(64);
+    expect(logs[0]!.length).toBeLessThanOrEqual(512);
+  });
+
+  it('does not let a failed log sink change results or retain the component lock', async () => {
+    const { adapter } = adapterFixture();
+    let logAttempts = 0;
+    const service = createEnvironmentService([adapter], () => 100_000, () => {
+      logAttempts += 1;
+      throw new Error('PRIVATE_LOG_SINK_EXCEPTION');
+    });
+    const first = await service.apply(await validApplyRequest(service));
+    const second = await service.apply(await validApplyRequest(service));
+    expect(first.result).toMatchObject({ status: 'succeeded', changed: true });
+    expect(second.result).toMatchObject({ status: 'succeeded', changed: false });
+    expect(logAttempts).toBe(2);
+    expect(JSON.stringify([first, second])).not.toContain('PRIVATE_LOG_SINK_EXCEPTION');
   });
 });

@@ -16,6 +16,7 @@ import {
   type EnvironmentReasonCode,
   type RepairGuide,
 } from '@slopus/happy-wire';
+import { logger } from '@/ui/logger';
 import type { EnvironmentComponentAdapter } from './componentAdapter';
 import type { ProcessResult } from './processRunner';
 
@@ -25,6 +26,9 @@ export interface EnvironmentService {
 }
 
 const MAX_ISSUED_PLANS = 128;
+const MAX_APPLY_LOG_CHARACTERS = 512;
+type ApplyExitStatus = number | 'not-executed' | 'timeout' | 'error';
+type ApplyVerification = 'not-run' | 'passed' | 'failed' | 'unavailable';
 const REPAIR_COMMANDS: Partial<Record<EnvironmentReasonCode, readonly string[]>> = {
   'homebrew-missing': ['command -v brew'],
   'formula-unavailable': ['brew info gh'],
@@ -79,6 +83,11 @@ function sameDecision(current: ComponentPlan, approved: ComponentPlan): boolean 
     && current.targetVersion === approved.targetVersion && current.reasonCode === approved.reasonCode;
 }
 
+function verifiesTarget(after: ComponentObservation, plan: ComponentPlan): boolean {
+  return after.installed && after.support === 'supported' && plan.targetVersion !== null
+    && after.installedVersion === plan.targetVersion && after.reasonCode !== 'version-source-mismatch';
+}
+
 function verifiedApplyResult(
   before: ComponentObservation,
   after: ComponentObservation,
@@ -90,8 +99,7 @@ function verifiedApplyResult(
     return result(before, after, 'failed', 'install-failed',
       processResult?.timedOut ? 'Package operation timed out.' : 'Package operation failed.');
   }
-  if (!after.installed || after.support !== 'supported' || plan.targetVersion === null
-    || after.installedVersion !== plan.targetVersion || after.reasonCode === 'version-source-mismatch') {
+  if (!verifiesTarget(after, plan)) {
     return result(before, after, 'failed', 'verification-failed', 'Installed component did not verify against the approved target.');
   }
   return result(before, after, 'succeeded');
@@ -100,6 +108,7 @@ function verifiedApplyResult(
 export function createEnvironmentService(
   adapters: readonly EnvironmentComponentAdapter[],
   now: () => number = Date.now,
+  log: (message: string) => void = (message) => logger.debug('[ENVIRONMENT]', message),
 ): EnvironmentService {
   const registry = new Map<EnvironmentComponentId, EnvironmentComponentAdapter>();
   const inFlight = new Set<EnvironmentComponentId>();
@@ -178,9 +187,34 @@ export function createEnvironmentService(
       if (!parsed.success) throw new Error('Invalid environment apply request');
       const request = parsed.data;
       const adapter = requireAdapter(request.desired.componentId);
+      const startedAt = now();
+      let exitStatus: ApplyExitStatus = 'not-executed';
+      let verification: ApplyVerification = 'not-run';
+      function finish(response: EnvironmentApplyResponse): EnvironmentApplyResponse {
+        try {
+          const elapsed = now() - startedAt;
+          // Only these bounded scalar fields reach the local logger. Never pass a request,
+          // observation, process result, or exception to the sink.
+          const message = JSON.stringify({
+            event: 'environment.apply.completed',
+            componentId: adapter.id,
+            targetVersion: request.desired.targetVersion.slice(0, 64),
+            durationMs: Number.isFinite(elapsed) ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(elapsed))) : 0,
+            exitStatus,
+            verification,
+            resultStatus: response.result.status,
+            ...(response.result.reasonCode === undefined ? {} : { reasonCode: response.result.reasonCode }),
+          });
+          // The allowlisted fields fit within this cap; enforce it again at the sink boundary.
+          log(message.slice(0, MAX_APPLY_LOG_CHARACTERS));
+        } catch {
+          // Logging failure must neither replace the operation result nor bypass lock release.
+        }
+        return response;
+      }
       if (inFlight.has(adapter.id)) {
         const observation = lastObservations.get(adapter.id) ?? unknownObservation(adapter.id, now());
-        return result(observation, observation, 'failed', 'operation-in-progress');
+        return finish(result(observation, observation, 'failed', 'operation-in-progress'));
       }
       inFlight.add(adapter.id);
       let before = lastObservations.get(adapter.id) ?? unknownObservation(adapter.id, now());
@@ -193,23 +227,32 @@ export function createEnvironmentService(
         if (request.plan.expiresAt < time || currentPlan.expiresAt < time || issued === undefined
           || request.approvedAt < issued.issuedAt || request.approvedAt > time
           || request.approvedAt > issued.expiresAt || !sameDecision(currentPlan, request.plan)) {
-          return result(before, before, 'stale-plan', 'plan-stale');
+          return finish(result(before, before, 'stale-plan', 'plan-stale'));
         }
         if (currentPlan.action === 'manual-repair') {
-          return result(before, before, 'manual-repair', currentPlan.reasonCode ?? 'unexpected-error');
+          return finish(result(before, before, 'manual-repair', currentPlan.reasonCode ?? 'unexpected-error'));
         }
         let processResult: ProcessResult | null;
-        try { processResult = await adapter.apply(currentPlan); }
-        catch { processResult = null; }
+        try {
+          processResult = await adapter.apply(currentPlan);
+          exitStatus = processResult.timedOut ? 'timeout' : currentPlan.action === 'none' ? 'not-executed'
+            : Number.isInteger(processResult.exitCode) && processResult.exitCode! >= 0 && processResult.exitCode! <= 255
+              ? processResult.exitCode! : 'error';
+        } catch {
+          processResult = null;
+          exitStatus = 'error';
+        }
         let after: ComponentObservation;
         try { after = await observe(adapter); }
         catch {
-          return result(before, unknownObservation(adapter.id, now()), 'failed', 'verification-failed',
-            'Post-operation inspection was unavailable; whether the component changed is unknown. Inspect again.', false);
+          verification = 'unavailable';
+          return finish(result(before, unknownObservation(adapter.id, now()), 'failed', 'verification-failed',
+            'Post-operation inspection was unavailable; whether the component changed is unknown. Inspect again.', false));
         }
-        return verifiedApplyResult(before, after, currentPlan, processResult);
+        verification = verifiesTarget(after, currentPlan) ? 'passed' : 'failed';
+        return finish(verifiedApplyResult(before, after, currentPlan, processResult));
       } catch {
-        return result(before, before, 'failed', 'unexpected-error', 'Component inspection or planning failed.');
+        return finish(result(before, before, 'failed', 'unexpected-error', 'Component inspection or planning failed.'));
       } finally {
         inFlight.delete(adapter.id);
       }
