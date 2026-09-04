@@ -2,7 +2,7 @@ import * as React from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { MessageView } from '@/components/MessageView';
-import { createGeneratedBatchDemoMessages, debugMessages } from '@/dev/messages-demo-data';
+import { createAgentOutputImageDemoMessages, createGeneratedBatchDemoMessages, debugMessages } from '@/dev/messages-demo-data';
 import { Message } from '@/sync/typesMessage';
 import { useDemoMessages } from '@/hooks/useDemoMessages';
 import { AttachmentGalleryView } from '@/components/AttachmentGalleryView';
@@ -25,6 +25,7 @@ export default React.memo(function MessagesDemoScreen() {
     const { demo } = useLocalSearchParams<{ demo?: string }>();
     const isActivityStatusDemo = demo === 'activity-status';
     const isGeneratedBatchDemo = demo === 'generated-batch';
+    const isAgentOutputImagesDemo = demo === 'agent-output-images';
     const isMermaidDemo = demo === 'mermaid';
     const [generatedCount, setGeneratedCount] = React.useState(1);
     const activityMessages = React.useMemo(() => {
@@ -45,11 +46,17 @@ export default React.memo(function MessagesDemoScreen() {
         () => isGeneratedBatchDemo ? createGeneratedBatchDemoMessages(generatedCount) : [],
         [generatedCount, isGeneratedBatchDemo],
     );
+    const agentOutputImageMessages = React.useMemo(
+        () => isAgentOutputImagesDemo ? createAgentOutputImageDemoMessages() : [],
+        [isAgentOutputImagesDemo],
+    );
     // Combine all demo messages
     const allMessages = isActivityStatusDemo
         ? activityMessages
         : isGeneratedBatchDemo
             ? generatedBatchMessages
+            : isAgentOutputImagesDemo
+                ? agentOutputImageMessages
             : [...debugMessages];
     const activityItems = React.useMemo(
         () => isActivityStatusDemo
@@ -62,6 +69,12 @@ export default React.memo(function MessagesDemoScreen() {
             ? [...groupMessagesForDisplay(generatedBatchMessages, true, { currentTurnActive: true })].reverse()
             : [],
         [generatedBatchMessages, isGeneratedBatchDemo],
+    );
+    const agentOutputImageItems = React.useMemo(
+        () => isAgentOutputImagesDemo
+            ? [...groupMessagesForDisplay(agentOutputImageMessages, true)].reverse()
+            : [],
+        [agentOutputImageMessages, isAgentOutputImagesDemo],
     );
 
     // Load demo messages into session storage
@@ -94,7 +107,7 @@ export default React.memo(function MessagesDemoScreen() {
             return (
                 <AttachmentGalleryView
                     messages={item.messages}
-                    sessionId={isGeneratedBatchDemo ? '' : sessionId}
+                    sessionId={isGeneratedBatchDemo || isAgentOutputImagesDemo ? '' : sessionId}
                     presentation={item.presentation}
                     pendingCount={item.pendingCount}
                     pendingStartedAt={item.pendingStartedAt}
@@ -102,7 +115,7 @@ export default React.memo(function MessagesDemoScreen() {
             );
         }
         return <MessageView message={item.message} metadata={null} sessionId={sessionId} />;
-    }, [isActivityStatusDemo, isGeneratedBatchDemo, sessionId]);
+    }, [isActivityStatusDemo, isAgentOutputImagesDemo, isGeneratedBatchDemo, sessionId]);
 
     if (isActivityStatusDemo) {
         return (
@@ -141,6 +154,26 @@ export default React.memo(function MessagesDemoScreen() {
                 </View>
                 <FlatList
                     data={generatedBatchItems}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderGroupedItem}
+                    style={{ flexGrow: 1, flexBasis: 0 }}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                />
+            </View>
+        );
+    }
+
+    if (isAgentOutputImagesDemo) {
+        return (
+            <View testID="dev-agent-output-images-demo" style={styles.container}>
+                <View style={styles.batchControls}>
+                    <View style={styles.batchCopy}>
+                        <Text style={styles.batchTitle}>终端图片输出</Text>
+                        <Text style={styles.batchSubtitle}>两张普通输出图，共享大图预览与全屏导航</Text>
+                    </View>
+                </View>
+                <FlatList
+                    data={agentOutputImageItems}
                     keyExtractor={(item) => item.id}
                     renderItem={renderGroupedItem}
                     style={{ flexGrow: 1, flexBasis: 0 }}

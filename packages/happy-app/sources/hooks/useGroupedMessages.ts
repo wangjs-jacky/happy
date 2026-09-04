@@ -348,13 +348,24 @@ function getImageAgentPresentationState(
 }
 
 function getAttachmentPresentation(messages: Message[], featuredAttachmentIds: Set<string>): AttachmentGalleryPresentation {
-    if (messages.some(isGeneratedImageAttachment)) return 'generated-grid';
+    if (messages.some(isGeneratedImageAttachment)) {
+        if (messages.some((message) => hasGeneratedImagePrompt(message) || featuredAttachmentIds.has(message.id))) {
+            return 'generated-grid';
+        }
+        return 'featured';
+    }
     return messages.some((message) => featuredAttachmentIds.has(message.id)) ? 'featured' : 'compact';
 }
 
 function isGeneratedImageAttachment(message: Message): boolean {
     if (!isImageAttachment(message) || message.kind !== 'tool-call') return false;
     return isGeneratedImageFileInput(message.tool.input);
+}
+
+function hasGeneratedImagePrompt(message: Message): boolean {
+    if (message.kind !== 'tool-call') return false;
+    const prompt = message.tool.input?.prompt;
+    return typeof prompt === 'string' && prompt.trim().length > 0;
 }
 
 function getPendingStateForImageGroup(
@@ -544,21 +555,44 @@ function collectImageAttachmentGroups(
     turnOf: number[],
     hiddenWorkIndexes: Set<number>,
 ): Map<number, { msgs: Message[]; oldestIdx: number }> {
+    const imageAgentTurns = new Set<number>();
+
+    for (let index = 0; index < messages.length; index++) {
+        const message = messages[index];
+        if (message.kind === 'user-text' && isGeneratedImageBatchPromptText(message.text)) {
+            imageAgentTurns.add(turnOf[index]);
+        }
+    }
+
+    const isOrdinaryAgentOutput = (message: Message, index: number) => (
+        isGeneratedImageAttachment(message)
+        && !hasGeneratedImagePrompt(message)
+        && !imageAgentTurns.has(turnOf[index])
+    );
     const groups = collectToolRuns(
         messages,
         (message, index) => (
             !hiddenWorkIndexes.has(index)
             && isImageAttachment(message)
             && getImageAttachmentBatchId(message) === null
+            && !isOrdinaryAgentOutput(message, index)
         ),
     );
     const batchGroups = new Map<string, { indexes: number[]; msgs: Message[] }>();
 
     for (let index = 0; index < messages.length; index++) {
         if (hiddenWorkIndexes.has(index) || !isImageAttachment(messages[index])) continue;
+        if (isOrdinaryAgentOutput(messages[index], index)) {
+            const key = `turn:${turnOf[index]}:ordinary-output`;
+            const group = batchGroups.get(key) ?? { indexes: [], msgs: [] };
+            group.indexes.push(index);
+            group.msgs.push(messages[index]);
+            batchGroups.set(key, group);
+            continue;
+        }
         const batchId = getImageAttachmentBatchId(messages[index]);
         if (!batchId) continue;
-        const key = `${turnOf[index]}:${batchId}`;
+        const key = `turn:${turnOf[index]}:batch:${batchId}`;
         const group = batchGroups.get(key) ?? { indexes: [], msgs: [] };
         group.indexes.push(index);
         group.msgs.push(messages[index]);
