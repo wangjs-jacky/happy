@@ -46,6 +46,7 @@ export const en: TranslationStructure = {
         githubCli: 'GitHub CLI',
         daemonOnline: 'Daemon online',
         daemonOffline: 'Daemon offline — skipped',
+        offlineRecovery: 'Restore this machine’s connection, or use SSH to inspect it. Then scan again.',
         versionInstalled: ({ version }: { version: string }) => `Installed: ${version}`,
         versionTarget: ({ version }: { version: string }) => `Target: ${version}`,
         authReady: 'GitHub authenticated',

@@ -105,6 +105,16 @@ describe('DeviceEnvironmentView', () => {
         expect(textOf(view.root.findByProps({ testID: 'environment-machine-offline' }))).toContain('Daemon offline');
     });
 
+    it('gives offline machines restore or SSH inspection guidance while keeping them skipped', () => {
+        const view = renderEnvironmentView({ rows: [row('online'),
+            row('offline', { machine: machine('offline', false), online: false, observation: undefined, status: 'offline' })] });
+        const offline = view.root.findByProps({ testID: 'environment-machine-offline' });
+        expect(textOf(offline)).toContain('Daemon offline — skipped');
+        expect(textOf(offline)).toContain('Restore this machine’s connection, or use SSH to inspect it. Then scan again.');
+        expect(offline.findAllByType('Text').filter((node: any) => node.props.selectable)).toHaveLength(0);
+        expect(textOf(view.root.findByProps({ testID: 'environment-machine-online' }))).not.toContain('Restore this machine’s connection');
+    });
+
     it('connects the registered fleet including offline machines without automatically scanning', () => {
         const fleet = [machine('online'), machine('offline', false)];
         mocks.allMachines.mockReturnValue(fleet);

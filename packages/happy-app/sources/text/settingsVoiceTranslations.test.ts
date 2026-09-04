@@ -105,7 +105,7 @@ describe('deviceEnvironment translations', () => {
     const required = [
         'title', 'subtitle', 'fleetReady', 'scanAll', 'scanning', 'previewAlignment',
         'confirmTitle', 'confirmMessage', 'confirmAction', 'applying', 'completed',
-        'githubCli', 'daemonOnline', 'daemonOffline', 'versionInstalled', 'versionTarget',
+        'githubCli', 'daemonOnline', 'daemonOffline', 'offlineRecovery', 'versionInstalled', 'versionTarget',
         'authReady', 'authMissing', 'authUnknown', 'actionNone', 'actionInstall',
         'actionUpgrade', 'actionManualRepair', 'repairWithSsh', 'scanAgain',
         'stateUnknown', 'partialFailure', 'versionSourceMismatch', 'homebrewMissing',

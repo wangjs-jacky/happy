@@ -33,6 +33,7 @@ export const zhHans: TranslationStructure = {
         githubCli: 'GitHub CLI',
         daemonOnline: 'Daemon 在线',
         daemonOffline: 'Daemon 离线，已跳过',
+        offlineRecovery: '请恢复这台机器的连接，或通过 SSH 检查机器状态，然后重新扫描。',
         versionInstalled: ({ version }: { version: string }) => `已安装：${version}`,
         versionTarget: ({ version }: { version: string }) => `目标版本：${version}`,
         authReady: 'GitHub 已认证',
