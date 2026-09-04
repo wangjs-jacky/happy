@@ -14,7 +14,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('react-native-unistyles', () => {
     const theme: Record<string, any> = { colors: { surfaceHigh: '#111', surfaceHighest: '#222', text: '#fff', textSecondary: '#aaa', warning: '#f90' } };
-    return { StyleSheet: { create: (factory: (theme: typeof theme) => object) => factory(theme) }, useUnistyles: () => ({ theme }) };
+    return { StyleSheet: { create: (factory: (value: typeof theme) => object) => factory(theme) }, useUnistyles: () => ({ theme }) };
 });
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons' }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));

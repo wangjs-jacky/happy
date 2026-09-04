@@ -26,6 +26,8 @@
 
 ## Verification
 
+Follow-up review fix: corrected the ToolView fixture's self-referential mock callback type (`TS2502`) without changing runtime behavior.
+
 ```text
 pnpm exec vitest run \
   sources/sync/apiInteractivePreviews.spec.ts \
