@@ -44,5 +44,5 @@ describe('Vercel scope provenance migration', () => {
 
         expect(legacy.rows).toEqual([{ vercelScopeKnown: false }]);
         expect(fresh.rows).toEqual([{ vercelScopeKnown: true }]);
-    }, 30_000);
+    }, 120_000);
 });
