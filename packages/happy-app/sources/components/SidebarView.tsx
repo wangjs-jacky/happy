@@ -710,14 +710,14 @@ export const SidebarView = React.memo(({
             ) : (
                 <>
                     <DesktopRailItem
-                        icon="list-outline"
+                        icon="albums-outline"
                         label={t('sidebar.listsTab')}
                         onPress={() => setDesktopSidebarMode(desktopSidebarListMode)}
                         selected={desktopSidebarMode !== 'archive'}
                         testID="sidebar-session-list-button"
                     />
                     <DesktopRailItem
-                        icon="archive-outline"
+                        icon="file-tray-stacked-outline"
                         label={t('sessionHistory.archiveTitle')}
                         onPress={() => setDesktopSidebarMode('archive')}
                         selected={desktopSidebarMode === 'archive'}

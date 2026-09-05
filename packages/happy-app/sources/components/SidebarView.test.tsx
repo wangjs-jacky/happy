@@ -568,7 +568,7 @@ describe('SidebarView Agent space exit', () => {
         const sessionListButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
         expect(sessionListButton.props.accessibilityState).toEqual({ selected: true });
-        expect(sessionListButton.findByType('Ionicons').props.name).toBe('list-outline');
+        expect(sessionListButton.findByType('Ionicons').props.name).toBe('albums-outline');
 
         const archiveButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
@@ -599,7 +599,7 @@ describe('SidebarView Agent space exit', () => {
         const archiveButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-archive-button')!;
         expect(archiveButton.props.accessibilityState).toEqual({ selected: true });
-        expect(archiveButton.findByType('Ionicons').props.name).toBe('archive-outline');
+        expect(archiveButton.findByType('Ionicons').props.name).toBe('file-tray-stacked-outline');
 
         const sessionListButton = primaryColumn.findAllByType('Pressable')
             .find((node: any) => node.props.testID === 'sidebar-session-list-button')!;
