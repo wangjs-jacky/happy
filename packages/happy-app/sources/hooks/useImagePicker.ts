@@ -99,28 +99,32 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
     if (selectionGuardRef.current === null) {
         selectionGuardRef.current = createAttachmentSelectionGuard(selectionGeneration?.currentDraftEpoch() ?? 0);
     }
-    const selectionGuard = selectionGuardRef.current;
+    const hasMountedSelectionLifecycleRef = useRef(false);
     const syncDraftEpoch = useCallback(() => {
+        const selectionGuard = selectionGuardRef.current!;
         selectionGuard.replaceDraft(selectionGeneration?.currentDraftEpoch() ?? 0);
-    }, [selectionGeneration, selectionGuard]);
+        return selectionGuard;
+    }, [selectionGeneration]);
     const captureSelection = useCallback(() => {
-        syncDraftEpoch();
-        return selectionGuard.capture();
-    }, [selectionGuard, syncDraftEpoch]);
+        return syncDraftEpoch().capture();
+    }, [syncDraftEpoch]);
     const isSelectionCurrent = useCallback((token: AttachmentSelectionToken) => {
-        syncDraftEpoch();
-        return selectionGuard.isCurrent(token);
-    }, [selectionGuard, syncDraftEpoch]);
+        return syncDraftEpoch().isCurrent(token);
+    }, [syncDraftEpoch]);
     const invalidateSelection = useCallback(() => {
         selectionGeneration?.invalidate();
-        syncDraftEpoch();
-        selectionGuard.invalidate();
-    }, [selectionGeneration, selectionGuard, syncDraftEpoch]);
+        syncDraftEpoch().invalidate();
+    }, [selectionGeneration, syncDraftEpoch]);
     useEffect(() => {
+        if (hasMountedSelectionLifecycleRef.current) {
+            selectionGuardRef.current = createAttachmentSelectionGuard(selectionGeneration?.currentDraftEpoch() ?? 0);
+        }
+        hasMountedSelectionLifecycleRef.current = true;
+        const selectionGuard = selectionGuardRef.current!;
         return () => {
             selectionGuard.unmount();
         };
-    }, [selectionGuard]);
+    }, [selectionGeneration]);
     // Ref tracks current count to avoid stale closures on rapid taps.
     const selectedCountRef = useRef(0);
     useEffect(() => {

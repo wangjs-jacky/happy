@@ -675,4 +675,57 @@ describe('useImagePicker attachment lifecycle generations', () => {
         ]);
         act(() => renderer.unmount());
     });
+
+    it('isolates picker tokens across StrictMode lifecycle replay', async () => {
+        const beforeReplay = deferred<any>();
+        const afterReplayResult = {
+            canceled: false as const,
+            assets: [{
+                uri: 'file:///after-replay.m4a',
+                name: 'after-replay.m4a',
+                size: 1024,
+                mimeType: 'audio/mp4',
+                lastModified: 0,
+            }],
+        };
+        vi.mocked(DocumentPicker.getDocumentAsync)
+            .mockReturnValueOnce(beforeReplay.promise)
+            .mockResolvedValueOnce(afterReplayResult);
+        let beforeReplayPicking: Promise<void> | null = null;
+
+        function StrictModeProbe() {
+            const { images, setImages } = useComposeDraft();
+            const picker = useImagePicker({
+                selection: {
+                    images,
+                    setImages,
+                    generation: composeDraftAttachmentSelectionGeneration,
+                },
+            });
+            current = picker;
+            const startedBeforeReplay = React.useRef(false);
+            React.useEffect(() => {
+                if (startedBeforeReplay.current) return;
+                startedBeforeReplay.current = true;
+                beforeReplayPicking = picker.pickMedia();
+            }, [picker.pickMedia]);
+            return null;
+        }
+
+        let renderer: any;
+        await act(async () => {
+            renderer = TestRenderer.create(
+                React.createElement(React.StrictMode, null, React.createElement(StrictModeProbe)),
+            );
+        });
+        expect(beforeReplayPicking).not.toBeNull();
+
+        await act(async () => { await current!.pickMedia(); });
+        expect(useComposeDraft.getState().images.map((image) => image.name)).toEqual(['after-replay.m4a']);
+
+        beforeReplay.resolve(validMediaResult);
+        await act(async () => { await beforeReplayPicking; });
+        expect(useComposeDraft.getState().images.map((image) => image.name)).toEqual(['after-replay.m4a']);
+        act(() => renderer.unmount());
+    });
 });
