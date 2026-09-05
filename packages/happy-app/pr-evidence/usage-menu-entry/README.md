@@ -4,7 +4,7 @@
 - Viewport: `1280 × 900`, DPR 1
 - Browser: Playwright Chrome
 - Environment: isolated local `authenticated-empty` E2E environment; no production connection or model request
-- Baseline: `origin/main` at `9e8167cdb65388ab913d7e5f19948358e446eda2`
+- Baseline: `origin/main` at `7e04215f5d614d031a8080c23bbfc74fa79e7be1`
 
 | Case | Problem | Before | After | Runtime assertions |
 | --- | --- | --- | --- | --- |
@@ -29,5 +29,5 @@ pnpm test:e2e:web -- sidebar-account-usage-evidence.spec.ts
 ```
 
 The feature Case was rerun with `HAPPY_E2E_RECORD=1`. Its stable delivery artifact is
-`usage-menu-acceptance.mp4` (H.264, yuv420p, 1280×720, 25 fps, 17.44 s); it completed an
+`usage-menu-acceptance.mp4` (H.264, yuv420p, 1280×720, 25 fps, 22.32 s); it completed an
 `ffprobe`, full decode, and contact-sheet visual review.
