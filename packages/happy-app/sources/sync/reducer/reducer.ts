@@ -380,6 +380,10 @@ function applyToolResult(
     toolUseId: string,
     result: PendingToolResult,
 ): boolean {
+    // Interactive preview events carry complete, server-owned lifecycle snapshots.
+    // Their paired synthetic result exists only to satisfy the normalized message
+    // shape and must never override publishing/failed/recovery state from input.
+    if (message.tool?.name === 'interactive-preview') return true;
     if (!applyToolResultToMessage(message, toolUseId, result)) return false;
     if (message.tool?.name === 'TodoWrite' && !result.isError) {
         updateLatestTodos(state, message.tool.result?.newTodos, result.createdAt);
