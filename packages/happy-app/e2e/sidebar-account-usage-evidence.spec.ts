@@ -76,7 +76,7 @@ test('[USAGE-MENU-01] 账户菜单提供一级使用情况入口', async ({ page
     if (evidencePhase === 'after') {
         await usageAction.click();
         await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/usage');
-        await expect(page.getByText('使用情况', { exact: true }).filter({ visible: true })).toBeVisible();
+        await expect(page.getByText('Codex 用量', { exact: true }).filter({ visible: true })).toBeVisible();
         if (process.env.HAPPY_E2E_RECORD === '1') {
             await page.waitForTimeout(1100);
         }
