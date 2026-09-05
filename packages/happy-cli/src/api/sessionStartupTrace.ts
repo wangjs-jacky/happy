@@ -32,12 +32,10 @@ export function createWorkerSessionStartupLifecycleFromEnvironment(
 }
 
 export async function traceWorkerAuthentication<T extends { machineId: string }>(
-    authenticate: () => Promise<T>,
+    authenticate: (startupLifecycle?: WorkerSessionStartupLifecycle) => Promise<T>,
 ): Promise<T & { startupLifecycle?: WorkerSessionStartupLifecycle }> {
     const startupLifecycle = createWorkerSessionStartupLifecycleFromEnvironment();
-    const result = await authenticate();
-    startupLifecycle?.authReady();
-    startupLifecycle?.machineReady(result.machineId);
+    const result = await authenticate(startupLifecycle);
     return { ...result, ...(startupLifecycle ? { startupLifecycle } : {}) };
 }
 
