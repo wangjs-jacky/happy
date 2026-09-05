@@ -2,7 +2,7 @@
 
 Visible UI cases: 3
 
-Evidence is intentionally **pending** until the isolated build is exercised with Ego. The repository may contain an older exploratory screenshot, but it is not accepted as a final Before/After pair. Do not claim visual verification until every filename below exists, uses the stated viewport/theme, and has been inspected.
+The isolated feature build was exercised with Ego on 2026-09-05. The checked-in After images below were captured at the required viewports and inspected. Matching baseline Before images were not fabricated: the original product screenshot remains the contextual baseline, but it does not satisfy the identical-viewport comparison contract.
 
 | Case | Problem | Before filename | After filename | Required states and interactions |
 |---|---|---|---|---|
@@ -10,6 +10,17 @@ Evidence is intentionally **pending** until the isolated build is exercised with
 | 2 — Preview chat card | Typed preview lifecycle results had no dedicated read-only card. | `case-2-preview-cards-before.png` | `case-2-preview-cards-after.png` | publishing, ready, failed, expired; exactly one safe open/copy action pair; external open; clipboard copy; no iframe, input, form, or callback |
 | 3 — Ego run progress | Browser steps replaced or monopolized the capability panel. | `case-3-ego-popover-default-before.png` | `case-3-ego-popover-default-after.png` | capability summary remains available; Skill detail exposes two distinct run triggers; pointer and keyboard activation; Escape close and trigger-focus restore; 12-step internal scroll |
 | 3 — Ego run progress (`ginghamDark`) | The same progress UI must use semantic dark-theme surfaces. | `case-3-ego-popover-ginghamDark-before.png` | `case-3-ego-popover-ginghamDark-after.png` | same Case 3 behavior in the non-default dark theme; normal, selected, and modal surfaces must not retain caramel colors |
+
+Additional boundary evidence: `case-3-ego-popover-boundary-1024x768.png`.
+
+## Verified Ego results
+
+- Settings: unavailable, disconnected, same-origin connect callback, connected team/project, retry recovery, disconnect confirmation, and cleanup warning all passed.
+- Preview cards: publishing, ready, failed, and expired states rendered; only ready exposed one open/copy pair; no iframe, input, textarea, or form existed inside the cards. The click handlers received the exact HTTPS URL, and external opening used `_blank` with `noopener,noreferrer`.
+- Ego progress: two run-specific triggers remained on the `ego-browser` Skill row; pointer, Enter, Space, Escape, and focus restoration passed. The 12-step run scrolled internally.
+- At 1024×768, the compact capability drawer was opened through its normal toggle before the popover was measured. The popover stayed within the 12 px viewport gutter and its timeline scrolled from 0 to 792 px.
+- `ginghamDark` was selected through Settings and the session was reopened through in-app navigation. The popover and trigger both resolved to `rgb(26, 35, 48)`, not Caramel surfaces.
+- Browser automation used Ego only. Playwright was not executed under the repository browser-control rule.
 
 ## Capture dimensions
 

@@ -16,7 +16,7 @@ import {
     getVercelPreviewStatus,
     type VercelPreviewStatus,
 } from '@/sync/apiInteractivePreviews';
-import { createPreviewE2EFixture } from '@/sync/previewE2EFixture';
+import { createPreviewE2EFixture, resolvePreviewE2EFixture } from '@/sync/previewE2EFixture';
 
 type LoadState =
     | { kind: 'loading' }
@@ -37,11 +37,11 @@ export default function TemporaryPreviewsSettings() {
     const refreshGeneration = React.useRef(0);
     const mounted = React.useRef(true);
     const status = loadState.kind === 'ready' ? loadState.status : null;
-    const fixture = React.useRef(
-        Platform.OS === 'web' && typeof window !== 'undefined'
-            ? createPreviewE2EFixture(window.location.href)
-            : null,
-    ).current;
+    const fixtureRef = React.useRef<ReturnType<typeof createPreviewE2EFixture>>(null);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        fixtureRef.current = resolvePreviewE2EFixture(fixtureRef.current, window.location.href);
+    }
+    const fixture = fixtureRef.current;
 
     const stopPolling = React.useCallback(() => {
         if (pollTimer.current) clearInterval(pollTimer.current);

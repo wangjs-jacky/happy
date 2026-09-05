@@ -111,11 +111,15 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
             test.setTimeout(120_000);
             const fixture = await seedVercelPreviewFixture({ serverUrl: e2eServerUrl, webUrl: authenticatedWebUrl });
             if (theme === 'ginghamDark') {
-                await page.emulateMedia({ colorScheme: 'dark' });
                 await page.goto(authenticatedRoute('/settings/appearance'));
-                await page.getByText('Gingham', { exact: true }).click();
+                await page.getByTestId('appearance-theme-pack-gingham').click();
+                await page.getByTestId('appearance-theme-preference').click();
+                await page.getByTestId('appearance-theme-preference').click();
+                await expect(page.locator('html')).toHaveClass(/ginghamDark/);
+                await page.getByTestId(`session-row-${fixture.sessionId}`).click();
+            } else {
+                await page.goto(fixture.sessionUrl);
             }
-            await page.goto(fixture.sessionUrl);
             await expectFixtureReady(page, 'capability-hub-summary');
             await expect(page.getByTestId('capability-block-skills')).toBeVisible();
             await page.getByTestId('capability-block-skills').click();
@@ -133,17 +137,6 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
             await firstTrigger.press('Enter');
             await expect(page.getByTestId('browser-steps-popover')).toBeVisible();
             await expect(page.getByTestId('browser-steps-timeline-scroll')).toContainText('Verified browser milestone 1.12');
-
-            await page.setViewportSize({ width: 1024, height: 768 });
-            const popoverBox = await page.getByTestId('browser-steps-popover').boundingBox();
-            expect(popoverBox).not.toBeNull();
-            expect(popoverBox!.x).toBeGreaterThanOrEqual(12);
-            expect(popoverBox!.y).toBeGreaterThanOrEqual(12);
-            expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(1012);
-            expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(756);
-            await page.getByTestId('browser-steps-timeline-scroll').evaluate((element) => { element.scrollTop = element.scrollHeight; });
-            expect(await page.getByTestId('browser-steps-timeline-scroll').evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-
             await page.keyboard.press('Escape');
             await expect(page.getByTestId('browser-steps-popover')).toHaveCount(0);
             await expect(firstTrigger).toBeFocused();
@@ -153,6 +146,24 @@ test.describe('Happy-managed Vercel preview PC Web evidence', () => {
 
             await page.screenshot({
                 path: evidencePath(testInfo, `case-3-ego-popover-${theme}-after.png`),
+                fullPage: true,
+            });
+
+            await page.keyboard.press('Escape');
+            await page.setViewportSize({ width: 1024, height: 768 });
+            await page.getByTestId('desktop-right-panel-toggle-button').click();
+            await page.getByTestId('capability-block-skills').click();
+            await page.getByTestId('browser-progress-trigger-ego-fixture-run-1').click();
+            const popoverBox = await page.getByTestId('browser-steps-popover').boundingBox();
+            expect(popoverBox).not.toBeNull();
+            expect(popoverBox!.x).toBeGreaterThanOrEqual(12);
+            expect(popoverBox!.y).toBeGreaterThanOrEqual(12);
+            expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(1012);
+            expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(756);
+            await page.getByTestId('browser-steps-timeline-scroll').evaluate((element) => { element.scrollTop = element.scrollHeight; });
+            expect(await page.getByTestId('browser-steps-timeline-scroll').evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+            await page.screenshot({
+                path: evidencePath(testInfo, `case-3-ego-popover-${theme}-boundary-1024x768.png`),
                 fullPage: true,
             });
         });

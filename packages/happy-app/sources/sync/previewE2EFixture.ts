@@ -86,3 +86,10 @@ export function createPreviewE2EFixture(locationHref: string): {
         },
     };
 }
+
+export function resolvePreviewE2EFixture(
+    current: ReturnType<typeof createPreviewE2EFixture>,
+    locationHref: string,
+): ReturnType<typeof createPreviewE2EFixture> {
+    return current ?? createPreviewE2EFixture(locationHref);
+}
