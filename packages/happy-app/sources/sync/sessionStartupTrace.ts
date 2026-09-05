@@ -8,7 +8,10 @@ export type SessionStartupStage =
     | 'worker.socket.ready'
     | 'web.session.hydrated'
     | 'web.first_message.queued'
-    | 'web.session.navigated';
+    | 'web.session.navigated'
+    | 'web.processor.ready_received'
+    | 'web.first_agent_event_received'
+    | 'web.turn.completed';
 
 export type SessionStartupOutcome = 'success' | 'error';
 
@@ -37,6 +40,9 @@ const SESSION_STARTUP_STAGES = new Set<SessionStartupStage>([
     'web.session.hydrated',
     'web.first_message.queued',
     'web.session.navigated',
+    'web.processor.ready_received',
+    'web.first_agent_event_received',
+    'web.turn.completed',
 ]);
 
 const SESSION_STARTUP_TRACE_KEYS = [

@@ -13,6 +13,9 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     randomUUID: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
     traceStartup: vi.fn(),
+    traceRuntimeBegin: vi.fn(() => ({ traceId: '00000000-0000-4000-8000-000000000001', startedAt: 1 })),
+    traceRuntimeBindSession: vi.fn(() => true),
+    traceRuntimeCancel: vi.fn(),
     spawnResult: { type: 'success', sessionId: 'session-1' } as SpawnSessionResult,
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
@@ -32,6 +35,13 @@ vi.mock('expo-crypto', () => ({
 }));
 vi.mock('@/sync/sessionStartupTrace', () => ({
     traceStartup: mocks.traceStartup,
+}));
+vi.mock('@/sync/sessionStartupTraceRuntime', () => ({
+    sessionStartupTraceRuntime: {
+        begin: mocks.traceRuntimeBegin,
+        bindSession: mocks.traceRuntimeBindSession,
+        cancel: mocks.traceRuntimeCancel,
+    },
 }));
 
 vi.mock('@/sync/ops', () => ({
@@ -137,6 +147,9 @@ describe('useSpawnSession', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.traceStartup.mockReset();
+        mocks.traceRuntimeBegin.mockClear();
+        mocks.traceRuntimeBindSession.mockClear();
+        mocks.traceRuntimeCancel.mockClear();
         mocks.spawnResult = { type: 'success', sessionId: 'session-1' };
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -177,6 +190,31 @@ describe('useSpawnSession', () => {
         await act(async () => { release({ type: 'success', sessionId: 'session-1' }); expect(await first).toBe(true); });
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('creates one browser trace on click and binds it only after the RPC returns a session id', async () => {
+        // Catches a ready event being attributed before a spawned session identity exists.
+        let release!: (value: SpawnSessionResult) => void;
+        mocks.machineSpawnNewSession.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+        const hook = renderHook();
+        let spawn!: Promise<boolean>;
+
+        await act(async () => {
+            spawn = hook.current().spawn(args);
+            await Promise.resolve();
+        });
+        expect(mocks.traceRuntimeBegin).toHaveBeenCalledTimes(1);
+        expect(mocks.traceRuntimeBindSession).not.toHaveBeenCalled();
+
+        await act(async () => {
+            release({ type: 'success', sessionId: 'session-1' });
+            await spawn;
+        });
+        expect(mocks.traceRuntimeBindSession).toHaveBeenCalledWith(
+            expect.objectContaining({ traceId: '00000000-0000-4000-8000-000000000001' }),
+            'session-1',
+        );
         hook.unmount();
     });
 

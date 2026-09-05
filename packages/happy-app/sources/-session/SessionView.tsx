@@ -83,6 +83,7 @@ import {
 } from '@/components/subagent/SubagentInspectorContext';
 import { SubagentInspectorPanel } from '@/components/subagent/SubagentInspectorPanel';
 import { findSessionTitleTagQuery, removeSessionTitleTagQuery } from '@/utils/sessionTitleTags';
+import { markSessionCriticalPathAppStage } from '@/sync/sessionCriticalPathProbeBridge';
 
 // Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
 // off the running session's `flavor` (an active session reports its agent there).
@@ -508,6 +509,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         // completes, and restarting here would abandon that valid first load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, retryGeneration]);
+
+    React.useEffect(() => {
+        markSessionCriticalPathAppStage('web.route.mounted');
+        if (Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        const frame = requestAnimationFrame(() => {
+            markSessionCriticalPathAppStage('web.session.route_painted');
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [sessionId]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
@@ -1357,6 +1367,14 @@ function SessionViewLoaded({
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
+
+    React.useEffect(() => {
+        if (!isLoaded || messages.length === 0 || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        const frame = requestAnimationFrame(() => {
+            markSessionCriticalPathAppStage('web.session.latest_message_painted');
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [isLoaded, messages.length, sessionId]);
 
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;

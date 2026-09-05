@@ -40,7 +40,12 @@ const mocks = vi.hoisted(() => {
                 messages: Object.values(messagesMap),
                 isLoaded: true,
             };
-            return { changed: messages.map((message) => message.id), hasReadyEvent: false };
+            return {
+                changed: messages.map((message) => message.id),
+                hasReadyEvent: messages.some((message) => (
+                    message.role === 'event' && message.content?.type === 'ready'
+                )),
+            };
         },
         applyMessagesLoaded: (sessionId: string) => {
             state.sessionMessages[sessionId] = {
@@ -81,6 +86,8 @@ const mocks = vi.hoisted(() => {
         hydrate: vi.fn(),
         hydrateRoute: vi.fn(),
         sessionEncryptions: new Map<string, any>(),
+        markedStages: [] as Array<{ sessionId: string; stage: string }>,
+        markedStageKeys: new Set<string>(),
         gitInvalidate: vi.fn(),
         gitOpenInvalidate: vi.fn(),
         gitClear: vi.fn(),
@@ -117,6 +124,17 @@ vi.mock('./gitStatusSync', () => ({
     },
 }));
 vi.mock('./pushRegistration', () => ({ syncCurrentPushToken: vi.fn() }));
+vi.mock('./sessionStartupTraceRuntime', () => ({
+    sessionStartupTraceRuntime: {
+        markSessionStage: (sessionId: string, stage: string) => {
+            const key = `${sessionId}:${stage}`;
+            if (mocks.markedStageKeys.has(key)) return false;
+            mocks.markedStageKeys.add(key);
+            mocks.markedStages.push({ sessionId, stage });
+            return true;
+        },
+    },
+}));
 vi.mock('./encryption/encryption', () => ({ Encryption: class {} }));
 vi.mock('./revenueCat', () => ({ RevenueCat: {}, LogLevel: {}, PaywallResult: {} }));
 vi.mock('./uploadMediaFile', () => ({ uploadMediaFile: vi.fn() }));
@@ -280,6 +298,8 @@ describe('message visibility synchronization', () => {
         mocks.state.currentViewingSessionId = null;
         mocks.state.mutableToolCalls.clear();
         mocks.sessionEncryptions.clear();
+        mocks.markedStages = [];
+        mocks.markedStageKeys.clear();
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         mocks.fetchSnapshot.mockResolvedValue(null);
         mocks.hydrate.mockImplementation(async (items: ApiSessionSnapshot[]) => items.map(hydrated));
@@ -337,6 +357,42 @@ describe('message visibility synchronization', () => {
 
         expect(mocks.apiRequest).not.toHaveBeenCalled();
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
+    });
+
+    it('marks a bound trace once when an encrypted session-ready event reaches the message store', async () => {
+        // Catches normalized ready lifecycle events bypassing browser startup attribution.
+        const encryption = installSession('trace-session');
+        mocks.state.currentViewingSessionId = 'trace-session';
+        syncForTest.sessionLastSeq.set('trace-session', 4);
+        encryption.decryptMessage.mockResolvedValue({
+            id: 'message-5',
+            localId: null,
+            createdAt: 50,
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'session',
+                    data: {
+                        id: 'ready-envelope',
+                        time: 50,
+                        role: 'agent',
+                        turn: 'turn-1',
+                        ev: { t: 'turn-end', status: 'completed' },
+                    },
+                },
+            },
+        });
+
+        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 5));
+        await vi.waitFor(() => {
+            expect(mocks.markedStages.filter((entry) => entry.stage === 'web.processor.ready_received')).toEqual([{
+                sessionId: 'trace-session',
+                stage: 'web.processor.ready_received',
+            }]);
+        });
+
+        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 6));
+        expect(mocks.markedStages.filter((entry) => entry.stage === 'web.processor.ready_received')).toHaveLength(1);
     });
 
     it('fills one sequence gap only for the visible session', async () => {

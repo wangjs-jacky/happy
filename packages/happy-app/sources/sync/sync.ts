@@ -108,6 +108,8 @@ import {
     type SessionMessageLoadOperation,
 } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
+import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -1553,6 +1555,7 @@ class Sync {
                         if (!prepared) break;
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
+                        markSessionCriticalPathAppStage('web.session.store_committed');
                         committed.push(prepared.session);
                         break;
                     }
@@ -1583,10 +1586,12 @@ class Sync {
             this.assertSessionRouteCurrent(operation);
             if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return true;
         }
+        markSessionCriticalPathAppStage('web.session.snapshot_started');
         await this.writeSessionSnapshots(async () => {
             const raw = await fetchSessionSnapshot(this.credentials, sessionId);
             return raw ? [raw] : [];
         }, { replace: false }, operation);
+        markSessionCriticalPathAppStage('web.session.snapshot_completed');
         return Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId));
     }
 
@@ -1614,6 +1619,7 @@ class Sync {
             messageLoad: this.sessionMessageLoadGate.begin(messageLease),
         };
         this.activeOpenSession = operation;
+        markSessionCriticalPathAppStage('web.messages.latest_started');
         const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         // A missing target can be resolved before its concurrently-started
         // message request finishes. Attach a rejection observer immediately so
@@ -1628,6 +1634,7 @@ class Sync {
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
             await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
+            markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
             return 'ready';
         })();
@@ -2551,6 +2558,7 @@ class Sync {
         sessionId: string,
         operation: SessionMessageLoadOperation,
     ) => {
+        markSessionCriticalPathAppStage('web.messages.latest_started');
         log.log(`💬 fetchMessages starting for session ${sessionId} - acquiring lock`);
         const lock = this.getSessionMessageLock(sessionId);
         await lock.inLock(async () => {
@@ -2583,6 +2591,7 @@ class Sync {
 
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             storage.getState().applyMessagesLoaded(sessionId);
+            markSessionCriticalPathAppStage('web.messages.latest_completed');
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
         });
     }
@@ -2949,7 +2958,6 @@ class Sync {
                     if (isTaskComplete || isTaskStarted) {
                         console.log(`🔄 [Sync] Updating thinking state: isTaskComplete=${isTaskComplete}, isTaskStarted=${isTaskStarted}`);
                     }
-
                     // Update session
                     const session = storage.getState().sessions[updateData.body.sid];
                     if (session) {
@@ -3494,6 +3502,10 @@ class Sync {
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
+        markSessionCriticalPathAppStage('web.session.store_committed');
+        const hasCompletedTurn = messages.some((message) => (
+            message.role === 'event' && message.content.type === 'ready'
+        ));
         let m: Message[] = [];
         for (let messageId of result.changed) {
             const message = storage.getState().sessionMessages[sessionId].messagesMap[messageId];
@@ -3506,6 +3518,13 @@ class Sync {
         }
         if (result.hasReadyEvent) {
             voiceHooks.onReady(sessionId);
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.processor.ready_received');
+        }
+        if (hasCompletedTurn) {
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.turn.completed');
+        }
+        if (messages.some((message) => message.role === 'agent' && !message.isSidechain && message.content.length > 0)) {
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.first_agent_event_received');
         }
     }
 

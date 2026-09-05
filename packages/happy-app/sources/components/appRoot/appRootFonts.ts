@@ -11,6 +11,15 @@ import {
 } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { AsyncLock } from '@/utils/lock';
+import { markSessionCriticalPathAppStage } from '@/sync/sessionCriticalPathProbeBridge';
+import SpaceMono from '@/assets/fonts/SpaceMono-Regular.ttf';
+import IBMPlexSansRegular from '@/assets/fonts/IBMPlexSans-Regular.ttf';
+import IBMPlexSansItalic from '@/assets/fonts/IBMPlexSans-Italic.ttf';
+import IBMPlexSansSemiBold from '@/assets/fonts/IBMPlexSans-SemiBold.ttf';
+import IBMPlexMonoRegular from '@/assets/fonts/IBMPlexMono-Regular.ttf';
+import IBMPlexMonoItalic from '@/assets/fonts/IBMPlexMono-Italic.ttf';
+import IBMPlexMonoSemiBold from '@/assets/fonts/IBMPlexMono-SemiBold.ttf';
+import BricolageGrotesqueBold from '@/assets/fonts/BricolageGrotesque-Bold.ttf';
 
 const lock = new AsyncLock();
 let loaded = false;
@@ -32,14 +41,14 @@ export async function loadAppRootFonts(): Promise<void> {
             && typeof window !== 'undefined'
             && (window as any).__TAURI_INTERNALS__ !== undefined;
         const fonts = {
-            SpaceMono: require('@/assets/fonts/SpaceMono-Regular.ttf'),
-            'IBMPlexSans-Regular': require('@/assets/fonts/IBMPlexSans-Regular.ttf'),
-            'IBMPlexSans-Italic': require('@/assets/fonts/IBMPlexSans-Italic.ttf'),
-            'IBMPlexSans-SemiBold': require('@/assets/fonts/IBMPlexSans-SemiBold.ttf'),
-            'IBMPlexMono-Regular': require('@/assets/fonts/IBMPlexMono-Regular.ttf'),
-            'IBMPlexMono-Italic': require('@/assets/fonts/IBMPlexMono-Italic.ttf'),
-            'IBMPlexMono-SemiBold': require('@/assets/fonts/IBMPlexMono-SemiBold.ttf'),
-            'BricolageGrotesque-Bold': require('@/assets/fonts/BricolageGrotesque-Bold.ttf'),
+            SpaceMono,
+            'IBMPlexSans-Regular': IBMPlexSansRegular,
+            'IBMPlexSans-Italic': IBMPlexSansItalic,
+            'IBMPlexSans-SemiBold': IBMPlexSansSemiBold,
+            'IBMPlexMono-Regular': IBMPlexMonoRegular,
+            'IBMPlexMono-Italic': IBMPlexMonoItalic,
+            'IBMPlexMono-SemiBold': IBMPlexMonoSemiBold,
+            'BricolageGrotesque-Bold': BricolageGrotesqueBold,
             'Fredoka-SemiBold': Fredoka_600SemiBold,
             'Fredoka-Bold': Fredoka_700Bold,
             ...vectorIconFonts,
@@ -47,8 +56,11 @@ export async function loadAppRootFonts(): Promise<void> {
 
         if (!isTauri) {
             await Fonts.loadAsync(fonts);
+            markSessionCriticalPathAppStage('web.fonts.critical_ready');
             return;
         }
-        void Fonts.loadAsync(fonts).catch(() => undefined);
+        void Fonts.loadAsync(fonts)
+            .then(() => markSessionCriticalPathAppStage('web.fonts.critical_ready'))
+            .catch(() => undefined);
     });
 }

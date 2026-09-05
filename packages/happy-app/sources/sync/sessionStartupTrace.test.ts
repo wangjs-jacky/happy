@@ -7,6 +7,23 @@ import {
 } from './sessionStartupTrace';
 
 describe('session startup trace serialization', () => {
+    it.each([
+        'web.processor.ready_received',
+        'web.first_agent_event_received',
+        'web.turn.completed',
+    ] as const)('serializes the fixed browser startup attribution stage %s', (stage) => {
+        // Catches a production allowlist regression that silently drops browser attribution.
+        expect(JSON.parse(serializeSessionStartupTrace({
+            traceId: '00000000-0000-4000-8000-000000000003',
+            stage,
+            duration: 250,
+        })!)).toEqual({
+            traceId: '00000000-0000-4000-8000-000000000003',
+            stage,
+            duration: 250,
+        });
+    });
+
     it('retains only the startup trace allowlist', () => {
         const serialized = serializeSessionStartupTrace({
             traceId: '00000000-0000-4000-8000-000000000001',
