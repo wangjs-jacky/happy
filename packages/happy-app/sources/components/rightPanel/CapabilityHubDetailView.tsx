@@ -40,7 +40,7 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
     const { theme } = useUnistyles();
 
     return (
-        <View style={styles.container}>
+        <View style={styles.container} testID={`capability-hub-detail-${props.type}`}>
             <View style={[styles.header, { borderBottomColor: theme.colors.divider }]}>
                 <Pressable hitSlop={8} onPress={props.onBack} style={styles.backButton}>
                     <Ionicons color={theme.colors.text} name="chevron-back" size={18} />

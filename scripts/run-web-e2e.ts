@@ -64,6 +64,10 @@ async function main(): Promise<void> {
     const playwrightArgs = process.argv.slice(2).filter((arg) => arg !== '--');
 
     try {
+        // Enables deterministic local-only UI states used by visual evidence.
+        // The app additionally requires dev auth query parameters and refuses
+        // this fixture path in production builds.
+        process.env.EXPO_PUBLIC_HAPPY_E2E_FIXTURES = '1';
         environmentName = await createEnvironment({ noSwitch: true });
         setEnvironmentTemplate(environmentName, 'authenticated-empty');
 

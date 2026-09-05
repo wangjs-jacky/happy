@@ -16,6 +16,7 @@ import {
     getVercelPreviewStatus,
     type VercelPreviewStatus,
 } from '@/sync/apiInteractivePreviews';
+import { createPreviewE2EFixture } from '@/sync/previewE2EFixture';
 
 type LoadState =
     | { kind: 'loading' }
@@ -36,6 +37,11 @@ export default function TemporaryPreviewsSettings() {
     const refreshGeneration = React.useRef(0);
     const mounted = React.useRef(true);
     const status = loadState.kind === 'ready' ? loadState.status : null;
+    const fixture = React.useRef(
+        Platform.OS === 'web' && typeof window !== 'undefined'
+            ? createPreviewE2EFixture(window.location.href)
+            : null,
+    ).current;
 
     const stopPolling = React.useCallback(() => {
         if (pollTimer.current) clearInterval(pollTimer.current);
@@ -57,7 +63,7 @@ export default function TemporaryPreviewsSettings() {
             return;
         }
         try {
-            const status = await getVercelPreviewStatus(credentials);
+            const status = fixture ? fixture.getStatus() : await getVercelPreviewStatus(credentials);
             if (!mounted.current || generation !== refreshGeneration.current) return;
             setLoadState({ kind: 'ready', status });
             const connectionKey = status.account
@@ -69,7 +75,11 @@ export default function TemporaryPreviewsSettings() {
         } catch {
             if (mounted.current && generation === refreshGeneration.current) setLoadState({ kind: 'error' });
         }
-    }, [closePopup, credentials]);
+    }, [closePopup, credentials, fixture]);
+    const retry = React.useCallback(() => {
+        fixture?.allowRetry();
+        void refresh();
+    }, [fixture, refresh]);
 
     React.useEffect(() => { void refresh(); }, [refresh]);
     React.useEffect(() => {
@@ -92,6 +102,7 @@ export default function TemporaryPreviewsSettings() {
         const onFocus = () => { void refresh(); };
         const onMessage = (event: MessageEvent) => {
             if (event.origin === browserWindow.location.origin && event.data?.type === 'happy-vercel-connected') {
+                fixture?.markConnected();
                 closePopup();
                 void refresh();
             }
@@ -102,7 +113,7 @@ export default function TemporaryPreviewsSettings() {
             browserWindow.removeEventListener('focus', onFocus);
             browserWindow.removeEventListener('message', onMessage);
         };
-    }, [closePopup, refresh]);
+    }, [closePopup, fixture, refresh]);
 
     React.useEffect(() => () => closePopup(), [closePopup]);
 
@@ -143,7 +154,7 @@ export default function TemporaryPreviewsSettings() {
                     ? `${status.account?.teamId ?? ''}:${status.account?.projectId ?? ''}`
                     : null;
                 try {
-                    const url = await getVercelPreviewConnectUrl(credentials);
+                    const url = fixture ? fixture.connectUrl() : await getVercelPreviewConnectUrl(credentials);
                     if (!mounted.current || popupRef.current !== popup || popup.closed) return;
                     popup.location.href = url;
                     startPolling(popup);
@@ -161,7 +172,7 @@ export default function TemporaryPreviewsSettings() {
         } finally {
             if (mounted.current) setBusy(false);
         }
-    }, [busy, closePopup, credentials, startPolling, status?.account?.projectId, status?.account?.teamId, status?.connected]);
+    }, [busy, closePopup, credentials, fixture, startPolling, status?.account?.projectId, status?.account?.teamId, status?.connected]);
 
     const disconnect = React.useCallback(async () => {
         if (!credentials || busy) return;
@@ -173,7 +184,7 @@ export default function TemporaryPreviewsSettings() {
         if (!confirmed) return;
         setBusy(true);
         try {
-            const result = await disconnectVercelPreview(credentials);
+            const result = fixture ? fixture.disconnect() : await disconnectVercelPreview(credentials);
             await refresh();
             if (result.warning === 'VERCEL_DEPLOYMENT_CLEANUP_PENDING') {
                 Modal.alert(t('interactivePreviews.title'), t('interactivePreviews.disconnectWarning'));
@@ -183,7 +194,7 @@ export default function TemporaryPreviewsSettings() {
         } finally {
             setBusy(false);
         }
-    }, [busy, credentials, refresh]);
+    }, [busy, credentials, fixture, refresh]);
 
     const connectedName = status?.account?.teamName || status?.account?.teamId || 'Vercel';
 
@@ -198,7 +209,7 @@ export default function TemporaryPreviewsSettings() {
             {loadState.kind === 'loading' ? <View testID="temporary-previews-status-loading" style={styles.loading}><ActivityIndicator color={theme.colors.accent} /><Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.loading')}</Text></View> : null}
             {loadState.kind === 'error' ? <>
                 <Text testID="temporary-previews-error" style={[styles.error, { color: theme.colors.textSecondary }]}>{t('interactivePreviews.safeError')}</Text>
-                <Item accessibilityLabel={t('interactivePreviews.retry')} onPress={refresh} showChevron={false} testID="temporary-previews-retry" title={t('interactivePreviews.retry')} />
+                <Item accessibilityLabel={t('interactivePreviews.retry')} onPress={retry} showChevron={false} testID="temporary-previews-retry" title={t('interactivePreviews.retry')} />
             </> : null}
             {status ? <Item
                 accessibilityLabel={t('interactivePreviews.connection')}

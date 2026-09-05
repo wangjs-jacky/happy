@@ -215,7 +215,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     }
 
     return (
-        <View style={styles.summaryRoot}>
+        <View style={styles.summaryRoot} testID="capability-hub-summary">
         <ScrollView
             contentContainerStyle={styles.summaryContent}
             showsVerticalScrollIndicator={false}

@@ -8,7 +8,7 @@ describe('createPreviewService publication', () => {
         const previewId = '12121212-1212-4121-8121-121212121212';
         const storageKey = 'private/interactive-previews/u1/12121212-1212-4121-8121-121212121212/generation-1/index';
         const manifest: any = { version: 1, previewId, title: 'Draft', assets: [{ id: 'index', path: 'index.html', size: 12, sha256: 'a'.repeat(64), mimeType: 'text/html' }] };
-        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status: 'draft', expiresAt: new Date('2026-09-05T00:00:00.000Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
+        const existing: any = { id: previewId, accountId: 'u1', sessionId: 's1', title: 'Draft', status: 'draft', expiresAt: new Date('2100-01-01T00:00:00.000Z'), cleanupClaimedAt: null, manifest, stagingGeneration: 'generation-1', assets: [{ ...manifest.assets[0], storageKey }] };
         const create = vi.fn(async () => existing);
         const createUpload = vi.fn(async () => ({ method: 'POST' as const, uploadUrl: 'https://oss.test/fresh', formFields: { key: 'fresh' } }));
         const database: any = { session: { findFirst: vi.fn(async () => ({ id: 's1' })) }, interactivePreview: { findUnique: vi.fn(async () => existing), create } };
