@@ -3,7 +3,7 @@ import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
-import { SessionRouteOwnership } from './sessionRouteOwnership';
+import { SessionRouteAbandonedError, SessionRouteOwnership } from './sessionRouteOwnership';
 import { SessionEncryption } from './encryption/sessionEncryption';
 import { EncryptionCache } from './encryption/encryptionCache';
 
@@ -397,6 +397,54 @@ describe('message visibility synchronization', () => {
             'web.messages.latest_completed',
             'web.session.store_committed',
         ]);
+    });
+
+    it.each(['cached', 'shared'] as const)('attributes a route snapshot satisfied by %s hydration exactly once', async (source) => {
+        installSession('prehydrated-session');
+        mocks.state.currentViewingSessionId = 'prehydrated-session';
+        const stages: string[] = [];
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markAppStage: (stage: string) => stages.push(stage),
+        };
+        const shared = deferred<ApiSessionSnapshot | null>();
+        let hydrating: Promise<boolean> | undefined;
+        if (source === 'shared') {
+            delete mocks.state.sessions['prehydrated-session'];
+            mocks.fetchSnapshot.mockReturnValue(shared.promise);
+            hydrating = syncForTest.ensureSessionHydrated('prehydrated-session');
+        }
+        const opening = syncForTest.openSession('prehydrated-session');
+        if (source === 'shared') {
+            await Promise.resolve();
+            expect(stages).toEqual(['web.messages.latest_started', 'web.session.snapshot_started']);
+            shared.resolve(snapshot('prehydrated-session'));
+            await hydrating;
+        }
+        await expect(opening).resolves.toBe('ready');
+        expect(mocks.fetchSnapshot).toHaveBeenCalledTimes(source === 'shared' ? 1 : 0);
+        expect(stages).toEqual([
+            'web.messages.latest_started', 'web.session.snapshot_started', 'web.session.snapshot_completed',
+            'web.messages.latest_completed', 'web.session.store_committed',
+        ]);
+    });
+
+    it('does not complete the snapshot span when a route awaiting shared hydration is abandoned', async () => {
+        installSession('abandoned-hydration');
+        delete mocks.state.sessions['abandoned-hydration'];
+        const shared = deferred<ApiSessionSnapshot | null>();
+        mocks.fetchSnapshot.mockReturnValue(shared.promise);
+        const stages: string[] = [];
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markAppStage: (stage: string) => stages.push(stage),
+        };
+        const hydrating = syncForTest.ensureSessionHydrated('abandoned-hydration');
+        const opening = syncForTest.openSession('abandoned-hydration');
+        const rejected = expect(opening).rejects.toBeInstanceOf(SessionRouteAbandonedError);
+        syncForTest.abandonSessionRoute('abandoned-hydration', opening);
+        shared.resolve(snapshot('abandoned-hydration'));
+        await hydrating;
+        await rejected;
+        expect(stages).toEqual(['web.messages.latest_started', 'web.session.snapshot_started']);
     });
 
     it('reaches a gap between cached history and the latest page exactly once', async () => {

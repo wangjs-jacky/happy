@@ -122,6 +122,14 @@ milestones belonging solely to the other sample kind, or emitted outside an arme
 interval, cannot satisfy the active sample. Duplicate active milestones or a
 backwards browser clock invalidate collection.
 
+The snapshot stage pair measures the live route's snapshot hydration operation.
+It occurs exactly once whether the route uses an immediate session/encryption
+cache hit, waits for an existing hydration, or performs a targeted fetch. A cache
+hit is an instantaneous route operation, not a claimed network transfer. Earlier
+active-bootstrap network time is outside this route-specific snapshot span; it
+is still inside C1's browser navigation-to-paint duration. Failed or cancelled
+operations do not emit a successful completion stage.
+
 The C1 interval freezes on latest-message paint; spawn freezes only at turn
 completion, so a late legacy request before completion still fails. Each sample
 and its resources freeze independently; later requests, buffer eviction and new

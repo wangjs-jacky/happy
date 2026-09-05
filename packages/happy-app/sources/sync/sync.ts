@@ -1582,21 +1582,29 @@ class Sync {
         if (operation) this.assertSessionRouteCurrent(operation);
         if (!this.credentials) return false;
 
+        // Attribute this route's hydration operation, including a cache hit or
+        // waiting for another writer. Earlier bootstrap I/O is not this span.
+        if (operation) markSessionCriticalPathAppStage('web.session.snapshot_started');
+        const complete = (found: boolean): boolean => {
+            if (operation) {
+                this.assertSessionRouteCurrent(operation);
+                if (found) markSessionCriticalPathAppStage('web.session.snapshot_completed');
+            }
+            return found;
+        };
         if (storage.getState().sessions[sessionId]
-            && this.encryption.getSessionEncryption(sessionId)) return true;
+            && this.encryption.getSessionEncryption(sessionId)) return complete(true);
 
         if (operation && this.sessionHydrations.has(sessionId)) {
             await this.sessionHydrations.get(sessionId);
             this.assertSessionRouteCurrent(operation);
-            if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return true;
+            if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return complete(true);
         }
-        markSessionCriticalPathAppStage('web.session.snapshot_started');
         await this.writeSessionSnapshots(async () => {
             const raw = await fetchSessionSnapshot(this.credentials, sessionId);
             return raw ? [raw] : [];
         }, { replace: false }, operation);
-        markSessionCriticalPathAppStage('web.session.snapshot_completed');
-        return Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId));
+        return complete(Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)));
     }
 
     private ensureRealtimeSessionReady = async (sessionId: string): Promise<boolean> => {
