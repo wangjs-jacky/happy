@@ -49,6 +49,12 @@ be `loading` and `document.scripts` empty. Missing injection support, fetch/XHR
 hooks, or ResourceTiming collection blocks measurement. Never substitute a
 post-navigation evaluation, screen polling, console-log replay, or manual timing
 marks. Switching between Phase 1 and Phase 2 requires a new document.
+Any pre-existing `__happySessionCriticalPathProbe` value makes Phase 2 installation
+fail closed with `INVALID_PROBE_MODE`; do not reuse or re-evaluate the printed
+expression in the same document. Retain the object returned by the one successful
+installation and perform later sample generations through that object's methods.
+Replacing or deleting its global binding permanently invalidates the document's
+resource collection, even if the original binding is restored.
 
 For C1, in that same document-start callback, arm the returned probe before any
 app script with `probe.configureSample({ kind: 'deep-link', cache: 'cold' })`
@@ -77,11 +83,12 @@ actual send click → encrypted nonterminal processor-ready receipt. Server, dae
 and worker clock readings are never subtracted from browser times.
 
 The application adapter passes only a fixed stage name (or no arguments for a
-fixed method). It passes no timestamps, trace IDs, session IDs, machine IDs or
-message data. Probe absence/failure is swallowed by application instrumentation;
-the probe itself latches failures so collection still fails closed. Existing
-runtime duplicate suppression prevents repeated ready packets creating extra
-milestones; a duplicated milestone delivered to the probe remains invalid.
+fixed method, including the hydration-retry producer). It passes no timestamps,
+trace IDs, session IDs, machine IDs, retry errors or message data. Probe
+absence/failure is swallowed by application instrumentation; the probe itself
+latches structural and collection failures so collection still fails closed.
+Existing runtime duplicate suppression prevents repeated ready packets creating
+extra milestones; a duplicated milestone delivered to the probe remains invalid.
 
 Mandatory C1 stages:
 
@@ -133,10 +140,11 @@ operations do not emit a successful completion stage.
 The C1 interval freezes on latest-message paint; spawn freezes only at turn
 completion, so a late legacy request before completion still fails. Each sample
 and its resources freeze independently; later requests, buffer eviction and new
-samples cannot alter old evidence. Re-arming an unfinished sample, repeated start,
-or explicitly observed `probe.markRetry()` permanently invalidates the document.
-Any retry seen by the operator must be reported; absence of a retry callback is
-not proof that no retry occurred.
+samples cannot alter old evidence. Re-arming an unfinished sample or repeating a
+start permanently invalidates the document. The app's fixed, no-argument retry
+producer increments the active spawn sample for every explicit or internal
+hydration retry. Probe errors remain isolated from hydration; collected nonzero
+`retryCount` is rejected by the evaluator as `RETRY_DETECTED`.
 
 Call `probe.collect()` after completion, and save exactly its returned object.
 For multiple documents concatenate only their `resources` arrays and `samples`

@@ -30,9 +30,46 @@ export function evaluateCriticalPath(run) {
   };
 }
 
-function exactFields(value, fields) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+function readPlainDataObject(value) {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Object.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some(key => typeof key !== 'string')) return null;
+    const data = new Map();
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      data.set(key, descriptor.value);
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function readPlainDataArray(value) {
+  try {
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    const length = descriptors.length?.value;
+    if (!Number.isSafeInteger(length) || length < 0 || keys.length !== length + 1) return null;
+    const items = [];
+    for (let index = 0; index < length; index++) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      items.push(descriptor.value);
+    }
+    return items;
+  } catch {
+    return null;
+  }
+}
+
+function exactDataFields(data, fields) {
+  return data instanceof Map && data.size === fields.length && fields.every(field => data.has(field));
 }
 
 function distribution(values) {
@@ -43,24 +80,38 @@ function distribution(values) {
 
 export function evaluatePhase2CriticalPath(run) {
   const invalid = () => { throw new CliFailure('INVALID_EVIDENCE'); };
-  if (!exactFields(run, ['resources', 'samples']) || !Array.isArray(run.resources) || !Array.isArray(run.samples)) invalid();
-  for (const resource of run.resources) {
-    if (!exactFields(resource, ['name']) || !['https://redacted.invalid/resource', 'https://redacted.invalid/v1/sessions'].includes(resource.name)) invalid();
+  const root = readPlainDataObject(run);
+  if (!exactDataFields(root, ['resources', 'samples'])) invalid();
+  const resourceValues = readPlainDataArray(root.get('resources'));
+  const sampleValues = readPlainDataArray(root.get('samples'));
+  if (!resourceValues || !sampleValues) invalid();
+  const resources = [];
+  for (const resourceValue of resourceValues) {
+    const resource = readPlainDataObject(resourceValue);
+    if (!exactDataFields(resource, ['name'])
+      || !['https://redacted.invalid/resource', 'https://redacted.invalid/v1/sessions'].includes(resource.get('name'))) invalid();
+    resources.push({ name: resource.get('name') });
   }
-  for (const sample of run.samples) {
-    const metrics = sample?.kind === 'deep-link' ? ['deepLinkInteractiveMs'] : ['spawnRoutePaintMs', 'processorReadyMs'];
-    if (!exactFields(sample, ['kind', 'cache', 'retryCount', ...metrics])
-      || !['deep-link', 'spawn'].includes(sample.kind) || !['cold', 'warm'].includes(sample.cache)
-      || !Number.isSafeInteger(sample.retryCount) || sample.retryCount < 0
-      || metrics.some(field => typeof sample[field] !== 'number' || !Number.isFinite(sample[field]) || sample[field] < 0)) invalid();
+  const samples = [];
+  for (const sampleValue of sampleValues) {
+    const data = readPlainDataObject(sampleValue);
+    if (!data) invalid();
+    const kind = data.get('kind');
+    const metrics = kind === 'deep-link' ? ['deepLinkInteractiveMs'] : ['spawnRoutePaintMs', 'processorReadyMs'];
+    if (!exactDataFields(data, ['kind', 'cache', 'retryCount', ...metrics])
+      || !['deep-link', 'spawn'].includes(kind) || !['cold', 'warm'].includes(data.get('cache'))
+      || !Number.isSafeInteger(data.get('retryCount')) || data.get('retryCount') < 0
+      || metrics.some(field => typeof data.get(field) !== 'number'
+        || !Number.isFinite(data.get(field)) || data.get(field) < 0)) invalid();
+    samples.push(Object.fromEntries(data));
   }
-  if (run.samples.some(sample => sample.retryCount !== 0)) throw new CliFailure('RETRY_DETECTED');
-  if (run.resources.some(resource => resource.name === 'https://redacted.invalid/v1/sessions')) throw new CliFailure('LEGACY_SESSION_REQUEST');
+  if (samples.some(sample => sample.retryCount !== 0)) throw new CliFailure('RETRY_DETECTED');
+  if (resources.some(resource => resource.name === 'https://redacted.invalid/v1/sessions')) throw new CliFailure('LEGACY_SESSION_REQUEST');
   const groups = {};
   for (const kind of ['deep-link', 'spawn']) for (const cache of ['cold', 'warm']) {
-    const samples = run.samples.filter(sample => sample.kind === kind && sample.cache === cache);
-    if (samples.length < 5) throw new CliFailure('INSUFFICIENT_SAMPLES');
-    groups[kind + cache] = samples;
+    const cohort = samples.filter(sample => sample.kind === kind && sample.cache === cache);
+    if (cohort.length < 5) throw new CliFailure('INSUFFICIENT_SAMPLES');
+    groups[kind + cache] = cohort;
   }
   let ok = true;
   const summaries = {};
@@ -69,13 +120,13 @@ export function evaluatePhase2CriticalPath(run) {
     ['spawnRoutePaintMs', 'spawnRoutePaint', 'spawn', 7000, 10000],
     ['processorReadyMs', 'processorReady', 'spawn', 10000, 15000],
   ]) {
-    summaries[key] = distribution(run.samples.filter(sample => sample.kind === kind).map(sample => sample[field]));
+    summaries[key] = distribution(samples.filter(sample => sample.kind === kind).map(sample => sample[field]));
     for (const cache of ['cold', 'warm']) {
       const cohort = distribution(groups[kind + cache].map(sample => sample[field]));
       if (cohort.p50 > p50 || cohort.p95 > p95) ok = false;
     }
   }
-  return { ok, sampleCount: run.samples.length, ...summaries, legacySessionCalls: 0 };
+  return { ok, sampleCount: samples.length, ...summaries, legacySessionCalls: 0 };
 }
 
 function parseArguments(argv) {
@@ -243,7 +294,7 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     const key = kind === 'deep-link' ? 'deepLink' : 'spawn';
     try { beginResourceCollection(key, 'start', kind === 'deep-link' ? navigationStart : now); }
     catch { fail('RESOURCE_COLLECTION_FAILED'); }
-    active = { ...configured, path: state[key], marks: new Map(), last: state[key].start };
+    active = { ...configured, path: state[key], marks: new Map(), last: state[key].start, retryCount: 0 };
     configured = null;
   };
   const mark = stage => {
@@ -266,7 +317,7 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     const required = active.kind === 'deep-link' ? deep : spawn;
     if (required.some(requiredStage => !active.marks.has(requiredStage))) fail('MISSING_APP_STAGE');
     try { freezeResources(active.path); } catch { fail('RESOURCE_COLLECTION_FAILED'); }
-    const sample = { kind: active.kind, cache: active.cache, retryCount: 0 };
+    const sample = { kind: active.kind, cache: active.cache, retryCount: active.retryCount };
     if (active.kind === 'deep-link') sample.deepLinkInteractiveMs = time - active.path.start;
     else {
       sample.spawnRoutePaintMs = active.marks.get('web.session.route_painted') - active.path.start;
@@ -303,7 +354,10 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     markProcessorReady() { mark('web.processor.ready_received'); },
     markFirstAgentEvent() { mark('web.first_agent_event_received'); },
     markTurnCompletion() { mark('web.turn.completed'); },
-    markRetry() { fail('RETRY_DETECTED'); },
+    markRetry() {
+      check();
+      if (active?.kind === 'spawn') active.retryCount += 1;
+    },
     collect() {
       check();
       if (active || configured || samples.length === 0) fail('MISSING_APP_STAGE');
@@ -315,13 +369,23 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
 function renderEgoProbe(origin, sessionId, phase2 = false) {
   return `(() => {
   const namespace = '__happySessionCriticalPathProbe';
-  if (globalThis[namespace]) {
-    if (${phase2} !== (globalThis[namespace].phase === 2)) {
+  const invalidProbeMode = () => {
       const error = new Error('INVALID_PROBE_MODE');
       error.code = 'INVALID_PROBE_MODE';
       throw error;
-    }
-    return globalThis[namespace];
+  };
+  let existingProbe;
+  let hasExistingProbe;
+  try {
+    hasExistingProbe = namespace in globalThis;
+    existingProbe = globalThis[namespace];
+  } catch {
+    invalidProbeMode();
+  }
+  if (${phase2} && hasExistingProbe) invalidProbeMode();
+  if (existingProbe) {
+    if (${phase2} !== (existingProbe.phase === 2)) invalidProbeMode();
+    return existingProbe;
   }
 
   const state = {
@@ -340,6 +404,7 @@ function renderEgoProbe(origin, sessionId, phase2 = false) {
   let trackedOpen;
   let trackedSend;
   let xhrPrototype;
+  let installedProbe;
   const captureRequest = (input) => {
     try {
       const value = typeof input === 'string' || input instanceof URL ? input : input.url;
@@ -396,7 +461,8 @@ function renderEgoProbe(origin, sessionId, phase2 = false) {
   };
   const requireCollection = (path) => {
     try {
-      if (requestCollectionFailed || globalThis.fetch !== trackedFetch
+      if (requestCollectionFailed || globalThis[namespace] !== installedProbe
+        || globalThis.fetch !== trackedFetch
         || !xhrPrototype || xhrPrototype.open !== trackedOpen || xhrPrototype.send !== trackedSend) {
         requestCollectionFailed = true;
       }
@@ -535,6 +601,7 @@ function renderEgoProbe(origin, sessionId, phase2 = false) {
       };
     },
   }`};
+  installedProbe = probe;
   globalThis[namespace] = probe;
   return probe;
 })()`;

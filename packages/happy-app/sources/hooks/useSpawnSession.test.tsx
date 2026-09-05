@@ -160,7 +160,10 @@ describe('useSpawnSession', () => {
         });
     });
 
-    afterEach(() => consoleErrorSpy.mockRestore());
+    afterEach(() => {
+        consoleErrorSpy.mockRestore();
+        delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+    });
 
     it('retains the first created session after local queue failure and retries without respawning', async () => {
         mocks.sendMessage.mockRejectedValueOnce(new Error('synthetic-queue-failure'));
@@ -351,6 +354,40 @@ describe('useSpawnSession', () => {
         }
     });
 
+    it('reports a real hydration retry without letting probe failure interrupt spawn', async () => {
+        // Catches ensureSessionHydratedWithRetry hiding its second attempt from
+        // the active spawn sample, or observability changing product behavior.
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockRejectedValueOnce(new Error('synthetic-hydration-failure')).mockResolvedValueOnce(true);
+        let retryCount = 0;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRetry: (...args: unknown[]) => {
+                expect(args).toEqual([]);
+                retryCount += 1;
+                throw new Error('private-probe-error');
+            },
+        };
+        const hook = renderHook();
+
+        try {
+            let result;
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                result = await spawnPromise;
+            });
+
+            expect(result).toBe(true);
+            expect(retryCount).toBe(1);
+            expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(2);
+            expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
     it('creates one trace and keeps traced spawn, hydrate, configure, local queue, and navigation in order', async () => {
         const order: string[] = [];
         mocks.traceStartup.mockImplementation((event: { stage: string }) => {
@@ -519,6 +556,36 @@ describe('useSpawnSession', () => {
             expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
             expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
             expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('counts explicit hydration recovery before its first internal attempt', async () => {
+        // Catches retryHydration resetting the helper's attempt index and
+        // hiding the user-visible retry when that new call succeeds at once.
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        let retryCount = 0;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRetry: () => { retryCount += 1; },
+        };
+        const hook = renderHook();
+
+        try {
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                await spawnPromise;
+            });
+            expect(retryCount).toBe(3);
+
+            mocks.ensureSessionHydrated.mockResolvedValue(true);
+            await act(async () => {
+                expect(await hook.current().retryHydration()).toBe(true);
+            });
+            expect(retryCount).toBe(4);
         } finally {
             hook.unmount();
             vi.useRealTimers();

@@ -124,6 +124,70 @@ test('Phase 2 exact legacy resource fails with a fixed code', () => {
   assert.throws(() => globalPhase2(evidence), { code: 'LEGACY_SESSION_REQUEST' });
 });
 
+function accessorObject(entries, throwingField) {
+  const value = {};
+  for (const [key, fieldValue] of Object.entries(entries)) {
+    Object.defineProperty(value, key, {
+      enumerable: true,
+      get() {
+        if (key === throwingField) throw new Error('private-evidence-sentinel');
+        return fieldValue;
+      },
+    });
+  }
+  return value;
+}
+
+function customArray(values) {
+  const value = [...values];
+  Object.setPrototypeOf(value, Object.create(Array.prototype));
+  return value;
+}
+
+test('Phase 2 rejects unsafe direct evaluator objects with only INVALID_EVIDENCE', () => {
+  const base = phase2Evidence();
+  const rootCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), base),
+    Object.assign([], base),
+    accessorObject(base),
+    accessorObject(base, 'resources'),
+  ];
+  const resourcesCases = [
+    customArray([]),
+    Object.assign([], { privateField: 'private-evidence-sentinel' }),
+    Object.defineProperty([], '0', { enumerable: true, get() { throw new Error('private-evidence-sentinel'); } }),
+  ];
+  resourcesCases[2].length = 1;
+  const sampleBase = base.samples[0];
+  const sampleCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), sampleBase),
+    Object.assign([], sampleBase),
+    accessorObject(sampleBase),
+    accessorObject(sampleBase, 'kind'),
+  ];
+  const resourceBase = { name: 'https://redacted.invalid/resource' };
+  const resourceCases = [
+    Object.assign(Object.create({ inherited: 'private-evidence-sentinel' }), resourceBase),
+    Object.assign([], resourceBase),
+    accessorObject(resourceBase),
+    accessorObject(resourceBase, 'name'),
+  ];
+  const cases = [
+    ...rootCases,
+    ...resourcesCases.map(resources => ({ ...phase2Evidence(), resources })),
+    ...sampleCases.map(sample => ({ ...phase2Evidence(), samples: [sample, ...phase2Evidence().samples.slice(1)] })),
+    ...resourceCases.map(resource => ({ ...phase2Evidence(), resources: [resource] })),
+  ];
+  for (const evidence of cases) {
+    assert.throws(() => globalPhase2(evidence), error => {
+      assert.equal(error.code, 'INVALID_EVIDENCE');
+      assert.equal(error.message, 'INVALID_EVIDENCE');
+      assert.doesNotMatch(`${error}\n${error.stack}`, /private-evidence-sentinel/);
+      return true;
+    });
+  }
+});
+
 function phase2Probe() {
   const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-phase-2-ego-probe']);
   assert.equal(result.status, 0);
@@ -134,10 +198,30 @@ function phase2Probe() {
   return { probe: vm.runInNewContext(result.stdout, context), context, observer, at: value => { time = value; } };
 }
 
-test('Phase 2 cannot silently reuse an existing Phase 1 document probe', () => {
+test('Phase 2 rejects every pre-existing partial or fabricated document probe', () => {
   const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-phase-2-ego-probe']);
   assert.equal(result.status, 0);
-  assert.throws(() => vm.runInNewContext(result.stdout, { __happySessionCriticalPathProbe: {} }), { code: 'INVALID_PROBE_MODE' });
+  const methods = [
+    'configureSample', 'initFreshDeepLink', 'startNewTextSession', 'markAppStage',
+    'markFreshHeaderVisible', 'markFreshLatestMessageComplete', 'markNewSessionEvent',
+    'markLocalQueue', 'markRouteNavigation', 'markProcessorReady', 'markFirstAgentEvent',
+    'markTurnCompletion', 'markRetry', 'collect',
+  ];
+  const fabricated = Object.fromEntries(methods.map(method => [method, () => ({ resources: [], samples: [] })]));
+  for (const existing of [{}, { phase: 2 }, { phase: 2, ...fabricated }]) {
+    assert.throws(() => vm.runInNewContext(result.stdout, { __happySessionCriticalPathProbe: existing }), {
+      code: 'INVALID_PROBE_MODE',
+    });
+  }
+});
+
+test('Phase 2 permanently rejects replacement of the installed probe global', () => {
+  const h = phase2Probe();
+  h.probe.configureSample({ kind: 'spawn', cache: 'cold' });
+  h.context.__happySessionCriticalPathProbe = { phase: 2 };
+  assert.throws(() => h.probe.startNewTextSession(), { code: 'RESOURCE_COLLECTION_FAILED' });
+  h.context.__happySessionCriticalPathProbe = h.probe;
+  assert.throws(() => h.probe.startNewTextSession(), { code: 'RESOURCE_COLLECTION_FAILED' });
 });
 
 test('Phase 2 rejects inherited classification, arrays and throwing classification accessors', () => {
@@ -198,7 +282,6 @@ for (const [label, action, code] of [
   ['unknown stage', h => h.probe.markAppStage('private-sentinel'), 'INVALID_APP_STAGE'],
   ['out of order', h => { h.at(10); h.probe.markFreshLatestMessageComplete(); }, 'OUT_OF_ORDER_APP_STAGE'],
   ['hidden retry', h => h.probe.initFreshDeepLink(), 'RETRY_DETECTED'],
-  ['reported retry', h => h.probe.markRetry(), 'RETRY_DETECTED'],
 ]) {
   test(`Phase 2 latches ${label} even when the app bridge catches the error`, () => {
     const h = phase2Probe(); deepStages(h);
@@ -206,6 +289,25 @@ for (const [label, action, code] of [
     assert.throws(() => h.probe.collect(), { code });
   });
 }
+
+test('Phase 2 records a reported real spawn retry for evaluator rejection', () => {
+  const h = phase2Probe();
+  h.probe.configureSample({ kind: 'spawn', cache: 'cold' });
+  h.at(1000); h.probe.startNewTextSession();
+  h.at(1050); h.probe.markRetry();
+  h.at(1100); h.probe.markNewSessionEvent();
+  h.at(1200); h.probe.markLocalQueue();
+  h.at(1300); h.probe.markAppStage('web.session.navigated');
+  h.at(1500); h.probe.markRouteNavigation();
+  h.at(1800); h.probe.markProcessorReady();
+  h.at(1900); h.probe.markFirstAgentEvent();
+  h.at(2100); h.probe.markTurnCompletion();
+  const evidence = JSON.parse(JSON.stringify(h.probe.collect()));
+  assert.deepEqual(evidence.samples, [
+    { kind: 'spawn', cache: 'cold', retryCount: 1, spawnRoutePaintMs: 500, processorReadyMs: 800 },
+  ]);
+  assert.throws(() => globalPhase2(evidence), { code: 'RETRY_DETECTED' });
+});
 
 test('Phase 2 rejects completed operations before their start', () => {
   const h = phase2Probe();

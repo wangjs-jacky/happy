@@ -56,3 +56,16 @@ export function markSessionCriticalPathAppStage(stage: SessionCriticalPathAppSta
         return false;
     }
 }
+
+export function markSessionCriticalPathHydrationRetry(): boolean {
+    try {
+        const probe = (globalThis as { __happySessionCriticalPathProbe?: Probe }).__happySessionCriticalPathProbe;
+        if (!probe || typeof probe !== 'object') return false;
+        const mark = probe.markRetry;
+        if (typeof mark !== 'function') return false;
+        (mark as () => void)();
+        return true;
+    } catch {
+        return false;
+    }
+}

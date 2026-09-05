@@ -15,6 +15,7 @@ import { organizeSession } from '@/sync/sidebarOrganization';
 import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
 import { traceStartup } from '@/sync/sessionStartupTrace';
 import { sessionStartupTraceRuntime, type WebStartupTraceHandle } from '@/sync/sessionStartupTraceRuntime';
+import { markSessionCriticalPathHydrationRetry } from '@/sync/sessionCriticalPathProbeBridge';
 
 export interface SpawnSessionArgs {
     machineId: string;
@@ -332,6 +333,7 @@ export function useSpawnSession() {
         pending.retrying = true;
         beginSending();
         try {
+            markSessionCriticalPathHydrationRetry();
             const hydrated = await ensureSessionHydratedWithRetry(pending.sessionId);
             if (!hydrated) {
                 return false;
