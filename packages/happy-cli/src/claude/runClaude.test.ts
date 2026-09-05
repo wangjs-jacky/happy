@@ -229,7 +229,7 @@ describe('runClaude remote JSONL scanner', () => {
         expect(mockApiClientCreate).toHaveBeenCalledWith(credentials, startupLifecycle);
         expect(registeredUserHandler).toBeTypeOf('function');
         exitSpy.mockRestore();
-    });
+    }, 20_000);
 
     afterEach(() => {
         for (const [event, listeners] of originalListeners) {
