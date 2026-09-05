@@ -5,10 +5,65 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
+import { createServer } from 'node:http';
+import { performance as nativePerformance, PerformanceObserver as NativePerformanceObserver } from 'node:perf_hooks';
 
 const scriptPath = new URL('./check-session-critical-path.mjs', import.meta.url);
 const origin = 'https://example.test';
 const sessionId = 'known-session-123';
+
+function browserRequests() {
+  return {
+    document: { readyState: 'loading', scripts: [], baseURI: origin },
+    URL, Request,
+    fetch: async () => ({ ok: true }),
+    XMLHttpRequest: class { open() {} send() {} },
+  };
+}
+
+test('covers a real in-flight fetch begun during deep link whose ResourceTiming arrives after freeze', async () => {
+  const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe']);
+  let release;
+  let accepted;
+  const started = new Promise(resolve => { accepted = resolve; });
+  const server = createServer((_request, response) => {
+    release = () => { response.end('synthetic-response'); };
+    accepted();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const target = 'http://127.0.0.1:' + server.address().port + '/v1/sessions';
+  const context = { ...browserRequests(), fetch: globalThis.fetch, PerformanceObserver: NativePerformanceObserver,
+    performance: nativePerformance };
+  const probe = vm.runInNewContext(result.stdout, context);
+  try {
+    probe.initFreshDeepLink();
+    const pending = context.fetch(target);
+    await started;
+    assert.equal(nativePerformance.getEntriesByType('resource').some(entry => entry.name === target), false);
+    probe.markFreshHeaderVisible();
+    probe.markFreshLatestMessageComplete();
+    probe.startNewTextSession();
+    probe.markRouteNavigation();
+    release();
+    await (await pending).text();
+    await new Promise(resolve => setImmediate(resolve));
+    probe.markTurnCompletion();
+    assert.equal((await evaluator()).evaluateCriticalPath(probe.collect()).legacySessionCalls, 1);
+  } finally {
+    release?.();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('fails closed when installed after application scripts could already have started requests', () => {
+  const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe']);
+  const context = { ...browserRequests(), document: { readyState: 'complete', scripts: [{}] },
+    PerformanceObserver: createObserverHarness().PerformanceObserver,
+    performance: { now: () => 100, getEntriesByType: () => [] } };
+  const probe = vm.runInNewContext(result.stdout, context);
+  assertCollectionFailure(() => probe.initFreshDeepLink());
+});
 
 function passingRun(overrides = {}) {
   return {
@@ -18,6 +73,59 @@ function passingRun(overrides = {}) {
     ...overrides,
   };
 }
+
+test('counts pending XHR at send, excludes later requests and never issues its own request', async () => {
+  const { probe, context, init, complete } = createFaultProbe();
+  init.deepLink();
+  const request = new context.XMLHttpRequest();
+  request.open('GET', '/v1/sessions?redacted');
+  request.send();
+  complete.deepLink();
+  init.spawn();
+  complete.spawn();
+  assert.equal((await evaluator()).evaluateCriticalPath(probe.collect()).legacySessionCalls, 1);
+  await context.fetch('/v1/sessions');
+  assert.equal((await evaluator()).evaluateCriticalPath(probe.collect()).legacySessionCalls, 1);
+});
+
+for (const api of ['fetch', 'open', 'send']) {
+  test('permanently fails closed if request instrumentation is replaced: ' + api, () => {
+    const { probe, context, init, complete } = createFaultProbe();
+    init.deepLink(); complete.deepLink(); init.spawn(); complete.spawn();
+    const owner = api === 'fetch' ? context : context.XMLHttpRequest.prototype;
+    const original = owner[api];
+    owner[api] = () => undefined;
+    assertCollectionFailure(() => probe.collect());
+    owner[api] = original;
+    assertCollectionFailure(() => probe.collect());
+  });
+}
+
+test('redacts an accessor failure while checking request instrumentation', () => {
+  const { probe, context, init, complete } = createFaultProbe();
+  init.deepLink(); complete.deepLink(); init.spawn(); complete.spawn();
+  Object.defineProperty(context, 'fetch', { configurable: true, get: throwCollectionFault });
+  assertCollectionFailure(() => probe.collect());
+});
+
+test('keeps native fetch rejection semantics and still counts its initiation', async () => {
+  const result = runCli(['--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe']);
+  const rejected = new Error('synthetic-network-failure');
+  let calls = 0;
+  const context = { ...browserRequests(), fetch: () => { calls++; return Promise.reject(rejected); },
+    PerformanceObserver: createObserverHarness().PerformanceObserver,
+    performance: { now: () => 10, getEntriesByType: () => [] } };
+  const probe = vm.runInNewContext(result.stdout, context);
+  assert.equal(calls, 0);
+  probe.initFreshDeepLink();
+  await assert.rejects(context.fetch('/v1/sessions'), error => error === rejected);
+  probe.markFreshHeaderVisible(); probe.markFreshLatestMessageComplete();
+  // Move the second interval beyond the first initiation.
+  context.performance.now = () => 20;
+  probe.startNewTextSession(); probe.markRouteNavigation(); probe.markTurnCompletion();
+  assert.equal((await evaluator()).evaluateCriticalPath(probe.collect()).legacySessionCalls, 1);
+  assert.equal(calls, 1);
+});
 
 async function evaluator() {
   return import('./check-session-critical-path.mjs');
@@ -118,6 +226,7 @@ function createFaultProbe() {
   const observer = createObserverHarness();
   let now = 0;
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -416,6 +525,7 @@ test('print-ego-probe supplies a self-contained lifecycle that collects both pat
   let now = 0;
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -454,13 +564,14 @@ test('print-ego-probe supplies a self-contained lifecycle that collects both pat
   assert.equal(typeof context.__happySessionCriticalPathProbe, 'object');
 });
 
-test('the probe survives a same-document route transition and never accesses credentials, storage, or network APIs', () => {
+test('the probe survives a same-document route transition without reading credentials or issuing requests', () => {
   const result = runCli([
     '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
   ]);
   let now = 0;
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -481,7 +592,7 @@ test('the probe survives a same-document route transition and never accesses cre
   afterRouteTransition.markRouteNavigation();
   afterRouteTransition.markTurnCompletion();
   assert.equal(afterRouteTransition.collect().spawnNavigateMs, 10);
-  assert.doesNotMatch(result.stdout, /localStorage|sessionStorage|document\.cookie|authorization|bearer|password|fetch\(|XMLHttpRequest|send\(|postMessage\(/i);
+  assert.doesNotMatch(result.stdout, /localStorage|sessionStorage|document\.cookie|authorization|bearer|password|postMessage\(/i);
 });
 
 test('reinitializing either path invalidates prior completion marks and resource generations', () => {
@@ -492,6 +603,7 @@ test('reinitializing either path invalidates prior completion marks and resource
   let resources = [{ name: 'https://example.test/unrelated-before-deep', startTime: -1 }];
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -560,6 +672,7 @@ test('freezes each path resource snapshot before later timing-buffer eviction', 
   let resources = [{ name: 'https://example.test/unrelated-before-deep', startTime: -1 }];
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -616,6 +729,7 @@ test('captures deep-link resources from navigation start and observer-delivered 
   ];
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -669,6 +783,7 @@ test('disconnects old observers on reinit and blocks stale observer writes', () 
   let resources = [];
   const observer = createObserverHarness();
   const context = {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
@@ -718,6 +833,7 @@ test('fails closed when PerformanceObserver is unavailable', () => {
     '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
   ]);
   const probe = vm.runInNewContext(result.stdout, {
+    ...browserRequests(),
     performance: {
       now: () => 0,
       getEntriesByType: (type) => (type === 'navigation' ? [{ startTime: 0 }] : []),
@@ -737,6 +853,7 @@ test('drains undelivered resource records before freezing either path without du
   let resources = [seeded];
   const observer = createObserverHarness();
   const probe = vm.runInNewContext(result.stdout, {
+    ...browserRequests(),
     PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,

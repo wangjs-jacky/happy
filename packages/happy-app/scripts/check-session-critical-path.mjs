@@ -149,6 +149,56 @@ function renderEgoProbe(origin, sessionId) {
     spawn: {},
   };
   const now = () => performance.now();
+  // ResourceTiming is delivered on completion, so an observer alone cannot
+  // prove the absence of a request still in flight at either freeze boundary.
+  // Install before any app script and retain initiation times independently.
+  const requestStarts = [];
+  let requestCollectionFailed = false;
+  let trackedFetch;
+  let trackedOpen;
+  let trackedSend;
+  let xhrPrototype;
+  const captureRequest = (input) => {
+    try {
+      const value = typeof input === 'string' || input instanceof URL ? input : input.url;
+      const url = new URL(value, document.baseURI);
+      if (url.pathname === '/v1/sessions') {
+        requestStarts.push({ startTime: now(), name: 'https://redacted.invalid/v1/sessions' });
+      }
+    } catch {
+      requestCollectionFailed = true;
+    }
+  };
+  try {
+    if (document.readyState !== 'loading' || document.scripts.length !== 0
+      || typeof globalThis.fetch !== 'function' || typeof XMLHttpRequest !== 'function') {
+      throw new Error();
+    }
+    const originalFetch = globalThis.fetch;
+    xhrPrototype = XMLHttpRequest.prototype;
+    const originalOpen = xhrPrototype.open;
+    const originalSend = xhrPrototype.send;
+    if (typeof originalOpen !== 'function' || typeof originalSend !== 'function') throw new Error();
+    const xhrUrls = new WeakMap();
+    trackedFetch = function (...args) {
+      captureRequest(args[0]);
+      return Reflect.apply(originalFetch, this, args);
+    };
+    trackedOpen = function (...args) {
+      const result = Reflect.apply(originalOpen, this, args);
+      xhrUrls.set(this, args[1]);
+      return result;
+    };
+    trackedSend = function (...args) {
+      captureRequest(xhrUrls.get(this));
+      return Reflect.apply(originalSend, this, args);
+    };
+    globalThis.fetch = trackedFetch;
+    xhrPrototype.open = trackedOpen;
+    xhrPrototype.send = trackedSend;
+  } catch {
+    requestCollectionFailed = true;
+  }
   const resourceEntries = () => performance.getEntriesByType('resource');
   const requiredMark = (value) => {
     if (typeof value !== 'number') throw new Error('Critical-path lifecycle mark is missing.');
@@ -163,7 +213,15 @@ function renderEgoProbe(origin, sessionId) {
     return entry && typeof entry.startTime === 'number' ? entry.startTime : 0;
   };
   const requireCollection = (path) => {
-    if (path.collectionFailed) {
+    try {
+      if (requestCollectionFailed || globalThis.fetch !== trackedFetch
+        || !xhrPrototype || xhrPrototype.open !== trackedOpen || xhrPrototype.send !== trackedSend) {
+        requestCollectionFailed = true;
+      }
+    } catch {
+      requestCollectionFailed = true;
+    }
+    if (path.collectionFailed || requestCollectionFailed) {
       const error = new Error('Critical-path resource collection failed.');
       error.code = 'RESOURCE_COLLECTION_FAILED';
       throw error;
@@ -192,6 +250,10 @@ function renderEgoProbe(origin, sessionId) {
         || typeof entry.startTime !== 'number' || entry.startTime < path.resourceStart
         || path.seenEntries.has(entry)) return;
       path.seenEntries.add(entry);
+      // These legacy requests are counted at initiation, including failures and
+      // requests that have not produced ResourceTiming by the freeze boundary.
+      if ((entry.initiatorType === 'fetch' || entry.initiatorType === 'xmlhttprequest')
+        && new URL(entry.name).pathname === '/v1/sessions') return;
       path.resources.push({ name: entry.name });
     };
     try {
@@ -221,7 +283,12 @@ function renderEgoProbe(origin, sessionId) {
     if (!Array.isArray(path.snapshot)) {
       try {
         path.drainResources();
-        path.snapshot = Object.freeze(path.resources.slice());
+        const end = now();
+        path.snapshot = Object.freeze([
+          ...path.resources,
+          ...requestStarts.filter(entry => entry.startTime >= path.resourceStart && entry.startTime <= end)
+            .map(entry => ({ name: entry.name })),
+        ]);
       } catch {
         path.collectionFailed = true;
       } finally {

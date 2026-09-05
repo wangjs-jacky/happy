@@ -2,6 +2,24 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { DaemonSessionStartupIntegration } from './run';
 import { createDaemonStartupTraceContext } from './sessionStartupTrace';
+import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
+import { logger } from '@/ui/logger';
+
+const spawnLog = vi.hoisted(() => ({ lines: [] as string[], missing: false, fail: false }));
+vi.mock('fs', async importOriginal => ({
+    ...await importOriginal<typeof import('fs')>(),
+    appendFileSync: (_path: unknown, value: unknown) => { spawnLog.lines.push(String(value)); },
+}));
+vi.mock('node:fs', async importOriginal => {
+    const actual = await importOriginal<typeof import('node:fs')>();
+    return { ...actual,
+        appendFileSync: (_path: unknown, value: unknown) => { spawnLog.lines.push(String(value)); },
+        existsSync: (path: any) => String(path).endsWith('dist/index.mjs') ? !spawnLog.missing : actual.existsSync(path) };
+});
+vi.mock('cross-spawn', () => ({ spawn: () => {
+    if (spawnLog.fail) throw new Error('synthetic-spawn-error');
+    return { pid: 101 };
+} }));
 
 const TRACE_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -10,6 +28,31 @@ function trace() {
 }
 
 describe('run.ts daemon session startup integration', () => {
+    it('keeps command, directory and raw failures out of the real worker spawn logger', () => {
+        spawnLog.lines = [];
+        const integration = new DaemonSessionStartupIntegration();
+        const child = spawnHappyCLI(['codex', '--resume', 'synthetic-command-canary'], {
+            cwd: '/synthetic-directory-canary',
+            env: integration.buildWorkerEnvironment('regular', {}, {}, TRACE_ID),
+        });
+        integration.childStarted(child.pid!, trace());
+        expect(child.pid).toBe(101);
+        expect(spawnLog.lines.length).toBeGreaterThan(0);
+        expect(spawnLog.lines.some(line => line.includes('synthetic-command-canary') || line.includes('synthetic-directory-canary'))).toBe(false);
+        spawnLog.missing = true;
+        let error: unknown;
+        try { spawnHappyCLI(['codex']); } catch (caught) { error = caught; }
+        finally { spawnLog.missing = false; }
+        expect(String(error).includes('index.mjs')).toBe(false);
+        expect(spawnLog.lines.some(line => line.includes('index.mjs'))).toBe(false);
+        spawnLog.fail = true;
+        try { expect(() => spawnHappyCLI(['codex'])).toThrow('WORKER_SPAWN_FAILED'); }
+        finally { spawnLog.fail = false; }
+        expect(spawnLog.lines.some(line => line.includes('synthetic-spawn-error'))).toBe(false);
+        const debug = vi.spyOn(logger, 'debug').mockImplementation(() => { throw new Error('synthetic-log-failure'); });
+        try { expect(spawnHappyCLI(['codex']).pid).toBe(101); }
+        finally { debug.mockRestore(); }
+    });
     it.each(['regular', 'tmux'] as const)('constructs the scrubbed %s worker environment used by run.ts', (mode) => {
         const integration = new DaemonSessionStartupIntegration();
 
