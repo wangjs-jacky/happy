@@ -1118,6 +1118,7 @@ async function createConnectedE2EWorkingDirectorySession(
         reconnect: () => Promise<void>;
     };
     currentPath: string;
+    machineId: string;
     failNextMessageFork: (errorMessage: string) => void;
     invalidPath: string;
     outsidePath: string;
@@ -1514,6 +1515,7 @@ async function createConnectedE2EWorkingDirectorySession(
             },
         },
         currentPath,
+        machineId,
         failNextMessageFork: (errorMessage: string) => {
             nextMessageForkError = errorMessage;
         },
@@ -6549,4 +6551,78 @@ test.describe('中文 Web 二维码与会话编辑器演示', () => {
             failedRequestCount: 0,
         });
     });
+});
+
+
+// 使用隔离服务和加密 RPC 夹具，验证真实附件上传及失败恢复。
+test('附件上传失败后保留草稿并在原会话恢复发送', async ({ page, request }, testInfo) => {
+    test.setTimeout(420_000);
+    const fixture = await createConnectedE2EWorkingDirectorySession(request);
+    const before = process.env.HAPPY_ATTACHMENT_EVIDENCE_PHASE === 'before';
+    const output = process.env.HAPPY_ATTACHMENT_EVIDENCE_DIR;
+    const failedRequests: string[] = [];
+    let rejectUpload = true;
+    let uploadRequests = 0;
+    const pageErrors: string[] = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    page.on('requestfailed', request => failedRequests.push(new URL(request.url()).pathname));
+    try {
+        await page.route('http://localhost:8787/logs', route => route.fulfill({ status: 204 }));
+        await page.addInitScript(({ machineId, directory }) => {
+            localStorage.setItem('mmkv.default\\new-session-draft-v1', JSON.stringify({
+                input: '', selectedMachineId: machineId, selectedPath: directory,
+                agentType: 'codex', permissionMode: 'default', modelMode: 'default',
+                effortLevel: null, sessionType: 'simple', worktreeKey: null, updatedAt: Date.now(),
+            }));
+        }, { machineId: fixture.machineId, directory: fixture.currentPath });
+        await page.route('**/attachments/request-upload', async route => {
+            uploadRequests += 1;
+            if (rejectUpload) await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"isolated-upload-failure"}' });
+            else await route.continue();
+        });
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.goto(authenticatedRoute('/'));
+        const input = page.locator('[data-testid="new-session-message-input"]:visible').last();
+        await expect(input).toBeVisible({ timeout: 180_000 });
+        await input.fill('请分析这张测试图片');
+        await input.evaluate(element => {
+            const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='), c => c.charCodeAt(0));
+            const data = new DataTransfer();
+            data.items.add(new File([bytes], 'attachment-recovery.png', { type: 'image/png' }));
+            element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+        });
+        await expect(page.locator('[data-testid="message-composer-content"]:visible img')).not.toHaveCount(0);
+        await expect(page.locator('[data-testid="message-composer-send-button"]:visible').last()).toBeEnabled();
+        await page.locator('[data-testid="message-composer-send-button"]:visible').last().click();
+        const notice = page.locator('[data-testid="compose-home-session-hydration-error"]:visible').last();
+        await expect(notice).toBeVisible();
+        expect(uploadRequests).toBe(1);
+        if (before) {
+            await expect(page.getByText('local-message-attachment-upload-failed', { exact: true })).toBeVisible();
+        } else {
+            await expect(notice).toContainText(/attachment|附件/i);
+            await expect(page.getByText('local-message-attachment-upload-failed', { exact: true })).toHaveCount(0);
+            await expect(page.getByRole('dialog')).toHaveCount(0);
+        }
+        await expect(input).toHaveValue('请分析这张测试图片');
+        if (output) {
+            fs.mkdirSync(output, { recursive: true });
+            await page.screenshot({ path: path.join(output, `case-1-${before ? 'before' : 'after'}.png`) });
+        }
+        if (before) return;
+        rejectUpload = false;
+        await page.locator('[data-testid="compose-home-session-hydration-retry"]:visible').last().click();
+        await expect(page).toHaveURL(/[/]session[/]/, { timeout: 60_000 });
+        await expect(page.locator('[data-testid="session-message-input"]:visible').last()).toBeVisible({ timeout: 180_000 });
+        expect(fixture.rpcCalls.filter(call => call.method.endsWith(':spawn-happy-session'))).toHaveLength(1);
+        expect(uploadRequests).toBe(2);
+        const recoveredSessionId = new URL(page.url()).pathname.split('/')[2];
+        await expect.poll(() => readE2EFileEvent(request, recoveredSessionId, 'attachment-recovery.png'), { timeout: 20_000 }).toMatchObject({ t: 'file', name: 'attachment-recovery.png' });
+        expect(pageErrors).toEqual([]);
+        if (output) await page.screenshot({ path: path.join(output, 'case-1-recovered.png') });
+        await testInfo.attach('观察结果', { body: JSON.stringify({ uploadRequests, spawnCount: 1, injectedHttpStatus: 503, pageErrors, failedRequests }), contentType: 'application/json' });
+    } finally {
+        console.log(JSON.stringify({ pageErrors, failedRequests, uploadRequests }));
+        await fixture.client.close();
+    }
 });
