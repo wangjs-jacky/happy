@@ -2,15 +2,21 @@ import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
+import { useComposeDraft } from '@/sync/composeDraft';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
+vi.mock('expo-crypto', () => ({ randomUUID: () => '00000000-0000-4000-8000-000000000001' }));
 
 const mocks = vi.hoisted(() => ({
+    isDataReady: true,
+    sessionRouteBecameInteractive: vi.fn(),
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
     sendMessage: vi.fn(),
     navigateToSession: vi.fn(),
+    dismissTo: vi.fn(),
+    onDismiss: null as (() => void) | null,
     refreshSessions: vi.fn(),
     applySettings: vi.fn(),
     updatePermission: vi.fn(),
@@ -69,7 +75,11 @@ vi.mock('react-native-unistyles', () => {
     };
 });
 vi.mock('expo-router', () => ({
-    useRouter: () => ({ canGoBack: () => false, back: vi.fn(), replace: vi.fn(), push: vi.fn() }),
+    useRouter: () => ({ canGoBack: () => false, back: vi.fn(), replace: vi.fn(), push: vi.fn(),
+        canDismiss: () => Boolean(mocks.onDismiss),
+        dismissTo: (path: string) => { mocks.dismissTo(path); mocks.onDismiss?.(); },
+        navigate: (path: string) => mocks.navigateToSession(path.replace('/session/', '')),
+    }),
     useNavigation: () => ({ dispatch: vi.fn() }),
     useLocalSearchParams: () => ({}),
 }));
@@ -91,8 +101,10 @@ vi.mock('zustand/react/shallow', () => ({ useShallow: (selector: unknown) => sel
 vi.mock('@/hooks/useImagePicker', async () => {
     const ReactModule = await import('react');
     return {
-        useImagePicker: () => {
-            const [selectedImages, setSelectedImages] = ReactModule.useState(mocks.selectedImages);
+        useImagePicker: (options: any) => {
+            const [localImages, setLocalImages] = ReactModule.useState(mocks.selectedImages);
+            const selectedImages = options?.selection?.images ?? localImages;
+            const setSelectedImages: React.Dispatch<React.SetStateAction<Array<{ id: string; uri: string }>>> = options?.selection?.setImages ?? setLocalImages;
             mocks.setSelectedImages = setSelectedImages;
             return {
                 selectedImages,
@@ -133,6 +145,7 @@ vi.mock('@/sync/storage', () => {
     };
     return {
         storage,
+        useIsDataReady: () => mocks.isDataReady,
         useProfile: () => ({ id: 'profile-1', firstName: 'Test' }),
         useAllMachines: () => [machine],
         useLocalSetting: (key: string) => key === 'agents' ? [] : null,
@@ -162,9 +175,10 @@ vi.mock('@/sync/sync', () => ({
         refreshSessions: mocks.refreshSessions,
         sendMessage: mocks.sendMessage,
         applySettings: mocks.applySettings,
+        sessionRouteBecameInteractive: mocks.sessionRouteBecameInteractive,
     },
 }));
-vi.mock('@/hooks/useNavigateToSession', () => ({ useNavigateToSession: () => mocks.navigateToSession }));
+vi.mock('@/track', () => ({ trackSessionSwitched: vi.fn() }));
 vi.mock('@/utils/normalizeImageForUpload', () => ({ normalizeImageForUpload: vi.fn() }));
 vi.mock('./haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('./navigation/Header', () => ({ Header: 'Header' }));
@@ -185,14 +199,16 @@ describe('ComposeHome session hydration recovery', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.isDataReady = true;
         mocks.selectedImages = [
             { id: 'image-a', uri: 'file:///a.png' },
             { id: 'image-b', uri: 'file:///b.png' },
         ];
         mocks.setSelectedImages = null;
+        useComposeDraft.setState({ text: '', revision: 0, images: mocks.selectedImages as any });
         mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'session-1' });
         mocks.ensureSessionHydrated.mockResolvedValue(false);
-        mocks.sendMessage.mockResolvedValue(undefined);
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
         mocks.refreshSessions.mockResolvedValue(undefined);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -202,8 +218,52 @@ describe('ComposeHome session hydration recovery', () => {
     });
 
     afterEach(() => {
+        mocks.onDismiss = null;
         vi.useRealTimers();
         consoleErrorSpy.mockRestore();
+    });
+
+    it('defers first history load until active bootstrap is ready', async () => {
+        vi.useFakeTimers();
+        mocks.isDataReady = false;
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        await act(async () => { await vi.runAllTimersAsync(); });
+        expect(mocks.sessionRouteBecameInteractive).not.toHaveBeenCalled();
+        mocks.isDataReady = true;
+        act(() => { renderer.update(<ComposeHome variant="home" />); });
+        await act(async () => { await vi.runAllTimersAsync(); });
+        expect(mocks.sessionRouteBecameInteractive).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+
+    it('preserves newer compose revisions through the real navigate hook dismiss, unmount, and remount', async () => {
+        vi.useFakeTimers();
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="screen" />); });
+        act(() => { renderer.root.findByType('MessageComposer').props.onChangeText('submitted-revision'); });
+        await act(async () => {
+            renderer.root.findByType('MessageComposer').props.onSend();
+            await vi.runAllTimersAsync();
+        });
+        act(() => {
+            const composer = renderer.root.findByType('MessageComposer');
+            composer.props.onChangeText('retained-revision');
+            composer.props.onAddImages([{ id: 'retained-image', uri: 'synthetic-image' }]);
+        });
+        mocks.ensureSessionHydrated.mockResolvedValue(true);
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+        mocks.onDismiss = () => renderer.unmount();
+        await act(async () => {
+            await renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress();
+        });
+        expect(mocks.dismissTo).toHaveBeenCalledWith('/');
+        expect(renderer.toJSON()).toBeNull();
+        mocks.onDismiss = null;
+        act(() => { renderer = TestRenderer.create(<ComposeHome variant="home" />); });
+        expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('retained-revision');
+        expect(renderer.root.findByType('MessageComposer').props.selectedImages?.map((image: any) => image.id)).toEqual(['retained-image']);
+        act(() => renderer.unmount());
     });
 
     it('queues the submitted snapshot while preserving text and attachment edits made after hydration failure', async () => {
@@ -287,8 +347,8 @@ describe('ComposeHome session hydration recovery', () => {
 
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         let resolveQueue: (() => void) | undefined;
-        mocks.sendMessage.mockImplementation(() => new Promise<void>((resolve) => {
-            resolveQueue = resolve;
+        mocks.sendMessage.mockImplementation(() => new Promise((resolve) => {
+            resolveQueue = () => resolve({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
         }));
         const retry = renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress;
         let retryPromise!: Promise<void>;

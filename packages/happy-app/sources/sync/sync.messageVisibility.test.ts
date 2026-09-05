@@ -248,6 +248,7 @@ function newMessageUpdate(sessionId: string, seq: number) {
 function installSession(sessionId: string, decryptMessages?: (messages: ApiMessage[]) => Promise<any[]>) {
     mocks.state.sessions[sessionId] = hydrated(snapshot(sessionId));
     const encryption: any = {
+        createDetached() { return this; },
         decryptMessage: vi.fn(async (message: ApiMessage) => ({
             id: message.id,
             localId: message.localId,
@@ -269,6 +270,10 @@ function installSession(sessionId: string, decryptMessages?: (messages: ApiMessa
 
 describe('message visibility synchronization', () => {
     beforeEach(() => {
+        syncForTest.sessionEventCursors.clear();
+        syncForTest.sessionHydrations.clear();
+        syncForTest.inFlightSessionRefreshes.clear();
+        syncForTest.sessionDeletionMutationGenerations.clear();
         vi.clearAllMocks();
         mocks.state.sessions = {};
         mocks.state.sessionMessages = {};
@@ -684,6 +689,7 @@ describe('message visibility synchronization', () => {
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         mocks.hydrateRoute.mockImplementation(async (raw: ApiSessionSnapshot) => {
             const encryption = {
+                createDetached() { return this; },
                 decryptMessage: vi.fn(async (message: ApiMessage) => ({
                     id: message.id,
                     localId: message.localId,

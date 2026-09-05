@@ -24,9 +24,10 @@ import {
 import { isTauri } from '@/utils/isTauri';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { storage, useProfile, useAllMachines, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
+import { storage, useProfile, useAllMachines, useIsDataReady, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
+import { useComposeDraft } from '@/sync/composeDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
@@ -158,6 +159,12 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     const useDesktopComposerConfig = Platform.OS === 'web' && isTablet;
     const profile = useProfile();
     const machines = useAllMachines();
+    const isDataReady = useIsDataReady();
+    React.useEffect(() => {
+        if (!isDataReady) return;
+        const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
+        return () => clearTimeout(timer);
+    }, [isDataReady]);
     const askApi = useLocalSetting('askApi');
     const zenMode = useLocalSetting('zenMode');
     const [desktopRightPanelCollapsed, setDesktopRightPanelCollapsed] = useLocalSettingMutable('desktopRightPanelCollapsed');
@@ -170,8 +177,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     } = useDesktopWorkspaceLayout();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { sending, hydrationError, retryHydration, spawn } = useSpawnSession();
-    const [text, setText] = React.useState('');
-    const textRevisionRef = React.useRef(0);
+    const { text, setText, images: draftImages, setImages: setDraftImages } = useComposeDraft();
     const pendingSubmissionRef = React.useRef<SubmittedComposeSnapshot | null>(null);
     const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false);
     const [selectedImageStyleIds, setSelectedImageStyleIds] = React.useState<string[]>([]);
@@ -290,7 +296,9 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         [activeImageAgent, agentType, imagePluginInstalled],
     );
     const canAttach = composeExperience.canAttach;
-    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker({
+        selection: { images: draftImages, setImages: setDraftImages },
+    });
     const selectedImagesRef = React.useRef(selectedImages);
     selectedImagesRef.current = selectedImages;
     const hasImages = canAttach && selectedImages.length > 0;
@@ -674,12 +682,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, [activeImageAgent, agentType, askApi, availableCodingAgents, setAgentType]);
 
     const handleTextChange = React.useCallback((nextText: string) => {
-        textRevisionRef.current += 1;
         setText(nextText);
     }, []);
 
     const clearQueuedSubmission = React.useCallback((snapshot: SubmittedComposeSnapshot) => {
-        if (textRevisionRef.current === snapshot.textRevision) {
+        if (useComposeDraft.getState().revision === snapshot.textRevision) {
             composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setText('');
         }
@@ -735,7 +742,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
         // A hydration failure keeps the draft available for the retry action.
         const submittedSnapshot: SubmittedComposeSnapshot = {
             text,
-            textRevision: textRevisionRef.current,
+            textRevision: useComposeDraft.getState().revision,
             userAttachmentIds: userImages.map((image) => image.id),
         };
         pendingSubmissionRef.current = submittedSnapshot;
@@ -753,25 +760,17 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
             images,
             environmentVariables: spawnAgent === 'ask' ? buildAskApiEnvironment(askApi) : undefined,
             sidebarListId,
-        }).then((ok) => {
-            if (ok) {
-                clearQueuedSubmission(submittedSnapshot);
-                if (pendingSubmissionRef.current === submittedSnapshot) {
-                    pendingSubmissionRef.current = null;
-                }
+        }, false, () => {
+            clearQueuedSubmission(submittedSnapshot);
+            if (pendingSubmissionRef.current === submittedSnapshot) {
+                pendingSubmissionRef.current = null;
             }
         });
     }, [activeImageAgent, effectiveImageAgent, activeImageStyles.length, agentDefaultOverrides, text, sending, hydrationError, machines, spawn, hasImages, selectedImages, askApi, customImageStyles, selectedCustomReferenceImages, sidebarListId, clearQueuedSubmission]);
 
     const handleRetryHydration = React.useCallback(async () => {
-        const submittedSnapshot = pendingSubmissionRef.current;
-        if (await retryHydration() && submittedSnapshot) {
-            clearQueuedSubmission(submittedSnapshot);
-            if (pendingSubmissionRef.current === submittedSnapshot) {
-                pendingSubmissionRef.current = null;
-            }
-        }
-    }, [clearQueuedSubmission, retryHydration]);
+        await retryHydration();
+    }, [retryHydration]);
 
     // The send target must be reachable: an online machine and no fresh-worktree
     // request. When it isn't, MessageComposer's send button greys out (via

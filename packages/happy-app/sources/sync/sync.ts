@@ -100,7 +100,6 @@ import {
 } from './apiSessions';
 import {
     hydrateSessionSnapshotForRoute,
-    hydrateSessionSnapshots,
     type HydratedSession,
 } from './sessionSnapshotHydration';
 import {
@@ -219,6 +218,12 @@ type SendMessageOptions = {
     attachments?: AttachmentPreview[];
 };
 
+export type LocalMessageQueueReceipt = {
+    type: 'queued';
+    sessionId: string;
+    localIds: readonly string[];
+};
+
 function stripNewSessionDiscriminator(
     update: Extract<ApiUpdate, { t: 'new-session' }>,
 ): ApiSessionSnapshot {
@@ -258,8 +263,8 @@ function mergeHydratedSessions(sessions: HydratedSession[]): HydratedSession {
     let merged = sessions[0];
     for (let index = 1; index < sessions.length; index += 1) {
         const candidate = sessions[index];
-        const base = candidate.seq > merged.seq
-            || (candidate.seq === merged.seq && candidate.updatedAt >= merged.updatedAt)
+        const base = candidate.updatedAt > merged.updatedAt
+            || (candidate.updatedAt === merged.updatedAt && candidate.seq >= merged.seq)
             ? candidate
             : merged;
         const metadataWinner = candidate.metadataVersion >= merged.metadataVersion
@@ -275,6 +280,7 @@ function mergeHydratedSessions(sessions: HydratedSession[]): HydratedSession {
         }
         merged = {
             ...base,
+            seq: Math.max(candidate.seq, merged.seq),
             metadata: metadataWinner.metadata,
             metadataVersion: metadataWinner.metadataVersion,
             agentState: agentStateWinner.agentState,
@@ -282,6 +288,10 @@ function mergeHydratedSessions(sessions: HydratedSession[]): HydratedSession {
         };
     }
     return merged;
+}
+
+class SessionWriteCancelled extends Error {
+    constructor() { super('session-write-cancelled'); }
 }
 
 class Sync {
@@ -323,6 +333,8 @@ class Sync {
     private sessionMutationGenerations = new Map<string, number>();
     private sessionDeletionMutationGenerations = new Map<string, number>();
     private inFlightSessionRefreshes = new Set<{ mutationGeneration: number }>();
+    private sessionHydrations = new Map<string, Promise<boolean>>();
+    private sessionEventCursors = new Map<string, number>();
     private sessionDataKeys = new Map<string, Uint8Array>(); // Store session data encryption keys internally
     private machineDataKeys = new Map<string, Uint8Array>(); // Store machine data encryption keys internally
     private artifactDataKeys = new Map<string, Uint8Array>(); // Store artifact data encryption keys internally
@@ -465,6 +477,8 @@ class Sync {
     }
 
     async #init() {
+        this.sessionEventCursors.clear();
+        this.sessionHydrations.clear();
 
         // Subscribe to updates
         this.subscribeToUpdates();
@@ -875,7 +889,7 @@ class Sync {
         return { uploaded, failed };
     }
 
-    async sendMessage(sessionId: string, text: string, options?: SendMessageOptions) {
+    async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
 
         // Snapshot per-turn controls before the first possible await. If the
         // user changes model/effort while attachment upload or initial sync is
@@ -884,28 +898,12 @@ class Sync {
         const modeSessionSnapshot = storage.getState().sessions[sessionId];
         const modeSettingsSnapshot = storage.getState().settings;
 
-        // Get encryption — may not be ready yet if sessions are still syncing
-        let encryption = this.encryption.getSessionEncryption(sessionId);
-        if (!encryption) {
-            // Wait for sessions sync to complete (initializes encryption keys)
-            await this.sessionsSync.awaitQueue();
-            encryption = this.encryption.getSessionEncryption(sessionId);
-            if (!encryption) {
-                console.error(`Session ${sessionId} not found after sync`);
-                return;
-            }
-        }
-
-        // Get session data from storage
-        let session = storage.getState().sessions[sessionId];
-        if (!session) {
-            await this.sessionsSync.awaitQueue();
-            session = storage.getState().sessions[sessionId];
-            if (!session) {
-                console.error(`Session ${sessionId} not found in storage after sync`);
-                return;
-            }
-        }
+        const encryptionOwner = this.encryption;
+        const encryption = encryptionOwner.getSessionEncryption(sessionId);
+        const session = storage.getState().sessions[sessionId];
+        if (!encryption || !session) throw new Error('local-message-session-unavailable');
+        const stagedOutbox: OutboxMessage[] = [];
+        const stagedMessages: NormalizedMessage[] = [];
 
         const modeMeta = resolveMessageModeMeta(modeSessionSnapshot ?? session, modeSettingsSnapshot);
         const { displayText, editedFromMessageId, source = 'chat', attachments } = options ?? {};
@@ -913,8 +911,7 @@ class Sync {
         // Image attachments are wired into the Claude and Codex pipelines; both
         // runners drain file events and forward the images to the model. Other
         // runners (Gemini / OpenClaw) read message.content.text and ignore file
-        // events, so dropping attachments silently would leave the user
-        // wondering why the image was skipped. Warn and send text only there.
+        // events, so reject the submission instead of silently dropping files.
         const flavor = session.metadata?.flavor;
         const supportsAttachments = !flavor || flavor === 'claude' || flavor === 'codex';
         const effectiveAttachments = supportsAttachments ? attachments : undefined;
@@ -925,6 +922,7 @@ class Sync {
                 t('imageUpload.notSupportedMessage'),
                 [{ text: t('common.ok'), style: 'cancel' }],
             );
+            throw new Error('local-message-attachments-unsupported');
         }
 
         // Upload attachments and queue file events before the text message.
@@ -937,15 +935,11 @@ class Sync {
                     t('imageUpload.uploadFailedMessage', { count: failed }),
                     [{ text: t('common.ok'), style: 'cancel' }],
                 );
+                throw new Error('local-message-attachment-upload-failed');
             }
+            if (uploaded.length !== effectiveAttachments.length) throw new Error('local-message-attachment-upload-incomplete');
 
             if (uploaded.length > 0) {
-                let pending = this.pendingOutbox.get(sessionId);
-                if (!pending) {
-                    pending = [];
-                    this.pendingOutbox.set(sessionId, pending);
-                }
-
                 for (const att of uploaded) {
                     const fileRecord: RawRecord = {
                         role: 'session',
@@ -991,9 +985,9 @@ class Sync {
                     const fileLocalId = randomUUID();
                     const fileNormalized = normalizeRawMessage(fileLocalId, fileLocalId, Date.now(), fileRecord);
                     if (fileNormalized) {
-                        this.enqueueMessages(sessionId, [fileNormalized]);
+                        stagedMessages.push(fileNormalized);
                     }
-                    pending.push({ localId: fileLocalId, content: encryptedFileRecord });
+                    stagedOutbox.push({ localId: fileLocalId, content: encryptedFileRecord });
                 }
             }
         }
@@ -1043,43 +1037,54 @@ class Sync {
         const createdAt = Date.now();
         const normalizedMessage = normalizeRawMessage(localId, localId, createdAt, content);
         if (normalizedMessage) {
-            this.enqueueMessages(sessionId, [normalizedMessage]);
+            stagedMessages.push(normalizedMessage);
         }
-
-        let pending = this.pendingOutbox.get(sessionId);
-        if (!pending) {
-            pending = [];
-            this.pendingOutbox.set(sessionId, pending);
-        }
-        pending.push({
+        stagedOutbox.push({
             localId,
             content: encryptedRawRecord
         });
-        trackMessageSent(source, session.metadata);
 
-        const fallbackTitle = deriveSessionFallbackTitle(text, effectiveAttachments);
-        if (
-            fallbackTitle
-            && session.metadata
-            && !session.metadata.summary?.text.trim()
-            && !this.sessionFallbackTitleInFlight.has(sessionId)
-        ) {
-            this.sessionFallbackTitleInFlight.add(sessionId);
-            void ensureSessionFallbackTitle({
-                sessionId,
-                metadata: session.metadata,
-                metadataVersion: session.metadataVersion,
-                sessionEncryption: encryption,
-                title: fallbackTitle,
-            }).catch(error => {
-                console.error(`[session-title] Failed to generate fallback title for ${sessionId}:`, error);
-            }).finally(() => {
-                this.sessionFallbackTitleInFlight.delete(sessionId);
-            });
-        }
+        // No awaits between ownership validation and the complete outbox commit.
+        // Nothing from a failed upload/encryption attempt becomes locally queued.
+        if (this.encryption !== encryptionOwner
+            || encryptionOwner.getSessionEncryption(sessionId) !== encryption
+            || !storage.getState().sessions[sessionId]) throw new Error('local-message-session-unavailable');
+        // Preserve the queue identity: an in-flight flush owns a prefix of this
+        // array and removes only that prefix when its acknowledgement arrives.
+        const pending = this.pendingOutbox.get(sessionId) ?? [];
+        pending.push(...stagedOutbox);
+        this.pendingOutbox.set(sessionId, pending);
+        const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId, localIds: stagedOutbox.map(item => item.localId) };
+        // After commit, ancillary failures must not turn an accepted message into
+        // a retry that duplicates it. Reconnect also retries the encrypted outbox.
+        try { this.enqueueMessages(sessionId, stagedMessages); } catch { /* accepted; recover from outbox */ }
+        try { this.getSendSync(sessionId).invalidate(); this.maybeStartBackgroundSendWatchdog(); } catch { /* reconnect retries */ }
+        try { trackMessageSent(source, session.metadata); } catch { /* best effort */ }
 
-        this.getSendSync(sessionId).invalidate();
-        this.maybeStartBackgroundSendWatchdog();
+        try {
+            const fallbackTitle = deriveSessionFallbackTitle(text, effectiveAttachments);
+            if (
+                fallbackTitle
+                && session.metadata
+                && !session.metadata.summary?.text.trim()
+                && !this.sessionFallbackTitleInFlight.has(sessionId)
+            ) {
+                this.sessionFallbackTitleInFlight.add(sessionId);
+                void ensureSessionFallbackTitle({
+                    sessionId,
+                    metadata: session.metadata,
+                    metadataVersion: session.metadataVersion,
+                    sessionEncryption: encryption,
+                    title: fallbackTitle,
+                }).catch(() => {
+                    // Title updates are ancillary to the confirmed local queue.
+                }).finally(() => {
+                    this.sessionFallbackTitleInFlight.delete(sessionId);
+                });
+            }
+        } catch { /* title derivation cannot invalidate a committed receipt */ }
+
+        return receipt;
     }
 
     /** Server sent us settings — merge any pending local changes on top, then apply as one update. */
@@ -1404,11 +1409,7 @@ class Sync {
 
     private fetchActiveSessions = async () => {
         if (!this.credentials) return;
-        const snapshots = deduplicateSessionSnapshots(
-            await fetchActiveSessionSnapshots(this.credentials, 150),
-        );
-        const hydrated = await hydrateSessionSnapshots(snapshots, this.encryption);
-        this.applySessions(hydrated, { replace: false });
+        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials, 150));
     }
 
     public bootstrapSessions = async (): Promise<void> => {
@@ -1422,16 +1423,15 @@ class Sync {
         cursor?: string,
     ): Promise<string | null> => {
         if (!this.credentials) return null;
-        const page = await fetchSessionSnapshotPage(this.credentials, {
-            ...(cursor === undefined ? {} : { cursor }),
-            limit: 50,
+        let nextCursor: string | null = null;
+        await this.writeSessionSnapshots(async () => {
+            const page = await fetchSessionSnapshotPage(this.credentials, {
+                ...(cursor === undefined ? {} : { cursor }), limit: 50,
+            });
+            nextCursor = page.hasNext ? page.nextCursor : null;
+            return page.sessions;
         });
-        const hydrated = await hydrateSessionSnapshots(
-            deduplicateSessionSnapshots(page.sessions),
-            this.encryption,
-        );
-        this.applySessions(hydrated, { replace: false });
-        return page.hasNext ? page.nextCursor : null;
+        return nextCursor;
     }
 
     public sessionRouteBecameInteractive = async (): Promise<void> => {
@@ -1458,7 +1458,7 @@ class Sync {
                 this.nextSessionHistoryCursor = nextCursor;
                 return true;
             } catch (error) {
-                log.log(`Failed to load session history page: ${String(error)}`);
+                log.log('session-history-load-failed');
                 return false;
             }
         })();
@@ -1473,11 +1473,7 @@ class Sync {
 
     private fetchSessions = async () => {
         if (!this.credentials) return;
-        const refreshMutationGeneration = this.sessionMutationGeneration;
-        const refresh = { mutationGeneration: refreshMutationGeneration };
-        this.inFlightSessionRefreshes.add(refresh);
-
-        try {
+        await this.writeSessionSnapshots(async () => {
             const API_ENDPOINT = getServerUrl();
             const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
                 headers: {
@@ -1492,17 +1488,8 @@ class Sync {
             }
 
             const data = await response.json();
-            const sessions = data.sessions as ApiSessionSnapshot[];
-
-            const decryptedSessions = await hydrateSessionSnapshots(sessions, this.encryption);
-
-            // Apply to storage
-            this.applySessions(decryptedSessions, { replace: true }, refreshMutationGeneration);
-            log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
-        } finally {
-            this.inFlightSessionRefreshes.delete(refresh);
-            this.pruneSessionDeletionTombstones();
-        }
+            return data.sessions as ApiSessionSnapshot[];
+        }, { replace: true });
     }
 
     public refreshMachines = async () => {
@@ -1524,7 +1511,61 @@ class Sync {
      * reply could already exist while the compose page kept spinning.
      */
     public ensureSessionHydrated = async (sessionId: string): Promise<boolean> => {
-        return this.hydrateSessionSnapshot(sessionId);
+        const existing = this.sessionHydrations.get(sessionId);
+        if (existing) return existing;
+        const request = this.hydrateSessionSnapshot(sessionId);
+        this.sessionHydrations.set(sessionId, request);
+        try { return await request; }
+        finally {
+            if (this.sessionHydrations.get(sessionId) === request) this.sessionHydrations.delete(sessionId);
+        }
+    }
+
+    /** Every async snapshot source prepares privately, then commits encryption
+     * and store in the same synchronous turn under one deletion generation. */
+    private writeSessionSnapshots = async (
+        load: () => Promise<ApiSessionSnapshot[]>,
+        options: SessionApplyOptions = { replace: false },
+        operation?: SessionRouteOperation,
+    ): Promise<HydratedSession[]> => {
+        const write = { mutationGeneration: this.sessionMutationGeneration };
+        const encryptionOwner = this.encryption;
+        this.inFlightSessionRefreshes.add(write);
+        const committed: HydratedSession[] = [];
+        try {
+            const snapshots = deduplicateSessionSnapshots(await load());
+            for (const snapshot of snapshots) {
+                const assertCurrent = () => {
+                    if (operation) this.assertSessionRouteCurrent(operation);
+                    if (this.encryption !== encryptionOwner
+                        || (this.sessionDeletionMutationGenerations.get(snapshot.id) ?? 0) > write.mutationGeneration) {
+                        throw new SessionWriteCancelled();
+                    }
+                };
+                try {
+                    // A competing writer can install the same session while
+                    // preparation is awaiting crypto. Reprepare through that
+                    // winner once; losing ownership is not route cancellation.
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        assertCurrent();
+                        const prepared = await hydrateSessionSnapshotForRoute(snapshot, this.encryption, { assertCurrent });
+                        assertCurrent();
+                        if (!prepared) break;
+                        if (!prepared.commitEncryption()) continue;
+                        this.applySessions([prepared.session], { replace: false });
+                        committed.push(prepared.session);
+                        break;
+                    }
+                } catch (error) {
+                    if (!(error instanceof SessionWriteCancelled)) throw error;
+                }
+            }
+            if (options.replace) this.applySessions(committed, options, write.mutationGeneration);
+            return committed;
+        } finally {
+            this.inFlightSessionRefreshes.delete(write);
+            this.pruneSessionDeletionTombstones();
+        }
     }
 
     private hydrateSessionSnapshot = async (
@@ -1537,27 +1578,16 @@ class Sync {
         if (storage.getState().sessions[sessionId]
             && this.encryption.getSessionEncryption(sessionId)) return true;
 
-        const raw = await fetchSessionSnapshot(this.credentials, sessionId);
-        if (operation) this.assertSessionRouteCurrent(operation);
-        if (!raw) return false;
-
-        if (operation) {
-            const transaction = await hydrateSessionSnapshotForRoute(raw, this.encryption, {
-                assertCurrent: () => this.assertSessionRouteCurrent(operation),
-            });
+        if (operation && this.sessionHydrations.has(sessionId)) {
+            await this.sessionHydrations.get(sessionId);
             this.assertSessionRouteCurrent(operation);
-            if (!transaction) return false;
-            if (!transaction.commitEncryption()) {
-                throw new Error('Session route abandoned');
-            }
-            this.applySessions([transaction.session], { replace: false });
-            return true;
+            if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return true;
         }
-
-        const hydrated = (await hydrateSessionSnapshots([raw], this.encryption))[0] ?? null;
-        if (!hydrated) return false;
-        this.applySessions([hydrated], { replace: false });
-        return true;
+        await this.writeSessionSnapshots(async () => {
+            const raw = await fetchSessionSnapshot(this.credentials, sessionId);
+            return raw ? [raw] : [];
+        }, { replace: false }, operation);
+        return Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId));
     }
 
     private ensureRealtimeSessionReady = async (sessionId: string): Promise<boolean> => {
@@ -2484,6 +2514,9 @@ class Sync {
             }
 
             const data = await response.json() as V3PostSessionMessagesResponse;
+            // A deletion can remove this queue while the server acknowledgement
+            // is in flight. It must not recreate message runtime afterwards.
+            if (this.pendingOutbox.get(sessionId) !== pending) return;
             pending.splice(0, batch.length);
             if (Array.isArray(data.messages) && data.messages.length > 0) {
                 const currentLastSeq = this.sessionLastSeq.get(sessionId) ?? 0;
@@ -2582,10 +2615,23 @@ class Sync {
         }
 
         const messages = data.messages;
+        let maxSeq = 0;
+        let minSeq = Number.POSITIVE_INFINITY;
+        for (const message of messages) {
+            if (message.seq > maxSeq) maxSeq = message.seq;
+            if (message.seq < minSeq) minSeq = message.seq;
+        }
+        // An active/event winner may already have loaded a newer page while
+        // this route's HTTP response was pending. Keep that cache's anchors.
+        const isStalePage = () => storage.getState().sessionMessages[sessionId]?.isLoaded
+            && (this.sessionLastSeq.get(sessionId) ?? -1) > maxSeq;
+        if (isStalePage()) return true;
         const decryptedMessages = messages.length > 0
-            ? await encryption.decryptMessages(messages)
+            ? await encryption.createDetached().decryptMessages(messages)
             : [];
         if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
+        if (this.encryption.getSessionEncryption(sessionId) !== encryption) return false;
+        if (isStalePage()) return true;
 
         const normalizedMessages: NormalizedMessage[] = [];
         for (const decrypted of decryptedMessages) {
@@ -2602,14 +2648,10 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
 
-        let maxSeq = 0;
-        let minSeq = Number.POSITIVE_INFINITY;
-        for (const message of messages) {
-            if (message.seq > maxSeq) maxSeq = message.seq;
-            if (message.seq < minSeq) minSeq = message.seq;
+        this.sessionLastSeq.set(sessionId, Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq));
+        if (messages.length > 0) {
+            this.sessionOldestSeq.set(sessionId, Math.min(this.sessionOldestSeq.get(sessionId) ?? minSeq, minSeq));
         }
-        this.sessionLastSeq.set(sessionId, maxSeq);
-        if (messages.length > 0) this.sessionOldestSeq.set(sessionId, minSeq);
         storage.getState().applyMessagesLoaded(sessionId);
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: data.hasMore && messages.length > 0,
@@ -2683,8 +2725,9 @@ class Sync {
         if (messages.length === 0) {
             return { current: true, hasMutableToolResult: false };
         }
-        const decryptedMessages = await encryption.decryptMessages(messages);
-        if (!this.sessionMessageLoadGate.isCurrent(operation)) {
+        const decryptedMessages = await encryption.createDetached().decryptMessages(messages);
+        if (!this.sessionMessageLoadGate.isCurrent(operation)
+            || this.encryption.getSessionEncryption(sessionId) !== encryption) {
             return { current: false, hasMutableToolResult: false };
         }
         const normalizedMessages: NormalizedMessage[] = [];
@@ -2832,12 +2875,28 @@ class Sync {
     private handleUpdate = async (update: unknown) => {
         const validatedUpdate = ApiUpdateContainerSchema.safeParse(update);
         if (!validatedUpdate.success) {
-            console.log('❌ Sync: Invalid update received:', validatedUpdate.error);
-            console.error('❌ Sync: Invalid update data:', update);
+            log.log('session-update-invalid');
             return;
         }
         const updateData = validatedUpdate.data;
         console.log(`🔄 Sync: Validated update type: ${updateData.body.t}`);
+
+        const body = updateData.body;
+        const sessionId = body.t === 'new-session' || body.t === 'update-session' ? body.id
+            : body.t === 'new-message' || body.t === 'delete-session' ? body.sid : null;
+        if (sessionId && body.t === 'new-session'
+            && updateData.seq <= (this.sessionEventCursors.get(sessionId) ?? -1)) return;
+        if (sessionId) this.sessionEventCursors.set(sessionId, Math.max(updateData.seq, this.sessionEventCursors.get(sessionId) ?? -1));
+        const write = { mutationGeneration: this.sessionMutationGeneration };
+        const encryptionOwner = this.encryption;
+        this.inFlightSessionRefreshes.add(write);
+        const assertCurrent = () => {
+            if (this.encryption !== encryptionOwner || (sessionId
+                && (this.sessionDeletionMutationGenerations.get(sessionId) ?? 0) > write.mutationGeneration)) {
+                throw new SessionWriteCancelled();
+            }
+        };
+        try {
 
         if (updateData.body.t === 'new-message') {
 
@@ -2846,12 +2905,14 @@ class Sync {
                 console.error(`Session ${updateData.body.sid} not found after bootstrap`);
                 return;
             }
-            const encryption = this.encryption.getSessionEncryption(updateData.body.sid)!;
+            assertCurrent();
+            const encryption = this.encryption.getSessionEncryption(updateData.body.sid)!.createDetached();
 
             // Decrypt message
             let lastMessage: NormalizedMessage | null = null;
             if (updateData.body.message) {
                 const decrypted = await encryption.decryptMessage(updateData.body.message);
+                assertCurrent();
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
 
@@ -2895,7 +2956,7 @@ class Sync {
                         this.applySessions([{
                             ...session,
                             updatedAt: updateData.createdAt,
-                            seq: updateData.seq,
+                            seq: Math.max(session.seq, updateData.body.message.seq),
                             // Update thinking state based on task lifecycle events
                             ...(isTaskComplete ? { thinking: false } : {}),
                             ...(isTaskStarted ? { thinking: true } : {})
@@ -2927,9 +2988,12 @@ class Sync {
         } else if (updateData.body.t === 'new-session') {
             log.log('🆕 New session update received');
             const snapshot = stripNewSessionDiscriminator(updateData.body);
-            const hydrated = await hydrateSessionSnapshots([snapshot], this.encryption);
-            if (hydrated.length === 1) {
-                this.applySessions(hydrated, { replace: false });
+            const request = this.writeSessionSnapshots(async () => [snapshot])
+                .then(() => Boolean(storage.getState().sessions[snapshot.id] && this.encryption.getSessionEncryption(snapshot.id)));
+            this.sessionHydrations.set(snapshot.id, request);
+            try { await request; }
+            finally {
+                if (this.sessionHydrations.get(snapshot.id) === request) this.sessionHydrations.delete(snapshot.id);
             }
         } else if (updateData.body.t === 'delete-session') {
             log.log('🗑️ Delete session update received');
@@ -2954,8 +3018,9 @@ class Sync {
                 console.error(`Session ${updateData.body.id} not found after bootstrap`);
                 return;
             }
+            assertCurrent();
             const session = storage.getState().sessions[updateData.body.id];
-            const sessionEncryption = this.encryption.getSessionEncryption(updateData.body.id);
+            const sessionEncryption = this.encryption.getSessionEncryption(updateData.body.id)?.createDetached();
             if (session) {
                 if (!sessionEncryption) {
                     console.error(`Session encryption not found for ${updateData.body.id} after bootstrap`);
@@ -2968,6 +3033,7 @@ class Sync {
                 const metadata = updateData.body.metadata && sessionEncryption
                     ? await sessionEncryption.decryptMetadata(updateData.body.metadata.version, updateData.body.metadata.value)
                     : session.metadata;
+                assertCurrent();
 
                 this.applySessions([{
                     ...session,
@@ -2980,7 +3046,7 @@ class Sync {
                         ? updateData.body.metadata.version
                         : session.metadataVersion,
                     updatedAt: updateData.createdAt,
-                    seq: updateData.seq
+                    seq: session.seq
                 }]);
 
                 // Agent-state updates carry permissions/control state, not a
@@ -3336,6 +3402,12 @@ class Sync {
             // Apply to storage (will handle repeatKey replacement)
             storage.getState().applyFeedItems([feedItem]);
         }
+        } catch (error) {
+            if (!(error instanceof SessionWriteCancelled)) throw error;
+        } finally {
+            this.inFlightSessionRefreshes.delete(write);
+            this.pruneSessionDeletionTombstones();
+        }
     }
 
     private flushActivityUpdates = (updates: Map<string, ApiEphemeralActivityUpdate>) => {
@@ -3475,7 +3547,6 @@ class Sync {
             const mutationGeneration = ++this.sessionMutationGeneration;
             for (const session of mergedSessions) {
                 this.sessionMutationGenerations.set(session.id, mutationGeneration);
-                this.sessionDeletionMutationGenerations.delete(session.id);
             }
         }
         const removedSessionIds = options?.replace

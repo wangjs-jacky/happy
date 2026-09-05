@@ -141,7 +141,7 @@ describe('useSpawnSession', () => {
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         mocks.refreshSessions.mockResolvedValue(undefined);
-        mocks.sendMessage.mockResolvedValue(undefined);
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
         mocks.confirm.mockResolvedValue(false);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -151,6 +151,54 @@ describe('useSpawnSession', () => {
     });
 
     afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('retains the first created session after local queue failure and retries without respawning', async () => {
+        mocks.sendMessage.mockRejectedValueOnce(new Error('synthetic-queue-failure'));
+        const hook = renderHook();
+        await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
+        expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+        await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+        await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
+        expect(mocks.machineSpawnNewSession.mock.calls.length).toBe(1);
+        expect(mocks.navigateToSession.mock.calls.length).toBe(1);
+        hook.unmount();
+    });
+
+    it('coalesces repeated initial clicks while the first spawn RPC is pending', async () => {
+        let release!: (value: unknown) => void;
+        mocks.machineSpawnNewSession.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+        const hook = renderHook();
+        let first!: Promise<boolean>;
+        await act(async () => {
+            first = hook.current().spawn(args);
+            expect(await hook.current().spawn(args)).toBe(false);
+        });
+        await act(async () => { release({ type: 'success', sessionId: 'session-1' }); expect(await first).toBe(true); });
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('retries navigation without queuing an already accepted first message again', async () => {
+        mocks.navigateToSession.mockImplementationOnce(() => { throw new Error('synthetic-navigation-failure'); });
+        const hook = renderHook();
+        await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
+        expect(hook.current().hydrationError).toEqual({ sessionId: 'session-1' });
+        await act(async () => { expect(await hook.current().retryHydration()).toBe(true); });
+        expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
+        expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.navigateToSession).toHaveBeenCalledTimes(2);
+        hook.unmount();
+    });
+
+    it('does not navigate without an explicit successful local queue receipt', async () => {
+        mocks.sendMessage.mockResolvedValue(undefined);
+        const hook = renderHook();
+        await act(async () => { expect(await hook.current().spawn(args)).toBe(false); });
+        expect(mocks.navigateToSession.mock.calls.length).toBe(0);
+        hook.unmount();
+    });
 
     it('creates and configures a session without sending or navigating from the core', async () => {
         const hook = renderHook();
@@ -274,6 +322,7 @@ describe('useSpawnSession', () => {
         mocks.updatePermission.mockImplementation(() => order.push('configure'));
         mocks.sendMessage.mockImplementation(async () => {
             order.push('send');
+            return { type: 'queued', sessionId: 'session-1', localIds: ['local-1'] };
         });
         mocks.navigateToSession.mockImplementation(() => order.push('navigate'));
         const hook = renderHook();
@@ -365,7 +414,7 @@ describe('useSpawnSession', () => {
                 expect(await hook.current().retryHydration()).toBe(false);
             });
 
-            mocks.sendMessage.mockResolvedValueOnce(undefined);
+            mocks.sendMessage.mockResolvedValueOnce({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
             await act(async () => {
                 expect(await hook.current().retryHydration()).toBe(true);
             });
@@ -478,8 +527,8 @@ describe('useSpawnSession', () => {
         });
         mocks.sendMessage.mockImplementation(() => {
             markSendStarted?.();
-            return new Promise<void>((resolve) => {
-                resolveSend = resolve;
+            return new Promise((resolve) => {
+                resolveSend = () => resolve({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
             });
         });
         const hook = renderHook();

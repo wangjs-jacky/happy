@@ -201,8 +201,27 @@ describe('SessionView deep-link hydration', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         consoleErrorSpy.mockRestore();
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('bounds transient retries and exposes a deliberate retry action without preloaded messages', async () => {
+        vi.useFakeTimers();
+        mocks.openSession.mockRejectedValue(new Error('synthetic-network-failure'));
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-session" />); });
+        expect(renderer.root.findAllByProps({ testID: 'session-retrying' }).length).toBeGreaterThan(0);
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(mocks.openSession.mock.calls.length).toBe(4);
+        expect(renderer.root.findAllByProps({ testID: 'session-load-error' }).length).toBeGreaterThan(0);
+        await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+        expect(mocks.openSession.mock.calls.length).toBe(4);
+        mocks.openSession.mockResolvedValue('not-found');
+        await act(async () => { renderer.root.findByProps({ testID: 'session-retry' }).props.onPress(); });
+        expect(mocks.openSession.mock.calls.length).toBe(5);
+        expect(renderer.root.findAllByProps({ testID: 'session-not-found' }).length).toBeGreaterThan(0);
+        act(() => renderer.unmount());
     });
 
     it('hydrates a missing deep link immediately while showing session-scoped loading', async () => {

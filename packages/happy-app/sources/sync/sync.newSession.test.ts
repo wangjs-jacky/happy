@@ -40,7 +40,12 @@ const { fetchSessionSnapshot, hydrateSessionSnapshots, storage, storageState } =
     };
 });
 
-vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots }));
+vi.mock('./sessionSnapshotHydration', () => ({ hydrateSessionSnapshots,
+    hydrateSessionSnapshotForRoute: async (snapshot: ApiSessionSnapshot, encryption: unknown) => {
+        const sessions = await hydrateSessionSnapshots([snapshot], encryption);
+        return sessions[0] ? { session: sessions[0], commitEncryption: () => true } : null;
+    },
+}));
 vi.mock('./apiSessions', () => ({ fetchSessionSnapshot }));
 vi.mock('./storage', () => ({ storage }));
 vi.mock('./apiSocket', () => ({
@@ -133,6 +138,10 @@ describe('new-session updates', () => {
     let sessionsSyncInvalidate: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
+        syncForTest.sessionEventCursors.clear();
+        syncForTest.sessionHydrations.clear();
+        syncForTest.inFlightSessionRefreshes.clear();
+        syncForTest.sessionDeletionMutationGenerations.clear();
         fetchSessionSnapshot.mockReset();
         hydrateSessionSnapshots.mockReset();
         hydrateSessionSnapshots.mockResolvedValue([hydratedSession]);
