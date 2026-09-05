@@ -109,14 +109,14 @@ Every event uses an allowlisted schema:
 type StartupTraceEvent = {
   traceId: string;
   stage: StartupTraceStage;
-  elapsedMs?: number;
-  spanMs?: number;
+  duration?: number;
+  spanDuration?: number;
   outcome?: 'success' | 'error';
   errorCode?: StartupTraceErrorCode;
 };
 ```
 
-Production logs may attach already-approved machine or session correlation fields, but browser acceptance output contains only stage durations, sample classification, retry count, and redacted resource paths. Logging is best effort and cannot delay startup.
+`duration` retains the current meaning of elapsed time from that component's local trace origin. `spanDuration` is the duration of one named operation in the same runtime. Production logs may attach already-approved machine or session correlation fields, but browser acceptance output contains only stage durations, sample classification, retry count, and redacted resource paths. Logging is best effort and cannot delay startup.
 
 ### 4.3 Processor-ready definition
 
@@ -303,4 +303,3 @@ Evidence contains only sanitized metrics and resource paths. Private screenshots
 8. Re-measure; amend the design before daemon preallocation if still required.
 
 Tasks 2 and 3 both touch the sync hot path and must be sequential. Tasks 4 and 5 are independent but are still implemented one at a time under the Subagent-Driven Development review loop to avoid worktree conflicts.
-
