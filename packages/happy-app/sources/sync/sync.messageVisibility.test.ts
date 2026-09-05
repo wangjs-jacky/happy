@@ -3,6 +3,9 @@ import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { SessionRouteOwnership } from './sessionRouteOwnership';
+import { SessionEncryption } from './encryption/sessionEncryption';
+import { EncryptionCache } from './encryption/encryptionCache';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -72,13 +75,16 @@ const mocks = vi.hoisted(() => {
         ),
     };
     const storage = {
-        getState: () => state,
+        getState: () => realStorage ? realStorage.getState() : state,
         setState: (update: any) => {
+            if (realStorage) return realStorage.setState(update);
             const next = typeof update === 'function' ? update(state) : update;
             Object.assign(state, next);
         },
     };
+    let realStorage: any = null;
     return {
+        useRealStorage: (value: any) => { realStorage = value; },
         apiRequest: vi.fn(),
         fetchActive: vi.fn(),
         fetchPage: vi.fn(),
@@ -166,6 +172,10 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }));
 vi.mock('expo-notifications', () => ({}));
+vi.mock('expo', () => ({}));
+vi.mock('expo-modules-core', () => ({ Platform: { OS: 'web' }, requireNativeModule: () => ({}), requireOptionalNativeModule: () => ({}) }));
+vi.mock('@/realtime/RealtimeSession', () => ({ getCurrentRealtimeSessionId: () => null, getVoiceSession: () => null }));
+vi.mock('@/components/tools/knownTools', () => ({ isMutableTool: () => false }));
 vi.mock('expo-crypto', () => ({ randomUUID: vi.fn(() => 'test-uuid') }));
 vi.mock('expo-secure-store', () => ({
     getItemAsync: vi.fn(),
@@ -282,8 +292,26 @@ function installSession(sessionId: string, decryptMessages?: (messages: ApiMessa
     return encryption;
 }
 
+async function useRealMessageComposition() {
+    const [{ storage }, { Encryption }] = await Promise.all([
+        vi.importActual<typeof import('./storage')>('./storage'),
+        vi.importActual<typeof import('./encryption/encryption')>('./encryption/encryption'),
+    ]);
+    storage.setState({ sessions: {}, sessionMessages: {}, currentViewingSessionId: null });
+    mocks.useRealStorage(storage);
+    // Initialize the real manager's runtime caches without deriving device keys.
+    // SessionEncryption below holds only the byte crypto boundary for interleaving.
+    syncForTest.encryption = Object.assign(Object.create(Encryption.prototype), {
+        sessionEncryptions: mocks.sessionEncryptions,
+        sessionBlobKeys: new Map(),
+        cache: new EncryptionCache(),
+    });
+    return storage;
+}
+
 describe('message visibility synchronization', () => {
     beforeEach(() => {
+        mocks.useRealStorage(null);
         syncForTest.sessionEventCursors.clear();
         syncForTest.sessionHydrations.clear();
         syncForTest.inFlightSessionRefreshes.clear();
@@ -318,13 +346,112 @@ describe('message visibility synchronization', () => {
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
+        syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
     });
 
     afterEach(() => {
+        mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
             messageSync.stop();
         }
     });
+
+    it.each([
+        { order: 'latest-first', cold: false, terminal: '' },
+        { order: 'catch-up-first', cold: false, terminal: '' },
+        { order: 'latest-first', cold: true, terminal: '' },
+        { order: 'catch-up-first', cold: true, terminal: '' },
+        { order: 'latest-first', cold: false, terminal: 'abandoned' },
+        { order: 'catch-up-first', cold: false, terminal: 'deleted' },
+        { order: 'latest-first', cold: false, terminal: 'insufficient' },
+    ])(
+        'waits for a committed foreground page while opening ($order, cold=$cold, terminal=$terminal)', async ({ order, cold, terminal }) => {
+            // Real storage/reducer + SessionEncryption; only the byte decrypt boundary is held.
+            const storage = await useRealMessageComposition();
+            storage.getState().applySessions([hydrated(snapshot('opening-session'))]);
+            if (!cold) syncForTest.sessionLastSeq.set('opening-session', 4);
+            const latestDecrypt = deferred<void>();
+            const forwardDecrypt = deferred<void>();
+            let latestStarted = false;
+            let forwardStarted = false;
+            const encryption = new SessionEncryption('opening-session', {
+                encrypt: async () => [],
+                decrypt: async (bytes) => {
+                    const seqs = bytes.map(value => value[0]);
+                    if (seqs[0] === 7) {
+                        if (!latestStarted) { latestStarted = true; await latestDecrypt.promise; }
+                        else { forwardStarted = true; await forwardDecrypt.promise; }
+                    }
+                    if (seqs[0] === 5) { forwardStarted = true; await forwardDecrypt.promise; }
+                    return seqs.map(seq => rawText(`message-${seq}`));
+                },
+            }, new EncryptionCache());
+            mocks.sessionEncryptions.set('opening-session', encryption);
+            const encrypted = (seq: number, id = `message-${seq}`): ApiMessage => ({
+                ...apiMessage(seq), id,
+                content: { t: 'encrypted', c: Buffer.from([seq]).toString('base64') },
+            });
+            let latestRequests = 0;
+            mocks.apiRequest.mockImplementation(async (url: string) => {
+                if (url.includes('before_seq=')) {
+                    latestRequests++;
+                    return response({ messages: [encrypted(7)], hasMore: true });
+                }
+                if (terminal === 'insufficient') {
+                    return response({ messages: url.includes('after_seq=4&') ? [encrypted(5), encrypted(8)] : [], hasMore: false });
+                }
+                return response({ messages: [encrypted(5), encrypted(9, 'latest-visible-message')], hasMore: false });
+            });
+            const oldOwner = syncForTest.beginSessionRoute('opening-session');
+            const owner = syncForTest.beginSessionRoute('opening-session');
+            let outcome = 'pending';
+            const opening = syncForTest.openSession('opening-session', owner);
+            void opening.then((value: string) => { outcome = value; }, () => { outcome = 'rejected'; });
+            await vi.waitFor(() => expect(latestStarted).toBe(true));
+            const event = newMessageUpdate('opening-session', 9);
+            event.body.message = encrypted(9);
+            await syncForTest.handleUpdate(event);
+            // Without opening ownership realtime drops this cache as background.
+            await vi.waitFor(() => expect(forwardStarted).toBe(true));
+            expect(storage.getState().currentViewingSessionId).toBeNull();
+            // A cleanup belonging to the previous same-ID mount cannot stop this catch-up.
+            expect(syncForTest.leaveSessionRoute(oldOwner)).toBe(false);
+            const foregroundSync = syncForTest.messagesSync.get('opening-session');
+            if (terminal === 'abandoned') syncForTest.leaveSessionRoute(owner);
+            if (terminal === 'deleted') {
+                await syncForTest.handleUpdate({ id: 'delete', seq: 10, createdAt: 100, body: { t: 'delete-session', sid: 'opening-session' } });
+                expect(syncForTest.promoteSessionRoute(owner)).toBeNull();
+            }
+            if (order === 'latest-first') {
+                latestDecrypt.resolve();
+                await new Promise(resolve => setTimeout(resolve, 0));
+                if (!terminal) expect(outcome).toBe('pending');
+                forwardDecrypt.resolve();
+            } else {
+                forwardDecrypt.resolve();
+                await foregroundSync.awaitQueue();
+                latestDecrypt.resolve();
+            }
+            if (terminal) {
+                await expect(opening).rejects.toThrow(terminal === 'insufficient' ? 'not committed' : 'abandoned');
+                await foregroundSync.awaitQueue();
+                expect(outcome).toBe('rejected');
+                if (terminal === 'deleted') {
+                    expect(storage.getState().sessionMessages['opening-session']).toBeUndefined();
+                    expect(syncForTest.getSessionLastMessageSeq('opening-session')).toBeNull();
+                }
+                return;
+            }
+            await expect(opening).resolves.toBe('ready');
+            expect(latestRequests).toBe(1);
+            expect(storage.getState().sessionMessages['opening-session'].isLoaded).toBe(true);
+            expect(storage.getState().sessionMessages['opening-session'].messages).toContainEqual(
+                expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
+            );
+            expect(storage.getState().sessionMessages['opening-session'].reducerState.messageIds.has('latest-visible-message')).toBe(true);
+            expect(storage.getState().currentViewingSessionId).toBeNull();
+        },
+    );
 
     it('does not fetch messages or git for an off-screen new-message event', async () => {
         installSession('visible-session');
@@ -338,6 +465,22 @@ describe('message visibility synchronization', () => {
         expect(mocks.gitInvalidate).not.toHaveBeenCalled();
         expect(mocks.gitOpenInvalidate).not.toHaveBeenCalled();
         expect(mocks.state.sessions['background-session']).toMatchObject({ updatedAt: 80, seq: 8 });
+    });
+
+    it('clears viewing on deletion even after route ownership is revoked', async () => {
+        const storage = await useRealMessageComposition();
+        const encryption = new SessionEncryption('deleted-route', {
+            encrypt: async () => [], decrypt: async () => [],
+        }, new EncryptionCache());
+        mocks.sessionEncryptions.set('deleted-route', encryption);
+        storage.getState().applySessions([hydrated(snapshot('deleted-route'))]);
+        const owner = syncForTest.beginSessionRoute('deleted-route');
+        await syncForTest.openSession('deleted-route', owner);
+        syncForTest.promoteSessionRoute(owner);
+        storage.getState().setCurrentViewingSession('deleted-route');
+        await syncForTest.handleUpdate({ id: 'delete', seq: 10, createdAt: 100, body: { t: 'delete-session', sid: 'deleted-route' } });
+        expect(syncForTest.leaveSessionRoute(owner)).toBe(false);
+        expect(storage.getState().currentViewingSessionId).toBeNull();
     });
 
     it('appends a consecutive visible message without an HTTP refresh', async () => {

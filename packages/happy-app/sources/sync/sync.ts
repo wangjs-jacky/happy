@@ -108,6 +108,7 @@ import {
     type SessionMessageLoadOperation,
 } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { SessionRouteOwnership, SessionRouteAbandonedError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 
@@ -120,9 +121,13 @@ type SessionOpenResolution = 'ready' | 'not-found';
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
+    owner: SessionRouteOwner;
     cancelled: boolean;
     messageLease: SessionMessageLease;
     messageLoad: SessionMessageLoadOperation;
+    latestPage: Promise<V3GetSessionMessagesResponse>;
+    foregroundTarget: number;
+    committedPageSeq: number | null;
 };
 
 class CoalescingMessageSync {
@@ -322,6 +327,7 @@ class Sync {
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
+    private sessionRouteOwnership = new SessionRouteOwnership();
     private sessionRouteOperations = new WeakMap<SessionOpenPromise, SessionRouteOperation>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
@@ -1609,18 +1615,49 @@ class Sync {
         return isReady();
     }
 
-    public openSession = (sessionId: string): SessionOpenPromise => {
+    public beginSessionRoute = (sessionId: string): SessionRouteOwner => {
+        const previous = this.sessionRouteOwnership.current();
+        if (previous) this.leaveSessionRoute(previous);
+        const owner = this.sessionRouteOwnership.enter(sessionId);
+        this.retainSessionMessageCache(sessionId);
+        return owner;
+    }
+
+    public promoteSessionRoute = (owner: SessionRouteOwner): SessionRouteOwner | null => {
+        return this.sessionRouteOwnership.promote(owner);
+    }
+
+    public leaveSessionRoute = (owner: SessionRouteOwner): boolean => {
+        if (!this.sessionRouteOwnership.leave(owner)) return false;
+        const operation = this.activeOpenSession;
+        if (operation?.owner.ownerEpoch === owner.ownerEpoch) {
+            operation.cancelled = true;
+            this.sessionMessageLoadGate.leave(operation.messageLease);
+            this.messagesSync.get(owner.sessionId)?.stop();
+            this.activeOpenSession = null;
+        }
+        return true;
+    }
+
+    public openSession = (sessionId: string, owner = this.beginSessionRoute(sessionId)): SessionOpenPromise => {
+        if (owner.sessionId !== sessionId || !this.sessionRouteOwnership.owns(owner)) {
+            return Promise.reject(new SessionRouteAbandonedError());
+        }
         this.retainSessionMessageCache(sessionId);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
+        markSessionCriticalPathAppStage('web.messages.latest_started');
+        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
             sessionId,
+            owner,
             cancelled: false,
             messageLease,
             messageLoad: this.sessionMessageLoadGate.begin(messageLease),
+            latestPage: latestPagePromise,
+            foregroundTarget: 0,
+            committedPageSeq: null,
         };
         this.activeOpenSession = operation;
-        markSessionCriticalPathAppStage('web.messages.latest_started');
-        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         // A missing target can be resolved before its concurrently-started
         // message request finishes. Attach a rejection observer immediately so
         // that discarded 404/network results never become unhandled promises.
@@ -1633,7 +1670,21 @@ class Sync {
 
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
-            await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
+            const applied = await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
+            this.assertSessionRouteCurrent(operation);
+            if (!applied || operation.foregroundTarget > 0) {
+                // A foreground gap can supersede the route's decrypt on the same
+                // lease. Await that winner, then require a page commit covering
+                // both the raw latest page and the foreground target. A realtime
+                // sequence alone is not evidence that such a page committed.
+                await this.messagesSync.get(sessionId)?.awaitQueue();
+                this.assertSessionRouteCurrent(operation);
+                const target = Math.max(operation.foregroundTarget, ...latestPage.messages.map(message => message.seq), 0);
+                if (operation.committedPageSeq === null || operation.committedPageSeq < target
+                    || !storage.getState().sessionMessages[sessionId]?.isLoaded) {
+                    throw new Error('Session latest page was not committed');
+                }
+            }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
             return 'ready';
@@ -1647,14 +1698,14 @@ class Sync {
         if (!operation || operation.sessionId !== sessionId) return;
         operation.cancelled = true;
         this.sessionMessageLoadGate.leave(operation.messageLease);
-        if (this.activeOpenSession === operation) this.activeOpenSession = null;
+        if (this.activeOpenSession === operation) this.leaveSessionRoute(operation.owner);
     }
 
     private assertSessionRouteCurrent(operation: SessionRouteOperation): void {
-        if (operation.cancelled || this.activeOpenSession !== operation) {
-            throw new Error('Session route abandoned');
+        if (operation.cancelled || this.activeOpenSession !== operation || !this.sessionRouteOwnership.owns(operation.owner)
+            || !this.sessionMessageLoadGate.isLeaseCurrent(operation.messageLease)) {
+            throw new SessionRouteAbandonedError();
         }
-        this.sessionMessageLoadGate.assertLeaseCurrent(operation.messageLease);
     }
 
     // Kept as a compatibility alias while call sites migrate to the more
@@ -2665,7 +2716,17 @@ class Sync {
         storage.getState().applyOlderMessagesPagination(sessionId, {
             hasMore: data.hasMore && messages.length > 0,
         });
+        this.recordRoutePageCommit(operation, maxSeq);
         return true;
+    }
+
+    private recordRoutePageCommit(operation: SessionMessageLoadOperation, seq: number): void {
+        const route = this.activeOpenSession;
+        if (route?.sessionId === operation.sessionId
+            && route.messageLease.leaseEpoch === operation.leaseEpoch
+            && this.sessionMessageLoadGate.isCurrent(operation)) {
+            route.committedPageSeq = Math.max(route.committedPageSeq ?? 0, seq);
+        }
     }
 
     private fetchInitialLatestPage = async (
@@ -2673,7 +2734,10 @@ class Sync {
         _encryption: ReturnType<Encryption['getSessionEncryption']> & {},
         operation: SessionMessageLoadOperation,
     ) => {
-        const data = await this.fetchLatestMessagePageRaw(sessionId);
+        const route = this.activeOpenSession;
+        const data = await (route?.sessionId === sessionId && route.messageLease.leaseEpoch === operation.leaseEpoch
+            ? route.latestPage
+            : this.fetchLatestMessagePageRaw(sessionId));
         await this.applyLatestMessagePage(sessionId, data, operation);
     }
 
@@ -2708,6 +2772,7 @@ class Sync {
                 if (message.seq > maxSeq) maxSeq = message.seq;
             }
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+            this.recordRoutePageCommit(operation, maxSeq);
             this.sessionLastSeq.set(
                 sessionId,
                 Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq),
@@ -2974,7 +3039,8 @@ class Sync {
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
                     const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
                     const incomingSeq = updateData.body.message.seq;
-                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid;
+                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid
+                        || this.sessionRouteOwnership.ownsSession(updateData.body.sid);
                     if (currentLastSeq !== undefined && incomingSeq <= currentLastSeq) {
                         // Duplicate or out-of-order delivery. The cache already
                         // owns this sequence, so neither history nor Git needs
@@ -2986,6 +3052,10 @@ class Sync {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
                     } else if (isVisible) {
+                        const route = this.activeOpenSession;
+                        if (route?.sessionId === updateData.body.sid) {
+                            route.foregroundTarget = Math.max(route.foregroundTarget, incomingSeq);
+                        }
                         this.getMessagesSync(updateData.body.sid).invalidate(incomingSeq);
                     } else {
                         this.releaseSessionMessageCache(updateData.body.sid);
@@ -3606,6 +3676,12 @@ class Sync {
     }
 
     private clearSessionRuntimeState(sessionId: string) {
+        const owner = this.sessionRouteOwnership.current();
+        if (owner?.sessionId === sessionId) this.leaveSessionRoute(owner);
+        // The loaded component's later cleanup no longer owns a deleted route.
+        if (storage.getState().currentViewingSessionId === sessionId) {
+            storage.getState().setCurrentViewingSession(null);
+        }
         this.releaseSessionMessageCache(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);

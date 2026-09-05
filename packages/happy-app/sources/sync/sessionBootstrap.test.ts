@@ -3,6 +3,7 @@ import type { ApiSessionSnapshot } from './apiTypes';
 import type { HydratedSession } from './sessionSnapshotHydration';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { SessionRouteOwnership } from './sessionRouteOwnership';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -237,6 +238,7 @@ describe('active-first session bootstrap', () => {
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
+        syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
     });
 
     afterEach(() => {
@@ -689,13 +691,17 @@ describe('deep-link session opening', () => {
             .mockResolvedValueOnce(response({ messages: [], hasMore: false }))
             .mockReturnValueOnce(newLatest.promise);
 
-        const oldOpening = syncForTest.openSession('same-session');
-        const newOpening = syncForTest.openSession('same-session');
+        const oldOwner = syncForTest.beginSessionRoute('same-session');
+        const oldOpening = syncForTest.openSession('same-session', oldOwner);
+        const newOwner = syncForTest.beginSessionRoute('same-session');
+        const newOpening = syncForTest.openSession('same-session', newOwner);
         await vi.waitFor(() => {
             expect(mocks.state.sessions['same-session']).toBeDefined();
         });
 
         syncForTest.abandonSessionRoute('same-session', oldOpening);
+        expect(syncForTest.leaveSessionRoute(oldOwner)).toBe(false);
+        expect(syncForTest.sessionRouteOwnership.owns(newOwner)).toBe(true);
         newLatest.resolve(response({ messages: [], hasMore: false }));
 
         await expect(newOpening).resolves.toBe('ready');

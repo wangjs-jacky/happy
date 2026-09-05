@@ -67,6 +67,7 @@ import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
+import { SessionRouteAbandonedError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
@@ -446,7 +447,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
-        session ? 'ready' : 'loading',
+        'loading',
     );
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -472,24 +473,31 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         rightWidth: layoutRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
+    const [routeOwner, setRouteOwner] = React.useState<SessionRouteOwner | null>(null);
     const subagentInspector = useSubagentInspector();
     const subagentSelection = subagentInspector?.selection ?? null;
 
     React.useEffect(() => {
         let cancelled = false;
         let opening: ReturnType<typeof sync.openSession> | undefined;
+        let owner: SessionRouteOwner | undefined;
         let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const delays = [100, 250, 500];
         setSessionResolution('loading');
         const attempt = (index: number) => {
-            opening = sync.openSession(sessionId);
+            owner = sync.beginSessionRoute(sessionId);
+            setRouteOwner(owner);
+            opening = sync.openSession(sessionId, owner);
             void opening.then((resolution) => {
                 if (cancelled) return;
                 setSessionResolution(resolution);
-                if (resolution === 'ready') void sync.sessionRouteBecameInteractive();
-            }).catch(() => {
+            }).catch((error: unknown) => {
                 if (cancelled) return;
-                if (opening) sync.abandonSessionRoute(sessionId, opening);
+                if (owner) sync.leaveSessionRoute(owner);
+                if (error instanceof SessionRouteAbandonedError) {
+                    setSessionResolution('not-found');
+                    return;
+                }
                 if (index === delays.length) {
                     setSessionResolution('error');
                     return;
@@ -502,7 +510,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         return () => {
             cancelled = true;
             if (retryTimer) clearTimeout(retryTimer);
-            if (opening) sync.abandonSessionRoute(sessionId, opening);
+            if (owner) sync.leaveSessionRoute(owner);
         };
         // `session` intentionally is not a dependency: hydration inserts the
         // target into the store before its concurrently-started message page
@@ -1016,7 +1024,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                             <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
                         </Pressable>
                     </View>
-                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') ? (
+                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
@@ -1034,6 +1042,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         onManageTags={() => setOrganizerOpen(true)}
                         onRemoveTag={removeSessionTag}
                         sessionId={sessionId}
+                        routeOwner={routeOwner}
                         session={session}
                         tags={sessionTags}
                     />
@@ -1347,6 +1356,7 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
 
 function SessionViewLoaded({
     sessionId,
+    routeOwner,
     session,
     composerHandleRef,
     onManageTags,
@@ -1354,6 +1364,7 @@ function SessionViewLoaded({
     tags,
 }: {
     sessionId: string;
+    routeOwner: SessionRouteOwner;
     session: Session;
     composerHandleRef: React.RefObject<ChatComposerHandle | null>;
     onManageTags: () => void;
@@ -1580,24 +1591,27 @@ function SessionViewLoaded({
 
     // Trigger session visibility and initialize git status sync
     React.useLayoutEffect(() => {
+        if (!sync.promoteSessionRoute(routeOwner)) return;
 
         // Trigger session sync
         sync.onSessionVisible(sessionId, { loadMessages: false });
 
         // Mark session as currently being viewed (clears unread)
         storage.getState().setCurrentViewingSession(sessionId);
+        void sync.sessionRouteBecameInteractive();
 
         // Initialize git status sync for this session
         gitStatusSync.getSync(sessionId);
 
         return () => {
             // Clear viewing session on unmount
+            const left = sync.leaveSessionRoute(routeOwner);
             const current = storage.getState().currentViewingSessionId;
-            if (current === sessionId) {
+            if (left && current === sessionId) {
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId]);
+    }, [sessionId, routeOwner]);
 
     let content = (
         <>
