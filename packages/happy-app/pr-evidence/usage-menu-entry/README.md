@@ -9,7 +9,7 @@
 
 | Case | Problem | Before | After | Runtime assertions |
 | --- | --- | --- | --- | --- |
-| USAGE-MENU-01 — direct usage access | Usage was only reachable through Settings, so checking reported Codex quota required an extra navigation level. | ![Before: account menu has no Usage action](./case-1-before.png) | ![After: pressed Usage action appears between Account and Log out](./case-1-after.png) | In `ginghamDark`, the body uses `#121821`, the Usage action uses `surface` (`#1A2330`) for normal/hover and `surfacePressed` (`#1F2A38`) while pressed; releasing navigates to `/settings/usage`, where the visible `Codex 用量` panel loads. |
+| USAGE-MENU-01 — direct usage access | Usage was only reachable through Settings, so checking reported Codex quota required an extra navigation level. | ![Before: account menu has no Usage action](./case-1-before.png) | ![After: pressed Usage action appears between Account and Log out](./case-1-after.png) | In `ginghamDark`, the body uses `#121821`, the Usage action uses `surface` (`#1A2330`) normally and `surfacePressed` (`#1F2A38`) while hovered or pressed; releasing navigates to `/settings/usage`, where the visible `Codex 用量` panel loads. |
 
 ## Reproduction
 
@@ -30,5 +30,5 @@ pnpm test:e2e:web -- sidebar-account-usage-evidence.spec.ts
 ```
 
 The feature Case was rerun with `HAPPY_E2E_RECORD=1`. Its stable delivery artifact is
-`usage-menu-acceptance.mp4` (H.264, yuv420p, 1280×720, 25 fps, 19.48 s); it completed an
+`usage-menu-acceptance.mp4` (H.264, yuv420p, 1280×720, 25 fps, 18.28 s); it completed an
 `ffprobe`, full decode, and contact-sheet visual review.

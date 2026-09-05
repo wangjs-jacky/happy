@@ -64,7 +64,7 @@ test('[USAGE-MENU-01] 账户菜单提供一级使用情况入口', async ({ page
         await expect(usageAction).toBeVisible();
         await expect(usageAction).toHaveCSS('background-color', 'rgb(26, 35, 48)');
         await usageAction.hover();
-        await expect(usageAction).toHaveCSS('background-color', 'rgb(26, 35, 48)');
+        await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
         await page.mouse.down();
         await expect(usageAction).toHaveCSS('background-color', 'rgb(31, 42, 56)');
     }

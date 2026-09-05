@@ -229,6 +229,41 @@ describe('SidebarAccountMenu', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
+    it('uses the pressed surface for Web hover and press states', () => {
+        act(() => {
+            renderer = TestRenderer.create(
+                <SidebarAccountMenu
+                    displayName="Paws User"
+                    onNavigate={mocks.navigate}
+                    onOpenChange={vi.fn()}
+                    open
+                    profile={profile}
+                />,
+            );
+        });
+
+        const findUsagePressable = () => renderer.root
+            .findAllByType('Pressable')
+            .find((node: any) => node.props.testID === 'sidebar-account-usage-action');
+        let usageAction = findUsagePressable();
+        expect(usageAction).toBeDefined();
+        expect(usageAction.props.style({ pressed: false })).not.toContainEqual(
+            expect.objectContaining({ backgroundColor: '#eee' }),
+        );
+
+        act(() => usageAction.props.onHoverIn());
+        usageAction = findUsagePressable();
+        expect(usageAction.props.style({ pressed: false })).toContainEqual(
+            expect.objectContaining({ backgroundColor: '#eee' }),
+        );
+
+        act(() => usageAction.props.onHoverOut());
+        usageAction = findUsagePressable();
+        expect(usageAction.props.style({ pressed: true })).toContainEqual(
+            expect.objectContaining({ backgroundColor: '#eee' }),
+        );
+    });
+
     it('aligns the expanded menu with the account trigger at each density', () => {
         const onOpenChange = vi.fn();
         act(() => {
