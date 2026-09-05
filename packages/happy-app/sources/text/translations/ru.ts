@@ -581,6 +581,8 @@ export const ru: TranslationStructure = {
         agentMode: 'Агент',
         machineOffline: 'Машина недоступна',
         sessionHydrationFailed: 'Сессия создана, но страница ещё не синхронизировалась. Повторите попытку, чтобы войти.',
+        firstMessageFailed: 'Сессия создана, но сообщение ещё не отправлено. Попробуйте отправить его снова.',
+        sessionOpenFailed: 'Сообщение передано, но не удалось открыть страницу сессии. Попробуйте открыть её снова.',
         switchMachinesHint: '• Переключите машину, нажав на неё выше',
     },
 
@@ -1657,10 +1659,10 @@ export const ru: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" превышает лимит ${maxMb}МБ и не был добавлен.`,
         uploadFailedTitle: 'Ошибка загрузки',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'Одно изображение не удалось загрузить — оно не было отправлено.'
-            : `${count} изображений не удалось загрузить — они не были отправлены.`,
-        notSupportedTitle: 'Изображения не поддерживаются',
-        notSupportedMessage: 'Этот агент не поддерживает изображения. Отправлен только текст.',
+            ? 'Не удалось загрузить одно вложение. Сообщение ещё не отправлено. Попробуйте снова.'
+            : `Не удалось загрузить вложения: ${count}. Сообщение ещё не отправлено. Попробуйте снова.`,
+        notSupportedTitle: 'Вложения не поддерживаются',
+        notSupportedMessage: 'Этот агент не поддерживает вложения. Удалите вложения и попробуйте снова.',
         normalizeFailedTitle: 'Не удалось обработать изображение',
         normalizeFailedMessage: ({ count }: { count: number }) => `Не удалось обработать изображений: ${count}. Они пропущены.`,
         viewAvatar: 'View profile picture',

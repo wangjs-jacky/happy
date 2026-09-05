@@ -79,6 +79,8 @@ import { storage } from './storage';
 import { Encryption } from './encryption/encryption';
 import { EncryptionCache } from './encryption/encryptionCache';
 import * as sessionFallbackTitle from './sessionFallbackTitle';
+import { Modal } from '@/modal';
+import { uploadAttachmentForSession } from './uploadAttachmentForSession';
 
 const subject = sync as any;
 function deferred<T>() {
@@ -129,6 +131,19 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real session writer composition', () => {
+    it('附件失败保留底层原因且不从同步层弹窗或提交部分消息', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        const cause = new Error('synthetic-upload-network-failure');
+        vi.mocked(uploadAttachmentForSession).mockRejectedValueOnce(cause);
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const error = await sync.sendMessage('writer-session', 'synthetic-message', {
+            attachments: [{ id: 'a', name: 'image.png' }] as any,
+        }).catch(error => error);
+        expect(error).toMatchObject({ code: 'attachment-upload-failed', failedCount: 1, causes: [cause] });
+        expect(Modal.alert).not.toHaveBeenCalled();
+        expect(subject.pendingOutbox.size).toBe(0);
+        expect(storage.getState().sessionMessages['writer-session']?.messages ?? []).toHaveLength(0);
+    });
     it('ignores an outbox acknowledgement that arrives after session deletion', async () => {
         await sync.ensureSessionHydrated('writer-session');
         vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });

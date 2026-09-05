@@ -599,6 +599,8 @@ export const it: TranslationStructure = {
         agentMode: 'Agente',
         machineOffline: 'La macchina è offline',
         sessionHydrationFailed: 'La sessione è stata creata, ma la pagina non ha ancora terminato la sincronizzazione. Riprova per entrare.',
+        firstMessageFailed: 'La sessione è stata creata, ma il messaggio non è ancora stato inviato. Prova a inviarlo di nuovo.',
+        sessionOpenFailed: 'Il messaggio è stato inoltrato, ma non è stato possibile aprire la pagina della sessione. Prova ad aprirla di nuovo.',
         switchMachinesHint: '• Cambia macchina cliccando sulla macchina sopra',
     },
 
@@ -1627,10 +1629,10 @@ export const it: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" supera il limite di ${maxMb}MB e non è stato aggiunto.`,
         uploadFailedTitle: 'Caricamento non riuscito',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'Un\'immagine non è stata caricata e non è stata inviata.'
-            : `Non è stato possibile caricare ${count} immagini e non sono state inviate.`,
-        notSupportedTitle: 'Immagini non supportate',
-        notSupportedMessage: 'Questo agente non supporta gli allegati immagine. È stato inviato solo il testo.',
+            ? 'Impossibile caricare un allegato. Il messaggio non è ancora stato inviato. Riprova.'
+            : `Impossibile caricare ${count} allegati. Il messaggio non è ancora stato inviato. Riprova.`,
+        notSupportedTitle: 'Allegati non supportati',
+        notSupportedMessage: 'Questo agente non supporta gli allegati. Rimuovi gli allegati e riprova.',
         normalizeFailedTitle: 'Immagine non leggibile',
         normalizeFailedMessage: ({ count }: { count: number }) => `Impossibile elaborare ${count} immagine/i, ignorate.`,
         viewAvatar: 'View profile picture',

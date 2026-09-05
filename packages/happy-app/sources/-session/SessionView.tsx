@@ -35,6 +35,7 @@ import {
     SIDEBAR_TAG_MAX_COUNT,
     type SidebarTag,
 } from '@/sync/sidebarOrganization';
+import { describeMessageSendError } from '@/sync/messageSendError';
 import { sync } from '@/sync/sync';
 import { t } from '@/text';
 import { isRunningOnMac } from '@/utils/platform';
@@ -1475,8 +1476,8 @@ function SessionViewLoaded({
                     if (composerHandleRef.current !== composer) return;
                     if (composer?.getMessage() === liveMessage) composer.clearMessage();
                     for (const attachment of attachments ?? []) removeImage(attachment.id);
-                } catch {
-                    Modal.alert(t('common.error'), t('common.retry'));
+                } catch (error) {
+                    Modal.alert(t('common.error'), describeMessageSendError(error, t('common.retry')));
                 } finally { sendInFlight.current = false; }
             })();
         }

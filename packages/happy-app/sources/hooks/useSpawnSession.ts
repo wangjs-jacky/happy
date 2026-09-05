@@ -13,6 +13,7 @@ import type { NewSessionAgentType } from '@/sync/persistence';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { organizeSession } from '@/sync/sidebarOrganization';
 import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
+import { describeMessageSendError } from '@/sync/messageSendError';
 import { traceStartup } from '@/sync/sessionStartupTrace';
 
 export interface SpawnSessionArgs {
@@ -43,7 +44,16 @@ export type SpawnSessionCoreResult =
     | { type: 'cancelled' }
     | { type: 'error'; message: string; sessionId?: string };
 
+type RecoveryStage = 'hydration' | 'send' | 'navigation';
+
+export type SessionRecoveryError = {
+    sessionId: string;
+    stage: RecoveryStage;
+    message: string;
+};
+
 type PendingHydration = {
+    stage: RecoveryStage;
     sessionId: string;
     args: SpawnSessionArgs;
     trace: SessionStartupTraceContext;
@@ -126,7 +136,7 @@ function configureSpawnedSession(sessionId: string, args: SpawnSessionArgs): voi
 export function useSpawnSession() {
     const navigateToSession = useNavigateToSession();
     const [sending, setSending] = React.useState(false);
-    const [hydrationError, setHydrationError] = React.useState<{ sessionId: string } | null>(null);
+    const [recoveryError, setRecoveryError] = React.useState<SessionRecoveryError | null>(null);
     const pendingHydration = React.useRef<PendingHydration | null>(null);
     const sendingOperations = React.useRef(0);
     const spawningRef = React.useRef(false);
@@ -225,8 +235,19 @@ export function useSpawnSession() {
         }
     }, [beginSending, endSending]);
 
+    const reportRecoveryError = React.useCallback((pending: PendingHydration, error?: unknown) => {
+        if (!mountedRef.current || pendingHydration.current !== pending) return;
+        const message = pending.stage === 'send'
+            ? describeMessageSendError(error, t('newSession.firstMessageFailed'))
+            : pending.stage === 'navigation'
+                ? t('newSession.sessionOpenFailed')
+                : t('newSession.sessionHydrationFailed');
+        setRecoveryError({ sessionId: pending.sessionId, stage: pending.stage, message });
+    }, []);
+
     const finishPending = React.useCallback(async (pending: PendingHydration): Promise<boolean> => {
         if (!pending.queued) {
+            pending.stage = 'send';
             const attachments = pending.args.images?.length ? pending.args.images : undefined;
             if (pending.args.prompt || attachments) {
                 try {
@@ -245,11 +266,12 @@ export function useSpawnSession() {
         if (!mountedRef.current || pendingHydration.current !== pending) return false;
         // The route may synchronously dismiss/unmount the compose component.
         // Transfer or clear its accepted draft before invoking navigation.
+        pending.stage = 'navigation';
         pending.onQueued?.();
         navigateToSession(pending.sessionId);
         traceWebStartupStage(pending.trace, 'web.session.navigated', pending.sessionId);
         pendingHydration.current = null;
-        if (mountedRef.current) setHydrationError(null);
+        if (mountedRef.current) setRecoveryError(null);
         return true;
     }, [navigateToSession]);
 
@@ -280,12 +302,12 @@ export function useSpawnSession() {
         beginSending();
         try {
             const result = await spawnSession(args, approvedNewDirectoryCreation, startupTrace, sessionId => {
-                pendingHydration.current = { sessionId, args, trace: startupTrace, retrying: false, queued: false, configured: false, onQueued };
+                pendingHydration.current = { stage: 'hydration', sessionId, args, trace: startupTrace, retrying: false, queued: false, configured: false, onQueued };
             });
             if (!mountedRef.current) return false;
             if (result.type !== 'success') {
                 const pending = pendingHydration.current as PendingHydration | null;
-                if (pending) setHydrationError({ sessionId: pending.sessionId });
+                if (pending) reportRecoveryError(pending);
                 return false;
             }
 
@@ -295,26 +317,35 @@ export function useSpawnSession() {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to start session';
             const pending = pendingHydration.current as PendingHydration | null;
-            if (mountedRef.current && pending) setHydrationError({ sessionId: pending.sessionId });
-            if (mountedRef.current) Modal.alert(t('common.error'), message);
+            if (pending) reportRecoveryError(pending, error);
+            else if (mountedRef.current) Modal.alert(t('common.error'), message);
             return false;
         } finally {
             spawningRef.current = false;
             endSending();
         }
-    }, [beginSending, endSending, finishPending, spawnSession]);
+    }, [beginSending, endSending, finishPending, spawnSession, reportRecoveryError]);
 
-    const retryHydration = React.useCallback(async (): Promise<boolean> => {
+    const retryPending = React.useCallback(async (replacement?: {
+        prompt: string; images?: AttachmentPreview[]; onQueued?: () => void;
+    }): Promise<boolean> => {
         const pending = pendingHydration.current;
         if (!mountedRef.current || !pending || pending.retrying) {
             return false;
         }
 
+        // 仅在消息尚未提交且用户明确重试时接纳修正后的草稿。
+        if (replacement && pending.stage === 'send' && !pending.queued) {
+            pending.args = { ...pending.args, prompt: replacement.prompt, images: replacement.images };
+            pending.onQueued = replacement.onQueued;
+        }
         pending.retrying = true;
         beginSending();
         try {
+            pending.stage = 'hydration';
             const hydrated = await ensureSessionHydratedWithRetry(pending.sessionId);
             if (!hydrated) {
+                reportRecoveryError(pending);
                 return false;
             }
             if (!mountedRef.current || pendingHydration.current !== pending) return false;
@@ -328,14 +359,13 @@ export function useSpawnSession() {
 
             return await finishPending(pending);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to start session';
-            if (mountedRef.current) Modal.alert(t('common.error'), message);
+            reportRecoveryError(pending, error);
             return false;
         } finally {
             pending.retrying = false;
             endSending();
         }
-    }, [beginSending, endSending, finishPending]);
+    }, [beginSending, endSending, finishPending, reportRecoveryError]);
 
-    return { sending, hydrationError, retryHydration, spawnSession, spawn };
+    return { sending, recoveryError, retryPending, spawnSession, spawn };
 }

@@ -602,6 +602,8 @@ export const zhHans: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: '设备离线',
         sessionHydrationFailed: '会话已创建，但页面尚未同步完成。请重试进入。',
+        firstMessageFailed: '会话已创建，但消息尚未发送。请重试发送。',
+        sessionOpenFailed: '消息已提交，但会话页面未能打开。请重试进入。',
         switchMachinesHint: '• 点击上方的设备来切换设备',
     },
 
@@ -2207,10 +2209,10 @@ export const zhHans: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}"超过了 ${maxMb}MB 的限制，未能添加。`,
         uploadFailedTitle: '上传失败',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? '一张图片上传失败，未发送。'
-            : `${count} 张图片上传失败，未发送。`,
-        notSupportedTitle: '不支持图片',
-        notSupportedMessage: '该代理不支持图片附件。仅发送了文本。',
+            ? '一个附件上传失败，消息尚未发送。请重试。'
+            : `${count} 个附件上传失败，消息尚未发送。请重试。`,
+        notSupportedTitle: '不支持附件',
+        notSupportedMessage: '该代理不支持附件。请移除附件后重试。',
         normalizeFailedTitle: '图片无法处理',
         normalizeFailedMessage: ({ count }: { count: number }) => `${count} 张图片无法处理，已跳过。`,
         viewAvatar: '查看头像',

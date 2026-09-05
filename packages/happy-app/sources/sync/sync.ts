@@ -86,6 +86,7 @@ import { uploadMediaFile } from './uploadMediaFile';
 import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { uploadAttachmentForSession } from './uploadAttachmentForSession';
+import { AttachmentSendError } from './messageSendError';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import type { SessionApplyOptions } from './sessionApply';
@@ -849,18 +850,19 @@ class Sync {
      * Upload attachments for a session. Images stay E2E-encrypted; audio/video
      * stream directly to private object storage without entering JS memory.
      * Returns UploadedAttachment records to embed as file events before the text message.
-     * Failures are logged and skipped rather than aborting the whole message send.
+     * 记录所有失败原因，交由发送入口决定整条消息是否可以提交。
      */
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
-    ): Promise<{ uploaded: UploadedAttachment[]; failed: number }> {
-        if (!this.credentials) return { uploaded: [], failed: attachments.length };
+    ): Promise<{ uploaded: UploadedAttachment[]; failed: number; causes: unknown[] }> {
+        if (!this.credentials) return { uploaded: [], failed: attachments.length, causes: [new Error('credentials-unavailable')] };
 
         const blobKey = this.encryption.getSessionBlobKey(sessionId);
 
         const uploaded: UploadedAttachment[] = [];
         let failed = 0;
+        const causes: unknown[] = [];
 
         for (const attachment of attachments) {
             try {
@@ -882,11 +884,11 @@ class Sync {
             } catch (err) {
                 console.error(`[attachments] Failed to upload ${attachment.name}:`, err);
                 failed++;
-                // Skip this attachment; do not abort the whole message send.
+                causes.push(err);
             }
         }
 
-        return { uploaded, failed };
+        return { uploaded, failed, causes };
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions): Promise<LocalMessageQueueReceipt> {
@@ -917,27 +919,19 @@ class Sync {
         const effectiveAttachments = supportsAttachments ? attachments : undefined;
 
         if (attachments && attachments.length > 0 && !supportsAttachments) {
-            Modal.alert(
-                t('imageUpload.notSupportedTitle'),
-                t('imageUpload.notSupportedMessage'),
-                [{ text: t('common.ok'), style: 'cancel' }],
-            );
-            throw new Error('local-message-attachments-unsupported');
+            throw new AttachmentSendError('attachments-unsupported', attachments.length);
         }
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const { uploaded, failed, causes } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
 
             if (failed > 0) {
-                Modal.alert(
-                    t('imageUpload.uploadFailedTitle'),
-                    t('imageUpload.uploadFailedMessage', { count: failed }),
-                    [{ text: t('common.ok'), style: 'cancel' }],
-                );
-                throw new Error('local-message-attachment-upload-failed');
+                throw new AttachmentSendError('attachment-upload-failed', failed, causes);
             }
-            if (uploaded.length !== effectiveAttachments.length) throw new Error('local-message-attachment-upload-incomplete');
+            if (uploaded.length !== effectiveAttachments.length) {
+                throw new AttachmentSendError('attachment-upload-failed', Math.max(1, effectiveAttachments.length - uploaded.length), causes);
+            }
 
             if (uploaded.length > 0) {
                 for (const att of uploaded) {

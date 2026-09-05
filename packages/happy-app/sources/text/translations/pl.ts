@@ -618,6 +618,8 @@ export const pl: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: 'Maszyna jest offline',
         sessionHydrationFailed: 'Sesja została utworzona, ale strona nie zakończyła synchronizacji. Spróbuj ponownie, aby wejść.',
+        firstMessageFailed: 'Sesja została utworzona, ale wiadomość nie została jeszcze wysłana. Spróbuj wysłać ją ponownie.',
+        sessionOpenFailed: 'Wiadomość została przekazana, ale nie udało się otworzyć strony sesji. Spróbuj otworzyć ją ponownie.',
         switchMachinesHint: '• Przełącz maszynę, klikając na nią powyżej',
     },
 
@@ -1658,10 +1660,10 @@ export const pl: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" przekracza limit ${maxMb}MB i nie został dodany.`,
         uploadFailedTitle: 'Przesyłanie nieudane',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'Nie udało się przesłać jednego zdjęcia i nie zostało wysłane.'
-            : `Nie udało się przesłać ${count} zdjęć i nie zostały wysłane.`,
-        notSupportedTitle: 'Obrazy nieobsługiwane',
-        notSupportedMessage: 'Ten agent nie obsługuje załączników obrazów. Wysłano tylko tekst.',
+            ? 'Nie udało się przesłać jednego załącznika. Wiadomość nie została jeszcze wysłana. Spróbuj ponownie.'
+            : `Nie udało się przesłać załączników: ${count}. Wiadomość nie została jeszcze wysłana. Spróbuj ponownie.`,
+        notSupportedTitle: 'Załączniki nieobsługiwane',
+        notSupportedMessage: 'Ten agent nie obsługuje załączników. Usuń załączniki i spróbuj ponownie.',
         normalizeFailedTitle: 'Nie można przetworzyć obrazu',
         normalizeFailedMessage: ({ count }: { count: number }) => `Nie udało się przetworzyć ${count} obraz(ów) — pominięto.`,
         viewAvatar: 'View profile picture',

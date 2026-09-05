@@ -601,6 +601,8 @@ export const ca: TranslationStructure = {
         agentMode: 'Agent',
         machineOffline: 'La màquina està fora de línia',
         sessionHydrationFailed: 'La sessió s’ha creat, però la pàgina encara no ha acabat de sincronitzar-se. Torna-ho a provar per entrar.',
+        firstMessageFailed: 'La sessió s’ha creat, però el missatge encara no s’ha enviat. Torna a provar d’enviar-lo.',
+        sessionOpenFailed: 'El missatge s’ha tramès, però no s’ha pogut obrir la pàgina de la sessió. Torna a provar d’obrir-la.',
         switchMachinesHint: '• Canvia de màquina fent clic a la màquina de dalt',
     },
 
@@ -1628,10 +1630,10 @@ export const ca: TranslationStructure = {
         fileTooLargeMessage: ({ name, maxMb }: { name: string; maxMb: number }) => `"${name}" supera el límit de ${maxMb}MB i no s'ha afegit.`,
         uploadFailedTitle: 'Error en la càrrega',
         uploadFailedMessage: ({ count }: { count: number }) => count === 1
-            ? 'No s\'ha pogut pujar una imatge i no s\'ha enviat.'
-            : `No s'han pogut pujar ${count} imatges i no s'han enviat.`,
-        notSupportedTitle: 'Imatges no compatibles',
-        notSupportedMessage: 'Aquest agent no admet imatges adjuntes. Només s\'ha enviat el text.',
+            ? 'No s’ha pogut pujar un fitxer adjunt. El missatge encara no s’ha enviat. Torna-ho a provar.'
+            : `No s’han pogut pujar ${count} fitxers adjunts. El missatge encara no s’ha enviat. Torna-ho a provar.`,
+        notSupportedTitle: 'Fitxers adjunts no compatibles',
+        notSupportedMessage: 'Aquest agent no admet fitxers adjunts. Elimina els adjunts i torna-ho a provar.',
         normalizeFailedTitle: 'Imatge no processable',
         normalizeFailedMessage: ({ count }: { count: number }) => `No s'han pogut processar ${count} imatge(s) i s'han omès.`,
         viewAvatar: 'View profile picture',
