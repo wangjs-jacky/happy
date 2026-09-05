@@ -145,6 +145,44 @@ describe('runClaude remote JSONL scanner', () => {
         });
     });
 
+    it('marks processor ready and emits encrypted ready only after the remote handler and Claude session exist', async () => {
+        const order: string[] = [];
+        let registeredUserHandler: ((message: any) => void) | undefined;
+        const sessionClient = {
+            sessionId: 'happy-session-1',
+            suppressNextArchiveSignal: vi.fn(), skipExistingMessages: vi.fn(), updateMetadata: vi.fn(),
+            sendClaudeSessionMessage: vi.fn(), onFileEvent: vi.fn(), on: vi.fn(), trackAttachmentDownload: vi.fn(),
+            drainAttachmentsForUserMessage: vi.fn(async () => []), downloadAndDecryptAttachment: vi.fn(),
+            getMetadata: vi.fn(() => ({})), updateAgentState: vi.fn(), sendSessionDeath: vi.fn(),
+            flush: vi.fn(async () => {}), close: vi.fn(async () => {}),
+            rpcHandlerManager: { registerHandler: vi.fn() },
+            onUserMessage: vi.fn((handler: (message: any) => void) => { registeredUserHandler = handler; order.push('handler'); }),
+            processorStarting: vi.fn(() => { order.push('starting'); return true; }),
+            processorReady: vi.fn(() => { order.push('ready-span'); return true; }),
+            sendSessionEvent: vi.fn((event: unknown) => { order.push(`event:${JSON.stringify(event)}`); }),
+        };
+        const api = {
+            getOrCreateMachine: vi.fn(async () => ({})),
+            getOrCreateSession: vi.fn(async () => ({ id: 'happy-session-1', seq: 0, metadata: {}, metadataVersion: 0, agentState: {}, agentStateVersion: 0, encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const })),
+            sessionSyncClient: vi.fn(() => sessionClient), deactivateSession: vi.fn(async () => {}),
+        };
+        mockApiClientCreate.mockResolvedValue(api);
+        mockLoop.mockImplementation(async (options: any) => {
+            order.push('backend');
+            options.onSessionReady({ cleanup: vi.fn() });
+            return 0;
+        });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit'); }) as never);
+
+        await expect(runClaude({ token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } } as any, {
+            startingMode: 'remote', shouldStartDaemon: false,
+        })).rejects.toThrow('process.exit');
+
+        expect(registeredUserHandler).toBeTypeOf('function');
+        expect(order).toEqual(['handler', 'starting', 'backend', 'ready-span', 'event:{"type":"ready"}']);
+        exitSpy.mockRestore();
+    });
+
     afterEach(() => {
         for (const [event, listeners] of originalListeners) {
             process.removeAllListeners(event as any);

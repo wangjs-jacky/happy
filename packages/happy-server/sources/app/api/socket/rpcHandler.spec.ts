@@ -147,12 +147,16 @@ describe('rpcHandler', () => {
                 stage: 'server.rpc.received',
                 machineId: 'machine-1',
                 outcome: 'success',
+                duration: expect.any(Number),
+                spanDuration: expect.any(Number),
             }),
             expect.objectContaining({
                 traceId: '00000000-0000-4000-8000-000000000001',
                 stage: 'server.rpc.daemon_found',
                 machineId: 'machine-1',
                 outcome: 'success',
+                duration: expect.any(Number),
+                spanDuration: expect.any(Number),
             }),
         ]);
         expect(JSON.stringify(stageEvents)).not.toContain('canary');

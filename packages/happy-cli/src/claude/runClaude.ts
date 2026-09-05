@@ -877,6 +877,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     registerSessionTitleWorker(session, 'claude');
     registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true }));
 
+    // The remote message handler above is installed; the backend itself starts in loop().
+    session.processorStarting?.();
+
     // Create claude loop
     const exitCode = await loop({
         path: workingDirectory,
@@ -897,6 +900,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+            session.processorReady?.();
+            session.sendSessionEvent({ type: 'ready' });
         },
         onAbort: resetCurrentModeDefaults,
         mcpServers: {

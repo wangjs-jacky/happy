@@ -22,20 +22,22 @@ function takeSessionStartupTraceId(): string | undefined {
 export class ApiClient {
 
   static async create(credential: Credentials) {
-    return new ApiClient(credential);
+    const startupTraceId = takeSessionStartupTraceId();
+    const lifecycle = startupTraceId ? new WorkerSessionStartupLifecycle(startupTraceId) : undefined;
+    lifecycle?.entryStarted();
+    const client = new ApiClient(credential, lifecycle);
+    lifecycle?.authReady();
+    return client;
   }
 
   private readonly credential: Credentials;
   private readonly pushClient: PushNotificationClient;
   private readonly startupLifecycle: WorkerSessionStartupLifecycle | undefined;
 
-  private constructor(credential: Credentials) {
+  private constructor(credential: Credentials, startupLifecycle?: WorkerSessionStartupLifecycle) {
     this.credential = credential
     this.pushClient = new PushNotificationClient(credential.token, configuration.serverUrl)
-    const startupTraceId = takeSessionStartupTraceId();
-    this.startupLifecycle = startupTraceId
-      ? new WorkerSessionStartupLifecycle(startupTraceId)
-      : undefined;
+    this.startupLifecycle = startupLifecycle;
   }
 
   /**
@@ -181,7 +183,9 @@ export class ApiClient {
     }
 
     // Helper to create minimal machine object for offline mode (DRY)
-    const createMinimalMachine = (): Machine => ({
+    const createMinimalMachine = (): Machine => {
+      this.startupLifecycle?.machineReady(opts.machineId);
+      return ({
       id: opts.machineId,
       encryptionKey: encryptionKey,
       encryptionVariant: encryptionVariant,
@@ -189,7 +193,8 @@ export class ApiClient {
       metadataVersion: 0,
       daemonState: opts.daemonState || null,
       daemonStateVersion: 0,
-    });
+      });
+    };
 
     // Create machine
     try {
@@ -225,6 +230,7 @@ export class ApiClient {
         daemonState: raw.daemonState ? decrypt(encryptionKey, encryptionVariant, decodeBase64(raw.daemonState)) : null,
         daemonStateVersion: raw.daemonStateVersion || 0,
       };
+      this.startupLifecycle?.machineReady(opts.machineId);
       return machine;
     } catch (error) {
       // Handle connection errors gracefully

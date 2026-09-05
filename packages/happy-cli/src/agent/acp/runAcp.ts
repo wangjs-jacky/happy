@@ -594,6 +594,7 @@ export async function runAcp(opts: {
     },
   };
 
+  session.processorStarting?.();
   const backend = new AcpBackend({
     agentName: opts.agentName,
     cwd: process.cwd(),
@@ -950,6 +951,8 @@ export async function runAcp(opts: {
   try {
     const started = await backend.startSession();
     acpSessionId = started.sessionId;
+    session.processorReady?.();
+    session.sendSessionEvent({ type: 'ready' });
     if (verbose) {
       if (!sawSlashCommands) {
         logAcp('muted', `Outgoing slash commands from ${opts.agentName}: not reported yet`);

@@ -28,6 +28,31 @@ function trace() {
 }
 
 describe('run.ts daemon session startup integration', () => {
+    it('records request receipt before child start with component-local spans', () => {
+        const events: Record<string, unknown>[] = [];
+        const ticks = [100, 100, 145];
+        const wallTicks = [1000, 1045];
+        const integration = new DaemonSessionStartupIntegration(
+            (_label, event) => events.push(event),
+            () => ticks.shift()!,
+            () => wallTicks.shift()!,
+        );
+
+        const requestTrace = integration.requestReceived({
+            traceId: TRACE_ID,
+            machineId: 'machine-1',
+            directory: '/directory-canary',
+            command: 'command-canary',
+            environment: { TOKEN: 'token-canary' },
+        } as any);
+        integration.childStarted(101, requestTrace);
+
+        expect(events).toEqual([
+            { traceId: TRACE_ID, stage: 'daemon.spawn.request_received', timestamp: 1000, duration: 0, spanDuration: 0, outcome: 'success', machineId: 'machine-1' },
+            { traceId: TRACE_ID, stage: 'daemon.spawn.child_started', timestamp: 1045, duration: 45, spanDuration: 45, outcome: 'success', machineId: 'machine-1' },
+        ]);
+        expect(JSON.stringify(events)).not.toContain('canary');
+    });
     it('keeps command, directory and raw failures out of the real worker spawn logger', () => {
         spawnLog.lines = [];
         const integration = new DaemonSessionStartupIntegration();

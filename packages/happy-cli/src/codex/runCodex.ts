@@ -90,6 +90,15 @@ function describeCodexFailure(msg: any): string | null {
 
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
 
+export async function completeCodexProcessorStartup(
+    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent'>,
+    ensureThreadAvailable: () => Promise<unknown>,
+): Promise<void> {
+    await ensureThreadAvailable();
+    session.processorReady();
+    session.sendSessionEvent({ type: 'ready' });
+}
+
 function formatCodexGoal(goal: ThreadGoal): string {
     const budget = goal.tokenBudget === null
         ? `${goal.tokensUsed} tokens used`
@@ -897,6 +906,7 @@ export async function runCodex(opts: {
     // Start Context 
     //
 
+    session.processorStarting?.();
     client = new CodexAppServerClient(sandboxConfig, resolveCodexAppServerConnection());
 
     permissionHandler = new CodexPermissionHandler(session, (notification) => {
@@ -1569,6 +1579,14 @@ export async function runCodex(opts: {
                 finalizeCodexTurn();
             }
         };
+
+        await completeCodexProcessorStartup(session, () => ensureCodexThread({
+            permissionMode: currentPermissionMode ?? 'default',
+            model: currentModel,
+            appendSystemPrompt: currentAppendSystemPrompt,
+            effort: currentEffort,
+            fast: currentFastMode,
+        }));
 
         while (!shouldExit) {
             logActiveHandles('loop-top');

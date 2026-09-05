@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import axios from 'axios';
+import { performance } from 'node:perf_hooks';
 
 import { ApiClient } from '@/api/api';
 import { TrackedSession, SessionEncryptionData } from './types';
@@ -67,13 +68,20 @@ export class DaemonSessionStartupIntegration {
 
   constructor(
     private readonly write?: StartupTraceWriter,
-    private readonly now: () => number = Date.now,
+    private readonly now: () => number = () => performance.now(),
+    private readonly wallNow: () => number = Date.now,
   ) {
-    this.registry = new DaemonStartupTraceRegistry(write, now);
+    this.registry = new DaemonStartupTraceRegistry(write, now, wallNow);
   }
 
   get pendingTraceCount(): number {
     return this.registry.size;
+  }
+
+  requestReceived(options: { traceId?: unknown; machineId?: unknown }): DaemonStartupTraceContext | undefined {
+    const trace = createDaemonStartupTraceContext(options, this.now);
+    logDaemonStartupStage(trace, 'daemon.spawn.request_received', { outcome: 'success' }, this.write, this.now, this.wallNow);
+    return trace;
   }
 
   buildWorkerEnvironment(
@@ -91,7 +99,7 @@ export class DaemonSessionStartupIntegration {
 
   childStarted(pid: number, trace: DaemonStartupTraceContext | undefined): void {
     if (trace) this.registry.associate(pid, trace);
-    logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' }, this.write, this.now);
+    logDaemonStartupStage(trace, 'daemon.spawn.child_started', { outcome: 'success' }, this.write, this.now, this.wallNow);
   }
 
   processWebhook(pid: number, sessionId: string, onValidWebhook: () => void): boolean {
@@ -330,7 +338,7 @@ export async function startDaemon(): Promise<void> {
 
     // Spawn a new session (sessionId reserved for future --resume functionality)
     const spawnSession = async (options: TracedSpawnSessionOptions): Promise<SpawnSessionResult> => {
-      const trace = createDaemonStartupTraceContext(options);
+      const trace = startupIntegration.requestReceived(options);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
