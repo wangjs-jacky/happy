@@ -59,13 +59,19 @@ export interface WebStartupTraceRuntime {
   begin(traceId: string, startedAt: number): WebStartupTraceHandle;
   bindSession(handle: WebStartupTraceHandle, sessionId: string): boolean;
   mark(handle: WebStartupTraceHandle, stage: WebStartupStage, now?: number): boolean;
-  markSessionEvent(sessionId: string, event: unknown, now?: number): boolean;
+  markSessionStage(
+    sessionId: string,
+    stage: 'web.processor.ready_received' | 'web.first_agent_event_received' | 'web.turn.completed',
+    now?: number,
+  ): boolean;
   finish(handle: WebStartupTraceHandle): void;
   cancel(handle: WebStartupTraceHandle, errorCode: string): void;
 }
+
+export const sessionStartupTraceRuntime: WebStartupTraceRuntime;
 ```
 
-The runtime stores only in-memory handles. `markSessionEvent` accepts only the session event `{ type: 'ready' }`; the first accepted event emits `web.processor.ready_received` and removes the session binding. Same-session stale handles cannot consume a newer handle's event.
+The runtime stores only in-memory handles. The Sync layer classifies already-decrypted normalized messages and calls `markSessionStage`: `{ type: 'ready' }` maps to processor-ready, the first real agent output maps to first-agent-event, and the existing terminal lifecycle event maps to turn-completed. Each stage is idempotent. The session binding remains through turn completion and is then removed; timeout, cancel, and explicit finish also remove it. Same-session stale handles cannot consume a newer handle's event.
 
 `sessionCriticalPathProbeBridge.ts` is the only optional application-to-document-probe boundary. It feature-detects the document-start probe and invokes fixed methods without reading browser storage or response data:
 
@@ -94,13 +100,13 @@ Add literal expectations for the new fixed stages and test a real runtime instan
 ```ts
 const first = runtime.begin(TRACE_A, 100);
 expect(runtime.bindSession(first, 'session-a')).toBe(true);
-expect(runtime.markSessionEvent('session-a', { type: 'ready' }, 350)).toBe(true);
+expect(runtime.markSessionStage('session-a', 'web.processor.ready_received', 350)).toBe(true);
 expect(writer).toHaveBeenCalledWith(expect.objectContaining({
   traceId: TRACE_A,
   stage: 'web.processor.ready_received',
   duration: 250,
 }));
-expect(runtime.markSessionEvent('session-a', { type: 'ready' }, 400)).toBe(false);
+expect(runtime.markSessionStage('session-a', 'web.processor.ready_received', 400)).toBe(false);
 ```
 
 Cover stale same-session handles, malformed events, cancel/finish cleanup, and throwing writers. Name the production break each case catches.
@@ -143,7 +149,7 @@ Expected RED: navigation completes, but the ready event has no trace binding or 
 
 - [ ] **Step 5: Connect spawn, route-paint, ready-event, and cleanup boundaries**
 
-Bind the runtime when `onRegistered(sessionId)` fires. Mark `web.session.navigated` at the existing navigation call and add `web.session.route_painted` only from a post-layout/browser-paint callback on the matching session route. Emit root/font/crypto/credentials/route, target snapshot start/completion, latest-message request start/completion, store commit, and latest-paint app stages through the probe bridge at their actual boundaries. Feed only decrypted session `{ type: 'ready' }` events into `markSessionEvent`. Cancel on terminal spawn failure; retain the binding across navigation until ready or bounded trace expiry.
+Bind the singleton runtime when `onRegistered(sessionId)` fires. Mark `web.session.navigated` at the existing navigation call and add `web.session.route_painted` only from a post-layout/browser-paint callback on the matching session route. Emit root/font/crypto/credentials/route, target snapshot start/completion, latest-message request start/completion, store commit, and latest-paint app stages through the probe bridge at their actual boundaries. Feed only already-decrypted, normalized ready/agent/turn-completion semantics into `markSessionStage`. Cancel on terminal spawn failure; retain the binding across navigation through turn completion or bounded trace expiry.
 
 - [ ] **Step 6: Run GREEN tests and the existing probe tests**
 
