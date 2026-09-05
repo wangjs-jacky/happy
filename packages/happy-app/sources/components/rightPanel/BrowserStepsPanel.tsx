@@ -61,7 +61,7 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
     if (!selected) return null;
 
     return (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.scroll} testID="browser-steps-timeline-scroll">
             <View style={styles.heading}>
                 <View style={[styles.headingIcon, { backgroundColor: theme.colors.surfaceHigh }]}>
                     <Ionicons color={theme.colors.text} name="globe-outline" size={17} />
@@ -112,6 +112,7 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
 });
 
 const styles = StyleSheet.create(() => ({
+    scroll: { flex: 1, minHeight: 0 },
     content: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 28 },
     heading: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
     headingIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

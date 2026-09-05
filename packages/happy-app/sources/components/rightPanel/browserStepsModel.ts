@@ -8,6 +8,8 @@ export type BrowserStep = {
     ref: string;
     width?: number;
     height?: number;
+    runId?: string;
+    skillName?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,6 +32,12 @@ export function getBrowserSteps(messages: Message[]): BrowserStep[] {
         const label = typeof input.browserStep.label === 'string' ? input.browserStep.label.trim() : '';
         if (!ref || !label) return [];
         const image = isRecord(input.image) ? input.image : null;
+        const runId = typeof input.browserStep.runId === 'string' && input.browserStep.runId.trim().length > 0
+            ? input.browserStep.runId.trim()
+            : undefined;
+        const skillName = typeof input.browserStep.skillName === 'string' && input.browserStep.skillName.trim().length > 0
+            ? input.browserStep.skillName.trim()
+            : undefined;
         return [{
             id: message.id,
             createdAt: message.createdAt,
@@ -38,6 +46,8 @@ export function getBrowserSteps(messages: Message[]): BrowserStep[] {
             ref,
             ...(typeof image?.width === 'number' ? { width: image.width } : {}),
             ...(typeof image?.height === 'number' ? { height: image.height } : {}),
+            ...(runId ? { runId } : {}),
+            ...(skillName ? { skillName } : {}),
         } satisfies BrowserStep];
     }).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }

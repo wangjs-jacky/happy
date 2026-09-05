@@ -20,8 +20,7 @@ import { SessionFolderBrowserView } from './SessionFolderBrowserView';
 import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 import { usePluginSurfaceViews } from '../plugins/usePluginSurfaceViews';
-import { getBrowserSteps } from './browserStepsModel';
-import { BrowserStepsPopover } from './BrowserStepsPopover';
+import { getBrowserStepRuns } from './browserStepRunsModel';
 
 type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
@@ -64,7 +63,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
     const { messages } = useSessionMessages(props.sessionId);
-    const browserSteps = React.useMemo(() => getBrowserSteps(messages), [messages]);
+    const browserStepRuns = React.useMemo(() => getBrowserStepRuns(messages), [messages]);
     const pluginViews = usePluginSurfaceViews('right-panel');
     const generatedImagesViewAvailable = pluginViews.some((view) => (
         view.componentId === 'generated-images-session-images'
@@ -76,7 +75,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     const panel = useRightSwipePanel();
     const [quickPrompts, setQuickPrompts] = useSettingMutable('quickPrompts');
     const [selectedKey, setSelectedKey] = React.useState<CapabilityPanelKey | null>(null);
-    const [browserStepsOpen, setBrowserStepsOpen] = React.useState(false);
     const { onInsertQuickPrompt, sessionId } = props;
     const { actionItems } = useSessionQuickActions(props.session, {
         onAfterArchive: () => panel?.closePanel(),
@@ -194,6 +192,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 
         return (
             <CapabilityHubDetailView
+                browserStepRuns={browserStepRuns}
                 count={model.details[selectedKey].length}
                 items={model.details[selectedKey]}
                 onAddQuickPrompt={selectedKey === 'quickPrompts' ? addQuickPrompt : undefined}
@@ -218,12 +217,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                 <Text numberOfLines={1} style={[styles.headingTitle, { color: theme.colors.text }]}>
                     {t('rightPanelCapabilityHub.title')}
                 </Text>
-                {browserSteps.length > 0 ? (
-                    <Pressable accessibilityRole="button" onPress={() => setBrowserStepsOpen(true)} style={[styles.browserStepsButton, { backgroundColor: theme.colors.surfaceHigh }]} testID="open-browser-steps">
-                        <Ionicons color={theme.colors.text} name="globe-outline" size={14} />
-                        <Text style={[styles.browserStepsButtonText, { color: theme.colors.text }]}>查看过程 · {browserSteps.length}</Text>
-                    </Pressable>
-                ) : null}
             </View>
 
             <View style={styles.grid}>
@@ -273,7 +266,6 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                 })}
             </View>
         </ScrollView>
-        <BrowserStepsPopover open={browserStepsOpen} onClose={() => setBrowserStepsOpen(false)} sessionId={props.sessionId} steps={browserSteps} />
         </View>
     );
 });
@@ -378,8 +370,6 @@ const styles = StyleSheet.create(() => ({
         fontWeight: '700',
         letterSpacing: -0.4,
     },
-    browserStepsButton: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 6 },
-    browserStepsButtonText: { fontSize: 12, fontWeight: '600' },
     placeholderCopy: {
         fontSize: 13,
         lineHeight: 18,

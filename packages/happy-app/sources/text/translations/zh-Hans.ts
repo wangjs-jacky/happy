@@ -450,6 +450,11 @@ export const zhHans: TranslationStructure = {
             loadError: '无法加载此文件夹',
             retry: '重试',
         },
+        browserProgress: {
+            title: '浏览器执行过程',
+            view: '查看过程',
+            close: '关闭浏览器执行过程',
+        },
         meta: {
             available: '当前会话可用',
             image: '图片附件',

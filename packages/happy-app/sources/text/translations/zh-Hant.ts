@@ -438,6 +438,11 @@ export const zhHant: TranslationStructure = {
             loadError: '無法載入此資料夾',
             retry: '重試',
         },
+        browserProgress: {
+            title: '瀏覽器執行過程',
+            view: '查看過程',
+            close: '關閉瀏覽器執行過程',
+        },
         meta: {
             available: '目前會話可用',
             image: '圖片附件',

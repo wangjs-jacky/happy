@@ -439,6 +439,11 @@ export const ja: TranslationStructure = {
             loadError: 'このフォルダを読み込めませんでした',
             retry: '再試行',
         },
+        browserProgress: {
+            title: 'Browser progress',
+            view: 'View progress',
+            close: 'Close browser progress',
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

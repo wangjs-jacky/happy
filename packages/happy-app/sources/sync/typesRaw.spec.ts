@@ -2033,7 +2033,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                             size: 4567,
                             mimeType: 'image/jpeg',
                             source: 'browser_step',
-                            browserStep: { label: '打开订单详情' },
+                            browserStep: { label: '打开订单详情', runId: 'ego-run-1', skillName: 'ego-browser' },
                             image: { width: 1280, height: 720, thumbhash: '' },
                         },
                     },
@@ -2048,7 +2048,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                     input: {
                         ref: 'upload-browser-step-1',
                         source: 'browser_step',
-                        browserStep: { label: '打开订单详情' },
+                        browserStep: { label: '打开订单详情', runId: 'ego-run-1', skillName: 'ego-browser' },
                     },
                     description: 'Browser step: 打开订单详情',
                 });

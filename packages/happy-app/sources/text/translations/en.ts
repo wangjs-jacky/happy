@@ -463,6 +463,11 @@ export const en: TranslationStructure = {
             loadError: 'Could not load this folder',
             retry: 'Retry',
         },
+        browserProgress: {
+            title: 'Browser progress',
+            view: 'View progress',
+            close: 'Close browser progress',
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

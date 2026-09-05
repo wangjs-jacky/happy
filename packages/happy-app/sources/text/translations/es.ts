@@ -438,6 +438,11 @@ export const es: TranslationStructure = {
             loadError: 'No se pudo cargar esta carpeta',
             retry: 'Reintentar',
         },
+        browserProgress: {
+            title: 'Browser progress',
+            view: 'View progress',
+            close: 'Close browser progress',
+        },
         meta: {
             available: 'Available in session',
             image: 'Image attachment',

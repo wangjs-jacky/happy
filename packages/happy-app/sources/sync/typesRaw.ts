@@ -67,6 +67,8 @@ const sessionFileEventSchema = z.object({
     source: z.enum(['user', 'generated', 'browser_step']).optional(),
     browserStep: z.object({
         label: z.string().min(1),
+        runId: z.string().min(1).optional(),
+        skillName: z.enum(['ego-browser', 'ego-ops']).optional(),
     }).optional(),
     prompt: z.string().optional(),
     batchId: z.string().optional(),
