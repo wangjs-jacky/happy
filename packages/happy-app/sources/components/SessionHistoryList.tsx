@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FlatList, Pressable, View } from 'react-native';
+import { FlatList, Platform, Pressable, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
@@ -115,17 +115,18 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const scrollIntent = React.useRef(new SessionHistoryScrollIntent());
+    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
+    const showEmptyState = shouldShowSessionEmptyState(groupedItems.length);
+    const scrollIntent = React.useMemo(() => new SessionHistoryScrollIntent(), [showEmptyState]);
     React.useEffect(() => {
         if (!isDataReady || (sidebar && pathname !== '/new' && pathname !== '/')) return;
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
         return () => clearTimeout(timer);
     }, [isDataReady, pathname, sidebar]);
-    const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
     const loadNextHistoryPage = React.useCallback(() => {
-        if (!scrollIntent.current.consumeAtEnd()) return;
+        if (!scrollIntent.consumeAtEnd()) return;
         void sync.loadNextSessionHistoryPage();
-    }, []);
+    }, [scrollIntent]);
 
     const renderItem = React.useCallback(({ item, index }: { item: SessionHistoryItem; index: number }) => {
         if (item.type === 'date-header') {
@@ -176,7 +177,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
         );
     }, [groupedItems, navigateToSession, pathname, sidebar, styles]);
 
-    const content = shouldShowSessionEmptyState(groupedItems.length)
+    const content = showEmptyState
         ? <EmptySessionsTablet title={t('sessionHistory.empty')} />
         : (
             <FlatList
@@ -186,8 +187,10 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
                 ]}
                 data={groupedItems}
                 keyExtractor={(item) => item.key}
-                onScroll={(event) => { scrollIntent.current.noteWebScroll(event.nativeEvent.contentOffset.y); }}
-                onScrollBeginDrag={() => { scrollIntent.current.noteNativeDrag(); }}
+                onScroll={Platform.OS === 'web'
+                    ? (event) => { scrollIntent.noteWebScroll(event.nativeEvent.contentOffset.y); }
+                    : undefined}
+                onScrollBeginDrag={() => { scrollIntent.noteNativeDrag(); }}
                 onEndReached={loadNextHistoryPage}
                 onEndReachedThreshold={0.5}
                 renderItem={renderItem}
