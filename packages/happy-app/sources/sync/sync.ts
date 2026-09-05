@@ -2593,6 +2593,8 @@ class Sync {
         }
 
         const batch = pending.slice();
+        const cacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
+        this.sessionMessageCacheGenerations.set(sessionId, cacheGeneration);
         const controller = new AbortController();
         this.sendAbortControllers.set(sessionId, controller);
         try {
@@ -2618,7 +2620,10 @@ class Sync {
             // is in flight. It must not recreate message runtime afterwards.
             if (this.pendingOutbox.get(sessionId) !== pending) return;
             pending.splice(0, batch.length);
-            if (Array.isArray(data.messages) && data.messages.length > 0) {
+            // The outbox survives eviction, but an old acknowledgement does not
+            // own the released or subsequently remounted message cache.
+            if (this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
+                && Array.isArray(data.messages) && data.messages.length > 0) {
                 let frontier = this.sessionMessageFrontiers.get(sessionId);
                 // An acknowledgement observes only its own sequences. Concurrent
                 // messages between acknowledgements still need backward loading.
@@ -2913,8 +2918,12 @@ class Sync {
                 if (!applied.current) return;
 
                 if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+                const liveFrontier = this.sessionMessageFrontiers.get(sessionId);
+                // Sparse server pages cover their requested boundary, not a
+                // newer boundary established while this request was in flight.
+                if (!liveFrontier || liveFrontier.olderBeforeSeq !== beforeSeq) return;
                 const nextFrontier = applyOlderRange(
-                    this.sessionMessageFrontiers.get(sessionId) ?? currentFrontier,
+                    liveFrontier,
                     this.recordFetchedMessageRange(sessionId, messages), !!data.hasMore,
                     [...(this.sessionCachedMessageSeqs.get(sessionId) ?? [])],
                 );

@@ -29,9 +29,12 @@ export function applyOlderRange(
     hasMore: boolean,
     cachedSeqs: readonly number[],
 ): MessageRangeFrontier {
+    // The page answers before_seq=current.olderBeforeSeq. That request has
+    // observed the interval above the returned page even when allocated
+    // sequence numbers have no message. Cached islands below it still need
+    // actual adjacency before they can be joined.
     if (!page) return { ...current, hasMoreOlder: false };
-    if (current.olderBeforeSeq == null || page.maxSeq < current.olderBeforeSeq - 1
-        || page.minSeq >= current.olderBeforeSeq) return current;
+    if (current.olderBeforeSeq == null || page.minSeq >= current.olderBeforeSeq) return current;
     let olderBeforeSeq = page.minSeq;
     const cached = new Set(cachedSeqs);
     // Only observed adjacent sequences can join an older cached island.

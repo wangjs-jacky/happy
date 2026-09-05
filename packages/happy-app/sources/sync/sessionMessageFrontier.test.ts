@@ -39,8 +39,10 @@ describe('older message frontier', () => {
             want: { latestSeq: 250, olderBeforeSeq: 102, hasMoreOlder: true } },
         { name: 'single missing cached sequence stops walk', page: { minSeq: 101, maxSeq: 150 }, more: true, cached: [...seqs(1, 98), 100, 100],
             want: { latestSeq: 250, olderBeforeSeq: 100, hasMoreOlder: true } },
-        { name: 'page gap cannot skip unseen history', page: { minSeq: 51, maxSeq: 149 }, more: false, cached: seqs(1, 100),
-            want: { latestSeq: 250, olderBeforeSeq: 151, hasMoreOlder: true } },
+        { name: 'sparse response advances the observed request boundary', page: { minSeq: 50, maxSeq: 149 }, more: true, cached: seqs(1, 20),
+            want: { latestSeq: 250, olderBeforeSeq: 50, hasMoreOlder: true } },
+        { name: 'terminal sparse response exhausts history', page: { minSeq: 50, maxSeq: 149 }, more: false, cached: [],
+            want: { latestSeq: 250, olderBeforeSeq: 50, hasMoreOlder: false } },
         { name: 'terminal server page', page: { minSeq: 51, maxSeq: 150 }, more: false, cached: [],
             want: { latestSeq: 250, olderBeforeSeq: 51, hasMoreOlder: false } },
     ])('$name', ({ page, more, cached, want }) => {
