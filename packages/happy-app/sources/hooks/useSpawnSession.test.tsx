@@ -5,6 +5,7 @@ import type { Machine } from '@/sync/storageTypes';
 import type { SpawnSessionResult } from '@/sync/ops';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { useSpawnSession, type SpawnSessionArgs } from './useSpawnSession';
+import { sessionStartupTraceRuntime } from '@/sync/sessionStartupTraceRuntime';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
@@ -13,9 +14,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     randomUUID: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
     traceStartup: vi.fn(),
-    traceRuntimeBegin: vi.fn(() => ({ traceId: '00000000-0000-4000-8000-000000000001', startedAt: 1 })),
-    traceRuntimeBindSession: vi.fn(() => true),
-    traceRuntimeCancel: vi.fn(),
+    runtimeEvents: [] as Array<{ stage: string; sessionId?: string }>,
     spawnResult: { type: 'success', sessionId: 'session-1' } as SpawnSessionResult,
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
@@ -36,13 +35,13 @@ vi.mock('expo-crypto', () => ({
 vi.mock('@/sync/sessionStartupTrace', () => ({
     traceStartup: mocks.traceStartup,
 }));
-vi.mock('@/sync/sessionStartupTraceRuntime', () => ({
-    sessionStartupTraceRuntime: {
-        begin: mocks.traceRuntimeBegin,
-        bindSession: mocks.traceRuntimeBindSession,
-        cancel: mocks.traceRuntimeCancel,
-    },
-}));
+vi.mock('@/sync/sessionStartupTraceRuntime', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/sync/sessionStartupTraceRuntime')>();
+    return {
+        ...actual,
+        sessionStartupTraceRuntime: actual.createWebStartupTraceRuntime((event) => mocks.runtimeEvents.push(event as { stage: string; sessionId?: string })),
+    };
+});
 
 vi.mock('@/sync/ops', () => ({
     machineSpawnNewSession: mocks.machineSpawnNewSession,
@@ -147,9 +146,7 @@ describe('useSpawnSession', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.traceStartup.mockReset();
-        mocks.traceRuntimeBegin.mockClear();
-        mocks.traceRuntimeBindSession.mockClear();
-        mocks.traceRuntimeCancel.mockClear();
+        mocks.runtimeEvents = [];
         mocks.spawnResult = { type: 'success', sessionId: 'session-1' };
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -193,10 +190,11 @@ describe('useSpawnSession', () => {
         hook.unmount();
     });
 
-    it('creates one browser trace on click and binds it only after the RPC returns a session id', async () => {
-        // Catches a ready event being attributed before a spawned session identity exists.
+    it('binds the real browser trace only after navigation has a registered session id', async () => {
+        // Catches a delayed ready event attaching before the spawn RPC supplies its session identity.
         let release!: (value: SpawnSessionResult) => void;
         mocks.machineSpawnNewSession.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'delayed-session', localIds: ['local-1'] });
         const hook = renderHook();
         let spawn!: Promise<boolean>;
 
@@ -204,17 +202,26 @@ describe('useSpawnSession', () => {
             spawn = hook.current().spawn(args);
             await Promise.resolve();
         });
-        expect(mocks.traceRuntimeBegin).toHaveBeenCalledTimes(1);
-        expect(mocks.traceRuntimeBindSession).not.toHaveBeenCalled();
+        expect(sessionStartupTraceRuntime.markSessionStage(
+            'delayed-session',
+            'web.processor.ready_received',
+            20,
+        )).toBe(false);
 
         await act(async () => {
-            release({ type: 'success', sessionId: 'session-1' });
+            release({ type: 'success', sessionId: 'delayed-session' });
             await spawn;
         });
-        expect(mocks.traceRuntimeBindSession).toHaveBeenCalledWith(
-            expect.objectContaining({ traceId: '00000000-0000-4000-8000-000000000001' }),
-            'session-1',
+        expect(mocks.navigateToSession).toHaveBeenCalledWith('delayed-session');
+        expect(mocks.runtimeEvents.map((event) => event.stage)).not.toContain('web.processor.ready_received');
+
+        const readyHandler = () => sessionStartupTraceRuntime.markSessionStage(
+            'delayed-session',
+            'web.processor.ready_received',
+            30,
         );
+        expect(readyHandler()).toBe(true);
+        expect(mocks.runtimeEvents.map((event) => event.stage)).toContain('web.processor.ready_received');
         hook.unmount();
     });
 

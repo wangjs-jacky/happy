@@ -512,12 +512,15 @@ const SessionViewContent = React.memo((props: { id: string }) => {
 
     React.useEffect(() => {
         markSessionCriticalPathAppStage('web.route.mounted');
-        if (Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+    }, [sessionId]);
+
+    React.useEffect(() => {
+        if (sessionResolution !== 'ready' || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
         const frame = requestAnimationFrame(() => {
             markSessionCriticalPathAppStage('web.session.route_painted');
         });
         return () => cancelAnimationFrame(frame);
-    }, [sessionId]);
+    }, [sessionId, sessionResolution]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.

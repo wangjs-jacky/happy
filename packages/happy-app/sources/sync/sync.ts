@@ -3503,8 +3503,15 @@ class Sync {
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
         markSessionCriticalPathAppStage('web.session.store_committed');
+        const hasProcessorReady = messages.some((message) => (
+            message.role === 'event'
+            && message.content.type === 'ready'
+            && message.content.terminal !== true
+        ));
         const hasCompletedTurn = messages.some((message) => (
-            message.role === 'event' && message.content.type === 'ready'
+            message.role === 'event'
+            && message.content.type === 'ready'
+            && message.content.terminal === true
         ));
         let m: Message[] = [];
         for (let messageId of result.changed) {
@@ -3518,6 +3525,8 @@ class Sync {
         }
         if (result.hasReadyEvent) {
             voiceHooks.onReady(sessionId);
+        }
+        if (hasProcessorReady) {
             sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.processor.ready_received');
         }
         if (hasCompletedTurn) {

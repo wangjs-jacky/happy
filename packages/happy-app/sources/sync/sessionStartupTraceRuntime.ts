@@ -18,6 +18,7 @@ export interface WebStartupTraceRuntime {
 
 type TraceRecord = {
     readonly handle: WebStartupTraceHandle;
+    readonly sequence: number;
     readonly stages: Set<WebStartupStage>;
     sessionId: string | null;
     timeout: ReturnType<typeof setTimeout> | null;
@@ -48,6 +49,7 @@ export function createWebStartupTraceRuntime(
 ): WebStartupTraceRuntime {
     const records = new Map<WebStartupTraceHandle, TraceRecord>();
     const sessions = new Map<string, TraceRecord>();
+    let nextSequence = 0;
 
     const remove = (record: TraceRecord) => {
         records.delete(record.handle);
@@ -61,7 +63,13 @@ export function createWebStartupTraceRuntime(
     const runtime: WebStartupTraceRuntime = {
         begin(traceId, startedAt) {
             const handle = Object.freeze({ traceId, startedAt });
-            const record: TraceRecord = { handle, stages: new Set(), sessionId: null, timeout: null };
+            const record: TraceRecord = {
+                handle,
+                sequence: ++nextSequence,
+                stages: new Set(),
+                sessionId: null,
+                timeout: null,
+            };
             records.set(handle, record);
             record.timeout = setTimeout(() => remove(record), SESSION_TRACE_TIMEOUT_MS);
             return handle;
@@ -69,6 +77,10 @@ export function createWebStartupTraceRuntime(
         bindSession(handle, sessionId) {
             const record = active(handle);
             if (!record || typeof sessionId !== 'string' || sessionId.trim().length === 0) return false;
+            const current = sessions.get(sessionId);
+            if (current === record) return true;
+            if (current && current.sequence > record.sequence) return false;
+            if (current) remove(current);
             if (record.sessionId && sessions.get(record.sessionId) === record) sessions.delete(record.sessionId);
             record.sessionId = sessionId;
             sessions.set(sessionId, record);

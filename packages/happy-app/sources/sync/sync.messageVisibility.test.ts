@@ -86,8 +86,7 @@ const mocks = vi.hoisted(() => {
         hydrate: vi.fn(),
         hydrateRoute: vi.fn(),
         sessionEncryptions: new Map<string, any>(),
-        markedStages: [] as Array<{ sessionId: string; stage: string }>,
-        markedStageKeys: new Set<string>(),
+        runtimeEvents: [] as Array<{ stage: string; sessionId?: string }>,
         gitInvalidate: vi.fn(),
         gitOpenInvalidate: vi.fn(),
         gitClear: vi.fn(),
@@ -124,17 +123,13 @@ vi.mock('./gitStatusSync', () => ({
     },
 }));
 vi.mock('./pushRegistration', () => ({ syncCurrentPushToken: vi.fn() }));
-vi.mock('./sessionStartupTraceRuntime', () => ({
-    sessionStartupTraceRuntime: {
-        markSessionStage: (sessionId: string, stage: string) => {
-            const key = `${sessionId}:${stage}`;
-            if (mocks.markedStageKeys.has(key)) return false;
-            mocks.markedStageKeys.add(key);
-            mocks.markedStages.push({ sessionId, stage });
-            return true;
-        },
-    },
-}));
+vi.mock('./sessionStartupTraceRuntime', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./sessionStartupTraceRuntime')>();
+    return {
+        ...actual,
+        sessionStartupTraceRuntime: actual.createWebStartupTraceRuntime((event) => mocks.runtimeEvents.push(event as { stage: string; sessionId?: string })),
+    };
+});
 vi.mock('./encryption/encryption', () => ({ Encryption: class {} }));
 vi.mock('./revenueCat', () => ({ RevenueCat: {}, LogLevel: {}, PaywallResult: {} }));
 vi.mock('./uploadMediaFile', () => ({ uploadMediaFile: vi.fn() }));
@@ -179,6 +174,7 @@ vi.mock('expo-secure-store', () => ({
 }));
 
 import { sync } from './sync';
+import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 
 const syncForTest = sync as any;
 
@@ -298,8 +294,7 @@ describe('message visibility synchronization', () => {
         mocks.state.currentViewingSessionId = null;
         mocks.state.mutableToolCalls.clear();
         mocks.sessionEncryptions.clear();
-        mocks.markedStages = [];
-        mocks.markedStageKeys.clear();
+        mocks.runtimeEvents = [];
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         mocks.fetchSnapshot.mockResolvedValue(null);
         mocks.hydrate.mockImplementation(async (items: ApiSessionSnapshot[]) => items.map(hydrated));
@@ -359,11 +354,45 @@ describe('message visibility synchronization', () => {
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
     });
 
-    it('marks a bound trace once when an encrypted session-ready event reaches the message store', async () => {
-        // Catches normalized ready lifecycle events bypassing browser startup attribution.
+    it('marks only processor readiness for a normalized encrypted ready event', async () => {
+        // Catches a terminal lifecycle event being mistaken for startup processor readiness.
         const encryption = installSession('trace-session');
         mocks.state.currentViewingSessionId = 'trace-session';
         syncForTest.sessionLastSeq.set('trace-session', 4);
+        const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000010', 0);
+        sessionStartupTraceRuntime.bindSession(handle, 'trace-session');
+        encryption.decryptMessage.mockResolvedValue({
+            id: 'message-5',
+            localId: null,
+            createdAt: 50,
+            content: {
+                role: 'agent',
+                content: {
+                    type: 'event',
+                    id: 'processor-ready',
+                    data: { type: 'ready' },
+                },
+            },
+        });
+
+        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 5));
+        await vi.waitFor(() => {
+            expect(mocks.runtimeEvents.map((event) => event.stage)).toContain('web.processor.ready_received');
+        });
+        expect(mocks.runtimeEvents.map((event) => event.stage)).not.toContain('web.turn.completed');
+
+        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 6));
+        expect(mocks.runtimeEvents.filter((event) => event.stage === 'web.processor.ready_received')).toHaveLength(1);
+        sessionStartupTraceRuntime.finish(handle);
+    });
+
+    it('marks turn completion without consuming a processor-ready milestone', async () => {
+        // Catches a terminal turn-end falsely satisfying processor-ready startup latency.
+        const encryption = installSession('terminal-session');
+        mocks.state.currentViewingSessionId = 'terminal-session';
+        syncForTest.sessionLastSeq.set('terminal-session', 4);
+        const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000011', 0);
+        sessionStartupTraceRuntime.bindSession(handle, 'terminal-session');
         encryption.decryptMessage.mockResolvedValue({
             id: 'message-5',
             localId: null,
@@ -373,7 +402,7 @@ describe('message visibility synchronization', () => {
                 content: {
                     type: 'session',
                     data: {
-                        id: 'ready-envelope',
+                        id: 'turn-end-envelope',
                         time: 50,
                         role: 'agent',
                         turn: 'turn-1',
@@ -383,16 +412,11 @@ describe('message visibility synchronization', () => {
             },
         });
 
-        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 5));
+        await syncForTest.handleUpdate(newMessageUpdate('terminal-session', 5));
         await vi.waitFor(() => {
-            expect(mocks.markedStages.filter((entry) => entry.stage === 'web.processor.ready_received')).toEqual([{
-                sessionId: 'trace-session',
-                stage: 'web.processor.ready_received',
-            }]);
+            expect(mocks.runtimeEvents.map((event) => event.stage)).toContain('web.turn.completed');
         });
-
-        await syncForTest.handleUpdate(newMessageUpdate('trace-session', 6));
-        expect(mocks.markedStages.filter((entry) => entry.stage === 'web.processor.ready_received')).toHaveLength(1);
+        expect(mocks.runtimeEvents.map((event) => event.stage)).not.toContain('web.processor.ready_received');
     });
 
     it('fills one sequence gap only for the visible session', async () => {

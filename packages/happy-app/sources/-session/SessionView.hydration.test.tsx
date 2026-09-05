@@ -272,4 +272,37 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { await second.promise; });
         act(() => renderer.unmount());
     });
+
+    it('paints only the matching route after its session route becomes ready', async () => {
+        // Catches a stale or loading route recording a browser paint before it is interactive.
+        const opening = deferred<'ready' | 'not-found'>();
+        const frames: FrameRequestCallback[] = [];
+        const paints: string[] = [];
+        const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+        const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+        (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (callback) => {
+            frames.push(callback);
+            return frames.length;
+        };
+        (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = () => undefined;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRouteNavigation: () => paints.push('painted'),
+        };
+        mocks.openSession.mockReturnValue(opening.promise);
+        let renderer: any;
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="paint-session" />); });
+            expect(frames).toHaveLength(0);
+
+            await act(async () => { opening.resolve('ready'); await opening.promise; });
+            expect(frames).toHaveLength(1);
+            frames[0](0);
+            expect(paints).toEqual(['painted']);
+        } finally {
+            act(() => renderer?.unmount());
+            (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = originalRequestAnimationFrame;
+            (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = originalCancelAnimationFrame;
+            delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+        }
+    });
 });

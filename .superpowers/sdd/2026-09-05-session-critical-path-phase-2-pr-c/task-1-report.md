@@ -98,3 +98,83 @@ Implementation commit: `1bec29d4` (`feat(observability): measure processor-ready
   second-page request to stderr; the suite still exits successfully.
 - Browser paint marks require `requestAnimationFrame`; non-web platforms do not
   emit those optional document-probe milestones.
+
+## Fix round 1/5
+
+### Defects corrected
+
+- Kept terminal `turn-end` distinct from processor `{ type: 'ready' }` after
+  normalization, so Sync records only the corresponding startup or terminal
+  trace milestone.
+- Assigned each in-memory trace record a monotonic generation, preventing an
+  older same-session handle from reclaiming a newer binding.
+- Deferred the browser route-paint mark until the route's own session resolves
+  `ready`, with the browser callback still providing the post-layout boundary.
+
+### RED evidence
+
+Before source changes, this command failed as expected:
+
+```sh
+pnpm --filter happy-app exec vitest run \
+  sources/sync/sessionStartupTraceRuntime.test.ts \
+  sources/sync/typesRaw.spec.ts \
+  sources/hooks/useSpawnSession.test.tsx \
+  sources/sync/sync.messageVisibility.test.ts \
+  sources/-session/SessionView.hydration.test.tsx
+```
+
+Result: 5 expected failures: a superseded handle re-bound (`true`, expected
+`false`); terminal `turn-end` lacked `terminal: true`; generic ready incorrectly
+also recorded `web.turn.completed`; terminal `turn-end` incorrectly also
+recorded `web.processor.ready_received`; and route paint scheduled a frame while
+the route was still loading (1, expected 0).
+
+### Added regression coverage
+
+- `sources/sync/sessionStartupTraceRuntime.test.ts`: rejects a superseded
+  same-session handle that attempts to reclaim the binding.
+- `sources/sync/typesRaw.spec.ts`: distinguishes generic ready from terminal
+  `turn-end` in normalized messages.
+- `sources/sync/sync.messageVisibility.test.ts`: exercises real trace runtime
+  bindings for generic ready and encrypted terminal `turn-end`.
+- `sources/hooks/useSpawnSession.test.tsx`: verifies the real runtime cannot
+  receive processor-ready before session navigation establishes a binding.
+- `sources/-session/SessionView.hydration.test.tsx`: verifies matching route
+  paint waits for route readiness.
+
+### GREEN verification
+
+Focused regression command:
+
+```sh
+pnpm --filter happy-app exec vitest run \
+  sources/sync/sessionStartupTraceRuntime.test.ts \
+  sources/sync/typesRaw.spec.ts \
+  sources/hooks/useSpawnSession.test.tsx \
+  sources/sync/sync.messageVisibility.test.ts \
+  sources/-session/SessionView.hydration.test.tsx
+```
+
+Result: 5 files / 114 tests passed.
+
+Full requested regression command:
+
+```sh
+pnpm --filter happy-app exec vitest run \
+  sources/sync/sessionStartupTrace.test.ts \
+  sources/sync/sessionStartupTraceRuntime.test.ts \
+  sources/sync/sessionCriticalPathProbeBridge.test.ts \
+  sources/components/appRoot/appRootFonts.test.ts \
+  sources/components/appRoot/AuthenticatedRootLayout.test.tsx \
+  sources/-session/SessionView.hydration.test.tsx \
+  sources/hooks/useSpawnSession.test.tsx \
+  sources/sync/sync.messageVisibility.test.ts \
+  sources/sync/typesRaw.spec.ts
+node --test packages/happy-app/scripts/check-session-critical-path.test.mjs
+pnpm --filter happy-app exec tsc --noEmit --pretty false --incremental false
+```
+
+Result: 9 Vitest files / 133 tests passed; standalone probe guard 49/49 passed;
+TypeScript exited 0 with no diagnostics. The message-visibility suite's
+synthetic `second page unavailable` stderr remains expected and non-failing.

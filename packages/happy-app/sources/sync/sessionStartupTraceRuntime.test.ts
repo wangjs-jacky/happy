@@ -37,6 +37,20 @@ describe('browser startup trace runtime', () => {
         expect(writer).toHaveBeenLastCalledWith(expect.objectContaining({ traceId: TRACE_B, duration: 300 }));
     });
 
+    it('rejects a superseded handle that tries to reclaim a newer same-session binding', () => {
+        // Catches an old spawn moving later lifecycle milestones back to its trace.
+        const writer = vi.fn();
+        const runtime = createWebStartupTraceRuntime(writer);
+        const older = runtime.begin(TRACE_A, 100);
+        const newer = runtime.begin(TRACE_B, 200);
+
+        expect(runtime.bindSession(older, 'session-a')).toBe(true);
+        expect(runtime.bindSession(newer, 'session-a')).toBe(true);
+        expect(runtime.bindSession(older, 'session-a')).toBe(false);
+        expect(runtime.markSessionStage('session-a', 'web.processor.ready_received', 500)).toBe(true);
+        expect(writer).toHaveBeenLastCalledWith(expect.objectContaining({ traceId: TRACE_B, duration: 300 }));
+    });
+
     it('cleans bindings on completion, cancellation, and explicit finish', () => {
         // Catches in-memory trace handles leaking into later sessions.
         const writer = vi.fn();

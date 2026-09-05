@@ -1819,6 +1819,21 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
         });
 
         it('maps turn-end to ready event and drops turn-start', () => {
+            // Catches terminal lifecycle normalization becoming indistinguishable from processor readiness.
+            const processorReady = normalizeRawMessage('db-ready', null, 1, {
+                role: 'agent',
+                content: {
+                    type: 'event',
+                    id: 'processor-ready',
+                    data: { type: 'ready' },
+                },
+            });
+            expect(processorReady).toMatchObject({
+                role: 'event',
+                content: { type: 'ready' },
+            });
+            expect(processorReady?.role === 'event' && processorReady.content).not.toHaveProperty('terminal');
+
             const turnStart = normalizeRawMessage('db-5', null, 1, {
                 ...base,
                 content: {
@@ -1850,7 +1865,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             expect(turnEnd).toMatchObject({
                 id: 'env-6',
                 role: 'event',
-                content: { type: 'ready' }
+                content: { type: 'ready', terminal: true }
             });
         });
 
