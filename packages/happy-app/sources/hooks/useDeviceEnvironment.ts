@@ -21,12 +21,15 @@ export type DeviceEnvironmentDependencies = {
     inspect: typeof inspectMachineEnvironment;
     apply: typeof applyMachineEnvironment;
     now: () => number;
+    monotonicNow: () => number;
 };
 
 type FleetState = Pick<DeviceEnvironmentController, 'phase' | 'rows' | 'target'> & {
     epoch: number;
     registryKey: string;
     previewStartedAt?: number;
+    // Unmodified operation outcomes are retained independently of current presence.
+    applyRows?: ReadonlyMap<string, FleetRow>;
 };
 
 const PLAN_MAX_AGE_MS = 10 * 60_000;
@@ -37,6 +40,18 @@ function initialRows(machines: readonly Machine[]): FleetRow[] {
         status: isMachineOnline(machine) ? 'pending' : 'offline',
         ...(!isMachineOnline(machine) ? { reasonCode: 'machine-offline' as const } : {}),
     }));
+}
+
+function withApplyResults(rows: FleetRow[], applyRows: ReadonlyMap<string, FleetRow>): FleetRow[] {
+    const registered = new Set(rows.map((row) => row.machineId));
+    const retainedRows = [...rows, ...[...applyRows.values()]
+        .filter((row) => !registered.has(row.machineId)).map((row) => ({ ...row, online: false }))];
+    return retainedRows.map((row) => {
+        const applied = applyRows.get(row.machineId);
+        if (!applied) return row;
+        return { ...applied, machine: row.machine, online: row.online,
+            ...(!row.online ? { status: 'offline' as const, reasonCode: 'machine-offline' as const } : {}) };
+    });
 }
 
 function inspectionTarget(rows: FleetRow[], desired?: DesiredComponentState): FleetTarget {
@@ -73,7 +88,7 @@ export function useDeviceEnvironment(
     const inspect = dependencies.inspect ?? inspectMachineEnvironment;
     const apply = dependencies.apply ?? applyMachineEnvironment;
     const now = dependencies.now ?? Date.now;
-    const currentRegistry = useRef(registryKey);
+    const monotonicNow = dependencies.monotonicNow ?? (() => performance.now());
 
     function commit(next: FleetState) {
         // A result can settle before the passive registry-reset effect runs.
@@ -84,12 +99,24 @@ export function useDeviceEnvironment(
     }
 
     function update(epoch: number, transform: (previous: FleetState) => FleetState) {
+        reconcileRegistry();
         if (mounted.current && current.current.epoch === epoch) commit(transform(current.current));
     }
 
     function reset() {
         commit({ epoch: current.current.epoch + 1, registryKey: latestRegistry.current,
             phase: 'idle', rows: initialRows(latestMachines.current), target: { kind: 'unavailable' } });
+    }
+
+    function reconcileRegistry() {
+        const previous = current.current;
+        if (previous.registryKey === latestRegistry.current) return;
+        if (previous.applyRows && (previous.phase === 'applying' || previous.phase === 'completed')) {
+            commit({ ...previous, registryKey: latestRegistry.current, previewStartedAt: undefined,
+                rows: withApplyResults(initialRows(latestMachines.current), previous.applyRows), target: { kind: 'unavailable' } });
+        } else {
+            reset();
+        }
     }
 
     useEffect(() => {
@@ -100,12 +127,10 @@ export function useDeviceEnvironment(
         };
     }, []);
 
-    // A membership/presence change invalidates approval and includes new machines.
+    // Membership/presence invalidates reads and approval, while dispatched work
+    // retains its epoch and results (including removed devices until explicit reset/scan).
     useEffect(() => {
-        if (currentRegistry.current !== registryKey) {
-            currentRegistry.current = registryKey;
-            reset();
-        }
+        reconcileRegistry();
     }, [registryKey]);
 
     async function inspectFleet(fleet: readonly Machine[], epoch: number, desired?: DesiredComponentState): Promise<FleetRow[]> {
@@ -149,7 +174,7 @@ export function useDeviceEnvironment(
             || (previous.phase !== 'scanned' && previous.phase !== 'previewed') || previous.target.kind !== 'ready') return;
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
-        const previewStartedAt = now();
+        const previewStartedAt = monotonicNow();
         const fleet = [...latestMachines.current];
         commit({ ...previous, epoch, phase: 'previewing', previewStartedAt, rows: initialRows(fleet), target: { kind: 'unavailable' } });
         const rows = await inspectFleet(fleet, epoch, desired);
@@ -161,8 +186,13 @@ export function useDeviceEnvironment(
         if (!mounted.current || previous.registryKey !== latestRegistry.current
             || applyInFlight.current || previous.phase !== 'previewed' || previous.target.kind !== 'ready') return;
         const approvedAt = now();
-        if (previous.previewStartedAt === undefined || approvedAt - previous.previewStartedAt >= PLAN_MAX_AGE_MS
-            || previous.rows.some((row) => row.plan && row.plan.expiresAt <= approvedAt)) {
+        const previewAge = previous.previewStartedAt === undefined ? Infinity : monotonicNow() - previous.previewStartedAt;
+        // Both timestamps in each plan lifetime come from its daemon. Never compare
+        // a daemon expiry directly with the client's wall clock. The daemon remains
+        // authoritative on actual issuance/expiry when the request arrives.
+        if (previewAge < 0 || previewAge >= PLAN_MAX_AGE_MS
+            || previous.rows.some((row) => row.plan && (!row.observation
+                || previewAge >= row.plan.expiresAt - row.observation.inspectedAt))) {
             commit({ ...previous, epoch: previous.epoch + 1, phase: 'scanned', previewStartedAt: undefined,
                 rows: previous.rows.map((row) => row.plan ? { ...row, plan: undefined, status: 'stale-plan', reasonCode: 'plan-stale' } : row) });
             return;
@@ -175,12 +205,16 @@ export function useDeviceEnvironment(
         const desired: DesiredComponentState = { componentId: 'github-cli', targetVersion: previous.target.targetVersion };
         const epoch = previous.epoch + 1;
         applyInFlight.current = true;
-        commit({ ...previous, epoch, phase: 'applying' });
+        commit({ ...previous, epoch, phase: 'applying',
+            applyRows: new Map(candidates.map((row) => [row.machineId, { ...row, plan: undefined }])) });
         try {
             await Promise.allSettled(candidates.map(async (row) => {
                 function publish(resultRow: FleetRow) {
-                    update(epoch, (latest) => ({ ...latest, rows: latest.rows.map((existing) =>
-                        existing.machineId === row.machineId ? resultRow : existing) }));
+                    update(epoch, (latest) => {
+                        const applyRows = new Map(latest.applyRows);
+                        applyRows.set(row.machineId, resultRow);
+                        return { ...latest, applyRows, rows: withApplyResults(latest.rows, applyRows) };
+                    });
                 }
                 try {
                     const { result } = await apply(row.machineId, { desired, plan: row.plan!, approvedAt });

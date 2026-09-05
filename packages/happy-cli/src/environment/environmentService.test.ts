@@ -60,13 +60,13 @@ describe('environment service authorization and verification', () => {
     expect(adapter.apply).not.toHaveBeenCalled();
   });
 
-  it('re-inspects and rejects an expired plan before mutation', async () => {
+  it.each([700_000, 700_001])('re-inspects and rejects an expired plan before mutation at daemon time %i', async (expiredAt) => {
     let time = 100_000;
     const { adapter } = adapterFixture();
     const service = serviceWithAdapter(adapter, () => time);
     const request = await validApplyRequest(service);
     expect(request.plan.expiresAt).toBe(700_000);
-    time = 700_001;
+    time = expiredAt;
     const response = await service.apply(request);
     expect(response.result).toMatchObject({ status: 'stale-plan', reasonCode: 'plan-stale', changed: false });
     expect(adapter.inspect).toHaveBeenCalledTimes(2);
@@ -94,14 +94,13 @@ describe('environment service authorization and verification', () => {
     expect(adapter.apply).not.toHaveBeenCalled();
   });
 
-  it.each(['expiry', 'action', 'target', 'approval'] as const)('rejects caller changes to %s', async (field) => {
+  it.each(['expiry', 'action', 'target'] as const)('rejects caller changes to %s', async (field) => {
     const { adapter } = adapterFixture();
     const service = serviceWithAdapter(adapter);
     const request = await validApplyRequest(service);
     if (field === 'expiry') request.plan.expiresAt += 1;
     if (field === 'action') request.plan.action = 'install';
     if (field === 'target') request.desired = { ...desired, targetVersion: '2.81.0' };
-    if (field === 'approval') request.approvedAt = 99_999;
     expect((await service.apply(request)).result.status).toBe('stale-plan');
     expect(adapter.apply).not.toHaveBeenCalled();
   });
@@ -142,6 +141,39 @@ describe('environment service authorization and verification', () => {
     });
   });
 
+  it.each([
+    { reasonCode: 'homebrew-missing' as const, packageManager: { kind: 'homebrew' as const, available: false, stableVersion: null } },
+    { reasonCode: 'formula-unavailable' as const, packageManager: { kind: 'homebrew' as const, available: true, stableVersion: null } },
+    { reasonCode: 'version-source-mismatch' as const, resolvedExecutable: '/custom/bin/gh' },
+    { packageManager: { kind: 'homebrew' as const, available: true, stableVersion: '2.81.0' } },
+    { reasonCode: 'formula-unavailable' as const },
+    { support: 'unsupported' as const, reasonCode: 'unsupported-platform' as const },
+  ])('rejects exact-target post-inspection with unverified Homebrew state: %j', async (patch) => {
+    const { adapter, setState } = adapterFixture();
+    adapter.apply.mockImplementationOnce(async () => {
+      setState({ installedVersion: '2.80.0', ...patch });
+      return success;
+    });
+    const logs: string[] = [];
+    const service = createEnvironmentService([adapter], () => 100_000, (message) => { logs.push(message); });
+    const response = await service.apply(await validApplyRequest(service));
+    expect(response.result).toMatchObject({ status: 'failed', reasonCode: 'verification-failed' });
+    expect(JSON.parse(logs[0]!).verification).toBe('failed');
+  });
+
+  it.each(['authenticated', 'missing'] as const)('verifies healthy exact-target state with %s authentication', async (status) => {
+    const { adapter, setState } = adapterFixture();
+    adapter.apply.mockImplementationOnce(async () => {
+      setState({ installedVersion: '2.80.0', authentication: { provider: 'github.com', status },
+        ...(status === 'missing' ? { reasonCode: 'authentication-missing' } : {}) });
+      return success;
+    });
+    const service = serviceWithAdapter(adapter);
+    expect((await service.apply(await validApplyRequest(service))).result).toMatchObject({
+      status: 'succeeded', after: { authentication: { status } },
+    });
+  });
+
   it('keeps the lock until post-operation inspection settles', async () => {
     const { adapter } = adapterFixture();
     const service = serviceWithAdapter(adapter);
@@ -176,15 +208,32 @@ describe('environment service authorization and verification', () => {
     expect((await service.apply(await validApplyRequest(service))).result.status).toBe('succeeded');
   });
 
-  it('rejects future approval times and retains valid previews across another inspection', async () => {
+  it.each([70_000, 130_000])('accepts a locally valid issued preview despite client clock %i', async (approvedAt) => {
     let time = 100_000;
     const { adapter } = adapterFixture();
     const service = serviceWithAdapter(adapter, () => time);
     const request = await validApplyRequest(service);
-    expect((await service.apply({ ...request, approvedAt: 100_001 })).result.status).toBe('stale-plan');
     time = 100_001;
     await service.inspect({ componentIds: ['github-cli'], desired });
-    expect((await service.apply(request)).result.status).toBe('succeeded');
+    expect((await service.apply({ ...request, approvedAt })).result.status).toBe('succeeded');
+  });
+
+  it.each([-1, NaN, Infinity, '100000'])('rejects malformed client approval time %s at the wire boundary', async (approvedAt) => {
+    const { adapter } = adapterFixture();
+    const service = serviceWithAdapter(adapter);
+    const request = await validApplyRequest(service);
+    await expect(service.apply({ ...request, approvedAt } as EnvironmentApplyRequest)).rejects.toThrow('Invalid environment apply request');
+    expect(adapter.apply).not.toHaveBeenCalled();
+  });
+
+  it('rejects a preview if the daemon clock moves before its local issuance', async () => {
+    let time = 100_000;
+    const { adapter } = adapterFixture();
+    const service = serviceWithAdapter(adapter, () => time);
+    const request = await validApplyRequest(service);
+    time = 99_999;
+    expect((await service.apply({ ...request, approvedAt: 70_000 })).result.status).toBe('stale-plan');
+    expect(adapter.apply).not.toHaveBeenCalled();
   });
 
   it('bounds issued previews and requires a fresh inspection after oldest-preview eviction', async () => {

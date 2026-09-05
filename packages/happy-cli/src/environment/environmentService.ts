@@ -85,7 +85,11 @@ function sameDecision(current: ComponentPlan, approved: ComponentPlan): boolean 
 
 function verifiesTarget(after: ComponentObservation, plan: ComponentPlan): boolean {
   return after.installed && after.support === 'supported' && plan.targetVersion !== null
-    && after.installedVersion === plan.targetVersion && after.reasonCode !== 'version-source-mismatch';
+    && after.installedVersion === plan.targetVersion && after.packageManager.available
+    && after.packageManager.stableVersion === plan.targetVersion
+    // Ownership/formula/source failures must not become success just because gh prints
+    // the target version. Authentication remains independent of package alignment.
+    && (after.reasonCode === undefined || after.reasonCode === 'authentication-missing');
 }
 
 function verifiedApplyResult(
@@ -130,7 +134,7 @@ export function createEnvironmentService(
 
   function prunePlans(time: number): void {
     for (const [key, issued] of issuedPlans) {
-      if (issued.expiresAt < time) issuedPlans.delete(key);
+      if (issued.expiresAt <= time) issuedPlans.delete(key);
     }
   }
 
@@ -224,9 +228,10 @@ export function createEnvironmentService(
         const time = now();
         prunePlans(time);
         const issued = issuedPlans.get(approvalKey(request.desired, request.plan));
-        if (request.plan.expiresAt < time || currentPlan.expiresAt < time || issued === undefined
-          || request.approvedAt < issued.issuedAt || request.approvedAt > time
-          || request.approvedAt > issued.expiresAt || !sameDecision(currentPlan, request.plan)) {
+        // approvedAt is compatibility metadata, validated by the strict wire schema.
+        // Only daemon-local issuance and time can authorize the lifetime of this plan.
+        if (issued === undefined || issued.issuedAt > time || issued.expiresAt <= time
+          || currentPlan.expiresAt <= time || !sameDecision(currentPlan, request.plan)) {
           return finish(result(before, before, 'stale-plan', 'plan-stale'));
         }
         if (currentPlan.action === 'manual-repair') {

@@ -16,6 +16,7 @@ import { Counter, Histogram, register } from 'prom-client';
 const RPC_ROOM_PREFIX = 'rpc:';
 const RPC_CALL_TIMEOUT_MS = 30_000;
 const RPC_STARTUP_TIMEOUT_MS = 100_000;
+const RPC_ENVIRONMENT_APPLY_TIMEOUT_MS = 600_000;
 const RPC_STARTUP_METHODS = new Set(['spawn-happy-session', 'resume-happy-session']);
 const RPC_PRESENCE_POLL_MS = 2_000;
 // Timeouts for cross-replica fetchSockets during the reconnect grace window.
@@ -80,7 +81,10 @@ function baseMethodName(prefixedMethod: string): string {
 }
 
 function rpcCallTimeoutMs(prefixedMethod: string): number {
-    return RPC_STARTUP_METHODS.has(baseMethodName(prefixedMethod))
+    const method = baseMethodName(prefixedMethod);
+    // Only acknowledgement routing changes; encrypted request/response data stays opaque.
+    if (method === 'environment-apply') return RPC_ENVIRONMENT_APPLY_TIMEOUT_MS;
+    return RPC_STARTUP_METHODS.has(method)
         ? RPC_STARTUP_TIMEOUT_MS
         : RPC_CALL_TIMEOUT_MS;
 }

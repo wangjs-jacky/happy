@@ -23,12 +23,17 @@ export type ProcessRunner = {
   run(executable: string, args: readonly string[], options: RunProcessOptions): Promise<ProcessResult>;
 };
 
-function appendBounded(chunks: Buffer[], chunk: Buffer, maxOutputBytes: number): void {
-  const collectedBytes = chunks.reduce((total, collected) => total + collected.length, 0);
-  const remainingBytes = maxOutputBytes - collectedBytes;
+type RetainedOutput = { chunks: Buffer[]; bytes: number };
 
-  if (remainingBytes > 0) {
-    chunks.push(chunk.subarray(0, remainingBytes));
+function appendBounded(output: RetainedOutput, chunk: Buffer, maxOutputBytes: number): void {
+  const retainedBytes = Math.min(chunk.length, maxOutputBytes - output.bytes);
+  if (retainedBytes > 0) {
+    // An unpooled copy owns exactly the retained bytes, including tiny truncated tails.
+    // A subarray (or pooled copy) can keep a much larger backing allocation alive.
+    const retained = Buffer.allocUnsafeSlow(retainedBytes);
+    chunk.copy(retained, 0, 0, retainedBytes);
+    output.chunks.push(retained);
+    output.bytes += retainedBytes;
   }
 }
 
@@ -36,8 +41,8 @@ export function createProcessRunner(): ProcessRunner {
   return {
     run(executable, args, options) {
       return new Promise((resolve) => {
-        const stdoutChunks: Buffer[] = [];
-        const stderrChunks: Buffer[] = [];
+        const stdout: RetainedOutput = { chunks: [], bytes: 0 };
+        const stderr: RetainedOutput = { chunks: [], bytes: 0 };
         let timedOut = false;
         let settled = false;
         let deadlineTimer: NodeJS.Timeout | undefined;
@@ -65,8 +70,8 @@ export function createProcessRunner(): ProcessRunner {
           if (timedOut) closePipes();
           resolve({
             exitCode,
-            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-            stderr: Buffer.concat(stderrChunks).toString('utf8'),
+            stdout: Buffer.concat(stdout.chunks, stdout.bytes).toString('utf8'),
+            stderr: Buffer.concat(stderr.chunks, stderr.bytes).toString('utf8'),
             timedOut,
           });
         };
@@ -81,8 +86,8 @@ export function createProcessRunner(): ProcessRunner {
           }, TERMINATION_GRACE_MS);
         }, options.timeoutMs);
 
-        child.stdout.on('data', (chunk: Buffer) => appendBounded(stdoutChunks, chunk, options.maxOutputBytes));
-        child.stderr.on('data', (chunk: Buffer) => appendBounded(stderrChunks, chunk, options.maxOutputBytes));
+        child.stdout.on('data', (chunk: Buffer) => appendBounded(stdout, chunk, options.maxOutputBytes));
+        child.stderr.on('data', (chunk: Buffer) => appendBounded(stderr, chunk, options.maxOutputBytes));
         child.once('error', () => finish(null));
         child.once('exit', (exitCode) => {
           if (timedOut) finish(exitCode);

@@ -68,11 +68,12 @@ describe('useDeviceEnvironment', () => {
     let root: Root;
     let controller: DeviceEnvironmentController;
     let now: number;
+    let monotonicTime: number;
     let inspect: ReturnType<typeof vi.fn<DeviceEnvironmentDependencies['inspect']>>;
     let apply: ReturnType<typeof vi.fn<DeviceEnvironmentDependencies['apply']>>;
 
     function Harness({ machines, onLayout }: { machines: Machine[]; onLayout?: () => void }) {
-        controller = useDeviceEnvironment(machines, { inspect, apply, now: () => now });
+        controller = useDeviceEnvironment(machines, { inspect, apply, now: () => now, monotonicNow: () => monotonicTime });
         useLayoutEffect(() => { onLayout?.(); }, [onLayout]);
         return null;
     }
@@ -85,6 +86,7 @@ describe('useDeviceEnvironment', () => {
         vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
         root = createRoot(document.createElement('div'));
         now = 1_000_000;
+        monotonicTime = 10_000;
         inspect = vi.fn<DeviceEnvironmentDependencies['inspect']>(async (_id, request) => response(request.desired ? 'upgrade' : undefined));
         apply = vi.fn<DeviceEnvironmentDependencies['apply']>(async () => success());
     });
@@ -196,10 +198,35 @@ describe('useDeviceEnvironment', () => {
         mount();
         await prepare();
         now += kind === 'age' ? 600_001 : 1;
+        monotonicTime += kind === 'age' ? 600_001 : 1;
         await act(() => controller.applyApproved());
         expect(controller.phase).toBe('scanned');
         expect(controller.rows[0]).toMatchObject({ reasonCode: 'plan-stale' });
         expect(controller.rows[0].plan).toBeUndefined();
+        expect(apply).not.toHaveBeenCalled();
+    });
+
+    it.each([30_000, -30_000])('accepts a fresh short-lived preview despite client clock skew of %i ms', async (skew) => {
+        const short = response('upgrade');
+        short.plans![0].expiresAt = 1_000_010;
+        inspect.mockResolvedValueOnce(response()).mockResolvedValueOnce(short);
+        now += skew;
+        mount();
+        await prepare();
+        await act(() => controller.applyApproved());
+        expect(controller.phase).toBe('completed');
+        expect(apply).toHaveBeenCalledTimes(1);
+        expect(apply.mock.calls[0][1].approvedAt).toBe(1_000_000 + skew);
+    });
+
+    it('expires the preview by elapsed time even when the client wall clock moves backwards', async () => {
+        mount();
+        await prepare();
+        now -= 30_000;
+        monotonicTime += 600_000;
+        await act(() => controller.applyApproved());
+        expect(controller.phase).toBe('scanned');
+        expect(controller.rows[0].reasonCode).toBe('plan-stale');
         expect(apply).not.toHaveBeenCalled();
     });
 
@@ -266,6 +293,21 @@ describe('useDeviceEnvironment', () => {
         inspect.mockClear();
         await act(() => controller.scan());
         expect(inspect.mock.calls.map(([id]) => id)).toEqual(['new']);
+    });
+
+    it.each(['scan', 'preview'] as const)('discards outstanding %s reads after a presence change', async (operation) => {
+        mount();
+        if (operation === 'preview') await act(() => controller.scan());
+        const delayed = deferred<EnvironmentInspectResponse>();
+        inspect.mockReturnValueOnce(delayed.promise);
+        let pending!: Promise<void>;
+        act(() => { pending = controller[operation](); });
+        mount([machine('air', false), machine('new')]);
+        await act(async () => { delayed.resolve(response('upgrade')); await pending; });
+        expect(controller.phase).toBe('idle');
+        expect(controller.rows.map((row) => row.status)).toEqual(['offline', 'pending']);
+        await act(() => controller.applyApproved());
+        expect(apply).not.toHaveBeenCalled();
     });
 
     it.each(['applyApproved', 'preview'] as const)('rejects saved %s before passive registry invalidation', async (operation) => {
@@ -375,6 +417,58 @@ describe('useDeviceEnvironment', () => {
         await act(async () => { slow.reject(new Error('operation has timed out')); await pending; });
         expect(controller.phase).toBe('completed');
         expect(controller.rows.map((row) => row.status)).toEqual(['rpc-timeout', 'offline', 'succeeded']);
+    });
+
+    it.each(['success', 'timeout'] as const)('retains settled and outstanding apply rows when a device goes offline: %s', async (settlement) => {
+        mount([machine('fast'), machine('slow'), machine('offline', false)]);
+        await prepare();
+        const slow = deferred<EnvironmentApplyResponse>();
+        apply.mockImplementation((id) => id === 'slow' ? slow.promise : Promise.resolve(success()));
+        let pending!: Promise<void>;
+        await act(async () => { pending = controller.applyApproved(); });
+        expect(controller.rows[0].status).toBe('succeeded');
+
+        mount([machine('slow', false), machine('new'), machine('fast'), machine('offline', false)]);
+        expect(controller.phase).toBe('applying');
+        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([
+            ['slow', 'offline'], ['new', 'pending'], ['fast', 'succeeded'], ['offline', 'offline'],
+        ]);
+        expect(controller.rows.every((row) => row.plan === undefined)).toBe(true);
+        await act(() => controller.applyApproved());
+        await act(() => controller.preview());
+        expect(apply).toHaveBeenCalledTimes(2);
+        await act(async () => {
+            if (settlement === 'success') slow.resolve(success());
+            else slow.reject(new Error('operation has timed out'));
+            await pending;
+        });
+        expect(controller.phase).toBe('completed');
+        expect(controller.rows.map((row) => row.status)).toEqual(['offline', 'pending', 'succeeded', 'offline']);
+        expect(controller.rows[0].online).toBe(false);
+        if (settlement === 'success') expect(controller.rows[0].result?.status).toBe('succeeded');
+        else expect(controller.rows[0].requiresScan).toBe(true);
+        expect(controller.rows[2].result?.status).toBe('succeeded');
+
+        mount([machine('fast'), machine('slow'), machine('new'), machine('offline', false)]);
+        expect(controller.phase).toBe('completed');
+        expect(controller.rows[0].status).toBe('succeeded');
+        expect(controller.rows[1].status).toBe(settlement === 'success' ? 'succeeded' : 'rpc-timeout');
+        await act(() => controller.applyApproved());
+        expect(apply).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains a removed dispatched device until its outstanding result settles', async () => {
+        mount([machine('air')]);
+        await prepare();
+        const pendingResult = deferred<EnvironmentApplyResponse>();
+        apply.mockReturnValueOnce(pendingResult.promise);
+        let pending!: Promise<void>;
+        act(() => { pending = controller.applyApproved(); });
+        mount([machine('new')]);
+        expect(controller.rows.map((row) => [row.machineId, row.status])).toEqual([['new', 'pending'], ['air', 'offline']]);
+        await act(async () => { pendingResult.resolve(success()); await pending; });
+        expect(controller.phase).toBe('completed');
+        expect(controller.rows[1]).toMatchObject({ machineId: 'air', online: false, status: 'offline', result: { status: 'succeeded' } });
     });
 
     it.each(['scan', 'preview', 'applyApproved'] as const)('publishes an early %s timeout while another machine is pending', async (operation) => {
