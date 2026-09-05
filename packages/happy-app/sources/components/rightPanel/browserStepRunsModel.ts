@@ -68,8 +68,9 @@ function createRuns(messages: Message[]): MutableRun[] {
 
 /**
  * Associate browser frames with the Ego Skill invocation that produced them.
- * Explicit IDs are authoritative. A producer-generated ID first binds to the
- * latest matching invocation only while that invocation is still unbound.
+ * Explicit IDs are authoritative. A producer-generated ID first binds FIFO to
+ * a pending matching invocation, unless an invocation/call alias identifies
+ * an exact pending invocation.
  * Legacy frames follow the latest preceding Ego invocation until superseded.
  */
 export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
@@ -82,13 +83,21 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
 
     const stepByMessageId = new Map(getBrowserSteps(orderedMessages).map((step) => [step.id, step]));
     let latestLegacyRun: MutableRun | null = null;
-    const latestInvocationBySkill = new Map<EgoSkillName, MutableRun>();
+    const pendingInvocationsBySkill = new Map<EgoSkillName, MutableRun[]>();
+
+    const removePending = (run: MutableRun) => {
+        const pending = pendingInvocationsBySkill.get(run.skillName);
+        if (!pending) return;
+        const index = pending.indexOf(run);
+        if (index >= 0) pending.splice(index, 1);
+    };
 
     const bindRunId = (run: MutableRun, runId: string) => {
         run.id = runId;
         run.boundExplicitRunId = runId;
         run.aliases.add(runId);
         runByAlias.set(runId, run);
+        removePending(run);
     };
 
     for (const message of orderedMessages) {
@@ -97,7 +106,11 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
             const invocation = runs.find((run) => run.invocationMessageId === message.id);
             if (invocation) {
                 latestLegacyRun = invocation;
-                latestInvocationBySkill.set(invocation.skillName, invocation);
+                if (invocation.boundExplicitRunId === null) {
+                    const pending = pendingInvocationsBySkill.get(invocation.skillName) ?? [];
+                    pending.push(invocation);
+                    pendingInvocationsBySkill.set(invocation.skillName, pending);
+                }
             }
         }
 
@@ -108,8 +121,8 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
         let run = step.runId ? runByAlias.get(step.runId) : latestLegacyRun;
         if (step.runId && !run && step.skillName) {
             const skillName = asEgoSkillName(step.skillName);
-            const candidate = skillName ? latestInvocationBySkill.get(skillName) : undefined;
-            if (candidate && candidate.boundExplicitRunId === null) {
+            const candidate = skillName ? pendingInvocationsBySkill.get(skillName)?.[0] : undefined;
+            if (candidate) {
                 bindRunId(candidate, step.runId);
                 run = candidate;
             }

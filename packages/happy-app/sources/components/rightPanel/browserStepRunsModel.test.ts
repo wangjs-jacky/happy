@@ -79,6 +79,40 @@ function userMessage(id: string, createdAt: number): Message {
 }
 
 describe('getBrowserStepRuns', () => {
+    it('binds first-seen producer IDs FIFO across multiple pending invocations of one skill', () => {
+        const runs = getBrowserStepRuns([
+            skillMessage('pending-a', 10, 'ego-browser'),
+            skillMessage('pending-b', 20, 'ego-browser'),
+            producerWireBrowserStep('a-1', 30, 'A1', 'producer-a', 'ego-browser'),
+            producerWireBrowserStep('b-1', 40, 'B1', 'producer-b', 'ego-browser'),
+            producerWireBrowserStep('a-2', 50, 'A2', 'producer-a', 'ego-browser'),
+            producerWireBrowserStep('orphan', 60, 'queue exhausted', 'producer-c', 'ego-browser'),
+        ]);
+
+        expect(runs.map((run) => ({
+            id: run.id,
+            invocationMessageId: run.invocationMessageId,
+            stepIds: run.steps.map((step) => step.id),
+        }))).toEqual([
+            { id: 'producer-a', invocationMessageId: 'pending-a', stepIds: ['a-1', 'a-2'] },
+            { id: 'producer-b', invocationMessageId: 'pending-b', stepIds: ['b-1'] },
+        ]);
+    });
+
+    it('lets a direct call ID bind its exact pending invocation ahead of FIFO discovery', () => {
+        const runs = getBrowserStepRuns([
+            skillMessage('pending-a', 10, 'ego-ops'),
+            skillMessage('pending-b', 20, 'ego-ops'),
+            producerWireBrowserStep('b-direct', 30, 'B', 'call-pending-b', 'ego-ops'),
+            producerWireBrowserStep('a-generated', 40, 'A', 'generated-a', 'ego-ops'),
+        ]);
+
+        expect(runs.map((run) => ({ id: run.id, invocationMessageId: run.invocationMessageId }))).toEqual([
+            { id: 'generated-a', invocationMessageId: 'pending-a' },
+            { id: 'call-pending-b', invocationMessageId: 'pending-b' },
+        ]);
+    });
+
     it('binds the producer run ID to the latest matching real Skill invocation exactly once', () => {
         const runs = getBrowserStepRuns([
             skillMessage('browser-invocation-1', 10, 'ego-browser'),
