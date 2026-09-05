@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const MODES = new Set(['evaluate-json', 'print-ego-probe', 'evaluate-phase-2-json', 'print-phase-2-ego-probe']);
+const MODES = new Set(['evaluate-json', 'print-ego-probe', 'evaluate-phase-2-json', 'evaluate-phase-2-attribution-json', 'print-phase-2-ego-probe']);
 const REQUIRED_EVIDENCE_FIELDS = new Set([
   'resources',
   'deepLinkInteractiveMs',
@@ -79,6 +79,14 @@ function distribution(values) {
 }
 
 export function evaluatePhase2CriticalPath(run) {
+  return evaluatePhase2(run, false);
+}
+
+export function evaluatePhase2Attribution(run) {
+  return evaluatePhase2(run, true);
+}
+
+function evaluatePhase2(run, attribution) {
   const invalid = () => { throw new CliFailure('INVALID_EVIDENCE'); };
   const root = readPlainDataObject(run);
   if (!exactDataFields(root, ['resources', 'samples'])) invalid();
@@ -98,11 +106,36 @@ export function evaluatePhase2CriticalPath(run) {
     if (!data) invalid();
     const kind = data.get('kind');
     const metrics = kind === 'deep-link' ? ['deepLinkInteractiveMs'] : ['spawnRoutePaintMs', 'processorReadyMs'];
-    if (!exactDataFields(data, ['kind', 'cache', 'retryCount', ...metrics])
+    const hasStages = data.has('stages');
+    if (!exactDataFields(data, ['kind', 'cache', 'retryCount', ...metrics, ...(hasStages ? ['stages'] : [])])
       || !['deep-link', 'spawn'].includes(kind) || !['cold', 'warm'].includes(data.get('cache'))
       || !Number.isSafeInteger(data.get('retryCount')) || data.get('retryCount') < 0
       || metrics.some(field => typeof data.get(field) !== 'number'
         || !Number.isFinite(data.get(field)) || data.get(field) < 0)) invalid();
+    if (attribution && !hasStages) invalid();
+    if (hasStages) {
+      const { deep, spawn, prerequisites } = phase2StageContract();
+      const required = kind === 'deep-link' ? ['web.deep_link.navigation_started', ...deep] : spawn;
+      const values = readPlainDataArray(data.get('stages'));
+      if (!values || values.length !== required.length) invalid();
+      const durations = new Map();
+      let previous = -1;
+      for (const value of values) {
+        const entry = readPlainDataObject(value);
+        if (!exactDataFields(entry, ['stage', 'duration'])) invalid();
+        const stage = entry.get('stage'), duration = entry.get('duration');
+        if (!required.includes(stage) || durations.has(stage) || typeof duration !== 'number'
+          || !Number.isFinite(duration) || duration < 0 || duration < previous
+          || (prerequisites[stage] ?? []).some(before => !durations.has(before))) invalid();
+        durations.set(stage, duration);
+        previous = duration;
+      }
+      if (required.some(stage => !durations.has(stage))
+        || kind === 'deep-link' && (durations.get('web.deep_link.navigation_started') !== 0
+          || durations.get('web.session.latest_message_painted') !== data.get('deepLinkInteractiveMs'))
+        || kind === 'spawn' && (durations.get('web.session.route_painted') !== data.get('spawnRoutePaintMs')
+          || durations.get('web.processor.ready_received') !== data.get('processorReadyMs'))) invalid();
+    }
     samples.push(Object.fromEntries(data));
   }
   if (samples.some(sample => sample.retryCount !== 0)) throw new CliFailure('RETRY_DETECTED');
@@ -113,6 +146,7 @@ export function evaluatePhase2CriticalPath(run) {
     if (cohort.length < 5) throw new CliFailure('INSUFFICIENT_SAMPLES');
     groups[kind + cache] = cohort;
   }
+  if (attribution) return { ok: true, sampleCount: samples.length, legacySessionCalls: 0 };
   let ok = true;
   const summaries = {};
   for (const [field, key, kind, p50, p95] of [
@@ -239,7 +273,7 @@ function readEvidence(inputPath, phase2 = false) {
 
 // Serialized into the document-start expression. All timing stays in this
 // browser's performance clock; only aggregate durations cross the boundary.
-function createPhase2Probe({ state, now, navigationStart, beginResourceCollection, freezeResources, requireCollection }) {
+function phase2StageContract() {
   const deep = [
     'web.root.module_ready', 'web.fonts.critical_ready', 'web.crypto.ready', 'web.credentials.ready',
     'web.route.mounted', 'web.session.snapshot_started', 'web.session.snapshot_completed',
@@ -253,6 +287,7 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
   // Boot/font and snapshot/latest work can overlap. Validate causality, not a
   // fabricated total order; processor-ready may arrive before route paint.
   const prerequisites = {
+    'web.root.module_ready': ['web.deep_link.navigation_started'],
     'web.fonts.critical_ready': ['web.root.module_ready'],
     'web.crypto.ready': ['web.root.module_ready'],
     'web.credentials.ready': ['web.crypto.ready'],
@@ -269,8 +304,13 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     'web.session.route_painted': ['web.session.navigated'],
     'web.processor.ready_received': ['web.spawn.clicked'],
     'web.first_agent_event_received': ['web.processor.ready_received', 'web.first_message.queued'],
-    'web.turn.completed': spawn.slice(0, -1),
+    'web.turn.completed': ['web.first_agent_event_received'],
   };
+  return { deep, spawn, prerequisites };
+}
+
+function createPhase2Probe({ state, now, navigationStart, beginResourceCollection, freezeResources, requireCollection, contract }) {
+  const { deep, spawn, prerequisites } = contract;
   const allowed = new Set([...deep, ...spawn]);
   const samples = [];
   const resources = [];
@@ -295,6 +335,7 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     try { beginResourceCollection(key, 'start', kind === 'deep-link' ? navigationStart : now); }
     catch { fail('RESOURCE_COLLECTION_FAILED'); }
     active = { ...configured, path: state[key], marks: new Map(), last: state[key].start, retryCount: 0 };
+    if (kind === 'deep-link') active.marks.set('web.deep_link.navigation_started', state[key].start);
     configured = null;
   };
   const mark = stage => {
@@ -312,12 +353,13 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     if (needed.some(required => !active.marks.has(required))) fail('OUT_OF_ORDER_APP_STAGE');
     active.last = time;
     active.marks.set(stage, time);
-    const terminal = active.kind === 'deep-link' ? 'web.session.latest_message_painted' : 'web.turn.completed';
-    if (stage !== terminal) return;
     const required = active.kind === 'deep-link' ? deep : spawn;
-    if (required.some(requiredStage => !active.marks.has(requiredStage))) fail('MISSING_APP_STAGE');
+    // Model completion and route paint may race. Preserve each real timestamp
+    // and freeze only once both causal branches have supplied every milestone.
+    if (required.some(requiredStage => !active.marks.has(requiredStage))) return;
     try { freezeResources(active.path); } catch { fail('RESOURCE_COLLECTION_FAILED'); }
-    const sample = { kind: active.kind, cache: active.cache, retryCount: active.retryCount };
+    const sample = { kind: active.kind, cache: active.cache, retryCount: active.retryCount,
+      stages: Object.freeze([...active.marks].map(([stage, markedAt]) => Object.freeze({ stage, duration: markedAt - active.path.start }))) };
     if (active.kind === 'deep-link') sample.deepLinkInteractiveMs = time - active.path.start;
     else {
       sample.spawnRoutePaintMs = active.marks.get('web.session.route_painted') - active.path.start;
@@ -356,7 +398,7 @@ function createPhase2Probe({ state, now, navigationStart, beginResourceCollectio
     markTurnCompletion() { mark('web.turn.completed'); },
     markRetry() {
       check();
-      if (active?.kind === 'spawn') active.retryCount += 1;
+      if (active) active.retryCount += 1;
     },
     collect() {
       check();
@@ -558,7 +600,7 @@ function renderEgoProbe(origin, sessionId, phase2 = false) {
     }
   };
 
-  const probe = ${phase2 ? `(${createPhase2Probe.toString()})({ state, now, navigationStart, beginResourceCollection, freezeResources, requireCollection })` : `{
+  const probe = ${phase2 ? `(${createPhase2Probe.toString()})({ state, now, navigationStart, beginResourceCollection, freezeResources, requireCollection, contract: (${phase2StageContract.toString()})() })` : `{
     initFreshDeepLink() {
       beginResourceCollection('deepLink', 'start', navigationStart);
     },
@@ -614,8 +656,10 @@ function main(argv) {
     return 0;
   }
 
-  const phase2 = mode === 'evaluate-phase-2-json';
-  const result = phase2 ? evaluatePhase2CriticalPath(readEvidence(input, true)) : evaluateCriticalPath(readEvidence(input));
+  const phase2 = mode.startsWith('evaluate-phase-2-');
+  const result = phase2
+    ? (mode === 'evaluate-phase-2-attribution-json' ? evaluatePhase2Attribution : evaluatePhase2CriticalPath)(readEvidence(input, true))
+    : evaluateCriticalPath(readEvidence(input));
   process.stdout.write(`${JSON.stringify(result)}\n`);
   return result.ok ? 0 : 1;
 }

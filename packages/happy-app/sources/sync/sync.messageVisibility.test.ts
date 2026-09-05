@@ -6,6 +6,9 @@ import { SessionMessageRetention } from './sessionMessageRetention';
 import { SessionRouteAbandonedError, SessionRouteOwnership } from './sessionRouteOwnership';
 import { SessionEncryption } from './encryption/sessionEncryption';
 import { EncryptionCache } from './encryption/encryptionCache';
+import { installPhase2Probe } from './phase2Probe.testSupport';
+import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
+import { normalizeRawMessage, type RawRecord } from './typesRaw';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -133,7 +136,11 @@ vi.mock('./sessionStartupTraceRuntime', async (importOriginal) => {
     const actual = await importOriginal<typeof import('./sessionStartupTraceRuntime')>();
     return {
         ...actual,
-        sessionStartupTraceRuntime: actual.createWebStartupTraceRuntime((event) => mocks.runtimeEvents.push(event as { stage: string; sessionId?: string })),
+        sessionStartupTraceRuntime: actual.createWebStartupTraceRuntime((event) => {
+            const recorded = event as { stage: string; sessionId?: string };
+            mocks.runtimeEvents.push(recorded);
+            if (recorded.stage.startsWith('web.')) markSessionCriticalPathAppStage(recorded.stage as any);
+        }),
     };
 });
 vi.mock('./encryption/encryption', () => ({ Encryption: class {} }));
@@ -608,10 +615,12 @@ describe('message visibility synchronization', () => {
         { order: 'catch-up-first', cold: false, terminal: '' },
         { order: 'latest-first', cold: true, terminal: '' },
         { order: 'catch-up-first', cold: true, terminal: '' },
+        { order: 'latest-first', cold: false, terminal: '', retryCatchUp: true },
         { order: 'latest-first', cold: false, terminal: 'abandoned' },
         { order: 'catch-up-first', cold: false, terminal: 'deleted' },
     ])(
-        'waits for a committed foreground page while opening ($order, cold=$cold, terminal=$terminal)', async ({ order, cold, terminal }) => {
+        'waits for a committed foreground page while opening ($order, cold=$cold, terminal=$terminal, retry=$retryCatchUp)', async ({ order, cold, terminal, retryCatchUp = false }) => {
+            const probe = installPhase2Probe('deep-link');
             // Real storage/reducer + SessionEncryption; only the byte decrypt boundary is held.
             const storage = await useRealMessageComposition();
             storage.getState().applySessions([hydrated(snapshot('opening-session'))]);
@@ -638,11 +647,13 @@ describe('message visibility synchronization', () => {
                 content: { t: 'encrypted', c: Buffer.from([seq]).toString('base64') },
             });
             let latestRequests = 0;
+            let forwardRequests = 0;
             mocks.apiRequest.mockImplementation(async (url: string) => {
                 if (url.includes('before_seq=')) {
                     latestRequests++;
                     return response({ messages: [encrypted(7)], hasMore: true });
                 }
+                if (retryCatchUp && forwardRequests++ === 0) throw new Error('synthetic catch-up failure');
                 return response({ messages: [encrypted(5), encrypted(9, 'latest-visible-message')], hasMore: false });
             });
             const oldOwner = syncForTest.beginSessionRoute('opening-session');
@@ -655,7 +666,7 @@ describe('message visibility synchronization', () => {
             event.body.message = encrypted(9);
             await syncForTest.handleUpdate(event);
             // Without opening ownership realtime drops this cache as background.
-            await vi.waitFor(() => expect(forwardStarted).toBe(true));
+            await vi.waitFor(() => expect(forwardStarted).toBe(true), { timeout: 3000 });
             expect(storage.getState().currentViewingSessionId).toBeNull();
             // A cleanup belonging to the previous same-ID mount cannot stop this catch-up.
             expect(syncForTest.leaveSessionRoute(oldOwner)).toBe(false);
@@ -693,11 +704,17 @@ describe('message visibility synchronization', () => {
             );
             expect(storage.getState().sessionMessages['opening-session'].reducerState.messageIds.has('latest-visible-message')).toBe(true);
             expect(storage.getState().currentViewingSessionId).toBeNull();
+            probe.markFreshLatestMessageComplete();
+            expect(probe.collect().samples).toHaveLength(1);
+            expect(probe.collect().samples[0].retryCount).toBe(retryCatchUp ? 1 : 0);
         },
     );
 
     it.each(['ready', 'exhausted', 'abandoned', 'deleted', 'abandoned-network', 'deleted-network'] as const)(
         'bounds latest-page recovery under the same live owner (%s)', async (result) => {
+            const probe = installPhase2Probe('spawn');
+            probe.startNewTextSession();
+            probe.markNewSessionEvent(); probe.markLocalQueue(); probe.markAppStage('web.session.navigated');
             const storage = await useRealMessageComposition();
             storage.getState().applySessions([hydrated(snapshot('recovering-session'))]);
             syncForTest.sessionMessageFrontiers.set('recovering-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
@@ -759,6 +776,8 @@ describe('message visibility synchronization', () => {
                 expect(storage.getState().sessionMessages['recovering-session'].messages).toContainEqual(
                     expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
                 );
+                probe.markRouteNavigation(); probe.markProcessorReady(); probe.markFirstAgentEvent(); probe.markTurnCompletion();
+                expect(probe.collect().samples[0].retryCount).toBe(1);
             } else if (result === 'exhausted') {
                 await expect(opening).rejects.toMatchObject({ name: 'SessionRouteCoordinationError' });
             } else {
@@ -773,6 +792,38 @@ describe('message visibility synchronization', () => {
             expect(storage.getState().currentViewingSessionId).toBeNull();
         },
     );
+
+    it('exports the actual failed latest request and succeeding target-route retry as nonzero spawn evidence', async () => {
+        const probe = installPhase2Probe('spawn');
+        probe.startNewTextSession();
+        probe.markNewSessionEvent(); probe.markLocalQueue(); probe.markAppStage('web.session.navigated');
+        installSession('retry-target');
+        mocks.apiRequest.mockRejectedValueOnce(new Error('synthetic-network-failure'))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(1)], hasMore: false }));
+        const first = syncForTest.beginSessionRoute('retry-target');
+        await expect(syncForTest.openSession('retry-target', first)).rejects.toThrow('synthetic-network-failure');
+        syncForTest.leaveSessionRoute(first);
+        const retry = syncForTest.beginSessionRoute('retry-target');
+        await expect(syncForTest.openSession('retry-target', retry, { retry: true })).resolves.toBe('ready');
+        probe.markRouteNavigation(); probe.markProcessorReady(); probe.markFirstAgentEvent(); probe.markTurnCompletion();
+        const evidence = JSON.parse(JSON.stringify(probe.collect()));
+        expect(evidence.samples[0].retryCount).toBe(1);
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(2);
+        const { evaluatePhase2CriticalPath } = await vi.importActual<any>('../../scripts/check-session-critical-path.mjs');
+        expect(() => evaluatePhase2CriticalPath(evidence)).toThrow('RETRY_DETECTED');
+    });
+
+    it('keeps unrelated message fetches out of the measured route milestone set', async () => {
+        const probe = installPhase2Probe('deep-link');
+        installSession('unrelated'); installSession('measured');
+        const lease = syncForTest.sessionMessageLoadGate.enter('unrelated');
+        await syncForTest.fetchMessages('unrelated', syncForTest.sessionMessageLoadGate.begin(lease));
+        await expect(syncForTest.openSession('measured')).resolves.toBe('ready');
+        probe.markFreshLatestMessageComplete();
+        const stages = probe.collect().samples[0].stages.map((entry: any) => entry.stage);
+        expect(stages.filter((stage: string) => stage === 'web.messages.latest_started')).toHaveLength(1);
+        expect(stages.filter((stage: string) => stage === 'web.session.store_committed')).toHaveLength(1);
+    });
 
     it('does not fetch messages or git for an off-screen new-message event', async () => {
         installSession('visible-session');
@@ -816,6 +867,103 @@ describe('message visibility synchronization', () => {
 
         expect(mocks.apiRequest).not.toHaveBeenCalled();
         expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
+    });
+
+    it('receives encrypted startup ready before unowned spawn hydration finishes and never replays history as receipt', async () => {
+        const probe = installPhase2Probe('spawn');
+        const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000012', 0);
+        sessionStartupTraceRuntime.mark(handle, 'web.spawn.clicked');
+        sessionStartupTraceRuntime.bindSession(handle, 'pending-spawn');
+        const encryption = installSession('pending-spawn');
+        // Compose has bound the RPC result but is still waiting for encryption/hydration.
+        delete mocks.state.sessions['pending-spawn'];
+        const hydration = deferred<ApiSessionSnapshot | null>();
+        mocks.fetchSnapshot.mockReturnValue(hydration.promise);
+        const hydrating = syncForTest.ensureSessionHydrated('pending-spawn');
+        await vi.waitFor(() => expect(mocks.fetchSnapshot).toHaveBeenCalled());
+        // Realtime bootstrap has independently supplied the minimum decryption context.
+        mocks.state.sessions['pending-spawn'] = hydrated(snapshot('pending-spawn'));
+        const ready: RawRecord = { role: 'agent', content: { type: 'event', id: 'ready', data: { type: 'ready' } } };
+        encryption.decryptMessage.mockResolvedValue({ id: 'ready', localId: null, createdAt: 50, content: ready });
+        await syncForTest.handleUpdate(newMessageUpdate('pending-spawn', 1));
+        expect(mocks.state.currentViewingSessionId).toBeNull();
+        expect(syncForTest.sessionRouteOwnership.current()).toBeNull();
+        expect(mocks.runtimeEvents.filter(event => event.stage === 'web.processor.ready_received')).toHaveLength(1);
+        hydration.resolve(snapshot('pending-spawn'));
+        await hydrating;
+        sessionStartupTraceRuntime.mark(handle, 'web.session.hydrated');
+        sessionStartupTraceRuntime.mark(handle, 'web.first_message.queued');
+        sessionStartupTraceRuntime.mark(handle, 'web.session.navigated');
+        probe.markRouteNavigation();
+        sessionStartupTraceRuntime.markSessionStage('pending-spawn', 'web.first_agent_event_received');
+        sessionStartupTraceRuntime.markSessionStage('pending-spawn', 'web.turn.completed');
+        expect(probe.collect().samples).toHaveLength(1);
+
+        delete (globalThis as any).__happySessionCriticalPathProbe;
+        const replay = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000013', 0);
+        sessionStartupTraceRuntime.bindSession(replay, 'pending-spawn');
+        mocks.runtimeEvents = [];
+        syncForTest.applyMessages('pending-spawn', [normalizeRawMessage('ready', null, 50, ready)]);
+        expect(mocks.runtimeEvents).toEqual([]);
+        sessionStartupTraceRuntime.finish(replay);
+    });
+
+    it('records first agent activity before a combined catch-up batch closes the real runtime/probe', async () => {
+        const probe = installPhase2Probe('spawn');
+        const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000014', 0);
+        for (const stage of ['web.spawn.clicked', 'web.session.hydrated', 'web.first_message.queued', 'web.session.navigated'] as const) {
+            sessionStartupTraceRuntime.mark(handle, stage);
+        }
+        sessionStartupTraceRuntime.bindSession(handle, 'batch-session');
+        probe.markRouteNavigation();
+        const encryption = installSession('batch-session');
+        const ready: RawRecord = { role: 'agent', content: { type: 'event', id: 'ready', data: { type: 'ready' } } };
+        encryption.decryptMessage.mockResolvedValue({ id: 'ready', localId: null, createdAt: 1, content: ready });
+        // A real realtime receipt is required; the same ready packet may also occur in catch-up.
+        mocks.state.currentViewingSessionId = 'batch-session';
+        syncForTest.sessionMessageFrontiers.set('batch-session', { latestSeq: 0, olderBeforeSeq: null, hasMoreOlder: false });
+        await syncForTest.handleUpdate(newMessageUpdate('batch-session', 1));
+        await vi.waitFor(() => expect(mocks.runtimeEvents.some(e => e.stage === 'web.processor.ready_received')).toBe(true));
+        const agent: RawRecord = { role: 'agent', content: { type: 'output', data: { type: 'assistant', uuid: 'agent', message: { role: 'assistant', model: 'test-model', content: [{ type: 'text', text: 'test output' }] } } } };
+        const terminal: RawRecord = { role: 'agent', content: { type: 'session', data: { id: 'end', time: 3, role: 'agent', turn: 'turn', ev: { t: 'turn-end', status: 'completed' } } } };
+        syncForTest.applyMessages('batch-session', [ready, agent, terminal].map((raw, i) => normalizeRawMessage(`batch-${i}`, null, i, raw)));
+        expect(mocks.runtimeEvents.map(e => e.stage).slice(-3)).toEqual([
+            'web.processor.ready_received', 'web.first_agent_event_received', 'web.turn.completed',
+        ]);
+        expect(probe.collect().samples).toHaveLength(1);
+    });
+
+    it.each(['before', 'after'] as const)('collects one queued realtime ready/agent/terminal batch when route paint is %s completion', async (paint) => {
+        const probe = installPhase2Probe('spawn');
+        const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000015', 0);
+        for (const stage of ['web.spawn.clicked', 'web.session.hydrated', 'web.first_message.queued', 'web.session.navigated'] as const) {
+            sessionStartupTraceRuntime.mark(handle, stage);
+        }
+        sessionStartupTraceRuntime.bindSession(handle, 'queued-batch');
+        const encryption = installSession('queued-batch');
+        mocks.state.currentViewingSessionId = 'queued-batch';
+        syncForTest.sessionMessageFrontiers.set('queued-batch', { latestSeq: 0, olderBeforeSeq: null, hasMoreOlder: false });
+        const packets = [
+            { role: 'agent', content: { type: 'event', id: 'ready', data: { type: 'ready' } } },
+            { role: 'agent', content: { type: 'output', data: { type: 'assistant', uuid: 'output', message: { role: 'assistant', model: 'test', content: [{ type: 'text', text: 'test output' }] } } } },
+            { role: 'agent', content: { type: 'session', data: { id: 'end', time: 3, role: 'agent', turn: 'turn', ev: { t: 'turn-end', status: 'completed' } } } },
+        ];
+        encryption.decryptMessage.mockImplementation(async (message: ApiMessage) => ({
+            id: message.id, localId: null, createdAt: message.createdAt, content: packets[message.seq - 1],
+        }));
+        const release = deferred<void>();
+        const holding = syncForTest.getSessionMessageLock('queued-batch').inLock(() => release.promise);
+        if (paint === 'before') probe.markRouteNavigation();
+        for (let seq = 1; seq <= 3; seq++) await syncForTest.handleUpdate(newMessageUpdate('queued-batch', seq));
+        expect(syncForTest.sessionMessageQueue.get('queued-batch')).toHaveLength(3);
+        expect(mocks.runtimeEvents.at(-1)?.stage).toBe('web.processor.ready_received');
+        release.resolve(); await holding;
+        await vi.waitFor(() => expect(mocks.runtimeEvents.at(-1)?.stage).toBe('web.turn.completed'));
+        if (paint === 'after') probe.markRouteNavigation();
+        expect(mocks.runtimeEvents.map(event => event.stage).slice(-3)).toEqual([
+            'web.processor.ready_received', 'web.first_agent_event_received', 'web.turn.completed',
+        ]);
+        expect(probe.collect().samples).toHaveLength(1);
     });
 
     it('marks only processor readiness for a normalized encrypted ready event', async () => {

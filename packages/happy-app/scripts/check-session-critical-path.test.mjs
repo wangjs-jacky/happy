@@ -250,6 +250,72 @@ function deepStages(harness) {
   at(190); probe.markAppStage('web.session.store_committed');
 }
 
+test('Phase 2 retains immutable identifier-free stage durations after later samples start', () => {
+  const h = phase2Probe(); deepStages(h);
+  h.at(200); h.probe.markFreshLatestMessageComplete();
+  const sample = h.probe.collect().samples[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(sample.stages)), [
+    { stage: 'web.deep_link.navigation_started', duration: 0 },
+    { stage: 'web.root.module_ready', duration: 100 },
+    { stage: 'web.fonts.critical_ready', duration: 110 },
+    { stage: 'web.crypto.ready', duration: 120 },
+    { stage: 'web.credentials.ready', duration: 130 },
+    { stage: 'web.route.mounted', duration: 140 },
+    { stage: 'web.session.snapshot_started', duration: 150 },
+    { stage: 'web.session.snapshot_completed', duration: 160 },
+    { stage: 'web.messages.latest_started', duration: 170 },
+    { stage: 'web.messages.latest_completed', duration: 180 },
+    { stage: 'web.session.store_committed', duration: 190 },
+    { stage: 'web.session.latest_message_painted', duration: 200 },
+  ]);
+  assert.ok(Object.isFrozen(sample.stages));
+  assert.ok(sample.stages.every(Object.isFrozen));
+  assert.throws(() => { sample.stages[0].duration = 999; }, TypeError);
+  h.probe.configureSample({ kind: 'spawn', cache: 'warm' });
+  h.at(1000); h.probe.startNewTextSession();
+  assert.equal(sample.stages.at(-1).duration, 200);
+});
+
+test('Phase 2 attribution gate requires valid causal stage evidence and stays independent of latency', async () => {
+  const { evaluatePhase2Attribution } = await evaluator();
+  assert.equal(typeof evaluatePhase2Attribution, 'function');
+  const h = phase2Probe(); deepStages(h);
+  h.at(50000); h.probe.markFreshLatestMessageComplete();
+  const deep = JSON.parse(JSON.stringify(h.probe.collect().samples[0]));
+  const spawn = {
+    kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 500, processorReadyMs: 100,
+    stages: [
+      { stage: 'web.spawn.clicked', duration: 0 }, { stage: 'web.processor.ready_received', duration: 100 },
+      { stage: 'web.session.hydrated', duration: 200 }, { stage: 'web.first_message.queued', duration: 300 },
+      { stage: 'web.session.navigated', duration: 400 }, { stage: 'web.session.route_painted', duration: 500 },
+      { stage: 'web.first_agent_event_received', duration: 600 }, { stage: 'web.turn.completed', duration: 700 },
+    ],
+  };
+  const evidence = { resources: [], samples: ['cold', 'warm'].flatMap(cache => [deep, spawn].flatMap(sample =>
+    Array.from({ length: 5 }, () => ({ ...structuredClone(sample), cache })))) };
+  assert.equal(evaluatePhase2Attribution(evidence).ok, true);
+  assert.equal(globalPhase2(evidence).ok, false);
+  for (const mutate of [
+    s => { delete s.stages; }, s => s.stages.pop(),
+    s => s.stages.push({ ...s.stages[0] }),
+    s => { s.stages[1].stage = 'private-sentinel'; },
+    s => { s.stages[1].duration = -1; }, s => { s.stages[1].duration = Infinity; },
+    s => { s.stages[1].duration = '100'; }, s => { s.stages[1].secret = 'private-sentinel'; },
+    s => { s.stages[2].duration = 99; }, s => { s.stages[1].duration = 50001; },
+    s => { s.stages[1] = accessorObject(s.stages[1], 'duration'); },
+    s => { s.stages = customArray(s.stages); },
+    s => { s.deepLinkInteractiveMs = 1; },
+  ]) {
+    const invalid = structuredClone(evidence); mutate(invalid.samples[0]);
+    assert.throws(() => evaluatePhase2Attribution(invalid), { code: 'INVALID_EVIDENCE' });
+  }
+  await withMeasurement(JSON.stringify(evidence), input => {
+    const result = runCli(evaluateArgs(input).map(x => x === 'evaluate-json' ? 'evaluate-phase-2-attribution-json' : x));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).ok, true);
+  });
+});
+
 test('Phase 2 consumes app stages and freezes independent redacted samples', async () => {
   const h = phase2Probe(); deepStages(h);
   h.observer.emit([{ name: 'https://secret.example/private-sentinel?token=private', startTime: 155 }]);
@@ -266,7 +332,8 @@ test('Phase 2 consumes app stages and freezes independent redacted samples', asy
   h.at(1900); h.probe.markFirstAgentEvent();
   h.at(2100); h.probe.markTurnCompletion();
   await h.context.fetch('/v1/sessions'); // After frozen intervals must be excluded.
-  assert.deepEqual(JSON.parse(JSON.stringify(h.probe.collect())), {
+  const collected = JSON.parse(JSON.stringify(h.probe.collect()));
+  assert.deepEqual({ ...collected, samples: collected.samples.map(({ stages, ...sample }) => sample) }, {
     resources: [{ name: 'https://redacted.invalid/resource' }],
     samples: [
       { kind: 'deep-link', cache: 'cold', retryCount: 0, deepLinkInteractiveMs: 200 },
@@ -303,7 +370,7 @@ test('Phase 2 records a reported real spawn retry for evaluator rejection', () =
   h.at(1900); h.probe.markFirstAgentEvent();
   h.at(2100); h.probe.markTurnCompletion();
   const evidence = JSON.parse(JSON.stringify(h.probe.collect()));
-  assert.deepEqual(evidence.samples, [
+  assert.deepEqual(evidence.samples.map(({ stages, ...sample }) => sample), [
     { kind: 'spawn', cache: 'cold', retryCount: 1, spawnRoutePaintMs: 500, processorReadyMs: 800 },
   ]);
   assert.throws(() => globalPhase2(evidence), { code: 'RETRY_DETECTED' });

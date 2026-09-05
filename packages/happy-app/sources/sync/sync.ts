@@ -111,7 +111,7 @@ import { SessionMessageRetention } from './sessionMessageRetention';
 import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRangeFrontier } from './sessionMessageFrontier';
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
-import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
+import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -608,9 +608,22 @@ class Sync {
         let sync = this.messagesSync.get(sessionId);
         if (!sync || sync.lease !== lease) {
             sync?.stop();
-            sync = new CoalescingMessageSync(lease, () => {
+            let retryPending = false;
+            sync = new CoalescingMessageSync(lease, async () => {
                 const operation = this.sessionMessageLoadGate.begin(lease);
-                return this.fetchMessages(sessionId, operation);
+                const route = this.activeOpenSession;
+                if (retryPending && route?.sessionId === sessionId && route.messageLease === lease
+                    && !route.cancelled && this.sessionRouteOwnership.owns(route.owner)
+                    && this.sessionMessageLoadGate.isCurrent(operation)) {
+                    markSessionCriticalPathHydrationRetry();
+                }
+                try {
+                    await this.fetchMessages(sessionId, operation);
+                    retryPending = false;
+                } catch (error) {
+                    retryPending = true;
+                    throw error;
+                }
             }, () => this.getSessionLastMessageSeq(sessionId), () => (
                 this.sessionMessageLoadGate.isLeaseCurrent(lease)
             ));
@@ -1645,12 +1658,13 @@ class Sync {
         return true;
     }
 
-    public openSession = (sessionId: string, owner = this.beginSessionRoute(sessionId)): SessionOpenPromise => {
+    public openSession = (sessionId: string, owner = this.beginSessionRoute(sessionId), options: { retry?: boolean } = {}): SessionOpenPromise => {
         if (owner.sessionId !== sessionId || !this.sessionRouteOwnership.owns(owner)) {
             return Promise.reject(new SessionRouteAbandonedError());
         }
         this.retainSessionMessageCache(sessionId);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
+        if (options.retry) markSessionCriticalPathHydrationRetry();
         markSessionCriticalPathAppStage('web.messages.latest_started');
         const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
@@ -1694,6 +1708,9 @@ class Sync {
                     // It must not consume SessionView's network retry budget or
                     // grant a cancelled route a fresh ownership epoch.
                     operation.messageLoad = this.sessionMessageLoadGate.begin(operation.messageLease);
+                    // Coordination does not spend the UI retry budget, but its
+                    // additional latest-page request is still an observed retry.
+                    markSessionCriticalPathHydrationRetry();
                     operation.latestPage = this.fetchLatestMessagePageRaw(sessionId);
                     const recoveryPage = await operation.latestPage;
                     this.assertSessionRouteCurrent(operation);
@@ -2664,7 +2681,6 @@ class Sync {
         sessionId: string,
         operation: SessionMessageLoadOperation,
     ) => {
-        markSessionCriticalPathAppStage('web.messages.latest_started');
         log.log(`💬 fetchMessages starting for session ${sessionId} - acquiring lock`);
         const lock = this.getSessionMessageLock(sessionId);
         await lock.inLock(async () => {
@@ -2697,8 +2713,6 @@ class Sync {
 
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             storage.getState().applyMessagesLoaded(sessionId);
-            markSessionCriticalPathAppStage('web.messages.latest_completed');
-            markSessionCriticalPathAppStage('web.session.store_committed');
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
         });
     }
@@ -3044,6 +3058,14 @@ class Sync {
                 assertCurrent();
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
+
+                    // Startup-ready measures validated realtime receipt, before
+                    // sequence, visibility, cache locks or route hydration can
+                    // discard/delay this packet. History replay is not receipt.
+                    if (lastMessage?.role === 'event' && lastMessage.content.type === 'ready'
+                        && lastMessage.content.terminal !== true) {
+                        sessionStartupTraceRuntime.markSessionStage(updateData.body.sid, 'web.processor.ready_received');
+                    }
 
                     // Check for task lifecycle events to update thinking state
                     // This ensures UI updates even if volatile activity updates are lost
@@ -3627,11 +3649,6 @@ class Sync {
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
-        const hasProcessorReady = messages.some((message) => (
-            message.role === 'event'
-            && message.content.type === 'ready'
-            && message.content.terminal !== true
-        ));
         const hasCompletedTurn = messages.some((message) => (
             message.role === 'event'
             && message.content.type === 'ready'
@@ -3650,14 +3667,11 @@ class Sync {
         if (result.hasReadyEvent) {
             voiceHooks.onReady(sessionId);
         }
-        if (hasProcessorReady) {
-            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.processor.ready_received');
+        if (messages.some((message) => message.role === 'agent' && !message.isSidechain && message.content.length > 0)) {
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.first_agent_event_received');
         }
         if (hasCompletedTurn) {
             sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.turn.completed');
-        }
-        if (messages.some((message) => message.role === 'agent' && !message.isSidechain && message.content.length > 0)) {
-            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.first_agent_event_received');
         }
     }
 

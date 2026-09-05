@@ -227,12 +227,14 @@ describe('SessionView deep-link hydration', () => {
         expect(renderer.root.findAllByProps({ testID: 'session-retrying' }).length).toBeGreaterThan(0);
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
         expect(mocks.openSession.mock.calls.length).toBe(4);
+        expect(mocks.openSession.mock.calls.map(call => call[2]?.retry ?? false)).toEqual([false, true, true, true]);
         expect(renderer.root.findAllByProps({ testID: 'session-load-error' }).length).toBeGreaterThan(0);
         await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
         expect(mocks.openSession.mock.calls.length).toBe(4);
         mocks.openSession.mockResolvedValue('not-found');
         await act(async () => { renderer.root.findByProps({ testID: 'session-retry' }).props.onPress(); });
         expect(mocks.openSession.mock.calls.length).toBe(5);
+        expect(mocks.openSession.mock.calls[4][2]).toEqual({ retry: true });
         expect(renderer.root.findAllByProps({ testID: 'session-not-found' }).length).toBeGreaterThan(0);
         act(() => renderer.unmount());
     });

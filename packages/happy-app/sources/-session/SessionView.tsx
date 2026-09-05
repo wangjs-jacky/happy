@@ -487,7 +487,9 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         const attempt = (index: number) => {
             owner = sync.beginSessionRoute(sessionId);
             setRouteOwner(owner);
-            opening = sync.openSession(sessionId, owner);
+            opening = index > 0 || retryGeneration > 0
+                ? sync.openSession(sessionId, owner, { retry: true })
+                : sync.openSession(sessionId, owner);
             void opening.then((resolution) => {
                 if (cancelled) return;
                 setSessionResolution(resolution);

@@ -1,7 +1,7 @@
 # Session critical-path acceptance gate
 
 For Phase 2 PR C use [the C1–C7 attribution contract](phase-2-pr-c.md). Its explicit
-`print-phase-2-ego-probe` / `evaluate-phase-2-json` modes require independent
+`print-phase-2-ego-probe` / `evaluate-phase-2-attribution-json` modes require independent
 cold/warm samples, mandatory app stages, browser-clock route/ready metrics,
 zero retries, and redacted resource paths. Attribution completeness and final
 latency success are separate verdicts; PR D owns the latter.

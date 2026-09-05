@@ -884,6 +884,7 @@ export async function runClaude(
 
     // The remote message handler above is installed; the backend itself starts in loop().
     session.processorStarting?.();
+    let processorReadySent = false;
 
     // Create claude loop
     const exitCode = await loop({
@@ -905,6 +906,10 @@ export async function runClaude(
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+        },
+        onProcessorReady: () => {
+            if (processorReadySent) return;
+            processorReadySent = true;
             session.processorReady?.();
             session.sendSessionEvent({ type: 'ready' });
         },

@@ -93,6 +93,7 @@ extra milestones; a duplicated milestone delivered to the probe remains invalid.
 Mandatory C1 stages:
 
 ```text
+web.deep_link.navigation_started
 web.root.module_ready
 web.fonts.critical_ready
 web.crypto.ready
@@ -124,7 +125,8 @@ can overlap. Each operation completes after its start; final store follows both
 latest and snapshot completion; latest paint follows all C1 prerequisites.
 Hydration precedes queue receipt, then navigation, then route paint. Processor
 ready can arrive before route paint; first agent activity follows ready and local
-queue acceptance; turn completion follows all spawn milestones. Application
+queue acceptance; turn completion follows first agent activity. Route paint and
+turn completion are independent branches; both must finish before collection. Application
 milestones belonging solely to the other sample kind, or emitted outside an armed
 interval, cannot satisfy the active sample. Duplicate active milestones or a
 backwards browser clock invalidate collection.
@@ -137,13 +139,32 @@ active-bootstrap network time is outside this route-specific snapshot span; it
 is still inside C1's browser navigation-to-paint duration. Failed or cancelled
 operations do not emit a successful completion stage.
 
-The C1 interval freezes on latest-message paint; spawn freezes only at turn
-completion, so a late legacy request before completion still fails. Each sample
+Only the current route operation emits the C1 latest-start/latest-complete/store
+set. A foreground catch-up may satisfy that route operation without emitting a
+second set, and unrelated generic message fetches emit none of these route marks.
+Processor-ready is stamped immediately after validated realtime decryption,
+before cache retention, sequence or visibility decisions. Historical/latest-page
+replay never supplies processor-ready: if the initiating client missed the live
+packet, C3 remains incomplete. Agent/terminal catch-up observations may still
+complete their own lifecycle stages, in causal order, but cannot repair missing
+live readiness. Claude emits readiness after the real SDK control initialization
+handshake with its input handlers installed; it does not await model output.
+
+The C1 interval freezes on latest-message paint; spawn freezes after both turn
+completion and route paint, so a late legacy request before either still fails. Each sample
 and its resources freeze independently; later requests, buffer eviction and new
 samples cannot alter old evidence. Re-arming an unfinished sample or repeating a
 start permanently invalidates the document. The app's fixed, no-argument retry
-producer increments the active spawn sample for every explicit or internal
-hydration retry. Probe errors remain isolated from hydration; collected nonzero
+producer increments the active sample for every actual hydration or route retry.
+SessionView identifies each automatic retry and the first attempt after an
+explicit Retry click; Sync counts it exactly once when the owned route attempt
+starts, not when a timer is merely scheduled. One same-owner recovery retains
+its existing lease and does not spend SessionView's network retry budget, but its
+additional latest-page request counts as one retry in acceptance evidence.
+The first foreground catch-up satisfying the original target is coordination,
+not a route retry. Its actual network backoff attempts after failure each count
+once while the same route and lease remain current. A failed/abandoned owner
+cannot start another counted attempt. Probe errors remain isolated from hydration; collected nonzero
 `retryCount` is rejected by the evaluator as `RETRY_DETECTED`.
 
 Call `probe.collect()` after completion, and save exactly its returned object.
@@ -154,13 +175,20 @@ arrays, preserving every sample. Do not add fields or derive replacement values:
 {
   "resources": [{ "name": "https://redacted.invalid/resource" }],
   "samples": [
-    { "kind": "deep-link", "cache": "cold", "retryCount": 0, "deepLinkInteractiveMs": 1800 },
-    { "kind": "spawn", "cache": "cold", "retryCount": 0, "spawnRoutePaintMs": 6500, "processorReadyMs": 9000 }
+    { "kind": "deep-link", "cache": "cold", "retryCount": 0, "deepLinkInteractiveMs": 1800, "stages": [] },
+    { "kind": "spawn", "cache": "cold", "retryCount": 0, "spawnRoutePaintMs": 6500, "processorReadyMs": 9000, "stages": [] }
   ]
 }
 ```
 
-This abbreviated example is deliberately insufficient to pass the sample gate.
+This abbreviated example is deliberately insufficient to pass either the stage
+or sample gate. Each real `stages` entry has exactly `{ stage, duration }`: a fixed
+name and finite nonnegative elapsed browser milliseconds from that sample's
+origin. Entries preserve causal receipt order, including overlapping branches.
+The array, entries and sample are frozen independently and remain available after
+later samples start. No identifier, timestamp from another runtime, or content is
+exported. All required names must occur exactly once, durations must be monotonic,
+and the three gated metric values must equal their corresponding stage duration.
 The actual aggregate needs at least five cold and five warm observations for
 each of deep-link and spawn (at least 20 sample objects). Both spawn metrics must
 be present in every spawn sample; deep-link samples contain only their own metric.
@@ -168,9 +196,18 @@ be present in every spawn sample; deep-link samples contain only their own metri
 ```sh
 pnpm --silent --filter happy-app run perf:session-critical-path \
   --origin <https-origin> --session-id <known-session-id> \
+  --mode evaluate-phase-2-attribution-json --input <redacted-measurement-json-path>
+pnpm --silent --filter happy-app run perf:session-critical-path \
+  --origin <https-origin> --session-id <known-session-id> \
   --mode evaluate-phase-2-json --input <redacted-measurement-json-path>
 node --test packages/happy-app/scripts/check-session-critical-path.test.mjs
 ```
+
+Run the attribution mode first. It requires the complete stage arrays, five
+observations per cold/warm cohort, zero retries and zero legacy requests, and
+returns `{ ok: true, sampleCount, legacySessionCalls: 0 }` independently of latency.
+The latency mode accepts older Phase 2 metric-only evidence for compatibility,
+but such evidence cannot pass the attribution mode. Phase 1 remains unchanged.
 
 For structurally valid, complete, retry-free evidence, stdout is exactly
 `{ ok, sampleCount, deepLink, spawnRoutePaint, processorReady, legacySessionCalls }`.
@@ -201,7 +238,8 @@ thrown error object, message, stack or serialized unknown input.
    Fetch/XHR initiation capture includes failures and requests still in flight at
    freeze, without reading bodies or request headers. No collector reads browser
    storage, credentials, tokens, content, commands or attachment URIs.
-2. Keep component attribution in a separate sanitized worksheet, never appended
+2. Use each sample's immutable `stages` array for Web attribution, including
+   first-agent and turn-completion durations. Keep other component attribution in a separate sanitized worksheet, never appended
    to evaluator JSON. Whitelist fixed stage names and finite nonnegative
    `duration`/`spanDuration` only. Verify Server RPC received→daemon found, daemon
    request received→child started→webhook received, and worker entry→auth→machine
@@ -233,7 +271,7 @@ pnpm --filter happy-app exec vitest run --maxWorkers=2 sources/sync/sessionStart
 pnpm --filter happy-app run typecheck
 pnpm --filter happy-server-self-host exec vitest run sources/app/api/socket/rpcHandler.spec.ts
 pnpm --filter happy-server-self-host run typecheck
-pnpm --dir packages/happy-cli exec vitest run --project unit src/daemon/run.sessionStartupTrace.test.ts src/api/apiSession.test.ts src/claude/runClaude.test.ts src/codex/runCodex.startupTrace.test.ts src/agent/acp/runAcp.test.ts src/ui/auth.startupTrace.test.ts src/api/api.test.ts src/commands/codexCommand.test.ts
+pnpm --dir packages/happy-cli exec vitest run --project unit src/daemon/run.sessionStartupTrace.test.ts src/api/apiSession.test.ts src/claude/runClaude.test.ts src/claude/claudeRemote.test.ts src/codex/runCodex.startupTrace.test.ts src/agent/acp/runAcp.test.ts src/ui/auth.startupTrace.test.ts src/api/api.test.ts src/commands/codexCommand.test.ts
 pnpm --dir packages/happy-cli run build
 node --test packages/happy-app/scripts/check-session-critical-path.test.mjs
 git diff --check

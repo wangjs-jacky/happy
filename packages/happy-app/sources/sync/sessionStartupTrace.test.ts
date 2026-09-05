@@ -42,7 +42,18 @@ describe('session startup trace serialization', () => {
             time = 900; runtime.markSessionStage('private-session', 'web.first_agent_event_received', 900_700);
             time = 1000; runtime.markSessionStage('private-session', 'web.turn.completed', 900_800);
             expect(JSON.parse(JSON.stringify(probe.collect()))).toEqual({ resources: [], samples: [
-                { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 500, processorReadyMs: 700 },
+                { kind: 'spawn', cache: 'cold', retryCount: 0, spawnRoutePaintMs: 500, processorReadyMs: 700,
+                    stages: [
+                        { stage: 'web.spawn.clicked', duration: 0 },
+                        { stage: 'web.session.hydrated', duration: 100 },
+                        { stage: 'web.first_message.queued', duration: 200 },
+                        { stage: 'web.session.navigated', duration: 300 },
+                        { stage: 'web.session.route_painted', duration: 500 },
+                        { stage: 'web.processor.ready_received', duration: 700 },
+                        { stage: 'web.first_agent_event_received', duration: 800 },
+                        { stage: 'web.turn.completed', duration: 900 },
+                    ],
+                },
             ] });
         } finally {
             runtime.finish(handle);
