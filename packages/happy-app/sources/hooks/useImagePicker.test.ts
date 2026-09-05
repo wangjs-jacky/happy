@@ -4,8 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { getInfoAsync } from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { normalizeImageForUpload } from '@/utils/normalizeImageForUpload';
+import { generateThumbhash } from '@/utils/thumbhash';
+import {
+    clearComposeDraft,
+    composeDraftAttachmentSelectionGeneration,
+    useComposeDraft,
+} from '@/sync/composeDraft';
 import { MAX_IMAGES_PER_MESSAGE, MAX_PDF_FILE_SIZE, useImagePicker } from './useImagePicker';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
@@ -309,6 +316,363 @@ describe('useImagePicker PDF documents', () => {
 
         expect(getInfoAsync).not.toHaveBeenCalled();
         expect(current?.selectedImages).toEqual([]);
+        act(() => renderer.unmount());
+    });
+});
+
+type Deferred<T> = {
+    promise: Promise<T>;
+    resolve(value: T): void;
+};
+
+function deferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
+const validImageResult = {
+    canceled: false,
+    assets: [{
+        uri: 'file:///picked-image.jpg',
+        width: 120,
+        height: 80,
+        fileName: 'picked-image.jpg',
+        fileSize: 1024,
+        mimeType: 'image/jpeg',
+    }],
+};
+
+const validMediaResult = {
+    canceled: false,
+    assets: [{
+        uri: 'file:///picked-audio.m4a',
+        name: 'picked-audio.m4a',
+        size: 2048,
+        mimeType: 'audio/mp4',
+        lastModified: 0,
+    }],
+};
+
+const validPdfResult = {
+    canceled: false,
+    assets: [{
+        uri: 'file:///picked-document.pdf',
+        name: 'picked-document.pdf',
+        size: 4096,
+        mimeType: 'application/pdf',
+        lastModified: 0,
+        file: { size: 4096 } as File,
+    }],
+};
+
+describe('useImagePicker attachment lifecycle generations', () => {
+    let current: ReturnType<typeof useImagePicker> | null = null;
+
+    function Probe({ maxAttachments = MAX_IMAGES_PER_MESSAGE }: { maxAttachments?: number }) {
+        const { images, setImages } = useComposeDraft();
+        current = useImagePicker({
+            maxAttachments,
+            selection: {
+                images,
+                setImages,
+                generation: composeDraftAttachmentSelectionGeneration,
+            },
+        });
+        return null;
+    }
+
+    const lanes = [
+        {
+            name: 'image',
+            pickerMock: () => vi.mocked(ImagePicker.launchImageLibraryAsync),
+            result: validImageResult,
+            pick: () => current!.pickImages().then(() => undefined),
+        },
+        {
+            name: 'media',
+            pickerMock: () => vi.mocked(DocumentPicker.getDocumentAsync),
+            result: validMediaResult,
+            pick: () => current!.pickMedia(),
+        },
+        {
+            name: 'PDF',
+            pickerMock: () => vi.mocked(DocumentPicker.getDocumentAsync),
+            result: validPdfResult,
+            pick: () => current!.pickPdf(),
+        },
+    ];
+
+    beforeEach(() => {
+        (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+        current = null;
+        (Platform as { OS: string }).OS = 'web';
+        useComposeDraft.setState({ text: '', revision: 0, images: [] });
+        vi.mocked(ImagePicker.requestMediaLibraryPermissionsAsync).mockReset();
+        vi.mocked(ImagePicker.launchImageLibraryAsync).mockReset();
+        vi.mocked(DocumentPicker.getDocumentAsync).mockReset();
+        vi.mocked(getInfoAsync).mockReset();
+        vi.mocked(normalizeImageForUpload).mockReset();
+        vi.mocked(normalizeImageForUpload).mockResolvedValue({
+            uri: 'file:///normalized-image.jpg',
+            width: 120,
+            height: 80,
+            mimeType: 'image/jpeg',
+            size: 1024,
+        });
+        vi.mocked(generateThumbhash).mockReset();
+        vi.mocked(generateThumbhash).mockResolvedValue('thumbhash');
+        vi.mocked(Modal.alert).mockReset();
+    });
+
+    it.each(lanes)('discards a late $name picker result after clearImages', async ({ pickerMock, result, pick }) => {
+        const pending = deferred<any>();
+        pickerMock().mockReturnValueOnce(pending.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<void>;
+        await act(async () => {
+            picking = pick();
+            await Promise.resolve();
+        });
+        act(() => { current!.clearImages(); });
+        pending.resolve(result);
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it.each(lanes)('discards a late $name picker result after external clearComposeDraft', async ({ pickerMock, result, pick }) => {
+        const pending = deferred<any>();
+        pickerMock().mockReturnValueOnce(pending.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<void>;
+        await act(async () => {
+            picking = pick();
+            await Promise.resolve();
+        });
+        act(() => { clearComposeDraft(); });
+        pending.resolve(result);
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it.each(lanes)('does not let an unmounted $name picker overwrite data from a newer hook instance', async ({ pickerMock, result, pick }) => {
+        const pending = deferred<any>();
+        pickerMock().mockReturnValueOnce(pending.promise);
+        let oldRenderer: any;
+        await act(async () => { oldRenderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<void>;
+        await act(async () => {
+            picking = pick();
+            await Promise.resolve();
+        });
+        act(() => oldRenderer.unmount());
+
+        let newRenderer: any;
+        await act(async () => { newRenderer = TestRenderer.create(React.createElement(Probe)); });
+        act(() => {
+            current!.addImages([{
+                id: 'new-instance-image',
+                uri: 'file:///new-instance.jpg',
+                width: 10,
+                height: 10,
+                mimeType: 'image/jpeg',
+                size: 10,
+                name: 'new-instance.jpg',
+            }]);
+        });
+
+        pending.resolve(result);
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images.map((image) => image.id)).toEqual(['new-instance-image']);
+        act(() => newRenderer.unmount());
+    });
+
+    it('checks invalidation after media-library permission resolves', async () => {
+        (Platform as { OS: string }).OS = 'ios';
+        const permission = deferred<{ status: 'granted' }>();
+        vi.mocked(ImagePicker.requestMediaLibraryPermissionsAsync).mockReturnValueOnce(permission.promise as any);
+        vi.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValue(validImageResult as any);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<unknown>;
+        act(() => { picking = current!.pickImages(); });
+        act(() => { current!.clearImages(); });
+        permission.resolve({ status: 'granted' });
+        await act(async () => { await picking; });
+
+        expect(ImagePicker.launchImageLibraryAsync).not.toHaveBeenCalled();
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('checks invalidation after image normalization resolves', async () => {
+        vi.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValue(validImageResult as any);
+        const normalization = deferred<any>();
+        vi.mocked(normalizeImageForUpload).mockReturnValueOnce(normalization.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<unknown>;
+        await act(async () => {
+            picking = current!.pickImages();
+            await vi.waitFor(() => expect(normalizeImageForUpload).toHaveBeenCalledOnce());
+        });
+        act(() => { current!.clearImages(); });
+        normalization.resolve({
+            uri: 'file:///normalized-image.jpg',
+            width: 120,
+            height: 80,
+            mimeType: 'image/jpeg',
+            size: 1024,
+        });
+        await act(async () => { await picking; });
+
+        expect(generateThumbhash).not.toHaveBeenCalled();
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('checks invalidation after thumbhash generation resolves', async () => {
+        vi.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValue(validImageResult as any);
+        const thumbhash = deferred<string>();
+        vi.mocked(generateThumbhash).mockReturnValueOnce(thumbhash.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<unknown>;
+        await act(async () => {
+            picking = current!.pickImages();
+            await vi.waitFor(() => expect(generateThumbhash).toHaveBeenCalledOnce());
+        });
+        act(() => { current!.clearImages(); });
+        thumbhash.resolve('late-thumbhash');
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('checks invalidation after a delayed PDF stat resolves', async () => {
+        vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+            canceled: false,
+            assets: [{
+                uri: 'file:///stat-document.pdf',
+                name: 'stat-document.pdf',
+                mimeType: 'application/pdf',
+                lastModified: 0,
+            }],
+        });
+        const stat = deferred<any>();
+        vi.mocked(getInfoAsync).mockReturnValueOnce(stat.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<void>;
+        await act(async () => {
+            picking = current!.pickPdf();
+            await vi.waitFor(() => expect(getInfoAsync).toHaveBeenCalledOnce());
+        });
+        act(() => { clearComposeDraft(); });
+        stat.resolve({
+            exists: true,
+            isDirectory: false,
+            uri: 'file:///stat-document.pdf',
+            size: 4096,
+            modificationTime: 0,
+        });
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('rechecks the generation inside a deferred functional setter', async () => {
+        vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue(validMediaResult as any);
+        let queuedUpdate: ((images: any[]) => any[]) | null = null;
+
+        function DeferredSetterProbe() {
+            const images = useComposeDraft((state) => state.images);
+            current = useImagePicker({
+                selection: {
+                    images,
+                    setImages: (update) => {
+                        if (typeof update === 'function') queuedUpdate = update;
+                    },
+                    generation: composeDraftAttachmentSelectionGeneration,
+                },
+            });
+            return null;
+        }
+
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(DeferredSetterProbe)); });
+        await act(async () => { await current!.pickMedia(); });
+        expect(queuedUpdate).not.toBeNull();
+
+        act(() => { clearComposeDraft(); });
+        act(() => {
+            useComposeDraft.setState((state) => ({
+                images: queuedUpdate!(state.images),
+            }));
+        });
+
+        expect(useComposeDraft.getState().images).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('keeps attachment selection valid across compose text edits', async () => {
+        const pending = deferred<any>();
+        vi.mocked(DocumentPicker.getDocumentAsync).mockReturnValueOnce(pending.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe)); });
+
+        let picking!: Promise<void>;
+        act(() => { picking = current!.pickMedia(); });
+        act(() => { useComposeDraft.getState().setText('new text'); });
+        pending.resolve(validMediaResult);
+        await act(async () => { await picking; });
+
+        expect(useComposeDraft.getState().images.map((image) => image.name)).toEqual(['picked-audio.m4a']);
+        act(() => renderer.unmount());
+    });
+
+    it('allows two concurrent selections to append under the existing cap', async () => {
+        const mediaPending = deferred<any>();
+        const pdfPending = deferred<any>();
+        vi.mocked(DocumentPicker.getDocumentAsync)
+            .mockReturnValueOnce(mediaPending.promise)
+            .mockReturnValueOnce(pdfPending.promise);
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(React.createElement(Probe, { maxAttachments: 2 })); });
+
+        let pickingMedia!: Promise<void>;
+        let pickingPdf!: Promise<void>;
+        act(() => {
+            pickingMedia = current!.pickMedia();
+            pickingPdf = current!.pickPdf();
+        });
+        pdfPending.resolve(validPdfResult);
+        await act(async () => { await pickingPdf; });
+        mediaPending.resolve(validMediaResult);
+        await act(async () => { await pickingMedia; });
+
+        expect(useComposeDraft.getState().images.map((image) => image.name)).toEqual([
+            'picked-document.pdf',
+            'picked-audio.m4a',
+        ]);
         act(() => renderer.unmount());
     });
 });

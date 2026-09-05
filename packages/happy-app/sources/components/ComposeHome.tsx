@@ -27,7 +27,7 @@ import { t } from '@/text';
 import { storage, useProfile, useAllMachines, useIsDataReady, useLocalSetting, useLocalSettingMutable, useSetting, useSettingMutable } from '@/sync/storage';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useSpawnSession } from '@/hooks/useSpawnSession';
-import { useComposeDraft } from '@/sync/composeDraft';
+import { composeDraftAttachmentSelectionGeneration, useComposeDraft } from '@/sync/composeDraft';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { getDisplayName, getAvatarUrl } from '@/sync/profile';
 import { Avatar } from './Avatar';
@@ -297,7 +297,11 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     );
     const canAttach = composeExperience.canAttach;
     const { selectedImages, pickImages, pickAttachment, removeImage, clearImages, addImages } = useImagePicker({
-        selection: { images: draftImages, setImages: setDraftImages },
+        selection: {
+            images: draftImages,
+            setImages: setDraftImages,
+            generation: composeDraftAttachmentSelectionGeneration,
+        },
     });
     const selectedImagesRef = React.useRef(selectedImages);
     selectedImagesRef.current = selectedImages;
@@ -686,6 +690,7 @@ export const ComposeHome = React.memo(({ variant = 'home' }: ComposeHomeProps) =
     }, []);
 
     const clearQueuedSubmission = React.useCallback((snapshot: SubmittedComposeSnapshot) => {
+        composeDraftAttachmentSelectionGeneration.invalidate();
         if (useComposeDraft.getState().revision === snapshot.textRevision) {
             composerInputRef.current?.setTextAndSelection('', { start: 0, end: 0 });
             setText('');

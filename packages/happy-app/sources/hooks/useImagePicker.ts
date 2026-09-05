@@ -21,6 +21,10 @@ import { AttachmentSourceSheet } from '@/components/AttachmentSourceSheet';
 import { t } from '@/text';
 import type { AttachmentPreview, AttachmentKind } from '@/sync/attachmentTypes';
 import { MAX_PDF_FILE_SIZE, MAX_PDF_FILE_SIZE_MB } from '@/sync/attachmentLimits';
+import {
+    createAttachmentSelectionGuard,
+    type AttachmentSelectionToken,
+} from './attachmentSelectionGeneration';
 
 export const MAX_IMAGES_PER_MESSAGE = 50;
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — image lane
@@ -35,6 +39,10 @@ interface UseImagePickerOptions {
     selection?: {
         images: AttachmentPreview[];
         setImages: (update: AttachmentPreview[] | ((current: AttachmentPreview[]) => AttachmentPreview[])) => void;
+        generation?: {
+            currentDraftEpoch(): number;
+            invalidate(): void;
+        };
     };
 }
 
@@ -86,23 +94,44 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
     const [localImages, setLocalImages] = useState<AttachmentPreview[]>([]);
     const selectedImages = options.selection?.images ?? localImages;
     const setSelectedImages = options.selection?.setImages ?? setLocalImages;
-    const mountedRef = useRef(true);
+    const selectionGeneration = options.selection?.generation;
+    const selectionGuardRef = useRef<ReturnType<typeof createAttachmentSelectionGuard> | null>(null);
+    if (selectionGuardRef.current === null) {
+        selectionGuardRef.current = createAttachmentSelectionGuard(selectionGeneration?.currentDraftEpoch() ?? 0);
+    }
+    const selectionGuard = selectionGuardRef.current;
+    const syncDraftEpoch = useCallback(() => {
+        selectionGuard.replaceDraft(selectionGeneration?.currentDraftEpoch() ?? 0);
+    }, [selectionGeneration, selectionGuard]);
+    const captureSelection = useCallback(() => {
+        syncDraftEpoch();
+        return selectionGuard.capture();
+    }, [selectionGuard, syncDraftEpoch]);
+    const isSelectionCurrent = useCallback((token: AttachmentSelectionToken) => {
+        syncDraftEpoch();
+        return selectionGuard.isCurrent(token);
+    }, [selectionGuard, syncDraftEpoch]);
+    const invalidateSelection = useCallback(() => {
+        selectionGeneration?.invalidate();
+        syncDraftEpoch();
+        selectionGuard.invalidate();
+    }, [selectionGeneration, selectionGuard, syncDraftEpoch]);
     useEffect(() => {
-        mountedRef.current = true;
         return () => {
-            mountedRef.current = false;
+            selectionGuard.unmount();
         };
-    }, []);
+    }, [selectionGuard]);
     // Ref tracks current count to avoid stale closures on rapid taps.
     const selectedCountRef = useRef(0);
     useEffect(() => {
         selectedCountRef.current = selectedImages.length;
     }, [selectedImages]);
 
-    const requestPermission = useCallback(async (): Promise<boolean> => {
+    const requestPermission = useCallback(async (token: AttachmentSelectionToken): Promise<boolean> => {
         if (Platform.OS === 'web') return true;
 
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!isSelectionCurrent(token)) return false;
         if (status !== 'granted') {
             Modal.alert(
                 t('imageUpload.permissionTitle'),
@@ -112,11 +141,12 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             return false;
         }
         return true;
-    }, []);
+    }, [isSelectionCurrent]);
 
     const pickImages = useCallback(async () => {
-        const hasPermission = await requestPermission();
-        if (!hasPermission) return [];
+        const token = captureSelection();
+        const hasPermission = await requestPermission(token);
+        if (!hasPermission || !isSelectionCurrent(token)) return [];
 
         const remaining = maxAttachments - selectedCountRef.current;
         if (remaining <= 0) {
@@ -136,6 +166,7 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             exif: false,
         });
 
+        if (!isSelectionCurrent(token)) return [];
         if (result.canceled || !result.assets.length) return [];
 
         // On web, selectionLimit is not enforced by the browser — clamp here.
@@ -162,9 +193,11 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             try {
                 normalized = await normalizeImageForUpload(asset.uri, asset.width, asset.height);
             } catch {
+                if (!isSelectionCurrent(token)) return [];
                 unreadableCount++;
                 continue;
             }
+            if (!isSelectionCurrent(token)) return [];
 
             if (normalized.size > maxImageSizeBytes) {
                 Modal.alert(
@@ -176,9 +209,11 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             }
 
             // Skip thumbhash if dimensions are unavailable (prevents divide-by-zero).
-            const thumbhash = (normalized.width > 0 && normalized.height > 0)
-                ? await generateThumbhash(normalized.uri, normalized.width, normalized.height)
-                : undefined;
+            let thumbhash: string | undefined;
+            if (normalized.width > 0 && normalized.height > 0) {
+                thumbhash = await generateThumbhash(normalized.uri, normalized.width, normalized.height);
+                if (!isSelectionCurrent(token)) return [];
+            }
 
             previews.push({
                 id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -200,13 +235,16 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             );
         }
 
-        if (previews.length > 0 && mountedRef.current) {
-            setSelectedImages(prev => [...prev, ...previews].slice(0, maxAttachments));
+        if (previews.length > 0 && isSelectionCurrent(token)) {
+            setSelectedImages(prev => isSelectionCurrent(token)
+                ? [...prev, ...previews].slice(0, maxAttachments)
+                : prev);
         }
         return previews;
-    }, [maxAttachments, maxImageSizeBytes, maxImageSizeMb, requestPermission]);
+    }, [captureSelection, isSelectionCurrent, maxAttachments, maxImageSizeBytes, maxImageSizeMb, requestPermission, setSelectedImages]);
 
     const pickMedia = useCallback(async () => {
+        const token = captureSelection();
         const remaining = maxAttachments - selectedCountRef.current;
         if (remaining <= 0) {
             Modal.alert(
@@ -224,6 +262,7 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             multiple: true,
             copyToCacheDirectory: true, // stable file:// uri for streaming upload
         });
+        if (!isSelectionCurrent(token)) return;
         if (result.canceled || !result.assets?.length) return;
 
         const assets = result.assets.slice(0, remaining);
@@ -251,12 +290,15 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             });
         }
 
-        if (previews.length > 0) {
-            setSelectedImages(prev => [...prev, ...previews].slice(0, maxAttachments));
+        if (previews.length > 0 && isSelectionCurrent(token)) {
+            setSelectedImages(prev => isSelectionCurrent(token)
+                ? [...prev, ...previews].slice(0, maxAttachments)
+                : prev);
         }
-    }, [maxAttachments]);
+    }, [captureSelection, isSelectionCurrent, maxAttachments, setSelectedImages]);
 
     const pickPdf = useCallback(async () => {
+        const token = captureSelection();
         const remaining = maxAttachments - selectedCountRef.current;
         if (remaining <= 0) {
             Modal.alert(
@@ -272,6 +314,7 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             multiple: true,
             copyToCacheDirectory: true,
         });
+        if (!isSelectionCurrent(token)) return;
         if (result.canceled || !result.assets?.length) return;
 
         const previews: AttachmentPreview[] = [];
@@ -285,6 +328,7 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             // under-counted sizes. Browser File.size and a native stat are the
             // independent preflight used before any whole-file read occurs.
             const size = await getActualDocumentSize(asset);
+            if (!isSelectionCurrent(token)) return;
             if (size === null) {
                 Modal.alert(
                     t('imageUpload.uploadFailedTitle'),
@@ -313,10 +357,12 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
             });
         }
 
-        if (previews.length > 0) {
-            setSelectedImages(prev => [...prev, ...previews].slice(0, maxAttachments));
+        if (previews.length > 0 && isSelectionCurrent(token)) {
+            setSelectedImages(prev => isSelectionCurrent(token)
+                ? [...prev, ...previews].slice(0, maxAttachments)
+                : prev);
         }
-    }, [maxAttachments]);
+    }, [captureSelection, isSelectionCurrent, maxAttachments, setSelectedImages]);
 
     const pickAttachment = useCallback(() => {
         // Card-style source chooser — see AttachmentSourceSheet.
@@ -351,9 +397,10 @@ export function useImagePicker(options: UseImagePickerOptions = {}): UseImagePic
     }, []);
 
     const clearImages = useCallback(() => {
+        invalidateSelection();
         selectedCountRef.current = 0;
         setSelectedImages([]);
-    }, []);
+    }, [invalidateSelection, setSelectedImages]);
 
     const addImages = useCallback((images: AttachmentPreview[]) => {
         setSelectedImages(prev => {
