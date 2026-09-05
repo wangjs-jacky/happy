@@ -220,8 +220,9 @@ function response(body: unknown, status = 200): Response {
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-    return { promise, resolve };
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+    return { promise, resolve, reject };
 }
 
 function rawText(text: string) {
@@ -363,7 +364,6 @@ describe('message visibility synchronization', () => {
         { order: 'catch-up-first', cold: true, terminal: '' },
         { order: 'latest-first', cold: false, terminal: 'abandoned' },
         { order: 'catch-up-first', cold: false, terminal: 'deleted' },
-        { order: 'latest-first', cold: false, terminal: 'insufficient' },
     ])(
         'waits for a committed foreground page while opening ($order, cold=$cold, terminal=$terminal)', async ({ order, cold, terminal }) => {
             // Real storage/reducer + SessionEncryption; only the byte decrypt boundary is held.
@@ -396,9 +396,6 @@ describe('message visibility synchronization', () => {
                 if (url.includes('before_seq=')) {
                     latestRequests++;
                     return response({ messages: [encrypted(7)], hasMore: true });
-                }
-                if (terminal === 'insufficient') {
-                    return response({ messages: url.includes('after_seq=4&') ? [encrypted(5), encrypted(8)] : [], hasMore: false });
                 }
                 return response({ messages: [encrypted(5), encrypted(9, 'latest-visible-message')], hasMore: false });
             });
@@ -433,7 +430,7 @@ describe('message visibility synchronization', () => {
                 latestDecrypt.resolve();
             }
             if (terminal) {
-                await expect(opening).rejects.toThrow(terminal === 'insufficient' ? 'not committed' : 'abandoned');
+                await expect(opening).rejects.toThrow('abandoned');
                 await foregroundSync.awaitQueue();
                 expect(outcome).toBe('rejected');
                 if (terminal === 'deleted') {
@@ -449,6 +446,84 @@ describe('message visibility synchronization', () => {
                 expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
             );
             expect(storage.getState().sessionMessages['opening-session'].reducerState.messageIds.has('latest-visible-message')).toBe(true);
+            expect(storage.getState().currentViewingSessionId).toBeNull();
+        },
+    );
+
+    it.each(['ready', 'exhausted', 'abandoned', 'deleted', 'abandoned-network', 'deleted-network'] as const)(
+        'bounds latest-page recovery under the same live owner (%s)', async (result) => {
+            const storage = await useRealMessageComposition();
+            storage.getState().applySessions([hydrated(snapshot('recovering-session'))]);
+            syncForTest.sessionLastSeq.set('recovering-session', 4);
+            const latestDecrypt = deferred<void>();
+            const forwardDecrypt = deferred<void>();
+            const recoveryPage = deferred<Response>();
+            let latestStarted = false;
+            let forwardStarted = false;
+            const encryption = new SessionEncryption('recovering-session', {
+                encrypt: async () => [],
+                decrypt: async (bytes) => {
+                    const seqs = bytes.map(value => value[0]);
+                    if (seqs[0] === 7) { latestStarted = true; await latestDecrypt.promise; }
+                    if (seqs[0] === 8) { forwardStarted = true; await forwardDecrypt.promise; }
+                    return seqs.map(seq => rawText(`message-${seq}`));
+                },
+            }, new EncryptionCache());
+            mocks.sessionEncryptions.set('recovering-session', encryption);
+            const encrypted = (seq: number): ApiMessage => ({
+                ...apiMessage(seq), content: { t: 'encrypted', c: Buffer.from([seq]).toString('base64') },
+            });
+            let latestRequests = 0;
+            mocks.apiRequest.mockImplementation((url: string) => {
+                if (url.includes('before_seq=')) {
+                    latestRequests++;
+                    return latestRequests === 1
+                        ? Promise.resolve(response({ messages: [encrypted(7)], hasMore: true }))
+                        : recoveryPage.promise;
+                }
+                return Promise.resolve(response({ messages: url.includes('after_seq=4&') ? [encrypted(8)] : [], hasMore: false }));
+            });
+            const owner = syncForTest.beginSessionRoute('recovering-session');
+            const opening = syncForTest.openSession('recovering-session', owner);
+            const operation = syncForTest.activeOpenSession;
+            const lease = syncForTest.sessionMessageLoadGate.currentLease('recovering-session');
+            let outcome = 'pending';
+            void opening.then(() => { outcome = 'ready'; }, () => { outcome = 'rejected'; });
+            await vi.waitFor(() => expect(latestStarted).toBe(true));
+            const update = newMessageUpdate('recovering-session', 9);
+            update.body.message = encrypted(9);
+            await syncForTest.handleUpdate(update);
+            await vi.waitFor(() => expect(forwardStarted).toBe(true));
+            latestDecrypt.resolve();
+            forwardDecrypt.resolve();
+            await vi.waitFor(() => expect(latestRequests).toBe(2));
+            expect(outcome).toBe('pending');
+            expect(syncForTest.sessionRouteOwnership.current()).toBe(owner);
+            expect(syncForTest.activeOpenSession).toBe(operation);
+            expect(syncForTest.sessionMessageLoadGate.currentLease('recovering-session')).toBe(lease);
+            expect(storage.getState().currentViewingSessionId).toBeNull();
+            if (result.startsWith('abandoned')) syncForTest.leaveSessionRoute(owner);
+            if (result.startsWith('deleted')) {
+                await syncForTest.handleUpdate({ id: 'delete', seq: 10, createdAt: 100, body: { t: 'delete-session', sid: 'recovering-session' } });
+            }
+            if (result.endsWith('-network')) recoveryPage.reject(new Error('recovery network unavailable'));
+            else recoveryPage.resolve(response({ messages: [encrypted(result === 'exhausted' ? 8 : 9)], hasMore: false }));
+            if (result === 'ready') {
+                await expect(opening).resolves.toBe('ready');
+                expect(storage.getState().sessionMessages['recovering-session'].messages).toContainEqual(
+                    expect.objectContaining({ kind: 'user-text', text: 'message-9' }),
+                );
+            } else if (result === 'exhausted') {
+                await expect(opening).rejects.toMatchObject({ name: 'SessionRouteCoordinationError' });
+            } else {
+                await expect(opening).rejects.toThrow('abandoned');
+                expect(storage.getState().sessionMessages['recovering-session']?.reducerState.messageIds.has('message-9')).not.toBe(true);
+            }
+            if (result === 'ready' || result === 'exhausted') {
+                expect(syncForTest.sessionRouteOwnership.current()).toBe(owner);
+                expect(syncForTest.activeOpenSession).toBe(operation);
+            }
+            expect(latestRequests).toBe(2);
             expect(storage.getState().currentViewingSessionId).toBeNull();
         },
     );

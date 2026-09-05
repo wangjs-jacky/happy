@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { SessionView } from './SessionView';
-import { SessionRouteAbandonedError, SessionRouteOwnership } from '@/sync/sessionRouteOwnership';
+import { SessionRouteAbandonedError, SessionRouteCoordinationError, SessionRouteOwnership } from '@/sync/sessionRouteOwnership';
 
 const mocks = vi.hoisted(() => ({
     abandonSessionRoute: vi.fn(),
@@ -186,8 +186,9 @@ vi.mock('@/components/subagent/SubagentInspectorContext', async () => {
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-    return { promise, resolve };
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+    return { promise, resolve, reject };
 }
 
 describe('SessionView deep-link hydration', () => {
@@ -264,6 +265,56 @@ describe('SessionView deep-link hydration', () => {
         expect(mocks.openSession).toHaveBeenCalledTimes(1);
         expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
         expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it.each(['cached', 'hydrated'] as const)('keeps an abandoned %s session terminal without mounting the chat', async (source) => {
+        vi.useFakeTimers();
+        const session = {
+            id: 'abandoned-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        if (source === 'cached') mocks.session = session;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="abandoned-session" />); });
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        if (source === 'hydrated') mocks.session = session;
+        await act(async () => { opening.reject(new SessionRouteAbandonedError()); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('exposes exhausted coordination without spending the network retry budget', async () => {
+        vi.useFakeTimers();
+        mocks.session = {
+            id: 'exhausted-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        mocks.openSession.mockRejectedValue(new SessionRouteCoordinationError());
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="exhausted-session" />); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findByProps({ testID: 'session-load-error' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        mocks.openSession.mockResolvedValue('ready');
+        await act(async () => { renderer.root.findByProps({ testID: 'session-retry' }).props.onPress(); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('exhausted-session');
         act(() => renderer.unmount());
     });
 

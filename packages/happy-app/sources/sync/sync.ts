@@ -108,7 +108,7 @@ import {
     type SessionMessageLoadOperation,
 } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
-import { SessionRouteOwnership, SessionRouteAbandonedError, type SessionRouteOwner } from './sessionRouteOwnership';
+import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 
@@ -1679,16 +1679,35 @@ class Sync {
                 // sequence alone is not evidence that such a page committed.
                 await this.messagesSync.get(sessionId)?.awaitQueue();
                 this.assertSessionRouteCurrent(operation);
-                const target = Math.max(operation.foregroundTarget, ...latestPage.messages.map(message => message.seq), 0);
-                if (operation.committedPageSeq === null || operation.committedPageSeq < target
-                    || !storage.getState().sessionMessages[sessionId]?.isLoaded) {
-                    throw new Error('Session latest page was not committed');
+                let pageTarget = Math.max(...latestPage.messages.map(message => message.seq), 0);
+                const targetCommitted = () => operation.committedPageSeq !== null
+                    && operation.committedPageSeq >= Math.max(pageTarget, operation.foregroundTarget)
+                    && storage.getState().sessionMessages[sessionId]?.isLoaded;
+                if (!targetCommitted()) {
+                    // One recovery belongs to this route operation and lease.
+                    // It must not consume SessionView's network retry budget or
+                    // grant a cancelled route a fresh ownership epoch.
+                    operation.messageLoad = this.sessionMessageLoadGate.begin(operation.messageLease);
+                    operation.latestPage = this.fetchLatestMessagePageRaw(sessionId);
+                    const recoveryPage = await operation.latestPage;
+                    this.assertSessionRouteCurrent(operation);
+                    pageTarget = Math.max(pageTarget, ...recoveryPage.messages.map(message => message.seq));
+                    await this.applyLatestMessagePage(sessionId, recoveryPage, operation.messageLoad);
+                    this.assertSessionRouteCurrent(operation);
+                    await this.messagesSync.get(sessionId)?.awaitQueue();
+                    this.assertSessionRouteCurrent(operation);
+                    if (!targetCommitted()) throw new SessionRouteCoordinationError();
                 }
             }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
             return 'ready';
-        })();
+        })().catch((error: unknown) => {
+            // A cancelled/deleted route stays terminal even if its pending
+            // request or decrypt rejects instead of delivering a stale page.
+            this.assertSessionRouteCurrent(operation);
+            throw error;
+        });
         this.sessionRouteOperations.set(opening, operation);
         return opening;
     }

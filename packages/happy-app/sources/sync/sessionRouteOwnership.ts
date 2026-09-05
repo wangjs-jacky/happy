@@ -10,6 +10,14 @@ export class SessionRouteAbandonedError extends Error {
     }
 }
 
+/** Coordination exhausted its one same-owner recovery, not a network retry. */
+export class SessionRouteCoordinationError extends Error {
+    constructor() {
+        super('Session latest page was not committed after recovery');
+        this.name = 'SessionRouteCoordinationError';
+    }
+}
+
 /** Route retention is independent of the interactive read/unread state. */
 export class SessionRouteOwnership {
     private owner: SessionRouteOwner | null = null;

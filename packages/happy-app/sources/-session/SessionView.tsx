@@ -67,7 +67,7 @@ import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
-import { SessionRouteAbandonedError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
+import { SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
@@ -498,7 +498,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                     setSessionResolution('not-found');
                     return;
                 }
-                if (index === delays.length) {
+                if (error instanceof SessionRouteCoordinationError || index === delays.length) {
                     setSessionResolution('error');
                     return;
                 }
@@ -1029,7 +1029,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
                     </View>
-                ) : !session ? (
+                ) : sessionResolution !== 'ready' || !session ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
