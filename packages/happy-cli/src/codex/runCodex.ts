@@ -72,6 +72,7 @@ import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
 import { mergeReconnectMetadata } from './reconnectMetadata';
+import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -313,6 +314,7 @@ export async function runCodex(opts: {
     permissionMode?: PermissionMode;
     model?: string;
     effort?: ReasoningEffort;
+    startupLifecycle?: WorkerSessionStartupLifecycle;
 }): Promise<void> {
     // Early check: ensure Codex CLI is installed before proceeding
     try {
@@ -344,7 +346,7 @@ export async function runCodex(opts: {
     // Set backend for offline warnings (before any API calls)
     connectionState.setBackend('Codex');
 
-    const api = await ApiClient.create(opts.credentials);
+    const api = await ApiClient.create(opts.credentials, opts.startupLifecycle);
 
     // Log startup options
     logger.debug(`[codex] Starting with options: startedBy=${opts.startedBy || 'terminal'}`);

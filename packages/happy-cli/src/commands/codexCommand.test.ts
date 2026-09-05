@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { performance } from 'node:perf_hooks'
 
 const mocks = vi.hoisted(() => ({
   mockAuthAndSetupMachineIfNeeded: vi.fn(),
@@ -6,6 +7,11 @@ const mocks = vi.hoisted(() => ({
   mockExtractCodexResumeFlag: vi.fn(),
   mockExtractNoSandboxFlag: vi.fn(),
   mockEnsureDaemonRunning: vi.fn(),
+  mockLoggerDebug: vi.fn(),
+}))
+
+vi.mock('@/ui/logger', () => ({
+  logger: { debug: mocks.mockLoggerDebug },
 }))
 
 vi.mock('@/ui/auth', () => ({
@@ -35,6 +41,7 @@ describe('handleCodexCommand', () => {
     vi.clearAllMocks()
     mocks.mockAuthAndSetupMachineIfNeeded.mockResolvedValue({
       credentials: { token: 'token' },
+      machineId: 'machine-1',
     })
     mocks.mockExtractNoSandboxFlag.mockImplementation((args: string[]) => ({
       noSandbox: false,
@@ -46,6 +53,46 @@ describe('handleCodexCommand', () => {
     }))
     mocks.mockEnsureDaemonRunning.mockResolvedValue(undefined)
     mocks.mockRunCodex.mockResolvedValue(undefined)
+    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID
+  })
+
+  afterEach(() => {
+    delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID
+    vi.restoreAllMocks()
+  })
+
+  it('starts worker timing before delayed auth and passes the completed lifecycle to Codex', async () => {
+    process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001'
+    const monotonic = vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(110)
+      .mockReturnValueOnce(160)
+      .mockReturnValueOnce(170)
+    let finishAuth!: () => void
+    mocks.mockAuthAndSetupMachineIfNeeded.mockReturnValue(new Promise((resolve) => {
+      finishAuth = () => resolve({ credentials: { token: 'token' }, machineId: 'machine-1' })
+    }))
+
+    const command = handleCodexCommand(['--started-by', 'daemon'])
+    await vi.waitFor(() => {
+      const stages = mocks.mockLoggerDebug.mock.calls.map(([, event]) => event?.stage)
+      expect(stages).toEqual(['worker.entry.started'])
+    })
+    expect(mocks.mockRunCodex).not.toHaveBeenCalled()
+
+    finishAuth()
+    await command
+
+    const events = mocks.mockLoggerDebug.mock.calls
+      .filter(([label]) => label === '[SESSION STARTUP]')
+      .map(([, event]) => event)
+    expect(events.map((event) => [event.stage, event.duration])).toEqual([
+      ['worker.entry.started', 10],
+      ['worker.auth.ready', 60],
+      ['worker.machine.ready', 70],
+    ])
+    expect(mocks.mockRunCodex.mock.calls[0][0].startupLifecycle).toBeDefined()
+    monotonic.mockRestore()
   })
 
   it('ensures the daemon is running before starting a codex session in YOLO mode by default', async () => {

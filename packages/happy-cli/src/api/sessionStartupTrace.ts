@@ -20,6 +20,27 @@ function runtimeSessionId(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
 
+export function createWorkerSessionStartupLifecycleFromEnvironment(
+    environment: NodeJS.ProcessEnv = process.env,
+): WorkerSessionStartupLifecycle | undefined {
+    const traceId = environment.HAPPY_SESSION_STARTUP_TRACE_ID;
+    delete environment.HAPPY_SESSION_STARTUP_TRACE_ID;
+    if (!traceId || !SESSION_STARTUP_TRACE_ID_RE.test(traceId)) return undefined;
+    const lifecycle = new WorkerSessionStartupLifecycle(traceId);
+    lifecycle.entryStarted();
+    return lifecycle;
+}
+
+export async function traceWorkerAuthentication<T extends { machineId: string }>(
+    authenticate: () => Promise<T>,
+): Promise<T & { startupLifecycle?: WorkerSessionStartupLifecycle }> {
+    const startupLifecycle = createWorkerSessionStartupLifecycleFromEnvironment();
+    const result = await authenticate();
+    startupLifecycle?.authReady();
+    startupLifecycle?.machineReady(result.machineId);
+    return { ...result, ...(startupLifecycle ? { startupLifecycle } : {}) };
+}
+
 export class WorkerSessionStartupLifecycle {
     private readonly traceId: string | undefined;
     private readonly startedAt: number;
@@ -92,7 +113,13 @@ export class WorkerSessionStartupLifecycle {
 
     processorStarting(sessionId: unknown, machineId?: string): boolean {
         const validSessionId = runtimeSessionId(sessionId);
-        if (!this.traceId || validSessionId !== this.boundSessionId || this.processorStartingLogged) return false;
+        if (
+            !this.traceId
+            || !validSessionId
+            || !this.boundSessionId
+            || validSessionId !== this.boundSessionId
+            || this.processorStartingLogged
+        ) return false;
         this.processorStartingLogged = true;
         this.logStage('worker.processor.starting', validSessionId, machineId);
         return true;
@@ -102,6 +129,8 @@ export class WorkerSessionStartupLifecycle {
         const validSessionId = runtimeSessionId(sessionId);
         if (
             !this.traceId
+            || !validSessionId
+            || !this.boundSessionId
             || validSessionId !== this.boundSessionId
             || !this.processorStartingLogged
             || this.processorReadyLogged

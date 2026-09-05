@@ -224,14 +224,17 @@ describe('runAcp', () => {
   });
 
   it('emits processor readiness only after the user handler is installed and ACP startSession succeeds', async () => {
+    const startupLifecycle = {} as any;
     const runPromise = runAcp({
       credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
       agentName: 'opencode', command: 'opencode', args: ['--acp'],
+      startupLifecycle,
     });
 
     await vi.waitFor(() => expect(mocks.backendState.startSessionCalls).toBe(1));
 
     expect(mocks.getUserMessageHandler()).toBeTypeOf('function');
+    expect(mocks.mockApiCreate).toHaveBeenCalledWith(expect.any(Object), startupLifecycle);
     expect(mocks.mockSession.processorStarting).toHaveBeenCalledTimes(1);
     expect(mocks.mockSession.processorReady).toHaveBeenCalledTimes(1);
     expect(mocks.mockSession.sendSessionEvent).toHaveBeenCalledWith({ type: 'ready' });

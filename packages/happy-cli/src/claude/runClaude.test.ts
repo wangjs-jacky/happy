@@ -147,6 +147,7 @@ describe('runClaude remote JSONL scanner', () => {
 
     it('marks processor ready and emits encrypted ready only after the remote handler and Claude session exist', async () => {
         const order: string[] = [];
+        const startupLifecycle = {} as any;
         let registeredUserHandler: ((message: any) => void) | undefined;
         const sessionClient = {
             sessionId: 'happy-session-1',
@@ -174,10 +175,12 @@ describe('runClaude remote JSONL scanner', () => {
         });
         const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit'); }) as never);
 
-        await expect(runClaude({ token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } } as any, {
+        const credentials = { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } } as any;
+        await expect(runClaude(credentials, {
             startingMode: 'remote', shouldStartDaemon: false,
-        })).rejects.toThrow('process.exit');
+        }, startupLifecycle)).rejects.toThrow('process.exit');
 
+        expect(mockApiClientCreate).toHaveBeenCalledWith(credentials, startupLifecycle);
         expect(registeredUserHandler).toBeTypeOf('function');
         expect(order).toEqual(['handler', 'starting', 'backend', 'ready-span', 'event:{"type":"ready"}']);
         exitSpy.mockRestore();

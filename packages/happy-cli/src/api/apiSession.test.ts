@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiSessionClient } from './apiSession';
 import { ApiClient } from './api';
-import { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
+import { createWorkerSessionStartupLifecycleFromEnvironment, WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
 import type { Update } from './types';
 
@@ -137,6 +137,18 @@ function createBoundStartupLifecycle(session: ReturnType<typeof makeSession>) {
 }
 
 describe('WorkerSessionStartupLifecycle startup spans', () => {
+    it.each([undefined, '', '   ', 42])('rejects processor stages for unbound invalid session id %j', (sessionId) => {
+        const events: Record<string, unknown>[] = [];
+        const lifecycle = new WorkerSessionStartupLifecycle(
+            '00000000-0000-4000-8000-000000000001',
+            (_label, event) => events.push(event),
+        );
+
+        expect(lifecycle.processorStarting(sessionId)).toBe(false);
+        expect(lifecycle.processorReady(sessionId)).toBe(false);
+        expect(events).toEqual([]);
+    });
+
     it('records ordered component-local spans with a fixed redacted schema', () => {
         const events: Record<string, unknown>[] = [];
         const ticks = [100, 110, 130, 160, 200, 250, 310];
@@ -197,10 +209,13 @@ describe('ApiSessionClient v3 messages API migration', () => {
     const createApiWithBoundStartupSession = async (traceId?: string) => {
         if (traceId) process.env.HAPPY_SESSION_STARTUP_TRACE_ID = traceId;
         else delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+        const startupLifecycle = createWorkerSessionStartupLifecycleFromEnvironment();
+        startupLifecycle?.authReady();
+        startupLifecycle?.machineReady(session.metadata.machineId);
         const api = await ApiClient.create({
             token: 'fake-token',
             encryption: { type: 'legacy', secret: session.encryptionKey },
-        });
+        }, startupLifecycle);
         mockAxiosPost.mockResolvedValueOnce({
             data: {
                 session: {
