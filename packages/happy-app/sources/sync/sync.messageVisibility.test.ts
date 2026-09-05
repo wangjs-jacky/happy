@@ -370,10 +370,33 @@ describe('message visibility synchronization', () => {
     });
 
     afterEach(() => {
+        delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
         mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
             messageSync.stop();
         }
+    });
+
+    it('emits one final store milestone for snapshot plus latest-page opening, after both complete', async () => {
+        installSession('attribution-session');
+        delete mocks.state.sessions['attribution-session'];
+        mocks.state.currentViewingSessionId = 'attribution-session';
+        mocks.fetchSnapshot.mockResolvedValue(snapshot('attribution-session'));
+        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(1)], hasMore: false }));
+        const stages: string[] = [];
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markAppStage: (stage: string) => stages.push(stage),
+        };
+
+        await expect(syncForTest.openSession('attribution-session')).resolves.toBe('ready');
+        expect(mocks.state.sessionMessages['attribution-session'].messagesMap['message-1']).toBeDefined();
+        expect(stages).toEqual([
+            'web.messages.latest_started',
+            'web.session.snapshot_started',
+            'web.session.snapshot_completed',
+            'web.messages.latest_completed',
+            'web.session.store_committed',
+        ]);
     });
 
     it('reaches a gap between cached history and the latest page exactly once', async () => {

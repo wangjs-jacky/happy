@@ -166,7 +166,6 @@ export default function AuthenticatedRootLayout() {
 
     React.useEffect(() => {
         if (!initState) return;
-        markSessionCriticalPathAppStage('web.route.mounted');
         const timer = setTimeout(() => { void SplashScreen.hideAsync(); }, 100);
         return () => clearTimeout(timer);
     }, [initState]);

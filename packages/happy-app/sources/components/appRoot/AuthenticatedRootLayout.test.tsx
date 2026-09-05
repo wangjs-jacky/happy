@@ -166,7 +166,7 @@ describe('AuthenticatedRootLayout scanner provider topology', () => {
         expect(renderer!.toJSON()).not.toBeNull();
     });
 
-    it('publishes crypto, credentials, and route milestones in boot dependency order', async () => {
+    it('publishes boot prerequisites without claiming the target session route has mounted', async () => {
         // Catches boot attribution reporting a downstream render milestone before its prerequisite is ready.
         const start = bootStages.length;
         await act(async () => {
@@ -178,7 +178,6 @@ describe('AuthenticatedRootLayout scanner provider topology', () => {
         expect(bootStages.slice(start)).toEqual([
             'web.crypto.ready',
             'web.credentials.ready',
-            'web.route.mounted',
         ]);
     });
 });

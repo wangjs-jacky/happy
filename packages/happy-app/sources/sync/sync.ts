@@ -1560,7 +1560,6 @@ class Sync {
                         if (!prepared) break;
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
-                        markSessionCriticalPathAppStage('web.session.store_committed');
                         committed.push(prepared.session);
                         break;
                     }
@@ -1700,6 +1699,7 @@ class Sync {
             }
             markSessionCriticalPathAppStage('web.messages.latest_completed');
             this.assertSessionRouteCurrent(operation);
+            markSessionCriticalPathAppStage('web.session.store_committed');
             return 'ready';
         })().catch((error: unknown) => {
             // A cancelled/deleted route stays terminal even if its pending
@@ -2690,6 +2690,7 @@ class Sync {
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             storage.getState().applyMessagesLoaded(sessionId);
             markSessionCriticalPathAppStage('web.messages.latest_completed');
+            markSessionCriticalPathAppStage('web.session.store_committed');
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
         });
     }
@@ -3618,7 +3619,6 @@ class Sync {
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
-        markSessionCriticalPathAppStage('web.session.store_committed');
         const hasProcessorReady = messages.some((message) => (
             message.role === 'event'
             && message.content.type === 'ready'

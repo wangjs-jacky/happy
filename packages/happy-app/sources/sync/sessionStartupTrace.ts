@@ -1,3 +1,5 @@
+import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
+
 export type SessionStartupStage =
     | 'web.spawn.clicked'
     | 'server.rpc.received'
@@ -100,8 +102,23 @@ export function serializeSessionStartupTrace(event: UnsafeSessionStartupTraceEve
 
 export function traceStartup(event: UnsafeSessionStartupTraceEvent): void {
     try {
-        const serialized = serializeSessionStartupTrace(event);
-        if (serialized) console.info(serialized);
+        const sanitized = sanitizeSessionStartupTrace(event);
+        if (!sanitized) return;
+        // Only the fixed stage crosses into the optional document probe. It
+        // timestamps receipt itself; no trace IDs or component clocks cross.
+        if (sanitized.outcome === 'success') {
+            switch (sanitized.stage) {
+                case 'web.spawn.clicked':
+                case 'web.session.hydrated':
+                case 'web.first_message.queued':
+                case 'web.session.navigated':
+                case 'web.processor.ready_received':
+                case 'web.first_agent_event_received':
+                case 'web.turn.completed':
+                    markSessionCriticalPathAppStage(sanitized.stage);
+            }
+        }
+        console.info(JSON.stringify(sanitized));
     } catch {
         // Startup observability is best-effort and must never affect session creation.
     }

@@ -10,7 +10,14 @@ export type SessionCriticalPathAppStage =
     | 'web.messages.latest_completed'
     | 'web.session.store_committed'
     | 'web.session.latest_message_painted'
-    | 'web.session.route_painted';
+    | 'web.session.route_painted'
+    | 'web.spawn.clicked'
+    | 'web.session.hydrated'
+    | 'web.first_message.queued'
+    | 'web.session.navigated'
+    | 'web.processor.ready_received'
+    | 'web.first_agent_event_received'
+    | 'web.turn.completed';
 
 type Probe = Record<string, unknown>;
 
@@ -27,6 +34,13 @@ const METHODS: Readonly<Record<SessionCriticalPathAppStage, string>> = {
     'web.session.store_committed': 'markAppStage',
     'web.session.latest_message_painted': 'markFreshLatestMessageComplete',
     'web.session.route_painted': 'markRouteNavigation',
+    'web.spawn.clicked': 'startNewTextSession',
+    'web.session.hydrated': 'markNewSessionEvent',
+    'web.first_message.queued': 'markLocalQueue',
+    'web.session.navigated': 'markAppStage',
+    'web.processor.ready_received': 'markProcessorReady',
+    'web.first_agent_event_received': 'markFirstAgentEvent',
+    'web.turn.completed': 'markTurnCompletion',
 };
 
 export function markSessionCriticalPathAppStage(stage: SessionCriticalPathAppStage): boolean {
