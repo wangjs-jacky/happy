@@ -233,8 +233,8 @@ describe('active-first session bootstrap', () => {
         mocks.hydrateRoute.mockImplementation(async (raw: ApiSessionSnapshot) => ({
             session: (await mocks.hydrate([raw]))[0], commitEncryption: () => true,
         }));
-        syncForTest.sessionLastSeq.clear();
-        syncForTest.sessionOldestSeq.clear();
+        syncForTest.sessionMessageFrontiers.clear();
+        syncForTest.sessionCachedMessageSeqs.clear();
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
@@ -589,8 +589,8 @@ describe('deep-link session opening', () => {
                 },
             };
         });
-        syncForTest.sessionLastSeq.clear();
-        syncForTest.sessionOldestSeq.clear();
+        syncForTest.sessionMessageFrontiers.clear();
+        syncForTest.sessionCachedMessageSeqs.clear();
         syncForTest.sessionMessageLoadGate = new SessionMessageLoadGate();
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
@@ -620,7 +620,7 @@ describe('deep-link session opening', () => {
 
         await expect(opening).resolves.toBe('ready');
         expect(syncForTest.getSessionLastMessageSeq('deep-session')).toBe(109);
-        expect(syncForTest.sessionOldestSeq.get('deep-session')).toBe(103);
+        expect(syncForTest.sessionMessageFrontiers.get('deep-session')?.olderBeforeSeq).toBe(103);
         expect(mocks.state.sessionMessages['deep-session']).toMatchObject({
             isLoaded: true,
             hasMoreOlder: true,
@@ -678,7 +678,7 @@ describe('deep-link session opening', () => {
         expect(syncForTest.encryption.getSessionEncryption('cancelled-session')).toBeNull();
         expect(mocks.state.sessionMessages['cancelled-session']).toBeUndefined();
         expect(syncForTest.getSessionLastMessageSeq('cancelled-session')).toBeNull();
-        expect(syncForTest.sessionOldestSeq.has('cancelled-session')).toBe(false);
+        expect(syncForTest.sessionMessageFrontiers.has('cancelled-session')).toBe(false);
     });
 
     it('does not let an old same-session cleanup cancel a newer open operation', async () => {
@@ -789,7 +789,7 @@ describe('deep-link session opening', () => {
             metadata: { name: 'new operation' },
         });
         expect(syncForTest.getSessionLastMessageSeq('racing-session')).toBe(22);
-        expect(syncForTest.sessionOldestSeq.get('racing-session')).toBe(22);
+        expect(syncForTest.sessionMessageFrontiers.get('racing-session')?.olderBeforeSeq).toBe(22);
         expect(mocks.state.sessionMessages['racing-session']).toMatchObject({ isLoaded: true });
     });
 
@@ -852,7 +852,7 @@ describe('deep-link session opening', () => {
             metadata: { name: 'new transaction' },
         });
         expect(syncForTest.getSessionLastMessageSeq('transaction-session')).toBe(22);
-        expect(syncForTest.sessionOldestSeq.get('transaction-session')).toBe(22);
+        expect(syncForTest.sessionMessageFrontiers.get('transaction-session')?.olderBeforeSeq).toBe(22);
         expect(mocks.state.sessionMessages['transaction-session']).toMatchObject({ isLoaded: true });
     });
 
@@ -886,8 +886,7 @@ describe('deep-link session opening', () => {
             hasMoreOlder: false,
             isLoadingOlder: false,
         };
-        syncForTest.sessionLastSeq.set('refused-session', 44);
-        syncForTest.sessionOldestSeq.set('refused-session', 33);
+        syncForTest.sessionMessageFrontiers.set('refused-session', { latestSeq: 44, olderBeforeSeq: 33, hasMoreOlder: false });
         preparation.resolve({
             session: hydrated(oldRaw),
             commitEncryption: refusedCommit,
@@ -898,7 +897,7 @@ describe('deep-link session opening', () => {
         expect(syncForTest.encryption.getSessionEncryption('refused-session')).toBe(winningEncryption);
         expect(mocks.state.sessions['refused-session']).toBe(winningSession);
         expect(syncForTest.getSessionLastMessageSeq('refused-session')).toBe(44);
-        expect(syncForTest.sessionOldestSeq.get('refused-session')).toBe(33);
+        expect(syncForTest.sessionMessageFrontiers.get('refused-session')?.olderBeforeSeq).toBe(33);
         expect(mocks.state.sessionMessages['refused-session']).toMatchObject({
             isLoaded: true,
             hasMoreOlder: false,

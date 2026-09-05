@@ -310,6 +310,25 @@ async function useRealMessageComposition() {
     return storage;
 }
 
+async function seedDisconnectedMessageRanges() {
+    const storage = await useRealMessageComposition();
+    storage.getState().applySessions([hydrated(snapshot('range-session', 250))]);
+    mocks.sessionEncryptions.set('range-session', new SessionEncryption('range-session', {
+        encrypt: async () => [],
+        decrypt: async (bytes) => bytes.map(value => rawText(`message-${value[0]}`)),
+    }, new EncryptionCache()));
+    const page = (min: number, max: number) => Array.from({ length: max - min + 1 }, (_, i) => ({
+        ...apiMessage(min + i),
+        content: { t: 'encrypted' as const, c: Buffer.from([min + i]).toString('base64') },
+    }));
+    const lease = syncForTest.sessionMessageLoadGate.enter('range-session');
+    await syncForTest.applyLatestMessagePage('range-session', { messages: page(1, 100), hasMore: false },
+        syncForTest.sessionMessageLoadGate.begin(lease));
+    await syncForTest.applyLatestMessagePage('range-session', { messages: page(151, 250), hasMore: true },
+        syncForTest.sessionMessageLoadGate.begin(lease));
+    return { storage, page, lease };
+}
+
 describe('message visibility synchronization', () => {
     beforeEach(() => {
         mocks.useRealStorage(null);
@@ -337,8 +356,8 @@ describe('message visibility synchronization', () => {
             removeSessionEncryption: vi.fn(),
         };
         syncForTest.messagesSync = new Map();
-        syncForTest.sessionLastSeq = new Map();
-        syncForTest.sessionOldestSeq = new Map();
+        syncForTest.sessionMessageFrontiers = new Map();
+        syncForTest.sessionCachedMessageSeqs = new Map();
         syncForTest.sessionMessageLocks = new Map();
         syncForTest.sessionMessageQueue = new Map();
         syncForTest.sessionQueueProcessing = new Set();
@@ -357,6 +376,75 @@ describe('message visibility synchronization', () => {
         }
     });
 
+    it('reaches a gap between cached history and the latest page exactly once', async () => {
+        const { storage, page } = await seedDisconnectedMessageRanges();
+        expect(Object.keys(storage.getState().sessionMessages['range-session'].messagesMap)).toHaveLength(200);
+        mocks.apiRequest.mockResolvedValue(response({ messages: page(51, 150), hasMore: true }));
+
+        await syncForTest.loadOlderMessages('range-session');
+
+        expect(mocks.apiRequest).toHaveBeenCalledWith('/v3/sessions/range-session/messages?before_seq=151&limit=100');
+        const ids = storage.getState().sessionMessages['range-session'].messages.map(message => message.id);
+        expect(ids).toHaveLength(250);
+        expect(new Set(ids).size).toBe(250);
+        const normalizedIds = [...storage.getState().sessionMessages['range-session'].reducerState.messageIds.keys()];
+        expect(normalizedIds.sort()).toEqual(Array.from({ length: 250 }, (_, i) => `message-${i + 1}`).sort());
+        expect(storage.getState().sessionMessages['range-session'].hasMoreOlder).toBe(false);
+        expect(syncForTest.getSessionLastMessageSeq('range-session')).toBe(250);
+        await syncForTest.loadOlderMessages('range-session');
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['superseded', 'evicted', 'deleted'] as const)(
+        'rejects a %s older response before bridging cached ranges', async (terminal) => {
+            const { storage, page, lease } = await seedDisconnectedMessageRanges();
+            const olderPage = deferred<Response>();
+            mocks.apiRequest.mockReturnValueOnce(olderPage.promise);
+            const loading = syncForTest.loadOlderMessages('range-session');
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledWith(
+                '/v3/sessions/range-session/messages?before_seq=151&limit=100',
+            ));
+            if (terminal === 'superseded') {
+                await syncForTest.applyLatestMessagePage('range-session', { messages: page(151, 250), hasMore: true },
+                    syncForTest.sessionMessageLoadGate.begin(lease));
+            } else if (terminal === 'evicted') {
+                syncForTest.releaseSessionMessageCache('range-session');
+            } else {
+                await syncForTest.handleUpdate({ id: 'delete-range', seq: 9000, createdAt: 9000,
+                    body: { t: 'delete-session', sid: 'range-session' } });
+            }
+            olderPage.resolve(response({ messages: page(51, 150), hasMore: true }));
+            await loading;
+            if (terminal === 'superseded') {
+                expect(syncForTest.sessionMessageFrontiers.get('range-session')).toEqual({
+                    latestSeq: 250, olderBeforeSeq: 151, hasMoreOlder: true,
+                });
+                expect(storage.getState().sessionMessages['range-session'].messages).toHaveLength(200);
+                expect(storage.getState().sessionMessages['range-session'].isLoadingOlder).toBe(false);
+                expect(syncForTest.sessionCachedMessageSeqs.get('range-session').has(101)).toBe(false);
+            } else {
+                expect(storage.getState().sessionMessages['range-session']).toBeUndefined();
+                expect(syncForTest.sessionMessageFrontiers.has('range-session')).toBe(false);
+                expect(syncForTest.sessionCachedMessageSeqs.has('range-session')).toBe(false);
+            }
+        },
+    );
+
+    it('does not let a send acknowledgement bridge an unseen message gap', async () => {
+        const { page, lease } = await seedDisconnectedMessageRanges();
+        syncForTest.pendingOutbox.set('range-session', [{ localId: 'sent-message', content: 'ciphertext' }]);
+        mocks.apiRequest.mockResolvedValueOnce(response({ messages: [{ seq: 350 }] }));
+        await syncForTest.flushOutbox('range-session');
+        await syncForTest.applyLatestMessagePage('range-session', { messages: page(301, 400), hasMore: true },
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        mocks.apiRequest.mockResolvedValueOnce(response({ messages: page(201, 300), hasMore: true }));
+
+        await syncForTest.loadOlderMessages('range-session');
+
+        expect(mocks.apiRequest).toHaveBeenLastCalledWith('/v3/sessions/range-session/messages?before_seq=301&limit=100');
+        expect(syncForTest.getSessionLastMessageSeq('range-session')).toBe(400);
+    });
+
     it.each([
         { order: 'latest-first', cold: false, terminal: '' },
         { order: 'catch-up-first', cold: false, terminal: '' },
@@ -369,7 +457,7 @@ describe('message visibility synchronization', () => {
             // Real storage/reducer + SessionEncryption; only the byte decrypt boundary is held.
             const storage = await useRealMessageComposition();
             storage.getState().applySessions([hydrated(snapshot('opening-session'))]);
-            if (!cold) syncForTest.sessionLastSeq.set('opening-session', 4);
+            if (!cold) syncForTest.sessionMessageFrontiers.set('opening-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
             const latestDecrypt = deferred<void>();
             const forwardDecrypt = deferred<void>();
             let latestStarted = false;
@@ -454,7 +542,7 @@ describe('message visibility synchronization', () => {
         'bounds latest-page recovery under the same live owner (%s)', async (result) => {
             const storage = await useRealMessageComposition();
             storage.getState().applySessions([hydrated(snapshot('recovering-session'))]);
-            syncForTest.sessionLastSeq.set('recovering-session', 4);
+            syncForTest.sessionMessageFrontiers.set('recovering-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
             const latestDecrypt = deferred<void>();
             const forwardDecrypt = deferred<void>();
             const recoveryPage = deferred<Response>();
@@ -561,7 +649,7 @@ describe('message visibility synchronization', () => {
     it('appends a consecutive visible message without an HTTP refresh', async () => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
 
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', 5));
         await vi.waitFor(() => {
@@ -576,7 +664,7 @@ describe('message visibility synchronization', () => {
         // Catches a terminal lifecycle event being mistaken for startup processor readiness.
         const encryption = installSession('trace-session');
         mocks.state.currentViewingSessionId = 'trace-session';
-        syncForTest.sessionLastSeq.set('trace-session', 4);
+        syncForTest.sessionMessageFrontiers.set('trace-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000010', 0);
         sessionStartupTraceRuntime.bindSession(handle, 'trace-session');
         encryption.decryptMessage.mockResolvedValue({
@@ -608,7 +696,7 @@ describe('message visibility synchronization', () => {
         // Catches a terminal turn-end falsely satisfying processor-ready startup latency.
         const encryption = installSession('terminal-session');
         mocks.state.currentViewingSessionId = 'terminal-session';
-        syncForTest.sessionLastSeq.set('terminal-session', 4);
+        syncForTest.sessionMessageFrontiers.set('terminal-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         const handle = sessionStartupTraceRuntime.begin('00000000-0000-4000-8000-000000000011', 0);
         sessionStartupTraceRuntime.bindSession(handle, 'terminal-session');
         encryption.decryptMessage.mockResolvedValue({
@@ -640,7 +728,7 @@ describe('message visibility synchronization', () => {
     it('fills one sequence gap only for the visible session', async () => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.apiRequest.mockResolvedValue(response({
             messages: [apiMessage(5), apiMessage(6), apiMessage(7)],
             hasMore: false,
@@ -660,7 +748,7 @@ describe('message visibility synchronization', () => {
     it('coalesces concurrent visible gaps into one forward operation', async () => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         const firstPage = deferred<Response>();
         mocks.apiRequest
             .mockReturnValueOnce(firstPage.promise)
@@ -684,7 +772,7 @@ describe('message visibility synchronization', () => {
     it('runs one follow-up forward operation when an in-flight response misses a newer gap target', async () => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         const firstPage = deferred<Response>();
         mocks.apiRequest
             .mockReturnValueOnce(firstPage.promise)
@@ -716,7 +804,7 @@ describe('message visibility synchronization', () => {
     ])('ignores a visible %s without history or git refresh', async (_label, incomingSeq) => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 8);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 8, olderBeforeSeq: null, hasMoreOlder: false });
 
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', incomingSeq));
         await Promise.resolve();
@@ -730,7 +818,7 @@ describe('message visibility synchronization', () => {
     it('keeps the newest realtime anchor when an older forward page returns later', async () => {
         installSession('visible-session');
         mocks.state.currentViewingSessionId = 'visible-session';
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         const page = deferred<Response>();
         mocks.apiRequest
             .mockReturnValueOnce(page.promise)
@@ -762,8 +850,7 @@ describe('message visibility synchronization', () => {
             hasMoreOlder: true,
             isLoadingOlder: false,
         };
-        syncForTest.sessionLastSeq.set('background-session', 4);
-        syncForTest.sessionOldestSeq.set('background-session', 2);
+        syncForTest.sessionMessageFrontiers.set('background-session', { latestSeq: 4, olderBeforeSeq: 2, hasMoreOlder: true });
 
         await syncForTest.handleUpdate(newMessageUpdate('background-session', 7));
         await Promise.resolve();
@@ -771,7 +858,7 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).not.toHaveBeenCalled();
         expect(mocks.state.sessionMessages['background-session']).toBeUndefined();
         expect(syncForTest.getSessionLastMessageSeq('background-session')).toBeNull();
-        expect(syncForTest.sessionOldestSeq.has('background-session')).toBe(false);
+        expect(syncForTest.sessionMessageFrontiers.has('background-session')).toBe(false);
         expect(mocks.state.sessions['background-session']).toBeDefined();
         expect(syncForTest.encryption.getSessionEncryption('background-session')).toBe(backgroundEncryption);
     });
@@ -793,8 +880,8 @@ describe('message visibility synchronization', () => {
         }));
         mocks.state.mutableToolCalls.add('visible-session:call-1');
         mocks.state.mutableToolCalls.add('background-session:call-1');
-        syncForTest.sessionLastSeq.set('visible-session', 4);
-        syncForTest.sessionLastSeq.set('background-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
+        syncForTest.sessionMessageFrontiers.set('background-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.state.currentViewingSessionId = 'visible-session';
 
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', 5));
@@ -813,7 +900,7 @@ describe('message visibility synchronization', () => {
         })));
         mocks.state.currentViewingSessionId = 'visible-session';
         mocks.state.mutableToolCalls.add('visible-session:call-1');
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.apiRequest.mockResolvedValue(response({
             messages: [apiMessage(5), apiMessage(6), apiMessage(7)],
             hasMore: false,
@@ -837,7 +924,7 @@ describe('message visibility synchronization', () => {
         })));
         mocks.state.currentViewingSessionId = 'visible-session';
         mocks.state.mutableToolCalls.add('visible-session:call-1');
-        syncForTest.sessionLastSeq.set('visible-session', 4);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.apiRequest
             .mockResolvedValueOnce(response({ messages: [apiMessage(5)], hasMore: true }))
             .mockRejectedValueOnce(new Error('second page unavailable'));
@@ -890,8 +977,7 @@ describe('message visibility synchronization', () => {
         installSession('session-d');
         for (const sessionId of ['session-a', 'session-b', 'session-c', 'session-d']) {
             mocks.state.sessionMessages[sessionId] = { messages: [], messagesMap: {}, isLoaded: true };
-            syncForTest.sessionLastSeq.set(sessionId, 9);
-            syncForTest.sessionOldestSeq.set(sessionId, 2);
+            syncForTest.sessionMessageFrontiers.set(sessionId, { latestSeq: 9, olderBeforeSeq: 2, hasMoreOlder: true });
             syncForTest.sessionMessageLocks.set(sessionId, {});
             syncForTest.sessionMessageQueue.set(sessionId, []);
         }
@@ -908,8 +994,8 @@ describe('message visibility synchronization', () => {
         syncForTest.onSessionVisible('session-d', { loadMessages: false });
 
         expect(mocks.state.sessionMessages['session-b']).toBeUndefined();
-        expect(syncForTest.sessionLastSeq.has('session-b')).toBe(false);
-        expect(syncForTest.sessionOldestSeq.has('session-b')).toBe(false);
+        expect(syncForTest.sessionMessageFrontiers.has('session-b')).toBe(false);
+        expect(syncForTest.sessionCachedMessageSeqs.has('session-b')).toBe(false);
         expect(syncForTest.sessionMessageLocks.has('session-b')).toBe(false);
         expect(syncForTest.sessionMessageQueue.has('session-b')).toBe(false);
         expect(syncForTest.sessionQueueProcessing.has('session-b')).toBe(false);
@@ -943,7 +1029,7 @@ describe('message visibility synchronization', () => {
 
         expect(mocks.state.sessionMessages['stale-session']).toBeUndefined();
         expect(syncForTest.getSessionLastMessageSeq('stale-session')).toBeNull();
-        expect(syncForTest.sessionOldestSeq.has('stale-session')).toBe(false);
+        expect(syncForTest.sessionMessageFrontiers.has('stale-session')).toBe(false);
     });
 
     it('invalidates a route-owned forward decrypt when that mount leaves', async () => {
@@ -952,7 +1038,7 @@ describe('message visibility synchronization', () => {
         mocks.apiRequest.mockResolvedValue(response({ messages: [], hasMore: false }));
         const opening = syncForTest.openSession('leased-session');
         await expect(opening).resolves.toBe('ready');
-        syncForTest.sessionLastSeq.set('leased-session', 4);
+        syncForTest.sessionMessageFrontiers.set('leased-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.apiRequest.mockClear();
         const decrypted = deferred<any[]>();
         encryption.decryptMessages.mockImplementation(async () => decrypted.promise);
@@ -1013,7 +1099,7 @@ describe('message visibility synchronization', () => {
         const oldOpening = syncForTest.openSession('same-session');
         const newOpening = syncForTest.openSession('same-session');
         await expect(newOpening).resolves.toBe('ready');
-        syncForTest.sessionLastSeq.set('same-session', 4);
+        syncForTest.sessionMessageFrontiers.set('same-session', { latestSeq: 4, olderBeforeSeq: null, hasMoreOlder: false });
         mocks.state.currentViewingSessionId = 'same-session';
         const forwardPage = deferred<Response>();
         mocks.apiRequest.mockClear();
@@ -1046,8 +1132,7 @@ describe('message visibility synchronization', () => {
             hasMoreOlder: true,
             isLoadingOlder: false,
         };
-        syncForTest.sessionLastSeq.set('visible-session', 109);
-        syncForTest.sessionOldestSeq.set('visible-session', 103);
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });
         const firstOlderPage = deferred<Response>();
         let olderRequests = 0;
         mocks.apiRequest.mockImplementation((url: string) => {
@@ -1087,8 +1172,7 @@ describe('message visibility synchronization', () => {
                 hasMoreOlder: true,
                 isLoadingOlder: false,
             };
-            syncForTest.sessionLastSeq.set('same-session', 109);
-            syncForTest.sessionOldestSeq.set('same-session', 103);
+            syncForTest.sessionMessageFrontiers.set('same-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });
         };
         installMessageCache();
         const oldPage = deferred<Response>();
@@ -1124,9 +1208,10 @@ describe('message visibility synchronization', () => {
             hasMoreOlder: true,
             isLoadingOlder: false,
         };
-        syncForTest.sessionLastSeq.set('visible-session', 109);
-        syncForTest.sessionOldestSeq.set('visible-session', 103);
-        mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(90)], hasMore: true }));
+        syncForTest.sessionMessageFrontiers.set('visible-session', { latestSeq: 109, olderBeforeSeq: 103, hasMoreOlder: true });
+        mocks.apiRequest.mockResolvedValue(response({
+            messages: Array.from({ length: 13 }, (_, index) => apiMessage(90 + index)), hasMore: true,
+        }));
 
         await syncForTest.loadOlderMessages('visible-session');
 
@@ -1135,6 +1220,6 @@ describe('message visibility synchronization', () => {
             '/v3/sessions/visible-session/messages?before_seq=103&limit=100',
         );
         expect(mocks.state.sessionMessages['visible-session'].messagesMap['message-90']).toBeDefined();
-        expect(syncForTest.sessionOldestSeq.get('visible-session')).toBe(90);
+        expect(syncForTest.sessionMessageFrontiers.get('visible-session')?.olderBeforeSeq).toBe(90);
     });
 });

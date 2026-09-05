@@ -108,6 +108,7 @@ import {
     type SessionMessageLoadOperation,
 } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRangeFrontier } from './sessionMessageFrontier';
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
@@ -316,12 +317,10 @@ class Sync {
     private messagesSync = new Map<string, CoalescingMessageSync>();
     private sendSync = new Map<string, InvalidateSync>();
     private sendAbortControllers = new Map<string, AbortController>();
-    private sessionLastSeq = new Map<string, number>();
-    // Lowest seq value we have already fetched and applied for a session.
-    // Used as the cursor for backward pagination when the user scrolls up to
-    // load older history. Set after the initial latest-page fetch and
-    // advanced downward by loadOlderMessages.
-    private sessionOldestSeq = new Map<string, number>();
+    private sessionMessageFrontiers = new Map<string, MessageRangeFrontier>();
+    // Accepted API sequences can join cached islands only after the missing
+    // range has been fetched. Normalized messages do not retain API sequences.
+    private sessionCachedMessageSeqs = new Map<string, Set<number>>();
     private sessionMessageLoadGate = new SessionMessageLoadGate();
     private sessionMessageCacheGenerations = new Map<string, object>();
     private sessionOlderLoadingTokens = new Map<string, object>();
@@ -636,8 +635,8 @@ class Sync {
         this.sessionMessageLoadGate.invalidate(sessionId);
         this.sessionMessageCacheGenerations.delete(sessionId);
         this.sessionOlderLoadingTokens.delete(sessionId);
-        this.sessionLastSeq.delete(sessionId);
-        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageFrontiers.delete(sessionId);
+        this.sessionCachedMessageSeqs.delete(sessionId);
         this.sessionMessageLocks.delete(sessionId);
         this.sessionMessageQueue.delete(sessionId);
         this.sessionQueueProcessing.delete(sessionId);
@@ -1736,7 +1735,31 @@ class Sync {
     }
 
     public getSessionLastMessageSeq(sessionId: string): number | null {
-        return this.sessionLastSeq.get(sessionId) ?? null;
+        return this.sessionMessageFrontiers.get(sessionId)?.latestSeq ?? null;
+    }
+
+    private advanceLatestMessageSeq(sessionId: string, seq: number): void {
+        const current = this.sessionMessageFrontiers.get(sessionId);
+        this.sessionMessageFrontiers.set(sessionId, {
+            olderBeforeSeq: null,
+            hasMoreOlder: false,
+            ...current,
+            latestSeq: Math.max(current?.latestSeq ?? 0, seq),
+        });
+    }
+
+    private recordFetchedMessageRange(sessionId: string, messages: ApiMessage[]): MessageRange | null {
+        if (messages.length === 0) return null;
+        const cached = this.sessionCachedMessageSeqs.get(sessionId) ?? new Set<number>();
+        let minSeq = Infinity;
+        let maxSeq = 0;
+        for (const message of messages) {
+            cached.add(message.seq);
+            minSeq = Math.min(minSeq, message.seq);
+            maxSeq = Math.max(maxSeq, message.seq);
+        }
+        this.sessionCachedMessageSeqs.set(sessionId, cached);
+        return { minSeq, maxSeq };
     }
 
     public hasPendingOutboxMessagesForSession(sessionId: string): boolean {
@@ -2596,14 +2619,14 @@ class Sync {
             if (this.pendingOutbox.get(sessionId) !== pending) return;
             pending.splice(0, batch.length);
             if (Array.isArray(data.messages) && data.messages.length > 0) {
-                const currentLastSeq = this.sessionLastSeq.get(sessionId) ?? 0;
-                let maxSeq = currentLastSeq;
-                for (const message of data.messages) {
-                    if (message.seq > maxSeq) {
-                        maxSeq = message.seq;
-                    }
+                let frontier = this.sessionMessageFrontiers.get(sessionId);
+                // An acknowledgement observes only its own sequences. Concurrent
+                // messages between acknowledgements still need backward loading.
+                for (const message of [...data.messages].sort((a, b) => a.seq - b.seq)) {
+                    frontier = applyLatestRange(frontier, { minSeq: message.seq, maxSeq: message.seq }, true);
                 }
-                this.sessionLastSeq.set(sessionId, maxSeq);
+                this.sessionMessageFrontiers.set(sessionId, frontier!);
+                storage.getState().applyOlderMessagesPagination(sessionId, { hasMore: frontier!.hasMoreOlder });
             }
         } catch (error) {
             this.maybeStartBackgroundSendWatchdog();
@@ -2639,8 +2662,8 @@ class Sync {
                 throw new Error(`Session encryption not ready for ${sessionId}`);
             }
 
-            const knownLastSeq = this.sessionLastSeq.get(sessionId);
-            const isInitialLoad = knownLastSeq === undefined;
+            const knownLastSeq = this.getSessionLastMessageSeq(sessionId);
+            const isInitialLoad = knownLastSeq === null;
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
                 // start chatting immediately. Older history streams in lazily
@@ -2695,15 +2718,13 @@ class Sync {
 
         const messages = data.messages;
         let maxSeq = 0;
-        let minSeq = Number.POSITIVE_INFINITY;
         for (const message of messages) {
             if (message.seq > maxSeq) maxSeq = message.seq;
-            if (message.seq < minSeq) minSeq = message.seq;
         }
         // An active/event winner may already have loaded a newer page while
         // this route's HTTP response was pending. Keep that cache's anchors.
         const isStalePage = () => storage.getState().sessionMessages[sessionId]?.isLoaded
-            && (this.sessionLastSeq.get(sessionId) ?? -1) > maxSeq;
+            && (this.getSessionLastMessageSeq(sessionId) ?? -1) > maxSeq;
         if (isStalePage()) return true;
         const decryptedMessages = messages.length > 0
             ? await encryption.createDetached().decryptMessages(messages)
@@ -2727,13 +2748,12 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
 
-        this.sessionLastSeq.set(sessionId, Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq));
-        if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, Math.min(this.sessionOldestSeq.get(sessionId) ?? minSeq, minSeq));
-        }
+        const frontier = applyLatestRange(this.sessionMessageFrontiers.get(sessionId),
+            this.recordFetchedMessageRange(sessionId, messages), data.hasMore);
+        this.sessionMessageFrontiers.set(sessionId, frontier);
         storage.getState().applyMessagesLoaded(sessionId);
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: data.hasMore && messages.length > 0,
+            hasMore: frontier.hasMoreOlder,
         });
         this.recordRoutePageCommit(operation, maxSeq);
         return true;
@@ -2792,10 +2812,7 @@ class Sync {
             }
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             this.recordRoutePageCommit(operation, maxSeq);
-            this.sessionLastSeq.set(
-                sessionId,
-                Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq),
-            );
+            this.advanceLatestMessageSeq(sessionId, maxSeq);
 
             if (!data.hasMore) break;
             if (maxSeq === afterSeq) {
@@ -2835,6 +2852,7 @@ class Sync {
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages);
         }
+        this.recordFetchedMessageRange(sessionId, messages);
         return {
             current: true,
             hasMutableToolResult: this.containsMutableToolResult(sessionId, normalizedMessages),
@@ -2849,8 +2867,8 @@ class Sync {
      * older-fetch is already in flight for this session.
      */
     loadOlderMessages = async (sessionId: string) => {
-        const oldestSeq = this.sessionOldestSeq.get(sessionId);
-        if (oldestSeq === undefined || oldestSeq <= 1) {
+        const frontier = this.sessionMessageFrontiers.get(sessionId);
+        if (!frontier?.hasMoreOlder || frontier.olderBeforeSeq == null || frontier.olderBeforeSeq <= 1) {
             return;
         }
         const sessionMessages = storage.getState().sessionMessages[sessionId];
@@ -2877,8 +2895,9 @@ class Sync {
                 }
                 // Re-read the cursor inside the lock. A concurrent
                 // socket-pushed update or reload could have changed it.
-                const beforeSeq = this.sessionOldestSeq.get(sessionId);
-                if (beforeSeq === undefined || beforeSeq <= 1) {
+                const currentFrontier = this.sessionMessageFrontiers.get(sessionId);
+                const beforeSeq = currentFrontier?.olderBeforeSeq;
+                if (!currentFrontier?.hasMoreOlder || beforeSeq == null || beforeSeq <= 1) {
                     return;
                 }
                 const response = await apiSocket.request(
@@ -2893,16 +2912,15 @@ class Sync {
                 const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
                 if (!applied.current) return;
 
-                let minSeq = beforeSeq;
-                for (const message of messages) {
-                    if (message.seq < minSeq) minSeq = message.seq;
-                }
                 if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
-                if (messages.length > 0) {
-                    this.sessionOldestSeq.set(sessionId, minSeq);
-                }
+                const nextFrontier = applyOlderRange(
+                    this.sessionMessageFrontiers.get(sessionId) ?? currentFrontier,
+                    this.recordFetchedMessageRange(sessionId, messages), !!data.hasMore,
+                    [...(this.sessionCachedMessageSeqs.get(sessionId) ?? [])],
+                );
+                this.sessionMessageFrontiers.set(sessionId, nextFrontier);
                 storage.getState().applyOlderMessagesPagination(sessionId, {
-                    hasMore: !!data.hasMore && messages.length > 0
+                    hasMore: nextFrontier.hasMoreOlder,
                 });
             });
         } finally {
@@ -3056,17 +3074,17 @@ class Sync {
                     }
 
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
-                    const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
+                    const currentLastSeq = this.getSessionLastMessageSeq(updateData.body.sid);
                     const incomingSeq = updateData.body.message.seq;
                     const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid
                         || this.sessionRouteOwnership.ownsSession(updateData.body.sid);
-                    if (currentLastSeq !== undefined && incomingSeq <= currentLastSeq) {
+                    if (currentLastSeq !== null && incomingSeq <= currentLastSeq) {
                         // Duplicate or out-of-order delivery. The cache already
                         // owns this sequence, so neither history nor Git needs
                         // to be refreshed.
-                    } else if (lastMessage && currentLastSeq !== undefined && incomingSeq === currentLastSeq + 1) {
+                    } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
-                        this.sessionLastSeq.set(updateData.body.sid, incomingSeq);
+                        this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
