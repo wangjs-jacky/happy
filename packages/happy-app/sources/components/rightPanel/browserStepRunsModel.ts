@@ -11,7 +11,10 @@ export type BrowserStepRun = {
     steps: BrowserStep[];
 };
 
-type MutableRun = BrowserStepRun & { aliases: Set<string> };
+type MutableRun = BrowserStepRun & {
+    aliases: Set<string>;
+    boundExplicitRunId: string | null;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -57,6 +60,7 @@ function createRuns(messages: Message[]): MutableRun[] {
                 skillName,
                 steps: [],
                 aliases,
+                boundExplicitRunId: explicitRunId,
             } satisfies MutableRun];
         })
         .sort((a, b) => a.createdAt - b.createdAt || a.invocationMessageId.localeCompare(b.invocationMessageId));
@@ -64,9 +68,9 @@ function createRuns(messages: Message[]): MutableRun[] {
 
 /**
  * Associate browser frames with the Ego Skill invocation that produced them.
- * Explicit IDs are authoritative. Legacy frames are bounded to the latest
- * preceding Ego invocation in the same user turn, so unrelated browser work
- * cannot leak into a stale timeline.
+ * Explicit IDs are authoritative. A producer-generated ID first binds to the
+ * latest matching invocation only while that invocation is still unbound.
+ * Legacy frames follow the latest preceding Ego invocation until superseded.
  */
 export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
     const orderedMessages = messages.slice().sort(compareMessages);
@@ -78,27 +82,47 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
 
     const stepByMessageId = new Map(getBrowserSteps(orderedMessages).map((step) => [step.id, step]));
     let latestLegacyRun: MutableRun | null = null;
+    const latestInvocationBySkill = new Map<EgoSkillName, MutableRun>();
+
+    const bindRunId = (run: MutableRun, runId: string) => {
+        run.id = runId;
+        run.boundExplicitRunId = runId;
+        run.aliases.add(runId);
+        runByAlias.set(runId, run);
+    };
 
     for (const message of orderedMessages) {
         if (message.kind === 'user-text') continue;
         if (message.kind === 'tool-call') {
             const invocation = runs.find((run) => run.invocationMessageId === message.id);
-            if (invocation) latestLegacyRun = invocation;
+            if (invocation) {
+                latestLegacyRun = invocation;
+                latestInvocationBySkill.set(invocation.skillName, invocation);
+            }
         }
 
         const step = stepByMessageId.get(message.id);
         if (!step) continue;
         if (step.skillName && !asEgoSkillName(step.skillName)) continue;
 
-        const run = step.runId ? runByAlias.get(step.runId) : latestLegacyRun;
+        let run = step.runId ? runByAlias.get(step.runId) : latestLegacyRun;
+        if (step.runId && !run && step.skillName) {
+            const skillName = asEgoSkillName(step.skillName);
+            const candidate = skillName ? latestInvocationBySkill.get(skillName) : undefined;
+            if (candidate && candidate.boundExplicitRunId === null) {
+                bindRunId(candidate, step.runId);
+                run = candidate;
+            }
+        }
         if (!run) continue;
         if (step.skillName && step.skillName !== run.skillName) continue;
+        if (step.runId && run.boundExplicitRunId === null) bindRunId(run, step.runId);
         run.steps.push(step);
     }
 
     return runs
         .filter((run) => run.steps.length > 0)
-        .map(({ aliases: _aliases, ...run }) => ({
+        .map(({ aliases: _aliases, boundExplicitRunId: _boundExplicitRunId, ...run }) => ({
             ...run,
             steps: run.steps.slice().sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)),
         }));

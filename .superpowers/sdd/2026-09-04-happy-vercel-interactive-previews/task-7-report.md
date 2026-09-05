@@ -77,3 +77,21 @@ happy-app typecheck: PASS
 @slopus/happy-wire typecheck: PASS
 git diff --check: PASS
 ```
+
+## Final high-priority binding remediation
+
+- Real Ego `Skill` invocations do not need to contain `input.runId`. The first subsequent explicit browser frame carrying both `skillName` and `runId` binds that ID to the latest preceding, matching, unbound invocation.
+- Further frames with the bound ID route to the same invocation. A different new ID cannot reuse an already-bound invocation and remains excluded until another matching Ego invocation appears.
+- Declared invocation `input.runId`, invocation message IDs, tool call IDs, and legacy label-only routing remain supported.
+- The cross-layer regression builds producer-shaped browser metadata, parses it with the shared wire schema, and feeds the resulting event into the App grouping model using the real `Skill` input shape without a run ID. It covers multiple skills, multiple invocations, distinct IDs, and orphan exclusion.
+- Agent instructions now require exactly one newly generated stable ID for each Ego invocation, reused for all meaningful frames from that invocation and never across invocations.
+
+Final focused evidence:
+
+```text
+Browser run model + App normalization: PASS — 2 files, 71 tests
+Happy CLI producer/bridge tests: PASS — 4 files, 16 tests
+Happy wire suite: PASS — 6 files, 79 tests
+happy-app, Happy CLI, and Happy wire typechecks: PASS
+git diff --check: PASS
+```

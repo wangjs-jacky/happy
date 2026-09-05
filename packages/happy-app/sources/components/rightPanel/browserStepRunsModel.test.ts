@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sessionFileEventSchema } from '@slopus/happy-wire';
 import type { Message } from '@/sync/typesMessage';
 import { getBrowserStepRuns } from './browserStepRunsModel';
 
@@ -55,11 +56,60 @@ function browserStep(
     };
 }
 
+function producerWireBrowserStep(
+    id: string,
+    createdAt: number,
+    label: string,
+    runId: string,
+    skillName: 'ego-browser' | 'ego-ops',
+): Message {
+    const wireEvent = sessionFileEventSchema.parse({
+        t: 'file',
+        ref: `attachment://${id}`,
+        name: `${id}.png`,
+        size: 128,
+        source: 'browser_step',
+        browserStep: { label, runId, skillName },
+    });
+    return browserStep(id, createdAt, wireEvent.browserStep!.label, wireEvent.browserStep);
+}
+
 function userMessage(id: string, createdAt: number): Message {
     return { kind: 'user-text', id, localId: null, createdAt, text: 'next request' };
 }
 
 describe('getBrowserStepRuns', () => {
+    it('binds the producer run ID to the latest matching real Skill invocation exactly once', () => {
+        const runs = getBrowserStepRuns([
+            skillMessage('browser-invocation-1', 10, 'ego-browser'),
+            producerWireBrowserStep('browser-1', 20, 'B1', 'generated-browser-1', 'ego-browser'),
+            producerWireBrowserStep('browser-2', 30, 'B2', 'generated-browser-1', 'ego-browser'),
+            producerWireBrowserStep('orphan-second-id', 40, 'must not reuse invocation', 'generated-browser-2', 'ego-browser'),
+            skillMessage('ops-invocation', 45, 'ego-ops'),
+            producerWireBrowserStep('ops-1', 50, 'O1', 'generated-ops-1', 'ego-ops'),
+            skillMessage('browser-invocation-2', 60, 'ego-browser'),
+            producerWireBrowserStep('browser-3', 70, 'B3', 'generated-browser-2', 'ego-browser'),
+        ]);
+
+        expect(runs.map((run) => ({
+            id: run.id,
+            invocationMessageId: run.invocationMessageId,
+            stepIds: run.steps.map((step) => step.id),
+        }))).toEqual([
+            { id: 'generated-browser-1', invocationMessageId: 'browser-invocation-1', stepIds: ['browser-1', 'browser-2'] },
+            { id: 'generated-ops-1', invocationMessageId: 'ops-invocation', stepIds: ['ops-1'] },
+            { id: 'generated-browser-2', invocationMessageId: 'browser-invocation-2', stepIds: ['browser-3'] },
+        ]);
+    });
+
+    it('drops a generated run ID without a preceding unbound invocation of the same skill', () => {
+        expect(getBrowserStepRuns([
+            browserStep('before', 5, 'before', { runId: 'run-before', skillName: 'ego-browser' }),
+            skillMessage('ops-only', 10, 'ego-ops'),
+            browserStep('wrong-skill', 20, 'wrong', { runId: 'run-browser', skillName: 'ego-browser' }),
+        ])).toEqual([]);
+    });
+
     it('uses explicit run IDs to keep interleaved repeated Ego runs separate', () => {
         const runs = getBrowserStepRuns([
             skillMessage('skill-a', 10, 'ego-browser', 'run-a'),
@@ -76,6 +126,20 @@ describe('getBrowserStepRuns', () => {
         }))).toEqual([
             { id: 'run-a', skillName: 'ego-browser', stepIds: ['step-a-1'] },
             { id: 'run-b', skillName: 'ego-browser', stepIds: ['step-b-1', 'step-b-2'] },
+        ]);
+    });
+
+    it('continues to accept invocation input run IDs and tool call IDs', () => {
+        const runs = getBrowserStepRuns([
+            skillMessage('input-id', 10, 'ego-browser', 'declared-run'),
+            browserStep('declared-step', 20, 'declared', { runId: 'declared-run', skillName: 'ego-browser' }),
+            skillMessage('call-id', 30, 'ego-ops'),
+            browserStep('call-step', 40, 'call', { runId: 'call-call-id', skillName: 'ego-ops' }),
+        ]);
+
+        expect(runs.map((run) => ({ id: run.id, stepIds: run.steps.map((step) => step.id) }))).toEqual([
+            { id: 'declared-run', stepIds: ['declared-step'] },
+            { id: 'call-call-id', stepIds: ['call-step'] },
         ]);
     });
 
