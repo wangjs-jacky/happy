@@ -439,9 +439,9 @@ export const ca: TranslationStructure = {
             retry: 'Torna-ho a provar',
         },
         browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
+            title: 'Progrés del navegador',
+            view: 'Mostra el progrés',
+            close: 'Tanca el progrés del navegador',
         },
         meta: {
             available: 'Available in session',

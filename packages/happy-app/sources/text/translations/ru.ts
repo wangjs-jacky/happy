@@ -419,9 +419,9 @@ export const ru: TranslationStructure = {
             retry: 'Повторить',
         },
         browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
+            title: 'Ход работы в браузере',
+            view: 'Посмотреть ход',
+            close: 'Закрыть ход работы в браузере',
         },
         meta: {
             available: 'Available in session',

@@ -108,11 +108,18 @@ export function registerHappyBridgeTools(
       inputSchema: {
         path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
         label: z.string().trim().min(1).describe('Short description of the browser operation that just completed'),
+        runId: z.string().trim().min(1).max(128).optional().describe('Stable identifier reused for every frame in this Ego invocation'),
+        skillName: z.enum(['ego-browser', 'ego-ops']).optional().describe('Ego skill associated with this browser run'),
       },
     },
     async (args) => forwardHappyToolCall(
       'report_browser_step',
-      { path: args.path, label: args.label },
+      {
+        path: args.path,
+        label: args.label,
+        ...(args.runId ? { runId: args.runId } : {}),
+        ...(args.skillName ? { skillName: args.skillName } : {}),
+      },
       ensureHttpClient,
       'Failed to report browser step'
     )

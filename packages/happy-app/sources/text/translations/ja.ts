@@ -440,9 +440,9 @@ export const ja: TranslationStructure = {
             retry: '再試行',
         },
         browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
+            title: 'ブラウザーの進行状況',
+            view: '進行状況を表示',
+            close: 'ブラウザーの進行状況を閉じる',
         },
         meta: {
             available: 'Available in session',

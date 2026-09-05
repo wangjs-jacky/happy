@@ -80,10 +80,7 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
     let latestLegacyRun: MutableRun | null = null;
 
     for (const message of orderedMessages) {
-        if (message.kind === 'user-text') {
-            latestLegacyRun = null;
-            continue;
-        }
+        if (message.kind === 'user-text') continue;
         if (message.kind === 'tool-call') {
             const invocation = runs.find((run) => run.invocationMessageId === message.id);
             if (invocation) latestLegacyRun = invocation;

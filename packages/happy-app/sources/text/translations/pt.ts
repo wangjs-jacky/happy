@@ -438,9 +438,9 @@ export const pt: TranslationStructure = {
             retry: 'Tentar novamente',
         },
         browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
+            title: 'Progresso do navegador',
+            view: 'Ver progresso',
+            close: 'Fechar progresso do navegador',
         },
         meta: {
             available: 'Available in session',

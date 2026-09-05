@@ -522,7 +522,7 @@ export class ApiSessionClient extends EventEmitter {
         batchId?: string;
         localPath?: string;
         motionPhoto?: MotionPhotoVideo;
-        browserStep?: { label: string };
+        browserStep?: { label: string; runId?: string; skillName?: 'ego-browser' | 'ego-ops' };
     }): void {
         const metadata = {
             ...(options?.source ? { source: options.source } : {}),

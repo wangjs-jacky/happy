@@ -97,7 +97,7 @@ describe('getBrowserStepRuns', () => {
             skillName: run.skillName,
             stepIds: run.steps.map((step) => step.id),
         }))).toEqual([
-            { skillName: 'ego-browser', stepIds: ['browser-1', 'browser-2'] },
+            { skillName: 'ego-browser', stepIds: ['browser-1', 'browser-2', 'orphan-after-turn'] },
             { skillName: 'ego-ops', stepIds: ['ops-1'] },
         ]);
     });

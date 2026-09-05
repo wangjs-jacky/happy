@@ -472,7 +472,9 @@ export const SkillItemRow = React.memo(function SkillItemRow(props: {
 }) {
     const { theme } = useUnistyles();
     const runs = React.useMemo(
-        () => props.browserStepRuns.filter((run) => run.skillName === props.title),
+        () => Platform.OS === 'web'
+            ? props.browserStepRuns.filter((run) => run.skillName === props.title)
+            : [],
         [props.browserStepRuns, props.title],
     );
     const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);

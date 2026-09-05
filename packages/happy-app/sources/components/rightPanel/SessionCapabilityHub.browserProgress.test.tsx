@@ -6,6 +6,7 @@ import TestRenderer from 'react-test-renderer';
 import { SessionCapabilityHub } from './SessionCapabilityHub';
 
 const mocks = vi.hoisted(() => ({
+    platformOS: 'web',
     messages: [
         {
             kind: 'tool-call', id: 'ego-run', localId: null, createdAt: 1, children: [],
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => ({
     ],
 }));
 
-vi.mock('react-native', () => ({ Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View' }));
+vi.mock('react-native', () => ({ get Platform() { return { OS: mocks.platformOS }; }, Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons' }));
 vi.mock('react-native-unistyles', () => ({
     StyleSheet: { create: (value: any) => typeof value === 'function' ? value() : value },
@@ -40,6 +41,7 @@ vi.mock('../haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('../RightSwipePanelHost', () => ({ useRightSwipePanel: () => null }));
 vi.mock('./CapabilityBlockCard', () => ({ CapabilityBlockCard: 'CapabilityBlockCard' }));
 vi.mock('./CapabilityHubDetailView', () => ({ CapabilityHubDetailView: 'CapabilityHubDetailView', SessionActionsDetailView: 'SessionActionsDetailView' }));
+vi.mock('./BrowserStepsPanel', () => ({ BrowserStepsPanel: 'BrowserStepsPanel' }));
 vi.mock('./QuickPromptEditorModal', () => ({ QuickPromptEditorModal: 'QuickPromptEditorModal' }));
 vi.mock('./SessionFolderBrowserView', () => ({ SessionFolderBrowserView: 'SessionFolderBrowserView' }));
 vi.mock('./useFolderRootCount', () => ({ useFolderRootCount: () => 0 }));
@@ -57,6 +59,7 @@ describe('SessionCapabilityHub browser progress routing', () => {
     const originalConsoleError = console.error;
 
     beforeEach(() => {
+        mocks.platformOS = 'web';
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -78,5 +81,17 @@ describe('SessionCapabilityHub browser progress routing', () => {
         expect(renderer.root.findAllByProps({ testID: 'capability-block-skills' })).toHaveLength(1);
         expect(renderer.root.findAllByProps({ testID: 'open-browser-steps' })).toHaveLength(0);
         expect(renderer.root.findAllByProps({ testID: 'browser-steps-popover' })).toHaveLength(0);
+    });
+
+    it('keeps the existing full browser-step panel on non-Web clients', () => {
+        mocks.platformOS = 'ios';
+        act(() => {
+            renderer = TestRenderer.create(<SessionCapabilityHub sessionId="s1" />);
+        });
+
+        const panel = renderer.root.findByType('BrowserStepsPanel');
+        expect(panel.props.steps.map((step: { id: string }) => step.id)).toEqual(['step-1']);
+        expect(renderer.root.findAllByProps({ testID: 'capability-block-skills' })).toHaveLength(0);
+        expect(renderer.root.findAll((node: any) => node.props.testID?.startsWith('browser-progress-trigger-'))).toHaveLength(0);
     });
 });

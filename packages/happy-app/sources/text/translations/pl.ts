@@ -456,9 +456,9 @@ export const pl: TranslationStructure = {
             retry: 'Spróbuj ponownie',
         },
         browserProgress: {
-            title: 'Browser progress',
-            view: 'View progress',
-            close: 'Close browser progress',
+            title: 'Postęp przeglądarki',
+            view: 'Zobacz postęp',
+            close: 'Zamknij postęp przeglądarki',
         },
         meta: {
             available: 'Available in session',

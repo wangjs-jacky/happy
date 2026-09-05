@@ -60,6 +60,24 @@ describe('sendFileEvent envelope contract', () => {
         expect(sessionEnvelopeSchema.safeParse(envelope).success).toBe(true);
     });
 
+    it('preserves stable Ego run metadata through the shared wire envelope', () => {
+        const first = createEnvelope('user', {
+            t: 'file', ref: 'browser-1', name: 'step-1.png', size: 123, source: 'browser_step',
+            browserStep: { label: 'First round', runId: 'ego-task-42', skillName: 'ego-browser' },
+        });
+        const second = createEnvelope('user', {
+            t: 'file', ref: 'browser-2', name: 'step-2.png', size: 234, source: 'browser_step',
+            browserStep: { label: 'Second round', runId: 'ego-task-42', skillName: 'ego-browser' },
+        });
+
+        expect(sessionEnvelopeSchema.parse(first).ev).toMatchObject({
+            browserStep: { runId: 'ego-task-42', skillName: 'ego-browser' },
+        });
+        expect(sessionEnvelopeSchema.parse(second).ev).toMatchObject({
+            browserStep: { runId: 'ego-task-42', skillName: 'ego-browser' },
+        });
+    });
+
     it('rejects a file event with image block missing thumbhash (why we omit image)', () => {
         const bad = { id: 'x', time: 1, role: 'user', ev: { t: 'file', ref: 'r', name: 'n', size: 1, image: { width: 10, height: 10 } } };
         expect(sessionEnvelopeSchema.safeParse(bad).success).toBe(false);

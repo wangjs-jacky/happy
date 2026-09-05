@@ -88,6 +88,8 @@ export const sessionFileEventSchema = z.object({
   // attachment transport, but routed to the dedicated right-side timeline.
   browserStep: z.object({
     label: z.string().min(1),
+    runId: z.string().trim().min(1).max(128).optional(),
+    skillName: z.enum(['ego-browser', 'ego-ops']).optional(),
   }).optional(),
   prompt: z.string().optional(),
   batchId: z.string().optional(),

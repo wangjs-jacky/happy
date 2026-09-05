@@ -18,6 +18,9 @@ describe('systemPrompt', () => {
         expect(systemPrompt).toMatch(/before starting the next Ego browser round/i);
         expect(systemPrompt).toMatch(/final verified browser state/i);
         expect(systemPrompt).toMatch(/Do not report waits, retries, tiny scrolls/i);
+        expect(systemPrompt).toMatch(/one stable runId/i);
+        expect(systemPrompt).toMatch(/reuse it for every reported frame/i);
+        expect(systemPrompt).toContain('skillName');
         expect(systemPrompt.match(/mcp__happy__report_browser_step/g)).toHaveLength(1);
     });
 });

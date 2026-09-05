@@ -71,7 +71,7 @@ describe('session protocol schemas', () => {
         size: 3072,
         mimeType: 'image/jpeg',
         source: 'browser_step',
-        browserStep: { label: 'Opened order details' },
+        browserStep: { label: 'Opened order details', runId: 'ego-run-1', skillName: 'ego-browser' },
         image: { thumbhash: '', width: 1280, height: 720 },
       },
       {
@@ -96,6 +96,9 @@ describe('session protocol schemas', () => {
     for (const event of events) {
       expect(sessionEventSchema.safeParse(event).success).toBe(true);
     }
+    expect(sessionFileEventSchema.parse(events[8])).toMatchObject({
+      browserStep: { label: 'Opened order details', runId: 'ego-run-1', skillName: 'ego-browser' },
+    });
   });
 
   it('rejects malformed events', () => {
