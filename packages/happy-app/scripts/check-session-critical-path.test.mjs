@@ -66,6 +66,50 @@ function assertFailure(result, code) {
   assert.equal(result.stderr, failure(code));
 }
 
+function createObserverHarness() {
+  const observers = [];
+  class PerformanceObserver {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnected = false;
+      this.pending = [];
+      observers.push(this);
+    }
+
+    observe() {}
+
+    disconnect() {
+      this.disconnected = true;
+      this.pending = [];
+    }
+
+    takeRecords() {
+      const records = this.pending;
+      this.pending = [];
+      return records;
+    }
+  }
+  return {
+    PerformanceObserver,
+    observers,
+    queue(entries) {
+      for (const observer of observers) {
+        if (!observer.disconnected) observer.pending.push(...entries);
+      }
+    },
+    emit(entries) {
+      for (const observer of observers) {
+        if (!observer.disconnected) {
+          observer.callback({ getEntries: () => entries });
+        }
+      }
+    },
+    deliverTo(observer, entries) {
+      observer.callback({ getEntries: () => entries });
+    },
+  };
+}
+
 test('passes a resource-free full-list path and threshold boundary measurements', async () => {
   const { evaluateCriticalPath } = await evaluator();
 
@@ -189,12 +233,14 @@ test('print-ego-probe supplies a self-contained lifecycle that collects both pat
   assert.equal(result.stderr, '');
 
   let now = 0;
+  const observer = createObserverHarness();
   const context = {
+    PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
       getEntriesByType: (type) => {
         if (type === 'navigation') return [{ startTime: 0 }];
-        if (type === 'resource') return [{ name: 'https://example.test/api/turn' }];
+        if (type === 'resource') return [{ name: 'https://example.test/api/turn', startTime: 10 }];
         return [];
       },
     },
@@ -220,7 +266,7 @@ test('print-ego-probe supplies a self-contained lifecycle that collects both pat
   probe.markTurnCompletion();
 
   assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
-    resources: [],
+    resources: [{ name: 'https://example.test/api/turn' }],
     deepLinkInteractiveMs: 550,
     spawnNavigateMs: 750,
   });
@@ -232,7 +278,9 @@ test('the probe survives a same-document route transition and never accesses cre
     '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
   ]);
   let now = 0;
+  const observer = createObserverHarness();
   const context = {
+    PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
       getEntriesByType: (type) => (type === 'navigation' ? [{ startTime: 0 }] : []),
@@ -250,6 +298,7 @@ test('the probe survives a same-document route transition and never accesses cre
   const afterRouteTransition = vm.runInNewContext(result.stdout, context);
   assert.equal(afterRouteTransition, firstReference);
   afterRouteTransition.markRouteNavigation();
+  afterRouteTransition.markTurnCompletion();
   assert.equal(afterRouteTransition.collect().spawnNavigateMs, 10);
   assert.doesNotMatch(result.stdout, /localStorage|sessionStorage|document\.cookie|authorization|bearer|password|fetch\(|XMLHttpRequest|send\(|postMessage\(/i);
 });
@@ -259,8 +308,10 @@ test('reinitializing either path invalidates prior completion marks and resource
     '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
   ]);
   let now = 0;
-  let resources = [{ name: 'https://example.test/unrelated-before-deep' }];
+  let resources = [{ name: 'https://example.test/unrelated-before-deep', startTime: -1 }];
+  const observer = createObserverHarness();
   const context = {
+    PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
       getEntriesByType: (type) => {
@@ -273,18 +324,22 @@ test('reinitializing either path invalidates prior completion marks and resource
   const probe = vm.runInNewContext(result.stdout, context);
 
   probe.initFreshDeepLink();
-  resources = [...resources, { name: 'https://example.test/old-deep' }];
+  resources = [...resources, { name: 'https://example.test/old-deep', startTime: 1 }];
   now = 10;
   probe.markFreshHeaderVisible();
   now = 20;
   probe.markFreshLatestMessageComplete();
   probe.startNewTextSession();
-  resources = [...resources, { name: 'https://example.test/old-spawn' }];
+  resources = [...resources, { name: 'https://example.test/old-spawn', startTime: 21 }];
   now = 30;
   probe.markRouteNavigation();
+  probe.markTurnCompletion();
 
+  resources = [];
   probe.initFreshDeepLink();
-  resources = [...resources, { name: 'https://example.test/current-deep' }];
+  const currentDeep = { name: 'https://example.test/current-deep', startTime: 41 };
+  resources = [...resources, currentDeep];
+  observer.emit([currentDeep]);
   now = 50;
   probe.markFreshHeaderVisible();
   assert.throws(() => probe.collect(), /lifecycle mark is missing/);
@@ -292,14 +347,19 @@ test('reinitializing either path invalidates prior completion marks and resource
   probe.markFreshLatestMessageComplete();
 
   probe.startNewTextSession();
-  resources = [...resources, { name: 'https://example.test/stale-before-current-spawn' }];
+  resources = [...resources, { name: 'https://example.test/stale-before-current-spawn', startTime: 71 }];
   now = 80;
   probe.markRouteNavigation();
+  probe.markTurnCompletion();
   probe.startNewTextSession();
-  resources = [...resources, { name: 'https://example.test/current-spawn' }];
+  const currentSpawn = { name: 'https://example.test/current-spawn', startTime: 81 };
+  resources = [...resources, currentSpawn];
+  observer.emit([currentSpawn]);
   assert.throws(() => probe.collect(), /lifecycle mark is missing/);
   now = 110;
   probe.markRouteNavigation();
+  now = 120;
+  probe.markTurnCompletion();
 
   assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
     resources: [
@@ -316,8 +376,10 @@ test('freezes each path resource snapshot before later timing-buffer eviction', 
     '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
   ]);
   let now = 0;
-  let resources = [{ name: 'https://example.test/unrelated-before-deep' }];
+  let resources = [{ name: 'https://example.test/unrelated-before-deep', startTime: -1 }];
+  const observer = createObserverHarness();
   const context = {
+    PerformanceObserver: observer.PerformanceObserver,
     performance: {
       now: () => now,
       getEntriesByType: (type) => {
@@ -330,18 +392,24 @@ test('freezes each path resource snapshot before later timing-buffer eviction', 
   const probe = vm.runInNewContext(result.stdout, context);
 
   probe.initFreshDeepLink();
-  resources = [...resources, { name: 'https://example.test/v1/sessions?legacy=deep' }];
+  const deepLegacy = { name: 'https://example.test/v1/sessions?legacy=deep', startTime: 1 };
+  resources = [...resources, deepLegacy];
+  observer.emit([deepLegacy]);
   now = 20;
   probe.markFreshHeaderVisible();
   now = 40;
   probe.markFreshLatestMessageComplete();
-  resources = [{ name: 'https://example.test/unrelated-before-spawn' }];
+  resources = [{ name: 'https://example.test/unrelated-before-spawn', startTime: 39 }];
 
   probe.startNewTextSession();
-  resources = [...resources, { name: 'https://example.test/new-session-route' }];
+  const spawnRoute = { name: 'https://example.test/new-session-route', startTime: 50 };
+  resources = [...resources, spawnRoute];
+  observer.emit([spawnRoute]);
   now = 70;
   probe.markRouteNavigation();
   resources = [];
+  now = 80;
+  probe.markTurnCompletion();
 
   assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
     resources: [
@@ -350,5 +418,187 @@ test('freezes each path resource snapshot before later timing-buffer eviction', 
     ],
     deepLinkInteractiveMs: 40,
     spawnNavigateMs: 30,
+  });
+});
+
+test('captures deep-link resources from navigation start and observer-delivered spawn resources through turn completion', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  let now = 100;
+  let resources = [
+    { name: 'https://example.test/v1/sessions?deep-index-zero', startTime: 5 },
+    { name: 'https://example.test/deep-pre-init-a', startTime: 10 },
+    { name: 'https://example.test/deep-pre-init-b', startTime: 20 },
+    { name: 'https://example.test/repeated-resource', startTime: 25 },
+    { name: 'https://example.test/repeated-resource', startTime: 26 },
+  ];
+  const observer = createObserverHarness();
+  const context = {
+    PerformanceObserver: observer.PerformanceObserver,
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => {
+        if (type === 'navigation') return [{ startTime: 0 }];
+        if (type === 'resource') return resources;
+        return [];
+      },
+    },
+  };
+  const probe = vm.runInNewContext(result.stdout, context);
+
+  probe.initFreshDeepLink();
+  resources = [];
+  now = 120;
+  probe.markFreshHeaderVisible();
+  now = 140;
+  probe.markFreshLatestMessageComplete();
+
+  now = 200;
+  resources = [{ name: 'https://example.test/before-send-click', startTime: 190 }];
+  probe.startNewTextSession();
+  now = 230;
+  probe.markRouteNavigation();
+  const afterNavigationLegacy = { name: 'https://example.test/v1/sessions?after-navigation', startTime: 240 };
+  observer.emit([afterNavigationLegacy]);
+  resources = [];
+  assert.throws(() => probe.collect(), /lifecycle mark is missing/);
+  now = 260;
+  probe.markTurnCompletion();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
+    resources: [
+      { name: 'https://example.test/v1/sessions?deep-index-zero' },
+      { name: 'https://example.test/deep-pre-init-a' },
+      { name: 'https://example.test/deep-pre-init-b' },
+      { name: 'https://example.test/repeated-resource' },
+      { name: 'https://example.test/repeated-resource' },
+      { name: 'https://example.test/v1/sessions?after-navigation' },
+    ],
+    deepLinkInteractiveMs: 140,
+    spawnNavigateMs: 30,
+  });
+});
+
+test('disconnects old observers on reinit and blocks stale observer writes', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  let now = 0;
+  let resources = [];
+  const observer = createObserverHarness();
+  const context = {
+    PerformanceObserver: observer.PerformanceObserver,
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => {
+        if (type === 'navigation') return [{ startTime: 0 }];
+        if (type === 'resource') return resources;
+        return [];
+      },
+    },
+  };
+  const probe = vm.runInNewContext(result.stdout, context);
+
+  probe.initFreshDeepLink();
+  const firstDeepObserver = observer.observers[0];
+  probe.initFreshDeepLink();
+  assert.equal(firstDeepObserver.disconnected, true);
+  observer.deliverTo(firstDeepObserver, [{ name: 'https://example.test/stale-deep-observer', startTime: 1 }]);
+  const currentDeep = { name: 'https://example.test/current-deep-observer', startTime: 2 };
+  observer.emit([currentDeep]);
+  now = 10;
+  probe.markFreshHeaderVisible();
+  now = 20;
+  probe.markFreshLatestMessageComplete();
+
+  now = 30;
+  probe.startNewTextSession();
+  const firstSpawnObserver = observer.observers[2];
+  now = 40;
+  probe.startNewTextSession();
+  assert.equal(firstSpawnObserver.disconnected, true);
+  observer.deliverTo(firstSpawnObserver, [{ name: 'https://example.test/stale-spawn-observer', startTime: 35 }]);
+  const currentSpawn = { name: 'https://example.test/current-spawn-observer', startTime: 45 };
+  observer.emit([currentSpawn]);
+  now = 50;
+  probe.markRouteNavigation();
+  now = 60;
+  probe.markTurnCompletion();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())).resources, [
+    { name: 'https://example.test/current-deep-observer' },
+    { name: 'https://example.test/current-spawn-observer' },
+  ]);
+});
+
+test('fails closed when PerformanceObserver is unavailable', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  const probe = vm.runInNewContext(result.stdout, {
+    performance: {
+      now: () => 0,
+      getEntriesByType: (type) => (type === 'navigation' ? [{ startTime: 0 }] : []),
+    },
+  });
+
+  assert.throws(() => probe.initFreshDeepLink(), /PerformanceObserver is required/);
+});
+
+test('drains undelivered resource records before freezing either path without duplicating entries', () => {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  let now = 100;
+  const seeded = { name: 'https://example.test/seeded', startTime: 10 };
+  let resources = [seeded];
+  const observer = createObserverHarness();
+  const probe = vm.runInNewContext(result.stdout, {
+    PerformanceObserver: observer.PerformanceObserver,
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => (type === 'navigation' ? [{ startTime: 0 }] : resources),
+    },
+  });
+
+  probe.initFreshDeepLink();
+  const deepLegacy = { name: 'https://example.test/v1/sessions?pending-deep', startTime: 110 };
+  observer.queue([seeded, deepLegacy]);
+  resources = [];
+  now = 120;
+  probe.markFreshHeaderVisible();
+  now = 140;
+  probe.markFreshLatestMessageComplete();
+  assert.equal(observer.observers[0].disconnected, true);
+
+  now = 200;
+  probe.startNewTextSession();
+  now = 220;
+  probe.markRouteNavigation();
+  now = 230;
+  probe.markFirstAgentEvent();
+  const spawnLegacy = { name: 'https://example.test/v1/sessions?pending-spawn', startTime: 240 };
+  observer.emit([spawnLegacy]);
+  observer.queue([
+    { name: 'https://example.test/pre-send', startTime: 199 },
+    spawnLegacy,
+    { ...spawnLegacy },
+  ]);
+  now = 260;
+  probe.markTurnCompletion();
+  assert.equal(observer.observers[1].disconnected, true);
+  observer.deliverTo(observer.observers[0], [{ name: 'https://example.test/after-deep-freeze', startTime: 270 }]);
+  observer.deliverTo(observer.observers[1], [{ name: 'https://example.test/after-spawn-freeze', startTime: 270 }]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
+    resources: [
+      { name: 'https://example.test/seeded' },
+      { name: 'https://example.test/v1/sessions?pending-deep' },
+      { name: 'https://example.test/v1/sessions?pending-spawn' },
+      { name: 'https://example.test/v1/sessions?pending-spawn' },
+    ],
+    deepLinkInteractiveMs: 140,
+    spawnNavigateMs: 20,
   });
 });

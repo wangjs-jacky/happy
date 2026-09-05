@@ -149,9 +149,7 @@ function renderEgoProbe(origin, sessionId) {
     spawn: {},
   };
   const now = () => performance.now();
-  const resourceEntries = () => performance.getEntriesByType('resource').map(({ name }) => ({ name }));
-  const resourceBaseline = () => resourceEntries().length;
-  const snapshotSince = (baseline) => resourceEntries().slice(baseline);
+  const resourceEntries = () => performance.getEntriesByType('resource');
   const requiredMark = (value) => {
     if (typeof value !== 'number') throw new Error('Critical-path lifecycle mark is missing.');
     return value;
@@ -164,23 +162,56 @@ function renderEgoProbe(origin, sessionId) {
     const entry = performance.getEntriesByType('navigation')[0];
     return entry && typeof entry.startTime === 'number' ? entry.startTime : 0;
   };
+  const disconnect = (path) => {
+    if (path && path.observer) path.observer.disconnect();
+  };
+  const beginResourceCollection = (start) => {
+    if (typeof PerformanceObserver !== 'function') {
+      throw new Error('PerformanceObserver is required for critical-path resource collection.');
+    }
+    const path = { resourceStart: start, resources: [], seenEntries: new WeakSet() };
+    const retain = (entry) => {
+      if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string'
+        || typeof entry.startTime !== 'number' || entry.startTime < path.resourceStart
+        || path.seenEntries.has(entry)) return;
+      path.seenEntries.add(entry);
+      path.resources.push({ name: entry.name });
+    };
+    path.observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) retain(entry);
+    });
+    path.drainResources = () => {
+      for (const entry of path.observer.takeRecords()) retain(entry);
+    };
+    path.observer.observe({ type: 'resource' });
+    for (const entry of resourceEntries()) retain(entry);
+    return path;
+  };
+  const freezeResources = (path) => {
+    if (!Array.isArray(path.snapshot)) {
+      path.drainResources();
+      path.snapshot = Object.freeze(path.resources.slice());
+      disconnect(path);
+    }
+  };
   const freezeDeepLink = () => {
     const path = state.deepLink;
     if (typeof path.headerVisible === 'number' && typeof path.latestMessageComplete === 'number'
-      && !Array.isArray(path.resources)) {
-      path.resources = snapshotSince(path.resourceBaseline);
+      && !Array.isArray(path.snapshot)) {
+      freezeResources(path);
     }
   };
   const freezeSpawn = () => {
     const path = state.spawn;
-    if (typeof path.routeNavigation === 'number' && !Array.isArray(path.resources)) {
-      path.resources = snapshotSince(path.resourceBaseline);
+    if (typeof path.turnCompletion === 'number' && !Array.isArray(path.snapshot)) {
+      freezeResources(path);
     }
   };
 
   const probe = {
     initFreshDeepLink() {
-      state.deepLink = { start: navigationStart(), resourceBaseline: resourceBaseline() };
+      disconnect(state.deepLink);
+      state.deepLink = { start: navigationStart(), ...beginResourceCollection(navigationStart()) };
     },
     markFreshHeaderVisible() {
       state.deepLink.headerVisible = now();
@@ -191,16 +222,20 @@ function renderEgoProbe(origin, sessionId) {
       freezeDeepLink();
     },
     startNewTextSession() {
-      state.spawn = { sendClick: now(), resourceBaseline: resourceBaseline() };
+      disconnect(state.spawn);
+      const sendClick = now();
+      state.spawn = { sendClick, ...beginResourceCollection(sendClick) };
     },
     markNewSessionEvent() { state.spawn.newSessionEvent = now(); },
     markLocalQueue() { state.spawn.localQueue = now(); },
     markRouteNavigation() {
       state.spawn.routeNavigation = now();
-      freezeSpawn();
     },
     markFirstAgentEvent() { state.spawn.firstAgentEvent = now(); },
-    markTurnCompletion() { state.spawn.turnCompletion = now(); },
+    markTurnCompletion() {
+      state.spawn.turnCompletion = now();
+      freezeSpawn();
+    },
     collect() {
       const deepLink = state.deepLink;
       const spawn = state.spawn;
@@ -209,8 +244,9 @@ function renderEgoProbe(origin, sessionId) {
         requiredMark(deepLink.latestMessageComplete),
       ) - requiredMark(deepLink.start);
       const spawnNavigateMs = requiredMark(spawn.routeNavigation) - requiredMark(spawn.sendClick);
+      requiredMark(spawn.turnCompletion);
       return {
-        resources: [...requiredSnapshot(deepLink.resources), ...requiredSnapshot(spawn.resources)],
+        resources: [...requiredSnapshot(deepLink.snapshot), ...requiredSnapshot(spawn.snapshot)],
         deepLinkInteractiveMs,
         spawnNavigateMs,
       };
