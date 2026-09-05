@@ -442,6 +442,9 @@ export const zhHant: TranslationStructure = {
             title: '瀏覽器執行過程',
             view: '查看過程',
             close: '關閉瀏覽器執行過程',
+            timelineTitle: '瀏覽器步驟',
+            liveCount: ({ count }: { count: number }) => `即時回顯 · ${count} 步`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `第 ${current}/${total} 步`,
         },
         meta: {
             available: '目前會話可用',

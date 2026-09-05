@@ -52,17 +52,11 @@ const step = {
 
 describe('BrowserStepsPopover', () => {
     let renderer: any;
-    let keydownHandler: ((event: any) => void) | undefined;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
     const originalConsoleError = console.error;
 
     beforeEach(() => {
         vi.useFakeTimers();
-        keydownHandler = undefined;
-        vi.stubGlobal('window', {
-            addEventListener: vi.fn((_name: string, handler: (event: any) => void) => { keydownHandler = handler; }),
-            removeEventListener: vi.fn(),
-        });
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -90,13 +84,14 @@ describe('BrowserStepsPopover', () => {
             renderer.update(<BrowserStepsPopover open onClose={vi.fn()} sessionId="s1" steps={[step]} />);
         });
         expect(renderer.root.findByType('Modal').props.transparent).toBe(true);
+        expect(renderer.root.findByType('Modal').props.accessibilityLabel).toBe('Browser progress');
         const dialog = renderer.root.findByProps({ testID: 'browser-steps-popover' });
-        expect(dialog.props.role).toBe('dialog');
-        expect(dialog.props['aria-modal']).toBe(true);
-        expect(dialog.props.accessibilityLabel).toBe('Browser progress');
+        expect(dialog.props.role).toBeUndefined();
+        expect(dialog.props['aria-modal']).toBeUndefined();
+        expect(dialog.props.accessibilityLabel).toBeUndefined();
     });
 
-    it('closes on backdrop, close button, and captured Escape then restores trigger focus', () => {
+    it('closes on backdrop and close button then restores trigger focus', () => {
         const onClose = vi.fn();
         const triggerFocus = vi.fn();
         const triggerRef = { current: { focus: triggerFocus } };
@@ -114,14 +109,6 @@ describe('BrowserStepsPopover', () => {
         act(() => renderer.root.findByProps({ testID: 'browser-steps-popover-close' }).props.onPress());
         expect(onClose).toHaveBeenCalledTimes(2);
 
-        const preventDefault = vi.fn();
-        const stopPropagation = vi.fn();
-        const stopImmediatePropagation = vi.fn();
-        act(() => keydownHandler?.({ key: 'Escape', preventDefault, stopPropagation, stopImmediatePropagation }));
-        expect(onClose).toHaveBeenCalledTimes(3);
-        expect(preventDefault).toHaveBeenCalledOnce();
-        expect(stopPropagation).toHaveBeenCalledOnce();
-        expect(stopImmediatePropagation).toHaveBeenCalledOnce();
     });
 
     it('keeps live step updates in the same dialog without stealing focus', () => {
@@ -147,32 +134,6 @@ describe('BrowserStepsPopover', () => {
 
         expect(triggerFocus).not.toHaveBeenCalled();
         expect(renderer.root.findByType('BrowserStepsPanel').props.steps).toHaveLength(2);
-    });
-
-    it('contains Tab focus within the dialog without forcing initial focus', () => {
-        const firstFocus = vi.fn();
-        const lastFocus = vi.fn();
-        const first = { focus: firstFocus };
-        const last = { focus: lastFocus };
-        const dialog = {
-            contains: (node: unknown) => node === first || node === last,
-            querySelectorAll: () => [first, last],
-        };
-        vi.stubGlobal('document', { activeElement: last });
-        act(() => {
-            renderer = TestRenderer.create(
-                <BrowserStepsPopover open onClose={vi.fn()} sessionId="s1" steps={[step]} />,
-                { createNodeMock: (element: any) => element.props.testID === 'browser-steps-popover' ? dialog : null },
-            );
-        });
-        const preventDefault = vi.fn();
-        act(() => keydownHandler?.({ key: 'Tab', shiftKey: false, preventDefault, stopPropagation: vi.fn() }));
-        expect(firstFocus).toHaveBeenCalledOnce();
-        expect(preventDefault).toHaveBeenCalledOnce();
-
-        (globalThis.document as any).activeElement = first;
-        act(() => keydownHandler?.({ key: 'Tab', shiftKey: true, preventDefault, stopPropagation: vi.fn() }));
-        expect(lastFocus).toHaveBeenCalledOnce();
     });
 
     it('bounds desktop and narrow layouts to the viewport with internal overflow', () => {

@@ -19,6 +19,13 @@ vi.mock('react-native-unistyles', () => ({
     useUnistyles: () => ({ theme: { colors: { divider: '#ddd', surface: '#fff', surfaceHigh: '#f4f4f4', surfaceSelected: '#eee', text: '#111', textSecondary: '#666' } } }),
 }));
 vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => ({ loading: false, uri: null }) }));
+vi.mock('@/text', () => ({
+    t: (key: string, params?: { count?: number; current?: number; total?: number }) => ({
+        'rightPanelCapabilityHub.browserProgress.timelineTitle': 'Localized timeline',
+        'rightPanelCapabilityHub.browserProgress.liveCount': `Localized live ${params?.count}`,
+        'rightPanelCapabilityHub.browserProgress.stepPosition': `Localized position ${params?.current}/${params?.total}`,
+    }[key] ?? key),
+}));
 
 describe('BrowserStepsPanel', () => {
     let renderer: any;
@@ -54,5 +61,8 @@ describe('BrowserStepsPanel', () => {
         const scroll = renderer.root.findByProps({ testID: 'browser-steps-timeline-scroll' });
         expect(scroll.props.style).toEqual(expect.objectContaining({ flex: 1, minHeight: 0 }));
         expect(renderer.root.findAllByType('Pressable')).toHaveLength(20);
+        expect(JSON.stringify(renderer.toJSON())).toContain('Localized timeline');
+        expect(JSON.stringify(renderer.toJSON())).toContain('Localized live 20');
+        expect(JSON.stringify(renderer.toJSON())).toContain('Localized position 20/20');
     });
 });

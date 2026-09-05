@@ -441,6 +441,9 @@ export const pt: TranslationStructure = {
             title: 'Progresso do navegador',
             view: 'Ver progresso',
             close: 'Fechar progresso do navegador',
+            timelineTitle: 'Etapas do navegador',
+            liveCount: ({ count }: { count: number }) => `Em tempo real · ${count} ${count === 1 ? 'etapa' : 'etapas'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Etapa ${current} de ${total}`,
         },
         meta: {
             available: 'Available in session',

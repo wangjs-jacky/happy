@@ -442,6 +442,9 @@ export const es: TranslationStructure = {
             title: 'Progreso del navegador',
             view: 'Ver progreso',
             close: 'Cerrar progreso del navegador',
+            timelineTitle: 'Pasos del navegador',
+            liveCount: ({ count }: { count: number }) => `En directo · ${count} ${count === 1 ? 'paso' : 'pasos'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Paso ${current} de ${total}`,
         },
         meta: {
             available: 'Available in session',

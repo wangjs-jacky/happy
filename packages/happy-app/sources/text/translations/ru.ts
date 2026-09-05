@@ -422,6 +422,9 @@ export const ru: TranslationStructure = {
             title: 'Ход работы в браузере',
             view: 'Посмотреть ход',
             close: 'Закрыть ход работы в браузере',
+            timelineTitle: 'Шаги в браузере',
+            liveCount: ({ count }: { count: number }) => `В реальном времени · ${count} шаг`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Шаг ${current} из ${total}`,
         },
         meta: {
             available: 'Available in session',

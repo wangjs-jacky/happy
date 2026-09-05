@@ -77,7 +77,9 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
     const orderedMessages = messages.slice().sort(compareMessages);
     const runs = createRuns(orderedMessages);
     const runByAlias = new Map<string, MutableRun>();
+    const runByInvocationMessageId = new Map<string, MutableRun>();
     for (const run of runs) {
+        runByInvocationMessageId.set(run.invocationMessageId, run);
         for (const alias of run.aliases) runByAlias.set(alias, run);
     }
 
@@ -103,7 +105,7 @@ export function getBrowserStepRuns(messages: Message[]): BrowserStepRun[] {
     for (const message of orderedMessages) {
         if (message.kind === 'user-text') continue;
         if (message.kind === 'tool-call') {
-            const invocation = runs.find((run) => run.invocationMessageId === message.id);
+            const invocation = runByInvocationMessageId.get(message.id);
             if (invocation) {
                 latestLegacyRun = invocation;
                 if (invocation.boundExplicitRunId === null) {

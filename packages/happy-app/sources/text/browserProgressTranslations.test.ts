@@ -16,6 +16,11 @@ describe('browser progress translations', () => {
             expect(translation.rightPanelCapabilityHub.browserProgress.title).not.toBe(en.rightPanelCapabilityHub.browserProgress.title);
             expect(translation.rightPanelCapabilityHub.browserProgress.view).not.toBe(en.rightPanelCapabilityHub.browserProgress.view);
             expect(translation.rightPanelCapabilityHub.browserProgress.close).not.toBe(en.rightPanelCapabilityHub.browserProgress.close);
+            expect(translation.rightPanelCapabilityHub.browserProgress.timelineTitle).not.toBe(en.rightPanelCapabilityHub.browserProgress.timelineTitle);
+            expect(translation.rightPanelCapabilityHub.browserProgress.liveCount({ count: 7 })).toContain('7');
+            const position = translation.rightPanelCapabilityHub.browserProgress.stepPosition({ current: 2, total: 7 });
+            expect(position).toContain('2');
+            expect(position).toContain('7');
         }
     });
 });

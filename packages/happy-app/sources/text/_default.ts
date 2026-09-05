@@ -466,6 +466,9 @@ export const en = {
             title: 'Browser progress',
             view: 'View progress',
             close: 'Close browser progress',
+            timelineTitle: 'Browser steps',
+            liveCount: ({ count }: { count: number }) => `Live · ${count} step${count === 1 ? '' : 's'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Step ${current} of ${total}`,
         },
         meta: {
             available: 'Available in session',

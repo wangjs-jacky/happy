@@ -69,7 +69,6 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
 }) {
     const { theme } = useUnistyles();
     const viewport = useWindowDimensions();
-    const dialogRef = React.useRef<any>(null);
     const layout = React.useMemo(
         () => getBrowserStepsPopoverLayout(props.anchor, viewport),
         [props.anchor, viewport.height, viewport.width],
@@ -81,43 +80,12 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
         }
     }, [props.onClose, props.returnFocusRef]);
 
-    React.useEffect(() => {
-        if (!props.open || Platform.OS !== 'web' || typeof window === 'undefined') return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                event.stopPropagation();
-                event.stopImmediatePropagation();
-                closeAndRestoreFocus();
-                return;
-            }
-            if (event.key !== 'Tab' || typeof document === 'undefined') return;
-            const focusable = Array.from(dialogRef.current?.querySelectorAll?.(
-                'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ) ?? []) as Array<{ focus?: () => void }>;
-            const first = focusable[0];
-            const last = focusable.at(-1);
-            if (!first || !last) return;
-            const active = document.activeElement;
-            const focusEscaped = !dialogRef.current?.contains?.(active);
-            const next = event.shiftKey && (active === first || focusEscaped)
-                ? last
-                : !event.shiftKey && (active === last || focusEscaped)
-                    ? first
-                    : null;
-            if (!next) return;
-            event.preventDefault();
-            event.stopPropagation();
-            next.focus?.();
-        };
-        window.addEventListener('keydown', onKeyDown, true);
-        return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, [closeAndRestoreFocus, props.open]);
-
     if (!props.open) return null;
     return (
         <Modal
-            animationType="fade"
+            accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.title')}
+            animationType={Platform.OS === 'web' ? 'none' : 'fade'}
+            nativeID={props.dialogId}
             onRequestClose={closeAndRestoreFocus}
             transparent
             visible
@@ -130,10 +98,6 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
                     testID="browser-steps-popover-backdrop"
                 />
                 <View
-                    accessibilityLabel={t('rightPanelCapabilityHub.browserProgress.title')}
-                    accessibilityViewIsModal
-                    nativeID={props.dialogId}
-                    ref={dialogRef}
                     style={[
                         styles.card,
                         layout,
@@ -145,7 +109,6 @@ export const BrowserStepsPopover = React.memo(function BrowserStepsPopover(props
                         },
                     ]}
                     testID="browser-steps-popover"
-                    {...({ 'aria-modal': true, role: 'dialog' } as any)}
                 >
                     <View
                         style={[styles.header, { borderBottomColor: theme.colors.divider }]}

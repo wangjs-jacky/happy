@@ -78,6 +78,22 @@ happy-app typecheck: PASS
 git diff --check: PASS
 ```
 
+## Quality remediation
+
+- The native/full-panel timeline title, live step count, and selected-step position now use typed translation keys. `_default` and every supported locale define the constant and parameterized entries; no visible Chinese copy remains hard-coded in the component.
+- React Native Web's actual `Modal` root is the sole named modal dialog. The inner card no longer declares a second role, `aria-modal`, accessibility label, or modal focus owner. RN Web's built-in Modal owns focus trapping and Escape handling; pointer close and explicit trigger-focus restoration remain intact.
+- Web Modal animation is disabled so the active named dialog semantics are available immediately rather than only after a CSS animation-end event. Native retains the fade animation.
+- Invocation-message lookup in `getBrowserStepRuns` now uses a precomputed map rather than scanning all runs for every message.
+- A jsdom test renders the real React Native Web Modal runtime and asserts exactly one named dialog, no duplicate inner dialog semantics, and Escape close behavior.
+
+Quality verification:
+
+```text
+Happy App focused Task 7 suite: PASS — 9 files, 100 tests
+happy-app typecheck: PASS
+git diff --check: PASS
+```
+
 ## Pending invocation queue remediation
 
 - Each Ego skill now maintains its own deterministic pending-invocation queue. When several real `Skill` calls precede their first frames, first-seen producer IDs bind FIFO by invocation order, one ID per invocation.

@@ -454,6 +454,9 @@ export const zhHans: TranslationStructure = {
             title: '浏览器执行过程',
             view: '查看过程',
             close: '关闭浏览器执行过程',
+            timelineTitle: '浏览器步骤',
+            liveCount: ({ count }: { count: number }) => `实时回显 · ${count} 步`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `第 ${current}/${total} 步`,
         },
         meta: {
             available: '当前会话可用',
