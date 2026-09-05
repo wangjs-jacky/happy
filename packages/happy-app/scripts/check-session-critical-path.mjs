@@ -162,56 +162,90 @@ function renderEgoProbe(origin, sessionId) {
     const entry = performance.getEntriesByType('navigation')[0];
     return entry && typeof entry.startTime === 'number' ? entry.startTime : 0;
   };
-  const disconnect = (path) => {
-    if (path && path.observer) path.observer.disconnect();
-  };
-  const beginResourceCollection = (start) => {
-    if (typeof PerformanceObserver !== 'function') {
-      throw new Error('PerformanceObserver is required for critical-path resource collection.');
+  const requireCollection = (path) => {
+    if (path.collectionFailed) {
+      const error = new Error('Critical-path resource collection failed.');
+      error.code = 'RESOURCE_COLLECTION_FAILED';
+      throw error;
     }
-    const path = { resourceStart: start, resources: [], seenEntries: new WeakSet() };
+  };
+  const disconnect = (path) => {
+    path.closed = true;
+    try {
+      if (path.observer) path.observer.disconnect();
+    } catch {
+      path.collectionFailed = true;
+    }
+  };
+  const failCollection = (path) => {
+    path.collectionFailed = true;
+    disconnect(path);
+  };
+  const beginResourceCollection = (key, startMark, readStart) => {
+    const previous = state[key];
+    const path = { resources: [], collectionFailed: false, closed: false };
+    // Replace the generation before any fallible timing or observer work.
+    state[key] = path;
+    disconnect(previous);
     const retain = (entry) => {
-      if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string'
+      if (path.closed || !entry || typeof entry !== 'object' || typeof entry.name !== 'string'
         || typeof entry.startTime !== 'number' || entry.startTime < path.resourceStart
         || path.seenEntries.has(entry)) return;
       path.seenEntries.add(entry);
       path.resources.push({ name: entry.name });
     };
-    path.observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) retain(entry);
-    });
-    path.drainResources = () => {
-      for (const entry of path.observer.takeRecords()) retain(entry);
-    };
-    path.observer.observe({ type: 'resource' });
-    for (const entry of resourceEntries()) retain(entry);
-    return path;
+    try {
+      path[startMark] = readStart();
+      path.resourceStart = path[startMark];
+      path.seenEntries = new WeakSet();
+      path.observer = new PerformanceObserver((list) => {
+        if (path.closed) return;
+        try {
+          for (const entry of list.getEntries()) retain(entry);
+        } catch {
+          failCollection(path);
+        }
+      });
+      path.drainResources = () => {
+        for (const entry of path.observer.takeRecords()) retain(entry);
+      };
+      path.observer.observe({ type: 'resource' });
+      for (const entry of resourceEntries()) retain(entry);
+    } catch {
+      failCollection(path);
+    }
+    requireCollection(path);
   };
   const freezeResources = (path) => {
+    requireCollection(path);
     if (!Array.isArray(path.snapshot)) {
-      path.drainResources();
-      path.snapshot = Object.freeze(path.resources.slice());
-      disconnect(path);
+      try {
+        path.drainResources();
+        path.snapshot = Object.freeze(path.resources.slice());
+      } catch {
+        path.collectionFailed = true;
+      } finally {
+        disconnect(path);
+      }
+      requireCollection(path);
     }
   };
   const freezeDeepLink = () => {
     const path = state.deepLink;
-    if (typeof path.headerVisible === 'number' && typeof path.latestMessageComplete === 'number'
-      && !Array.isArray(path.snapshot)) {
+    if (typeof path.headerVisible === 'number' && typeof path.latestMessageComplete === 'number') {
       freezeResources(path);
     }
   };
   const freezeSpawn = () => {
     const path = state.spawn;
-    if (typeof path.turnCompletion === 'number' && !Array.isArray(path.snapshot)) {
+    if (typeof path.turnCompletion === 'number') {
       freezeResources(path);
     }
   };
 
   const probe = {
     initFreshDeepLink() {
-      disconnect(state.deepLink);
-      state.deepLink = { start: navigationStart(), ...beginResourceCollection(navigationStart()) };
+      beginResourceCollection('deepLink', 'start', navigationStart);
     },
     markFreshHeaderVisible() {
       state.deepLink.headerVisible = now();
@@ -222,9 +256,7 @@ function renderEgoProbe(origin, sessionId) {
       freezeDeepLink();
     },
     startNewTextSession() {
-      disconnect(state.spawn);
-      const sendClick = now();
-      state.spawn = { sendClick, ...beginResourceCollection(sendClick) };
+      beginResourceCollection('spawn', 'sendClick', now);
     },
     markNewSessionEvent() { state.spawn.newSessionEvent = now(); },
     markLocalQueue() { state.spawn.localQueue = now(); },
@@ -239,6 +271,8 @@ function renderEgoProbe(origin, sessionId) {
     collect() {
       const deepLink = state.deepLink;
       const spawn = state.spawn;
+      requireCollection(deepLink);
+      requireCollection(spawn);
       const deepLinkInteractiveMs = Math.max(
         requiredMark(deepLink.headerVisible),
         requiredMark(deepLink.latestMessageComplete),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -108,6 +108,187 @@ function createObserverHarness() {
       observer.callback({ getEntries: () => entries });
     },
   };
+}
+
+function createFaultProbe() {
+  const result = runCli([
+    '--origin', origin, '--session-id', sessionId, '--mode', 'print-ego-probe',
+  ]);
+  assert.equal(result.status, 0);
+  const observer = createObserverHarness();
+  let now = 0;
+  const context = {
+    PerformanceObserver: observer.PerformanceObserver,
+    performance: {
+      now: () => now,
+      getEntriesByType: (type) => (type === 'navigation' ? [{ startTime: 0 }] : []),
+    },
+  };
+  const probe = vm.runInNewContext(result.stdout, context);
+  return {
+    probe, context, observer,
+    init: {
+      deepLink: () => probe.initFreshDeepLink(),
+      spawn: () => probe.startNewTextSession(),
+    },
+    complete: {
+      deepLink() {
+        now += 10;
+        probe.markFreshHeaderVisible();
+        now += 10;
+        probe.markFreshLatestMessageComplete();
+      },
+      spawn() {
+        now += 10;
+        probe.markNewSessionEvent();
+        probe.markLocalQueue();
+        probe.markRouteNavigation();
+        probe.markFirstAgentEvent();
+        now += 10;
+        probe.markTurnCompletion();
+      },
+    },
+  };
+}
+
+function captureError(action) {
+  try {
+    action();
+  } catch (error) {
+    return error;
+  }
+}
+
+function assertCollectionFailure(action) {
+  assert.throws(action, (error) => {
+    assert.equal(error.code, 'RESOURCE_COLLECTION_FAILED');
+    assert.equal(error.message, 'Critical-path resource collection failed.');
+    assert.doesNotMatch(`${error}\n${error.stack}\n${JSON.stringify(error)}`, /private-fault-sentinel/);
+    return true;
+  });
+}
+
+function throwCollectionFault() {
+  throw new Error('private-fault-sentinel');
+}
+
+for (const path of ['deepLink', 'spawn']) {
+  for (const source of ['callback getEntries', 'callback iterator', 'entry name', 'entry startTime', 'takeRecords', 'disconnect']) {
+    test(`${path} latches ${source} failures even after all marks complete and the source recovers`, () => {
+      const { probe, observer, init, complete } = createFaultProbe();
+      init.deepLink();
+      init.spawn();
+      const target = observer.observers[path === 'deepLink' ? 0 : 1];
+      const originalTakeRecords = target.takeRecords;
+      const originalDisconnect = target.disconnect;
+      let callbackError;
+      if (source === 'takeRecords') {
+        target.takeRecords = throwCollectionFault;
+      } else if (source === 'disconnect') {
+        target.disconnect = () => {
+          originalDisconnect.call(target);
+          throwCollectionFault();
+        };
+      } else {
+        let list = { getEntries: throwCollectionFault };
+        if (source === 'callback iterator') {
+          list = { getEntries: () => ({ [Symbol.iterator]: throwCollectionFault }) };
+        } else if (source.startsWith('entry ')) {
+          const entry = { name: 'https://example.test/v1/sessions', startTime: 1 };
+          Object.defineProperty(entry, source.slice(6), { get: throwCollectionFault });
+          list = { getEntries: () => [entry] };
+        }
+        callbackError = captureError(() => target.callback(list));
+      }
+
+      const completionErrors = {
+        deepLink: captureError(complete.deepLink),
+        spawn: captureError(complete.spawn),
+      };
+      assertCollectionFailure(() => probe.collect());
+      assert.equal(callbackError, undefined, 'observer callbacks must not throw asynchronously');
+      assertCollectionFailure(() => { throw completionErrors[path]; });
+      assert.equal(completionErrors[path === 'deepLink' ? 'spawn' : 'deepLink'], undefined);
+      assert.equal(target.disconnected, true);
+
+      target.takeRecords = originalTakeRecords;
+      target.disconnect = originalDisconnect;
+      assert.doesNotThrow(() => observer.deliverTo(target, []));
+      assertCollectionFailure(complete[path]);
+      assertCollectionFailure(() => probe.collect());
+    });
+  }
+
+  for (const source of ['missing observer', 'constructor', 'observe', 'seed read', 'seed entry', 'start read']) {
+    test(`${path} invalidates passing evidence before reinitialization fails at ${source}`, async () => {
+      const { evaluateCriticalPath } = await evaluator();
+      const { probe, context, observer, init, complete } = createFaultProbe();
+      init.deepLink();
+      complete.deepLink();
+      init.spawn();
+      complete.spawn();
+      assert.equal(evaluateCriticalPath(probe.collect()).ok, true);
+
+      const originalRead = context.performance.getEntriesByType;
+      const originalNow = context.performance.now;
+      const originalObserve = observer.PerformanceObserver.prototype.observe;
+      if (source === 'missing observer') context.PerformanceObserver = undefined;
+      if (source === 'constructor') context.PerformanceObserver = function () { throwCollectionFault(); };
+      if (source === 'observe') observer.PerformanceObserver.prototype.observe = throwCollectionFault;
+      if (source === 'seed read') {
+        context.performance.getEntriesByType = (type) => type === 'resource' ? throwCollectionFault() : originalRead(type);
+      }
+      if (source === 'seed entry') {
+        const entry = { startTime: 100, get name() { return throwCollectionFault(); } };
+        context.performance.getEntriesByType = (type) => type === 'resource' ? [entry] : originalRead(type);
+      }
+      if (source === 'start read') {
+        if (path === 'deepLink') context.performance.getEntriesByType = throwCollectionFault;
+        else context.performance.now = throwCollectionFault;
+      }
+
+      const initError = captureError(init[path]);
+      assertCollectionFailure(() => probe.collect());
+      assertCollectionFailure(() => { throw initError; });
+      assert.ok(observer.observers.every((instance) => instance.disconnected), 'partially created observers must be disconnected');
+
+      context.PerformanceObserver = observer.PerformanceObserver;
+      context.performance.getEntriesByType = originalRead;
+      context.performance.now = originalNow;
+      observer.PerformanceObserver.prototype.observe = originalObserve;
+      assertCollectionFailure(complete[path]);
+      assertCollectionFailure(() => probe.collect());
+      init[path]();
+      complete[path]();
+      assert.equal(evaluateCriticalPath(probe.collect()).ok, true, 'only a new healthy generation may recover');
+    });
+  }
+}
+
+for (const mode of ['print-ego-probe', 'evaluate-json']) {
+  test(`README ${mode} command runs through pnpm with substituted placeholders`, async () => {
+    const readme = await readFile(new URL('../../../docs/acceptance/session-critical-path/README.md', import.meta.url), 'utf8');
+    const commands = [...readme.matchAll(/```sh\n([\s\S]*?)```/g)]
+      .map((match) => match[1]).filter((command) => command.includes(`--mode ${mode}`));
+    assert.equal(commands.length, 1);
+    await withMeasurement(JSON.stringify(passingRun()), async (inputPath) => {
+      const values = { '<https-origin>': origin, '<known-session-id>': sessionId, '<measurement-json-path>': inputPath };
+      const command = commands[0].replace(/<[^>]+>/g, (placeholder) => {
+        assert.ok(Object.hasOwn(values, placeholder));
+        return `'${values[placeholder].replaceAll("'", "'\\''")}'`;
+      });
+      const result = spawnSync('/bin/sh', ['-c', command], {
+        cwd: new URL('../../../', import.meta.url), encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '');
+      if (mode === 'evaluate-json') {
+        assert.equal(JSON.parse(result.stdout).ok, true);
+      } else {
+        assert.equal(typeof vm.runInNewContext(result.stdout).collect, 'function');
+      }
+    });
+  });
 }
 
 test('passes a resource-free full-list path and threshold boundary measurements', async () => {
@@ -543,7 +724,8 @@ test('fails closed when PerformanceObserver is unavailable', () => {
     },
   });
 
-  assert.throws(() => probe.initFreshDeepLink(), /PerformanceObserver is required/);
+  assertCollectionFailure(() => probe.initFreshDeepLink());
+  assertCollectionFailure(() => probe.collect());
 });
 
 test('drains undelivered resource records before freezing either path without duplicating entries', () => {
@@ -590,6 +772,9 @@ test('drains undelivered resource records before freezing either path without du
   assert.equal(observer.observers[1].disconnected, true);
   observer.deliverTo(observer.observers[0], [{ name: 'https://example.test/after-deep-freeze', startTime: 270 }]);
   observer.deliverTo(observer.observers[1], [{ name: 'https://example.test/after-spawn-freeze', startTime: 270 }]);
+  for (const instance of observer.observers) {
+    assert.doesNotThrow(() => instance.callback({ getEntries: throwCollectionFault }));
+  }
 
   assert.deepEqual(JSON.parse(JSON.stringify(probe.collect())), {
     resources: [

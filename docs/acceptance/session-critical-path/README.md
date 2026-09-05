@@ -6,16 +6,20 @@ Before collecting or storing evidence, redact it. Never include login or account
 
 ## Gate commands
 
+Run these commands from the repository root, replacing the angle-bracket placeholders with your values. The `--silent` option keeps pnpm's script banner out of the output; pass script flags directly without an extra standalone `--` (pnpm 10.11 forwards it to the script as an invalid argument).
+
 Print the self-contained browser-side collection contract before starting the two paths:
 
 ```sh
-pnpm --filter happy-app perf:session-critical-path -- \
+pnpm --silent --filter happy-app run perf:session-critical-path \
   --origin <https-origin> \
   --session-id <known-session-id> \
   --mode print-ego-probe
 ```
 
 Paste the printed expression into the existing Ego workflow's browser-side evaluation step. It installs and returns the same in-memory `__happySessionCriticalPathProbe` object; evaluating the expression again during a same-document route transition returns that existing object. It does not rely on a page-global producer. The probe requires the browser's `PerformanceObserver`: it observes resource entries before seeding current entries, keeps only its own in-memory timing/resource state, and fails closed if that API is unavailable. Before freezing either path it drains pending observer records, so resource entries awaiting callback delivery are retained even after the live timing buffer is cleared. Entry identity deduplicates seed/callback/queue overlap while preserving separate requests to the same URL. It does not read storage, use credentials, send a request or message, or create application data.
+
+Each generation permanently latches any collection failure, including observer initialization, seeding, callback entry reads/filtering, pending-record draining, or disconnection. Callback errors are contained; initialization, completion freezing, and `collect()` report the fixed code `RESOURCE_COLLECTION_FAILED` and message `Critical-path resource collection failed.` without the original error, message, or stack. Completing more marks or restoring the failed API cannot repair that generation. Both init methods replace the old generation before reading timing or initializing an observer, so a failed re-init cannot return old passing evidence; partially initialized observers are disconnected. Start a new healthy generation and repeat its measurements to recover. Callbacks from disconnected generations are ignored.
 
 Run both paths in the same fresh authenticated Ego document so the probe can collect the two required durations:
 
@@ -34,7 +38,7 @@ Run both paths in the same fresh authenticated Ego document so the probe can col
 Evaluate it:
 
 ```sh
-pnpm --filter happy-app perf:session-critical-path -- \
+pnpm --silent --filter happy-app run perf:session-critical-path \
   --origin <https-origin> \
   --session-id <known-session-id> \
   --mode evaluate-json \
