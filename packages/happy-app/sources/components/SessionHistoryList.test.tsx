@@ -125,6 +125,22 @@ describe('SessionHistoryList', () => {
         act(() => renderer.unmount());
     });
 
+    it('consumes a changed Web scroll offset once without a native drag callback', () => {
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<SessionHistoryList variant="sidebar" />); });
+
+        const list = renderer.root.findByType('FlatList');
+        act(() => list.props.onScroll({ nativeEvent: { contentOffset: { y: 120 } } }));
+        expect(mocks.loadNextSessionHistoryPage).not.toHaveBeenCalled();
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+
+        act(() => list.props.onEndReached());
+        expect(mocks.loadNextSessionHistoryPage).toHaveBeenCalledTimes(1);
+
+        act(() => renderer.unmount());
+    });
+
     it.each(['page', 'sidebar'] as const)('starts empty/history-only %s once interactive and pages only after explicit scroll', async variant => {
         const previous = mocks.sessions;
         mocks.sessions = [];

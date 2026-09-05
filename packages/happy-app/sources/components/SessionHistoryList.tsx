@@ -13,6 +13,7 @@ import { sync } from '@/sync/sync';
 import type { Session } from '@/sync/storageTypes';
 import { t } from '@/text';
 import { getSessionAvatarId, getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
+import { SessionHistoryScrollIntent } from './sessionHistoryScrollIntent';
 
 type SessionHistoryListVariant = 'page' | 'sidebar';
 
@@ -114,7 +115,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     const navigateToSession = useNavigateToSession();
     const pathname = usePathname();
     const sidebar = variant === 'sidebar';
-    const scrollRequested = React.useRef(false);
+    const scrollIntent = React.useRef(new SessionHistoryScrollIntent());
     React.useEffect(() => {
         if (!isDataReady || (sidebar && pathname !== '/new' && pathname !== '/')) return;
         const timer = setTimeout(() => { void sync.sessionRouteBecameInteractive(); }, 0);
@@ -122,8 +123,7 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
     }, [isDataReady, pathname, sidebar]);
     const groupedItems = React.useMemo(() => groupSessionsByDate(allSessions ?? []), [allSessions]);
     const loadNextHistoryPage = React.useCallback(() => {
-        if (!scrollRequested.current) return;
-        scrollRequested.current = false;
+        if (!scrollIntent.current.consumeAtEnd()) return;
         void sync.loadNextSessionHistoryPage();
     }, []);
 
@@ -186,7 +186,8 @@ export const SessionHistoryList = React.memo(function SessionHistoryList({
                 ]}
                 data={groupedItems}
                 keyExtractor={(item) => item.key}
-                onScrollBeginDrag={() => { scrollRequested.current = true; }}
+                onScroll={(event) => { scrollIntent.current.noteWebScroll(event.nativeEvent.contentOffset.y); }}
+                onScrollBeginDrag={() => { scrollIntent.current.noteNativeDrag(); }}
                 onEndReached={loadNextHistoryPage}
                 onEndReachedThreshold={0.5}
                 renderItem={renderItem}
