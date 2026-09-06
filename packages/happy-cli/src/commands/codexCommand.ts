@@ -7,6 +7,7 @@ import type { PermissionMode } from '@/api/types'
 import type { ReasoningEffort } from '@/codex/codexAppServerTypes'
 import { collectCodexUsageSnapshot } from '@/codex/codexUsage'
 import { promptInstallSlashCommandIfNeeded } from './pawsInstallPrompt'
+import { traceWorkerAuthentication } from '@/api/sessionStartupTrace'
 
 function formatTokens(value: number | undefined | null): string {
   return typeof value === 'number' ? value.toLocaleString() : '0'
@@ -66,7 +67,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     await promptInstallSlashCommandIfNeeded({ startedBy });
   }
 
-  const { credentials } = await authAndSetupMachineIfNeeded()
+  const { credentials, startupLifecycle } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded)
   await ensureDaemonRunning({ startedBy })
 
   await runCodex({
@@ -77,5 +78,6 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
     permissionMode,
     model,
     effort,
+    ...(startupLifecycle ? { startupLifecycle } : {}),
   })
 }

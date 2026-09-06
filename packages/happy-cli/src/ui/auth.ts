@@ -13,6 +13,7 @@ import { render } from 'ink';
 import React from 'react';
 import { randomUUID } from 'node:crypto';
 import { logger } from './logger';
+import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 
 export async function doAuth(): Promise<Credentials | null> {
     console.clear();
@@ -250,7 +251,7 @@ export function decryptWithEphemeralKey(encryptedBundle: Uint8Array, recipientSe
  * Ensure authentication and machine setup
  * This replaces the onboarding flow and ensures everything is ready
  */
-export async function authAndSetupMachineIfNeeded(): Promise<{
+export async function authAndSetupMachineIfNeeded(startupLifecycle?: WorkerSessionStartupLifecycle): Promise<{
     credentials: Credentials;
     machineId: string;
 }> {
@@ -272,6 +273,8 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
         logger.debug('[AUTH] Using existing credentials');
     }
 
+    startupLifecycle?.authReady();
+
     // Make sure we have a machine ID
     // Server machine entity will be created either by the daemon or by the CLI
     const settings = await updateSettings(async s => {
@@ -283,6 +286,8 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
         }
         return s;
     });
+
+    startupLifecycle?.machineReady(settings.machineId);
 
     logger.debug(`[AUTH] Machine ID: ${settings.machineId}`);
 

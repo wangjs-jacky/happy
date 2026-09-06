@@ -34,6 +34,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RawJSONLinesSchema, type RawJSONLines } from './types';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
+import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -77,7 +78,11 @@ function withoutAttachTriggerTurn(messages: RawJSONLines[]): RawJSONLines[] {
     return attachTriggerIndex === -1 ? messages : messages.slice(0, attachTriggerIndex);
 }
 
-export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
+export async function runClaude(
+    credentials: Credentials,
+    options: StartOptions = {},
+    startupLifecycle?: WorkerSessionStartupLifecycle,
+): Promise<void> {
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
     logger.debug(`[CLAUDE] This is the Claude agent, NOT Gemini`);
     
@@ -97,7 +102,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     connectionState.setBackend('Claude');
 
     // Create session service
-    const api = await ApiClient.create(credentials);
+    const api = await ApiClient.create(credentials, startupLifecycle);
 
     // Create a new session
     let state: AgentState = {};
@@ -877,6 +882,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     registerSessionTitleWorker(session, 'claude');
     registerKillSessionHandler(session.rpcHandlerManager, () => cleanup({ archive: true }));
 
+    // The remote message handler above is installed; the backend itself starts in loop().
+    session.processorStarting?.();
+    let processorReadySent = false;
+
     // Create claude loop
     const exitCode = await loop({
         path: workingDirectory,
@@ -897,6 +906,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+        },
+        onProcessorReady: () => {
+            if (processorReadySent) return;
+            processorReadySent = true;
+            session.processorReady?.();
+            session.sendSessionEvent({ type: 'ready' });
         },
         onAbort: resetCurrentModeDefaults,
         mcpServers: {

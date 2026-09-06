@@ -42,6 +42,7 @@ interface LoopOptions {
     allowedTools?: string[]
     sandboxConfig?: SandboxConfig
     onSessionReady?: (session: Session) => void
+    onProcessorReady?: () => void
     onAbort?: () => void
     /** Path to temporary settings file with SessionStart hook (required for session tracking) */
     hookSettingsPath: string
@@ -94,7 +95,7 @@ export async function loop(opts: LoopOptions): Promise<number> {
             }
 
             case 'remote': {
-                const reason = await claudeRemoteLauncher(session);
+                const reason = await claudeRemoteLauncher(session, opts.onProcessorReady);
                 switch (reason) {
                     case 'exit':
                         return 0;

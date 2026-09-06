@@ -72,6 +72,7 @@ import { listCodexSkillNames } from './codexSkills';
 import { registerSessionTitleWorker } from '@/title/sessionTitleWorker';
 import { updateQueuedMessageCount } from '@/api/sessionTurnStatus';
 import { mergeReconnectMetadata } from './reconnectMetadata';
+import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 
 /**
  * Extracts a human-readable error from a codex task_complete/turn_aborted event.
@@ -89,6 +90,15 @@ function describeCodexFailure(msg: any): string | null {
 }
 
 const DEFAULT_CODEX_PERMISSION_MODE: PermissionMode = 'yolo';
+
+export async function completeCodexProcessorStartup(
+    session: Pick<ApiSessionClient, 'processorReady' | 'sendSessionEvent'>,
+    ensureThreadAvailable: () => Promise<unknown>,
+): Promise<void> {
+    await ensureThreadAvailable();
+    session.processorReady();
+    session.sendSessionEvent({ type: 'ready' });
+}
 
 function formatCodexGoal(goal: ThreadGoal): string {
     const budget = goal.tokenBudget === null
@@ -304,6 +314,7 @@ export async function runCodex(opts: {
     permissionMode?: PermissionMode;
     model?: string;
     effort?: ReasoningEffort;
+    startupLifecycle?: WorkerSessionStartupLifecycle;
 }): Promise<void> {
     // Early check: ensure Codex CLI is installed before proceeding
     try {
@@ -335,7 +346,7 @@ export async function runCodex(opts: {
     // Set backend for offline warnings (before any API calls)
     connectionState.setBackend('Codex');
 
-    const api = await ApiClient.create(opts.credentials);
+    const api = await ApiClient.create(opts.credentials, opts.startupLifecycle);
 
     // Log startup options
     logger.debug(`[codex] Starting with options: startedBy=${opts.startedBy || 'terminal'}`);
@@ -897,6 +908,7 @@ export async function runCodex(opts: {
     // Start Context 
     //
 
+    session.processorStarting?.();
     client = new CodexAppServerClient(sandboxConfig, resolveCodexAppServerConnection());
 
     permissionHandler = new CodexPermissionHandler(session, (notification) => {
@@ -1569,6 +1581,14 @@ export async function runCodex(opts: {
                 finalizeCodexTurn();
             }
         };
+
+        await completeCodexProcessorStartup(session, () => ensureCodexThread({
+            permissionMode: currentPermissionMode ?? 'default',
+            model: currentModel,
+            appendSystemPrompt: currentAppendSystemPrompt,
+            effort: currentEffort,
+            fast: currentFastMode,
+        }));
 
         while (!shouldExit) {
             logActiveHandles('loop-top');

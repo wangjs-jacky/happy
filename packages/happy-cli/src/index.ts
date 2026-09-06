@@ -37,6 +37,7 @@ import { handleCodexCommand } from './commands/codexCommand'
 import { handleAttachCommand } from './commands/attach'
 import { promptInstallSlashCommandIfNeeded } from './commands/pawsInstallPrompt'
 import { promptCliUpdateIfNeeded } from './commands/cliUpdateCheck'
+import { traceWorkerAuthentication } from './api/sessionStartupTrace'
 
 
 (async () => {
@@ -420,7 +421,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       }
 
       const resolved = resolveAcpAgentConfig(acpArgs);
-      const { credentials } = await authAndSetupMachineIfNeeded();
+      const { credentials, startupLifecycle } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded);
       await ensureDaemonRunning()
 
       await runAcp({
@@ -430,6 +431,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         agentName: resolved.agentName,
         command: resolved.command,
         args: resolved.args,
+        startupLifecycle,
       });
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
@@ -781,13 +783,14 @@ ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
 
     // Normal flow - auth and machine setup
     const {
-      credentials
-    } = await authAndSetupMachineIfNeeded();
+      credentials,
+      startupLifecycle,
+    } = await traceWorkerAuthentication(authAndSetupMachineIfNeeded);
     await ensureDaemonRunning()
 
     // Start the CLI
     try {
-      await runClaude(credentials, options);
+      await runClaude(credentials, options, startupLifecycle);
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
       if (process.env.DEBUG) {

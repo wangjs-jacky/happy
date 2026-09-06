@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => {
     keepAlive: vi.fn(),
     sendSessionProtocolMessage: vi.fn(),
     sendSessionEvent: vi.fn(),
+    processorStarting: vi.fn(() => true),
+    processorReady: vi.fn(() => true),
     updateMetadata: vi.fn(),
     sendSessionDeath: vi.fn(),
     flush: vi.fn(async () => {}),
@@ -219,6 +221,28 @@ describe('runAcp', () => {
       url: 'http://127.0.0.1:9876',
       stop: vi.fn(),
     });
+  });
+
+  it('emits processor readiness only after the user handler is installed and ACP startSession succeeds', async () => {
+    const startupLifecycle = {} as any;
+    const runPromise = runAcp({
+      credentials: { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } },
+      agentName: 'opencode', command: 'opencode', args: ['--acp'],
+      startupLifecycle,
+    });
+
+    await vi.waitFor(() => expect(mocks.backendState.startSessionCalls).toBe(1));
+
+    expect(mocks.getUserMessageHandler()).toBeTypeOf('function');
+    expect(mocks.mockApiCreate).toHaveBeenCalledWith(expect.any(Object), startupLifecycle);
+    expect(mocks.mockSession.processorStarting).toHaveBeenCalledTimes(1);
+    expect(mocks.mockSession.processorReady).toHaveBeenCalledTimes(1);
+    expect(mocks.mockSession.sendSessionEvent).toHaveBeenCalledWith({ type: 'ready' });
+    expect(mocks.mockSession.processorReady.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.mockSession.sendSessionEvent.mock.invocationCallOrder[0]);
+
+    await mocks.getKillHandler()!();
+    await runPromise;
   });
 
   it('wires backend messages through mapper into session envelopes', async () => {

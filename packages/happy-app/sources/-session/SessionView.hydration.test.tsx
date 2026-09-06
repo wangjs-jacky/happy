@@ -4,9 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations.
 import TestRenderer from 'react-test-renderer';
 import { SessionView } from './SessionView';
+import { SessionRouteAbandonedError, SessionRouteCoordinationError, SessionRouteOwnership } from '@/sync/sessionRouteOwnership';
 
 const mocks = vi.hoisted(() => ({
     abandonSessionRoute: vi.fn(),
+    beginSessionRoute: vi.fn(),
+    promoteSessionRoute: vi.fn(),
+    leaveSessionRoute: vi.fn(),
+    setCurrentViewingSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
@@ -66,7 +71,7 @@ vi.mock('expo-router', () => ({
 vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) } }));
 
 vi.mock('@/sync/storage', () => ({
-    storage: { getState: () => ({ currentViewingSessionId: null, setCurrentViewingSession: vi.fn() }) },
+    storage: { getState: () => ({ currentViewingSessionId: null, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
     useIsDataReady: () => true,
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
@@ -80,6 +85,9 @@ vi.mock('@/sync/storage', () => ({
 vi.mock('@/sync/sync', () => ({
     sync: {
         abandonSessionRoute: mocks.abandonSessionRoute,
+        beginSessionRoute: mocks.beginSessionRoute,
+        promoteSessionRoute: mocks.promoteSessionRoute,
+        leaveSessionRoute: mocks.leaveSessionRoute,
         ensureSessionHydrated: mocks.ensureSessionHydrated,
         loadNextSessionHistoryPage: mocks.fetchNextHistoryPage,
         onSessionVisible: vi.fn(),
@@ -178,8 +186,9 @@ vi.mock('@/components/subagent/SubagentInspectorContext', async () => {
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-    return { promise, resolve };
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+    return { promise, resolve, reject };
 }
 
 describe('SessionView deep-link hydration', () => {
@@ -194,6 +203,10 @@ describe('SessionView deep-link hydration', () => {
             originalConsoleError(...values);
         });
         mocks.session = null;
+        const owners = new SessionRouteOwnership();
+        mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
+        mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
+        mocks.leaveSessionRoute.mockImplementation((owner) => owners.leave(owner));
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         mocks.openSession.mockImplementation(async (id: string) => (
             await mocks.ensureSessionHydrated(id) ? 'ready' : 'not-found'
@@ -214,12 +227,14 @@ describe('SessionView deep-link hydration', () => {
         expect(renderer.root.findAllByProps({ testID: 'session-retrying' }).length).toBeGreaterThan(0);
         await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
         expect(mocks.openSession.mock.calls.length).toBe(4);
+        expect(mocks.openSession.mock.calls.map(call => call[2]?.retry ?? false)).toEqual([false, true, true, true]);
         expect(renderer.root.findAllByProps({ testID: 'session-load-error' }).length).toBeGreaterThan(0);
         await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
         expect(mocks.openSession.mock.calls.length).toBe(4);
         mocks.openSession.mockResolvedValue('not-found');
         await act(async () => { renderer.root.findByProps({ testID: 'session-retry' }).props.onPress(); });
         expect(mocks.openSession.mock.calls.length).toBe(5);
+        expect(mocks.openSession.mock.calls[4][2]).toEqual({ retry: true });
         expect(renderer.root.findAllByProps({ testID: 'session-not-found' }).length).toBeGreaterThan(0);
         act(() => renderer.unmount());
     });
@@ -232,11 +247,97 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { renderer = TestRenderer.create(<SessionView id="deep-session" />); });
 
         expect(mocks.ensureSessionHydrated).toHaveBeenCalledWith('deep-session');
+        expect(mocks.openSession).toHaveBeenCalledWith('deep-session', expect.objectContaining({ sessionId: 'deep-session', phase: 'opening' }));
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
         expect(renderer.root.findByProps({ testID: 'session-loading' })).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
         expect(mocks.fetchNextHistoryPage).not.toHaveBeenCalled();
         hydration.resolve(true);
         await act(async () => { await hydration.promise; });
+        act(() => renderer.unmount());
+    });
+
+    it('does not retry terminal route abandonment as a transient network failure', async () => {
+        vi.useFakeTimers();
+        mocks.openSession.mockRejectedValue(new SessionRouteAbandonedError());
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="deleted-session" />); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it.each(['cached', 'hydrated'] as const)('keeps an abandoned %s session terminal without mounting the chat', async (source) => {
+        vi.useFakeTimers();
+        const session = {
+            id: 'abandoned-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        if (source === 'cached') mocks.session = session;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="abandoned-session" />); });
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        if (source === 'hydrated') mocks.session = session;
+        await act(async () => { opening.reject(new SessionRouteAbandonedError()); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(renderer.root.findByProps({ testID: 'session-not-found' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('exposes exhausted coordination without spending the network retry budget', async () => {
+        vi.useFakeTimers();
+        mocks.session = {
+            id: 'exhausted-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        mocks.openSession.mockRejectedValue(new SessionRouteCoordinationError());
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="exhausted-session" />); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+        expect(mocks.openSession).toHaveBeenCalledTimes(1);
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(1);
+        expect(renderer.root.findByProps({ testID: 'session-load-error' })).toBeTruthy();
+        expect(renderer.root.findAllByType('MessageComposer')).toHaveLength(0);
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        mocks.openSession.mockResolvedValue('ready');
+        await act(async () => { renderer.root.findByProps({ testID: 'session-retry' }).props.onPress(); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('exhausted-session');
+        act(() => renderer.unmount());
+    });
+
+    it('promotes and marks read only after the ready page mounts its loaded component', async () => {
+        const opening = deferred<'ready'>();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.session = {
+            id: 'loaded-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<SessionView id="loaded-session" />); });
+        expect(mocks.promoteSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+        await act(async () => { opening.resolve('ready'); await opening.promise; });
+        const owner = mocks.beginSessionRoute.mock.results[0].value;
+        expect(mocks.promoteSessionRoute).toHaveBeenCalledWith(owner);
+        expect(mocks.setCurrentViewingSession).toHaveBeenCalledWith('loaded-session');
+        expect(mocks.promoteSessionRoute.mock.invocationCallOrder[0]).toBeLessThan(mocks.setCurrentViewingSession.mock.invocationCallOrder[0]);
         act(() => renderer.unmount());
     });
 
@@ -265,11 +366,50 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { renderer.update(<SessionView id="second-session" />); });
         await act(async () => { first.resolve('not-found'); await first.promise; });
 
-        expect(mocks.abandonSessionRoute).toHaveBeenCalledWith('first-session', first.promise);
+        expect(mocks.leaveSessionRoute).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'first-session' }));
         expect(renderer.root.findByProps({ testID: 'session-loading' })).toBeTruthy();
         expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
         second.resolve('ready');
         await act(async () => { await second.promise; });
         act(() => renderer.unmount());
+    });
+
+    it('paints only the matching route after its session route becomes ready', async () => {
+        // Catches a stale or loading route recording a browser paint before it is interactive.
+        const opening = deferred<'ready' | 'not-found'>();
+        const frames: FrameRequestCallback[] = [];
+        const paints: string[] = [];
+        const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+        const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+        (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (callback) => {
+            frames.push(callback);
+            return frames.length;
+        };
+        (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = () => undefined;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRouteNavigation: () => paints.push('painted'),
+        };
+        mocks.openSession.mockReturnValue(opening.promise);
+        let renderer: any;
+        try {
+            mocks.session = {
+                id: 'paint-session', seq: 3, active: true, activeAt: 10,
+                createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+                metadataVersion: 1, agentState: null, agentStateVersion: 0,
+                thinking: false, thinkingAt: 0,
+            };
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="paint-session" />); });
+            expect(frames).toHaveLength(0);
+
+            await act(async () => { opening.resolve('ready'); await opening.promise; });
+            expect(frames).toHaveLength(1);
+            frames[0](0);
+            expect(paints).toEqual(['painted']);
+        } finally {
+            act(() => renderer?.unmount());
+            (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = originalRequestAnimationFrame;
+            (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = originalCancelAnimationFrame;
+            delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+        }
     });
 });

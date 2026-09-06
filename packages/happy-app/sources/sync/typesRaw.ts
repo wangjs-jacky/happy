@@ -35,6 +35,7 @@ const agentEventSchema = z.discriminatedUnion('type', [z.object({
     endsAt: z.number(),
 }), z.object({
     type: z.literal('ready'),
+    terminal: z.literal(true).optional(),
 }), z.object({
     type: z.literal('subagent-status'),
     subagent: z.string(),
@@ -639,7 +640,7 @@ function normalizeSessionEnvelope(
             createdAt: messageCreatedAt,
             role: 'event',
             isSidechain: false,
-            content: { type: 'ready' },
+            content: { type: 'ready', terminal: true },
             meta
         } satisfies NormalizedMessage;
     }

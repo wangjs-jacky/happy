@@ -22,6 +22,7 @@ import { projectPath } from '@/projectPath';
 import { BasePermissionHandler, type PermissionResult } from '@/utils/BasePermissionHandler';
 import { connectionState } from '@/utils/serverConnectionErrors';
 import type { AgentState } from '@/api/types';
+import type { WorkerSessionStartupLifecycle } from '@/api/sessionStartupTrace';
 import {
   extractConfigOptionsFromPayload,
   extractCurrentModeIdFromPayload,
@@ -501,12 +502,13 @@ export async function runAcp(opts: {
   args: string[];
   startedBy?: 'daemon' | 'terminal';
   verbose?: boolean;
+  startupLifecycle?: WorkerSessionStartupLifecycle;
 }): Promise<void> {
   const verbose = opts.verbose === true;
   const sessionTag = randomUUID();
   connectionState.setBackend(opts.agentName);
 
-  const api = await ApiClient.create(opts.credentials);
+  const api = await ApiClient.create(opts.credentials, opts.startupLifecycle);
   const settings = await readSettings();
   if (!settings?.machineId) {
     throw new Error('No machine ID found in settings');
@@ -594,6 +596,7 @@ export async function runAcp(opts: {
     },
   };
 
+  session.processorStarting?.();
   const backend = new AcpBackend({
     agentName: opts.agentName,
     cwd: process.cwd(),
@@ -950,6 +953,8 @@ export async function runAcp(opts: {
   try {
     const started = await backend.startSession();
     acpSessionId = started.sessionId;
+    session.processorReady?.();
+    session.sendSessionEvent({ type: 'ready' });
     if (verbose) {
       if (!sawSlashCommands) {
         logAcp('muted', `Outgoing slash commands from ${opts.agentName}: not reported yet`);

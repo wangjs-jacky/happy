@@ -4,6 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer is only used for this component harness.
 import TestRenderer from 'react-test-renderer';
 
+const bootStages = vi.hoisted(() => {
+    const stages: string[] = [];
+    (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+        initFreshDeepLink: () => stages.push('web.root.module_ready'),
+        markAppStage: (stage: string) => stages.push(stage),
+        markFreshHeaderVisible: () => stages.push('web.route.mounted'),
+    };
+    return stages;
+});
+
 vi.stubGlobal('__DEV__', false);
 
 vi.mock('react-native', () => ({
@@ -154,5 +164,20 @@ describe('AuthenticatedRootLayout scanner provider topology', () => {
         });
 
         expect(renderer!.toJSON()).not.toBeNull();
+    });
+
+    it('publishes boot prerequisites without claiming the target session route has mounted', async () => {
+        // Catches boot attribution reporting a downstream render milestone before its prerequisite is ready.
+        const start = bootStages.length;
+        await act(async () => {
+            renderer = TestRenderer.create(<AuthenticatedRootLayout />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(bootStages.slice(start)).toEqual([
+            'web.crypto.ready',
+            'web.credentials.ready',
+        ]);
     });
 });

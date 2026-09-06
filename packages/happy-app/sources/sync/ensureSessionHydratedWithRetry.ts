@@ -1,4 +1,5 @@
 import { sync } from './sync';
+import { markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
 
 const SESSION_HYDRATION_DELAYS_MS = [0, 100, 250, 500] as const;
 
@@ -11,6 +12,7 @@ export async function ensureSessionHydratedWithRetry(sessionId: string): Promise
     for (const delayMs of SESSION_HYDRATION_DELAYS_MS) {
         if (delayMs > 0) {
             await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            markSessionCriticalPathHydrationRetry();
         }
         try {
             if (await sync.ensureSessionHydrated(sessionId)) {

@@ -12,6 +12,7 @@ const {
     mockStartHappyServer,
     mockStartHookServer,
     mockRegisterKillSessionHandler,
+    mockSDKQuery,
 } = vi.hoisted(() => ({
     mockApiClientCreate: vi.fn(),
     mockCreateSessionScanner: vi.fn(),
@@ -21,6 +22,12 @@ const {
     mockStartHappyServer: vi.fn(),
     mockStartHookServer: vi.fn(),
     mockRegisterKillSessionHandler: vi.fn(),
+    mockSDKQuery: vi.fn(),
+}));
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>(),
+    query: mockSDKQuery,
 }));
 
 vi.mock('@/api/api', () => ({
@@ -144,6 +151,85 @@ describe('runClaude remote JSONL scanner', () => {
             cleanup: vi.fn(),
         });
     });
+
+    it.each(['resolved', 'rejected'] as const)('waits for real Claude backend initialization (%s), independently of model response', async (initialization) => {
+        const order: string[] = [];
+        const backend = createDeferred<any>();
+        const model = createDeferred<void>();
+        const handlers = new Map<string, (...args: any[]) => any>();
+        const startupLifecycle = {} as any;
+        let registeredUserHandler: ((message: any) => void) | undefined;
+        const sessionClient = {
+            sessionId: 'happy-session-1',
+            suppressNextArchiveSignal: vi.fn(), skipExistingMessages: vi.fn(), updateMetadata: vi.fn(),
+            sendClaudeSessionMessage: vi.fn(), onFileEvent: vi.fn(), on: vi.fn(), trackAttachmentDownload: vi.fn(),
+            drainAttachmentsForUserMessage: vi.fn(async () => []), downloadAndDecryptAttachment: vi.fn(),
+            getMetadata: vi.fn(() => ({})), updateAgentState: vi.fn(), sendSessionDeath: vi.fn(),
+            keepAlive: vi.fn(), closeClaudeSessionTurn: vi.fn(),
+            flush: vi.fn(async () => {}), close: vi.fn(async () => {}),
+            rpcHandlerManager: { registerHandler: vi.fn((name, handler) => handlers.set(name, handler)) },
+            onUserMessage: vi.fn((handler: (message: any) => void) => { registeredUserHandler = handler; order.push('handler'); }),
+            processorStarting: vi.fn(() => { order.push('starting'); return true; }),
+            processorReady: vi.fn(() => { order.push('ready-span'); return true; }),
+            sendSessionEvent: vi.fn((event: unknown) => { order.push(`event:${JSON.stringify(event)}`); }),
+        };
+        const api = {
+            getOrCreateMachine: vi.fn(async () => ({})),
+            getOrCreateSession: vi.fn(async () => ({ id: 'happy-session-1', seq: 0, metadata: {}, metadataVersion: 0, agentState: {}, agentStateVersion: 0, encryptionKey: new Uint8Array(32), encryptionVariant: 'legacy' as const })),
+            sessionSyncClient: vi.fn(() => sessionClient), deactivateSession: vi.fn(async () => {}),
+        };
+        mockApiClientCreate.mockResolvedValue(api);
+        mockLoop.mockImplementation(async (options: any) => {
+            const { loop } = await vi.importActual<typeof import('./loop')>('./loop');
+            return loop(options);
+        });
+        mockSDKQuery.mockImplementation(({ prompt }: any) => {
+            order.push('backend-started');
+            return {
+                initializationResult: () => backend.promise,
+                setPermissionMode: async () => {},
+                async *[Symbol.asyncIterator]() {
+                    await backend.promise;
+                    const first = await prompt[Symbol.asyncIterator]().next();
+                    expect(first.value.message.content).toBe('first accepted message');
+                    order.push('consumed');
+                    await model.promise;
+                },
+            };
+        });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => { throw new Error('process.exit'); }) as never);
+
+        const credentials = { token: 'token', encryption: { type: 'legacy', secret: new Uint8Array(32) } } as any;
+        const running = runClaude(credentials, {
+            startingMode: 'remote', shouldStartDaemon: false,
+        }, startupLifecycle);
+        const exited = running.catch(error => error);
+        await vi.waitFor(() => expect(registeredUserHandler).toBeTypeOf('function'));
+        registeredUserHandler!({ content: { text: 'first accepted message' }, meta: {} });
+        await vi.waitFor(() => expect(mockSDKQuery).toHaveBeenCalledOnce(), { timeout: 10000 });
+        const beforeInitialization = [...order];
+        if (initialization === 'resolved') {
+            backend.resolve({});
+            await vi.waitFor(() => expect(order).toContain('ready-span'));
+            expect(order.filter(value => value === 'event:{"type":"ready"}')).toHaveLength(1);
+            expect(order.indexOf('handler')).toBeLessThan(order.indexOf('backend-started'));
+            expect(order.indexOf('backend-started')).toBeLessThan(order.indexOf('ready-span'));
+            await vi.waitFor(() => expect(order).toContain('consumed'));
+        } else {
+            backend.reject(new Error('synthetic initialization failure'));
+            await vi.waitFor(() => expect(sessionClient.closeClaudeSessionTurn).toHaveBeenCalledWith('failed'));
+        }
+        model.resolve();
+        await handlers.get('switch')!();
+        expect(await exited).toMatchObject({ message: 'process.exit' });
+        expect(beforeInitialization).not.toContain('ready-span');
+        expect(beforeInitialization).not.toContain('event:{"type":"ready"}');
+        if (initialization === 'rejected') expect(order).not.toContain('ready-span');
+
+        expect(mockApiClientCreate).toHaveBeenCalledWith(credentials, startupLifecycle);
+        expect(registeredUserHandler).toBeTypeOf('function');
+        exitSpy.mockRestore();
+    }, 20_000);
 
     afterEach(() => {
         for (const [event, listeners] of originalListeners) {

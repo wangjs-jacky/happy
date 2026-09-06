@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import type { AttachmentPreview } from './attachmentTypes';
 
+let attachmentDraftEpoch = 0;
+
+export const composeDraftAttachmentSelectionGeneration = {
+    currentDraftEpoch: () => attachmentDraftEpoch,
+    invalidate: () => {
+        attachmentDraftEpoch++;
+    },
+};
+
 // Route-independent, memory-only state: File/blob references survive navigation
 // without serializing private attachment locations to disk.
 export const useComposeDraft = create<{
@@ -16,5 +25,6 @@ export const useComposeDraft = create<{
 }));
 
 export function clearComposeDraft() {
+    composeDraftAttachmentSelectionGeneration.invalidate();
     useComposeDraft.setState(state => ({ text: '', images: [], revision: state.revision + 1 }));
 }
