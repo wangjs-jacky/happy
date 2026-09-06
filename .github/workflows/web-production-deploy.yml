@@ -50,15 +50,24 @@ jobs:
             await core.summary.addRaw(markdown + '\n\n').write();
 
       - name: Guard exact merged main revision before external mutation
+        id: source
+        env:
+          PAWS_WEB_SKIP_SUPERSEDED: '1'
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = 'refs/heads/main'
           git fetch --no-tags origin main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          worktree_status="$(git status --short)"
+          test -z "$worktree_status"
+          origin_main_revision="$(git rev-parse refs/remotes/origin/main)"
+          source scripts/web-release-source.sh
+          assert_web_release_is_current "$PWD" "$GITHUB_SHA" "$origin_main_revision"
           git checkout -B main "$GITHUB_SHA"
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
 
       - name: Guard deployment configuration
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           test -n "$ALIBABA_CLOUD_ACCESS_KEY_ID" || { echo '::error::Missing ALIYUN_OSS_ACCESS_KEY_ID secret.'; exit 1; }
@@ -70,18 +79,22 @@ jobs:
           test "$PAWS_LEGACY_WEB_PATH" = '/var/www/happy-web'
 
       - name: Install pnpm
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
       - name: Install dependencies
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: pnpm install --frozen-lockfile
 
       - name: Install Aliyun CLI
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
@@ -94,6 +107,7 @@ jobs:
             --region cn-hangzhou
 
       - name: Configure verified SSH access
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           install -d -m 700 ~/.ssh
@@ -113,6 +127,7 @@ jobs:
 
       - name: Resolve MCP App sandbox rollout
         id: mcp_rollout
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           if [ -z "$PAWS_MCP_APP_SANDBOX_ORIGIN" ]; then
@@ -139,7 +154,7 @@ jobs:
 
       - name: Configure MCP App sandbox route
         id: mcp_caddy
-        if: ${{ steps.mcp_rollout.outputs.enabled == 'true' }}
+        if: ${{ steps.source.outputs.eligible == 'true' && steps.mcp_rollout.outputs.enabled == 'true' }}
         run: |
           set -euo pipefail
           current_caddy="$(mktemp)"
@@ -191,10 +206,11 @@ jobs:
 
       - name: Verify MCP App sandbox endpoint
         id: mcp_verify
-        if: ${{ steps.mcp_rollout.outputs.enabled == 'true' }}
+        if: ${{ steps.source.outputs.eligible == 'true' && steps.mcp_rollout.outputs.enabled == 'true' }}
         run: node scripts/verify-production-mcp-app-sandbox.mjs "$PAWS_MCP_APP_SANDBOX_ORIGIN" "$PAWS_WEB_ORIGIN"
 
       - name: Build and stamp Web from this main revision
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: |
           set -euo pipefail
           RELEASE_TIMESTAMP="$(git show -s --format=%cI "$GITHUB_SHA")"
@@ -215,20 +231,25 @@ jobs:
             "$GITHUB_SHA"
 
       - name: Upload complete immutable Web release
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: bash scripts/upload-web-assets.sh
 
       - name: Verify immutable OSS release before activation
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         run: node scripts/verify-web-release.mjs "$PAWS_WEB_OSS_ORIGIN" packages/happy-app/dist/index.html --immutable "$PAWS_WEB_ORIGIN"
 
       - name: Atomically switch OSS Web entry
         id: switch
+        if: ${{ steps.source.outputs.eligible == 'true' }}
         env:
           PAWS_SKIP_BUILD: '1'
+          PAWS_WEB_SKIP_SUPERSEDED: '1'
           PAWS_WEB_RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: pnpm web:deploy
 
       - name: Route the Web SPA to OSS
         id: caddy
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: |
           set -euo pipefail
           current_caddy="$(mktemp)"
@@ -317,10 +338,12 @@ jobs:
 
       - name: Verify live OSS-backed release and routes
         id: live_verify
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: node scripts/verify-web-release.mjs "$PAWS_WEB_ORIGIN" packages/happy-app/dist/index.html
 
       - name: Remove guarded legacy Web files
         id: cleanup
+        if: ${{ steps.switch.outputs.activated == 'true' }}
         run: |
           set -euo pipefail
           legacy_path="$PAWS_LEGACY_WEB_PATH"
@@ -352,7 +375,9 @@ jobs:
           REMOTE_SCRIPT
 
       - name: Roll back failed Web activation
-        if: ${{ failure() && steps.live_verify.outcome != 'success' }}
+        # Supersession can happen after sandbox route preparation. Restore that
+        # preparation too; rollback errors must still fail the job.
+        if: ${{ (failure() || steps.switch.outputs.superseded == 'true') && steps.live_verify.outcome != 'success' }}
         run: |
           set -uo pipefail
           rollback_prefix="${{ steps.switch.outputs.rollback_prefix }}"
@@ -447,7 +472,7 @@ jobs:
           fi
 
       - name: Write deployment summary
-        if: success()
+        if: ${{ success() && steps.live_verify.outcome == 'success' }}
         run: |
           {
             echo '### Paws Web deployed'
@@ -459,4 +484,20 @@ jobs:
             echo "| Static storage | \`oss://$PAWS_WEB_OSS_BUCKET/web/releases/$GITHUB_SHA/\` |"
             echo '| Server Web files | Removed after verification |'
             echo "| MCP Apps | ${{ steps.mcp_rollout.outputs.enabled == 'true' && 'Enabled after sandbox verification' || 'Disabled (repository variable unset)' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write superseded deployment summary
+        if: ${{ success() && (steps.source.outputs.superseded == 'true' || steps.switch.outputs.superseded == 'true') }}
+        env:
+          SUPERSEDED_BY: ${{ steps.switch.outputs.superseded_by || steps.source.outputs.superseded_by }}
+        run: |
+          {
+            echo '### Paws Web deployment skipped'
+            echo ''
+            echo '此提交已被更新的 main 取代；未激活本次 Web 产物。请查看较新提交的自动部署结果。'
+            echo ''
+            echo '| Field | Value |'
+            echo '| --- | --- |'
+            echo "| Skipped commit | \`$GITHUB_SHA\` |"
+            echo "| Superseding main | \`$SUPERSEDED_BY\` |"
           } >> "$GITHUB_STEP_SUMMARY"
