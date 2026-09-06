@@ -352,6 +352,8 @@ export const pt: TranslationStructure = {
             `${feature} ${enabled ? 'ativado' : 'desativado'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',
@@ -434,6 +436,14 @@ export const pt: TranslationStructure = {
             upOneLevel: 'Subir um nível',
             loadError: 'Não foi possível carregar esta pasta',
             retry: 'Tentar novamente',
+        },
+        browserProgress: {
+            title: 'Progresso do navegador',
+            view: 'Ver progresso',
+            close: 'Fechar progresso do navegador',
+            timelineTitle: 'Etapas do navegador',
+            liveCount: ({ count }: { count: number }) => `Em tempo real · ${count} ${count === 1 ? 'etapa' : 'etapas'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Etapa ${current} de ${total}`,
         },
         meta: {
             available: 'Available in session',

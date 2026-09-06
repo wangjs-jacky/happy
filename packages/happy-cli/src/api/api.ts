@@ -9,33 +9,22 @@ import { configuration } from '@/configuration';
 import chalk from 'chalk';
 import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
-import { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
-
-const SESSION_STARTUP_TRACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function takeSessionStartupTraceId(): string | undefined {
-  const traceId = process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
-  delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
-  return traceId && SESSION_STARTUP_TRACE_ID_RE.test(traceId) ? traceId : undefined;
-}
+import type { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 
 export class ApiClient {
 
-  static async create(credential: Credentials) {
-    return new ApiClient(credential);
+  static async create(credential: Credentials, startupLifecycle?: WorkerSessionStartupLifecycle) {
+    return new ApiClient(credential, startupLifecycle);
   }
 
   private readonly credential: Credentials;
   private readonly pushClient: PushNotificationClient;
   private readonly startupLifecycle: WorkerSessionStartupLifecycle | undefined;
 
-  private constructor(credential: Credentials) {
+  private constructor(credential: Credentials, startupLifecycle?: WorkerSessionStartupLifecycle) {
     this.credential = credential
     this.pushClient = new PushNotificationClient(credential.token, configuration.serverUrl)
-    const startupTraceId = takeSessionStartupTraceId();
-    this.startupLifecycle = startupTraceId
-      ? new WorkerSessionStartupLifecycle(startupTraceId)
-      : undefined;
+    this.startupLifecycle = startupLifecycle;
   }
 
   /**
@@ -181,7 +170,8 @@ export class ApiClient {
     }
 
     // Helper to create minimal machine object for offline mode (DRY)
-    const createMinimalMachine = (): Machine => ({
+    const createMinimalMachine = (): Machine => {
+      return ({
       id: opts.machineId,
       encryptionKey: encryptionKey,
       encryptionVariant: encryptionVariant,
@@ -189,7 +179,8 @@ export class ApiClient {
       metadataVersion: 0,
       daemonState: opts.daemonState || null,
       daemonStateVersion: 0,
-    });
+      });
+    };
 
     // Create machine
     try {

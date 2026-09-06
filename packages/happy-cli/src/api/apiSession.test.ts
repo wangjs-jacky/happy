@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiSessionClient } from './apiSession';
 import { ApiClient } from './api';
-import { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
+import { createWorkerSessionStartupLifecycleFromEnvironment, WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
 import type { Update } from './types';
 
@@ -136,6 +136,51 @@ function createBoundStartupLifecycle(session: ReturnType<typeof makeSession>) {
     return lifecycle;
 }
 
+describe('WorkerSessionStartupLifecycle startup spans', () => {
+    it.each([undefined, '', '   ', 42])('rejects processor stages for unbound invalid session id %j', (sessionId) => {
+        const events: Record<string, unknown>[] = [];
+        const lifecycle = new WorkerSessionStartupLifecycle(
+            '00000000-0000-4000-8000-000000000001',
+            (_label, event) => events.push(event),
+        );
+
+        expect(lifecycle.processorStarting(sessionId)).toBe(false);
+        expect(lifecycle.processorReady(sessionId)).toBe(false);
+        expect(events).toEqual([]);
+    });
+
+    it('records ordered component-local spans with a fixed redacted schema', () => {
+        const events: Record<string, unknown>[] = [];
+        const ticks = [100, 110, 130, 160, 200, 250, 310];
+        const wallTicks = [1010, 1030, 1060, 1100, 1150, 1210];
+        const lifecycle = new WorkerSessionStartupLifecycle(
+            '00000000-0000-4000-8000-000000000001',
+            (_label, event) => events.push(event),
+            () => ticks.shift()!,
+            () => wallTicks.shift()!,
+        );
+
+        lifecycle.entryStarted();
+        lifecycle.authReady();
+        lifecycle.machineReady('machine-1');
+        lifecycle.bindCreatedSession('session-1', 'machine-1');
+        lifecycle.processorStarting('session-1', 'machine-1');
+        expect(lifecycle.processorReady('wrong-session', 'machine-1')).toBe(false);
+        expect(lifecycle.processorReady('session-1', 'machine-1')).toBe(true);
+        expect(lifecycle.processorReady('session-1', 'machine-1')).toBe(false);
+
+        expect(events).toEqual([
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.entry.started', timestamp: 1010, duration: 10, spanDuration: 10, outcome: 'success' },
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.auth.ready', timestamp: 1030, duration: 30, spanDuration: 20, outcome: 'success' },
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.machine.ready', timestamp: 1060, duration: 60, spanDuration: 30, outcome: 'success', machineId: 'machine-1' },
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.session.created', timestamp: 1100, duration: 100, spanDuration: 40, outcome: 'success', sessionId: 'session-1', machineId: 'machine-1' },
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.processor.starting', timestamp: 1150, duration: 150, spanDuration: 50, outcome: 'success', sessionId: 'session-1', machineId: 'machine-1' },
+            { traceId: '00000000-0000-4000-8000-000000000001', stage: 'worker.processor.ready', timestamp: 1210, duration: 210, spanDuration: 60, outcome: 'success', sessionId: 'session-1', machineId: 'machine-1' },
+        ]);
+        expect(JSON.stringify(events)).not.toMatch(/command|directory|environment|prompt|raw error|token|agent/i);
+    });
+});
+
 async function waitForCheck(check: () => void, timeoutMs = 2000) {
     const startedAt = Date.now();
     let lastError: unknown;
@@ -164,10 +209,13 @@ describe('ApiSessionClient v3 messages API migration', () => {
     const createApiWithBoundStartupSession = async (traceId?: string) => {
         if (traceId) process.env.HAPPY_SESSION_STARTUP_TRACE_ID = traceId;
         else delete process.env.HAPPY_SESSION_STARTUP_TRACE_ID;
+        const startupLifecycle = createWorkerSessionStartupLifecycleFromEnvironment();
+        startupLifecycle?.authReady();
+        startupLifecycle?.machineReady(session.metadata.machineId);
         const api = await ApiClient.create({
             token: 'fake-token',
             encryption: { type: 'legacy', secret: session.encryptionKey },
-        });
+        }, startupLifecycle);
         mockAxiosPost.mockResolvedValueOnce({
             data: {
                 session: {
@@ -251,6 +299,26 @@ describe('ApiSessionClient v3 messages API migration', () => {
                 machineId: 'machine-1',
                 outcome: 'success',
             }),
+        ]);
+    });
+
+    it('delegates processor spans only for the client session and keeps readiness idempotent', () => {
+        const events: Record<string, unknown>[] = [];
+        const lifecycle = new WorkerSessionStartupLifecycle(
+            '00000000-0000-4000-8000-000000000001',
+            (_label, event) => events.push(event),
+            (() => { let now = 0; return () => now += 10; })(),
+        );
+        lifecycle.bindCreatedSession(session.id, session.metadata.machineId);
+        events.length = 0;
+        const client = new ApiSessionClient('fake-token', session, lifecycle);
+
+        expect(client.processorStarting()).toBe(true);
+        expect(client.processorReady()).toBe(true);
+        expect(client.processorReady()).toBe(false);
+        expect(events.map((event) => event.stage)).toEqual([
+            'worker.processor.starting',
+            'worker.processor.ready',
         ]);
     });
 

@@ -28,6 +28,11 @@ model Account {
     updatedAt       DateTime    @updatedAt
     settings        String?
     settingsVersion Int         @default(0)
+    vercelConnectionEpoch             Int     @default(0)
+    vercelConnectionState             String  @default("active")
+    vercelConnectionNonce             String?
+    vercelConnectionReplacementId     String?
+    vercelConnectionReplacementStartedAt DateTime?
     githubUserId    String?     @unique
     githubUser      GithubUser? @relation(fields: [githubUserId], references: [id])
 
@@ -54,6 +59,7 @@ model Account {
     UserKVStore         UserKVStore[]
     VoiceConversation   VoiceConversation[]
     PublicSessionShare  PublicSessionShare[]
+    InteractivePreview InteractivePreview[]
 }
 
 model TerminalAuthRequest {
@@ -111,6 +117,7 @@ model Session {
     usageReports      UsageReport[]
     accessKeys        AccessKey[]
     publicShare       PublicSessionShare?
+    interactivePreviews InteractivePreview[]
 
     @@unique([accountId, tag])
     @@index([accountId, updatedAt(sort: Desc)])
@@ -187,6 +194,60 @@ model SessionMessage {
 
     @@unique([sessionId, localId])
     @@index([sessionId, seq])
+}
+
+model InteractivePreview {
+    id                  String   @id
+    accountId           String
+    account             Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+    sessionId           String?
+    session             Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+    title               String
+    status              String   @default("draft")
+    manifest            Json
+    vercelDeploymentId  String?
+    publicationAttemptId String?
+    publicationCreateStartedAt DateTime?
+    publicationReconcileRetryCount Int @default(0)
+    publicationReconcileNextAttemptAt DateTime?
+    publicationGeneration Int @default(0)
+    connectionGeneration Int @default(0)
+    vercelTeamId        String?
+    vercelScopeKnown    Boolean  @default(true)
+    stagingGeneration   String
+    stagingCleanupPending Boolean @default(false)
+    url                 String?
+    publishedAt         DateTime?
+    expiresAt           DateTime
+    cleanupClaimedAt    DateTime?
+    cleanupRetryCount   Int      @default(0)
+    cleanupNextAttemptAt DateTime?
+    errorCode           String?
+    createdAt           DateTime @default(now())
+    updatedAt           DateTime @updatedAt
+    assets              InteractivePreviewAsset[]
+
+    @@index([accountId, createdAt(sort: Desc)])
+    @@index([status, expiresAt])
+    @@index([status, cleanupNextAttemptAt])
+    @@index([status, publicationReconcileNextAttemptAt])
+    @@index([sessionId, status])
+}
+
+model InteractivePreviewAsset {
+    previewId   String
+    preview     InteractivePreview @relation(fields: [previewId], references: [id], onDelete: Cascade)
+    id          String
+    path        String
+    mimeType    String
+    size        Int
+    sha256      String
+    storageKey  String
+    uploadedAt  DateTime?
+    createdAt   DateTime @default(now())
+
+    @@id([previewId, id])
+    @@unique([previewId, path])
 }
 
 //

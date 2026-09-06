@@ -68,6 +68,7 @@ import * as Application from 'expo-application';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
+import { SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
 import { DrawerActions } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
@@ -84,6 +85,7 @@ import {
 } from '@/components/subagent/SubagentInspectorContext';
 import { SubagentInspectorPanel } from '@/components/subagent/SubagentInspectorPanel';
 import { findSessionTitleTagQuery, removeSessionTitleTagQuery } from '@/utils/sessionTitleTags';
+import { markSessionCriticalPathAppStage } from '@/sync/sessionCriticalPathProbeBridge';
 
 // Agent display labels for the header chip. Mirrors ComposeHome's map, but keyed
 // off the running session's `flavor` (an active session reports its agent there).
@@ -446,7 +448,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const isDataReady = useIsDataReady();
     const [retryGeneration, setRetryGeneration] = React.useState(0);
     const [sessionResolution, setSessionResolution] = React.useState<'loading' | 'retrying' | 'error' | 'ready' | 'not-found'>(
-        session ? 'ready' : 'loading',
+        'loading',
     );
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -472,25 +474,34 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         rightWidth: layoutRightPanelWidth,
     } = useDesktopWorkspaceLayout();
     const sessionComposerHandleRef = React.useRef<ChatComposerHandle | null>(null);
+    const [routeOwner, setRouteOwner] = React.useState<SessionRouteOwner | null>(null);
     const subagentInspector = useSubagentInspector();
     const subagentSelection = subagentInspector?.selection ?? null;
 
     React.useEffect(() => {
         let cancelled = false;
         let opening: ReturnType<typeof sync.openSession> | undefined;
+        let owner: SessionRouteOwner | undefined;
         let retryTimer: ReturnType<typeof setTimeout> | undefined;
         const delays = [100, 250, 500];
         setSessionResolution('loading');
         const attempt = (index: number) => {
-            opening = sync.openSession(sessionId);
+            owner = sync.beginSessionRoute(sessionId);
+            setRouteOwner(owner);
+            opening = index > 0 || retryGeneration > 0
+                ? sync.openSession(sessionId, owner, { retry: true })
+                : sync.openSession(sessionId, owner);
             void opening.then((resolution) => {
                 if (cancelled) return;
                 setSessionResolution(resolution);
-                if (resolution === 'ready') void sync.sessionRouteBecameInteractive();
-            }).catch(() => {
+            }).catch((error: unknown) => {
                 if (cancelled) return;
-                if (opening) sync.abandonSessionRoute(sessionId, opening);
-                if (index === delays.length) {
+                if (owner) sync.leaveSessionRoute(owner);
+                if (error instanceof SessionRouteAbandonedError) {
+                    setSessionResolution('not-found');
+                    return;
+                }
+                if (error instanceof SessionRouteCoordinationError || index === delays.length) {
                     setSessionResolution('error');
                     return;
                 }
@@ -502,13 +513,25 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         return () => {
             cancelled = true;
             if (retryTimer) clearTimeout(retryTimer);
-            if (opening) sync.abandonSessionRoute(sessionId, opening);
+            if (owner) sync.leaveSessionRoute(owner);
         };
         // `session` intentionally is not a dependency: hydration inserts the
         // target into the store before its concurrently-started message page
         // completes, and restarting here would abandon that valid first load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, retryGeneration]);
+
+    React.useEffect(() => {
+        markSessionCriticalPathAppStage('web.route.mounted');
+    }, [sessionId]);
+
+    React.useEffect(() => {
+        if (sessionResolution !== 'ready' || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        const frame = requestAnimationFrame(() => {
+            markSessionCriticalPathAppStage('web.session.route_painted');
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [sessionId, sessionResolution]);
 
     // The capability hub is a first-class desktop panel. File browsing is an
     // optional mode inside that same panel instead of a separate fourth column.
@@ -1004,12 +1027,12 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                             <Text style={{ color: theme.colors.text }}>{t('common.retry')}</Text>
                         </Pressable>
                     </View>
-                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') ? (
+                ) : sessionResolution === 'loading' || sessionResolution === 'retrying' || (!session && sessionResolution !== 'not-found') || routeOwner?.sessionId !== sessionId ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-loading">
                         <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         {sessionResolution === 'retrying' && <Text testID="session-retrying" style={{ color: theme.colors.textSecondary }}>{t('common.retry')}</Text>}
                     </View>
-                ) : !session ? (
+                ) : sessionResolution !== 'ready' || !session ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }} testID="session-not-found">
                         <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
@@ -1022,6 +1045,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         onManageTags={() => setOrganizerOpen(true)}
                         onRemoveTag={removeSessionTag}
                         sessionId={sessionId}
+                        routeOwner={routeOwner}
                         session={session}
                         tags={sessionTags}
                     />
@@ -1335,6 +1359,7 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
 
 function SessionViewLoaded({
     sessionId,
+    routeOwner,
     session,
     composerHandleRef,
     onManageTags,
@@ -1342,6 +1367,7 @@ function SessionViewLoaded({
     tags,
 }: {
     sessionId: string;
+    routeOwner: SessionRouteOwner;
     session: Session;
     composerHandleRef: React.RefObject<ChatComposerHandle | null>;
     onManageTags: () => void;
@@ -1358,6 +1384,14 @@ function SessionViewLoaded({
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
+
+    React.useEffect(() => {
+        if (!isLoaded || messages.length === 0 || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        const frame = requestAnimationFrame(() => {
+            markSessionCriticalPathAppStage('web.session.latest_message_painted');
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [isLoaded, messages.length, sessionId]);
 
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
@@ -1560,24 +1594,27 @@ function SessionViewLoaded({
 
     // Trigger session visibility and initialize git status sync
     React.useLayoutEffect(() => {
+        if (!sync.promoteSessionRoute(routeOwner)) return;
 
         // Trigger session sync
         sync.onSessionVisible(sessionId, { loadMessages: false });
 
         // Mark session as currently being viewed (clears unread)
         storage.getState().setCurrentViewingSession(sessionId);
+        void sync.sessionRouteBecameInteractive();
 
         // Initialize git status sync for this session
         gitStatusSync.getSync(sessionId);
 
         return () => {
             // Clear viewing session on unmount
+            const left = sync.leaveSessionRoute(routeOwner);
             const current = storage.getState().currentViewingSessionId;
-            if (current === sessionId) {
+            if (left && current === sessionId) {
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId]);
+    }, [sessionId, routeOwner]);
 
     let content = (
         <>

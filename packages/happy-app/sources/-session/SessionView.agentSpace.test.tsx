@@ -353,6 +353,9 @@ vi.mock('@/sync/ops', () => ({ sessionAbort: mocks.sessionAbort }));
 vi.mock('@/sync/ops.screenshot', () => ({ requestScreenshot: mocks.requestScreenshot }));
 vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: mocks.imageViewerOpen } }));
 vi.mock('@/sync/sync', () => ({ sync: {
+    beginSessionRoute: (sessionId: string) => ({ sessionId, ownerEpoch: 1, phase: 'opening' as const }),
+    promoteSessionRoute: (owner: object) => ({ ...owner, phase: 'interactive' as const }),
+    leaveSessionRoute: () => true,
     abandonSessionRoute: mocks.abandonSessionRoute,
     onSessionVisible: vi.fn(),
     openSession: mocks.openSession,
@@ -1034,7 +1037,7 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
-    it('opens the subagent inspector in the compact drawer and returns to capabilities', () => {
+    it('opens the subagent inspector in the compact drawer and returns to capabilities', async () => {
         mocks.isDataReady = true;
         mocks.sessionMessages = [{
             kind: 'agent-text',
@@ -1045,7 +1048,7 @@ describe('SessionView Agent-space boundary', () => {
         }];
         let renderer: any;
 
-        act(() => {
+        await act(async () => {
             renderer = TestRenderer.create(<SessionView id="session-1" />);
         });
         expect(renderer.root.findByType('RightSwipePanelHost').props.open).toBe(false);
@@ -1076,7 +1079,7 @@ describe('SessionView Agent-space boundary', () => {
         act(() => renderer.unmount());
     });
 
-    it('temporarily replaces the desktop Files panel and restores it on inspector back', () => {
+    it('temporarily replaces the desktop Files panel and restores it on inspector back', async () => {
         mocks.isDataReady = true;
         mocks.fileDiffsSidebarEnabled = true;
         mocks.windowWidth = 1400;
@@ -1091,7 +1094,7 @@ describe('SessionView Agent-space boundary', () => {
         }];
         let renderer: any;
 
-        act(() => {
+        await act(async () => {
             renderer = TestRenderer.create(<SessionView id="session-1" />);
         });
         act(() => renderer.root.findByProps({ testID: 'desktop-right-panel-files-tab' }).props.onPress());

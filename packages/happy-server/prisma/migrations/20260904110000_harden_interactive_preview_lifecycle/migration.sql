@@ -1,0 +1,11 @@
+ALTER TABLE "InteractivePreview" ADD COLUMN "publicationAttemptId" TEXT;
+ALTER TABLE "InteractivePreview" ADD COLUMN "publicationGeneration" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "InteractivePreview" ADD COLUMN "connectionGeneration" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "InteractivePreview" ADD COLUMN "stagingGeneration" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "InteractivePreview" ADD COLUMN "stagingCleanupPending" BOOLEAN NOT NULL DEFAULT false;
+UPDATE "InteractivePreview" SET "stagingGeneration" = "id" WHERE "stagingGeneration" = '';
+ALTER TABLE "InteractivePreview" ALTER COLUMN "stagingGeneration" DROP DEFAULT;
+CREATE INDEX "InteractivePreview_sessionId_status_idx" ON "InteractivePreview"("sessionId", "status");
+ALTER TABLE "InteractivePreview" DROP CONSTRAINT "InteractivePreview_sessionId_fkey";
+ALTER TABLE "InteractivePreview" ALTER COLUMN "sessionId" DROP NOT NULL;
+ALTER TABLE "InteractivePreview" ADD CONSTRAINT "InteractivePreview_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE SET NULL ON UPDATE CASCADE;

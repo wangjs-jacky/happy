@@ -1,0 +1,156 @@
+# Task 2 remediation report: Vercel provider/client
+
+## Scope completed
+
+This remediation closes the Task 2 provider/client gaps without changing Task 3 lifecycle recovery, cleanup scheduling, or disconnect cleanup behavior.
+
+- A publish now resolves a dedicated Vercel project before deployment. It first creates `happy-previews`; an existing project causes a `409` conflict rather than adoption, so Happy creates a configuration-ID-derived collision-safe name instead. New project responses must echo the requested name.
+- The encrypted account-scoped Vercel credential already supports `projectId`; the preview service now persists the resolved ID there and validates/reuses it through the Vercel API on later publishes. A project ID must match the fetched project and have the Happy preview name prefix.
+- Deployments continue to request `target: null`. The Vercel client polls deployment status until `READY`, rejects `ERROR`/`CANCELED`, and has a 120-second bounded readiness timeout. Individual provider requests retain their 30-second abort timeout.
+- Happy uploads its own `vercel.json` and includes its SHA in the Vercel file manifest. It applies `X-Robots-Tag: noindex, nofollow, noarchive`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` to all paths. An Agent-supplied `vercel.json` is rejected before any provider upload.
+
+Token storage, per-account credential paths, authenticated connection routes, and account isolation were left intact. The existing credential-store specs still cover encrypted provider-scoped persistence and strict parsing.
+
+## Files changed
+
+- `packages/happy-server/sources/app/previews/vercelClient.ts`
+- `packages/happy-server/sources/app/previews/vercelClient.spec.ts`
+- `packages/happy-server/sources/app/previews/previewService.ts`
+- `packages/happy-server/sources/app/previews/previewService.spec.ts`
+- `packages/happy-server/sources/app/previews/vercelCredentialStore.ts`
+- `packages/happy-server/sources/app/previews/vercelCredentialStore.spec.ts`
+- `.superpowers/sdd/2026-09-04-happy-vercel-interactive-previews/task-2-report.md`
+
+## TDD evidence
+
+Each new behavior began with a focused failing test:
+
+| Behavior | Red result | Green result |
+| --- | --- | --- |
+| Collision-safe project creation and persisted project validation | `ensurePreviewProject is not a function` (2 client tests) | `vercelClient.spec.ts`: 7/7 passing after implementation |
+| Persist resolved project ID in encrypted credential | expected credential `set` call, received 0 calls | `previewService.spec.ts`: 3/3 passing after implementation and fixture updates |
+| Happy-owned no-index configuration and SHA manifest | expected config upload defined, received `undefined` | `previewService.spec.ts`: 4/4 passing after implementation |
+| Reject Agent-provided `vercel.json` | expected `/vercel.json/`, received integrity mismatch | `previewService.spec.ts`: 5/5 passing after guard |
+| Readiness polling, terminal provider failures, and timeout | returned `BUILDING` URL / resolved `QUEUED` and `BUILDING` deployments | `vercelClient.spec.ts`: 10/10 passing after polling implementation |
+
+The first attempted focused command used an incorrect workspace filter (`pnpm --filter happy-server ...`) and failed before running tests because the package is named `happy-server-self-host`. It was corrected to `pnpm --dir packages/happy-server exec vitest run ...`; the subsequent red runs above exercised the intended assertions.
+
+## Verification output
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts
+
+Test Files  4 passed (4)
+Tests       23 passed (23)
+```
+
+```text
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+```
+
+## Quality review remediation (follow-up commit)
+
+- A validated Vercel deployment ID is now handed to an awaited `onCreated` callback immediately after the create response is parsed and preview-only safety checks pass, but before the first readiness poll. `previewService` writes that ID to the `InteractivePreview` row in the callback. If the durable write fails, the client never polls; the publish error path retains the ID in the failed row when its error-state write succeeds, leaving Task 3 cleanup an identifier it can consume.
+- Project-ID persistence is now compare-and-set against the encrypted credential snapshot read from the provider-token row. The database repository performs the compare-and-set using a conditional `updateMany` over `(accountId, vendor, token)`, which makes the check safe across server replicas. A disconnect, reconnect, changed token, or changed configuration/team scope fails the update instead of recreating or overwriting the connection.
+
+### Quality review red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Persist deployment ID before provider polling | The poll ran without the callback having recorded its ID; a callback write failure could still enter polling | Client tests prove the callback runs after validation and before the first poll, and that a failed callback stops after the create request with no poll. Service tests prove the callback writes `vercelDeploymentId` before the final ready update and retains it in the failed-row path for cleanup. |
+| Atomic project-ID persistence | `setProjectIdIfCurrent` did not exist and project provisioning rewrote the stale full credential using `set` | Credential-store tests verify encrypted-snapshot CAS and reject a missing row, changed token, changed team, and changed configuration. Preview-service race coverage verifies that a failed CAS aborts before deployment creation. |
+
+Final quality-review verification:
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts
+
+Test Files  4 passed (4)
+Tests       50 passed (50)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+
+git diff --check
+exit 0
+```
+
+`git diff --check` also exited cleanly. The route spec intentionally logs one sanitized OAuth exchange error while testing its failure redirect; it does not expose a token or cause a test failure.
+
+## Deliberately left to Task 3
+
+- Restart recovery for in-flight publications.
+- Background deployment/staging cleanup, retries, and expiry deletion.
+- Disconnect-time deployment cleanup and provider revocation handling.
+- Any lifecycle schema or scheduler changes beyond storing/reusing the already-supported encrypted `projectId` field.
+
+## Review remediation (follow-up commit)
+
+The specification review identified reconnect and provider-safety gaps. The follow-up fixes are intentionally confined to Task 2 routes and provider client behavior.
+
+- OAuth reconnect now reads the existing encrypted credential. It retains `projectId` only when both the Vercel `configurationId` and selected `teamId` match; a changed configuration or scope clears it.
+- The Vercel project carries a deterministic provider-side ownership marker in its project configuration. After a create conflict, Happy reads that provider project and adopts it only if the marker matches the encrypted integration configuration. Otherwise it tries deterministic collision-safe names. This supports concurrent server replicas and the retry after a project was created but credential persistence failed, without an in-memory lock. A saved project that Vercel reports as deleted is reprovisioned; a present saved project must also retain the correct marker.
+- Deployment responses now require an explicit `target`, a known `readyState`, and an empty/absent alias list. Any non-null target, missing target, alias assignment, terminal `DELETED`, or unknown state fails closed.
+- The 120-second deployment deadline starts before the create request. Every request timeout and sleep is capped to the remaining deadline, and time is checked again after each await before a `READY` response can be returned.
+
+### Review red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Reconnect project preservation | Same-scope callback stored a credential without `projectId` | Route spec: 7/7 passing |
+| Project collision/retry ownership | Conflict handling either rejected or adopted by name alone; deleted saved project threw `not_found` | Client spec covers concurrent marker adoption, create-then-store retry adoption, unrelated collisions, deterministic fallback, and deleted-ID recovery |
+| Preview-only deployment validation | Staging/custom/missing targets and alias responses returned URLs | Client spec rejects all four cases |
+| Terminal/strict provider states | `DELETED` and unknown states polled until test timeout | Client spec rejects `DELETED` immediately and rejects unknown enum values |
+| Hard deadline | Sleep used the full poll interval and a late `READY` response returned a URL | Fake-clock tests verify capped sleep, capped request signals, and post-await timeout checks |
+
+Final review verification command:
+
+```text
+pnpm --dir packages/happy-server exec vitest run \
+  sources/app/previews/vercelCredentialStore.spec.ts \
+  sources/app/previews/vercelClient.spec.ts \
+  sources/app/previews/previewService.spec.ts \
+  sources/app/api/routes/vercelConnectRoutes.spec.ts
+
+Test Files  4 passed (4)
+Tests       37 passed (37)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+```
+
+## Review remediation 2 (follow-up commit)
+
+- Vercel documents project `installCommand` as optional, so project responses now parse it as optional and nullable. Missing, null, or mismatched markers are never treated as Happy-owned. A marker-less create response is verified with `GET /v9/projects/:id` before ownership is accepted.
+- Deployment responses now require `aliasAssigned: false` in addition to a null target and no aliases. `true` and a missing field both fail closed on the create and poll paths.
+
+### Review 2 red/green evidence
+
+| Finding | Red result | Green result |
+| --- | --- | --- |
+| Optional/null project marker | Both forms caused a schema error and stopped collision fallback; a marker-less create response was trusted incorrectly | Client tests treat missing/null markers as unrelated and verify a marker-less create via provider `GET` |
+| `aliasAssigned` safety | A `true` or missing value still returned a deployment URL | Client tests reject both unless `aliasAssigned` is explicitly `false` |
+
+Final review-2 verification:
+
+```text
+pnpm --dir packages/happy-server exec vitest run ...
+Test Files  4 passed (4)
+Tests       42 passed (42)
+
+pnpm --dir packages/happy-server run typecheck
+> tsc --noEmit
+exit 0
+```

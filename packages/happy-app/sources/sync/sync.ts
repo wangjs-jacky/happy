@@ -109,6 +109,10 @@ import {
     type SessionMessageLoadOperation,
 } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRangeFrontier } from './sessionMessageFrontier';
+import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
+import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
+import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -119,9 +123,13 @@ type SessionOpenResolution = 'ready' | 'not-found';
 type SessionOpenPromise = Promise<SessionOpenResolution>;
 type SessionRouteOperation = {
     sessionId: string;
+    owner: SessionRouteOwner;
     cancelled: boolean;
     messageLease: SessionMessageLease;
     messageLoad: SessionMessageLoadOperation;
+    latestPage: Promise<V3GetSessionMessagesResponse>;
+    foregroundTarget: number;
+    committedPageSeq: number | null;
 };
 
 class CoalescingMessageSync {
@@ -310,17 +318,16 @@ class Sync {
     private messagesSync = new Map<string, CoalescingMessageSync>();
     private sendSync = new Map<string, InvalidateSync>();
     private sendAbortControllers = new Map<string, AbortController>();
-    private sessionLastSeq = new Map<string, number>();
-    // Lowest seq value we have already fetched and applied for a session.
-    // Used as the cursor for backward pagination when the user scrolls up to
-    // load older history. Set after the initial latest-page fetch and
-    // advanced downward by loadOlderMessages.
-    private sessionOldestSeq = new Map<string, number>();
+    private sessionMessageFrontiers = new Map<string, MessageRangeFrontier>();
+    // Accepted API sequences can join cached islands only after the missing
+    // range has been fetched. Normalized messages do not retain API sequences.
+    private sessionCachedMessageSeqs = new Map<string, Set<number>>();
     private sessionMessageLoadGate = new SessionMessageLoadGate();
     private sessionMessageCacheGenerations = new Map<string, object>();
     private sessionOlderLoadingTokens = new Map<string, object>();
     private sessionMessageRetention = new SessionMessageRetention(3);
     private activeOpenSession: SessionRouteOperation | null = null;
+    private sessionRouteOwnership = new SessionRouteOwnership();
     private sessionRouteOperations = new WeakMap<SessionOpenPromise, SessionRouteOperation>();
     private pendingOutbox = new Map<string, OutboxMessage[]>();
     private sessionMessageQueue = new Map<string, NormalizedMessage[]>();
@@ -602,9 +609,22 @@ class Sync {
         let sync = this.messagesSync.get(sessionId);
         if (!sync || sync.lease !== lease) {
             sync?.stop();
-            sync = new CoalescingMessageSync(lease, () => {
+            let retryPending = false;
+            sync = new CoalescingMessageSync(lease, async () => {
                 const operation = this.sessionMessageLoadGate.begin(lease);
-                return this.fetchMessages(sessionId, operation);
+                const route = this.activeOpenSession;
+                if (retryPending && route?.sessionId === sessionId && route.messageLease === lease
+                    && !route.cancelled && this.sessionRouteOwnership.owns(route.owner)
+                    && this.sessionMessageLoadGate.isCurrent(operation)) {
+                    markSessionCriticalPathHydrationRetry();
+                }
+                try {
+                    await this.fetchMessages(sessionId, operation);
+                    retryPending = false;
+                } catch (error) {
+                    retryPending = true;
+                    throw error;
+                }
             }, () => this.getSessionLastMessageSeq(sessionId), () => (
                 this.sessionMessageLoadGate.isLeaseCurrent(lease)
             ));
@@ -629,8 +649,8 @@ class Sync {
         this.sessionMessageLoadGate.invalidate(sessionId);
         this.sessionMessageCacheGenerations.delete(sessionId);
         this.sessionOlderLoadingTokens.delete(sessionId);
-        this.sessionLastSeq.delete(sessionId);
-        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageFrontiers.delete(sessionId);
+        this.sessionCachedMessageSeqs.delete(sessionId);
         this.sessionMessageLocks.delete(sessionId);
         this.sessionMessageQueue.delete(sessionId);
         this.sessionQueueProcessing.delete(sessionId);
@@ -1569,19 +1589,29 @@ class Sync {
         if (operation) this.assertSessionRouteCurrent(operation);
         if (!this.credentials) return false;
 
+        // Attribute this route's hydration operation, including a cache hit or
+        // waiting for another writer. Earlier bootstrap I/O is not this span.
+        if (operation) markSessionCriticalPathAppStage('web.session.snapshot_started');
+        const complete = (found: boolean): boolean => {
+            if (operation) {
+                this.assertSessionRouteCurrent(operation);
+                if (found) markSessionCriticalPathAppStage('web.session.snapshot_completed');
+            }
+            return found;
+        };
         if (storage.getState().sessions[sessionId]
-            && this.encryption.getSessionEncryption(sessionId)) return true;
+            && this.encryption.getSessionEncryption(sessionId)) return complete(true);
 
         if (operation && this.sessionHydrations.has(sessionId)) {
             await this.sessionHydrations.get(sessionId);
             this.assertSessionRouteCurrent(operation);
-            if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return true;
+            if (storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)) return complete(true);
         }
         await this.writeSessionSnapshots(async () => {
             const raw = await fetchSessionSnapshot(this.credentials, sessionId);
             return raw ? [raw] : [];
         }, { replace: false }, operation);
-        return Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId));
+        return complete(Boolean(storage.getState().sessions[sessionId] && this.encryption.getSessionEncryption(sessionId)));
     }
 
     private ensureRealtimeSessionReady = async (sessionId: string): Promise<boolean> => {
@@ -1598,17 +1628,50 @@ class Sync {
         return isReady();
     }
 
-    public openSession = (sessionId: string): SessionOpenPromise => {
+    public beginSessionRoute = (sessionId: string): SessionRouteOwner => {
+        const previous = this.sessionRouteOwnership.current();
+        if (previous) this.leaveSessionRoute(previous);
+        const owner = this.sessionRouteOwnership.enter(sessionId);
+        this.retainSessionMessageCache(sessionId);
+        return owner;
+    }
+
+    public promoteSessionRoute = (owner: SessionRouteOwner): SessionRouteOwner | null => {
+        return this.sessionRouteOwnership.promote(owner);
+    }
+
+    public leaveSessionRoute = (owner: SessionRouteOwner): boolean => {
+        if (!this.sessionRouteOwnership.leave(owner)) return false;
+        const operation = this.activeOpenSession;
+        if (operation?.owner.ownerEpoch === owner.ownerEpoch) {
+            operation.cancelled = true;
+            this.sessionMessageLoadGate.leave(operation.messageLease);
+            this.messagesSync.get(owner.sessionId)?.stop();
+            this.activeOpenSession = null;
+        }
+        return true;
+    }
+
+    public openSession = (sessionId: string, owner = this.beginSessionRoute(sessionId), options: { retry?: boolean } = {}): SessionOpenPromise => {
+        if (owner.sessionId !== sessionId || !this.sessionRouteOwnership.owns(owner)) {
+            return Promise.reject(new SessionRouteAbandonedError());
+        }
         this.retainSessionMessageCache(sessionId);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
+        if (options.retry) markSessionCriticalPathHydrationRetry();
+        markSessionCriticalPathAppStage('web.messages.latest_started');
+        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
             sessionId,
+            owner,
             cancelled: false,
             messageLease,
             messageLoad: this.sessionMessageLoadGate.begin(messageLease),
+            latestPage: latestPagePromise,
+            foregroundTarget: 0,
+            committedPageSeq: null,
         };
         this.activeOpenSession = operation;
-        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
         // A missing target can be resolved before its concurrently-started
         // message request finishes. Attach a rejection observer immediately so
         // that discarded 404/network results never become unhandled promises.
@@ -1621,10 +1684,48 @@ class Sync {
 
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
-            await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
+            const applied = await this.applyLatestMessagePage(sessionId, latestPage, operation.messageLoad);
             this.assertSessionRouteCurrent(operation);
+            if (!applied || operation.foregroundTarget > 0) {
+                // A foreground gap can supersede the route's decrypt on the same
+                // lease. Await that winner, then require a page commit covering
+                // both the raw latest page and the foreground target. A realtime
+                // sequence alone is not evidence that such a page committed.
+                await this.messagesSync.get(sessionId)?.awaitQueue();
+                this.assertSessionRouteCurrent(operation);
+                let pageTarget = Math.max(...latestPage.messages.map(message => message.seq), 0);
+                const targetCommitted = () => operation.committedPageSeq !== null
+                    && operation.committedPageSeq >= Math.max(pageTarget, operation.foregroundTarget)
+                    && storage.getState().sessionMessages[sessionId]?.isLoaded;
+                if (!targetCommitted()) {
+                    // One recovery belongs to this route operation and lease.
+                    // It must not consume SessionView's network retry budget or
+                    // grant a cancelled route a fresh ownership epoch.
+                    operation.messageLoad = this.sessionMessageLoadGate.begin(operation.messageLease);
+                    // Coordination does not spend the UI retry budget, but its
+                    // additional latest-page request is still an observed retry.
+                    markSessionCriticalPathHydrationRetry();
+                    operation.latestPage = this.fetchLatestMessagePageRaw(sessionId);
+                    const recoveryPage = await operation.latestPage;
+                    this.assertSessionRouteCurrent(operation);
+                    pageTarget = Math.max(pageTarget, ...recoveryPage.messages.map(message => message.seq));
+                    await this.applyLatestMessagePage(sessionId, recoveryPage, operation.messageLoad);
+                    this.assertSessionRouteCurrent(operation);
+                    await this.messagesSync.get(sessionId)?.awaitQueue();
+                    this.assertSessionRouteCurrent(operation);
+                    if (!targetCommitted()) throw new SessionRouteCoordinationError();
+                }
+            }
+            markSessionCriticalPathAppStage('web.messages.latest_completed');
+            this.assertSessionRouteCurrent(operation);
+            markSessionCriticalPathAppStage('web.session.store_committed');
             return 'ready';
-        })();
+        })().catch((error: unknown) => {
+            // A cancelled/deleted route stays terminal even if its pending
+            // request or decrypt rejects instead of delivering a stale page.
+            this.assertSessionRouteCurrent(operation);
+            throw error;
+        });
         this.sessionRouteOperations.set(opening, operation);
         return opening;
     }
@@ -1634,14 +1735,14 @@ class Sync {
         if (!operation || operation.sessionId !== sessionId) return;
         operation.cancelled = true;
         this.sessionMessageLoadGate.leave(operation.messageLease);
-        if (this.activeOpenSession === operation) this.activeOpenSession = null;
+        if (this.activeOpenSession === operation) this.leaveSessionRoute(operation.owner);
     }
 
     private assertSessionRouteCurrent(operation: SessionRouteOperation): void {
-        if (operation.cancelled || this.activeOpenSession !== operation) {
-            throw new Error('Session route abandoned');
+        if (operation.cancelled || this.activeOpenSession !== operation || !this.sessionRouteOwnership.owns(operation.owner)
+            || !this.sessionMessageLoadGate.isLeaseCurrent(operation.messageLease)) {
+            throw new SessionRouteAbandonedError();
         }
-        this.sessionMessageLoadGate.assertLeaseCurrent(operation.messageLease);
     }
 
     // Kept as a compatibility alias while call sites migrate to the more
@@ -1653,7 +1754,31 @@ class Sync {
     }
 
     public getSessionLastMessageSeq(sessionId: string): number | null {
-        return this.sessionLastSeq.get(sessionId) ?? null;
+        return this.sessionMessageFrontiers.get(sessionId)?.latestSeq ?? null;
+    }
+
+    private advanceLatestMessageSeq(sessionId: string, seq: number): void {
+        const current = this.sessionMessageFrontiers.get(sessionId);
+        this.sessionMessageFrontiers.set(sessionId, {
+            olderBeforeSeq: null,
+            hasMoreOlder: false,
+            ...current,
+            latestSeq: Math.max(current?.latestSeq ?? 0, seq),
+        });
+    }
+
+    private recordFetchedMessageRange(sessionId: string, messages: ApiMessage[]): MessageRange | null {
+        if (messages.length === 0) return null;
+        const cached = this.sessionCachedMessageSeqs.get(sessionId) ?? new Set<number>();
+        let minSeq = Infinity;
+        let maxSeq = 0;
+        for (const message of messages) {
+            cached.add(message.seq);
+            minSeq = Math.min(minSeq, message.seq);
+            maxSeq = Math.max(maxSeq, message.seq);
+        }
+        this.sessionCachedMessageSeqs.set(sessionId, cached);
+        return { minSeq, maxSeq };
     }
 
     public hasPendingOutboxMessagesForSession(sessionId: string): boolean {
@@ -2487,6 +2612,8 @@ class Sync {
         }
 
         const batch = pending.slice();
+        const cacheGeneration = this.sessionMessageCacheGenerations.get(sessionId) ?? {};
+        this.sessionMessageCacheGenerations.set(sessionId, cacheGeneration);
         const controller = new AbortController();
         this.sendAbortControllers.set(sessionId, controller);
         try {
@@ -2512,15 +2639,18 @@ class Sync {
             // is in flight. It must not recreate message runtime afterwards.
             if (this.pendingOutbox.get(sessionId) !== pending) return;
             pending.splice(0, batch.length);
-            if (Array.isArray(data.messages) && data.messages.length > 0) {
-                const currentLastSeq = this.sessionLastSeq.get(sessionId) ?? 0;
-                let maxSeq = currentLastSeq;
-                for (const message of data.messages) {
-                    if (message.seq > maxSeq) {
-                        maxSeq = message.seq;
-                    }
+            // The outbox survives eviction, but an old acknowledgement does not
+            // own the released or subsequently remounted message cache.
+            if (this.sessionMessageCacheGenerations.get(sessionId) === cacheGeneration
+                && Array.isArray(data.messages) && data.messages.length > 0) {
+                let frontier = this.sessionMessageFrontiers.get(sessionId);
+                // An acknowledgement observes only its own sequences. Concurrent
+                // messages between acknowledgements still need backward loading.
+                for (const message of [...data.messages].sort((a, b) => a.seq - b.seq)) {
+                    frontier = applyLatestRange(frontier, { minSeq: message.seq, maxSeq: message.seq }, true);
                 }
-                this.sessionLastSeq.set(sessionId, maxSeq);
+                this.sessionMessageFrontiers.set(sessionId, frontier!);
+                storage.getState().applyOlderMessagesPagination(sessionId, { hasMore: frontier!.hasMoreOlder });
             }
         } catch (error) {
             this.maybeStartBackgroundSendWatchdog();
@@ -2555,8 +2685,8 @@ class Sync {
                 throw new Error(`Session encryption not ready for ${sessionId}`);
             }
 
-            const knownLastSeq = this.sessionLastSeq.get(sessionId);
-            const isInitialLoad = knownLastSeq === undefined;
+            const knownLastSeq = this.getSessionLastMessageSeq(sessionId);
+            const isInitialLoad = knownLastSeq === null;
             if (isInitialLoad) {
                 // Initial load. Pull only the most recent page so the user can
                 // start chatting immediately. Older history streams in lazily
@@ -2610,15 +2740,13 @@ class Sync {
 
         const messages = data.messages;
         let maxSeq = 0;
-        let minSeq = Number.POSITIVE_INFINITY;
         for (const message of messages) {
             if (message.seq > maxSeq) maxSeq = message.seq;
-            if (message.seq < minSeq) minSeq = message.seq;
         }
         // An active/event winner may already have loaded a newer page while
         // this route's HTTP response was pending. Keep that cache's anchors.
         const isStalePage = () => storage.getState().sessionMessages[sessionId]?.isLoaded
-            && (this.sessionLastSeq.get(sessionId) ?? -1) > maxSeq;
+            && (this.getSessionLastMessageSeq(sessionId) ?? -1) > maxSeq;
         if (isStalePage()) return true;
         const decryptedMessages = messages.length > 0
             ? await encryption.createDetached().decryptMessages(messages)
@@ -2642,15 +2770,24 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
 
-        this.sessionLastSeq.set(sessionId, Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq));
-        if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, Math.min(this.sessionOldestSeq.get(sessionId) ?? minSeq, minSeq));
-        }
+        const frontier = applyLatestRange(this.sessionMessageFrontiers.get(sessionId),
+            this.recordFetchedMessageRange(sessionId, messages), data.hasMore);
+        this.sessionMessageFrontiers.set(sessionId, frontier);
         storage.getState().applyMessagesLoaded(sessionId);
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: data.hasMore && messages.length > 0,
+            hasMore: frontier.hasMoreOlder,
         });
+        this.recordRoutePageCommit(operation, maxSeq);
         return true;
+    }
+
+    private recordRoutePageCommit(operation: SessionMessageLoadOperation, seq: number): void {
+        const route = this.activeOpenSession;
+        if (route?.sessionId === operation.sessionId
+            && route.messageLease.leaseEpoch === operation.leaseEpoch
+            && this.sessionMessageLoadGate.isCurrent(operation)) {
+            route.committedPageSeq = Math.max(route.committedPageSeq ?? 0, seq);
+        }
     }
 
     private fetchInitialLatestPage = async (
@@ -2658,7 +2795,10 @@ class Sync {
         _encryption: ReturnType<Encryption['getSessionEncryption']> & {},
         operation: SessionMessageLoadOperation,
     ) => {
-        const data = await this.fetchLatestMessagePageRaw(sessionId);
+        const route = this.activeOpenSession;
+        const data = await (route?.sessionId === sessionId && route.messageLease.leaseEpoch === operation.leaseEpoch
+            ? route.latestPage
+            : this.fetchLatestMessagePageRaw(sessionId));
         await this.applyLatestMessagePage(sessionId, data, operation);
     }
 
@@ -2693,10 +2833,8 @@ class Sync {
                 if (message.seq > maxSeq) maxSeq = message.seq;
             }
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
-            this.sessionLastSeq.set(
-                sessionId,
-                Math.max(this.sessionLastSeq.get(sessionId) ?? 0, maxSeq),
-            );
+            this.recordRoutePageCommit(operation, maxSeq);
+            this.advanceLatestMessageSeq(sessionId, maxSeq);
 
             if (!data.hasMore) break;
             if (maxSeq === afterSeq) {
@@ -2736,6 +2874,7 @@ class Sync {
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages);
         }
+        this.recordFetchedMessageRange(sessionId, messages);
         return {
             current: true,
             hasMutableToolResult: this.containsMutableToolResult(sessionId, normalizedMessages),
@@ -2750,8 +2889,8 @@ class Sync {
      * older-fetch is already in flight for this session.
      */
     loadOlderMessages = async (sessionId: string) => {
-        const oldestSeq = this.sessionOldestSeq.get(sessionId);
-        if (oldestSeq === undefined || oldestSeq <= 1) {
+        const frontier = this.sessionMessageFrontiers.get(sessionId);
+        if (!frontier?.hasMoreOlder || frontier.olderBeforeSeq == null || frontier.olderBeforeSeq <= 1) {
             return;
         }
         const sessionMessages = storage.getState().sessionMessages[sessionId];
@@ -2778,8 +2917,9 @@ class Sync {
                 }
                 // Re-read the cursor inside the lock. A concurrent
                 // socket-pushed update or reload could have changed it.
-                const beforeSeq = this.sessionOldestSeq.get(sessionId);
-                if (beforeSeq === undefined || beforeSeq <= 1) {
+                const currentFrontier = this.sessionMessageFrontiers.get(sessionId);
+                const beforeSeq = currentFrontier?.olderBeforeSeq;
+                if (!currentFrontier?.hasMoreOlder || beforeSeq == null || beforeSeq <= 1) {
                     return;
                 }
                 const response = await apiSocket.request(
@@ -2794,16 +2934,19 @@ class Sync {
                 const applied = await this.applyFetchedMessages(sessionId, encryption, messages, operation);
                 if (!applied.current) return;
 
-                let minSeq = beforeSeq;
-                for (const message of messages) {
-                    if (message.seq < minSeq) minSeq = message.seq;
-                }
                 if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
-                if (messages.length > 0) {
-                    this.sessionOldestSeq.set(sessionId, minSeq);
-                }
+                const liveFrontier = this.sessionMessageFrontiers.get(sessionId);
+                // Sparse server pages cover their requested boundary, not a
+                // newer boundary established while this request was in flight.
+                if (!liveFrontier || liveFrontier.olderBeforeSeq !== beforeSeq) return;
+                const nextFrontier = applyOlderRange(
+                    liveFrontier,
+                    this.recordFetchedMessageRange(sessionId, messages), !!data.hasMore,
+                    [...(this.sessionCachedMessageSeqs.get(sessionId) ?? [])],
+                );
+                this.sessionMessageFrontiers.set(sessionId, nextFrontier);
                 storage.getState().applyOlderMessagesPagination(sessionId, {
-                    hasMore: !!data.hasMore && messages.length > 0
+                    hasMore: nextFrontier.hasMoreOlder,
                 });
             });
         } finally {
@@ -2910,6 +3053,14 @@ class Sync {
                 if (decrypted) {
                     lastMessage = normalizeRawMessage(decrypted.id, decrypted.localId, decrypted.createdAt, decrypted.content);
 
+                    // Startup-ready measures validated realtime receipt, before
+                    // sequence, visibility, cache locks or route hydration can
+                    // discard/delay this packet. History replay is not receipt.
+                    if (lastMessage?.role === 'event' && lastMessage.content.type === 'ready'
+                        && lastMessage.content.terminal !== true) {
+                        sessionStartupTraceRuntime.markSessionStage(updateData.body.sid, 'web.processor.ready_received');
+                    }
+
                     // Check for task lifecycle events to update thinking state
                     // This ensures UI updates even if volatile activity updates are lost
                     const rawContent = decrypted.content as {
@@ -2943,7 +3094,6 @@ class Sync {
                     if (isTaskComplete || isTaskStarted) {
                         console.log(`🔄 [Sync] Updating thinking state: isTaskComplete=${isTaskComplete}, isTaskStarted=${isTaskStarted}`);
                     }
-
                     // Update session
                     const session = storage.getState().sessions[updateData.body.sid];
                     if (session) {
@@ -2958,20 +3108,25 @@ class Sync {
                     }
 
                     // Fast-path only on consecutive seq values, otherwise fetch from server.
-                    const currentLastSeq = this.sessionLastSeq.get(updateData.body.sid);
+                    const currentLastSeq = this.getSessionLastMessageSeq(updateData.body.sid);
                     const incomingSeq = updateData.body.message.seq;
-                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid;
-                    if (currentLastSeq !== undefined && incomingSeq <= currentLastSeq) {
+                    const isVisible = storage.getState().currentViewingSessionId === updateData.body.sid
+                        || this.sessionRouteOwnership.ownsSession(updateData.body.sid);
+                    if (currentLastSeq !== null && incomingSeq <= currentLastSeq) {
                         // Duplicate or out-of-order delivery. The cache already
                         // owns this sequence, so neither history nor Git needs
                         // to be refreshed.
-                    } else if (lastMessage && currentLastSeq !== undefined && incomingSeq === currentLastSeq + 1) {
+                    } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
-                        this.sessionLastSeq.set(updateData.body.sid, incomingSeq);
+                        this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
                         if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
                     } else if (isVisible) {
+                        const route = this.activeOpenSession;
+                        if (route?.sessionId === updateData.body.sid) {
+                            route.foregroundTarget = Math.max(route.foregroundTarget, incomingSeq);
+                        }
                         this.getMessagesSync(updateData.body.sid).invalidate(incomingSeq);
                     } else {
                         this.releaseSessionMessageCache(updateData.body.sid);
@@ -3488,6 +3643,11 @@ class Sync {
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[]) => {
         const result = storage.getState().applyMessages(sessionId, messages);
+        const hasCompletedTurn = messages.some((message) => (
+            message.role === 'event'
+            && message.content.type === 'ready'
+            && message.content.terminal === true
+        ));
         let m: Message[] = [];
         for (let messageId of result.changed) {
             const message = storage.getState().sessionMessages[sessionId].messagesMap[messageId];
@@ -3500,6 +3660,12 @@ class Sync {
         }
         if (result.hasReadyEvent) {
             voiceHooks.onReady(sessionId);
+        }
+        if (messages.some((message) => message.role === 'agent' && !message.isSidechain && message.content.length > 0)) {
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.first_agent_event_received');
+        }
+        if (hasCompletedTurn) {
+            sessionStartupTraceRuntime.markSessionStage(sessionId, 'web.turn.completed');
         }
     }
 
@@ -3572,6 +3738,12 @@ class Sync {
     }
 
     private clearSessionRuntimeState(sessionId: string) {
+        const owner = this.sessionRouteOwnership.current();
+        if (owner?.sessionId === sessionId) this.leaveSessionRoute(owner);
+        // The loaded component's later cleanup no longer owns a deleted route.
+        if (storage.getState().currentViewingSessionId === sessionId) {
+            storage.getState().setCurrentViewingSession(null);
+        }
         this.releaseSessionMessageCache(sessionId);
         this.encryption?.removeSessionEncryption(sessionId);
         gitStatusSync.clearForSession(sessionId);

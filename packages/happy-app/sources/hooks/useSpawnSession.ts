@@ -15,6 +15,8 @@ import { organizeSession } from '@/sync/sidebarOrganization';
 import { ensureSessionHydratedWithRetry } from '@/sync/ensureSessionHydratedWithRetry';
 import { describeMessageSendError } from '@/sync/messageSendError';
 import { traceStartup } from '@/sync/sessionStartupTrace';
+import { sessionStartupTraceRuntime, type WebStartupTraceHandle } from '@/sync/sessionStartupTraceRuntime';
+import { markSessionCriticalPathHydrationRetry } from '@/sync/sessionCriticalPathProbeBridge';
 
 export interface SpawnSessionArgs {
     machineId: string;
@@ -66,6 +68,7 @@ type PendingHydration = {
 type SessionStartupTraceContext = {
     traceId: string;
     startedAt: number;
+    runtimeHandle: WebStartupTraceHandle;
     machineId: string;
     emittedStages: Set<'web.session.hydrated' | 'web.first_message.queued' | 'web.session.navigated'>;
 };
@@ -76,6 +79,15 @@ function safelyTraceStartup(event: Parameters<typeof traceStartup>[0]): void {
     } catch {
         // Startup observability is best-effort and must never affect navigation.
     }
+}
+
+function runtimeTimestamp(): number {
+    try {
+        if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now();
+    } catch {
+        // Date.now remains available in restricted web runtimes.
+    }
+    return Date.now();
 }
 
 function traceWebStartupStage(
@@ -286,9 +298,11 @@ export function useSpawnSession() {
         }
         spawningRef.current = true;
         const startedAt = Date.now();
+        const traceId = randomUUID();
         const startupTrace: SessionStartupTraceContext = {
-            traceId: randomUUID(),
+            traceId,
             startedAt,
+            runtimeHandle: sessionStartupTraceRuntime.begin(traceId, runtimeTimestamp()),
             machineId: args.machineId,
             emittedStages: new Set(),
         };
@@ -302,10 +316,15 @@ export function useSpawnSession() {
         beginSending();
         try {
             const result = await spawnSession(args, approvedNewDirectoryCreation, startupTrace, sessionId => {
+                sessionStartupTraceRuntime.bindSession(startupTrace.runtimeHandle, sessionId);
                 pendingHydration.current = { stage: 'hydration', sessionId, args, trace: startupTrace, retrying: false, queued: false, configured: false, onQueued };
             });
-            if (!mountedRef.current) return false;
+            if (!mountedRef.current) {
+                sessionStartupTraceRuntime.cancel(startupTrace.runtimeHandle, 'spawn-cancelled');
+                return false;
+            }
             if (result.type !== 'success') {
+                sessionStartupTraceRuntime.cancel(startupTrace.runtimeHandle, result.type === 'cancelled' ? 'spawn-cancelled' : 'spawn-failed');
                 const pending = pendingHydration.current as PendingHydration | null;
                 if (pending) reportRecoveryError(pending);
                 return false;
@@ -315,6 +334,7 @@ export function useSpawnSession() {
             pending.configured = true;
             return await finishPending(pending);
         } catch (error) {
+            sessionStartupTraceRuntime.cancel(startupTrace.runtimeHandle, 'spawn-failed');
             const message = error instanceof Error ? error.message : 'Failed to start session';
             const pending = pendingHydration.current as PendingHydration | null;
             if (pending) reportRecoveryError(pending, error);
@@ -343,6 +363,7 @@ export function useSpawnSession() {
         beginSending();
         try {
             pending.stage = 'hydration';
+            markSessionCriticalPathHydrationRetry();
             const hydrated = await ensureSessionHydratedWithRetry(pending.sessionId);
             if (!hydrated) {
                 reportRecoveryError(pending);

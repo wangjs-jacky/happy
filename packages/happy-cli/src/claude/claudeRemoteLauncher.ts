@@ -30,7 +30,7 @@ interface PermissionsField {
     allowedTools?: string[];
 }
 
-export async function claudeRemoteLauncher(session: Session): Promise<'switch' | 'exit'> {
+export async function claudeRemoteLauncher(session: Session, onProcessorReady?: () => void): Promise<'switch' | 'exit'> {
     logger.debug('[claudeRemoteLauncher] Starting remote launcher');
 
     // Check if we have a TTY for UI rendering
@@ -419,6 +419,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             await q.setPermissionMode(mode);
                         });
                     },
+                    onProcessorReady,
                     onThinkingChange: session.onThinkingChange,
                     claudeEnvVars: session.claudeEnvVars,
                     claudeArgs: session.claudeArgs,

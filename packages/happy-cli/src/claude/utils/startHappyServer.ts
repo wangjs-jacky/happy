@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import { BROWSER_STEP_TOOL_DESCRIPTION } from "@/browser/browserStepReportingPrompt";
 import { configuration } from "@/configuration";
 import { fetchFinanceChart } from "@/finance/financeChart";
+import { PreviewWorkspaceRegistry } from "@/previews/previewWorkspace";
 
 type HappyMcpHandlers = {
     changeTitle: (title: string) => Promise<{ success: boolean; error?: string }>;
@@ -32,6 +33,8 @@ type HappyMcpHandlers = {
         range?: '5d' | '1mo' | '3mo' | '6mo' | '1y';
         interval?: '1d';
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    createPreview: (title: string) => Promise<{ success: boolean; previewId?: string; path?: string; error?: string }>;
+    publishPreview: (previewId: string) => Promise<{ success: boolean; url?: string; expiresAt?: number; error?: string }>;
 };
 
 type SendImageInput = {
@@ -45,10 +48,58 @@ type SendFileInput = {
     mimeType?: string;
 };
 
-type BrowserStepInput = {
+export type BrowserStepInput = {
     path: string;
     label: string;
+    runId?: string;
+    skillName?: 'ego-browser' | 'ego-ops';
 };
+
+type BrowserStepReporter = (input: BrowserStepInput) => Promise<{ success: boolean; error?: string }>;
+
+export function registerBrowserStepTool(mcp: McpServer, reportBrowserStep: BrowserStepReporter): void {
+    mcp.registerTool('report_browser_step', {
+        description: BROWSER_STEP_TOOL_DESCRIPTION,
+        title: 'Report Browser Step',
+        inputSchema: {
+            path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
+            label: z.string().trim().min(1).describe('Short description of the operation that just completed'),
+            runId: z.string().trim().min(1).max(128).optional().describe('Stable identifier reused for every frame in this Ego invocation'),
+            skillName: z.enum(['ego-browser', 'ego-ops']).optional().describe('Ego skill associated with this browser run'),
+        },
+    }, async (args) => {
+        const response = await reportBrowserStep({
+            path: args.path,
+            label: args.label,
+            ...(args.runId ? { runId: args.runId } : {}),
+            ...(args.skillName ? { skillName: args.skillName } : {}),
+        });
+        logger.debug('[happyMCP] Response:', response);
+        return response.success
+            ? { content: [{ type: 'text', text: `Reported browser step: ${args.label}` }], isError: false }
+            : { content: [{ type: 'text', text: `Failed to report browser step: ${response.error || 'Unknown error'}` }], isError: true };
+    });
+}
+
+export function createBrowserStepReporter(client: Pick<ApiSessionClient, 'uploadImageAttachment' | 'sendFileEvent'>): BrowserStepReporter {
+    return async (input) => {
+        logger.debug('[happyMCP] Reporting browser step:', input.label, input.path);
+        try {
+            const uploaded = await client.uploadImageAttachment(input.path);
+            client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
+                source: 'browser_step',
+                browserStep: {
+                    label: input.label.trim(),
+                    ...(input.runId ? { runId: input.runId } : {}),
+                    ...(input.skillName ? { skillName: input.skillName } : {}),
+                },
+            });
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: String(error) };
+        }
+    };
+}
 
 function createMcpServer(handlers: HappyMcpHandlers): McpServer {
     const mcp = new McpServer({
@@ -152,26 +203,7 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
             };
     });
 
-    mcp.registerTool('report_browser_step', {
-        description: BROWSER_STEP_TOOL_DESCRIPTION,
-        title: 'Report Browser Step',
-        inputSchema: {
-            path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
-            label: z.string().trim().min(1).describe('Short description of the operation that just completed'),
-        },
-    }, async (args) => {
-        const response = await handlers.reportBrowserStep({ path: args.path, label: args.label });
-        logger.debug('[happyMCP] Response:', response);
-        return response.success
-            ? {
-                content: [{ type: 'text', text: `Reported browser step: ${args.label}` }],
-                isError: false,
-            }
-            : {
-                content: [{ type: 'text', text: `Failed to report browser step: ${response.error || 'Unknown error'}` }],
-                isError: true,
-            };
-    });
+    registerBrowserStepTool(mcp, handlers.reportBrowserStep);
 
     mcp.registerTool('archive_session', {
         description: 'Archive and stop the current Happy chat session. Only use this when the user explicitly asks to archive, close, or end the current session after finishing the task.',
@@ -246,6 +278,28 @@ function createMcpServer(handlers: HappyMcpHandlers): McpServer {
         }
     });
 
+    mcp.registerTool('create_preview', {
+        description: 'Create an empty, Happy-managed workspace for a static HTML/CSS/JS interaction draft. Write only public, non-sensitive preview files into the returned directory, then call publish_preview.',
+        title: 'Create Interactive Preview',
+        inputSchema: { title: z.string().trim().min(1).max(160) },
+    }, async ({ title }) => {
+        const response = await handlers.createPreview(title);
+        return response.success
+            ? { content: [{ type: 'text', text: JSON.stringify({ previewId: response.previewId, workspacePath: response.path, next: 'Write the static files, then call publish_preview with previewId.' }) }] }
+            : { content: [{ type: 'text', text: `Failed to create preview: ${response.error}` }], isError: true };
+    });
+
+    mcp.registerTool('publish_preview', {
+        description: 'Validate and automatically publish a Happy-managed static preview workspace to the connected Vercel account. The public unlisted link expires after 24 hours.',
+        title: 'Publish Interactive Preview',
+        inputSchema: { previewId: z.string().uuid() },
+    }, async ({ previewId }) => {
+        const response = await handlers.publishPreview(previewId);
+        return response.success
+            ? { content: [{ type: 'text', text: JSON.stringify({ url: response.url, expiresAt: response.expiresAt }) }] }
+            : { content: [{ type: 'text', text: `Failed to publish preview: ${response.error}` }], isError: true };
+    });
+
     return mcp;
 }
 
@@ -256,6 +310,7 @@ export async function startHappyServer(
     },
 ) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
+    const previewWorkspaces = new PreviewWorkspaceRegistry();
 
     const handlers: HappyMcpHandlers = {
         changeTitle: async (title: string) => {
@@ -310,19 +365,7 @@ export async function startHappyServer(
                 return { success: false, error: String(error) };
             }
         },
-        reportBrowserStep: async (input: BrowserStepInput) => {
-            logger.debug('[happyMCP] Reporting browser step:', input.label, input.path);
-            try {
-                const uploaded = await client.uploadImageAttachment(input.path);
-                client.sendFileEvent(uploaded.ref, uploaded.name, uploaded.size, uploaded.dims, {
-                    source: 'browser_step',
-                    browserStep: { label: input.label.trim() },
-                });
-                return { success: true };
-            } catch (error) {
-                return { success: false, error: String(error) };
-            }
-        },
+        reportBrowserStep: createBrowserStepReporter(client),
         archiveSession: async (reason?: string) => {
             logger.debug('[happyMCP] Archiving current session:', reason);
             if (!options?.archiveSession) {
@@ -335,6 +378,24 @@ export async function startHappyServer(
             try {
                 const data = await fetchFinanceChart(input);
                 return { success: true, data };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+        },
+        createPreview: async (title) => {
+            try {
+                const workspace = await previewWorkspaces.create(client.sessionId, title);
+                return { success: true, previewId: workspace.previewId, path: workspace.path };
+            } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+        },
+        publishPreview: async (previewId) => {
+            try {
+                const workspace = await previewWorkspaces.resolveForPublish(client.sessionId, previewId);
+                const preview = await client.publishInteractivePreview(workspace);
+                await previewWorkspaces.remove(client.sessionId, previewId);
+                return { success: true, url: preview.url, expiresAt: preview.expiresAt };
             } catch (error) {
                 return { success: false, error: error instanceof Error ? error.message : String(error) };
             }

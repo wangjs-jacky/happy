@@ -1648,6 +1648,64 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             }
         });
 
+        it('normalizes a server-owned interactive preview into a completed preview tool card', () => {
+            const previewId = '11111111-1111-4111-8111-111111111111';
+            const normalized = normalizeRawMessage('db-preview-1', null, 1, {
+                role: 'session', content: { id: 'env-preview-1', time: 10, role: 'agent', ev: {
+                    t: 'interactive-preview', preview: { version: 1, id: previewId, title: 'Toolbar', state: 'ready', url: 'https://draft.vercel.app', publishedAt: 1, expiresAt: 2 },
+                } },
+            } as any);
+            expect(normalized?.role).toBe('agent');
+            if (normalized?.role === 'agent') {
+                expect(normalized.content[0]).toMatchObject({ type: 'tool-call', name: 'interactive-preview', input: { id: previewId, state: 'ready' } });
+                expect(normalized.content[1]).toMatchObject({ type: 'tool-result', status: 'completed' });
+            }
+        });
+
+        it('keeps typed preview states compatible and projects deleting as expired without a URL', () => {
+            const previewId = '11111111-1111-4111-8111-111111111112';
+            for (const state of ['publishing', 'ready', 'failed', 'expired', 'deleting'] as const) {
+                const normalized = normalizeRawMessage(`db-preview-${state}`, null, 1, {
+                    role: 'session', content: { id: `env-preview-${state}`, time: 10, role: 'agent', ev: {
+                        t: 'interactive-preview', preview: {
+                            version: 1,
+                            id: previewId,
+                            title: 'Toolbar',
+                            state,
+                            url: 'https://draft.vercel.app',
+                            expiresAt: 2,
+                        },
+                    } },
+                } as any);
+
+                expect(normalized?.role).toBe('agent');
+                if (normalized?.role === 'agent') {
+                    expect(normalized.content[0]).toMatchObject({
+                        type: 'tool-call',
+                        input: { state: state === 'deleting' ? 'expired' : state },
+                    });
+                    if (state === 'deleting') {
+                        expect((normalized.content[0] as any).input.url).toBeUndefined();
+                    }
+                }
+            }
+        });
+
+        it('keeps older plain-text messages as text rather than interpreting them as preview controls', () => {
+            const normalized = normalizeRawMessage('db-preview-legacy-text', null, 1, {
+                role: 'session', content: { id: 'env-preview-legacy-text', time: 10, role: 'agent', turn: 'turn-1', ev: {
+                    t: 'text', text: 'Preview is ready: https://draft.vercel.app',
+                } },
+            } as any);
+
+            expect(normalized?.role).toBe('agent');
+            if (normalized?.role === 'agent') {
+                expect(normalized.content).toEqual([expect.objectContaining({
+                    type: 'text', text: 'Preview is ready: https://draft.vercel.app',
+                })]);
+            }
+        });
+
         it('normalizes tool-call lifecycle events', () => {
             const start = normalizeRawMessage('db-3', null, 1, {
                 ...base,
@@ -1819,6 +1877,21 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
         });
 
         it('maps turn-end to ready event and drops turn-start', () => {
+            // Catches terminal lifecycle normalization becoming indistinguishable from processor readiness.
+            const processorReady = normalizeRawMessage('db-ready', null, 1, {
+                role: 'agent',
+                content: {
+                    type: 'event',
+                    id: 'processor-ready',
+                    data: { type: 'ready' },
+                },
+            });
+            expect(processorReady).toMatchObject({
+                role: 'event',
+                content: { type: 'ready' },
+            });
+            expect(processorReady?.role === 'event' && processorReady.content).not.toHaveProperty('terminal');
+
             const turnStart = normalizeRawMessage('db-5', null, 1, {
                 ...base,
                 content: {
@@ -1850,7 +1923,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
             expect(turnEnd).toMatchObject({
                 id: 'env-6',
                 role: 'event',
-                content: { type: 'ready' }
+                content: { type: 'ready', terminal: true }
             });
         });
 
@@ -1975,7 +2048,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                             size: 4567,
                             mimeType: 'image/jpeg',
                             source: 'browser_step',
-                            browserStep: { label: '打开订单详情' },
+                            browserStep: { label: '打开订单详情', runId: 'ego-run-1', skillName: 'ego-browser' },
                             image: { width: 1280, height: 720, thumbhash: '' },
                         },
                     },
@@ -1990,7 +2063,7 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                     input: {
                         ref: 'upload-browser-step-1',
                         source: 'browser_step',
-                        browserStep: { label: '打开订单详情' },
+                        browserStep: { label: '打开订单详情', runId: 'ego-run-1', skillName: 'ego-browser' },
                     },
                     description: 'Browser step: 打开订单详情',
                 });

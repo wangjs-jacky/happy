@@ -131,6 +131,12 @@ describe('CodexPermissionHandler', () => {
         });
     });
 
+    it.each(['mcp__happy__create_preview', 'mcp__happy__publish_preview'])('auto-approves exact managed preview tool %s', async (toolName) => {
+        const { session } = createSessionMock();
+        const handler = new CodexPermissionHandler(session as any);
+        await expect(handler.handleToolCall(`call-${toolName}`, toolName, {})).resolves.toEqual({ decision: 'approved' });
+    });
+
     it('keeps non-safe tools pending for user approval', async () => {
         const { session, getState } = createSessionMock();
         const handler = new CodexPermissionHandler(session as any);

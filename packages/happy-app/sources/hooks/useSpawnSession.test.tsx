@@ -6,6 +6,7 @@ import type { SpawnSessionResult } from '@/sync/ops';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { useSpawnSession, type SpawnSessionArgs } from './useSpawnSession';
 import { AttachmentSendError } from '@/sync/messageSendError';
+import { sessionStartupTraceRuntime } from '@/sync/sessionStartupTraceRuntime';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
@@ -14,6 +15,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     randomUUID: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
     traceStartup: vi.fn(),
+    runtimeEvents: [] as Array<{ stage: string; sessionId?: string }>,
     spawnResult: { type: 'success', sessionId: 'session-1' } as SpawnSessionResult,
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
@@ -34,6 +36,13 @@ vi.mock('expo-crypto', () => ({
 vi.mock('@/sync/sessionStartupTrace', () => ({
     traceStartup: mocks.traceStartup,
 }));
+vi.mock('@/sync/sessionStartupTraceRuntime', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/sync/sessionStartupTraceRuntime')>();
+    return {
+        ...actual,
+        sessionStartupTraceRuntime: actual.createWebStartupTraceRuntime((event) => mocks.runtimeEvents.push(event as { stage: string; sessionId?: string })),
+    };
+});
 
 vi.mock('@/sync/ops', () => ({
     machineSpawnNewSession: mocks.machineSpawnNewSession,
@@ -138,6 +147,7 @@ describe('useSpawnSession', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.traceStartup.mockReset();
+        mocks.runtimeEvents = [];
         mocks.spawnResult = { type: 'success', sessionId: 'session-1' };
         mocks.machineSpawnNewSession.mockImplementation(async () => mocks.spawnResult);
         mocks.ensureSessionHydrated.mockResolvedValue(true);
@@ -151,7 +161,10 @@ describe('useSpawnSession', () => {
         });
     });
 
-    afterEach(() => consoleErrorSpy.mockRestore());
+    afterEach(() => {
+        consoleErrorSpy.mockRestore();
+        delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+    });
 
     it('将首条消息失败与同步失败分开，并在原会话重试同一份附件', async () => {
         mocks.sendMessage.mockRejectedValueOnce(new AttachmentSendError('attachment-upload-failed', 1));
@@ -241,6 +254,41 @@ describe('useSpawnSession', () => {
         await act(async () => { release({ type: 'success', sessionId: 'session-1' }); expect(await first).toBe(true); });
         expect(mocks.machineSpawnNewSession).toHaveBeenCalledTimes(1);
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        hook.unmount();
+    });
+
+    it('binds the real browser trace only after navigation has a registered session id', async () => {
+        // Catches a delayed ready event attaching before the spawn RPC supplies its session identity.
+        let release!: (value: SpawnSessionResult) => void;
+        mocks.machineSpawnNewSession.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+        mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'delayed-session', localIds: ['local-1'] });
+        const hook = renderHook();
+        let spawn!: Promise<boolean>;
+
+        await act(async () => {
+            spawn = hook.current().spawn(args);
+            await Promise.resolve();
+        });
+        expect(sessionStartupTraceRuntime.markSessionStage(
+            'delayed-session',
+            'web.processor.ready_received',
+            20,
+        )).toBe(false);
+
+        await act(async () => {
+            release({ type: 'success', sessionId: 'delayed-session' });
+            await spawn;
+        });
+        expect(mocks.navigateToSession).toHaveBeenCalledWith('delayed-session');
+        expect(mocks.runtimeEvents.map((event) => event.stage)).not.toContain('web.processor.ready_received');
+
+        const readyHandler = () => sessionStartupTraceRuntime.markSessionStage(
+            'delayed-session',
+            'web.processor.ready_received',
+            30,
+        );
+        expect(readyHandler()).toBe(true);
+        expect(mocks.runtimeEvents.map((event) => event.stage)).toContain('web.processor.ready_received');
         hook.unmount();
     });
 
@@ -364,6 +412,40 @@ describe('useSpawnSession', () => {
             expect(mocks.updatePermission).not.toHaveBeenCalled();
             expect(mocks.sendMessage).not.toHaveBeenCalled();
             expect(mocks.navigateToSession).not.toHaveBeenCalled();
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('reports a real hydration retry without letting probe failure interrupt spawn', async () => {
+        // Catches ensureSessionHydratedWithRetry hiding its second attempt from
+        // the active spawn sample, or observability changing product behavior.
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockRejectedValueOnce(new Error('synthetic-hydration-failure')).mockResolvedValueOnce(true);
+        let retryCount = 0;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRetry: (...args: unknown[]) => {
+                expect(args).toEqual([]);
+                retryCount += 1;
+                throw new Error('private-probe-error');
+            },
+        };
+        const hook = renderHook();
+
+        try {
+            let result;
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                result = await spawnPromise;
+            });
+
+            expect(result).toBe(true);
+            expect(retryCount).toBe(1);
+            expect(mocks.ensureSessionHydrated).toHaveBeenCalledTimes(2);
+            expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+            expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
         } finally {
             hook.unmount();
             vi.useRealTimers();
@@ -538,6 +620,36 @@ describe('useSpawnSession', () => {
             expect(mocks.updatePermission).toHaveBeenCalledTimes(1);
             expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
             expect(mocks.navigateToSession).toHaveBeenCalledTimes(1);
+        } finally {
+            hook.unmount();
+            vi.useRealTimers();
+        }
+    });
+
+    it('counts explicit hydration recovery before its first internal attempt', async () => {
+        // Catches retryHydration resetting the helper's attempt index and
+        // hiding the user-visible retry when that new call succeeds at once.
+        vi.useFakeTimers();
+        mocks.ensureSessionHydrated.mockResolvedValue(false);
+        let retryCount = 0;
+        (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+            markRetry: () => { retryCount += 1; },
+        };
+        const hook = renderHook();
+
+        try {
+            await act(async () => {
+                const spawnPromise = hook.current().spawn(args);
+                await vi.runAllTimersAsync();
+                await spawnPromise;
+            });
+            expect(retryCount).toBe(3);
+
+            mocks.ensureSessionHydrated.mockResolvedValue(true);
+            await act(async () => {
+                expect(await hook.current().retryPending()).toBe(true);
+            });
+            expect(retryCount).toBe(4);
         } finally {
             hook.unmount();
             vi.useRealTimers();

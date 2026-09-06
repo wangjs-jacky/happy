@@ -376,6 +376,8 @@ Optional production services:
 | `DATABASE_URL` | Use external PostgreSQL instead of PGlite |
 | `REDIS_URL` | Redis-backed multi-process Socket.IO behavior |
 | `S3_HOST`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL` | S3-compatible blob storage |
+| `PREVIEW_S3_BUCKET` | Dedicated private bucket for temporary interaction previews; endpoint and credentials inherit from `S3_*` |
+| `PREVIEW_S3_HOST`, `PREVIEW_S3_ACCESS_KEY`, `PREVIEW_S3_SECRET_KEY` | Optional fully isolated preview-storage endpoint and credentials |
 | `ELEVENLABS_API_KEY`, `REVENUECAT_API_KEY` | Voice and paid feature integrations |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, related GitHub variables | GitHub OAuth / integration support |
 

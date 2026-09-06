@@ -4493,7 +4493,7 @@ test('侧栏底部账户菜单统一提供身份与系统操作并恢复焦点',
     await expect(page.getByTestId('sidebar-account-profile-action')).toBeFocused();
     await expect(page.getByTestId('sidebar-account-settings-action')).toBeVisible();
     await expect(page.getByTestId('sidebar-account-details-action')).toBeVisible();
-    await expect(page.getByTestId('sidebar-account-help-action')).toBeVisible();
+    await expect(page.getByTestId('sidebar-account-usage-action')).toBeVisible();
     await expect(page.getByTestId('sidebar-account-logout-action')).toBeVisible();
     await page.screenshot({
         path: testInfo.outputPath('desktop-account-menu-after-1280x900.png'),

@@ -58,6 +58,7 @@ describe('claudeRemote', () => {
         const setPermissionMode = vi.fn();
         vi.mocked(query).mockReturnValue({
             setPermissionMode,
+            initializationResult: async () => ({}),
             async *[Symbol.asyncIterator]() {
                 yield {
                     type: 'assistant',

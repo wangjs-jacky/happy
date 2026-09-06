@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSessionQuickActions } from '@/hooks/useSessionQuickActions';
@@ -20,8 +20,9 @@ import { SessionFolderBrowserView } from './SessionFolderBrowserView';
 import { useFolderRootCount } from './useFolderRootCount';
 import { useSessionCapabilityHub } from './useSessionCapabilityHub';
 import { usePluginSurfaceViews } from '../plugins/usePluginSurfaceViews';
-import { BrowserStepsPanel } from './BrowserStepsPanel';
+import { getBrowserStepRuns } from './browserStepRunsModel';
 import { getBrowserSteps } from './browserStepsModel';
+import { BrowserStepsPanel } from './BrowserStepsPanel';
 
 type CapabilityPanelKey = CapabilityKey | 'sessionActions' | 'folderBrowser';
 
@@ -64,6 +65,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     const { theme } = useUnistyles();
     const model = useSessionCapabilityHub(props.sessionId);
     const { messages } = useSessionMessages(props.sessionId);
+    const browserStepRuns = React.useMemo(() => getBrowserStepRuns(messages), [messages]);
     const browserSteps = React.useMemo(() => getBrowserSteps(messages), [messages]);
     const pluginViews = usePluginSurfaceViews('right-panel');
     const generatedImagesViewAvailable = pluginViews.some((view) => (
@@ -164,10 +166,8 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
         item.onPress();
     }, [panel]);
 
-    // This check must stay after the component's hooks so a frame arriving
-    // during a session never changes the hook order of the existing hub.
-    if (browserSteps.length > 0) {
-        return <BrowserStepsPanel sessionId={props.sessionId} steps={browserSteps} />;
+    if (Platform.OS !== 'web' && browserSteps.length > 0) {
+        return <BrowserStepsPanel sessionId={sessionId} steps={browserSteps} />;
     }
 
     if (selectedKey) {
@@ -199,6 +199,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
 
         return (
             <CapabilityHubDetailView
+                browserStepRuns={browserStepRuns}
                 count={model.details[selectedKey].length}
                 items={model.details[selectedKey]}
                 onAddQuickPrompt={selectedKey === 'quickPrompts' ? addQuickPrompt : undefined}
@@ -214,6 +215,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
     }
 
     return (
+        <View style={styles.summaryRoot} testID="capability-hub-summary">
         <ScrollView
             contentContainerStyle={styles.summaryContent}
             showsVerticalScrollIndicator={false}
@@ -271,6 +273,7 @@ const SessionCapabilityHubLoaded = React.memo(function SessionCapabilityHubLoade
                 })}
             </View>
         </ScrollView>
+        </View>
     );
 });
 
@@ -356,12 +359,16 @@ function renderPanelIcon(key: CapabilityPanelKey, color: string) {
 }
 
 const styles = StyleSheet.create(() => ({
+    summaryRoot: { flex: 1 },
     summaryContent: {
         paddingBottom: 24,
         paddingHorizontal: 12,
         paddingTop: 10,
     },
     heading: {
+        alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         marginBottom: 12,
         paddingHorizontal: 2,
     },

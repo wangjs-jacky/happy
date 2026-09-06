@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiClient } from './api';
 import axios from 'axios';
 import { connectionState } from '@/utils/serverConnectionErrors';
+import { WorkerSessionStartupLifecycle } from './sessionStartupTrace';
 
 // Use vi.hoisted to ensure mock functions are available when vi.mock factory runs
 const { mockPost, mockIsAxiosError, mockLoggerDebug } = vi.hoisted(() => ({
@@ -88,13 +89,40 @@ describe('Api server error handling', () => {
     });
 
     describe('getOrCreateSession', () => {
+        it('preserves the bootstrap lifecycle through API session creation', async () => {
+            const lifecycle = new WorkerSessionStartupLifecycle('00000000-0000-4000-8000-000000000001');
+            lifecycle.entryStarted();
+            lifecycle.authReady();
+            lifecycle.machineReady('machine-1');
+            api = await ApiClient.create({
+                token: 'token-canary',
+                encryption: { type: 'legacy', secret: new Uint8Array(32) },
+            }, lifecycle);
+            mockPost
+                .mockResolvedValueOnce({ data: { machine: { id: 'machine-1', metadata: null, metadataVersion: 0, daemonState: null, daemonStateVersion: 0 } } })
+                .mockResolvedValueOnce({ data: { session: { id: 'session-1', seq: 0, metadata: 'encrypted-metadata', metadataVersion: 0, agentState: null, agentStateVersion: 0 } } });
+
+            await api.getOrCreateMachine({ machineId: 'machine-1', metadata: testMachineMetadata });
+            await api.getOrCreateSession({ tag: 'tag-canary', metadata: { ...testMetadata, machineId: 'machine-1' }, state: null });
+
+            const events = mockLoggerDebug.mock.calls
+                .filter(([label]) => label === '[SESSION STARTUP]')
+                .map(([, event]) => event);
+            expect(events.map((event) => event.stage)).toEqual([
+                'worker.entry.started',
+                'worker.auth.ready',
+                'worker.machine.ready',
+                'worker.session.created',
+            ]);
+            expect(JSON.stringify(events)).not.toMatch(/token-canary|tag-canary|\/home\/user/);
+        });
+
         it('records worker session creation at the successful HTTP boundary with only allowlisted fields', async () => {
-            process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
+            const lifecycle = new WorkerSessionStartupLifecycle('00000000-0000-4000-8000-000000000001');
             api = await ApiClient.create({
                 token: 'fake-token',
                 encryption: { type: 'legacy', secret: new Uint8Array(32) },
-            });
-            expect(process.env.HAPPY_SESSION_STARTUP_TRACE_ID).toBeUndefined();
+            }, lifecycle);
             mockPost.mockResolvedValue({
                 data: {
                     session: {
@@ -121,7 +149,8 @@ describe('Api server error handling', () => {
 
             const stageEvents = mockLoggerDebug.mock.calls
                 .filter(([label]) => label === '[SESSION STARTUP]')
-                .map(([, event]) => event);
+                .map(([, event]) => event)
+                .filter((event) => event.stage === 'worker.session.created');
             expect(stageEvents).toEqual([
                 expect.objectContaining({
                     traceId: '00000000-0000-4000-8000-000000000001',
@@ -134,7 +163,7 @@ describe('Api server error handling', () => {
             expect(JSON.stringify(stageEvents)).not.toContain('canary');
         });
 
-        it('consumes an invalid inherited startup trace without emitting telemetry', async () => {
+        it('leaves environment ownership to the worker bootstrap when no lifecycle is injected', async () => {
             process.env.HAPPY_SESSION_STARTUP_TRACE_ID = 'legacy-or-invalid-trace';
 
             api = await ApiClient.create({
@@ -142,16 +171,16 @@ describe('Api server error handling', () => {
                 encryption: { type: 'legacy', secret: new Uint8Array(32) },
             });
 
-            expect(process.env.HAPPY_SESSION_STARTUP_TRACE_ID).toBeUndefined();
-            expect(mockLoggerDebug.mock.calls.some(([label]) => label === '[SESSION STARTUP]')).toBe(false);
+            expect(process.env.HAPPY_SESSION_STARTUP_TRACE_ID).toBe('legacy-or-invalid-trace');
+            expect(mockLoggerDebug.mock.calls.some(([, event]) => event?.stage === 'worker.session.created')).toBe(false);
         });
 
         it.each([undefined, '', '   ', 42])('does not emit session-created telemetry for invalid session id %j', async (sessionId) => {
-            process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
+            const lifecycle = new WorkerSessionStartupLifecycle('00000000-0000-4000-8000-000000000001');
             api = await ApiClient.create({
                 token: 'fake-token',
                 encryption: { type: 'legacy', secret: new Uint8Array(32) },
-            });
+            }, lifecycle);
             mockPost.mockResolvedValue({
                 data: {
                     session: {
@@ -167,15 +196,15 @@ describe('Api server error handling', () => {
 
             await api.getOrCreateSession({ tag: 'tag', metadata: testMetadata, state: null });
 
-            expect(mockLoggerDebug.mock.calls.some(([label]) => label === '[SESSION STARTUP]')).toBe(false);
+            expect(mockLoggerDebug.mock.calls.some(([, event]) => event?.stage === 'worker.session.created')).toBe(false);
         });
 
         it('returns the created session when startup telemetry logging throws', async () => {
-            process.env.HAPPY_SESSION_STARTUP_TRACE_ID = '00000000-0000-4000-8000-000000000001';
+            const lifecycle = new WorkerSessionStartupLifecycle('00000000-0000-4000-8000-000000000001');
             api = await ApiClient.create({
                 token: 'fake-token',
                 encryption: { type: 'legacy', secret: new Uint8Array(32) },
-            });
+            }, lifecycle);
             mockLoggerDebug.mockImplementation((label) => {
                 if (label === '[SESSION STARTUP]') throw new Error('logger-canary');
             });
