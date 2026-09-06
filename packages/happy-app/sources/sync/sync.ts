@@ -111,7 +111,7 @@ import { SessionMessageRetention } from './sessionMessageRetention';
 import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRangeFrontier } from './sessionMessageFrontier';
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
-import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
+import { openLocalHistory, clearLocalHistoryCaches, subscribeLocalHistoryInvalidation, invalidateLocalHistorySession, type LocalHistory, type HistoryWindow, type HistoryPage, type ReadingState } from './localHistoryStore';
 import { fetchSessionChanges } from './apiSessionChanges';
 import { reconcileSessionHistory } from './sessionHistoryReconciliation';
 import { createReducer, reducer } from './reducer/reducer';
@@ -640,6 +640,7 @@ class Sync {
             patch({ [field]: true, [direction === 'older' ? 'olderError' : 'newerError']: null });
             try {
                 let latest = direction === 'latest' ? await history.readWindow(id) : null;
+                if (!owner.isCurrent()) return;
                 if (latest && !latest.isAtLatest) {
                     const afterSeq = latest.newestSeq ?? 0;
                     const response = await apiSocket.request(`/v3/sessions/${id}/messages?after_seq=${afterSeq}&limit=100`);
@@ -664,6 +665,7 @@ class Sync {
                 if (direction !== 'latest' || !latest) {
                     let page: HistoryPage | null = direction === 'older' ? await history.readOlderPage(id, boundary!, 100)
                         : direction === 'newer' ? await history.readNewerPage(id, boundary!, 100) : null;
+                    if (!owner.isCurrent()) return;
                     if (!page) {
                         const response = await apiSocket.request(`/v3/sessions/${id}/messages?${direction === 'newer' ? 'after_seq' : 'before_seq'}=${boundary}&limit=100`);
                         if (!owner.isCurrent()) return;
@@ -704,7 +706,15 @@ class Sync {
         this.historyWindowLoads.set(id, pending); return pending;
     };
     public loadNewerMessages = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'newer');
-    public jumpToLatestMessages = (id: string): Promise<void> => this.loadHistoryBoundary(id, 'latest');
+    public jumpToLatestMessages = async (id: string): Promise<void> => {
+        const history = this.localHistory;
+        const encryption = this.encryption;
+        const pending = this.historyWindowLoads.get(id);
+        if (pending) await pending;
+        if (this.localHistory !== history || this.encryption !== encryption) return;
+        if (pending && this.historyWindows.get(id)?.isAtLatest) return;
+        await this.loadHistoryBoundary(id, 'latest');
+    };
 
     private reconcileHistory = (): Promise<void> => {
         if (this.changesInFlight) return this.changesInFlight;
@@ -1385,7 +1395,15 @@ class Sync {
         const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId, localIds: stagedOutbox.map(item => item.localId) };
         // After commit, ancillary failures must not turn an accepted message into
         // a retry that duplicates it. Reconnect also retries the encrypted outbox.
-        try { this.enqueueMessages(sessionId, stagedMessages); } catch { /* accepted; recover from outbox */ }
+        try {
+            if (this.historyWindows.get(sessionId)?.isAtLatest === false) {
+                // Sending accepts a new live turn, but does not replace the
+                // user's historical reading window with optimistic tail rows.
+                storage.setState(state => ({ sessionMessages: { ...state.sessionMessages, [sessionId]: {
+                    ...state.sessionMessages[sessionId], hasMoreNewer: true, isAtLatest: false,
+                } } }));
+            } else this.enqueueMessages(sessionId, stagedMessages);
+        } catch { /* accepted; recover from outbox */ }
         try { this.getSendSync(sessionId).invalidate(); this.maybeStartBackgroundSendWatchdog(); } catch { /* reconnect retries */ }
         try { trackMessageSent(source, session.metadata); } catch { /* best effort */ }
 
@@ -4266,6 +4284,7 @@ class Sync {
 
     public removeSessionLocally = (sessionId: string): void => {
         void this.localHistory?.deleteSession(sessionId);
+        if (!this.localHistory && this.sessionWarmCacheAccountKey) invalidateLocalHistorySession(this.sessionWarmCacheAccountKey, sessionId);
         const deletionMutationGeneration = ++this.sessionMutationGeneration;
         this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
         storage.getState().deleteSession(sessionId);

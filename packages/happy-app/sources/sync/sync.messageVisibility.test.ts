@@ -446,7 +446,7 @@ describe('message visibility synchronization', () => {
         syncForTest.localHistory = history;
         mocks.apiRequest.mockResolvedValue(response({ messages: [apiMessage(40)], hasMore: false }));
         await expect(syncForTest.openSession('archive')).resolves.toBe('ready');
-        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.apiRequest.mock.calls.map(([url]) => url)).toEqual(['/v3/sessions/archive/messages?before_seq=2147483647&limit=100']);
         expect(mocks.state.sessionMessages.archive.isLoaded).toBe(true);
     });
 

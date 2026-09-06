@@ -11,6 +11,7 @@ import {
     groupToolCallsForDisplay,
 } from '@/hooks/useGroupedMessages';
 import { MessageView } from './MessageView';
+import { TranscriptGroupExpansionContext, TranscriptReadingMarker } from './transcriptReading';
 import { Metadata } from '@/sync/storageTypes';
 import { layout } from './layout';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
@@ -58,12 +59,13 @@ export const ToolGroupView = React.memo<ToolGroupViewProps>((props) => {
         router.push(`/session/${sessionId}/message/${singleToolMessage.id}`);
     }, [onToggle, router, sessionId, singleToolMessage]);
     const renderGroupMessage = React.useCallback((msg: Message) => (
+        <TranscriptReadingMarker key={msg.id} messageId={msg.id} depth={2}>
         <ToolGroupMessageRow
-            key={msg.id}
             message={msg}
             metadata={metadata}
             sessionId={sessionId}
         />
+        </TranscriptReadingMarker>
     ), [metadata, sessionId]);
 
     const body = (
@@ -109,6 +111,7 @@ interface AgentWorkGroupViewProps {
 }
 
 export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) => {
+    const durableExpansion = React.useContext(TranscriptGroupExpansionContext);
     const { group, metadata, sessionId, expanded, onToggle } = props;
     const summaryCategory = React.useMemo(() => getGroupSummaryCategory(group.messages), [group.messages]);
     const runningElapsedSeconds = useElapsedTime(group.completedAt === null ? group.startedAt : null);
@@ -178,27 +181,29 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
     const renderNestedItem = React.useCallback((item: ToolDisplayItem) => {
         if (item.type === 'tool-group') {
             return (
+                <TranscriptReadingMarker key={item.id} messageId={item.messages[0]?.id ?? item.id} depth={1}>
                 <ToolGroupView
-                    key={item.id}
                     group={item}
                     metadata={metadata}
                     sessionId={sessionId}
-                    expanded={!collapsedToolGroups.has(item.id)}
-                    onToggle={() => handleToggleNestedGroup(item.id)}
+                    expanded={durableExpansion ? durableExpansion.isExpanded(item) : !collapsedToolGroups.has(item.id)}
+                    onToggle={() => durableExpansion ? durableExpansion.toggle(item) : handleToggleNestedGroup(item.id)}
                     nested
                     hideSingleToolChildren
                 />
+                </TranscriptReadingMarker>
             );
         }
         return (
+            <TranscriptReadingMarker key={item.id} messageId={item.message.id} depth={1}>
             <MessageView
-                key={item.id}
                 message={item.message}
                 metadata={metadata}
                 sessionId={sessionId}
             />
+            </TranscriptReadingMarker>
         );
-    }, [collapsedToolGroups, handleToggleNestedGroup, metadata, sessionId]);
+    }, [collapsedToolGroups, handleToggleNestedGroup, metadata, sessionId, durableExpansion]);
 
     return (
         <View style={styles.outerContainer}>

@@ -9,13 +9,14 @@ import type { Message } from '@/sync/typesMessage';
 
 const sessionState = vi.hoisted(() => ({
     messages: [] as Message[], isLoaded: true, hasMoreOlder: true, isLoadingOlder: false,
+    hasMoreNewer: false, isLoadingNewer: false, isAtLatest: true,
 }));
 vi.mock('@/sync/storage', () => ({
     useSessionMessages: () => sessionState,
     useSession: () => ({ id: 'session', metadata: null }),
     useSetting: () => true,
 }));
-vi.mock('@/sync/sync', () => ({ sync: { loadOlderMessages: vi.fn() } }));
+vi.mock('@/sync/sync', () => ({ sync: { loadOlderMessages: vi.fn(), getLocalHistoryScope: () => null } }));
 vi.mock('@/hooks/useSessionQuickActions', () => ({ useSessionQuickActions: () => ({}) }));
 vi.mock('@/utils/responsive', () => ({ useHeaderHeight: () => 0 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0 }) }));
@@ -201,5 +202,88 @@ describe('ConversationTranscript older history pagination', () => {
         expect(byId(renderer, 'conversation-anchors-count').props.children).toBe(1);
         expect(byId(renderer, 'anchor-list-subtitle').props.children).toBe('session.anchorsSubtitle:1');
         act(() => renderer.unmount());
+    });
+
+    it('keeps background loading hidden and shows delayed boundary loading without adding list height', async () => {
+        vi.useFakeTimers();
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('u')]}
+            hasMoreOlder isLoadingOlder />); });
+        await act(async () => { vi.advanceTimersByTime(500); });
+        expect(renderer.root.findAllByProps({ testID: 'history-older-loading' })).toHaveLength(0);
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+            contentOffset: { y: 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
+        } }));
+        expect(renderer.root.findAllByProps({ testID: 'history-older-loading' })).toHaveLength(0);
+        await act(async () => { vi.advanceTimersByTime(300); });
+        expect(byId(renderer, 'history-older-loading')).toBeDefined();
+        expect(byId(renderer, 'conversation-transcript-list').props.ListFooterComponent).toBeUndefined();
+        act(() => renderer.unmount()); vi.useRealTimers();
+    });
+
+    it.each([true, false])('loads newer at the historical visual bottom only once per boundary (inverted=%s)', async inverted => {
+        const newer = vi.fn(); const older = vi.fn();
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('old')]}
+            inverted={inverted} isAtLatest={false} hasMoreNewer onLoadNewer={newer} onLoadOlder={older} />); });
+        const list = byId(renderer, 'conversation-transcript-list');
+        act(() => { for (let i = 0; i < 3; i++) list.props.onScroll({ nativeEvent: {
+            contentOffset: { y: inverted ? 0 : 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
+        } }); });
+        expect(newer).toHaveBeenCalledOnce();
+        expect(older).not.toHaveBeenCalled();
+        expect(list.props.maintainVisibleContentPosition?.autoscrollToTopThreshold).toBeUndefined();
+        act(() => renderer.unmount());
+    });
+
+    it('selects latest before scrolling from a historical window', async () => {
+        let finish!: () => void;
+        const jump = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+        const scrollToOffset = vi.fn(); let renderer: any;
+        const render = (latest: boolean) => <ConversationTranscript metadata={null} messages={[userMessage(latest ? 'new' : 'old')]}
+            isAtLatest={latest} onJumpToLatest={jump} />;
+        await act(async () => { renderer = TestRenderer.create(render(false), { createNodeMock: () => ({ scrollToOffset }) }); });
+        act(() => byId(renderer, 'conversation-scroll-to-bottom').props.onPress());
+        expect(jump).toHaveBeenCalledOnce(); expect(scrollToOffset).not.toHaveBeenCalled();
+        await act(async () => { finish(); renderer.update(render(true)); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onContentSizeChange(100, 2000));
+        expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+        act(() => renderer.unmount());
+    });
+
+    it('gates current-turn, footer and latest edit controls in a historical ChatList', async () => {
+        Object.assign(sessionState, { isAtLatest: false }); let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ChatList session={{ id: 'session', metadata: null } as any} />); });
+        const transcript = renderer.root.findByType((ConversationTranscript as any).type).props;
+        expect(transcript.currentTurnActive).toBe(false);
+        expect(transcript.canEditLatestUserMessage).toBe(false);
+        expect(transcript.visualBottom).toBeNull();
+        act(() => renderer.unmount()); Object.assign(sessionState, { isAtLatest: true });
+    });
+
+    it('offers explicit retry only at a failed reached boundary', async () => {
+        const retry = vi.fn(); let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(<ConversationTranscript metadata={null} messages={[userMessage('u')]}
+            hasMoreOlder olderError="offline" onLoadOlder={retry} />); });
+        expect(renderer.root.findAllByProps({ testID: 'history-older-retry' })).toHaveLength(0);
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScroll({ nativeEvent: {
+            contentOffset: { y: 1200 }, contentSize: { height: 2000 }, layoutMeasurement: { height: 800 },
+        } }));
+        expect(retry).not.toHaveBeenCalled();
+        act(() => byId(renderer, 'history-older-retry').props.onPress());
+        expect(retry).toHaveBeenCalledOnce(); act(() => renderer.unmount());
+    });
+
+    it('cancels estimated anchor-scroll retries after switching sessions', async () => {
+        vi.useFakeTimers(); const scrollToIndex = vi.fn(); let renderer: any;
+        const render = (id: string) => <ConversationTranscript metadata={null} sessionId={id} messages={[userMessage('u')]} />;
+        await act(async () => { renderer = TestRenderer.create(render('a'), {
+            createNodeMock: (element: any) => element.type === 'FlatList' ? { scrollToIndex, scrollToOffset: vi.fn() } : null,
+        }); });
+        act(() => byId(renderer, 'conversation-transcript-list').props.onScrollToIndexFailed({ index: 0, averageItemLength: 200 }));
+        act(() => renderer.update(render('b')));
+        await act(async () => { vi.advanceTimersByTime(500); });
+        expect(scrollToIndex).not.toHaveBeenCalled();
+        act(() => renderer.unmount()); vi.useRealTimers();
     });
 });

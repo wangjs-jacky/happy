@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiSessionSnapshot } from './apiTypes';
 import { SessionMessageLoadGate } from './sessionMessageLoadGate';
 import { SessionMessageRetention } from './sessionMessageRetention';
+import { subscribeLocalHistoryInvalidation } from './localHistoryStore';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -122,6 +123,9 @@ beforeEach(() => {
     subject.sessionMessageRetention = new SessionMessageRetention(3);
     subject.sessionMessageFrontiers.clear();
     subject.sessionCachedMessageSeqs.clear();
+    subject.historyWindows.clear();
+    subject.historyWindowLoads.clear();
+    subject.localHistory = null;
     subject.sessionsSync = { awaitQueue: async () => undefined };
     mocks.fetchSnapshot.mockResolvedValue(snapshot());
     mocks.apiRequest.mockResolvedValue({ ok: true, json: async () => ({ messages: [], hasMore: false }) });
@@ -129,6 +133,55 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('real session writer composition', () => {
+    it('queues a historical send without inserting current-turn rows into the reading window', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });
+        const enqueue = vi.spyOn(subject, 'enqueueMessages');
+        subject.historyWindows.set('writer-session', { messages: [], isAtLatest: false });
+        storage.setState({ sessionMessages: { 'writer-session': { messages: [], isAtLatest: false } as any } });
+        expect((await sync.sendMessage('writer-session', 'new turn from historical reading')).type).toBe('queued');
+        expect(subject.pendingOutbox.get('writer-session')).toHaveLength(1);
+        expect(enqueue).not.toHaveBeenCalled();
+        expect(storage.getState().sessionMessages['writer-session']).toMatchObject({ isAtLatest: false, hasMoreNewer: true });
+    });
+
+    it('invalidates native decoded attachments on session deletion even without IndexedDB', async () => {
+        await sync.ensureSessionHydrated('writer-session');
+        subject.localHistory = null; subject.sessionWarmCacheAccountKey = 'https://test|account';
+        const invalidated = vi.fn(); const unsubscribe = subscribeLocalHistoryInvalidation(invalidated);
+        sync.removeSessionLocally('writer-session');
+        expect(invalidated).toHaveBeenCalledWith({ scope: 'https://test|account', sessionId: 'writer-session', kind: 'session-deleted' });
+        unsubscribe();
+    });
+
+    it('an explicit latest jump waits out an older load, then actually selects latest', async () => {
+        const older = deferred<void>(); const history = {}; subject.localHistory = history;
+        subject.historyWindowLoads.set('writer-session', older.promise);
+        const boundary = vi.spyOn(subject, 'loadHistoryBoundary').mockResolvedValue(undefined);
+        const jumping = sync.jumpToLatestMessages('writer-session');
+        expect(boundary).not.toHaveBeenCalled();
+        subject.historyWindowLoads.delete('writer-session'); older.resolve(); await jumping;
+        expect(boundary).toHaveBeenCalledWith('writer-session', 'latest');
+        subject.localHistory = null;
+    });
+
+    it('does not repeat a latest selection that the awaited load already completed', async () => {
+        const pending = deferred<void>(); subject.localHistory = {};
+        subject.historyWindowLoads.set('writer-session', pending.promise);
+        const boundary = vi.spyOn(subject, 'loadHistoryBoundary').mockResolvedValue(undefined);
+        const jumping = sync.jumpToLatestMessages('writer-session');
+        subject.historyWindows.set('writer-session', { isAtLatest: true });
+        pending.resolve(); await jumping;
+        expect(boundary).not.toHaveBeenCalled();
+    });
+
+    it('does not start a network request after an awaited archive read loses its account owner', async () => {
+        const read = deferred<any>();
+        subject.localHistory = { captureSessionFence: () => ({}), isFenceCurrent: () => true, readWindow: () => read.promise };
+        const jumping = sync.jumpToLatestMessages('writer-session');
+        subject.localHistory = null; read.resolve(null); await jumping;
+        expect(mocks.apiRequest).not.toHaveBeenCalled();
+    });
     it('ignores an outbox acknowledgement that arrives after session deletion', async () => {
         await sync.ensureSessionHydrated('writer-session');
         vi.spyOn(subject, 'getSendSync').mockReturnValue({ invalidate: () => undefined });

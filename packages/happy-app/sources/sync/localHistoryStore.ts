@@ -10,14 +10,24 @@ type Interval = [number, number];
 type SessionRecord = { scope: string; id: string; snapshot?: ApiSessionSnapshot; intervals: Interval[];
     tailSeq?: number; change?: SessionChange; deleted?: boolean; reading?: ReadingState };
 type AccountRecord = { scope: string; epoch: number; cursor: string | null; imported?: boolean };
+type AttachmentEntry = { scope: string; id: string; ref: string; size: number; touched: number };
+const STORES = ['accounts', 'sessions', 'messages', 'attachmentBytes', 'attachmentEntries'];
+export const ATTACHMENT_DISK_BUDGET = 128 * 1024 * 1024;
 type Invalidation = { scope: string; sessionId?: string; kind: 'session-deleted' | 'scope-cleared' | 'account-closed' };
 const listeners = new Set<(event: Invalidation) => void>();
 const handles = new Set<LocalHistory>();
 export function subscribeLocalHistoryInvalidation(listener: (event: Invalidation) => void): () => void {
     listeners.add(listener); return () => { listeners.delete(listener); };
 }
-function emit(event: Invalidation) { for (const listener of listeners) listener(event); }
+let channel: BroadcastChannel | undefined;
+function deliver(event: Invalidation) { for (const listener of listeners) listener(event); }
+function emit(event: Invalidation) { deliver(event); if (event.kind !== 'account-closed' && event.scope !== '*') channel?.postMessage(event); }
+export function invalidateLocalHistorySession(scope: string, sessionId: string) { emit({ scope, sessionId, kind: 'session-deleted' }); }
+export function findLocalHistory(scope: string): LocalHistory | null {
+    return [...handles].reverse().find(handle => handle.scope === scope && handle.isOpen()) ?? null;
+}
 export async function clearLocalHistoryCaches(): Promise<void> {
+    emit({ scope: '*', kind: 'scope-cleared' });
     await Promise.all([...handles].map(handle => handle.clear()));
 }
 function request<T>(req: IDBRequest<T>): Promise<T> {
@@ -40,6 +50,9 @@ function range(scope: string, id: string, lower = 0, upper = HISTORY_LATEST_BOUN
     return IDBKeyRange.bound([scope, id, lower], [scope, id, upper]);
 }
 function sessionRange(scope: string) { return IDBKeyRange.bound([scope, ''], [scope, '\uffff']); }
+function attachmentRange(scope: string, id?: string) {
+    return IDBKeyRange.bound([scope, id ?? '', ''], [scope, id ?? '\uffff', '\uffff']);
+}
 
 /** Per-record wire archive. All write promises resolve only after transaction commit.
  * Failures are cache misses; transactions never expose coverage without its bytes. */
@@ -47,6 +60,7 @@ export class LocalHistory {
     private closed = false;
     private deleted = new Set<string>();
     constructor(private db: IDBDatabase, readonly scope: string, private epoch: number) { handles.add(this); }
+    isOpen() { return !this.closed; }
     captureSessionFence(sessionId: string) { return { history: this, sessionId, epoch: this.epoch }; }
     isFenceCurrent(fence: ReturnType<LocalHistory['captureSessionFence']>) {
         return fence.history === this && !this.closed && fence.epoch === this.epoch && !this.deleted.has(fence.sessionId);
@@ -59,7 +73,7 @@ export class LocalHistory {
         let tx: IDBTransaction | undefined;
         let done: Promise<void> | undefined;
         try {
-            tx = this.db.transaction(['accounts', 'sessions', 'messages'], mode);
+            tx = this.db.transaction(STORES, mode);
             done = complete(tx);
             void done.catch(() => undefined);
             const account = await request<AccountRecord>(tx.objectStore('accounts').get(this.scope));
@@ -76,6 +90,55 @@ export class LocalHistory {
     private async session(tx: IDBTransaction, id: string): Promise<SessionRecord> {
         return await request<SessionRecord>(tx.objectStore('sessions').get([this.scope, id]))
             ?? { scope: this.scope, id, intervals: [] };
+    }
+    /** Bytes and durable ownership checks share the same transaction, including
+     * deletion/reset committed by a different tab/handle. Metadata is separate
+     * so eviction never reads all attachment payloads into memory. */
+    readAttachment(id: string, ref: string): Promise<Uint8Array | null> {
+        return this.transaction('readwrite', null, async tx => {
+            if ((await this.session(tx, id)).deleted || this.deleted.has(id)) return null;
+            const key = [this.scope, id, ref];
+            const bytes = await request<Uint8Array | undefined>(tx.objectStore('attachmentBytes').get(key));
+            const entry = await request<AttachmentEntry | undefined>(tx.objectStore('attachmentEntries').get(key));
+            if (!(bytes instanceof Uint8Array) || !entry || bytes.byteLength !== entry.size) return null;
+            tx.objectStore('attachmentEntries').put({ ...entry, touched: Date.now() });
+            return bytes;
+        });
+    }
+    async attachmentFenceIsCurrent(fence: ReturnType<LocalHistory['captureSessionFence']>): Promise<boolean> {
+        if (!this.isFenceCurrent(fence)) return false;
+        // A failing optional cache must preserve the network fallback. A known
+        // durable epoch mismatch is distinguished from an unavailable database.
+        let validEpoch = true;
+        try {
+            const tx = this.db.transaction(['accounts', 'sessions'], 'readonly');
+            const done = complete(tx); void done.catch(() => undefined);
+            const account = await request<AccountRecord>(tx.objectStore('accounts').get(this.scope));
+            validEpoch = account?.epoch === fence.epoch;
+            const record = await this.session(tx, fence.sessionId);
+            await done;
+            return validEpoch && !record.deleted && this.isFenceCurrent(fence);
+        } catch { return validEpoch && this.isFenceCurrent(fence); }
+    }
+    writeAttachment(id: string, ref: string, bytes: Uint8Array,
+        fence: ReturnType<LocalHistory['captureSessionFence']>, budget = ATTACHMENT_DISK_BUDGET): Promise<boolean> {
+        if (!this.isFenceCurrent(fence) || fence.sessionId !== id || bytes.byteLength === 0 || bytes.byteLength > budget) return Promise.resolve(false);
+        return this.transaction('readwrite', false, async tx => {
+            if (!this.isFenceCurrent(fence) || (await this.session(tx, id)).deleted) return false;
+            const entries = await request<AttachmentEntry[]>(tx.objectStore('attachmentEntries').getAll(attachmentRange(this.scope)));
+            const others = entries.filter(entry => entry.id !== id || entry.ref !== ref).sort((a, b) => a.touched - b.touched);
+            let size = others.reduce((sum, entry) => sum + entry.size, bytes.byteLength);
+            while (size > budget || others.length >= 1000) {
+                const oldest = others.shift();
+                if (!oldest) break;
+                size -= oldest.size;
+                const key = [this.scope, oldest.id, oldest.ref];
+                tx.objectStore('attachmentBytes').delete(key); tx.objectStore('attachmentEntries').delete(key);
+            }
+            tx.objectStore('attachmentBytes').put(bytes, [this.scope, id, ref]);
+            tx.objectStore('attachmentEntries').put({ scope: this.scope, id, ref, size: bytes.byteLength, touched: Date.now() });
+            return true;
+        });
     }
     readSnapshot(id: string): Promise<ApiSessionSnapshot | null> {
         return this.transaction('readonly', null, async tx => {
@@ -254,10 +317,15 @@ export class LocalHistory {
                 if (change.deleted) {
                     record.deleted = true; delete record.snapshot; delete record.reading; record.intervals = [];
                     tx.objectStore('messages').delete(range(this.scope, change.sessionId));
+                    tx.objectStore('attachmentBytes').delete(attachmentRange(this.scope, change.sessionId));
+                    tx.objectStore('attachmentEntries').delete(attachmentRange(this.scope, change.sessionId));
                 }
                 tx.objectStore('sessions').put(record);
             }
             tx.objectStore('accounts').put({ ...account, cursor: page.nextCursor }); return true;
+        }).then(committed => {
+            if (committed) for (const change of page.changes) if (change.deleted) emit({ scope: this.scope, sessionId: change.sessionId, kind: 'session-deleted' });
+            return committed;
         });
     }
     resetCursor(): Promise<boolean> {
@@ -281,7 +349,9 @@ export class LocalHistory {
         return this.transaction('readwrite', false, async tx => {
             const record = await this.session(tx, id);
             tx.objectStore('sessions').put({ scope: this.scope, id, deleted: true, change: record.change, intervals: [] });
-            tx.objectStore('messages').delete(range(this.scope, id)); return true;
+            tx.objectStore('messages').delete(range(this.scope, id));
+            tx.objectStore('attachmentBytes').delete(attachmentRange(this.scope, id));
+            tx.objectStore('attachmentEntries').delete(attachmentRange(this.scope, id)); return true;
         });
     }
     async clear(): Promise<void> {
@@ -289,13 +359,15 @@ export class LocalHistory {
         // Fence immediately, before the clearing transaction is scheduled.
         this.closed = true; emit({ scope: this.scope, kind: 'scope-cleared' });
         try {
-            const tx = this.db.transaction(['accounts', 'sessions', 'messages'], 'readwrite');
+            const tx = this.db.transaction(STORES, 'readwrite');
             const done = complete(tx);
             void done.catch(() => undefined);
             const account = await request<AccountRecord>(tx.objectStore('accounts').get(this.scope));
             tx.objectStore('accounts').put({ scope: this.scope, epoch: (account?.epoch ?? this.epoch) + 1, cursor: null });
             tx.objectStore('sessions').delete(sessionRange(this.scope));
             tx.objectStore('messages').delete(IDBKeyRange.bound([this.scope, '', 0], [this.scope, '\uffff', HISTORY_LATEST_BOUNDARY]));
+            tx.objectStore('attachmentBytes').delete(attachmentRange(this.scope));
+            tx.objectStore('attachmentEntries').delete(attachmentRange(this.scope));
             await done;
         } catch { /* optional persistent cache */ }
         handles.delete(this); this.db.close();
@@ -306,12 +378,14 @@ export class LocalHistory {
 export async function openLocalHistory(scope: string): Promise<LocalHistory | null> {
     try {
         if (typeof indexedDB === 'undefined') return null;
-        const opening = indexedDB.open('paws-local-history-v1', 1);
+        const opening = indexedDB.open('paws-local-history-v1', 2);
         opening.onupgradeneeded = () => {
             const db = opening.result;
-            db.createObjectStore('accounts', { keyPath: 'scope' });
-            db.createObjectStore('sessions', { keyPath: ['scope', 'id'] });
-            db.createObjectStore('messages', { keyPath: ['scope', 'id', 'seq'] });
+            if (!db.objectStoreNames.contains('accounts')) db.createObjectStore('accounts', { keyPath: 'scope' });
+            if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: ['scope', 'id'] });
+            if (!db.objectStoreNames.contains('messages')) db.createObjectStore('messages', { keyPath: ['scope', 'id', 'seq'] });
+            db.createObjectStore('attachmentBytes');
+            db.createObjectStore('attachmentEntries', { keyPath: ['scope', 'id', 'ref'] });
         };
         const db = await request(opening);
         db.onversionchange = () => db.close();
@@ -321,6 +395,13 @@ export async function openLocalHistory(scope: string): Promise<LocalHistory | nu
         let account = await request<AccountRecord>(tx.objectStore('accounts').get(scope));
         if (!account) { account = { scope, epoch: 0, cursor: null }; tx.objectStore('accounts').put(account); }
         await done;
+        if (!channel && typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+            channel = new BroadcastChannel('paws-local-history-invalidation');
+            channel.onmessage = event => {
+                const data = event.data as Invalidation;
+                if (typeof data?.scope === 'string' && ['session-deleted', 'scope-cleared', 'account-closed'].includes(data.kind)) deliver(data);
+            };
+        }
         return new LocalHistory(db, scope, account.epoch);
     } catch { return null; }
 }

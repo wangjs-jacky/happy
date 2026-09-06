@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
+import { TranscriptGroupExpansionContext } from './transcriptReading';
+const grouping = vi.hoisted(() => ({ nested: [] as any[] }));
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
@@ -16,7 +18,7 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons', Octicons: 'Octicons
 vi.mock('@/hooks/useGroupedMessages', () => ({
     formatWorkDuration: () => '1s',
     generateGroupSummary: () => 'Read file',
-    groupToolCallsForDisplay: () => [],
+    groupToolCallsForDisplay: () => grouping.nested,
 }));
 vi.mock('@/hooks/useElapsedTime', () => ({ useElapsedTime: () => 1 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
@@ -46,6 +48,7 @@ import { AgentWorkGroupView } from './ToolGroupView';
 
 describe('AgentWorkGroupView', () => {
     beforeEach(() => {
+        grouping.nested = [];
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     });
 
@@ -83,6 +86,18 @@ describe('AgentWorkGroupView', () => {
         expect(toggle.findByProps({ testID: 'conversation-tool-summary-icon' }).findByType('Octicons').props.name).toBe('eye');
         expect(toggle.findByProps({ testID: 'conversation-collapse-chevron' }).props.name).toBe('chevron-forward');
 
+        act(() => renderer.unmount());
+    });
+
+    it('restores nested tool-group expansion from the durable reading context', () => {
+        const messages = ['one', 'two'].map(id => ({ id, kind: 'agent-text', text: id, createdAt: 1, localId: null }));
+        grouping.nested = [{ type: 'tool-group', id: 'replayed-group', messages, hasRunning: false, hasPendingPermission: false }];
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<TranscriptGroupExpansionContext.Provider value={{ isExpanded: () => true, toggle: vi.fn() }}>
+            <AgentWorkGroupView group={{ type: 'agent-work-group', id: 'work', messages: messages as any, hasRunning: false,
+                hasPendingPermission: false, startedAt: 1, completedAt: 2 }} metadata={null} expanded onToggle={() => {}} />
+        </TranscriptGroupExpansionContext.Provider>); });
+        expect(renderer.root.findAllByType('MessageView')).toHaveLength(2);
         act(() => renderer.unmount());
     });
 });
