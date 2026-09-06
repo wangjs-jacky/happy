@@ -859,6 +859,8 @@ export const ru: TranslationStructure = {
         scrollToBottom: 'Прокрутить вниз',
         anchorsTitle: 'Ваши сообщения',
         anchorsSubtitle: ({ count }: { count: number }) => `Сообщений: ${count}`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `Загружено сообщений: ${count} · Есть более ранние сообщения`,
+        anchorsLoadOlder: 'Загрузить более ранние сообщения',
         anchorsEmpty: 'Пока некуда переходить.',
         inputPlaceholder: 'Введите сообщение...',
         inactiveArchived: 'Эта сессия неактивна.',

@@ -11,7 +11,7 @@ import { ChatFooter } from './ChatFooter';
 import { ConversationTranscript } from './ConversationTranscript';
 
 export const ChatList = React.memo((props: { session: Session }) => {
-    const { messages, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
+    const { messages, isLoaded, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
     const session = useSession(props.session.id);
     const groupToolCalls = useSetting('groupToolCalls');
     const hasPendingPermission = Boolean(
@@ -53,6 +53,8 @@ export const ChatList = React.memo((props: { session: Session }) => {
             currentTurnActive={isSessionTurnActive(session)}
             hasPendingPermission={hasPendingPermission}
             onLoadOlder={handleLoadOlder}
+            hasMoreOlder={hasMoreOlder || !isLoaded}
+            isLoadingOlder={isLoadingOlder || !isLoaded}
             visualTop={<ListHeader isLoadingOlder={isLoadingOlder} />}
             visualBottom={<ListFooter sessionId={props.session.id} />}
             showMessageActions={Platform.OS === 'web'}

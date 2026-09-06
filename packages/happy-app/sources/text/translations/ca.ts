@@ -629,6 +629,8 @@ export const ca: TranslationStructure = {
         scrollToBottom: "Desplaça't fins al final",
         anchorsTitle: 'Els teus missatges',
         anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? "1 missatge" : `${count} missatges`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `${count === 1 ? '1 missatge carregat' : `${count} missatges carregats`} · Queden missatges anteriors`,
+        anchorsLoadOlder: 'Carrega missatges anteriors',
         anchorsEmpty: 'Encara no hi ha missatges on saltar.',
         inputPlaceholder: 'Escriu un missatge...',
         inactiveArchived: 'Aquesta sessió està inactiva.',

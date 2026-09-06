@@ -654,6 +654,8 @@ export const en: TranslationStructure = {
         scrollToBottom: 'Scroll to bottom',
         anchorsTitle: 'Your messages',
         anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? '1 message' : `${count} messages`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `${count === 1 ? '1 message' : `${count} messages`} loaded · Older history remains`,
+        anchorsLoadOlder: 'Load older messages',
         anchorsEmpty: 'No messages to jump to yet.',
         inputPlaceholder: 'Type a message ...',
         inactiveArchived: 'This session is inactive.',

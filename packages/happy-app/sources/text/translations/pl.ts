@@ -646,6 +646,8 @@ export const pl: TranslationStructure = {
         scrollToBottom: 'Przewiń na dół',
         anchorsTitle: 'Twoje wiadomości',
         anchorsSubtitle: ({ count }: { count: number }) => `Wiadomości: ${count}`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `Załadowane wiadomości: ${count} · Są jeszcze starsze wiadomości`,
+        anchorsLoadOlder: 'Załaduj starsze wiadomości',
         anchorsEmpty: 'Brak wiadomości do przejścia.',
         inputPlaceholder: 'Wpisz wiadomość...',
         inactiveArchived: 'Ta sesja jest nieaktywna.',
