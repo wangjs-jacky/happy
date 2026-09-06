@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'node:url';
 import * as React from 'react';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only uses the create/unmount surface below.
@@ -9,6 +10,7 @@ import TestRenderer from 'react-test-renderer';
 import { InboxView } from './InboxView';
 
 const mocks = vi.hoisted(() => ({
+    feedItems: [] as import("@/sync/feedTypes").FeedItem[],
     candidates: [
         {
             threadId: 'alpha',
@@ -78,7 +80,6 @@ vi.mock('@/components/UpdateBanner', () => ({ UpdateBanner: 'UpdateBanner' }));
 vi.mock('@/components/VoiceAssistantStatusBar', () => ({ VoiceAssistantStatusBar: 'VoiceAssistantStatusBar' }));
 vi.mock('@/components/navigation/Header', () => ({ Header: 'Header' }));
 vi.mock('@/components/FeedItemCard', () => ({ FeedItemCard: 'FeedItemCard' }));
-vi.mock('@/components/UserCard', () => ({ UserCard: 'UserCard' }));
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 1240 } }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
 vi.mock('@/hooks/useCodexAttachCandidateInbox', () => ({
@@ -93,24 +94,35 @@ vi.mock('@/hooks/useCodexAttachCandidateInbox', () => ({
 }));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn() } }));
 vi.mock('@/sync/storage', () => ({
-    useAcceptedFriends: () => [],
-    useFeedItems: () => [],
+    useFeedItems: () => mocks.feedItems,
     useFeedLoaded: () => true,
-    useFriendRequests: () => [],
-    useFriendsLoaded: () => true,
     useRealtimeStatus: () => 'disconnected',
-    useRequestedFriends: () => [],
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@/track', () => ({ trackFriendsProfileView: vi.fn(), trackFriendsSearch: vi.fn() }));
 vi.mock('@/utils/responsive', () => ({ useIsTablet: () => false }));
 vi.mock('@/utils/sessionUtils', () => ({ formatLastSeen: () => 'recently' }));
 
+const initialCandidates = mocks.candidates;
+
 describe('InboxView Codex candidate search', () => {
+    let restoreAssetResolution: (() => void) | undefined;
+    beforeAll(async () => {
+        const nodeModule = (await import('node:module')).default as unknown as {
+            _resolveFilename: (request: string, parent: unknown, isMain: boolean, options?: unknown) => string;
+        };
+        const original = nodeModule._resolveFilename;
+        const assetMock = fileURLToPath(new URL('../../package.json', import.meta.url));
+        nodeModule._resolveFilename = (request, parent, isMain, options) => request === '@/assets/images/brutalist/Brutalism-10.png'
+            ? assetMock : original(request, parent, isMain, options);
+        restoreAssetResolution = () => { nodeModule._resolveFilename = original; };
+    });
+    afterAll(() => restoreAssetResolution?.());
     const originalConsoleError = console.error;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
+        mocks.candidates = initialCandidates;
+        mocks.feedItems = [];
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
             if (values[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -145,4 +157,28 @@ describe('InboxView Codex candidate search', () => {
 
         act(() => renderer.unmount());
     });
+    it('keeps cached friend activity out of the empty state and removes friend actions', () => {
+        mocks.candidates = [];
+        mocks.feedItems = [
+            { id: 'request', body: { kind: 'friend_request', uid: 'old-user' }, cursor: 'c-1', counter: 1, repeatKey: null, createdAt: 1 },
+            { id: 'accepted', body: { kind: 'friend_accepted', uid: 'old-user' }, cursor: 'c-2', counter: 2, repeatKey: null, createdAt: 2 },
+        ];
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<InboxView />); });
+        expect(JSON.stringify(renderer.toJSON())).toContain('inbox.emptyTitle');
+        expect(renderer.root.findAllByType('FeedItemCard')).toHaveLength(0);
+        expect(renderer.root.findAllByType('ActivityIndicator')).toHaveLength(0);
+        expect(renderer.root.findAllByType('Ionicons').filter((node: any) => node.props.name === 'person-add-outline')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('continues to display ordinary updates', () => {
+        const update = { id: 'update', body: { kind: 'text' as const, text: 'App update' }, cursor: 'c-3', counter: 3, repeatKey: null, createdAt: 3 };
+        mocks.feedItems = [update];
+        let renderer: any;
+        act(() => { renderer = TestRenderer.create(<InboxView />); });
+        expect(renderer.root.findAllByType('FeedItemCard').map((node: any) => node.props.item)).toEqual([update]);
+        act(() => renderer.unmount());
+    });
+
 });

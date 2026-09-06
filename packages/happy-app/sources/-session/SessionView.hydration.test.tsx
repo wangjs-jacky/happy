@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
     openSession: vi.fn(),
     session: null as any,
     messagesLoaded: false,
+    focusContext: null as unknown as React.Context<boolean>,
+    currentViewingSessionId: null as string | null,
+    renderComposer: false,
 }));
 
 vi.mock('react-native', () => ({
@@ -69,10 +72,17 @@ vi.mock('expo-router', () => ({
     useNavigation: () => ({ dispatch: vi.fn() }),
     useRouter: () => ({ back: vi.fn(), navigate: vi.fn(), push: vi.fn() }),
 }));
-vi.mock('@react-navigation/native', () => ({ DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) } }));
+vi.mock('@react-navigation/native', async () => {
+    const ReactModule = await import('react');
+    mocks.focusContext = ReactModule.createContext(true);
+    return {
+        DrawerActions: { openDrawer: () => ({ type: 'OPEN' }) },
+        useIsFocused: () => ReactModule.useContext(mocks.focusContext),
+    };
+});
 
 vi.mock('@/sync/storage', () => ({
-    storage: { getState: () => ({ currentViewingSessionId: null, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
+    storage: { getState: () => ({ sessions: {}, currentViewingSessionId: mocks.currentViewingSessionId, setCurrentViewingSession: mocks.setCurrentViewingSession }) },
     useIsDataReady: () => true,
     useLocalSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useLocalSettingMutable: () => [false, vi.fn()],
@@ -149,7 +159,10 @@ vi.mock('@/hooks/useSessionWorkingDirectory', () => ({ useSessionWorkingDirector
 vi.mock('@/hooks/useDraft', () => ({ useDraft: () => ({ clearDraft: vi.fn() }) }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({ selectedImages: [] }) }));
 
-vi.mock('@/components/AgentContentView', () => ({ AgentContentView: 'AgentContentView' }));
+vi.mock('@/components/AgentContentView', async () => {
+    const ReactModule = await import('react');
+    return { AgentContentView: (props: { input: React.ReactNode }) => ReactModule.createElement('AgentContentView', props, mocks.renderComposer ? props.input : null) };
+});
 vi.mock('@/components/MessageComposer', () => ({ MessageComposer: 'MessageComposer' }));
 vi.mock('@/components/ChatHeaderView', () => ({ ChatHeaderView: 'ChatHeaderView' }));
 vi.mock('@/components/SessionHeaderChip', () => ({ SessionHeaderChip: 'SessionHeaderChip' }));
@@ -205,6 +218,9 @@ describe('SessionView deep-link hydration', () => {
         });
         mocks.session = null;
         mocks.messagesLoaded = false;
+        mocks.renderComposer = false;
+        mocks.currentViewingSessionId = null;
+        mocks.setCurrentViewingSession.mockImplementation((id: string | null) => { mocks.currentViewingSessionId = id; });
         const owners = new SessionRouteOwnership();
         mocks.beginSessionRoute.mockImplementation((id: string) => owners.enter(id));
         mocks.promoteSessionRoute.mockImplementation((owner) => owners.promote(owner));
@@ -219,6 +235,65 @@ describe('SessionView deep-link hydration', () => {
         vi.useRealTimers();
         consoleErrorSpy.mockRestore();
         delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+    });
+
+    it('restores the retained main session owner after a modal session loses focus without remounting its composer', async () => {
+        mocks.renderComposer = true;
+        mocks.messagesLoaded = true;
+        mocks.session = {
+            id: 'main-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        const Focus = mocks.focusContext.Provider;
+        const tree = (modal: boolean) => <>
+            <Focus value={!modal}><SessionView id="main-session" /></Focus>
+            <Focus value={modal}>{modal ? <SessionView id="modal-session" /> : null}</Focus>
+        </>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(false)); });
+        const mainComposer = renderer.root.findByType('MessageComposer');
+        const firstOwner = mocks.beginSessionRoute.mock.results[0].value;
+        expect(mocks.currentViewingSessionId).toBe('main-session');
+
+        await act(async () => { renderer.update(tree(true)); });
+        expect(mocks.currentViewingSessionId).toBe('modal-session');
+        expect(renderer.root.findAllByType('MessageComposer')[0]).toBe(mainComposer);
+
+        await act(async () => { renderer.update(tree(false)); });
+        expect(mocks.beginSessionRoute.mock.calls.map(([id]) => id)).toEqual(['main-session', 'modal-session', 'main-session']);
+        const restoredOwner = mocks.beginSessionRoute.mock.results.at(-1)!.value;
+        expect(restoredOwner.ownerEpoch).toBeGreaterThan(firstOwner.ownerEpoch);
+        expect(mocks.promoteSessionRoute).toHaveBeenLastCalledWith(restoredOwner);
+        expect(mocks.currentViewingSessionId).toBe('main-session');
+        expect(renderer.root.findByType('MessageComposer')).toBe(mainComposer);
+        act(() => renderer.unmount());
+        expect(mocks.currentViewingSessionId).toBeNull();
+    });
+
+    it('does not acquire an unfocused route and ignores its late hydration after focus moves away', async () => {
+        const firstOpening = deferred<'not-found'>();
+        const Focus = mocks.focusContext.Provider;
+        const tree = (focused: boolean) => <Focus value={focused}><SessionView id="retained-session" /></Focus>;
+        let renderer: any;
+        await act(async () => { renderer = TestRenderer.create(tree(false)); });
+        expect(mocks.beginSessionRoute).not.toHaveBeenCalled();
+        expect(mocks.openSession).not.toHaveBeenCalled();
+
+        mocks.openSession.mockReturnValueOnce(firstOpening.promise);
+        await act(async () => { renderer.update(tree(true)); });
+        const firstOwner = mocks.beginSessionRoute.mock.results[0].value;
+        await act(async () => { renderer.update(tree(false)); });
+        expect(mocks.leaveSessionRoute).toHaveBeenCalledWith(firstOwner);
+        await act(async () => { firstOpening.resolve('not-found'); await firstOpening.promise; });
+        expect(renderer.root.findAllByProps({ testID: 'session-not-found' })).toHaveLength(0);
+        expect(mocks.setCurrentViewingSession).not.toHaveBeenCalled();
+
+        await act(async () => { renderer.update(tree(true)); });
+        expect(mocks.beginSessionRoute).toHaveBeenCalledTimes(2);
+        expect(mocks.openSession).toHaveBeenCalledTimes(2);
+        act(() => renderer.unmount());
     });
 
     it('bounds transient retries and exposes a deliberate retry action without preloaded messages', async () => {

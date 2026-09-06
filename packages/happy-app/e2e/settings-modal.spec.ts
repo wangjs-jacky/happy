@@ -11,7 +11,7 @@ function route(pathname: string): string {
     return url.toString();
 }
 
-test('[PC SETTINGS MODAL] opens as a component without changing the current route', async ({ page }, testInfo) => {
+test('[PC SETTINGS MODAL] keeps descendants in a dialog and restores the original route on close', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(route('/'), { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('compose-home-settings-button')).toBeVisible();
@@ -19,18 +19,18 @@ test('[PC SETTINGS MODAL] opens as a component without changing the current rout
     const currentUrl = page.url();
     await page.getByTestId('compose-home-settings-button').click();
 
-    await expect(page.getByTestId('settings-modal-panel')).toBeVisible();
-    await expect(page.getByTestId('settings-modal-close')).toBeVisible();
-    await expect(page).toHaveURL(currentUrl);
+    await expect(page.getByTestId('desktop-modal-panel')).toBeVisible();
+    await expect(page.getByTestId('desktop-modal-close')).toBeVisible();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/settings');
 
-    const modalPanel = page.getByTestId('settings-modal-panel');
+    const modalPanel = page.getByTestId('desktop-modal-panel');
     await modalPanel.getByText('Theme', { exact: true }).click();
     await expect(modalPanel.getByText('Appearance', { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(currentUrl);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/settings/appearance');
 
-    await page.getByTestId('settings-modal-back').click();
+    await page.getByTestId('desktop-modal-back').click();
     await expect(modalPanel.getByText('Settings', { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(currentUrl);
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/settings');
 
     if (evidenceDirectory) {
         fs.mkdirSync(evidenceDirectory, { recursive: true });
@@ -40,7 +40,7 @@ test('[PC SETTINGS MODAL] opens as a component without changing the current rout
         });
     }
 
-    await page.getByTestId('settings-modal-close').click();
-    await expect(page.getByTestId('settings-modal-panel')).toHaveCount(0);
+    await page.getByTestId('desktop-modal-close').click();
+    await expect(page.getByTestId('desktop-modal-panel')).toHaveCount(0);
     await expect(page).toHaveURL(currentUrl);
 });
