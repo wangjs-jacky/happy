@@ -1,4 +1,5 @@
 name: Self-hosted OTA preview (per PR)
+run-name: '${{ github.event.pull_request.title || github.ref_name }} · OTA 预览 ${{ github.event.pull_request.number && format(''· PR #{0}'', github.event.pull_request.number) || '''' }}'
 
 # 给开发预览用的 OTA：JS-compatible PR 一开/更新就把这次改动以 OTA 形式发到「preview 频道」的
 # 时间戳版本，但不覆盖全局 latest.json，避免多个 PR 并行时互相抢走 preview latest。
@@ -108,6 +109,16 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
+            - name: Describe the PR feature
+              id: feature
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const { featureContext } = require('./scripts/pr-feature-context.cjs');
+                      const markdown = await featureContext({ github, context, core });
+                      core.setOutput('markdown', markdown);
+                      await core.summary.addRaw(markdown + '\n\n').write();
+
             - name: Guard - secrets present
               run: |
                   if [ -z "${ALIBABA_CLOUD_ACCESS_KEY_ID}" ] || [ -z "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}" ]; then
@@ -168,6 +179,8 @@ jobs:
             - name: Comment preview result on PR
               if: ${{ github.event_name == 'pull_request' && success() }}
               uses: actions/github-script@v7
+              env:
+                  PR_FEATURE_CONTEXT: ${{ steps.feature.outputs.markdown }}
               with:
                   script: |
                       const id = `${{ steps.publish.outputs.ota_id }}`;
@@ -179,6 +192,8 @@ jobs:
                       const deepLink = `${{ steps.publish.outputs.ota_deep_link }}`;
                       const latestUpdated = `${{ steps.publish.outputs.ota_latest_updated }}`;
                       const body = [
+                        process.env.PR_FEATURE_CONTEXT,
+                        '',
                         '### 📲 预览 OTA 已发布',
                         '',
                         '这次改动已发到自建 OTA 的 **`' + channel + '`** 频道历史版本。PR 自动发布不会覆盖全局 `preview/latest.json`，所以不会再被其他 PR 互相顶掉。',

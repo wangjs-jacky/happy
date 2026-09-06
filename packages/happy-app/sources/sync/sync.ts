@@ -112,6 +112,15 @@ import { applyLatestRange, applyOlderRange, type MessageRange, type MessageRange
 import { SessionRouteOwnership, SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from './sessionRouteOwnership';
 import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
+import {
+    appendSessionWarmMessages,
+    createSessionWarmCacheAccountKey,
+    loadSessionWarmCache,
+    removeSessionFromWarmCache,
+    saveSessionWarmLatestPage,
+    saveSessionWarmSnapshots,
+    touchSessionWarmLatestPage,
+} from './sessionWarmCache';
 
 type V3GetSessionMessagesResponse = {
     messages: ApiMessage[];
@@ -306,6 +315,7 @@ class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
     serverID!: string;
+    private sessionWarmCacheAccountKey: string | null = null;
     anonID!: string;
     private credentials!: AuthCredentials;
     public encryptionCache = new EncryptionCache();
@@ -461,6 +471,7 @@ class Sync {
         this.encryption = encryption;
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
+        this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
         await this.#init();
 
         // Await settings sync to have fresh settings
@@ -480,8 +491,44 @@ class Sync {
         this.encryption = encryption;
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
+        this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
+        await this.restoreSessionWarmCache();
         await this.#init();
     }
+
+    private restoreSessionWarmCache = async (): Promise<void> => {
+        const accountKey = this.sessionWarmCacheAccountKey;
+        if (!accountKey) return;
+        const warmCache = loadSessionWarmCache(accountKey);
+        if (warmCache.snapshots.length === 0) return;
+        let restoredSessionCount = 0;
+        for (const snapshot of warmCache.snapshots) {
+            try {
+                const restored = await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false);
+                if (restored.length === 0) {
+                    removeSessionFromWarmCache(accountKey, snapshot.id);
+                    continue;
+                }
+                restoredSessionCount += restored.length;
+            } catch {
+                // The cache is only a startup accelerator. A stale key or one
+                // corrupt ciphertext must not block login or healthy entries;
+                // evict it and let the network bootstrap restore the session.
+                removeSessionFromWarmCache(accountKey, snapshot.id);
+            }
+        }
+        for (const [sessionId, page] of Object.entries(warmCache.latestPages)) {
+            if (!storage.getState().sessions[sessionId]) continue;
+            try {
+                this.retainSessionMessageCache(sessionId);
+                const lease = this.sessionMessageLoadGate.enter(sessionId);
+                await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease));
+            } catch {
+                removeSessionFromWarmCache(accountKey, sessionId);
+            }
+        }
+        if (restoredSessionCount > 0) storage.getState().applyReady();
+    };
 
     async #init() {
         this.sessionEventCursors.clear();
@@ -1429,7 +1476,7 @@ class Sync {
 
     private fetchActiveSessions = async () => {
         if (!this.credentials) return;
-        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials, 150));
+        await this.writeSessionSnapshots(() => fetchActiveSessionSnapshots(this.credentials!, 150));
     }
 
     public bootstrapSessions = async (): Promise<void> => {
@@ -1547,11 +1594,13 @@ class Sync {
         load: () => Promise<ApiSessionSnapshot[]>,
         options: SessionApplyOptions = { replace: false },
         operation?: SessionRouteOperation,
+        persist = true,
     ): Promise<HydratedSession[]> => {
         const write = { mutationGeneration: this.sessionMutationGeneration };
         const encryptionOwner = this.encryption;
         this.inFlightSessionRefreshes.add(write);
         const committed: HydratedSession[] = [];
+        const committedWireSnapshots: ApiSessionSnapshot[] = [];
         try {
             const snapshots = deduplicateSessionSnapshots(await load());
             for (const snapshot of snapshots) {
@@ -1574,6 +1623,7 @@ class Sync {
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
                         committed.push(prepared.session);
+                        committedWireSnapshots.push(snapshot);
                         break;
                     }
                 } catch (error) {
@@ -1581,6 +1631,9 @@ class Sync {
                 }
             }
             if (options.replace) this.applySessions(committed, options, write.mutationGeneration);
+            if (persist && this.sessionWarmCacheAccountKey && committedWireSnapshots.length > 0) {
+                saveSessionWarmSnapshots(this.sessionWarmCacheAccountKey, committedWireSnapshots);
+            }
             return committed;
         } finally {
             this.inFlightSessionRefreshes.delete(write);
@@ -1664,9 +1717,13 @@ class Sync {
         }
         this.retainSessionMessageCache(sessionId);
         const messageLease = this.sessionMessageLoadGate.enter(sessionId);
+        const hasLoadedMessageCache = storage.getState().sessionMessages[sessionId]?.isLoaded === true
+            && this.getSessionLastMessageSeq(sessionId) !== null;
         if (options.retry) markSessionCriticalPathHydrationRetry();
         markSessionCriticalPathAppStage('web.messages.latest_started');
-        const latestPagePromise = this.fetchLatestMessagePageRaw(sessionId);
+        const latestPagePromise = hasLoadedMessageCache
+            ? Promise.resolve({ messages: [], hasMore: false })
+            : this.fetchLatestMessagePageRaw(sessionId);
         const operation: SessionRouteOperation = {
             sessionId,
             owner,
@@ -1687,6 +1744,14 @@ class Sync {
             const found = await this.hydrateSessionSnapshot(sessionId, operation);
             this.assertSessionRouteCurrent(operation);
             if (!found) return 'not-found';
+
+            if (hasLoadedMessageCache) {
+                await this.getMessagesSync(sessionId).invalidateAndAwait();
+                this.assertSessionRouteCurrent(operation);
+                markSessionCriticalPathAppStage('web.messages.latest_completed');
+                markSessionCriticalPathAppStage('web.session.store_committed');
+                return 'ready';
+            }
 
             const latestPage = await latestPagePromise;
             this.assertSessionRouteCurrent(operation);
@@ -2727,10 +2792,11 @@ class Sync {
             throw new Error(`Failed to fetch initial page for ${sessionId}: ${response.status}`);
         }
         const data = await response.json() as V3GetSessionMessagesResponse;
-        return {
+        const page = {
             messages: Array.isArray(data.messages) ? data.messages : [],
             hasMore: !!data.hasMore,
         };
+        return page;
     }
 
     private applyLatestMessagePage = async (
@@ -2760,6 +2826,11 @@ class Sync {
         if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
         if (this.encryption.getSessionEncryption(sessionId) !== encryption) return false;
         if (isStalePage()) return true;
+        const fullyDecrypted = decryptedMessages.length === messages.length
+            && decryptedMessages.every((decrypted) => !!decrypted && decrypted.content !== null);
+        if (!fullyDecrypted) {
+            throw new Error(`Failed to decrypt complete latest message page for ${sessionId}`);
+        }
 
         const normalizedMessages: NormalizedMessage[] = [];
         for (const decrypted of decryptedMessages) {
@@ -2784,6 +2855,9 @@ class Sync {
             hasMore: frontier.hasMoreOlder,
         });
         this.recordRoutePageCommit(operation, maxSeq);
+        if (this.sessionWarmCacheAccountKey) {
+            saveSessionWarmLatestPage(this.sessionWarmCacheAccountKey, sessionId, data);
+        }
         return true;
     }
 
@@ -2819,6 +2893,11 @@ class Sync {
         while (true) {
             if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
             const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
+            if (!this.sessionMessageLoadGate.isCurrent(operation)) return;
+            if (response.status === 404) {
+                this.removeSessionLocally(sessionId);
+                return;
+            }
             if (!response.ok) {
                 throw new Error(`Failed to forward-sync ${sessionId}: ${response.status}`);
             }
@@ -2861,12 +2940,20 @@ class Sync {
             return { current: false, hasMutableToolResult: false };
         }
         if (messages.length === 0) {
+            if (this.sessionWarmCacheAccountKey) {
+                touchSessionWarmLatestPage(this.sessionWarmCacheAccountKey, sessionId);
+            }
             return { current: true, hasMutableToolResult: false };
         }
         const decryptedMessages = await encryption.createDetached().decryptMessages(messages);
         if (!this.sessionMessageLoadGate.isCurrent(operation)
             || this.encryption.getSessionEncryption(sessionId) !== encryption) {
             return { current: false, hasMutableToolResult: false };
+        }
+        const fullyDecrypted = decryptedMessages.length === messages.length
+            && decryptedMessages.every((decrypted) => !!decrypted && decrypted.content !== null);
+        if (!fullyDecrypted) {
+            throw new Error(`Failed to decrypt complete message page for ${sessionId}`);
         }
         const normalizedMessages: NormalizedMessage[] = [];
         for (let i = 0; i < decryptedMessages.length; i++) {
@@ -2881,6 +2968,9 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
         this.recordFetchedMessageRange(sessionId, messages);
+        if (this.sessionWarmCacheAccountKey) {
+            appendSessionWarmMessages(this.sessionWarmCacheAccountKey, sessionId, messages);
+        }
         return {
             current: true,
             hasMutableToolResult: this.containsMutableToolResult(sessionId, normalizedMessages),
@@ -3125,6 +3215,7 @@ class Sync {
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
+                        if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
                         if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
@@ -3153,14 +3244,7 @@ class Sync {
         } else if (updateData.body.t === 'delete-session') {
             log.log('🗑️ Delete session update received');
             const sessionId = updateData.body.sid;
-            const deletionMutationGeneration = ++this.sessionMutationGeneration;
-            this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
-            this.pruneSessionDeletionTombstones();
-
-            // Remove session from storage
-            storage.getState().deleteSession(sessionId);
-
-            this.clearSessionRuntimeState(sessionId);
+            this.removeSessionLocally(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -3756,6 +3840,15 @@ class Sync {
         this.sendSync.delete(sessionId);
         this.pendingOutbox.delete(sessionId);
     }
+
+    public removeSessionLocally = (sessionId: string): void => {
+        const deletionMutationGeneration = ++this.sessionMutationGeneration;
+        this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
+        storage.getState().deleteSession(sessionId);
+        if (this.sessionWarmCacheAccountKey) removeSessionFromWarmCache(this.sessionWarmCacheAccountKey, sessionId);
+        this.clearSessionRuntimeState(sessionId);
+        this.pruneSessionDeletionTombstones();
+    };
 
     private applySessionDiff = (active: Session[], newActive: Session[]) => {
         let wasActive = new Set(active.map(s => s.id));

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, ScrollView, Pressable } from 'react-native';
+import { View, ActivityIndicator, Platform, ScrollView, Pressable } from 'react-native';
 import { Text } from '@/components/StyledText';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
@@ -10,7 +10,7 @@ import { getUsageForPeriod, calculateTotals, UsageDataPoint } from '@/sync/apiUs
 import { Ionicons } from '@expo/vector-icons';
 import { HappyError } from '@/utils/errors';
 import { getCurrentLanguage, t } from '@/text';
-import { useAllMachines } from '@/sync/storage';
+import { storage, useAllMachines } from '@/sync/storage';
 
 type TimePeriod = 'today' | '7days' | '30days';
 
@@ -98,6 +98,27 @@ function getLatestCodexUsageSnapshot(
         }
         return snapshot;
     }, null);
+}
+
+function getCodexQuotaUsageSnapshot(
+    machines: Array<{ active?: boolean; daemonState: unknown; id?: string }>,
+    currentMachineId: string | null,
+): CodexUsageSnapshot | null {
+    if (currentMachineId) {
+        const currentMachineSnapshot = getLatestCodexUsageSnapshot(
+            machines.filter((machine) => machine.id === currentMachineId),
+            true,
+        );
+        if (currentMachineSnapshot) {
+            return currentMachineSnapshot;
+        }
+    }
+
+    const activeMachineSnapshot = getLatestCodexUsageSnapshot(
+        machines.filter((machine) => machine.active === true),
+        true,
+    );
+    return activeMachineSnapshot || getLatestCodexUsageSnapshot(machines, true);
 }
 
 function mergeCodexUsageDays(snapshots: CodexUsageSnapshot[]): CodexUsageDay[] {
@@ -219,6 +240,22 @@ function formatRateLimitPeriod(windowMinutes: number | undefined): string {
     if (windowMinutes % 1440 === 0) return `${windowMinutes / 1440}d`;
     if (windowMinutes >= 60) return `${windowMinutes / 60}h`;
     return `${windowMinutes}m`;
+}
+
+function formatCodexActivityTokens(tokens: number, language: string): string {
+    if (language === 'zh-Hans') {
+        return `${(tokens / 100_000_000).toFixed(2)} 亿`;
+    }
+    if (language === 'zh-Hant') {
+        return `${(tokens / 100_000_000).toFixed(2)} 億`;
+    }
+    if (tokens >= 1_000_000) {
+        return `${(tokens / 1_000_000).toFixed(2)}M`;
+    }
+    if (tokens >= 1_000) {
+        return `${(tokens / 1_000).toFixed(1)}K`;
+    }
+    return tokens.toLocaleString();
 }
 
 interface CodexRateLimitSummary {
@@ -384,6 +421,13 @@ const styles = StyleSheet.create((theme) => ({
         borderRadius: 4,
         height: CODEX_HEATMAP_CELL_SIZE,
         width: CODEX_HEATMAP_CELL_SIZE,
+        ...Platform.select({
+            web: {
+                transitionDuration: '120ms',
+                transitionProperty: 'background-color, opacity, transform',
+                transitionTimingFunction: 'ease-out',
+            } as any,
+        }),
     },
     heatmapCellPlaceholder: {
         height: CODEX_HEATMAP_CELL_SIZE,
@@ -402,6 +446,10 @@ const styles = StyleSheet.create((theme) => ({
     },
     heatmapCellPressed: {
         backgroundColor: theme.colors.surfacePressed,
+    },
+    heatmapCellHovered: {
+        transform: [{ scale: 1.16 }],
+        zIndex: 1,
     },
     heatmapSelection: {
         color: theme.colors.textSecondary,
@@ -500,15 +548,20 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
         costByModel: {} as Record<string, number>
     });
     const [selectedCodexUsageDate, setSelectedCodexUsageDate] = useState<string | null>(null);
+    const [hoveredCodexUsageDate, setHoveredCodexUsageDate] = useState<string | null>(null);
     const heatmapScrollRef = useRef<ScrollView>(null);
     const currentLanguage = getCurrentLanguage();
+    const currentMachineId = storage((state) => {
+        const currentSessionId = state.currentViewingSessionId;
+        return currentSessionId ? state.sessions[currentSessionId]?.metadata?.machineId || null : null;
+    });
     const codexUsageSnapshots = React.useMemo(() => machines
         .map((machine) => getCodexUsageSnapshot(machine.daemonState))
         .filter((snapshot): snapshot is CodexUsageSnapshot => !!snapshot), [machines]);
     const codexUsage = React.useMemo(() => getLatestCodexUsageSnapshot(machines), [machines]);
     const codexQuotaUsage = React.useMemo(
-        () => getLatestCodexUsageSnapshot(machines, true),
-        [machines],
+        () => getCodexQuotaUsageSnapshot(machines, currentMachineId),
+        [currentMachineId, machines],
     );
     const codexRateLimits = React.useMemo(() => {
         const rateLimits = codexQuotaUsage?.latestEvent?.rateLimits;
@@ -540,6 +593,8 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const selectedCodexUsageDay = codexHeatmapDays.find((day) => day.date === selectedCodexUsageDate)
         || [...codexHeatmapDays].reverse().find((day) => day.totalTokens > 0)
         || codexHeatmapDays.at(-1);
+    const displayedCodexUsageDay = codexHeatmapDays.find((day) => day.date === hoveredCodexUsageDate)
+        || selectedCodexUsageDay;
     const hasApiUsage = usageData.length > 0;
     
     useEffect(() => {
@@ -695,6 +750,7 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                             }
                                             const isActive = day.totalTokens > 0;
                                             const isSelected = day.date === selectedCodexUsageDay?.date;
+                                            const isHovered = day.date === hoveredCodexUsageDate;
                                             const opacity = isActive
                                                 ? getCodexHeatmapOpacity(day.totalTokens, maxCodexHeatmapTokens)
                                                 : 1;
@@ -705,16 +761,23 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                                                     style={({ pressed }) => [
                                                         styles.heatmapCell,
                                                         isActive ? styles.heatmapCellActive : styles.heatmapCellInactive,
-                                                        isActive && !isSelected && !pressed && { opacity },
-                                                        isSelected && styles.heatmapCellSelected,
+                                                        isActive && !isSelected && !isHovered && !pressed && { opacity },
+                                                        (isSelected || isHovered) && styles.heatmapCellSelected,
+                                                        isHovered && styles.heatmapCellHovered,
                                                         pressed && styles.heatmapCellPressed,
                                                     ]}
                                                     onPress={() => setSelectedCodexUsageDate(day.date)}
+                                                    onHoverIn={Platform.OS === 'web'
+                                                        ? () => setHoveredCodexUsageDate(day.date)
+                                                        : undefined}
+                                                    onHoverOut={Platform.OS === 'web'
+                                                        ? () => setHoveredCodexUsageDate((current) => current === day.date ? null : current)
+                                                        : undefined}
                                                     accessibilityRole="button"
                                                     accessibilityState={{ selected: isSelected }}
                                                     accessibilityLabel={t('machine.codexUsageHeatmapDay', {
                                                         date: day.date,
-                                                        tokens: formatTokens(day.totalTokens),
+                                                        tokens: formatCodexActivityTokens(day.totalTokens, currentLanguage),
                                                         sessions: day.sessions,
                                                     })}
                                                 />
@@ -725,12 +788,12 @@ export const UsagePanel: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
                             </View>
                         </View>
                     </ScrollView>
-                    {selectedCodexUsageDay && (
+                    {displayedCodexUsageDay && (
                         <Text style={styles.heatmapSelection}>
                             {t('machine.codexUsageHeatmapDay', {
-                                date: selectedCodexUsageDay.date,
-                                tokens: formatTokens(selectedCodexUsageDay.totalTokens),
-                                sessions: selectedCodexUsageDay.sessions,
+                                date: displayedCodexUsageDay.date,
+                                tokens: formatCodexActivityTokens(displayedCodexUsageDay.totalTokens, currentLanguage),
+                                sessions: displayedCodexUsageDay.sessions,
                             })}
                         </Text>
                     )}

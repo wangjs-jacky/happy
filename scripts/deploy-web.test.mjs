@@ -118,3 +118,14 @@ test('rollback restores the marker first and HTML entry last', async () => {
     assert.match(copies[0], /web\/rollback\/test-release\/\.paws-release-revision oss:\/\/test-web-bucket\/web\/current\/\.paws-release-revision/);
     assert.match(copies[1], /web\/rollback\/test-release\/index\.html oss:\/\/test-web-bucket\/web\/current\/index\.html/);
 });
+
+test('build path injects browser-origin runtime configuration once before release stamping', async () => {
+    const script = await readFile(scriptPath, 'utf8');
+    const injector = 'node "$SCRIPT_DIR/inject-web-runtime-server-config.mjs" "$DIST_DIR/index.html"';
+    const stamp = 'node "$SCRIPT_DIR/stamp-web-release.mjs"';
+
+    assert.equal(script.split(injector).length - 1, 1);
+    assert.ok(script.indexOf(injector) < script.indexOf(stamp));
+    assert.match(script, /readonly CANONICAL_WEB_ORIGIN="https:\/\/47\.115\.228\.20:8443"/);
+    assert.match(script, /EXPO_PUBLIC_HAPPY_SERVER_URL="\$PAWS_WEB_ORIGIN"/);
+});

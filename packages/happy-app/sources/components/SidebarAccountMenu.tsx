@@ -8,6 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { getAvatarUrl, type Profile } from '@/sync/profile';
 import { t } from '@/text';
+import { UsageDialog } from '@/components/usage/UsageDialog';
 
 type SidebarAccountMenuProps = {
     desktopDensity?: boolean;
@@ -76,6 +77,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
     const triggerRef = React.useRef<any>(null);
     const firstActionRef = React.useRef<any>(null);
     const wasOpenRef = React.useRef(false);
+    const [usageDialogOpen, setUsageDialogOpen] = React.useState(false);
     const avatarUrl = getAvatarUrl(profile);
     const webTitle = Platform.OS === 'web' && railMode ? { title: displayName } as any : {};
 
@@ -90,13 +92,13 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
         const timeout = setTimeout(() => {
             if (open) {
                 firstActionRef.current?.focus?.();
-            } else if (wasOpen && restoreFocusOnClose) {
+            } else if (wasOpen && restoreFocusOnClose && !usageDialogOpen) {
                 triggerRef.current?.focus?.();
             }
         }, 0);
 
         return () => clearTimeout(timeout);
-    }, [open, restoreFocusOnClose]);
+    }, [open, restoreFocusOnClose, usageDialogOpen]);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !open || typeof window === 'undefined') {
@@ -135,6 +137,11 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
             }
         })();
     }, [logout, onOpenChange]);
+
+    const openUsageDialog = React.useCallback(() => {
+        setUsageDialogOpen(true);
+        onOpenChange(false);
+    }, [onOpenChange]);
 
     return (
         <View
@@ -184,7 +191,7 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     <MenuAction
                         icon="analytics-outline"
                         label={t('settings.usage')}
-                        onPress={() => navigate('/settings/usage')}
+                        onPress={openUsageDialog}
                         testID="sidebar-account-usage-action"
                     />
                     <View style={styles.dangerGroup}>
@@ -235,6 +242,11 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                     size={15}
                 /> : null}
             </Pressable>
+            <UsageDialog
+                onClose={() => setUsageDialogOpen(false)}
+                open={usageDialogOpen}
+                returnFocusRef={triggerRef}
+            />
         </View>
     );
 });

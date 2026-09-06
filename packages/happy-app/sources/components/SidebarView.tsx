@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useNavigation } from 'expo-router';
+import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
 import { useRealtimeStatus, useFriendRequests, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
@@ -388,6 +388,7 @@ function DesktopRailItem({
 
 function DesktopPluginRailItems({ onNavigate }: { onNavigate: (path: string) => void }) {
     const views = usePluginSurfaceViews('left-sidebar');
+    const pathname = usePathname();
 
     return views.map((view) => view.path ? (
         <DesktopRailItem
@@ -395,6 +396,7 @@ function DesktopPluginRailItems({ onNavigate }: { onNavigate: (path: string) => 
             key={`${view.pluginId}:${view.viewId}`}
             label={resolvePluginText(view.contribution.title)}
             onPress={() => onNavigate(view.path!)}
+            selected={pathname === view.path}
             testID={`sidebar-plugin-${view.pluginId}-button`}
         />
     ) : null);
@@ -409,6 +411,8 @@ export const SidebarView = React.memo(({
     const styles = stylesheet;
     const safeArea = useSafeAreaInsets();
     const router = useRouter();
+    const pathname = usePathname();
+    const advisorSidebarActive = desktopPrimaryNavigation && pathname === '/relationship-advisor';
     const navigation = useNavigation();
     const realtimeStatus = useRealtimeStatus();
     const friendRequests = useFriendRequests();
@@ -444,6 +448,11 @@ export const SidebarView = React.memo(({
         closeDrawer();
         router.navigate(path as any);
     }, [closeDrawer, router]);
+
+    const openDesktopHistory = () => {
+        setDesktopSidebarMode('history');
+        if (advisorSidebarActive) go('/');
+    };
 
     const openSettingsFromSidebar = React.useCallback(() => {
         if (isDesktop) {
@@ -665,8 +674,8 @@ export const SidebarView = React.memo(({
             <DesktopRailItem
                 icon="time-outline"
                 label={t('relationshipAdvisor.historyTitle')}
-                onPress={() => setDesktopSidebarMode('history')}
-                selected={desktopSidebarMode === 'history'}
+                onPress={openDesktopHistory}
+                selected={!advisorSidebarActive && desktopSidebarMode === 'history'}
                 testID="sidebar-history-button"
             />
         </View>
@@ -769,7 +778,11 @@ export const SidebarView = React.memo(({
                         {footerNavigation}
                     </View>
                     <View style={styles.desktopSecondaryColumn} testID="desktop-secondary-navigation-column">
-                        <DesktopSidebarSessionsNavigation />
+                        {advisorSidebarActive ? (
+                            <PluginLeftSidebarSlot desktopDensity={desktopDensity} fillAvailableSpace onNavigate={go} />
+                        ) : (
+                            <DesktopSidebarSessionsNavigation />
+                        )}
                     </View>
                 </>
             ) : (

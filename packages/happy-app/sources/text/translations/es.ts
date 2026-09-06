@@ -1117,6 +1117,7 @@ export const es: TranslationStructure = {
         usedTools: ({ count }: { count: number }) => count === 1 ? 'Se usó 1 herramienta' : `Se usaron ${count} herramientas`,
         usedSkills: ({ names }: { names: string }) => `Habilidades (Skills) usadas: ${names}`,
         skillLabel: 'Habilidad (Skill)',
+        skillBatchLabel: 'Lote de habilidades',
         subagentLabel: 'Subagente',
         openSubagentDetails: ({ title }: { title: string }) => `Ver detalles del subagente: ${title}`,
         subagentPanelLabel: ({ title }: { title: string }) => `los detalles del subagente «${title}»`,

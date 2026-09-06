@@ -183,12 +183,12 @@ export default function Restore() {
                         ]}
                     >
                         <Text style={[styles.instructionText, !isDesktop && styles.compactTitle]}>
-                            {t('settingsAccount.linkNewDeviceSubtitle')}
+                            {t('settings.scanQrCodeToAuthenticate')}
                         </Text>
                         <Text style={[styles.secondInstructionText, !isDesktop && styles.compactSteps]}>
                             1. Open Paws on your mobile device{'\n'}
-                            2. Go to Settings → Account{'\n'}
-                            3. Tap "Link New Device"{'\n'}
+                            2. Go to "{t('settings.title')}"{'\n'}
+                            3. Tap "{t('settings.scanQrCodeToAuthenticate')}"{'\n'}
                             4. Scan this QR code
                         </Text>
                     </View>

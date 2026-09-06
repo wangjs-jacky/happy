@@ -107,7 +107,7 @@ function SkillActivityRow(props: { activity: SkillConversationActivity }) {
         <>
             <View style={styles.rowHeader}>
                 <Ionicons name="sparkles-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={styles.kind}>{t('toolGroup.skillLabel')}</Text>
+                <Text style={styles.kind}>{t(activity.isBatch ? 'toolGroup.skillBatchLabel' : 'toolGroup.skillLabel')}</Text>
                 <Text style={styles.title} numberOfLines={1}>{activity.name}</Text>
                 <View style={styles.statusPill}>
                     <ActivityStatusIcon status={activity.status} />

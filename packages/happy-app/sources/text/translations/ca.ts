@@ -1117,6 +1117,7 @@ export const ca: TranslationStructure = {
         usedTools: ({ count }: { count: number }) => count === 1 ? 'S\'ha usat 1 eina' : `S'han usat ${count} eines`,
         usedSkills: ({ names }: { names: string }) => `Habilitats (Skills): ${names}`,
         skillLabel: 'Habilitat (Skill)',
+        skillBatchLabel: 'Lot d’habilitats',
         subagentLabel: 'Subagent',
         openSubagentDetails: ({ title }: { title: string }) => `Mostra els detalls del subagent: ${title}`,
         subagentPanelLabel: ({ title }: { title: string }) => `els detalls del subagent «${title}»`,

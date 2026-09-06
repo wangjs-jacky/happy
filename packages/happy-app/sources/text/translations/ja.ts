@@ -1118,6 +1118,7 @@ export const ja: TranslationStructure = {
         usedTools: ({ count }: { count: number }) => `${count}個のツールを使用`,
         usedSkills: ({ names }: { names: string }) => `使用したSkill：${names}`,
         skillLabel: 'Skill',
+        skillBatchLabel: 'スキルの一括読み込み',
         subagentLabel: 'サブエージェント',
         openSubagentDetails: ({ title }: { title: string }) => `サブエージェントの詳細を表示：${title}`,
         subagentPanelLabel: ({ title }: { title: string }) => `サブエージェント「${title}」の詳細`,

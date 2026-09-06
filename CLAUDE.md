@@ -93,27 +93,16 @@ git push -u origin <branch-name>
 gh pr create --repo wangjs-jacky/happy --base main --head <branch-name>
 ```
 
-### PC/UI PR 可视证据门
+### PC/UI PR 截图按用户确认执行
 
-只要 PR 包含用户可见的 PC Web、布局、图标、状态或交互变化，合并前必须让 PR 正文自身携带逐 Case 证据：
+PR 包含用户可见的 PC Web、布局、图标、状态或交互变化时，**前后截图不是默认合并门禁**。开始截图或为截图搭建环境前，先简短询问用户是否需要，并说明建议覆盖的场景及预计成本。
 
-1. 声明 `Visible UI cases: N`。
-2. 用 `Case ID → 问题 → 修复前 → 修复后` 矩阵逐项嵌入图片；每个可见 Case 一组，整页总览或 contact sheet 不得重复代替多组证据。仅下述维护者截图豁免可以跳过图片。
-3. 未使用维护者截图豁免时，`N` 必须同时等于矩阵中的可见 Case 数和独立前后截图组数。纯逻辑或不可见后台 Case 不进入 `N`，共享证据必须在表内说明理由。使用豁免时仍保留真实 `N`，但必须按下述格式记录未提供截图的 Case。
-4. 图片使用不可变 commit SHA 的仓库 URL 或 GitHub 上传附件，不得引用合并后会删除的功能分支。PR 创建或更新后必须打开实际 PR，确认每张图片能够渲染。
-5. 独立验收 Agent 必须评审实际 PR 正文。除满足下述维护者截图豁免外，缺图、错配、重复占位、失效链接或只在聊天/本地报告中存在时，即使测试和 CI 全绿也不得合并。
-
-使用根目录 [`.github/pull_request_template.md`](.github/pull_request_template.md) 的 Visual evidence 区块，不要在 `gh pr create --body` 时删掉该区块。非视觉 PR 填 `Visible UI cases: 0` 并说明原因。
-
-#### 维护者截图豁免
-
-仓库维护者可以为某个具体 PR 明确批准跳过 Before/After 截图。该豁免是例外，不是默认流程，并且必须满足全部条件：
-
-1. Agent 先向维护者说明缺少视觉证据的具体风险，并询问是否对当前 PR 豁免；只有对仓库具有 write、maintain 或 admin 权限的维护者明确回复确认后才能使用，不得从“直接合并”等泛化指令中推断。
-2. PR 正文保留真实的 `Visible UI cases: N` 和逐 Case 表格；缺失截图的位置写明 `Waived by maintainer`，不得把文字占位算作截图，也不得把 `N` 改成 `0` 掩盖可见变更。
-3. PR 正文增加 `Visual evidence waiver: approved`，并记录确认者、PR 编号、确认范围、确认日期、批准时的完整 head SHA、确认来源 URL 和未执行的视觉验证。确认必须由 `Confirmed by` 对应的维护者 GitHub 账号本人发布为 PR comment/review；执行 Agent 只有在当前 `gh` 认证账号就是该维护者，且维护者已明确授权记录本次确认时，才能代为执行发布命令。独立验收 Agent 必须打开实际 PR，确认 comment/review author login 与 `Confirmed by` 一致、批准者具有所需权限、waiver 信息与 Case 一致、记录的 SHA 等于当前 head。
-4. 豁免只跳过截图证据，不跳过代码评审、相关自动化测试、typecheck、实际触发的 CI、merge message 展示或分支保护；PR 正文必须逐项记录这些不可豁免检查的结果，全部通过后才能合并。
-5. 维护者确认只对记录的 PR 和 head SHA 有效。PR head 变化后必须重新展示风险并再次确认，即使新增提交没有改变用户可见行为；不能复用其他 PR 或更早 revision 的豁免。
+1. 用户明确要求截图时，按确认的场景范围提供前后对比；不自动扩展为所有可见 Case 的完整截图矩阵。已有明确要求或确认时不重复询问。
+2. 用户确认不需要时，跳过截图。用户尚未回复时，不启动截图采集，继续代码评审和必要检查；未明确要求的截图不得成为合并阻碍，也不得把未回复写成用户已确认。
+3. PR 正文的 Visual evidence 区块简要记录截图状态（用户要求 / 用户确认不需要 / 已询问待回复 / 不涉及可见变更）、确认范围和实际完成情况。不需要维护者豁免、GitHub 确认评论、权限核验或绑定 head SHA；仅当可见变更范围实质扩大时才重新确认截图范围。
+4. 用户要求截图时，使用不可变 commit SHA 的仓库 URL 或 GitHub 上传附件，保持前后视口与缩放可比，并打开实际 PR 核对图片渲染。只对用户要求的场景检查证据完整性；不默认增加独立截图验收 Agent。
+5. 使用根目录 [`.github/pull_request_template.md`](.github/pull_request_template.md) 的 Visual evidence 区块。只有用户要求逐 Case 截图时才填写 Case 矩阵和数量；未采集的截图或未执行的视觉验证如实说明，不得写成已通过。
+6. 此规则仅调整截图采集与验收，不跳过代码评审、必要的自动化测试、适用的 typecheck、实际触发的 CI、merge message 确认或分支保护。用户已要求的 E2E 或视频验收仍按约定执行，不因截图选择自动增加或取消。
 
 ### 主题与交互表面颜色规范
 
@@ -127,7 +116,7 @@ gh pr create --repo wangjs-jacky/happy --base main --head <branch-name>
 主题相关改动的验收门禁：
 
 1. 修改主题 token 或主题包映射时，为至少一个非默认深色主题补充/更新单测，断言交互态 token 来自该主题包；不得只验证默认焦糖主题。
-2. 修改可见交互态时，在深色非默认主题（优先 `ginghamDark`）下检查普通、hover/pressed 和 selected/active 状态。PC Web 的可见变更还必须在 PR 的逐 Case 前后证据中展示该主题状态。
+2. 修改可见交互态时，在深色非默认主题（优先 `ginghamDark`）下检查普通、hover/pressed 和 selected/active 状态。用户要求 PC Web 前后截图时，在约定场景的证据中展示该主题状态。
 3. 若发现某个主题下出现与当前主题不协调的残留底色，优先检查组件是否绕过 `theme.colors.*`，以及主题包是否遗漏了语义 token；不要用局部硬编码掩盖问题。
 
 ## 四、Worktree 开发流程（隔离开发，推荐）
