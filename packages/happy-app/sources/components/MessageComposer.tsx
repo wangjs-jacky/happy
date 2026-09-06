@@ -5,6 +5,7 @@ import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import type { AttachmentGalleryPresentation } from '@/utils/attachmentGalleryLayout';
 import { generateThumbhash } from '@/utils/thumbhash';
+import { getImagesFromClipboard } from '@/utils/pasteImages.web';
 import { layout } from './layout';
 import { MultiTextInput, KeyPressEvent } from './MultiTextInput';
 import { Typography } from '@/constants/Typography';
@@ -497,6 +498,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     const shakerRef = React.useRef<ShakeInstance>(null);
     const sendBlockShakerRef = React.useRef<ShakeInstance>(null);
     const inputRef = React.useRef<MultiTextInputHandle>(null);
+    const composerContentRef = React.useRef<View>(null);
 
     // Forward ref to the MultiTextInput
     React.useImperativeHandle(ref, () => inputRef.current!, []);
@@ -505,22 +507,17 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
     // attachment feature. Both handlers funnel through props.onAddImages.
     React.useEffect(() => {
         if (Platform.OS !== 'web' || !props.onAddImages) return;
+        const composerElement = composerContentRef.current as unknown as HTMLElement | null;
+        if (!composerElement) return;
 
         const handlePaste = async (e: ClipboardEvent) => {
-            // Only handle pastes targeted at a focused text-editable element.
-            // The listener is attached to document, so without this guard a
-            // paste in the URL bar, another modal, or any focused-elsewhere
-            // input would steal images intended for somewhere else.
-            const active = document.activeElement;
-            const isEditableTarget = active instanceof HTMLInputElement
-                || active instanceof HTMLTextAreaElement
-                || (active instanceof HTMLElement && active.isContentEditable);
-            if (!isEditableTarget) return;
-
-            const { getImagesFromClipboard, fileToAttachmentPreview } = await import('@/utils/pasteImages.web');
+            // A retained home/new-session composer can share the same draft.
+            // Only the composer containing the paste target should add images.
+            if (e.defaultPrevented) return;
             const files = getImagesFromClipboard(e);
             if (!files.length) return;
             e.preventDefault();
+            const { fileToAttachmentPreview } = await import('@/utils/pasteImages.web');
             const previews = (await Promise.all(
                 files.map((f) => fileToAttachmentPreview(f, generateThumbhash))
             )).filter(Boolean) as Omit<AttachmentPreview, 'id'>[];
@@ -568,11 +565,11 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             }
         };
 
-        document.addEventListener('paste', handlePaste as any);
+        composerElement.addEventListener('paste', handlePaste);
         document.addEventListener('dragover', handleDragOver);
         document.addEventListener('drop', handleDrop);
         return () => {
-            document.removeEventListener('paste', handlePaste as any);
+            composerElement.removeEventListener('paste', handlePaste);
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
         };
@@ -763,7 +760,7 @@ export const MessageComposer = React.memo(React.forwardRef<MultiTextInputHandle,
             <View style={[
                 styles.innerContainer,
                 { maxWidth: layout.maxWidth }
-            ]} testID="message-composer-content">
+            ]} ref={composerContentRef} testID="message-composer-content">
                 {/* Autocomplete suggestions overlay */}
                 {suggestions.length > 0 && (
                     <View style={[
