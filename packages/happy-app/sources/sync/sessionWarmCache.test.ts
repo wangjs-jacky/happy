@@ -3,10 +3,12 @@ import type { ApiMessage, ApiSessionSnapshot } from './apiTypes';
 import {
     appendSessionWarmMessages,
     clearSessionWarmCache,
+    createSessionWarmCacheAccountKey,
     loadSessionWarmCache,
     removeSessionFromWarmCache,
     saveSessionWarmLatestPage,
     saveSessionWarmSnapshots,
+    touchSessionWarmLatestPage,
 } from './sessionWarmCache';
 
 function snapshot(id: string, updatedAt: number): ApiSessionSnapshot {
@@ -49,6 +51,33 @@ describe('session warm cache', () => {
         expect(Object.keys(loadSessionWarmCache('account-a').latestPages)).toEqual([
             'session-2', 'session-3', 'session-4',
         ]);
+    });
+
+    it('refreshes latest-page recency even when incremental sync has no new messages', () => {
+        for (const id of ['a', 'b', 'c']) {
+            saveSessionWarmLatestPage('account-a', id, {
+                messages: [message(1)], hasMore: false,
+            });
+        }
+
+        touchSessionWarmLatestPage('account-a', 'a');
+        saveSessionWarmLatestPage('account-a', 'd', {
+            messages: [message(1)], hasMore: false,
+        });
+
+        expect(Object.keys(loadSessionWarmCache('account-a').latestPages)).toEqual(['a', 'c', 'd']);
+    });
+
+    it('isolates the same account id across canonical server origins', () => {
+        const cloud = createSessionWarmCacheAccountKey('https://happy.example.com/api/', 'same-account');
+        const selfHosted = createSessionWarmCacheAccountKey('https://self-hosted.example.com/', 'same-account');
+
+        expect(cloud).toBe('https://happy.example.com|same-account');
+        expect(selfHosted).toBe('https://self-hosted.example.com|same-account');
+        expect(cloud).not.toBe(selfHosted);
+
+        saveSessionWarmSnapshots(cloud, [snapshot('cloud-session', 1)]);
+        expect(loadSessionWarmCache(selfHosted)).toEqual({ snapshots: [], latestPages: {} });
     });
 
     it('does not replace a newer snapshot with a lower sequence', () => {

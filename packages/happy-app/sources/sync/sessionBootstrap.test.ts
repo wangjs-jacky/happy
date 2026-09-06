@@ -224,7 +224,12 @@ describe('active-first session bootstrap', () => {
                         createdAt: message.createdAt,
                         content: { role: 'user', content: { type: 'text', text: 'Realtime message' } },
                     })),
-                    decryptMessages: vi.fn(async () => []),
+                    decryptMessages: vi.fn(async (messages: ApiMessage[]) => messages.map((message) => ({
+                        id: message.id,
+                        localId: message.localId,
+                        createdAt: message.createdAt,
+                        content: { role: 'user', content: { type: 'text', text: `Message ${message.seq}` } },
+                    }))),
                     decryptMetadata: vi.fn(async () => ({ name: 'Realtime title' })),
                     decryptAgentState: vi.fn(async () => null),
                 });
@@ -240,6 +245,7 @@ describe('active-first session bootstrap', () => {
         syncForTest.sessionMessageRetention = new SessionMessageRetention(3);
         syncForTest.activeOpenSession = null;
         syncForTest.sessionRouteOwnership = new SessionRouteOwnership();
+        syncForTest.sessionWarmCacheAccountKey = 'warm-account';
         clearSessionWarmCache();
     });
 
@@ -286,6 +292,35 @@ describe('active-first session bootstrap', () => {
         expect(mocks.fetchActive).not.toHaveBeenCalled();
     });
 
+    it('touches a restored latest page when forward revalidation returns no messages', async () => {
+        for (const id of ['a', 'b', 'c']) {
+            saveSessionWarmSnapshots('warm-account', [snapshot(id)]);
+            saveSessionWarmLatestPage('warm-account', id, {
+                messages: [{
+                    id: `${id}-message`, seq: 1, localId: null,
+                    content: { t: 'encrypted', c: `cipher-${id}` }, createdAt: 1, updatedAt: 1,
+                }],
+                hasMore: false,
+            });
+        }
+        await syncForTest.restoreSessionWarmCache();
+
+        const encryption = mocks.sessionEncryptions.get('a');
+        const lease = syncForTest.sessionMessageLoadGate.enter('a');
+        await syncForTest.applyFetchedMessages(
+            'a', encryption, [], syncForTest.sessionMessageLoadGate.begin(lease),
+        );
+        saveSessionWarmLatestPage('warm-account', 'd', {
+            messages: [{
+                id: 'd-message', seq: 1, localId: null,
+                content: { t: 'encrypted', c: 'cipher-d' }, createdAt: 1, updatedAt: 1,
+            }],
+            hasMore: false,
+        });
+
+        expect(Object.keys(loadSessionWarmCache('warm-account').latestPages)).toEqual(['a', 'c', 'd']);
+    });
+
     it('skips a corrupt warm-cache session without blocking other cached sessions', async () => {
         syncForTest.serverID = 'warm-account';
         saveSessionWarmSnapshots('warm-account', [
@@ -308,6 +343,64 @@ describe('active-first session bootstrap', () => {
         expect(loadSessionWarmCache('warm-account').snapshots).toEqual([
             expect.objectContaining({ id: 'healthy-session' }),
         ]);
+    });
+
+    it('evicts a warm snapshot when hydration returns null without marking the app ready', async () => {
+        syncForTest.serverID = 'warm-account';
+        saveSessionWarmSnapshots('warm-account', [snapshot('corrupt-session')]);
+        mocks.hydrateRoute.mockResolvedValue(null);
+
+        await expect(syncForTest.restoreSessionWarmCache()).resolves.toBeUndefined();
+
+        expect(mocks.state.sessions['corrupt-session']).toBeUndefined();
+        expect(mocks.state.readyCount).toBe(0);
+        expect(loadSessionWarmCache('warm-account')).toEqual({ snapshots: [], latestPages: {} });
+    });
+
+    it('evicts a warm message page whose decrypt result has null content and cold-fetches it later', async () => {
+        const cachedSnapshot = snapshot('warm-session');
+        const cachedMessage: ApiMessage = {
+            id: 'message-9', seq: 9, localId: null,
+            content: { t: 'encrypted', c: 'corrupt-ciphertext' }, createdAt: 9, updatedAt: 9,
+        };
+        syncForTest.serverID = 'warm-account';
+        saveSessionWarmSnapshots('warm-account', [cachedSnapshot]);
+        saveSessionWarmLatestPage('warm-account', 'warm-session', {
+            messages: [cachedMessage], hasMore: true,
+        });
+        mocks.hydrateRoute.mockImplementation(async (raw: ApiSessionSnapshot) => {
+            const session = (await mocks.hydrate([raw]))[0];
+            mocks.sessionEncryptions.get(raw.id).decryptMessages = vi.fn(async (messages: ApiMessage[]) => (
+                messages.map((message) => ({
+                    id: message.id,
+                    localId: message.localId,
+                    createdAt: message.createdAt,
+                    content: null,
+                }))
+            ));
+            return { session, commitEncryption: () => true };
+        });
+
+        await expect(syncForTest.restoreSessionWarmCache()).resolves.toBeUndefined();
+
+        expect(mocks.state.sessionMessages['warm-session']).toBeUndefined();
+        expect(syncForTest.sessionMessageFrontiers.has('warm-session')).toBe(false);
+        expect(loadSessionWarmCache('warm-account').latestPages).toEqual({});
+
+        mocks.sessionEncryptions.get('warm-session').decryptMessages = vi.fn(async (messages: ApiMessage[]) => (
+            messages.map((message) => ({
+                id: message.id,
+                localId: message.localId,
+                createdAt: message.createdAt,
+                content: { role: 'user', content: { type: 'text', text: 'Recovered' } },
+            }))
+        ));
+        mocks.apiRequest.mockResolvedValue(response({ messages: [cachedMessage], hasMore: false }));
+        const lease = syncForTest.sessionMessageLoadGate.enter('warm-session');
+        await syncForTest.fetchMessages('warm-session', syncForTest.sessionMessageLoadGate.begin(lease));
+
+        expect(mocks.apiRequest).toHaveBeenCalledWith(expect.stringContaining('before_seq='));
+        expect(mocks.state.sessionMessages['warm-session']).toMatchObject({ isLoaded: true });
     });
 
     it('does not call the legacy session list during bootstrap', async () => {
@@ -616,7 +709,15 @@ describe('deep-link session opening', () => {
         };
         mocks.hydrate.mockImplementation(async (snapshots: ApiSessionSnapshot[]) => {
             for (const item of snapshots) {
-                mocks.sessionEncryptions.set(item.id, { createDetached() { return this; }, decryptMessages: vi.fn(async () => []) });
+                mocks.sessionEncryptions.set(item.id, {
+                    createDetached() { return this; },
+                    decryptMessages: vi.fn(async (messages: ApiMessage[]) => messages.map((message) => ({
+                        id: message.id,
+                        localId: message.localId,
+                        createdAt: message.createdAt,
+                        content: { role: 'user', content: { type: 'text', text: `Message ${message.seq}` } },
+                    }))),
+                });
             }
             return snapshots.map(hydrated);
         });
@@ -626,7 +727,15 @@ describe('deep-link session opening', () => {
             guard: { assertCurrent(): void },
         ) => {
             guard.assertCurrent();
-            const sessionEncryption = { createDetached() { return this; }, decryptMessages: vi.fn(async () => []) };
+            const sessionEncryption = {
+                createDetached() { return this; },
+                decryptMessages: vi.fn(async (messages: ApiMessage[]) => messages.map((message) => ({
+                    id: message.id,
+                    localId: message.localId,
+                    createdAt: message.createdAt,
+                    content: { role: 'user', content: { type: 'text', text: `Message ${message.seq}` } },
+                }))),
+            };
             guard.assertCurrent();
             return {
                 session: hydrated(raw),
