@@ -2,6 +2,7 @@ import * as React from 'react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UsagePanel } from './UsagePanel';
+import { zhHans } from '@/text/translations/zh-Hans';
 
 // react-test-renderer does not publish TypeScript declarations with the package.
 // @ts-expect-error The test only needs the small create/unmount surface typed below.
@@ -10,9 +11,15 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     calculateTotals: vi.fn(),
     credentials: { token: 'test' } as { token: string } | null,
+    currentMachineId: null as string | null,
     getUsageForPeriod: vi.fn(),
     language: 'en',
-    machines: [] as Array<{ daemonState: unknown }>,
+    machines: [] as Array<{
+        active?: boolean;
+        activeAt?: number;
+        daemonState: unknown;
+        id?: string;
+    }>,
 }));
 
 vi.mock('react-native', () => ({
@@ -43,6 +50,12 @@ vi.mock('@/auth/AuthContext', () => ({
     useAuth: () => ({ credentials: mocks.credentials }),
 }));
 vi.mock('@/sync/storage', () => ({
+    storage: (selector: (state: unknown) => unknown) => selector({
+        currentViewingSessionId: mocks.currentMachineId ? 'current-session' : null,
+        sessions: mocks.currentMachineId ? {
+            'current-session': { metadata: { machineId: mocks.currentMachineId } },
+        } : {},
+    }),
     useAllMachines: () => mocks.machines,
 }));
 vi.mock('@/sync/apiUsage', () => ({
@@ -56,9 +69,12 @@ vi.mock('@/components/Item', () => ({ Item: 'Item' }));
 vi.mock('@/utils/errors', () => ({ HappyError: class HappyError extends Error {} }));
 vi.mock('@/text', () => ({
     getCurrentLanguage: () => mocks.language,
-    t: (key: string, values?: Record<string, unknown>) => values
-        ? `${key}:${JSON.stringify(values)}`
-        : key,
+    t: (key: string, values?: Record<string, unknown>) => {
+        if (key === 'machine.codexUsageHeatmapDay' && mocks.language === 'zh-Hans' && values) {
+            return `${values.date}：${values.tokens} token · ${values.sessions} 个会话`;
+        }
+        return values ? `${key}:${JSON.stringify(values)}` : key;
+    },
 }));
 
 const emptyTotals = {
@@ -90,6 +106,7 @@ describe('UsagePanel', () => {
 
     beforeEach(() => {
         mocks.credentials = { token: 'test' };
+        mocks.currentMachineId = null;
         mocks.language = 'en';
         mocks.machines = [];
         mocks.getUsageForPeriod.mockReset();
@@ -277,6 +294,58 @@ describe('UsagePanel', () => {
         expect(texts).toContain('17%');
         expect(texts).toContain('PRO');
         expect(texts.some((text: string) => text.startsWith('machine.codexUsageResetsAt:'))).toBe(true);
+
+        act(() => renderer.unmount());
+    });
+
+    it('uses the current viewing session machine quota instead of a newer quota from another machine', async () => {
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.currentMachineId = 'current-machine';
+        mocks.machines = [
+            {
+                id: 'current-machine',
+                active: true,
+                activeAt: 100,
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 100,
+                        latestEvent: {
+                            timestamp: '2026-09-06T15:02:00.000Z',
+                            rateLimits: {
+                                planType: 'pro',
+                                primary: { usedPercent: 35, windowMinutes: 10080 },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                id: 'other-machine',
+                active: true,
+                activeAt: 200,
+                daemonState: {
+                    codexUsage: {
+                        source: 'codex-session-jsonl',
+                        scannedAt: 200,
+                        latestEvent: {
+                            timestamp: '2026-09-06T15:23:28.000Z',
+                            rateLimits: {
+                                planType: 'plus',
+                                primary: { usedPercent: 0, windowMinutes: 300 },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('65%');
+        expect(texts).toContain('PRO');
+        expect(texts).not.toContain('100%');
 
         act(() => renderer.unmount());
     });
@@ -590,6 +659,94 @@ describe('UsagePanel', () => {
 
         expect(monthLabels).toContain('9月');
         expect(monthLabels).not.toContain('Sep');
+
+        act(() => renderer.unmount());
+    });
+
+    it('formats Simplified Chinese Codex activity in yi and says token instead of 令牌', async () => {
+        mocks.language = 'zh-Hans';
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        mocks.machines = [{
+            id: 'current-machine',
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: Date.UTC(2026, 8, 6, 12),
+                    days: [{
+                        date: '2026-09-06',
+                        inputTokens: 625_510_000,
+                        cachedInputTokens: 0,
+                        outputTokens: 0,
+                        reasoningOutputTokens: 0,
+                        totalTokens: 625_510_000,
+                        tokenCountEvents: 1,
+                        sessions: 86,
+                        totalOnlyTokens: 0,
+                    }],
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+
+        expect(texts).toContain('2026-09-06：6.26 亿 token · 86 个会话');
+        expect(texts.some((text: string) => text.includes('令牌'))).toBe(false);
+        expect(zhHans.machine.codexUsageHeatmapDay({
+            date: '2026-09-06',
+            tokens: '6.26 亿',
+            sessions: 86,
+        })).toBe('2026-09-06：6.26 亿 token · 86 个会话');
+
+        act(() => renderer.unmount());
+    });
+
+    it('previews each heatmap day on web hover without requiring a click', async () => {
+        mocks.language = 'zh-Hans';
+        mocks.getUsageForPeriod.mockResolvedValue({ usage: [] });
+        const usageDay = (date: string, totalTokens: number, sessions: number) => ({
+            date,
+            inputTokens: totalTokens,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens,
+            tokenCountEvents: 1,
+            sessions,
+            totalOnlyTokens: 0,
+        });
+        mocks.machines = [{
+            id: 'current-machine',
+            daemonState: {
+                codexUsage: {
+                    source: 'codex-session-jsonl',
+                    scannedAt: Date.UTC(2026, 8, 6, 12),
+                    days: [
+                        usageDay('2026-09-05', 240_000_000, 12),
+                        usageDay('2026-09-06', 625_510_000, 86),
+                    ],
+                },
+            },
+        }];
+
+        const renderer = await renderUsagePanel();
+        const hoveredCell = renderer.root.findByProps({ testID: 'codex-usage-day-2026-09-05' });
+
+        expect(typeof hoveredCell.props.onHoverIn).toBe('function');
+        act(() => hoveredCell.props.onHoverIn());
+
+        const texts = renderer.root.findAllByType('Text').map(textValue);
+        expect(texts).toContain('2026-09-05：2.40 亿 token · 12 个会话');
+        const hoveredStyles = renderer.root
+            .findByProps({ testID: 'codex-usage-day-2026-09-05' })
+            .props.style({ pressed: false });
+        expect(hoveredStyles).toContainEqual({ transform: [{ scale: 1.16 }], zIndex: 1 });
+        expect(hoveredStyles)
+            .not.toEqual(expect.arrayContaining([expect.objectContaining({ opacity: expect.any(Number) })]));
+
+        act(() => hoveredCell.props.onHoverOut());
+        expect(renderer.root.findAllByType('Text').map(textValue))
+            .toContain('2026-09-06：6.26 亿 token · 86 个会话');
 
         act(() => renderer.unmount());
     });

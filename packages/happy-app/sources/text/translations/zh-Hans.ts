@@ -2034,7 +2034,7 @@ export const zhHans: TranslationStructure = {
         codexUsageFooter: '读取此机器本地 Codex 会话日志。运行这个采集器不会发起模型请求。',
         codexUsageHeatmap: '过去一年的活动',
         codexUsageHeatmapLegend: '少 → 多',
-        codexUsageHeatmapDay: ({ date, tokens, sessions }: { date: string; tokens: string; sessions: number }) => `${date}：${tokens} 个令牌 · ${sessions} 个会话`,
+        codexUsageHeatmapDay: ({ date, tokens, sessions }: { date: string; tokens: string; sessions: number }) => `${date}：${tokens} token · ${sessions} 个会话`,
         activeSessions: ({ count }: { count: number }) => `活跃会话 (${count})`,
         machineGroup: '设备',
         host: '主机',
