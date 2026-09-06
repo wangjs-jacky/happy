@@ -1589,6 +1589,7 @@ class Sync {
         const encryptionOwner = this.encryption;
         this.inFlightSessionRefreshes.add(write);
         const committed: HydratedSession[] = [];
+        const committedWireSnapshots: ApiSessionSnapshot[] = [];
         try {
             const snapshots = deduplicateSessionSnapshots(await load());
             for (const snapshot of snapshots) {
@@ -1611,7 +1612,7 @@ class Sync {
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
                         committed.push(prepared.session);
-                        if (persist && this.serverID) saveSessionWarmSnapshots(this.serverID, [snapshot]);
+                        committedWireSnapshots.push(snapshot);
                         break;
                     }
                 } catch (error) {
@@ -1619,6 +1620,9 @@ class Sync {
                 }
             }
             if (options.replace) this.applySessions(committed, options, write.mutationGeneration);
+            if (persist && this.serverID && committedWireSnapshots.length > 0) {
+                saveSessionWarmSnapshots(this.serverID, committedWireSnapshots);
+            }
             return committed;
         } finally {
             this.inFlightSessionRefreshes.delete(write);

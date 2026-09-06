@@ -4,6 +4,7 @@ import {
     appendSessionWarmMessages,
     clearSessionWarmCache,
     loadSessionWarmCache,
+    removeSessionFromWarmCache,
     saveSessionWarmLatestPage,
     saveSessionWarmSnapshots,
 } from './sessionWarmCache';
@@ -96,5 +97,14 @@ describe('session warm cache', () => {
         appendSessionWarmMessages('account', 'a', []);
         saveSessionWarmLatestPage('account', 'd', { messages: [message(1)], hasMore: false });
         expect(Object.keys(loadSessionWarmCache('account').latestPages).sort()).toEqual(['a', 'c', 'd']);
+    });
+
+    it('removes both snapshot and latest page when a session is deleted', () => {
+        saveSessionWarmSnapshots('a', [snapshot('one', 1)]);
+        saveSessionWarmLatestPage('a', 'one', { messages: [message(1)], hasMore: false });
+
+        removeSessionFromWarmCache('a', 'one');
+
+        expect(loadSessionWarmCache('a')).toEqual({ snapshots: [], latestPages: {} });
     });
 });
