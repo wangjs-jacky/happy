@@ -68,7 +68,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
 import { SessionRouteAbandonedError, SessionRouteCoordinationError, type SessionRouteOwner } from '@/sync/sessionRouteOwnership';
-import { DrawerActions } from '@react-navigation/native';
+import { DrawerActions, useIsFocused } from '@react-navigation/native';
 import * as React from 'react';
 import { useMemo } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
@@ -443,6 +443,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const sessionId = props.id;
     const router = useRouter();
     const navigation = useNavigation();
+    const isFocused = useIsFocused();
     const session = useSession(sessionId);
     const { isLoaded: hasLoadedMessageCache } = useSessionMessages(sessionId);
     const isDataReady = useIsDataReady();
@@ -479,6 +480,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const subagentSelection = subagentInspector?.selection ?? null;
 
     React.useEffect(() => {
+        // Transparent desktop modals retain the conversation underneath. Only
+        // the focused route owns synchronization; returning reacquires a fresh
+        // owner without discarding the retained chat, scroll position or draft.
+        if (!isFocused) return;
         let cancelled = false;
         let opening: ReturnType<typeof sync.openSession> | undefined;
         let owner: SessionRouteOwner | undefined;
@@ -519,7 +524,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         // target into the store before its concurrently-started message page
         // completes, and restarting here would abandon that valid first load.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionId, retryGeneration]);
+    }, [sessionId, retryGeneration, isFocused]);
 
     React.useEffect(() => {
         markSessionCriticalPathAppStage('web.route.mounted');
@@ -589,10 +594,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
     const [sidebarMode, setSidebarMode] = React.useState<SidebarMode>('changes');
     const [desktopPanelMode, setDesktopPanelMode] = React.useState<'capabilities' | 'files'>('capabilities');
     React.useEffect(() => {
-        if (!canShowFilePanel && desktopPanelMode === 'files') {
+        if (isFocused && !canShowFilePanel && desktopPanelMode === 'files') {
             setDesktopPanelMode('capabilities');
         }
-    }, [canShowFilePanel, desktopPanelMode]);
+    }, [canShowFilePanel, desktopPanelMode, isFocused]);
 
     // Overlay state is managed as a browser-style history stack so the
     // sidebar's back / forward arrows can navigate between chat ↔ diff ↔ file
@@ -645,10 +650,11 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         pushOverlay({ kind: 'file', path: filePath });
     }, [pushOverlay]);
 
-    // When sidebar capability is lost (screen too narrow, disabled), close views.
+    // Clear unavailable views only on the active route. A modal changes the
+    // global workspace pathname while retaining this session underneath it.
     // Don't close on zen mode toggle — keep the view visible.
     React.useEffect(() => {
-        if (!canShowFilePanel) {
+        if (isFocused && !canShowFilePanel) {
             setOverlayHistory({
                 stack: [{ kind: 'none' }],
                 cursor: 0,
@@ -656,7 +662,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                 immediate: true,
             });
         }
-    }, [canShowFilePanel]);
+    }, [canShowFilePanel, isFocused]);
 
     // Right-side header content published by the active overlay (diff toggle / save button).
     type OwnedHeaderRightSlot = { ownerKey: string; slot: React.ReactNode };
@@ -1380,6 +1386,7 @@ function SessionViewLoaded({
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const isFocused = useIsFocused();
     const safeArea = useSafeAreaInsets();
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
@@ -1603,6 +1610,7 @@ function SessionViewLoaded({
 
     // Trigger session visibility and initialize git status sync
     React.useLayoutEffect(() => {
+        if (!isFocused) return;
         if (!sync.promoteSessionRoute(routeOwner)) return;
 
         // Trigger session sync
@@ -1623,7 +1631,7 @@ function SessionViewLoaded({
                 storage.getState().setCurrentViewingSession(null);
             }
         };
-    }, [sessionId, routeOwner]);
+    }, [sessionId, routeOwner, isFocused]);
 
     let content = (
         <>

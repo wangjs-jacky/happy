@@ -1,10 +1,9 @@
 import * as React from 'react';
+import { useIsDesktopModalScene } from './DesktopModalScene';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, TextInput } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useAcceptedFriends, useFriendRequests, useRequestedFriends, useFeedItems, useFeedLoaded, useFriendsLoaded, useRealtimeStatus } from '@/sync/storage';
-import { UserCard } from '@/components/UserCard';
+import { useFeedItems, useFeedLoaded, useRealtimeStatus } from '@/sync/storage';
 import { t } from '@/text';
-import { trackFriendsSearch, trackFriendsProfileView } from '@/track';
 import { ItemGroup } from '@/components/ItemGroup';
 import { UpdateBanner } from './UpdateBanner';
 import { Typography } from '@/constants/Typography';
@@ -175,40 +174,15 @@ function HeaderTitleTablet() {
     );
 }
 
-function HeaderRightTablet() {
-    const router = useRouter();
-    const { theme } = useUnistyles();
-    return (
-        <Pressable
-            accessibilityLabel={t('friends.addFriend')}
-            accessibilityRole="button"
-            onPress={() => {
-                trackFriendsSearch();
-                router.push('/friends/search');
-            }}
-            hitSlop={15}
-            style={{
-                width: 32,
-                height: 32,
-                alignItems: 'center',
-                justifyContent: 'center',
-            }}
-        >
-            <Ionicons name="person-add-outline" size={24} color={theme.colors.header.tint} />
-        </Pressable>
-    );
-}
-
 export const InboxView = React.memo(({}: InboxViewProps) => {
     const router = useRouter();
-    const friends = useAcceptedFriends();
-    const friendRequests = useFriendRequests();
-    const requestedFriends = useRequestedFriends();
-    const feedItems = useFeedItems();
+    const allFeedItems = useFeedItems();
+    // Ignore persisted social events as well as events from older servers.
+    const feedItems = React.useMemo(() => allFeedItems.filter(item => item.body.kind === 'text'), [allFeedItems]);
     const feedLoaded = useFeedLoaded();
-    const friendsLoaded = useFriendsLoaded();
     const { theme } = useUnistyles();
     const isTablet = useIsTablet();
+    const inDesktopModal = useIsDesktopModalScene();
     const realtimeStatus = useRealtimeStatus();
     const candidateInbox = useCodexAttachCandidateInbox();
     const [candidateQuery, setCandidateQuery] = React.useState('');
@@ -217,13 +191,10 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
         [candidateInbox.candidates, candidateQuery],
     );
 
-    const isLoading = !feedLoaded || !friendsLoaded || candidateInbox.loading;
+    const isLoading = !feedLoaded || candidateInbox.loading;
     const isEmpty = !isLoading
         && !candidateInbox.error
         && candidateInbox.candidates.length === 0
-        && friendRequests.length === 0
-        && requestedFriends.length === 0
-        && friends.length === 0
         && feedItems.length === 0;
 
     const attachCandidate = React.useCallback(async (candidate: MachineCodexAttachCandidate) => {
@@ -246,11 +217,10 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
     if (isLoading) {
         return (
             <View style={styles.container}>
-                {isTablet && (
+                {isTablet && !inDesktopModal && (
                     <View style={{ backgroundColor: theme.colors.groupped.background }}>
                         <Header
                             title={<HeaderTitleTablet />}
-                            headerRight={() => <HeaderRightTablet />}
                             headerLeft={() => null}
                             headerShadowVisible={false}
                             headerTransparent={true}
@@ -271,11 +241,10 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
     if (isEmpty) {
         return (
             <View style={styles.container}>
-                {isTablet && (
+                {isTablet && !inDesktopModal && (
                     <View style={{ backgroundColor: theme.colors.groupped.background }}>
                         <Header
                             title={<HeaderTitleTablet />}
-                            headerRight={() => <HeaderRightTablet />}
                             headerLeft={() => null}
                             headerShadowVisible={false}
                             headerTransparent={true}
@@ -302,11 +271,10 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
 
     return (
         <View style={styles.container}>
-            {isTablet && (
+            {isTablet && !inDesktopModal && (
                 <View style={{ backgroundColor: theme.colors.groupped.background }}>
                     <Header
                         title={<HeaderTitleTablet />}
-                        headerRight={() => <HeaderRightTablet />}
                         headerLeft={() => null}
                         headerShadowVisible={false}
                         headerTransparent={true}
@@ -415,56 +383,6 @@ export const InboxView = React.memo(({}: InboxViewProps) => {
                     </>
                 )}
                 
-                {friendRequests.length > 0 && (
-                    <>
-                        <ItemGroup title={t('friends.pendingRequests')}>
-                            {friendRequests.map((friend) => (
-                                <UserCard
-                                    key={friend.id}
-                                    user={friend}
-                                    onPress={() => {
-                                        trackFriendsProfileView();
-                                        router.push(`/user/${friend.id}`);
-                                    }}
-                                />
-                            ))}
-                        </ItemGroup>
-                    </>
-                )}
-
-                {requestedFriends.length > 0 && (
-                    <>
-                        <ItemGroup title={t('friends.requestPending')}>
-                            {requestedFriends.map((friend) => (
-                                <UserCard
-                                    key={friend.id}
-                                    user={friend}
-                                    onPress={() => {
-                                        trackFriendsProfileView();
-                                        router.push(`/user/${friend.id}`);
-                                    }}
-                                />
-                            ))}
-                        </ItemGroup>
-                    </>
-                )}
-
-                {friends.length > 0 && (
-                    <>
-                        <ItemGroup title={t('friends.myFriends')}>
-                            {friends.map((friend) => (
-                                <UserCard
-                                    key={friend.id}
-                                    user={friend}
-                                    onPress={() => {
-                                        trackFriendsProfileView();
-                                        router.push(`/user/${friend.id}`);
-                                    }}
-                                />
-                            ))}
-                        </ItemGroup>
-                    </>
-                )}
             </ScrollView>
         </View>
     );

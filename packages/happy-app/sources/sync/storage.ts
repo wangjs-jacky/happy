@@ -242,7 +242,6 @@ interface StorageState {
     // User cache methods
     applyUsers: (users: Record<string, UserProfile | null>) => void;
     getUser: (userId: string) => UserProfile | null | undefined;
-    assumeUsers: (userIds: string[]) => Promise<void>;
     // Feed methods
     applyFeedItems: (items: FeedItem[]) => void;
     clearFeed: () => void;
@@ -1400,12 +1399,6 @@ export const storage = create<StorageState>()((set, get) => {
         })),
         getUser: (userId: string) => {
             return get().users[userId];  // Returns UserProfile | null | undefined
-        },
-        assumeUsers: async (userIds: string[]) => {
-            // This will be implemented in sync.ts as it needs access to credentials
-            // Just a placeholder here for the interface
-            const { sync } = await import('./sync');
-            return sync.assumeUsers(userIds);
         },
         // Feed methods
         applyFeedItems: (items: FeedItem[]) => set((state) => {

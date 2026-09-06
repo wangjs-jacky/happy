@@ -206,15 +206,15 @@ export const pl: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Skrzynka',
+        inbox: 'Centrum aktywności',
         sessions: 'Terminale',
         settings: 'Ustawienia',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Pusta skrzynka',
-        emptyDescription: 'Połącz się z przyjaciółmi, aby zacząć udostępniać sesje',
+        emptyTitle: 'Brak aktywności',
+        emptyDescription: 'Tutaj pojawią się wykryte sesje i aktualności.',
         updates: 'Aktualizacje',
         codexCandidates: 'Sesje Codex Desktop',
         codexCandidateDescription: 'Wykryte na komputerze i jeszcze niepołączone z Paws.',
