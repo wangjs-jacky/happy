@@ -5,6 +5,8 @@ import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
+import { refreshNativeUpdateStatus } from '@/sync/nativeUpdate';
+import { checkAppUpdates } from '@/utils/checkAppUpdates';
 import { useAuth } from '@/auth/AuthContext';
 import { Typography } from "@/constants/Typography";
 import { Item } from '@/components/Item';
@@ -164,34 +166,51 @@ export const SettingsView = React.memo(function SettingsView() {
     // or an explicit "up to date" / error message. Mirrors useUpdates' flow but
     // user-triggered so there's no waiting on the next foreground check.
     const [checkingUpdate, setCheckingUpdate] = React.useState(false);
+    const checkingUpdateRef = React.useRef(false);
     const handleCheckUpdate = React.useCallback(async () => {
-        if (checkingUpdate) return;
+        if (checkingUpdateRef.current) return;
         if (__DEV__) {
             Modal.alert(t('updateBanner.devModeTitle'), t('updateBanner.devModeMessage'));
             return;
         }
+        checkingUpdateRef.current = true;
         setCheckingUpdate(true);
         try {
-            const update = await Updates.checkForUpdateAsync();
-            if (!update.isAvailable) {
+            const update = await checkAppUpdates({ checkNative: refreshNativeUpdateStatus,
+                checkOta: Updates.checkForUpdateAsync, fetchOta: Updates.fetchUpdateAsync });
+            if (update.kind === 'native') {
+                const confirmed = await Modal.confirm(t('updateBanner.nativeUpdateAvailable'), t('updateBanner.nativeUpdateMessage'),
+                    { confirmText: t('updateBanner.downloadApp'), cancelText: t('common.cancel') });
+                if (confirmed) await openExternalUrl(update.url);
+                return;
+            }
+            if (update.kind === 'unknown') {
+                Modal.alert(t('updateBanner.nativeCheckFailedTitle'), t('updateBanner.nativeCheckFailedMessage'));
+                return;
+            }
+            if (update.kind === 'current') {
                 Modal.alert(t('updateBanner.upToDateTitle'), t('updateBanner.upToDateMessage'));
                 return;
             }
-            await Updates.fetchUpdateAsync();
+            if (update.kind === 'ota-current-only') {
+                Modal.alert(t('updateBanner.otaOnlyTitle'), t('updateBanner.otaOnlyMessage'));
+                return;
+            }
             const confirmed = await Modal.confirm(
                 t('updateBanner.readyTitle'),
-                t('updateBanner.readyMessage'),
+                t('updateBanner.readyMessage') + (update.nativeCheckFailed ? '\n\n' + t('updateBanner.nativeCheckFailedMessage') : ''),
                 { confirmText: t('updateBanner.reloadNow'), cancelText: t('common.cancel') },
             );
             if (confirmed) {
                 await Updates.reloadAsync();
             }
-        } catch (error) {
-            Modal.alert(t('common.error'), error instanceof Error ? error.message : String(error));
+        } catch {
+            Modal.alert(t('common.error'), `${t('errors.operationFailed')}. ${t('errors.tryAgain')}`);
         } finally {
+            checkingUpdateRef.current = false;
             setCheckingUpdate(false);
         }
-    }, [checkingUpdate]);
+    }, []);
 
     // Use the multi-click hook for version clicks
     const handleVersionClick = useMultiClick(() => {

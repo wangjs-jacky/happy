@@ -1,4 +1,5 @@
 import Constants from 'expo-constants';
+import { refreshNativeUpdateStatus } from './nativeUpdate';
 import type { PluginCatalogResponse } from '@slopus/happy-wire';
 import { apiSocket, getCurrentAppState, getHappyClientId } from '@/sync/apiSocket';
 import { notifyUnreadMessage } from '@/sync/webTabTitle';
@@ -2499,59 +2500,9 @@ class Sync {
 
     private fetchNativeUpdate = async () => {
         try {
-            // Skip in development
-            if ((Platform.OS !== 'android' && Platform.OS !== 'ios') || !Constants.expoConfig?.version) {
-                return;
-            }
-            if (Platform.OS === 'ios' && !Constants.expoConfig?.ios?.bundleIdentifier) {
-                return;
-            }
-            if (Platform.OS === 'android' && !Constants.expoConfig?.android?.package) {
-                return;
-            }
-
-            const serverUrl = getServerUrl();
-
-            // Get platform and app identifiers
-            const platform = Platform.OS;
-            const version = Constants.expoConfig?.version!;
-            const appId = (Platform.OS === 'ios' ? Constants.expoConfig?.ios?.bundleIdentifier! : Constants.expoConfig?.android?.package!);
-
-            const response = await fetch(`${serverUrl}/v1/version`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Happy-Client': getHappyClientId(),
-                },
-                body: JSON.stringify({
-                    platform,
-                    version,
-                    app_id: appId,
-                }),
-            });
-
-            if (!response.ok) {
-                console.log(`[fetchNativeUpdate] Request failed: ${response.status}`);
-                return;
-            }
-
-            const data = await response.json();
-            console.log('[fetchNativeUpdate] Data:', data);
-
-            // Apply update status to storage
-            if (data.update_required && data.update_url) {
-                storage.getState().applyNativeUpdateStatus({
-                    available: true,
-                    updateUrl: data.update_url
-                });
-            } else {
-                storage.getState().applyNativeUpdateStatus({
-                    available: false
-                });
-            }
+            await refreshNativeUpdateStatus();
         } catch (error) {
             console.log('[fetchNativeUpdate] Error:', error);
-            storage.getState().applyNativeUpdateStatus(null);
         }
     }
 
