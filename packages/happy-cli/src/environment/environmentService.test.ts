@@ -208,6 +208,31 @@ describe('environment service authorization and verification', () => {
     expect((await service.apply(await validApplyRequest(service))).result.status).toBe('succeeded');
   });
 
+  it('preserves a process timeout when post-operation inspection is unavailable', async () => {
+    const { adapter } = adapterFixture();
+    const logs: string[] = [];
+    const service = createEnvironmentService([adapter], () => 100_000, (message) => { logs.push(message); });
+    const request = await validApplyRequest(service);
+    adapter.apply.mockResolvedValueOnce({
+      ...success, timedOut: true, stdout: 'PRIVATE_TIMEOUT_STDOUT', stderr: 'PRIVATE_TIMEOUT_STDERR',
+    });
+    adapter.inspect.mockImplementationOnce(adapter.inspect.getMockImplementation()!)
+      .mockRejectedValueOnce(new Error('PRIVATE_INSPECTION_EXCEPTION'));
+
+    const response = await service.apply(request);
+
+    expect(response.result).toMatchObject({
+      status: 'failed', reasonCode: 'process-timeout', changed: false,
+      after: { support: 'unsupported', installed: false, reasonCode: 'unexpected-error' },
+    });
+    expect(JSON.stringify([response, logs])).not.toMatch(/PRIVATE_TIMEOUT|PRIVATE_INSPECTION/u);
+    EnvironmentApplyResponseSchema.parse(response);
+    expect(JSON.parse(logs[0]!)).toMatchObject({
+      exitStatus: 'timeout', verification: 'unavailable', reasonCode: 'process-timeout',
+    });
+    expect((await service.apply(await validApplyRequest(service))).result.status).toBe('succeeded');
+  });
+
   it.each([70_000, 130_000])('accepts a locally valid issued preview despite client clock %i', async (approvedAt) => {
     let time = 100_000;
     const { adapter } = adapterFixture();

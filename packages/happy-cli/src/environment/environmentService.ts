@@ -253,8 +253,11 @@ export function createEnvironmentService(
         try { after = await observe(adapter); }
         catch {
           verification = 'unavailable';
-          return finish(result(before, unknownObservation(adapter.id, now()), 'failed', 'verification-failed',
-            'Post-operation inspection was unavailable; whether the component changed is unknown. Inspect again.', false));
+          const timedOut = processResult?.timedOut === true;
+          return finish(result(before, unknownObservation(adapter.id, now()), 'failed', timedOut ? 'process-timeout' : 'verification-failed',
+            timedOut
+              ? 'Package operation timed out; post-operation inspection was unavailable. Inspect again.'
+              : 'Post-operation inspection was unavailable; whether the component changed is unknown. Inspect again.', false));
         }
         verification = verifiesTarget(after, currentPlan) ? 'passed' : 'failed';
         return finish(verifiedApplyResult(before, after, currentPlan, processResult));
