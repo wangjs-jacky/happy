@@ -537,7 +537,7 @@ describe('SessionView deep-link hydration', () => {
     });
 
     it('does not let an abandoned cached owner verify after a different route mounts', async () => {
-        // Catches A's queued frame claiming the verified marker after B has replaced A as route owner.
+        // Catches A's already-authorized queued frame claiming the verified marker after B replaces A.
         const first = deferred<'ready'>();
         const second = deferred<'ready'>();
         const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
@@ -554,20 +554,23 @@ describe('SessionView deep-link hydration', () => {
 
         try {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="owner-a" />); });
+            await act(async () => { first.resolve('ready'); await first.promise; });
             mocks.session = { ...mocks.session, id: 'owner-b' };
             await act(async () => { renderer.update(<SessionView id="owner-b" />); });
 
             runAllFrames();
             expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { second.resolve('ready'); await second.promise; });
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
         } finally {
             act(() => renderer?.unmount());
             restore();
         }
     });
 
-    it('cancels a cached owner frame when a same-session retry replaces it', async () => {
-        // Catches a stale same-ID owner epoch retaining its frame while the replacement retry is still pending.
-        vi.useFakeTimers();
+    it('cancels an authorized owner frame when a same-session remount replaces it', async () => {
+        // Catches A's already-authorized queued frame surviving a same-ID remount with B's owner epoch.
         const first = deferred<'ready'>();
         const second = deferred<'ready'>();
         const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
@@ -584,11 +587,15 @@ describe('SessionView deep-link hydration', () => {
 
         try {
             await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
-            await act(async () => { first.reject(new Error('retry')); });
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await act(async () => { first.resolve('ready'); await first.promise; });
+            act(() => renderer.unmount());
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
 
             runAllFrames();
             expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+            await act(async () => { second.resolve('ready'); await second.promise; });
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
         } finally {
             act(() => renderer?.unmount());
             restore();
