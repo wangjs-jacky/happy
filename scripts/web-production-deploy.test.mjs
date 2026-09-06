@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
 
@@ -36,10 +38,101 @@ test('guards the exact origin/main revision before every external production mut
     const guard = workflow.jobs.deploy.steps[guardIndex];
     assert.match(guard.run, /GITHUB_REF.*refs\/heads\/main/);
     assert.match(guard.run, /git fetch --no-tags origin main/);
-    assert.match(guard.run, /rev-parse origin\/main/);
+    assert.match(guard.run, /rev-parse (?:refs\/remotes\/)?origin\/main/);
     assert.match(guard.run, /GITHUB_SHA/);
     const syntax = spawnSync('bash', ['-n'], { input: guard.run, encoding: 'utf8' });
     assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('queued obsolete deployment exits successfully using real Git ancestry before setup', async () => {
+    const workflow = parse(await readFile(workflowUrl, 'utf8'));
+    const guard = workflow.jobs.deploy.steps.find((step) => step.name === 'Guard exact merged main revision before external mutation');
+    const directory = await mkdtemp(join(tmpdir(), 'paws-web-source-test-'));
+    const repo = join(directory, 'repo');
+    await mkdir(join(repo, 'scripts'), { recursive: true });
+    // The helper is part of the commit under test, just as it is in Actions.
+    const helper = await readFile(new URL('./web-release-source.sh', import.meta.url), 'utf8');
+    await writeFile(join(repo, 'scripts/web-release-source.sh'), helper);
+    const git = (...args) => {
+        const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+    };
+    try {
+        git('init', '-b', 'main');
+        git('config', 'user.name', 'Deployment Test');
+        git('config', 'user.email', 'deploy-test@example.invalid');
+        git('add', '.');
+        git('commit', '-m', 'first');
+        const first = git('rev-parse', 'HEAD');
+        git('clone', '--bare', '.', join(directory, 'origin.git'));
+        git('remote', 'add', 'origin', join(directory, 'origin.git'));
+        git('commit', '--allow-empty', '-m', 'newer main');
+        const next = git('rev-parse', 'HEAD');
+        git('push', 'origin', 'main');
+        git('checkout', '--detach', first);
+        const output = join(directory, 'output');
+        const run = () => spawnSync('bash', ['-euo', 'pipefail', '-c', guard.run], {
+            cwd: repo, encoding: 'utf8', env: {
+                ...process.env, PAWS_WEB_SKIP_SUPERSEDED: '', ...guard.env,
+                GITHUB_REF: 'refs/heads/main', GITHUB_SHA: first, GITHUB_OUTPUT: output,
+            },
+        });
+        const superseded = run();
+        assert.equal(superseded.status, 0, superseded.stderr);
+        assert.match(await readFile(output, 'utf8'), /^superseded=true$/m);
+        assert.match(await readFile(output, 'utf8'), new RegExp(`^superseded_by=${next}$`, 'm'));
+        assert.doesNotMatch(await readFile(output, 'utf8'), /eligible=true/);
+
+        await writeFile(output, '');
+        await writeFile(join(repo, 'dirty.txt'), 'untracked');
+        assert.notEqual(run().status, 0, 'dirty worktree must not be treated as superseded');
+        assert.equal(await readFile(output, 'utf8'), '');
+        await rm(join(repo, 'dirty.txt'));
+        git('remote', 'set-url', 'origin', join(directory, 'missing.git'));
+        assert.notEqual(run().status, 0, 'fetch failure must remain a failure');
+        assert.equal(await readFile(output, 'utf8'), '');
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test('supersession skips deployment work, restores earlier mutations, and never claims deployed', async () => {
+    const { jobs: { deploy: { steps } } } = parse(await readFile(workflowUrl, 'utf8'));
+    const enabled = (name, state, ok = true) => {
+        const step = steps.find((step) => step.name === name);
+        assert.ok(step, name);
+        if (!step.if) return ok;
+        const expression = step.if.replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+        const hasStatus = /(?:success|failure|always|cancelled)\(/.test(expression);
+        return (hasStatus || ok) && Function('steps', 'success', 'failure', `return (${expression});`)(state, () => ok, () => !ok);
+    };
+    const state = {
+        source: { outputs: { superseded: 'true' } },
+        switch: { outputs: {} },
+        live_verify: { outcome: 'skipped' },
+        mcp_rollout: { outputs: { enabled: 'true' } },
+    };
+    for (const name of ['Guard deployment configuration', 'Install dependencies', 'Configure MCP App sandbox route',
+        'Build and stamp Web from this main revision', 'Upload complete immutable Web release',
+        'Atomically switch OSS Web entry', 'Route the Web SPA to OSS',
+        'Verify live OSS-backed release and routes', 'Remove guarded legacy Web files', 'Write deployment summary']) {
+        assert.equal(enabled(name, state), false, name);
+    }
+    assert.equal(enabled('Write superseded deployment summary', state), true);
+    state.source.outputs = { eligible: 'true' };
+    state.switch.outputs = { superseded: 'true' };
+    assert.equal(enabled('Roll back failed Web activation', state), true);
+    for (const name of ['Route the Web SPA to OSS', 'Verify live OSS-backed release and routes', 'Remove guarded legacy Web files', 'Write deployment summary']) {
+        assert.equal(enabled(name, state), false, name);
+    }
+    assert.equal(enabled('Write superseded deployment summary', state, false), false, 'rollback errors must not be hidden');
+    state.switch.outputs = { activated: 'true' };
+    assert.equal(enabled('Route the Web SPA to OSS', state), true);
+    assert.equal(enabled('Roll back failed Web activation', state, false), true);
+    state.live_verify.outcome = 'success';
+    assert.equal(enabled('Write deployment summary', state), true);
+    assert.equal(enabled('Write superseded deployment summary', state), false);
 });
 
 test('MCP App sandbox rollout is disabled by default and verified before Web export or activation', async () => {
@@ -126,6 +219,7 @@ test('production workflow has rollback outputs and no active server deploy path'
     assert.equal(job.env.PAWS_LEGACY_WEB_ORIGIN, 'http://47.115.228.20:8080');
     assert.equal(job.env.PAWS_LEGACY_WEB_PATH, '/var/www/happy-web');
     assert.equal(switchStep.id, 'switch');
+    assert.equal(switchStep.env.PAWS_WEB_SKIP_SUPERSEDED, '1');
     assert.equal(caddyStep.id, 'caddy');
     assert.equal(cleanupStep.id, 'cleanup');
     assert.match(cleanupStep.run, /test "\$legacy_path" = '\/var\/www\/happy-web'/);

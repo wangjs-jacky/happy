@@ -22,10 +22,26 @@ async function createFixture() {
     await writeFile(join(fakeBin, 'git'), `#!/usr/bin/env bash
 printf 'git %s\\n' "$*" >> "$FAKE_COMMAND_LOG"
 case "$*" in
+  *"fetch "*)
+    if [[ "$FAKE_FETCH_FAILURE" == '1' ]]; then exit 128; fi
+    count=0
+    [[ ! -f "$FAKE_COMMAND_LOG.fetches" ]] || count=$(<"$FAKE_COMMAND_LOG.fetches")
+    printf '%s' "$((count + 1))" > "$FAKE_COMMAND_LOG.fetches"
+    ;;
   *"branch --show-current"*) printf 'main\\n' ;;
-  *"status --short"*) ;;
+  *"status --short"*)
+    [[ "$FAKE_STATUS_FAILURE" != '1' ]] || exit 128
+    count=$(<"$FAKE_COMMAND_LOG.fetches")
+    if [[ "$count" -ge "$FAKE_DIRTY_AT" ]]; then printf '%s' "$FAKE_DIRTY"; fi
+    ;;
   *"rev-parse HEAD"*) printf '%s\\n' "$FAKE_REVISION" ;;
-  *"rev-parse refs/remotes/origin/main"*) printf '%s\\n' "$FAKE_REVISION" ;;
+  *"rev-parse refs/remotes/origin/main"*)
+    count=$(<"$FAKE_COMMAND_LOG.fetches")
+    if [[ "$FAKE_SUPERSEDED_AT" != '0' && "$count" -ge "$FAKE_SUPERSEDED_AT" ]]; then
+      printf '%s\\n' 'abcdef1234567890abcdef1234567890abcdef12'
+    else printf '%s\\n' "$FAKE_REVISION"; fi
+    ;;
+  *"merge-base --is-ancestor"*) exit "$FAKE_ANCESTRY_STATUS" ;;
   *"show -s --format=%cI"*) printf '2026-09-02T00:00:00+00:00\\n' ;;
 esac
 exit 0
@@ -61,6 +77,13 @@ async function runDeploy(args = [], extraEnv = {}) {
                 FAKE_COMMAND_LOG: fixture.logPath,
                 FAKE_REVISION: revision,
                 FAKE_FAIL_FINAL_SWITCH: '0',
+                FAKE_FETCH_FAILURE: '0',
+                FAKE_DIRTY: '',
+                FAKE_DIRTY_AT: '1',
+                FAKE_STATUS_FAILURE: '0',
+                FAKE_SUPERSEDED_AT: '0',
+                FAKE_ANCESTRY_STATUS: '0',
+                PAWS_WEB_SKIP_SUPERSEDED: '',
                 GITHUB_OUTPUT: fixture.outputPath,
                 PAWS_SKIP_BUILD: '1',
                 PAWS_WEB_DIST_DIR: fixture.dist,
@@ -95,13 +118,41 @@ test('backs up current and switches the verified HTML entry last', async () => {
     assert.match(copies[2], new RegExp(`web/releases/${revision}/\\.paws-release-revision oss://test-web-bucket/web/current/\\.paws-release-revision`));
     assert.match(copies[3], new RegExp(`web/releases/${revision}/index.html oss://test-web-bucket/web/current/index.html`));
     assert.equal(copies.length, 4, result.log);
-    assert.equal(result.githubOutput, 'rollback_prefix=web/rollback/test-release\n');
+    assert.match(result.githubOutput, /^rollback_prefix=web\/rollback\/test-release$/m);
+    assert.match(result.githubOutput, /^activated=true$/m);
     assert.doesNotMatch(result.log, /ossutil stat/);
     assert.match(result.log, /curl .*web\/releases\/.*\.paws-release-revision/);
 });
 
+for (const at of ['1', '2']) {
+    test(`superseded revision at source check ${at} exits cleanly without switching OSS`, async () => {
+        const result = await runDeploy([], { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_SUPERSEDED_AT: at });
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.githubOutput, /^superseded=true$/m);
+        assert.match(result.githubOutput, /^superseded_by=abcdef1234567890abcdef1234567890abcdef12$/m);
+        assert.doesNotMatch(result.githubOutput, /activated=true|rollback_prefix=/);
+        assert.deepEqual(cpLines(result.log), []);
+    });
+}
+
+for (const [name, env] of [
+    ['local deployment without opt-in', { FAKE_SUPERSEDED_AT: '1' }],
+    ['diverged main', { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_SUPERSEDED_AT: '1', FAKE_ANCESTRY_STATUS: '1' }],
+    ['ancestry lookup error', { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_SUPERSEDED_AT: '1', FAKE_ANCESTRY_STATUS: '128' }],
+    ['fetch failure', { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_FETCH_FAILURE: '1' }],
+    ['Git status failure', { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_SUPERSEDED_AT: '1', FAKE_STATUS_FAILURE: '1' }],
+    ['dirty worktree during build', { PAWS_WEB_SKIP_SUPERSEDED: '1', FAKE_SUPERSEDED_AT: '2', FAKE_DIRTY_AT: '2', FAKE_DIRTY: ' M tracked.txt' }],
+]) {
+    test(`${name} remains a failure, not a superseded deployment`, async () => {
+        const result = await runDeploy([], env);
+        assert.notEqual(result.status, 0);
+        assert.doesNotMatch(result.githubOutput, /superseded=true|activated=true/);
+        assert.deepEqual(cpLines(result.log), []);
+    });
+}
+
 test('restores the previous marker when the final HTML switch fails', async () => {
-    const result = await runDeploy([], { FAKE_FAIL_FINAL_SWITCH: '1' });
+    const result = await runDeploy([], { FAKE_FAIL_FINAL_SWITCH: '1', PAWS_WEB_SKIP_SUPERSEDED: '1' });
 
     assert.notEqual(result.status, 0);
     const copies = cpLines(result.log);

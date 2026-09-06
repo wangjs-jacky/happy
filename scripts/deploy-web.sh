@@ -11,6 +11,7 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 readonly DIST_DIR="${PAWS_WEB_DIST_DIR:-$REPO_ROOT/packages/happy-app/dist}"
 readonly RELEASE_MARKER="$DIST_DIR/.paws-release-revision"
+source "$SCRIPT_DIR/web-release-source.sh"
 
 show_usage() {
     cat <<'USAGE'
@@ -24,6 +25,8 @@ Optional environment:
   PAWS_SKIP_BUILD       Set to 1 to reuse a stamped dist from this origin/main
   PAWS_WEB_DIST_DIR     Override dist location
   PAWS_WEB_RELEASE_ID   Safe rollback identifier
+  PAWS_WEB_SKIP_SUPERSEDED  CI only: report superseded=true to GITHUB_OUTPUT and
+                          exit successfully if a newer main contains this commit
 
 Normal releases require a clean main exactly aligned with origin/main.
 Rollback mode:
@@ -123,12 +126,14 @@ assert_main_release_source() {
     local current_branch
     local current_revision
     local origin_main_revision
+    local worktree_status
     current_branch="$(git -C "$REPO_ROOT" branch --show-current)"
     [[ "$current_branch" == "main" ]] || fail "Web 只允许从 main 分支发布，当前为 ${current_branch:-detached HEAD}。"
-    [[ -z "$(git -C "$REPO_ROOT" status --short)" ]] || fail "Web 发布要求干净工作区。"
+    worktree_status="$(git -C "$REPO_ROOT" status --short)"
+    [[ -z "$worktree_status" ]] || fail "Web 发布要求干净工作区。"
     current_revision="$(git -C "$REPO_ROOT" rev-parse HEAD)"
     origin_main_revision="$(git -C "$REPO_ROOT" rev-parse refs/remotes/origin/main)"
-    [[ "$current_revision" == "$origin_main_revision" ]] || fail "当前 main 与 origin/main 不一致。"
+    assert_web_release_is_current "$REPO_ROOT" "$current_revision" "$origin_main_revision"
     RELEASE_REVISION="$current_revision"
     RELEASE_TIMESTAMP="$(git -C "$REPO_ROOT" show -s --format=%cI "$RELEASE_REVISION")"
     echo "==> 锁定发布提交 ${RELEASE_REVISION:0:12}"
@@ -138,11 +143,13 @@ assert_release_source_unchanged() {
     git -C "$REPO_ROOT" fetch --quiet origin main
     local current_revision
     local origin_main_revision
+    local worktree_status
     current_revision="$(git -C "$REPO_ROOT" rev-parse HEAD)"
     origin_main_revision="$(git -C "$REPO_ROOT" rev-parse refs/remotes/origin/main)"
-    [[ "$current_revision" == "$RELEASE_REVISION" && "$origin_main_revision" == "$RELEASE_REVISION" ]] \
-        || fail "发布期间 main 已变化。"
-    [[ -z "$(git -C "$REPO_ROOT" status --short)" ]] || fail "构建期间工作区发生变化。"
+    [[ "$current_revision" == "$RELEASE_REVISION" ]] || fail "构建期间本地 HEAD 已变化。"
+    worktree_status="$(git -C "$REPO_ROOT" status --short)"
+    [[ -z "$worktree_status" ]] || fail "构建期间工作区发生变化。"
+    assert_web_release_is_current "$REPO_ROOT" "$RELEASE_REVISION" "$origin_main_revision"
 }
 
 assert_main_release_source
@@ -217,3 +224,6 @@ if [[ "$has_current_marker" == "1" && -n "${GITHUB_OUTPUT:-}" ]]; then
 fi
 
 echo "==> OSS Web entry 已切换：$RELEASE_REVISION"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo 'activated=true' >> "$GITHUB_OUTPUT"
+fi
