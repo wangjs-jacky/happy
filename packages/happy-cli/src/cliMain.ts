@@ -1,6 +1,6 @@
 /**
  * Importable command dispatcher for the main Happy CLI entry.
- * 
+ *
  * Simple argument parsing without any CLI framework dependencies
  */
 
@@ -50,7 +50,7 @@ export async function runHappyCLI(): Promise<void> {
 
   // Check if first argument is a subcommand
   const subcommand = args[0]
-  
+
   // Log which subcommand was detected (for debugging)
   if (!args.includes('--version')) {
   }
@@ -188,31 +188,31 @@ Conversation history is preserved on the server, but in-flight tool calls are in
   } else if (subcommand === 'gemini') {
     // Handle gemini subcommands
     const geminiSubcommand = args[1];
-    
+
     // Handle "happy gemini model set <model>" command
     if (geminiSubcommand === 'model' && args[2] === 'set' && args[3]) {
       const modelName = args[3];
       const validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
-      
+
       if (!validModels.includes(modelName)) {
         console.error(`Invalid model: ${modelName}`);
         console.error(`Available models: ${validModels.join(', ')}`);
         process.exit(1);
       }
-      
+
       try {
         const { existsSync, readFileSync, writeFileSync, mkdirSync } = require('fs');
         const { join } = require('path');
         const { homedir } = require('os');
-        
+
         const configDir = join(homedir(), '.gemini');
         const configPath = join(configDir, 'config.json');
-        
+
         // Create directory if it doesn't exist
         if (!existsSync(configDir)) {
           mkdirSync(configDir, { recursive: true });
         }
-        
+
         // Read existing config or create new one
         let config: any = {};
         if (existsSync(configPath)) {
@@ -223,10 +223,10 @@ Conversation history is preserved on the server, but in-flight tool calls are in
             config = {};
           }
         }
-        
+
         // Update model in config
         config.model = modelName;
-        
+
         // Write config back
         writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
         console.log(`✓ Model set to: ${modelName}`);
@@ -238,19 +238,19 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         process.exit(1);
       }
     }
-    
+
     // Handle "happy gemini model get" command
     if (geminiSubcommand === 'model' && args[2] === 'get') {
       try {
         const { existsSync, readFileSync } = require('fs');
         const { join } = require('path');
         const { homedir } = require('os');
-        
+
         const configPaths = [
           join(homedir(), '.gemini', 'config.json'),
           join(homedir(), '.config', 'gemini', 'config.json'),
         ];
-        
+
         let model: string | null = null;
         for (const configPath of configPaths) {
           if (existsSync(configPath)) {
@@ -263,7 +263,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
             }
           }
         }
-        
+
         if (model) {
           console.log(`Current model: ${model}`);
         } else if (process.env.GEMINI_MODEL) {
@@ -277,16 +277,16 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         process.exit(1);
       }
     }
-    
+
     // Handle "happy gemini project set <project-id>" command
     if (geminiSubcommand === 'project' && args[2] === 'set' && args[3]) {
       const projectId = args[3];
-      
+
       try {
         const { saveGoogleCloudProjectToConfig } = await import('@/gemini/utils/config');
         const { readCredentials } = await import('@/persistence');
         const { ApiClient } = await import('@/api/api');
-        
+
         // Try to get current user email from Happy cloud token
         let userEmail: string | undefined = undefined;
         try {
@@ -305,7 +305,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         } catch {
           // If we can't get email, project will be saved globally
         }
-        
+
         saveGoogleCloudProjectToConfig(projectId, userEmail);
         console.log(`✓ Google Cloud Project set to: ${projectId}`);
         if (userEmail) {
@@ -318,13 +318,13 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         process.exit(1);
       }
     }
-    
+
     // Handle "happy gemini project get" command
     if (geminiSubcommand === 'project' && args[2] === 'get') {
       try {
         const { readGeminiLocalConfig } = await import('@/gemini/utils/config');
         const config = readGeminiLocalConfig();
-        
+
         if (config.googleCloudProject) {
           console.log(`Current Google Cloud Project: ${config.googleCloudProject}`);
           if (config.googleCloudProjectEmail) {
@@ -349,7 +349,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
         process.exit(1);
       }
     }
-    
+
     // Handle "happy gemini project" (no subcommand) - show help
     if (geminiSubcommand === 'project' && !args[2]) {
       console.log('Usage: happy gemini project <command>');
@@ -364,11 +364,11 @@ Conversation history is preserved on the server, but in-flight tool calls are in
       console.log('Guide: https://goo.gle/gemini-cli-auth-docs#workspace-gca');
       process.exit(0);
     }
-    
+
     // Handle gemini command (ACP-based agent)
     try {
       const { runGemini } = await import('@/gemini/runGemini');
-      
+
       // Parse startedBy argument
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
       for (let i = 1; i < args.length; i++) {
@@ -376,7 +376,7 @@ Conversation history is preserved on the server, but in-flight tool calls are in
           startedBy = args[++i] as 'daemon' | 'terminal';
         }
       }
-      
+
       const {
         credentials
       } = await authAndSetupMachineIfNeeded();
@@ -608,7 +608,7 @@ ${chalk.bold('Usage:')}
   happy daemon status             Show daemon status
   happy daemon list               List active sessions
 
-  If you want to kill all happy related processes run 
+  If you want to kill all happy related processes run
   ${chalk.cyan('happy doctor clean')}
 
 ${chalk.bold('Note:')} The daemon runs in the background and manages Claude sessions.
@@ -756,7 +756,7 @@ ${chalk.bold('Happy supports ALL Claude options!')}
 ${chalk.gray('─'.repeat(60))}
 ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
 `)
-      
+
       // Run claude --help and display its output
       // Use execFileSync directly with claude CLI for runtime-agnostic compatibility
       try {
@@ -765,7 +765,7 @@ ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
       } catch (e) {
         console.log(chalk.yellow('Could not retrieve claude help. Make sure claude is installed.'))
       }
-      
+
       process.exit(0)
     }
 

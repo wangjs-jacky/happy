@@ -323,4 +323,3 @@ No full-account /v1/sessions startup call, no preallocation, no private trace fi
 - [ ] **Step 4: Commit only reviewed corrections**
 
 Any production correction discovered here is implemented by the Task 4 worker, tested, independently re-reviewed, and committed with a scoped message. The controller does not silently amend prior work.
-
