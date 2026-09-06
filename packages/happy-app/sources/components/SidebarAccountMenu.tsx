@@ -38,14 +38,17 @@ const MenuAction = React.forwardRef<any, MenuActionProps>(function MenuAction({
     testID,
 }, ref) {
     const { theme } = useUnistyles();
+    const [hovered, setHovered] = React.useState(false);
     const color = destructive ? theme.colors.status.error : theme.colors.text;
 
     return (
         <Pressable
             ref={ref}
             accessibilityRole="button"
+            onHoverIn={Platform.OS === 'web' ? () => setHovered(true) : undefined}
+            onHoverOut={Platform.OS === 'web' ? () => setHovered(false) : undefined}
             onPress={onPress}
-            style={({ pressed }) => [styles.menuAction, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.menuAction, (hovered || pressed) && styles.pressed]}
             testID={testID}
         >
             <Ionicons color={color} name={icon} size={17} />
@@ -177,6 +180,12 @@ export const SidebarAccountMenu = React.memo(function SidebarAccountMenu({
                         label={t('settings.account')}
                         onPress={() => navigate('/settings/account')}
                         testID="sidebar-account-details-action"
+                    />
+                    <MenuAction
+                        icon="analytics-outline"
+                        label={t('settings.usage')}
+                        onPress={() => navigate('/settings/usage')}
+                        testID="sidebar-account-usage-action"
                     />
                     <View style={styles.dangerGroup}>
                         <MenuAction
