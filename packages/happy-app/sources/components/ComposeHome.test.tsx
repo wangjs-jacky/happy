@@ -3,6 +3,7 @@ import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ComposeHome } from './ComposeHome';
 import { clearComposeDraft, useComposeDraft } from '@/sync/composeDraft';
+import type { LocalMessageQueueReceipt } from '@/sync/sync';
 
 // @ts-expect-error react-test-renderer has no declarations in this workspace.
 import TestRenderer from 'react-test-renderer';
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     machineSpawnNewSession: vi.fn(),
     ensureSessionHydrated: vi.fn(),
     sendMessage: vi.fn(),
+    awaitLocalMessageProjection: vi.fn<(sessionId: string, localIds: readonly string[], receipt: LocalMessageQueueReceipt) => Promise<boolean>>(),
     navigateToSession: vi.fn(),
     dismissTo: vi.fn(),
     onDismiss: null as (() => void) | null,
@@ -176,6 +178,7 @@ vi.mock('@/sync/sync', () => ({
         ensureSessionHydrated: mocks.ensureSessionHydrated,
         refreshSessions: mocks.refreshSessions,
         sendMessage: mocks.sendMessage,
+        awaitLocalMessageProjection: mocks.awaitLocalMessageProjection,
         applySettings: mocks.applySettings,
         sessionRouteBecameInteractive: mocks.sessionRouteBecameInteractive,
     },
@@ -212,6 +215,7 @@ describe('ComposeHome session hydration recovery', () => {
         mocks.machineSpawnNewSession.mockResolvedValue({ type: 'success', sessionId: 'session-1' });
         mocks.ensureSessionHydrated.mockResolvedValue(false);
         mocks.sendMessage.mockResolvedValue({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+        mocks.awaitLocalMessageProjection.mockReset().mockResolvedValue(true);
         mocks.refreshSessions.mockResolvedValue(undefined);
         (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation((...values: unknown[]) => {
@@ -370,8 +374,9 @@ describe('ComposeHome session hydration recovery', () => {
 
         mocks.ensureSessionHydrated.mockResolvedValue(true);
         let resolveQueue: (() => void) | undefined;
+        const receipt: LocalMessageQueueReceipt = { type: 'queued', sessionId: 'session-1', localIds: ['local-1'] };
         mocks.sendMessage.mockImplementation(() => new Promise((resolve) => {
-            resolveQueue = () => resolve({ type: 'queued', sessionId: 'session-1', localIds: ['local-1'] });
+            resolveQueue = () => resolve(receipt);
         }));
         const retry = renderer.root.findByProps({ testID: 'compose-home-session-hydration-retry' }).props.onPress;
         let retryPromise!: Promise<void>;
@@ -381,6 +386,7 @@ describe('ComposeHome session hydration recovery', () => {
         });
 
         expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
+        expect(mocks.awaitLocalMessageProjection).not.toHaveBeenCalled();
         expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('Queued unchanged');
         expect(renderer.root.findByType('MessageComposer').props.selectedImages).toEqual([
             { id: 'image-a', uri: 'file:///a.png' },
@@ -392,6 +398,8 @@ describe('ComposeHome session hydration recovery', () => {
             await retryPromise;
         });
 
+        expect(mocks.awaitLocalMessageProjection).toHaveBeenCalledWith('session-1', receipt.localIds, receipt);
+        expect(mocks.awaitLocalMessageProjection.mock.calls[0][2]).toBe(receipt);
         expect(renderer.root.findByType('MessageComposer').props.initialValue).toBe('');
         expect(renderer.root.findByType('MessageComposer').props.selectedImages).toBeUndefined();
         act(() => renderer.unmount());

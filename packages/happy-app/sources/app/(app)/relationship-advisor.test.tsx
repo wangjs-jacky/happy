@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error react-test-renderer does not publish declarations used by this narrow test.
 import TestRenderer from 'react-test-renderer';
 
+vi.hoisted(() => {
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+});
+
 import RelationshipAdvisorScreen from './relationship-advisor';
 
 const mocks = vi.hoisted(() => ({
