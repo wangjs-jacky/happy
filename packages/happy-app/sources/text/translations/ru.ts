@@ -213,7 +213,7 @@ export const ru: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: 'Пока нет активности',
-        emptyDescription: 'Здесь появятся обнаруженные сессии и активность друзей.',
+        emptyDescription: 'Здесь появятся обнаруженные сессии и обновления.',
         updates: 'Обновления',
         codexCandidates: 'Сеансы Codex Desktop',
         codexCandidateDescription: 'Обнаружены на компьютере и ещё не подключены к Paws.',

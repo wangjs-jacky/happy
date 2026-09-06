@@ -3,7 +3,7 @@ import { StackActions, StackRouter } from '@react-navigation/routers';
 vi.mock('@react-navigation/native', () => ({ StackRouter }));
 import { createDesktopModalRouter, getDesktopModalStart, getDesktopModalBackgroundPath } from './desktopModalRouter';
 
-const options = { routeNames: ['index', 'inbox/index', 'settings/index', 'friends/index', 'user/[id]', 'session/[id]', 'machine/[id]', 'dev/index', 'dev/logs', 'relationship-advisor'], routeParamList: {}, routeGetIdList: {} };
+const options = { routeNames: ['index', 'inbox/index', 'settings/index', 'settings/appearance', 'settings/profile', 'session/[id]', 'machine/[id]', 'dev/index', 'dev/logs', 'relationship-advisor'], routeParamList: {}, routeGetIdList: {} };
 function setup() {
     const original = StackRouter({ initialRouteName: 'index' });
     const router = createDesktopModalRouter({ initialRouteName: 'index' });
@@ -86,7 +86,7 @@ describe('restored desktop modal state', () => {
         const app = setup();
         app.send(StackActions.push('session/[id]', { id: 'main-session' }));
         app.send(StackActions.push('settings/index', { desktopModal: '1' }));
-        app.send(StackActions.push('friends/index'));
+        app.send(StackActions.push('settings/appearance'));
         const root = { index: 0, routes: [{ key: 'app', name: '(app)', state: app.state }] };
         expect(getDesktopModalBackgroundPath(root)).toBe('/session/main-session');
         app.send({ type: 'CLOSE_DESKTOP_MODAL' });
@@ -95,7 +95,7 @@ describe('restored desktop modal state', () => {
     it('preserves the boundary through stale navigation-state rehydration', () => {
         const app = setup();
         app.send(StackActions.push('settings/index', { desktopModal: '1' }));
-        app.send(StackActions.push('friends/index'));
+        app.send(StackActions.push('settings/appearance'));
         const router = createDesktopModalRouter({ initialRouteName: 'index' });
         const restored = router.getRehydratedState({ ...app.state, stale: true, routes: app.state.routes.map(({ state: nestedState, ...route }) => route) }, options);
         expect(getDesktopModalStart(restored)).toBe(1);

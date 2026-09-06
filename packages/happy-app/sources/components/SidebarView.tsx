@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, usePathname } from 'expo-router';
 import { DrawerActions } from '@react-navigation/native';
 import { VoiceAssistantStatusBar } from './VoiceAssistantStatusBar';
-import { useRealtimeStatus, useFriendRequests, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useRealtimeStatus, useProfile, useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { getDisplayName } from '@/sync/profile';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -127,21 +127,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 14,
         fontWeight: '500',
         color: theme.colors.text,
-        ...Typography.default('semiBold'),
-    },
-    badge: {
-        minWidth: 18,
-        height: 18,
-        borderRadius: 9,
-        paddingHorizontal: 5,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: theme.colors.status.error,
-    },
-    badgeText: {
-        color: '#FFFFFF',
-        fontSize: 11,
-        fontWeight: '700',
         ...Typography.default('semiBold'),
     },
     newSessionButton: {
@@ -326,14 +311,12 @@ interface SidebarViewProps {
 type FooterMenu = 'account' | 'help' | null;
 
 function DesktopRailItem({
-    badge,
     icon,
     label,
     onPress,
     selected = false,
     testID,
 }: {
-    badge?: number;
     icon: React.ComponentProps<typeof Ionicons>['name'];
     label: string;
     onPress: () => void;
@@ -367,11 +350,6 @@ function DesktopRailItem({
                     name={icon}
                     size={21}
                 />
-                {badge && badge > 0 ? (
-                    <View style={[styles.badge, { position: 'absolute', right: 2, top: 2 }]}>
-                        <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
-                    </View>
-                ) : null}
             </Pressable>
             {active ? (
                 <View
@@ -415,7 +393,6 @@ export const SidebarView = React.memo(({
     const advisorSidebarActive = desktopPrimaryNavigation && pathname === '/relationship-advisor';
     const navigation = useNavigation();
     const realtimeStatus = useRealtimeStatus();
-    const friendRequests = useFriendRequests();
     const profile = useProfile();
     const agents = useLocalSetting('agents');
     const [desktopSidebarMode, setDesktopSidebarMode] = useLocalSettingMutable('desktopSidebarMode');
@@ -536,11 +513,6 @@ export const SidebarView = React.memo(({
                 >
                     <Ionicons name="chatbubble-ellipses-outline" size={17} color={stylesheet.messagesText.color} />
                     <Text style={styles.messagesText}>{t('tabs.inbox')}</Text>
-                    {friendRequests.length > 0 && (
-                        <View style={styles.badge}>
-                            <Text style={styles.badgeText}>{friendRequests.length}</Text>
-                        </View>
-                    )}
                 </Pressable>
 
                 <Pressable
@@ -645,7 +617,6 @@ export const SidebarView = React.memo(({
                 testID="sidebar-new-session-button"
             />
             <DesktopRailItem
-                badge={friendRequests.length}
                 icon="chatbubble-ellipses-outline"
                 label={t('tabs.inbox')}
                 onPress={() => { closeDrawer(); openActivity(); }}
@@ -711,7 +682,6 @@ export const SidebarView = React.memo(({
                             open={footerMenu === 'account'}
                             profile={profile}
                             restoreFocusOnClose={footerMenu !== 'help'}
-                            unreadCount={friendRequests.length}
                         />
                     </View>
                 ) : (
@@ -723,7 +693,6 @@ export const SidebarView = React.memo(({
                         onOpenChange={setAccountMenuOpen}
                         open={footerMenu === 'account'}
                         profile={profile}
-                        unreadCount={friendRequests.length}
                     />
                 )}
                 {desktopDensity ? (

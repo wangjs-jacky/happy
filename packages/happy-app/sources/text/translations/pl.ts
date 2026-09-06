@@ -213,7 +213,7 @@ export const pl: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: 'Brak aktywności',
-        emptyDescription: 'Tutaj pojawią się wykryte sesje i aktywność znajomych.',
+        emptyDescription: 'Tutaj pojawią się wykryte sesje i aktualności.',
         updates: 'Aktualizacje',
         codexCandidates: 'Sesje Codex Desktop',
         codexCandidateDescription: 'Wykryte na komputerze i jeszcze niepołączone z Paws.',

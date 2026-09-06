@@ -205,7 +205,7 @@ export const ja: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: 'まだアクティビティはありません',
-        emptyDescription: '検出されたセッションや友達のアクティビティがここに表示されます。',
+        emptyDescription: '検出されたセッションや更新情報がここに表示されます。',
         updates: '更新',
         codexCandidates: '引き継ぎ待ちの Codex セッション',
         codexCandidateDescription: 'コンピューターで検出され、まだ Paws に接続されていません。',

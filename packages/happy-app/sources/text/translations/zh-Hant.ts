@@ -204,7 +204,7 @@ export const zhHant: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: '暫無動態',
-        emptyDescription: '偵測到的工作階段和好友動態會顯示在這裡。',
+        emptyDescription: '偵測到的工作階段和更新會顯示在這裡。',
         updates: '更新',
         codexCandidates: '待接管的 Codex 工作階段',
         codexCandidateDescription: '已在電腦上偵測到，但尚未連接至 Paws。',

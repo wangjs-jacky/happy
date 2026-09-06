@@ -204,7 +204,7 @@ export const zhHans: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: '暂无动态',
-        emptyDescription: '发现的会话和好友动态会显示在这里。',
+        emptyDescription: '发现的会话和更新会显示在这里。',
         updates: '更新',
         codexCandidates: '待接管的 Codex 会话',
         codexCandidateDescription: '已在电脑上发现，但尚未连接到 Paws。',

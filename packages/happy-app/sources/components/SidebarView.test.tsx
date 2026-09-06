@@ -85,7 +85,6 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/sync/storage', () => ({
     useRealtimeStatus: () => 'connected',
-    useFriendRequests: () => [],
     useProfile: () => null,
     useLocalSetting: () => [],
     useLocalSettingMutable: (name: string) => name === 'desktopSidebarMode'

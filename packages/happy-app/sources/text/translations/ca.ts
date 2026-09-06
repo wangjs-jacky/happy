@@ -202,7 +202,7 @@ export const ca: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: 'Encara no hi ha activitat',
-        emptyDescription: 'Les sessions detectades i les novetats dels amics apareixeran aquí.',
+        emptyDescription: 'Les sessions detectades i les novetats apareixeran aquí.',
         updates: 'Actualitzacions',
         codexCandidates: 'Sessions de Codex Desktop',
         codexCandidateDescription: 'Detectades a l’ordinador i encara no connectades a Paws.',

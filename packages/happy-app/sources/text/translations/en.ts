@@ -217,7 +217,7 @@ export const en: TranslationStructure = {
     inbox: {
         // Inbox screen
         emptyTitle: 'No activity yet',
-        emptyDescription: 'Discovered sessions and friend activity will appear here.',
+        emptyDescription: 'Discovered sessions and updates will appear here.',
         updates: 'Updates',
         codexCandidates: 'Codex Desktop sessions',
         codexCandidateDescription: 'Detected on your computer and not yet connected to Paws.',
