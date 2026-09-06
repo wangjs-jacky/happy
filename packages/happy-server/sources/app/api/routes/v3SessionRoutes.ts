@@ -5,6 +5,7 @@ import { allocateSessionSeqBatch, allocateUserSeqBatch } from "@/storage/seq";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { z } from "zod";
 import { type Fastify } from "../types";
+import { sessionChangesRoutes } from './sessionChangesRoutes';
 
 // Pagination contract:
 //   - after_seq=N  → forward sync: messages with seq > N, ordered ASC.
@@ -63,6 +64,7 @@ function toSendResponseMessage(message: Omit<SelectedMessage, "content">) {
 }
 
 export function v3SessionRoutes(app: Fastify) {
+    sessionChangesRoutes(app);
     app.get('/v3/sessions/:sessionId/messages', {
         preHandler: app.authenticate,
         schema: {

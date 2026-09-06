@@ -2,7 +2,8 @@ import { getMetricsLabelsFromSocket, sessionAliveEventsCounter, websocketEventsC
 import { activityCache } from "@/app/presence/sessionCache";
 import { buildNewMessageUpdate, buildSessionActivityEphemeral, buildUpdateSessionUpdate, ClientConnection, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
-import { allocateSessionSeq, allocateUserSeq } from "@/storage/seq";
+import { allocateSessionSeqBatch, allocateUserSeq, allocateUserSeqBatch } from "@/storage/seq";
+import { inTx } from "@/storage/inTx";
 import { AsyncLock } from "@/utils/lock";
 import { log } from "@/utils/log";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
@@ -207,29 +208,29 @@ export function sessionUpdateHandler(userId: string, socket: Socket, connection:
                     c: message
                 };
 
-                // Resolve seq
-                const updSeq = await allocateUserSeq(userId);
-                const msgSeq = await allocateSessionSeq(sid);
-
-                // Check if message already exists
-                if (useLocalId) {
-                    const existing = await db.sessionMessage.findFirst({
-                        where: { sessionId: sid, localId: useLocalId }
+                const committed = await inTx(async (tx) => {
+                    // Share REST's per-session lock before deduplication and
+                    // allocation. No later sequence may commit before this body.
+                    await tx.session.update({
+                        where: { id: sid, accountId: userId },
+                        data: { seq: { increment: 0 } },
+                        select: { id: true }
                     });
-                    if (existing) {
-                        return { msg: existing, update: null };
+                    if (useLocalId) {
+                        const existing = await tx.sessionMessage.findFirst({
+                            where: { sessionId: sid, localId: useLocalId }
+                        });
+                        if (existing) return null;
                     }
-                }
-
-                // Create message
-                const msg = await db.sessionMessage.create({
-                    data: {
-                        sessionId: sid,
-                        seq: msgSeq,
-                        content: msgContent,
-                        localId: useLocalId
-                    }
+                    const [msgSeq] = await allocateSessionSeqBatch(sid, 1, tx);
+                    const msg = await tx.sessionMessage.create({
+                        data: { sessionId: sid, seq: msgSeq, content: msgContent, localId: useLocalId }
+                    });
+                    const [updSeq] = await allocateUserSeqBatch(userId, 1, tx);
+                    return { msg, updSeq };
                 });
+                if (!committed) return;
+                const { msg, updSeq } = committed;
 
                 // Emit new message update to relevant clients
                 const updatePayload = buildNewMessageUpdate(msg, sid, updSeq, randomKeyNaked(12));
