@@ -3,13 +3,15 @@ import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error narrow renderer harness
 import TestRenderer from 'react-test-renderer';
-const mocks = vi.hoisted(() => ({ state: {} as any, dispatch: vi.fn(), back: vi.fn() }));
+const mocks = vi.hoisted(() => ({ state: {} as any, dispatch: vi.fn(), back: vi.fn(), descriptors: null as Record<string, any> | null }));
 vi.mock('react-native', () => ({ Modal: 'Modal', Pressable: 'Pressable', Text: 'Text', View: 'View' }));
 vi.mock('@react-navigation/native', () => ({
     createNavigatorFactory: (component: any) => () => ({ Navigator: component }),
-    useNavigationBuilder: () => ({ state: mocks.state, descriptors: Object.fromEntries(mocks.state.routes.map((route: any) => [route.key, { route, render: () => null, options: { headerTitle: route.name, headerRight: () => 'action' } }])), navigation: { dispatch: mocks.dispatch, goBack: mocks.back }, describe: vi.fn(), NavigationContent: React.Fragment }),
+    useNavigationBuilder: () => ({ state: mocks.state, descriptors: mocks.descriptors ?? Object.fromEntries(mocks.state.routes.map((route: any) => [route.key, { route, render: () => null, options: { headerTitle: route.name, headerRight: () => 'action' } }])), navigation: { dispatch: mocks.dispatch, goBack: mocks.back }, describe: vi.fn(), NavigationContent: React.Fragment }),
 }));
-vi.mock('@react-navigation/native-stack', () => ({ NativeStackView: 'NativeStackView' }));
+vi.mock('@react-navigation/native-stack', () => ({ NativeStackView: ({ state, descriptors }: any) => React.createElement(
+    'NativeStackView', { state, descriptors }, descriptors[state.routes[state.index].key]?.render(),
+) }));
 vi.mock('expo-router', () => ({ withLayoutContext: (component: any) => component }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/hooks/useDesktopWorkspaceLayout', () => ({ DesktopWorkspaceLayoutIsolation: ({ children }: any) => children }));
@@ -22,7 +24,12 @@ vi.mock('react-native-unistyles', () => {
 import { DesktopStackNavigator } from './DesktopAppStack';
 import { navigateDesktopModalBack } from '@/navigation/desktopModalNavigation';
 let renderer: any;
-afterEach(() => act(() => renderer?.unmount()));
+afterEach(() => {
+    act(() => renderer?.unmount());
+    mocks.descriptors = null;
+    mocks.back.mockReset();
+    mocks.dispatch.mockReset();
+});
 
 describe('desktop app stack presentation', () => {
     it('renders only background outside and only descendants inside, including during close animation', () => {
@@ -45,5 +52,32 @@ describe('desktop app stack presentation', () => {
         act(() => renderer.update(<DesktopStackNavigator children={null} />));
         expect(renderer.root.findAllByType('NativeStackView')).toHaveLength(1);
         expect(navigateDesktopModalBack(false)).toBe(false);
+    });
+
+    it('renders the Device Environment title and content within Settings before returning to the background', () => {
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+        const background = { key: 'background', name: 'session/[id]', params: { id: 'original' } };
+        const settings = { key: 'settings', name: 'settings/index' };
+        const environment = { key: 'environment', name: 'settings/device-environment' };
+        mocks.state = { key: 'app', index: 2, routes: [background, settings, environment], preloadedRoutes: [], desktopModalBaseKey: 'background' };
+        mocks.descriptors = {
+            background: { route: background, render: () => React.createElement('Text', null, 'Workspace content'), options: { headerTitle: 'Workspace' } },
+            settings: { route: settings, render: () => React.createElement('Text', null, 'Settings content'), options: { headerTitle: 'Settings' } },
+            environment: { route: environment, render: () => React.createElement('Text', null, 'Device Environment content'), options: { headerTitle: 'Device Environment' } },
+        };
+
+        act(() => { renderer = TestRenderer.create(<DesktopStackNavigator children={null} />); });
+        expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Device Environment');
+        expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Device Environment content');
+
+        mocks.state = { ...mocks.state, index: 1, routes: [background, settings] };
+        act(() => renderer.update(<DesktopStackNavigator children={null} />));
+        expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Settings');
+        expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Settings content');
+
+        mocks.state = { ...mocks.state, index: 0, routes: [background], desktopModalBaseKey: undefined };
+        act(() => renderer.update(<DesktopStackNavigator children={null} />));
+        expect(renderer.root.findByType('Modal').props.visible).toBe(false);
+        expect(renderer.root.findAllByType('Text').map((node: any) => node.children.join(''))).toContain('Workspace content');
     });
 });
