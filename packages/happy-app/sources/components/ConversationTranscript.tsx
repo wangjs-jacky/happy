@@ -327,7 +327,11 @@ export const ConversationTranscript = React.memo((props: ConversationTranscriptP
                 ListHeaderComponent={(inverted ? props.visualBottom : props.visualTop) ?? undefined}
                 ListFooterComponent={(inverted ? props.visualTop : props.visualBottom) ?? undefined}
                 onEndReached={props.onLoadOlder}
-                onEndReachedThreshold={0.5}
+                // Start the next backward page before the user reaches the
+                // visual top. Existing messages stay interactive while the
+                // request runs, and the loading affordance is normally kept
+                // outside the viewport instead of flashing on every page.
+                onEndReachedThreshold={2}
                 onScrollToIndexFailed={handleScrollToIndexFailed}
             />
             {props.showAnchorNavigation !== false && showAnchorPill && anchors.length > 0 ? (

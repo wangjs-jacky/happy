@@ -114,10 +114,12 @@ import { sessionStartupTraceRuntime } from './sessionStartupTraceRuntime';
 import { markSessionCriticalPathAppStage, markSessionCriticalPathHydrationRetry } from './sessionCriticalPathProbeBridge';
 import {
     appendSessionWarmMessages,
+    createSessionWarmCacheAccountKey,
     loadSessionWarmCache,
     removeSessionFromWarmCache,
     saveSessionWarmLatestPage,
     saveSessionWarmSnapshots,
+    touchSessionWarmLatestPage,
 } from './sessionWarmCache';
 
 type V3GetSessionMessagesResponse = {
@@ -313,6 +315,7 @@ class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
     serverID!: string;
+    private sessionWarmCacheAccountKey: string | null = null;
     anonID!: string;
     private credentials!: AuthCredentials;
     public encryptionCache = new EncryptionCache();
@@ -468,6 +471,7 @@ class Sync {
         this.encryption = encryption;
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
+        this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
         await this.#init();
 
         // Await settings sync to have fresh settings
@@ -487,23 +491,30 @@ class Sync {
         this.encryption = encryption;
         this.anonID = encryption.anonID;
         this.serverID = parseToken(credentials.token);
+        this.sessionWarmCacheAccountKey = createSessionWarmCacheAccountKey(getServerUrl(), this.serverID);
         await this.restoreSessionWarmCache();
         await this.#init();
     }
 
     private restoreSessionWarmCache = async (): Promise<void> => {
-        const warmCache = loadSessionWarmCache(this.serverID);
+        const accountKey = this.sessionWarmCacheAccountKey;
+        if (!accountKey) return;
+        const warmCache = loadSessionWarmCache(accountKey);
         if (warmCache.snapshots.length === 0) return;
         let restoredSessionCount = 0;
         for (const snapshot of warmCache.snapshots) {
             try {
                 const restored = await this.writeSessionSnapshots(async () => [snapshot], { replace: false }, undefined, false);
+                if (restored.length === 0) {
+                    removeSessionFromWarmCache(accountKey, snapshot.id);
+                    continue;
+                }
                 restoredSessionCount += restored.length;
             } catch {
                 // The cache is only a startup accelerator. A stale key or one
                 // corrupt ciphertext must not block login or healthy entries;
                 // evict it and let the network bootstrap restore the session.
-                removeSessionFromWarmCache(this.serverID, snapshot.id);
+                removeSessionFromWarmCache(accountKey, snapshot.id);
             }
         }
         for (const [sessionId, page] of Object.entries(warmCache.latestPages)) {
@@ -513,7 +524,7 @@ class Sync {
                 const lease = this.sessionMessageLoadGate.enter(sessionId);
                 await this.applyLatestMessagePage(sessionId, page, this.sessionMessageLoadGate.begin(lease));
             } catch {
-                removeSessionFromWarmCache(this.serverID, sessionId);
+                removeSessionFromWarmCache(accountKey, sessionId);
             }
         }
         if (restoredSessionCount > 0) storage.getState().applyReady();
@@ -1589,6 +1600,7 @@ class Sync {
         const encryptionOwner = this.encryption;
         this.inFlightSessionRefreshes.add(write);
         const committed: HydratedSession[] = [];
+        const committedWireSnapshots: ApiSessionSnapshot[] = [];
         try {
             const snapshots = deduplicateSessionSnapshots(await load());
             for (const snapshot of snapshots) {
@@ -1611,7 +1623,7 @@ class Sync {
                         if (!prepared.commitEncryption()) continue;
                         this.applySessions([prepared.session], { replace: false });
                         committed.push(prepared.session);
-                        if (persist && this.serverID) saveSessionWarmSnapshots(this.serverID, [snapshot]);
+                        committedWireSnapshots.push(snapshot);
                         break;
                     }
                 } catch (error) {
@@ -1619,6 +1631,9 @@ class Sync {
                 }
             }
             if (options.replace) this.applySessions(committed, options, write.mutationGeneration);
+            if (persist && this.sessionWarmCacheAccountKey && committedWireSnapshots.length > 0) {
+                saveSessionWarmSnapshots(this.sessionWarmCacheAccountKey, committedWireSnapshots);
+            }
             return committed;
         } finally {
             this.inFlightSessionRefreshes.delete(write);
@@ -2811,6 +2826,11 @@ class Sync {
         if (!this.sessionMessageLoadGate.isCurrent(operation)) return false;
         if (this.encryption.getSessionEncryption(sessionId) !== encryption) return false;
         if (isStalePage()) return true;
+        const fullyDecrypted = decryptedMessages.length === messages.length
+            && decryptedMessages.every((decrypted) => !!decrypted && decrypted.content !== null);
+        if (!fullyDecrypted) {
+            throw new Error(`Failed to decrypt complete latest message page for ${sessionId}`);
+        }
 
         const normalizedMessages: NormalizedMessage[] = [];
         for (const decrypted of decryptedMessages) {
@@ -2835,8 +2855,8 @@ class Sync {
             hasMore: frontier.hasMoreOlder,
         });
         this.recordRoutePageCommit(operation, maxSeq);
-        if (this.serverID && decryptedMessages.every(Boolean)) {
-            saveSessionWarmLatestPage(this.serverID, sessionId, data);
+        if (this.sessionWarmCacheAccountKey) {
+            saveSessionWarmLatestPage(this.sessionWarmCacheAccountKey, sessionId, data);
         }
         return true;
     }
@@ -2920,13 +2940,20 @@ class Sync {
             return { current: false, hasMutableToolResult: false };
         }
         if (messages.length === 0) {
-            if (this.serverID) appendSessionWarmMessages(this.serverID, sessionId, []);
+            if (this.sessionWarmCacheAccountKey) {
+                touchSessionWarmLatestPage(this.sessionWarmCacheAccountKey, sessionId);
+            }
             return { current: true, hasMutableToolResult: false };
         }
         const decryptedMessages = await encryption.createDetached().decryptMessages(messages);
         if (!this.sessionMessageLoadGate.isCurrent(operation)
             || this.encryption.getSessionEncryption(sessionId) !== encryption) {
             return { current: false, hasMutableToolResult: false };
+        }
+        const fullyDecrypted = decryptedMessages.length === messages.length
+            && decryptedMessages.every((decrypted) => !!decrypted && decrypted.content !== null);
+        if (!fullyDecrypted) {
+            throw new Error(`Failed to decrypt complete message page for ${sessionId}`);
         }
         const normalizedMessages: NormalizedMessage[] = [];
         for (let i = 0; i < decryptedMessages.length; i++) {
@@ -2941,8 +2968,8 @@ class Sync {
             this.applyMessages(sessionId, normalizedMessages);
         }
         this.recordFetchedMessageRange(sessionId, messages);
-        if (this.serverID && decryptedMessages.every(Boolean)) {
-            appendSessionWarmMessages(this.serverID, sessionId, messages);
+        if (this.sessionWarmCacheAccountKey) {
+            appendSessionWarmMessages(this.sessionWarmCacheAccountKey, sessionId, messages);
         }
         return {
             current: true,
@@ -3188,7 +3215,7 @@ class Sync {
                     } else if (lastMessage && currentLastSeq !== null && incomingSeq === currentLastSeq + 1) {
                         this.enqueueMessages(updateData.body.sid, [lastMessage]);
                         this.advanceLatestMessageSeq(updateData.body.sid, incomingSeq);
-                        if (this.serverID) appendSessionWarmMessages(this.serverID, updateData.body.sid, [updateData.body.message]);
+                        if (this.sessionWarmCacheAccountKey) appendSessionWarmMessages(this.sessionWarmCacheAccountKey, updateData.body.sid, [updateData.body.message]);
                         if (isVisible && this.containsMutableToolResult(updateData.body.sid, [lastMessage])) {
                             gitStatusSync.invalidate(updateData.body.sid);
                         }
@@ -3818,7 +3845,7 @@ class Sync {
         const deletionMutationGeneration = ++this.sessionMutationGeneration;
         this.sessionDeletionMutationGenerations.set(sessionId, deletionMutationGeneration);
         storage.getState().deleteSession(sessionId);
-        if (this.serverID) removeSessionFromWarmCache(this.serverID, sessionId);
+        if (this.sessionWarmCacheAccountKey) removeSessionFromWarmCache(this.sessionWarmCacheAccountKey, sessionId);
         this.clearSessionRuntimeState(sessionId);
         this.pruneSessionDeletionTombstones();
     };

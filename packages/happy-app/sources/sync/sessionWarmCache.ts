@@ -7,6 +7,16 @@ const CACHE_KEY = 'encrypted-wire-v1';
 const MAX_SNAPSHOTS = 150;
 const MAX_LATEST_PAGES = 3;
 
+export function createSessionWarmCacheAccountKey(serverUrl: string, accountId: string): string {
+    let serverOrigin: string;
+    try {
+        serverOrigin = new URL(serverUrl).origin;
+    } catch {
+        serverOrigin = serverUrl.trim().replace(/\/+$/, '');
+    }
+    return `${serverOrigin}|${accountId}`;
+}
+
 const latestPageSchema = z.object({
     messages: z.array(ApiMessageSchema),
     hasMore: z.boolean(),
@@ -104,6 +114,14 @@ export function appendSessionWarmMessages(accountId: string, sessionId: string, 
         messages: [...bySeq.values()].sort((a, b) => a.seq - b.seq).slice(-100),
         hasMore: existing.hasMore || bySeq.size > 100,
     };
+    cache.latestOrder = cache.latestOrder.filter((id) => id !== sessionId);
+    cache.latestOrder.push(sessionId);
+    write(cache);
+}
+
+export function touchSessionWarmLatestPage(accountId: string, sessionId: string): void {
+    const cache = read(accountId);
+    if (!cache.latestPages[sessionId]) return;
     cache.latestOrder = cache.latestOrder.filter((id) => id !== sessionId);
     cache.latestOrder.push(sessionId);
     write(cache);
