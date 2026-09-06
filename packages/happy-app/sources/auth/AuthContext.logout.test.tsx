@@ -9,6 +9,7 @@ import TestRenderer from 'react-test-renderer';
 const mocks = vi.hoisted(() => ({
     clearPersistence: vi.fn(),
     clearSessionWarmCache: vi.fn(),
+    clearLocalHistoryCaches: vi.fn(async () => undefined),
     removeCredentials: vi.fn(async () => undefined),
     reload: vi.fn(async () => undefined),
 }));
@@ -29,6 +30,7 @@ vi.mock('@/sync/persistence', () => ({
 vi.mock('@/sync/sessionWarmCache', () => ({
     clearSessionWarmCache: mocks.clearSessionWarmCache,
 }));
+vi.mock('@/sync/localHistoryStore', () => ({ clearLocalHistoryCaches: mocks.clearLocalHistoryCaches }));
 vi.mock('@/sync/apiPush', () => ({ unregisterPushToken: vi.fn() }));
 vi.mock('@/track', () => ({ trackLogout: vi.fn() }));
 vi.mock('@/sync/publicSessionShareQueueRuntime', () => ({ clearPublicSessionShareJobs: vi.fn() }));
@@ -54,6 +56,8 @@ describe('AuthProvider logout', () => {
 
         expect(mocks.clearPersistence).toHaveBeenCalledOnce();
         expect(mocks.clearSessionWarmCache).toHaveBeenCalledOnce();
+        expect(mocks.clearLocalHistoryCaches).toHaveBeenCalledOnce();
+        expect(mocks.clearLocalHistoryCaches.mock.invocationCallOrder[0]).toBeLessThan(mocks.removeCredentials.mock.invocationCallOrder[0]);
         expect(mocks.removeCredentials).toHaveBeenCalledOnce();
         renderer.unmount();
     });

@@ -221,8 +221,8 @@ describe('new-session updates', () => {
 
     // Regression: a full refresh can start before a socket update, then return
     // afterwards with a stale list. Its replace write must not revert newer
-    // fields, remove a session created during the request, or retain cache rows
-    // that were already stale when the request began.
+    // fields or remove a session created during the request. Omission from a
+    // paginated list is not deletion evidence, including previously cached rows.
     it('reconciles a stale full refresh against realtime sessions applied while it was in flight', async () => {
         const staleSnapshot = { ...update.body, seq: 2, metadataVersion: 2 };
         const realtimeSnapshot = { ...update.body, seq: 5, metadataVersion: 5 };
@@ -257,7 +257,7 @@ describe('new-session updates', () => {
             metadataVersion: 5,
         });
         expect(storageState.sessions['session-2']).toMatchObject({ id: 'session-2' });
-        expect(storageState.sessions['old-cache']).toBeUndefined();
+        expect(storageState.sessions['old-cache']).toMatchObject({ id: 'old-cache', seq: 1 });
     });
 
     // Regression: a realtime delete is newer than a refresh that was already

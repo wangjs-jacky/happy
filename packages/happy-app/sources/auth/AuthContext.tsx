@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 import { trackLogout } from '@/track';
 import { clearPublicSessionShareJobs } from '@/sync/publicSessionShareQueueRuntime';
 import { clearSessionWarmCache } from '@/sync/sessionWarmCache';
+import { clearLocalHistoryCaches } from '@/sync/localHistoryStore';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -40,6 +41,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     };
 
     const logout = async () => {
+        const clearingHistory = clearLocalHistoryCaches();
         trackLogout();
         clearPublicSessionShareJobs();
         const registeredPushToken = credentials ? loadRegisteredPushToken() : null;
@@ -52,6 +54,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
         }
         clearPersistence();
         clearSessionWarmCache();
+        await clearingHistory;
         await TokenStorage.removeCredentials();
         
         // Update React state to ensure UI consistency
