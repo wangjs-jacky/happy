@@ -88,4 +88,13 @@ describe('session warm cache', () => {
         clearSessionWarmCache();
         expect(loadSessionWarmCache('b').latestPages).toEqual({});
     });
+
+    it('touches a revisited page even when incremental sync returns no messages', () => {
+        for (const id of ['a', 'b', 'c']) {
+            saveSessionWarmLatestPage('account', id, { messages: [message(1)], hasMore: false });
+        }
+        appendSessionWarmMessages('account', 'a', []);
+        saveSessionWarmLatestPage('account', 'd', { messages: [message(1)], hasMore: false });
+        expect(Object.keys(loadSessionWarmCache('account').latestPages).sort()).toEqual(['a', 'c', 'd']);
+    });
 });

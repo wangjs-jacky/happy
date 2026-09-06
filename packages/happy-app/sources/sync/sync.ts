@@ -2920,6 +2920,7 @@ class Sync {
             return { current: false, hasMutableToolResult: false };
         }
         if (messages.length === 0) {
+            if (this.serverID) appendSessionWarmMessages(this.serverID, sessionId, []);
             return { current: true, hasMutableToolResult: false };
         }
         const decryptedMessages = await encryption.createDetached().decryptMessages(messages);

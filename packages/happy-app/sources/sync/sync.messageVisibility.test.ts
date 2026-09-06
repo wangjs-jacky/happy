@@ -9,6 +9,7 @@ import { EncryptionCache } from './encryption/encryptionCache';
 import { installPhase2Probe } from './phase2Probe.testSupport';
 import { markSessionCriticalPathAppStage } from './sessionCriticalPathProbeBridge';
 import { normalizeRawMessage, type RawRecord } from './typesRaw';
+import { clearSessionWarmCache, loadSessionWarmCache, saveSessionWarmLatestPage, saveSessionWarmSnapshots } from './sessionWarmCache';
 
 vi.hoisted(() => {
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -377,6 +378,8 @@ describe('message visibility synchronization', () => {
     });
 
     afterEach(() => {
+        clearSessionWarmCache();
+        syncForTest.serverID = undefined;
         delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
         mocks.useRealStorage(null);
         for (const messageSync of syncForTest.messagesSync.values()) {
@@ -423,6 +426,43 @@ describe('message visibility synchronization', () => {
         expect(mocks.apiRequest).toHaveBeenCalledWith(
             '/v3/sessions/warm-route/messages?after_seq=42&limit=100',
         );
+    });
+
+    it('removes an offline-deleted cached session when incremental sync returns 404', async () => {
+        const storage = await useRealMessageComposition();
+        syncForTest.serverID = 'account';
+        mocks.sessionEncryptions.set('gone', new SessionEncryption('gone', {
+            encrypt: async () => [], decrypt: async () => [],
+        }, new EncryptionCache()));
+        storage.getState().applySessions([hydrated(snapshot('gone'))]);
+        storage.getState().applyMessagesLoaded('gone');
+        syncForTest.sessionMessageFrontiers.set('gone', { latestSeq: 42, olderBeforeSeq: 1, hasMoreOlder: false });
+        saveSessionWarmSnapshots('account', [snapshot('gone')]);
+        saveSessionWarmLatestPage('account', 'gone', { messages: [apiMessage(42)], hasMore: false });
+        mocks.apiRequest.mockResolvedValue({ ok: false, status: 404 });
+
+        await expect(syncForTest.openSession('gone')).rejects.toBeInstanceOf(SessionRouteAbandonedError);
+        expect(storage.getState().sessions.gone).toBeUndefined();
+        expect(loadSessionWarmCache('account')).toEqual({ snapshots: [], latestPages: {} });
+        expect(mocks.apiRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists multiple incremental pages and restores their latest frontier', async () => {
+        installSession('warm');
+        syncForTest.serverID = 'account';
+        saveSessionWarmLatestPage('account', 'warm', { messages: [apiMessage(40)], hasMore: true });
+        const lease = syncForTest.sessionMessageLoadGate.enter('warm');
+        mocks.apiRequest
+            .mockResolvedValueOnce(response({ messages: [apiMessage(41)], hasMore: true }))
+            .mockResolvedValueOnce(response({ messages: [apiMessage(42)], hasMore: false }));
+        await syncForTest.fetchForwardSince('warm', mocks.sessionEncryptions.get('warm'), 40,
+            syncForTest.sessionMessageLoadGate.begin(lease));
+        const page = loadSessionWarmCache('account').latestPages.warm;
+        expect(page.messages.map(message => message.seq)).toEqual([40, 41, 42]);
+        delete mocks.state.sessionMessages.warm;
+        syncForTest.sessionMessageFrontiers.clear();
+        await syncForTest.applyLatestMessagePage('warm', page, syncForTest.sessionMessageLoadGate.begin(lease));
+        expect(syncForTest.getSessionLastMessageSeq('warm')).toBe(42);
     });
 
     it.each(['cached', 'shared'] as const)('attributes a route snapshot satisfied by %s hydration exactly once', async (source) => {

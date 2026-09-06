@@ -95,7 +95,6 @@ export function saveSessionWarmLatestPage(
 }
 
 export function appendSessionWarmMessages(accountId: string, sessionId: string, messages: ApiMessage[]): void {
-    if (messages.length === 0) return;
     const cache = read(accountId);
     const existing = cache.latestPages[sessionId];
     if (!existing) return;
