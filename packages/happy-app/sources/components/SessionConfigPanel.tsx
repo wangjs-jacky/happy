@@ -1345,12 +1345,9 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                             activePicker && isWeb && styles.configBoxWithPopover,
                         ]}
                     >
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            keyboardShouldPersistTaps="always"
-                            style={styles.composerConfigScroll}
-                            contentContainerStyle={styles.composerConfigContent}
+                        <View
+                            testID="new-session-composer-config-controls"
+                            style={styles.composerConfigContent}
                         >
                             <Pressable
                                 ref={(node) => capturePickerTrigger('machine', node)}
@@ -1403,23 +1400,6 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                         resizeMode="contain"
                                     />
                                     <Text style={styles.composerConfigChipText} numberOfLines={1}>{agent.label}</Text>
-                                    <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
-                                </Pressable>
-                            )}
-
-                            {!isOffline && supportsWorktree && (
-                                <Pressable
-                                    ref={(node) => capturePickerTrigger('worktree', node)}
-                                    testID="session-config-worktree-trigger"
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`Worktree: ${worktreeLabel}`}
-                                    accessibilityState={{ expanded: activePicker === 'worktree' }}
-                                    aria-expanded={activePicker === 'worktree'}
-                                    onPress={(event) => togglePicker('worktree', event)}
-                                    style={(p) => [styles.composerConfigChip, p.pressed && styles.composerConfigChipPressed]}
-                                >
-                                    <MaterialCommunityIcons name="tree" size={14} color={theme.colors.textSecondary} />
-                                    <Text style={styles.composerConfigChipText} numberOfLines={1}>{worktreeLabel}</Text>
                                     <Ionicons name="chevron-down" size={11} color={theme.colors.textSecondary} />
                                 </Pressable>
                             )}
@@ -1489,7 +1469,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                     <Ionicons name="flash-outline" size={14} color={fastMode ? theme.colors.accent : theme.colors.textSecondary} />
                                 </Pressable>
                             )}
-                        </ScrollView>
+                        </View>
 
                         {renderActivePickerPopover('machine')}
                         {configExperience.showPath && renderActivePickerPopover('path')}
@@ -1610,6 +1590,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 {configExperience.showPath && (
                                     <>
                                         <Pressable
+                                            testID="session-config-path-trigger"
                                             style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                             onPress={(event) => togglePicker('path', event)}
                                         >
@@ -1720,6 +1701,7 @@ export const SessionConfigPanel = React.forwardRef<SessionConfigPanelHandle, Ses
                                 {supportsWorktree && (
                                     <>
                                         <Pressable
+                                            testID="session-config-worktree-trigger"
                                             style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
                                             onPress={(event) => togglePicker('worktree', event)}
                                         >
@@ -1953,12 +1935,9 @@ const styles = StyleSheet.create((theme) => ({
         flexShrink: 1,
         overflow: 'hidden',
     },
-    composerConfigScroll: {
-        minWidth: 0,
-        flexGrow: 0,
-    },
     composerConfigContent: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         alignItems: 'center',
         gap: 4,
         paddingRight: 4,
