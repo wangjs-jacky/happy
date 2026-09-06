@@ -39,7 +39,7 @@ vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/hooks/useAttachmentImage', () => ({ useAttachmentImage: () => mocks.attachmentImageState }));
 vi.mock('@/utils/thumbhash', () => ({ thumbhashToDataUri: () => null }));
-vi.mock('@/sync/imageViewer', () => ({ imageViewer: { open: mocks.openImageViewer } }));
+vi.mock('@/sync/openSessionImageViewer', () => ({ openSessionImageViewer: mocks.openImageViewer }));
 vi.mock('@/sync/resolveMediaAttachmentSource', () => ({ resolveMediaAttachmentSource: mocks.resolveSource }));
 vi.mock('@/sync/resolveMotionPhotoAttachmentSource', () => ({ resolveMotionPhotoAttachmentSource: mocks.resolveMotionSource }));
 vi.mock('@/sync/openDocumentAttachment', () => ({ openDocumentAttachment: mocks.openDocument }));

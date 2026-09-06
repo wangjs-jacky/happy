@@ -1682,6 +1682,8 @@ export const ru: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: 'Предыдущее изображение',
+        nextImage: 'Следующее изображение',
         download: 'Скачать изображение',
         downloadOriginalMotionPhoto: 'Скачать исходное динамическое фото',
         playMotionPhoto: 'Воспроизвести динамическое фото',

@@ -38,6 +38,9 @@ vi.mock('react-native', async () => {
     };
 });
 vi.mock('expo-image', () => ({ Image: 'Image' }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {
+    surface: 'navy', surfacePressed: 'blue', text: 'white',
+} } }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
@@ -77,6 +80,7 @@ vi.mock('@/hooks/useAttachmentImage', () => ({
 vi.mock('@/sync/resolveMotionPhotoAttachmentSource', () => ({
     resolveMotionPhotoAttachmentSource: mocks.resolveMotionSource,
 }));
+vi.mock('@/sync/resolveMediaAttachmentSource', () => ({ resolveMediaAttachmentSource: vi.fn() }));
 vi.mock('@/components/tools/views/MediaAttachmentPlayer', () => ({
     MediaAttachmentPlayer: 'MediaAttachmentPlayer',
 }));

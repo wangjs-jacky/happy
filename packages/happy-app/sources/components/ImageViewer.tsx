@@ -21,7 +21,7 @@
  * expo-image is used directly (no Unistyles) per the repo styling convention.
  */
 import * as React from 'react';
-import { View, Text, Pressable, useWindowDimensions, StyleSheet, Platform, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { ActivityIndicator, View, Text, Pressable, useWindowDimensions, StyleSheet, Platform, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -37,13 +37,16 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ImageViewerSource } from '@/sync/imageViewer';
 import { downloadImage } from '@/utils/imageDownload';
+import { getImageDownloadMimeType } from '@/utils/imageDownloadCore';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { resolveMotionPhotoAttachmentSource } from '@/sync/resolveMotionPhotoAttachmentSource';
+import { resolveMediaAttachmentSource } from '@/sync/resolveMediaAttachmentSource';
 import type { MediaPlaybackSource } from '@/sync/mediaPlaybackSourceTypes';
 import { MediaAttachmentPlayer } from '@/components/tools/views/MediaAttachmentPlayer';
 import { DesktopShortcutTooltip } from '@/components/DesktopShortcutTooltip';
+import { useUnistyles } from 'react-native-unistyles';
 
 const MAX_SCALE = 4;
 const DOUBLE_TAP_SCALE = 2.5;
@@ -57,10 +60,12 @@ interface ImageViewerProps {
 }
 
 export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps) {
+    const { theme } = useUnistyles();
     const { width: screenW, height: screenH } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 
     const scrollRef = React.useRef<ScrollView>(null);
+    const rootRef = React.useRef<View>(null);
     const [currentIndex, setCurrentIndex] = React.useState(initialIndex);
     // Paging is disabled while the active image is zoomed in, so the pan gesture
     // can move the image instead of the pager swallowing the drag.
@@ -79,10 +84,12 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     // Android honors contentOffset unreliably; jump to the tapped image once we
     // know the screen width.
     const onScrollLayout = React.useCallback(() => {
-        if (initialIndex > 0) {
-            scrollRef.current?.scrollTo({ x: initialIndex * screenW, y: 0, animated: false });
-        }
-    }, [initialIndex, screenW]);
+        scrollRef.current?.scrollTo({ x: currentIndex * screenW, y: 0, animated: false });
+    }, [currentIndex, screenW]);
+
+    React.useEffect(() => {
+        if (Platform.OS === 'web') rootRef.current?.focus();
+    }, []);
 
     const updateCurrentIndex = React.useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
         const next = Math.max(0, Math.min(
@@ -169,10 +176,48 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
         onClose();
     }, [onClose, stopMotionPhoto]);
 
+    const navigate = React.useCallback((direction: number) => {
+        const next = Math.max(0, Math.min(currentIndex + direction, sources.length - 1));
+        if (next === currentIndex) return;
+        stopMotionPhoto();
+        setPagingEnabled(true);
+        setCurrentIndex(next);
+        scrollRef.current?.scrollTo({ x: next * screenW, y: 0, animated: false });
+    }, [currentIndex, screenW, sources.length, stopMotionPhoto]);
+
+    // These keys belong only to the focused modal, not the app's global shortcuts.
+    const onKeyDown = (event: React.KeyboardEvent) => {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === 'Escape') handleClose();
+            else navigate(event.key === 'ArrowLeft' ? -1 : 1);
+        }
+    };
+
     const handleDownload = React.useCallback(() => {
         if (!currentSource || downloadBusy) return;
         setDownloadBusy(true);
-        void downloadImage(currentSource, { dialogTitle: t('imageViewer.download') })
+        void (async () => {
+            const original = currentSource.sessionId && currentSource.attachmentRef
+                ? await resolveMediaAttachmentSource({
+                    sessionId: currentSource.sessionId,
+                    ref: currentSource.attachmentRef,
+                    mimeType: getImageDownloadMimeType(currentSource),
+                    fileName: currentSource.filename,
+                })
+                : null;
+            try {
+                await downloadImage({ ...currentSource, uri: original?.uri ?? currentSource.uri }, { dialogTitle: t('imageViewer.download') });
+            } finally {
+                if (Platform.OS === 'web' && original?.release) {
+                    setTimeout(() => { void original.release?.(); }, 60_000);
+                } else {
+                    await original?.release?.();
+                }
+            }
+        })()
             .catch((error) => {
                 Modal.alert(
                     t('imageViewer.downloadFailedTitle'),
@@ -184,7 +229,9 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
     }, [currentSource, downloadBusy]);
 
     return (
-        <View testID="image-viewer" style={styles.root}>
+        <View ref={rootRef} testID="image-viewer" style={styles.root}
+            {...(Platform.OS === 'web' ? { tabIndex: -1, onKeyDown } : {})}
+        >
             <Animated.View style={[styles.backdrop, backdropStyle]} />
 
             <ScrollView
@@ -239,6 +286,29 @@ export function ImageViewer({ sources, initialIndex, onClose }: ImageViewerProps
                     </View>
                 </View>
             )}
+
+            {!single && ([-1, 1] as const).map((direction) => {
+                const disabled = direction === -1 ? currentIndex === 0 : currentIndex === sources.length - 1;
+                return (
+                    <Pressable
+                        key={direction}
+                        testID={direction === -1 ? 'image-viewer-previous' : 'image-viewer-next'}
+                        accessibilityRole="button"
+                        accessibilityLabel={t(direction === -1 ? 'imageViewer.previousImage' : 'imageViewer.nextImage')}
+                        accessibilityState={{ disabled }}
+                        disabled={disabled}
+                        onPress={() => navigate(direction)}
+                        style={({ pressed }) => [styles.navigationButton, {
+                            top: screenH / 2 - 24,
+                            ...(direction === -1 ? { left: insets.left + 12 } : { right: insets.right + 12 }),
+                            backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface,
+                            opacity: disabled ? 0.4 : 1,
+                        }]}
+                    >
+                        <Ionicons name={direction === -1 ? 'chevron-back' : 'chevron-forward'} size={26} color={theme.colors.text} />
+                    </Pressable>
+                );
+            })}
 
             {!single && (
                 <View style={[styles.counter, { top: insets.top + 14, pointerEvents: 'none' }]}>
@@ -359,11 +429,6 @@ const ZoomablePage = React.memo<ZoomablePageProps>(({
     onZoomChange,
     onClose,
 }) => {
-    const { uri: fullResolutionUri } = useAttachmentImage(
-        source.sessionId ?? '',
-        source.attachmentRef,
-        { lifetime: 'viewer' },
-    );
     const scale = useSharedValue(1);
     const savedScale = useSharedValue(1);
     const translateX = useSharedValue(0);
@@ -490,20 +555,54 @@ const ZoomablePage = React.memo<ZoomablePageProps>(({
         <GestureDetector gesture={composed}>
             <Animated.View style={[styles.page, { width: screenW, height: screenH }]}>
                 <Animated.View style={[styles.imageWrap, imageStyle]}>
-                    <Image
-                        testID={isActive ? 'image-viewer-image' : undefined}
-                        source={{ uri: fullResolutionUri ?? source.uri }}
-                        style={{ width: screenW, height: screenH }}
-                        contentFit="contain"
-                        cachePolicy="none"
-                        recyclingKey={source.attachmentRef ?? source.uri}
-                        transition={150}
-                    />
+                    <ViewerImage source={source} width={screenW} height={screenH} isActive={isActive} />
                 </Animated.View>
             </Animated.View>
         </GestureDetector>
     );
 });
+
+type ViewerImageProps = { source: ImageViewerSource; width: number; height: number; isActive: boolean };
+
+function ViewerImage(props: ViewerImageProps) {
+    const [attempt, setAttempt] = React.useState(0);
+    const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
+    return <ResolvedViewerImage key={attempt} {...props} onRetry={retry} retryDelay={Math.min(30_000, 2_000 * 2 ** Math.min(attempt, 4))} />;
+}
+
+function ResolvedViewerImage({ source, width, height, isActive, onRetry, retryDelay }: ViewerImageProps & {
+    onRetry: () => void;
+    retryDelay: number;
+}) {
+    const { theme } = useUnistyles();
+    const { uri, loading, error } = useAttachmentImage(source.sessionId ?? '', source.attachmentRef, { lifetime: 'viewer' });
+    // A failed historical attachment retries while active; closing or paging
+    // away cancels the timer. Remounting restarts the existing decryption hook.
+    React.useEffect(() => {
+        if (!isActive || !error) return;
+        const timer = setTimeout(onRetry, retryDelay);
+        return () => clearTimeout(timer);
+    }, [error, isActive, onRetry, retryDelay]);
+    const displayUri = uri || source.uri;
+    return (
+        <View style={{ width, height }}>
+            {displayUri ? <Image
+                testID={isActive ? 'image-viewer-image' : undefined}
+                source={{ uri: displayUri }}
+                style={{ width, height }}
+                contentFit="contain"
+                cachePolicy="none"
+                recyclingKey={source.attachmentRef ?? source.uri}
+                transition={150}
+            /> : null}
+            {!displayUri && (loading || error) ? (
+                <View testID="image-viewer-loading" style={[StyleSheet.absoluteFillObject, styles.page]} pointerEvents="none">
+                    <ActivityIndicator size="large" color={theme.colors.text} accessibilityLabel={t('common.loading')} />
+                </View>
+            ) : null}
+        </View>
+    );
+}
 
 const styles = StyleSheet.create({
     root: {
@@ -557,6 +656,14 @@ const styles = StyleSheet.create({
     },
     iconButtonDisabled: {
         opacity: 0.55,
+    },
+    navigationButton: {
+        position: 'absolute',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     motionActionSlot: {
         position: 'relative',

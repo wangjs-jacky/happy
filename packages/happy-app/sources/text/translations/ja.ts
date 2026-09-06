@@ -1655,6 +1655,8 @@ export const ja: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: '前の画像',
+        nextImage: '次の画像',
         download: '画像をダウンロード',
         downloadOriginalMotionPhoto: '元のモーションフォトをダウンロード',
         playMotionPhoto: 'モーションフォトを再生',

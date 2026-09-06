@@ -3,9 +3,8 @@
  * Images keep the eager encrypted thumbnail flow. Video resolves directly to
  * a bare inline player, while audio retains its compact identity card.
  *
- * Always renders inline when a ref is present — if dimensions are missing
- * (older messages, iOS picker that didn't report w/h), a default 4:3 aspect
- * ratio is used until the actual image lands and contentFit shows it.
+ * Image previews use the same square frame as chat attachment galleries,
+ * regardless of source dimensions. The viewer preserves the original aspect.
  */
 import * as React from 'react';
 import { ActivityIndicator, Platform, View, Text, Pressable } from 'react-native';
@@ -16,7 +15,8 @@ import { ToolViewProps } from './_all';
 import { z } from 'zod';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
-import { imageViewer } from '@/sync/imageViewer';
+import { openSessionImageViewer } from '@/sync/openSessionImageViewer';
+import { CHAT_IMAGE_THUMB_SIZE } from '@/utils/attachmentGalleryLayout';
 import { resolveMediaAttachmentSource } from '@/sync/resolveMediaAttachmentSource';
 import type { MediaPlaybackSource } from '@/sync/mediaPlaybackSourceTypes';
 import { MediaAttachmentPlayer } from './MediaAttachmentPlayer';
@@ -48,9 +48,6 @@ const fileInputSchema = z.object({
 });
 
 const BORDER_RADIUS = 8;
-const MAX_IMAGE_WIDTH = 280;
-const MAX_IMAGE_HEIGHT = 360;
-const DEFAULT_ASPECT = 4 / 3; // when wire-format omits image{} dimensions
 
 function directAttachmentUri(ref: string, sessionId: string | undefined): string | null {
     return !sessionId && /^https?:\/\//i.test(ref) ? ref : null;
@@ -420,21 +417,8 @@ function ImageFileView({ name, image, ref_, sessionId, motionPhoto }: {
         }
     }, [downloadLoading, effectiveMotionPhoto, name, ref, sessionId]);
 
-    // Pick display dimensions. Real w/h drives the aspect ratio when present,
-    // but a missing image{} block (older messages, iOS picker that didn't
-    // report dimensions) shouldn't downgrade to a compact filename row —
-    // the user attached an image, render it inline. Default to 4:3 at the
-    // bubble's max width; expo-image's contentFit="cover" handles the
-    // mismatch once the real image arrives.
-    const aspect = image && image.width > 0 && image.height > 0
-        ? image.width / image.height
-        : DEFAULT_ASPECT;
-    let displayW = Math.min(image?.width && image.width > 0 ? image.width : MAX_IMAGE_WIDTH, MAX_IMAGE_WIDTH);
-    let displayH = displayW / aspect;
-    if (displayH > MAX_IMAGE_HEIGHT) {
-        displayH = MAX_IMAGE_HEIGHT;
-        displayW = displayH * aspect;
-    }
+    const displayW = CHAT_IMAGE_THUMB_SIZE;
+    const displayH = CHAT_IMAGE_THUMB_SIZE;
 
     return (
         <View style={styles.inlineContainer}>
@@ -442,7 +426,7 @@ function ImageFileView({ name, image, ref_, sessionId, motionPhoto }: {
                 testID={effectiveMotionPhoto ? 'motion-photo-cover' : undefined}
                 accessibilityRole="button"
                 accessibilityLabel={name}
-                onPress={uri ? () => imageViewer.open({
+                onPress={uri ? () => openSessionImageViewer({
                     uri,
                     width: image?.width,
                     height: image?.height,

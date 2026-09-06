@@ -1653,6 +1653,8 @@ export const ca: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: 'Imatge anterior',
+        nextImage: 'Imatge següent',
         download: 'Baixa la imatge',
         downloadOriginalMotionPhoto: 'Baixa la foto en moviment original',
         playMotionPhoto: 'Reprodueix la foto en moviment',

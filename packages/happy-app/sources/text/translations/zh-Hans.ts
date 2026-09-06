@@ -2243,6 +2243,8 @@ export const zhHans: TranslationStructure = {
     },
 
     imageViewer: {
+        previousImage: '上一张图片',
+        nextImage: '下一张图片',
         download: '下载图片',
         downloadOriginalMotionPhoto: '下载原始动态照片',
         playMotionPhoto: '播放动态照片',
