@@ -47,6 +47,7 @@ vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
 import { UpdateBanner } from './UpdateBanner';
+import { openExternalUrl } from '@/utils/openExternalUrl';
 
 describe('UpdateBanner', () => {
     const originalConsoleError = console.error;
@@ -99,5 +100,14 @@ describe('UpdateBanner', () => {
         });
 
         expect(renderer.root.findByType('Item').props.title).toBe('updateBanner.nativeUpdateAvailable');
+    });
+
+    it('labels native upgrades as GitHub downloads and opens the advertised APK', () => {
+        mocks.updateUrl = 'https://github.com/wangjs-jacky/happy/releases/download/android-test/paws-production.apk';
+        act(() => { renderer = TestRenderer.create(<UpdateBanner />); });
+        const item = renderer.root.findByType('Item');
+        expect(item.props.subtitle).toBe('updateBanner.tapToDownloadGitHub');
+        act(() => item.props.onPress());
+        expect(openExternalUrl).toHaveBeenCalledWith(mocks.updateUrl);
     });
 });
