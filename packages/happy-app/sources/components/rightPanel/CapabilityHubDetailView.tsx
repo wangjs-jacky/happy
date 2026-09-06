@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons, Octicons } from '@expo/vector-icons';
@@ -19,8 +19,11 @@ import type {
     QuickPromptCapabilityItem,
     TaskResourceCapabilityItem,
 } from './sessionCapabilityHubModel';
+import { BrowserStepsPopover, type BrowserStepsAnchorRect } from './BrowserStepsPopover';
+import type { BrowserStepRun } from './browserStepRunsModel';
 
 type Props = {
+    browserStepRuns?: BrowserStepRun[];
     count: number;
     items: CapabilityItem[];
     onAddQuickPrompt?: () => void;
@@ -37,7 +40,7 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
     const { theme } = useUnistyles();
 
     return (
-        <View style={styles.container}>
+        <View style={styles.container} testID={`capability-hub-detail-${props.type}`}>
             <View style={[styles.header, { borderBottomColor: theme.colors.divider }]}>
                 <Pressable hitSlop={8} onPress={props.onBack} style={styles.backButton}>
                     <Ionicons color={theme.colors.text} name="chevron-back" size={18} />
@@ -87,6 +90,7 @@ export const CapabilityHubDetailView = React.memo(function CapabilityHubDetailVi
                 >
                     {props.items.map((item) => (
                         <CapabilityItemRow
+                            browserStepRuns={props.browserStepRuns}
                             item={item}
                             key={item.id}
                             onDeleteQuickPrompt={props.onDeleteQuickPrompt}
@@ -183,6 +187,7 @@ const SessionActionItemRow = React.memo(function SessionActionItemRow(props: {
 });
 
 const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
+    browserStepRuns?: BrowserStepRun[];
     item: CapabilityItem;
     onDeleteQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
     onInsertQuickPrompt?: (item: QuickPromptCapabilityItem) => void;
@@ -211,7 +216,13 @@ const CapabilityItemRow = React.memo(function CapabilityItemRow(props: {
     if (props.item.kind === 'file') {
         return <FileItemRow item={props.item} sessionId={props.sessionId} />;
     }
-    return <SkillItemRow title={props.item.title} />;
+    return (
+        <SkillItemRow
+            browserStepRuns={props.browserStepRuns ?? []}
+            sessionId={props.sessionId}
+            title={props.item.title}
+        />
+    );
 });
 
 const TaskResourceItemRow = React.memo(function TaskResourceItemRow(props: {
@@ -454,23 +465,112 @@ const QuickPromptItemRow = React.memo(function QuickPromptItemRow(props: {
     );
 });
 
-const SkillItemRow = React.memo(function SkillItemRow(props: { title: string }) {
+export const SkillItemRow = React.memo(function SkillItemRow(props: {
+    browserStepRuns: BrowserStepRun[];
+    sessionId: string;
+    title: string;
+}) {
     const { theme } = useUnistyles();
+    const runs = React.useMemo(
+        () => Platform.OS === 'web'
+            ? props.browserStepRuns.filter((run) => run.skillName === props.title)
+            : [],
+        [props.browserStepRuns, props.title],
+    );
+    const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
+    const [anchor, setAnchor] = React.useState<BrowserStepsAnchorRect | undefined>();
+    const triggerRefs = React.useRef(new Map<string, any>());
+    const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null;
+
+    React.useEffect(() => {
+        if (selectedRunId && !selectedRun) setSelectedRunId(null);
+    }, [selectedRun, selectedRunId]);
+
+    const openRun = React.useCallback((run: BrowserStepRun) => {
+        const trigger = triggerRefs.current.get(run.id);
+        const commitOpen = (nextAnchor?: BrowserStepsAnchorRect) => {
+            setAnchor(nextAnchor);
+            setSelectedRunId(run.id);
+        };
+        if (Platform.OS === 'web' && typeof trigger?.measureInWindow === 'function') {
+            trigger.measureInWindow((x: number, y: number, width: number, height: number) => {
+                commitOpen({ height, width, x, y });
+            });
+            return;
+        }
+        commitOpen();
+    }, []);
 
     return (
-        <View style={[styles.rowCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
-            <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
-                <Ionicons color={theme.colors.text} name="flash-outline" size={15} />
+        <>
+            <View style={[styles.rowCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
+                <View style={[styles.rowIconWrap, { backgroundColor: theme.colors.surfaceHigh }]}>
+                    <Ionicons color={theme.colors.text} name="flash-outline" size={15} />
+                </View>
+                <View style={styles.rowCopy}>
+                    <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.colors.text }]}>
+                        {props.title}
+                    </Text>
+                    <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.colors.textSecondary }]}>
+                        {t('rightPanelCapabilityHub.meta.available')}
+                    </Text>
+                </View>
+                {runs.length > 0 ? (
+                    <View style={styles.browserProgressActions}>
+                        {runs.map((run, index) => {
+                            const dialogId = `browser-progress-dialog-${run.id}`;
+                            const expanded = selectedRunId === run.id;
+                            const visibleLabel = runs.length === 1
+                                ? t('rightPanelCapabilityHub.browserProgress.view')
+                                : `${t('rightPanelCapabilityHub.browserProgress.view')} · ${index + 1}/${runs.length}`;
+                            const accessibilityLabel = runs.length === 1
+                                ? `${t('rightPanelCapabilityHub.browserProgress.view')}: ${props.title}`
+                                : `${t('rightPanelCapabilityHub.browserProgress.view')}: ${props.title} ${index + 1}/${runs.length}`;
+                            const onKeyDown = (event: { key: string; preventDefault: () => void }) => {
+                                if (event.key !== 'Enter' && event.key !== ' ') return;
+                                event.preventDefault();
+                                openRun(run);
+                            };
+                            return (
+                                <Pressable
+                                    accessibilityLabel={accessibilityLabel}
+                                    accessibilityRole="button"
+                                    key={run.id}
+                                    onPress={() => openRun(run)}
+                                    ref={(node) => {
+                                        if (node) triggerRefs.current.set(run.id, node);
+                                        else triggerRefs.current.delete(run.id);
+                                    }}
+                                    style={({ pressed }) => [
+                                        styles.browserProgressButton,
+                                        { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface },
+                                    ]}
+                                    testID={`browser-progress-trigger-${run.id}`}
+                                    {...({
+                                        'aria-controls': dialogId,
+                                        'aria-expanded': expanded,
+                                        onKeyDown,
+                                    } as any)}
+                                >
+                                    <Text style={[styles.browserProgressButtonText, { color: theme.colors.text }]}>{visibleLabel}</Text>
+                                </Pressable>
+                            );
+                        })}
+                    </View>
+                ) : null}
             </View>
-            <View style={styles.rowCopy}>
-                <Text numberOfLines={1} style={[styles.rowTitle, { color: theme.colors.text }]}>
-                    {props.title}
-                </Text>
-                <Text numberOfLines={1} style={[styles.rowMeta, { color: theme.colors.textSecondary }]}>
-                    {t('rightPanelCapabilityHub.meta.available')}
-                </Text>
-            </View>
-        </View>
+            {selectedRun ? (
+                <BrowserStepsPopover
+                    anchor={anchor}
+                    dialogId={`browser-progress-dialog-${selectedRun.id}`}
+                    onClose={() => setSelectedRunId(null)}
+                    open
+                    returnFocusRef={{ current: triggerRefs.current.get(selectedRun.id) ?? null }}
+                    sessionId={props.sessionId}
+                    steps={selectedRun.steps}
+                />
+            ) : null}
+        </>
     );
 });
 
@@ -788,5 +888,22 @@ const styles = StyleSheet.create(() => ({
         height: 34,
         justifyContent: 'center',
         width: 34,
+    },
+    browserProgressActions: {
+        alignItems: 'flex-end',
+        flexShrink: 0,
+        gap: 5,
+    },
+    browserProgressButton: {
+        borderRadius: 8,
+        minHeight: 30,
+        justifyContent: 'center',
+        paddingHorizontal: 9,
+        paddingVertical: 5,
+    },
+    browserProgressButtonText: {
+        fontSize: 11,
+        fontWeight: '600',
+        lineHeight: 16,
     },
 }));

@@ -320,6 +320,13 @@ export const SettingsView = React.memo(function SettingsView() {
 
             <ItemGroup title={t('settings.connectedAccounts')}>
                 <Item
+                    title={t('interactivePreviews.title')}
+                    subtitle={t('interactivePreviews.disclosure')}
+                    icon={<Ionicons name="cloud-upload-outline" size={29} color={theme.colors.accent} />}
+                    onPress={() => router.push('/settings/temporary-previews' as any)}
+                    testID="temporary-previews-settings-entry"
+                />
+                <Item
                     title="Claude Code"
                     subtitle={isAnthropicConnected
                         ? t('settingsAccount.statusActive')

@@ -194,7 +194,17 @@ S3_PUBLIC_URL
 
 源码锚点：[`files.ts`](../packages/happy-server/sources/storage/files.ts)、[`attachmentRoutes.ts`](../packages/happy-server/sources/app/api/routes/attachmentRoutes.ts)、[`apiAttachments.ts`](../packages/happy-app/sources/sync/apiAttachments.ts)、[`send_image` handler](../packages/happy-cli/src/claude/utils/startHappyServer.ts)。
 
-### 6.2 OTA OSS：公开分发资源
+### 6.2 临时交互预览 OSS：短期私有中转
+
+临时交互稿使用独立私有桶，通过 `PREVIEW_S3_BUCKET` 启用。若使用同一 OSS 账号，endpoint、地域和凭证默认继承附件存储的 `S3_*`；需要最小权限隔离时，可进一步设置对应的 `PREVIEW_S3_HOST`、`PREVIEW_S3_ACCESS_KEY`、`PREVIEW_S3_SECRET_KEY` 等变量。
+
+- 对象只写入 `private/interactive-previews/<previewId>/`。
+- Happy Server 启动时检查桶是否存在，但不会自动创建生产桶。
+- 发布完成后主动删除中转对象；Vercel 部署固定 24 小时后清理。
+- 桶保持 private，并配置 2 天 Lifecycle 作为异常中断和清理重试失败的兜底。
+- 不与附件桶共用 Lifecycle，避免短期策略误删长期会话资源。
+
+### 6.3 OTA OSS：公开分发资源
 
 OTA 桶当前为 `happy-app-ota-jacky`，职责与用户附件完全不同：
 
@@ -208,7 +218,7 @@ meta/<platform>/<runtime>/<channel>/*.json           版本展示元信息
 
 当前发布脚本会永久保留历史 Bundle。直接按年龄删除 `updates/` 可能让仍保留的历史 Manifest 和回滚版本失效，因此需要“先算引用、再 GC”的保留策略，不能给整个桶套一个简单 TTL。
 
-### 6.3 临时验收视频 OSS：设计中
+### 6.4 临时验收视频 OSS：设计中
 
 这是一条独立于“用户普通音视频附件”的规划链路，目标是让 E2E/Agent 生成的验收 MP4 在手机会话中临时播放。
 

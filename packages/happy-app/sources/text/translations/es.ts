@@ -398,6 +398,8 @@ export const es: TranslationStructure = {
             `${feature} ${enabled ? 'habilitada' : 'deshabilitada'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',
@@ -480,6 +482,14 @@ export const es: TranslationStructure = {
             upOneLevel: 'Subir un nivel',
             loadError: 'No se pudo cargar esta carpeta',
             retry: 'Reintentar',
+        },
+        browserProgress: {
+            title: 'Progreso del navegador',
+            view: 'Ver progreso',
+            close: 'Cerrar progreso del navegador',
+            timelineTitle: 'Pasos del navegador',
+            liveCount: ({ count }: { count: number }) => `En directo · ${count} ${count === 1 ? 'paso' : 'pasos'}`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Paso ${current} de ${total}`,
         },
         meta: {
             available: 'Available in session',

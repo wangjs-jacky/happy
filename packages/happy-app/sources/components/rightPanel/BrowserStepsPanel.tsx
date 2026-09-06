@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
+import { t } from '@/text';
 import type { BrowserStep } from './browserStepsModel';
 
 function formatTime(timestamp: number): string {
@@ -61,14 +62,14 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
     if (!selected) return null;
 
     return (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.scroll} testID="browser-steps-timeline-scroll">
             <View style={styles.heading}>
                 <View style={[styles.headingIcon, { backgroundColor: theme.colors.surfaceHigh }]}>
                     <Ionicons color={theme.colors.text} name="globe-outline" size={17} />
                 </View>
                 <View style={styles.headingCopy}>
-                    <Text style={[styles.title, { color: theme.colors.text }]}>浏览器步骤</Text>
-                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>实时回显 · {props.steps.length} 步</Text>
+                    <Text style={[styles.title, { color: theme.colors.text }]}>{t('rightPanelCapabilityHub.browserProgress.timelineTitle')}</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>{t('rightPanelCapabilityHub.browserProgress.liveCount', { count: props.steps.length })}</Text>
                 </View>
             </View>
 
@@ -77,7 +78,12 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
                 <Text style={[styles.activeLabel, { color: theme.colors.text }]} numberOfLines={2}>
                     {selected.label}
                 </Text>
-                <Text style={[styles.activeMeta, { color: theme.colors.textSecondary }]}>第 {props.steps.findIndex((step) => step.id === selected.id) + 1} 步 · {formatTime(selected.createdAt)}</Text>
+                <Text style={[styles.activeMeta, { color: theme.colors.textSecondary }]}>
+                    {t('rightPanelCapabilityHub.browserProgress.stepPosition', {
+                        current: props.steps.findIndex((step) => step.id === selected.id) + 1,
+                        total: props.steps.length,
+                    })} · {formatTime(selected.createdAt)}
+                </Text>
             </View>
 
             <View style={styles.timeline}>
@@ -112,6 +118,7 @@ export const BrowserStepsPanel = React.memo(function BrowserStepsPanel(props: {
 });
 
 const styles = StyleSheet.create(() => ({
+    scroll: { flex: 1, minHeight: 0 },
     content: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 28 },
     heading: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
     headingIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

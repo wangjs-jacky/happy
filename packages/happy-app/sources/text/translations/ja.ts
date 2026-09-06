@@ -399,6 +399,8 @@ export const ja: TranslationStructure = {
             `${feature}を${enabled ? '有効' : '無効'}にしました`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',
@@ -481,6 +483,14 @@ export const ja: TranslationStructure = {
             upOneLevel: '一つ上に戻る',
             loadError: 'このフォルダを読み込めませんでした',
             retry: '再試行',
+        },
+        browserProgress: {
+            title: 'ブラウザーの進行状況',
+            view: '進行状況を表示',
+            close: 'ブラウザーの進行状況を閉じる',
+            timelineTitle: 'ブラウザーの手順',
+            liveCount: ({ count }: { count: number }) => `リアルタイム · ${count} ステップ`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `ステップ ${current}/${total}`,
         },
         meta: {
             available: 'Available in session',

@@ -28,7 +28,7 @@ spec:
       initContainers:
       - name: init-bucket
         image: busybox
-        command: ["mkdir", "-p", "/data/happy"]
+        command: ["mkdir", "-p", "/data/happy", "/data/happy-previews"]
         volumeMounts:
         - name: minio-data
           mountPath: /data

@@ -323,6 +323,13 @@ function resultToolState(result: PendingToolResult): ToolCall['state'] {
     return result.status === 'failed' || result.isError ? 'error' : 'completed';
 }
 
+function interactivePreviewToolState(input: unknown): ToolCall['state'] {
+    const lifecycle = input && typeof input === 'object' ? (input as { state?: unknown }).state : undefined;
+    if (lifecycle === 'publishing') return 'running';
+    if (lifecycle === 'failed') return 'error';
+    return 'completed';
+}
+
 function applyToolResultToMessage(
     message: ReducerMessage,
     toolUseId: string,
@@ -373,6 +380,10 @@ function applyToolResult(
     toolUseId: string,
     result: PendingToolResult,
 ): boolean {
+    // Interactive preview events carry complete, server-owned lifecycle snapshots.
+    // Their paired synthetic result exists only to satisfy the normalized message
+    // shape and must never override publishing/failed/recovery state from input.
+    if (message.tool?.name === 'interactive-preview') return true;
     if (!applyToolResultToMessage(message, toolUseId, result)) return false;
     if (message.tool?.name === 'TodoWrite' && !result.isError) {
         updateLatestTodos(state, message.tool.result?.newTodos, result.createdAt);
@@ -861,12 +872,23 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         const message = state.messages.get(existingMessageId);
                         if (message?.tool) {
                             message.realID = msg.id;
-                            message.tool.input = mergeToolInputs(message.tool.input, c.input);
+                            // Interactive preview events are complete lifecycle snapshots. Unlike
+                            // ordinary tool patches, a terminal event must remove fields such as
+                            // a previously-ready public URL rather than retain stale input.
+                            const isInteractivePreview = c.name === 'interactive-preview';
+                            message.tool.input = isInteractivePreview ? c.input : mergeToolInputs(message.tool.input, c.input);
                             message.tool.description = c.description;
                             message.tool.mcpApp = c.mcpApp;
                             message.tool.startedAt = msg.createdAt;
+                            if (isInteractivePreview) {
+                                message.tool.state = interactivePreviewToolState(c.input);
+                                message.tool.completedAt = message.tool.state === 'running' ? null : msg.createdAt;
+                                message.tool.result = undefined;
+                                message.tool.failure = undefined;
+                                message.tool.cancellationReason = undefined;
+                            }
                             // If permission was approved and shown as completed (no tool), now it's running
-                            if (message.tool.permission?.status === 'approved' && message.tool.state === 'completed') {
+                            if (!isInteractivePreview && message.tool.permission?.status === 'approved' && message.tool.state === 'completed') {
                                 message.tool.state = 'running';
                                 message.tool.completedAt = null;
                                 message.tool.result = undefined;
@@ -885,14 +907,16 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         // Check if there's a stored permission for this tool
                         const permission = state.permissions.get(c.id);
 
+                        const isInteractivePreview = c.name === 'interactive-preview';
+                        const initialState = isInteractivePreview ? interactivePreviewToolState(c.input) : 'running';
                         let toolCall: ToolCall = {
                             callId: c.id,
                             name: c.name,
-                            state: 'running' as const,
-                            input: permission ? mergeToolInputs(permission.arguments, c.input) : c.input,
+                            state: initialState,
+                            input: isInteractivePreview ? c.input : permission ? mergeToolInputs(permission.arguments, c.input) : c.input,
                             createdAt: permission ? permission.createdAt : msg.createdAt,  // Use permission timestamp if available
                             startedAt: msg.createdAt,
-                            completedAt: null,
+                            completedAt: initialState === 'running' ? null : msg.createdAt,
                             description: c.description,
                             mcpApp: c.mcpApp,
                             result: undefined,
@@ -913,7 +937,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                             };
 
                             // Update state based on permission status
-                            if (permission.status !== 'approved') {
+                            if (!isInteractivePreview && permission.status !== 'approved') {
                                 toolCall.state = 'error';
                                 toolCall.completedAt = permission.completedAt || msg.createdAt;
                                 if (permission.reason) {
