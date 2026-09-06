@@ -519,6 +519,7 @@ git tag cli-vX.Y.Z <发布时的 main tip> && git push origin cli-vX.Y.Z
 
 | 文件 | 主题 | 何时读取 |
 |------|------|----------|
+| 如何让会话刷新后仍像本地应用一样可读.md | 本地历史库与低流量增量同步 | 修改历史加载、刷新恢复、删除同步或附件持久缓存时 |
 | Happy 手机 E2E 视频验收与 PR 交付 SOP.md | 从需求到手机 MP4、Obsidian 双端同步与 PR 证据的完整验收 SOP | 用户要求手机回归、E2E 录屏、MP4 交付或 PR 携带视频证据时 |
 | Happy 桌面三栏侧边栏交互验收.md | PC Web 左右侧边栏折叠、快捷键、拖拽及中间区约束的视频验收证据 | 回归桌面三栏布局、复跑侧边栏 Playwright Case 或查验录屏时 |
 | 如何让-Finance-Card-稳定显示上证指数走势.md | Finance Card 通过腾讯财经 fallback 稳定显示上证指数走势 | 遇到 finance chart 拉取失败、A 股指数出卡失败、MCP finance 数据源不稳时 |
