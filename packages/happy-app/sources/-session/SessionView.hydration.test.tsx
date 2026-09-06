@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     fetchNextHistoryPage: vi.fn(),
     openSession: vi.fn(),
     session: null as any,
+    messages: [] as any[],
     messagesLoaded: false,
     focusContext: null as unknown as React.Context<boolean>,
     currentViewingSessionId: null as string | null,
@@ -88,7 +89,7 @@ vi.mock('@/sync/storage', () => ({
     useLocalSettingMutable: () => [false, vi.fn()],
     useMachine: () => null,
     useSession: () => mocks.session,
-    useSessionMessages: () => ({ messages: [], isLoaded: mocks.messagesLoaded }),
+    useSessionMessages: () => ({ messages: mocks.messages, isLoaded: mocks.messagesLoaded }),
     useSessionUsage: () => undefined,
     useSetting: (key: string) => key === 'sidebarOrganization' ? { lists: [], tags: [], sessions: {} } : false,
     useSettingUpdater: () => vi.fn(),
@@ -205,6 +206,45 @@ function deferred<T>() {
     return { promise, resolve, reject };
 }
 
+function installLatestPaintHarness() {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const markFreshLatestMessageComplete = vi.fn();
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const originalProbe = (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+    (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = (callback) => {
+        const frame = ++nextFrame;
+        frames.set(frame, callback);
+        return frame;
+    };
+    (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = (frame) => {
+        frames.delete(frame);
+    };
+    (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = {
+        markFreshLatestMessageComplete,
+    };
+
+    return {
+        markFreshLatestMessageComplete,
+        runAllFrames: () => {
+            const queued = [...frames.values()];
+            frames.clear();
+            queued.forEach((callback) => callback(0));
+        },
+        discardAllFrames: () => frames.clear(),
+        restore: () => {
+            (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = originalRequestAnimationFrame;
+            (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = originalCancelAnimationFrame;
+            if (originalProbe) {
+                (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe = originalProbe;
+            } else {
+                delete (globalThis as { __happySessionCriticalPathProbe?: unknown }).__happySessionCriticalPathProbe;
+            }
+        },
+    };
+}
+
 describe('SessionView deep-link hydration', () => {
     const originalConsoleError = console.error;
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -217,6 +257,7 @@ describe('SessionView deep-link hydration', () => {
             originalConsoleError(...values);
         });
         mocks.session = null;
+        mocks.messages = [];
         mocks.messagesLoaded = false;
         mocks.renderComposer = false;
         mocks.currentViewingSessionId = null;
@@ -438,6 +479,120 @@ describe('SessionView deep-link hydration', () => {
         await act(async () => { opening.resolve('ready'); await opening.promise; });
         expect(renderer.root.findAllByType('AgentContentView')).toHaveLength(1);
         act(() => renderer.unmount());
+    });
+
+    it('does not verify a cached latest paint before its route revalidation resolves', async () => {
+        // Catches cache-first rendering authorizing the strict verified marker before openSession is ready.
+        const opening = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'warm-paint-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="warm-paint-session" />); });
+
+            expect(renderer.root.findAllByProps({ testID: 'session-loading' })).toHaveLength(0);
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('verifies a ready owner with no message delta on its next frame', async () => {
+        // Catches readiness being tied to a new message instead of the current route owner's completed revalidation.
+        const opening = deferred<'ready'>();
+        const { discardAllFrames, markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValue(opening.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'zero-delta-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="zero-delta-session" />); });
+            discardAllFrames();
+            await act(async () => { opening.resolve('ready'); await opening.promise; });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).toHaveBeenCalledTimes(1);
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('does not let an abandoned cached owner verify after a different route mounts', async () => {
+        // Catches A's queued frame claiming the verified marker after B has replaced A as route owner.
+        const first = deferred<'ready'>();
+        const second = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'owner-a', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="owner-a" />); });
+            mocks.session = { ...mocks.session, id: 'owner-b' };
+            await act(async () => { renderer.update(<SessionView id="owner-b" />); });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
+    });
+
+    it('cancels a cached owner frame when a same-session retry replaces it', async () => {
+        // Catches a stale same-ID owner epoch retaining its frame while the replacement retry is still pending.
+        vi.useFakeTimers();
+        const first = deferred<'ready'>();
+        const second = deferred<'ready'>();
+        const { markFreshLatestMessageComplete, restore, runAllFrames } = installLatestPaintHarness();
+        mocks.openSession.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+        mocks.messagesLoaded = true;
+        mocks.messages = [{ id: 'cached-message' }];
+        mocks.session = {
+            id: 'retry-paint-session', seq: 3, active: true, activeAt: 10,
+            createdAt: 1, updatedAt: 10, metadata: { path: '/test', host: 'test' },
+            metadataVersion: 1, agentState: null, agentStateVersion: 0,
+            thinking: false, thinkingAt: 0,
+        };
+        let renderer: any;
+
+        try {
+            await act(async () => { renderer = TestRenderer.create(<SessionView id="retry-paint-session" />); });
+            await act(async () => { first.reject(new Error('retry')); });
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            runAllFrames();
+            expect(markFreshLatestMessageComplete).not.toHaveBeenCalled();
+        } finally {
+            act(() => renderer?.unmount());
+            restore();
+        }
     });
 
     it('shows not-found only after the target hydration resolves missing', async () => {

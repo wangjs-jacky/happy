@@ -552,6 +552,10 @@ const SessionViewContent = React.memo((props: { id: string }) => {
         && hasLoadedMessageCache
         && routeOwner?.sessionId === sessionId
         && sessionResolution !== 'not-found';
+    const verifiedRouteOwnerEpoch = sessionResolution === 'ready'
+        && routeOwner?.sessionId === sessionId
+        ? routeOwner.ownerEpoch
+        : null;
     const canShowFilePanel = desktopRightPanelAvailable && fileDiffsSidebarEnabled;
     const desktopRightPanelPresentation = getDesktopRightPanelPresentation({
         available: desktopRightPanelAvailable,
@@ -1056,6 +1060,7 @@ const SessionViewContent = React.memo((props: { id: string }) => {
                         onRemoveTag={removeSessionTag}
                         sessionId={sessionId}
                         routeOwner={routeOwner}
+                        verifiedRouteOwnerEpoch={verifiedRouteOwnerEpoch}
                         session={session}
                         tags={sessionTags}
                     />
@@ -1370,6 +1375,7 @@ function isUnsupportedPlatformError(error: string | undefined): boolean {
 function SessionViewLoaded({
     sessionId,
     routeOwner,
+    verifiedRouteOwnerEpoch,
     session,
     composerHandleRef,
     onManageTags,
@@ -1378,6 +1384,7 @@ function SessionViewLoaded({
 }: {
     sessionId: string;
     routeOwner: SessionRouteOwner;
+    verifiedRouteOwnerEpoch: number | null;
     session: Session;
     composerHandleRef: React.RefObject<ChatComposerHandle | null>;
     onManageTags: () => void;
@@ -1397,12 +1404,12 @@ function SessionViewLoaded({
     const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
 
     React.useEffect(() => {
-        if (!isLoaded || messages.length === 0 || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
+        if (verifiedRouteOwnerEpoch === null || !isLoaded || Platform.OS !== 'web' || typeof requestAnimationFrame !== 'function') return;
         const frame = requestAnimationFrame(() => {
             markSessionCriticalPathAppStage('web.session.latest_message_painted');
         });
         return () => cancelAnimationFrame(frame);
-    }, [isLoaded, messages.length, sessionId]);
+    }, [isLoaded, verifiedRouteOwnerEpoch]);
 
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
