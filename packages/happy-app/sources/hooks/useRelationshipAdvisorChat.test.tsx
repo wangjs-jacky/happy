@@ -92,6 +92,28 @@ describe('useRelationshipAdvisorChat', () => {
 
     afterEach(() => consoleErrorSpy.mockRestore());
 
+    it.each(['resolve', 'reject'])('does not let a cancelled slow save %s over a newer request', async (outcome) => {
+        let finishSave: () => void = () => undefined;
+        mocks.saveImages.mockImplementationOnce(() => new Promise((resolve, reject) => {
+            finishSave = () => outcome === 'resolve' ? resolve(undefined) : reject(new Error('removed'));
+        }));
+        mocks.uploadHistory.mockImplementation(async (messages, options) => options.isCancelled() ? null : messages);
+        const unsubscribe = vi.fn();
+        const starts: Array<{ request: any; onEvent: (event: any) => void }> = [];
+        mocks.start.mockImplementation(async (request, onEvent) => { starts.push({ request, onEvent }); return unsubscribe; });
+        const hook = renderHook();
+        let oldSend: Promise<boolean>;
+        act(() => { oldSend = hook.current().send('old', [{ id: 'old' }] as any); });
+        act(() => hook.current().cancel());
+        await act(async () => { await hook.current().send('new', [{ id: 'new' }] as any); });
+        await act(async () => { finishSave(); await oldSend!; });
+        expect(unsubscribe).not.toHaveBeenCalled();
+        act(() => starts[0].onEvent({ requestId: starts[0].request.requestId, type: 'error', error: 'failed' }));
+        await act(async () => { await hook.current().retry(); });
+        expect(mocks.uploadHistory.mock.calls.at(-1)?.[0].at(-1).text).toBe('new');
+        hook.unmount();
+    });
+
     it('tracks the replacement user identity after a failed local save and subsequent retry failure', async () => {
         mocks.saveImages.mockRejectedValueOnce(new Error('local storage failed'));
         mocks.start.mockImplementation(async (request, onEvent) => {

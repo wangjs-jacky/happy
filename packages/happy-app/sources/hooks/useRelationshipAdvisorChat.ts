@@ -115,7 +115,9 @@ export function useRelationshipAdvisorChat(conversationId: string) {
         const imageRefs: string[] = [];
         try {
             if (!options?.imageKeys) await saveRelationshipAdvisorImages(images, imageKeys);
-            lastAttemptRef.current = { text: trimmed, images, imageKeys, userId };
+            if (activeRequestIdRef.current === requestId) {
+                lastAttemptRef.current = { text: trimmed, images, imageKeys, userId };
+            }
             const requestMessages = await uploadRelationshipAdvisorHistory(historyMessages, {
                 isCancelled: () => cancelledRequestIdsRef.current.has(requestId),
             });
@@ -125,10 +127,16 @@ export function useRelationshipAdvisorChat(conversationId: string) {
                 return false;
             }
             imageRefs.push(...requestMessages.flatMap((message) => message.imageRefs ?? []));
+            if (activeRequestIdRef.current !== requestId || !mountedRef.current || cancelledRequestIdsRef.current.has(requestId)) {
+                await discardRelationshipAdvisorImages(imageRefs).catch(() => undefined);
+                if (mountedRef.current && !options?.imageKeys) await deleteAdvisorImages(imageKeys).catch(() => undefined);
+                cancelledRequestIdsRef.current.delete(requestId);
+                return false;
+            }
 
             let terminalEventReceived = false;
             const onEvent = (event: RelationshipAdvisorEvent) => {
-                if (!mountedRef.current) return;
+                if (!mountedRef.current || activeRequestIdRef.current !== requestId) return;
                 dispatch({ type: 'event', event, completedAt: Date.now() });
                 if (event.type === 'done' || event.type === 'error') {
                     activeRequestIdRef.current = null;
@@ -151,7 +159,7 @@ export function useRelationshipAdvisorChat(conversationId: string) {
                 messages: requestMessages,
                 imageRefs,
             }, onEvent);
-            if (terminalEventReceived || !mountedRef.current || cancelledRequestIdsRef.current.has(requestId)) {
+            if (terminalEventReceived || !mountedRef.current || activeRequestIdRef.current !== requestId || cancelledRequestIdsRef.current.has(requestId)) {
                 unsubscribe();
             } else {
                 unsubscribeRef.current = unsubscribe;
@@ -167,9 +175,11 @@ export function useRelationshipAdvisorChat(conversationId: string) {
                 relationshipAdvisorClient.cancel(requestId);
             }
             await discardRelationshipAdvisorImages(imageRefs).catch(() => undefined);
-            if (activeRequestIdRef.current === requestId) activeRequestIdRef.current = null;
-            providerStartedRequestIdRef.current = null;
             cancelledRequestIdsRef.current.delete(requestId);
+            // A stopped upload may settle after the user has already started a new turn.
+            if (activeRequestIdRef.current !== requestId) return false;
+            activeRequestIdRef.current = null;
+            providerStartedRequestIdRef.current = null;
             if (mountedRef.current) {
                 dispatch(wasCancelled
                     ? { type: 'cancel-before-start', requestId }
