@@ -628,6 +628,8 @@ export const pt: TranslationStructure = {
         scrollToBottom: 'Rolar até o fim',
         anchorsTitle: 'Suas mensagens',
         anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? "1 mensagem" : `${count} mensagens`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `${count === 1 ? '1 mensagem carregada' : `${count} mensagens carregadas`} · Há mensagens anteriores`,
+        anchorsLoadOlder: 'Carregar mensagens anteriores',
         anchorsEmpty: 'Ainda não há mensagens para onde ir.',
         inputPlaceholder: 'Digite uma mensagem ...',
         inactiveArchived: 'Esta sessão está inativa.',

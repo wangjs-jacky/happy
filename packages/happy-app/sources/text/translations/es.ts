@@ -629,6 +629,8 @@ export const es: TranslationStructure = {
         scrollToBottom: 'Desplazarse al final',
         anchorsTitle: 'Tus mensajes',
         anchorsSubtitle: ({ count }: { count: number }) => count === 1 ? "1 mensaje" : `${count} mensajes`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `${count === 1 ? '1 mensaje cargado' : `${count} mensajes cargados`} · Quedan mensajes anteriores`,
+        anchorsLoadOlder: 'Cargar mensajes anteriores',
         anchorsEmpty: 'Aún no hay mensajes a los que saltar.',
         inputPlaceholder: 'Escriba un mensaje ...',
         inactiveArchived: 'Esta sesión está inactiva.',

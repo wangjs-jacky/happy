@@ -641,6 +641,8 @@ export const zhHans: TranslationStructure = {
         scrollToBottom: '滚动到底部',
         anchorsTitle: '我的提问',
         anchorsSubtitle: ({ count }: { count: number }) => `${count} 条提问`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `已加载 ${count} 条提问，仍有更早的历史消息`,
+        anchorsLoadOlder: '加载更早消息',
         anchorsEmpty: '还没有可跳转的提问。',
         inputPlaceholder: '输入消息...',
         inactiveArchived: '此会话处于非活动状态。',

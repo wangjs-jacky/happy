@@ -630,6 +630,8 @@ export const ja: TranslationStructure = {
         scrollToBottom: '一番下までスクロール',
         anchorsTitle: 'あなたのメッセージ',
         anchorsSubtitle: ({ count }: { count: number }) => `${count} 件`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `${count} 件を読み込み済み · さらに古いメッセージがあります`,
+        anchorsLoadOlder: '古いメッセージを読み込む',
         anchorsEmpty: 'ジャンプできるメッセージはまだありません。',
         inputPlaceholder: 'メッセージを入力...',
         inactiveArchived: 'このセッションは非アクティブです。',

@@ -629,6 +629,8 @@ export const zhHant: TranslationStructure = {
         scrollToBottom: '捲動到底部',
         anchorsTitle: '我的提問',
         anchorsSubtitle: ({ count }: { count: number }) => `${count} 則提問`,
+        anchorsLoadedSubtitle: ({ count }: { count: number }) => `已載入 ${count} 則提問，仍有更早的歷史訊息`,
+        anchorsLoadOlder: '載入更早訊息',
         anchorsEmpty: '還沒有可跳轉的提問。',
         inputPlaceholder: '輸入訊息...',
         inactiveArchived: '此會話處於非活動狀態。',
