@@ -98,6 +98,9 @@ vi.mock('@/components/relationship-advisor/relationshipAdvisorChatModel', () => 
 vi.mock('@/components/relationship-advisor/StreamingMarkdownView', () => ({
     StreamingMarkdownView: 'StreamingMarkdownView',
 }));
+vi.mock('@/components/relationship-advisor/RelationshipAdvisorMessageImages', () => ({
+    RelationshipAdvisorMessageImages: 'RelationshipAdvisorMessageImages',
+}));
 vi.mock('@/sync/relationshipAdvisorImages', () => ({ MAX_RELATIONSHIP_ADVISOR_IMAGE_SIZE: 1 }));
 vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn() } }));
 vi.mock('@/sync/storage', () => ({

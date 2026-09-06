@@ -1301,7 +1301,10 @@ describe('message visibility synchronization', () => {
         await syncForTest.handleUpdate(newMessageUpdate('visible-session', 7));
         const messageSync = syncForTest.messagesSync.get('visible-session');
         try {
-            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(mocks.apiRequest).toHaveBeenNthCalledWith(
+                2,
+                '/v3/sessions/visible-session/messages?after_seq=5&limit=100',
+            ));
 
             expect(mocks.state.sessionMessages['visible-session']?.messagesMap['message-5']).toBeDefined();
             expect(syncForTest.getSessionLastMessageSeq('visible-session')).toBe(5);
