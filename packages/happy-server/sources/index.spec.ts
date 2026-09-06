@@ -6,9 +6,11 @@ const mocks = vi.hoisted(() => ({
     initEncrypt: vi.fn(),
     initGithub: vi.fn(),
     loadFiles: vi.fn(),
+    loadPreviewStorage: vi.fn(),
     authInit: vi.fn(),
     startApi: vi.fn(),
     startCleanup: vi.fn(),
+    startPreviewCleanup: vi.fn(),
     startMetrics: vi.fn(),
     startTimeout: vi.fn(),
     onShutdown: vi.fn(),
@@ -18,12 +20,14 @@ vi.mock('./storage/db', () => ({ db: { $connect: mocks.dbConnect, $disconnect: m
 vi.mock('./modules/encrypt', () => ({ initEncrypt: mocks.initEncrypt }));
 vi.mock('./modules/github', () => ({ initGithub: mocks.initGithub }));
 vi.mock('./storage/files', () => ({ loadFiles: mocks.loadFiles }));
+vi.mock('./app/previews/previewStorage', () => ({ loadPreviewStorage: mocks.loadPreviewStorage }));
 vi.mock('./app/auth/auth', () => ({ auth: { init: mocks.authInit } }));
 vi.mock('./app/presence/sessionCache', () => ({ activityCache: { shutdown: vi.fn() } }));
 vi.mock('./app/api/api', () => ({ startApi: mocks.startApi }));
 vi.mock('./app/monitoring/metrics2', () => ({ startDatabaseMetricsUpdater: mocks.startMetrics }));
 vi.mock('./app/presence/timeout', () => ({ startTimeout: mocks.startTimeout }));
 vi.mock('./app/sessionSharing/publicSessionShareCleanup', () => ({ startPublicSessionShareCleanup: mocks.startCleanup }));
+vi.mock('./app/previews/previewCleanup', () => ({ startInteractivePreviewCleanup: mocks.startPreviewCleanup }));
 vi.mock('./utils/shutdown', () => ({ onShutdown: mocks.onShutdown }));
 
 import { startServer } from './index';
@@ -43,6 +47,9 @@ describe('startServer', () => {
         })).resolves.toEqual({ port: 3005, host: '127.0.0.1' });
 
         expect(mocks.startCleanup).toHaveBeenCalledTimes(1);
+        expect(mocks.startPreviewCleanup).toHaveBeenCalledTimes(1);
+        expect(mocks.loadPreviewStorage).toHaveBeenCalledTimes(1);
+        expect(mocks.loadPreviewStorage).toHaveBeenCalledBefore(mocks.startApi);
         expect(mocks.startApi).toHaveBeenCalledBefore(mocks.startCleanup);
     });
 });

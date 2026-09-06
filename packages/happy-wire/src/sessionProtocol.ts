@@ -6,6 +6,7 @@
 
 import { createId, isCuid } from '@paralleldrive/cuid2';
 import * as z from 'zod';
+import { interactivePreviewEventSchema } from './interactivePreview';
 
 export const sessionRoleSchema = z.enum(['user', 'agent']);
 export type SessionRole = z.infer<typeof sessionRoleSchema>;
@@ -87,6 +88,8 @@ export const sessionFileEventSchema = z.object({
   // attachment transport, but routed to the dedicated right-side timeline.
   browserStep: z.object({
     label: z.string().min(1),
+    runId: z.string().trim().min(1).max(128).optional(),
+    skillName: z.enum(['ego-browser', 'ego-ops']).optional(),
   }).optional(),
   prompt: z.string().optional(),
   batchId: z.string().optional(),
@@ -127,6 +130,11 @@ export const sessionStopEventSchema = z.object({
   status: sessionTurnEndStatusSchema.optional(),
 });
 
+export const sessionInteractivePreviewEventSchema = z.object({
+  t: z.literal('interactive-preview'),
+  preview: interactivePreviewEventSchema,
+});
+
 export const sessionEventSchema = z.discriminatedUnion('t', [
   sessionTextEventSchema,
   sessionServiceMessageEventSchema,
@@ -137,6 +145,7 @@ export const sessionEventSchema = z.discriminatedUnion('t', [
   sessionStartEventSchema,
   sessionTurnEndEventSchema,
   sessionStopEventSchema,
+  sessionInteractivePreviewEventSchema,
 ]);
 
 export type SessionEvent = z.infer<typeof sessionEventSchema>;

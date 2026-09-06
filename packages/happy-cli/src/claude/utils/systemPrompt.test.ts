@@ -11,10 +11,17 @@ describe('systemPrompt', () => {
         expect(systemPrompt).toContain('`ego-browser`');
         expect(systemPrompt).toContain('`ego-ops`');
         expect(systemPrompt).toContain('mcp__happy__report_browser_step');
+        expect(systemPrompt).toContain('mcp__happy__create_preview');
+        expect(systemPrompt).toContain('mcp__happy__publish_preview');
+        expect(systemPrompt).toContain('Do not fall back to Vercel CLI or Cloudflare');
         expect(systemPrompt).toMatch(/meaningful completed and verified browser round/i);
         expect(systemPrompt).toMatch(/before starting the next Ego browser round/i);
         expect(systemPrompt).toMatch(/final verified browser state/i);
         expect(systemPrompt).toMatch(/Do not report waits, retries, tiny scrolls/i);
+        expect(systemPrompt).toMatch(/one newly generated stable runId for each Ego invocation/i);
+        expect(systemPrompt).not.toMatch(/invocation or task/i);
+        expect(systemPrompt).toMatch(/reuse it for every reported frame/i);
+        expect(systemPrompt).toContain('skillName');
         expect(systemPrompt.match(/mcp__happy__report_browser_step/g)).toHaveLength(1);
     });
 });

@@ -1022,6 +1022,151 @@ describe('reducer', () => {
             }
         });
 
+        it('replaces an interactive preview lifecycle snapshot for the same tool id', () => {
+            const state = createReducer();
+            const previewId = '11111111-1111-4111-8111-111111111111';
+            const event = (id: string, createdAt: number, input: Record<string, unknown>): NormalizedMessage => ({
+                id,
+                localId: null,
+                createdAt,
+                role: 'agent',
+                isSidechain: false,
+                content: [{
+                    type: 'tool-call',
+                    id: `interactive-preview-${previewId}`,
+                    name: 'interactive-preview',
+                    input,
+                    description: null,
+                    uuid: id,
+                    parentUUID: null,
+                }],
+            });
+
+            reducer(state, [event('preview-publishing', 1, { id: previewId, state: 'publishing', title: 'Toolbar' })]);
+            let current = reducer(state, [event('preview-ready', 2, { id: previewId, state: 'ready', title: 'Toolbar', url: 'https://draft.example' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'ready', url: 'https://draft.example' } } });
+
+            current = reducer(state, [event('preview-failed', 3, { id: previewId, state: 'failed', title: 'Toolbar', errorCode: 'PUBLISH_FAILED' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'failed', errorCode: 'PUBLISH_FAILED' } } });
+            if (current?.kind === 'tool-call') expect(current.tool.input).not.toHaveProperty('url');
+
+            current = reducer(state, [event('preview-ready-before-delete', 4, { id: previewId, state: 'ready', title: 'Toolbar', url: 'https://draft.example/delete-me' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'ready', url: 'https://draft.example/delete-me' } } });
+
+            // Raw `deleting` events are normalized to the terminal `expired`
+            // lifecycle state before the reducer receives them.
+            current = reducer(state, [event('preview-expired-after-delete', 5, { id: previewId, state: 'expired', title: 'Toolbar' })]).messages[0];
+            expect(current).toMatchObject({ kind: 'tool-call', tool: { input: { state: 'expired' } } });
+            if (current?.kind === 'tool-call') {
+                expect(current.tool.input).not.toHaveProperty('errorCode');
+                expect(current.tool.input).not.toHaveProperty('url');
+            }
+        });
+
+        it('sets interactive preview ToolCall state from each lifecycle snapshot, including failed-to-ready recovery', () => {
+            const state = createReducer();
+            const previewId = '22222222-2222-4222-8222-222222222222';
+            const event = (id: string, createdAt: number, previewState: string): NormalizedMessage => ({
+                id, localId: null, createdAt, role: 'agent', isSidechain: false,
+                content: [{
+                    type: 'tool-call', id: `interactive-preview-${previewId}`, name: 'interactive-preview',
+                    input: { id: previewId, state: previewState, title: 'Recovery preview' }, description: null, uuid: id, parentUUID: null,
+                }],
+            });
+
+            const failed = reducer(state, [event('preview-failed-first', 1, 'failed')]).messages[0];
+            expect(failed).toMatchObject({ kind: 'tool-call', tool: { state: 'error' } });
+
+            const recovered = reducer(state, [
+                event('preview-publishing-retry', 2, 'publishing'),
+                event('preview-ready-retry', 3, 'ready'),
+            ]).messages[0];
+            expect(recovered).toMatchObject({ kind: 'tool-call', tool: { state: 'completed', input: { state: 'ready' }, result: undefined, failure: undefined } });
+        });
+
+        it('keeps a normalized publishing preview running instead of applying its synthetic result', () => {
+            const previewId = '33333333-3333-4333-8333-333333333333';
+            const normalized = normalizeRawMessage('preview-publishing-db', null, 1, {
+                role: 'session',
+                content: {
+                    id: 'preview-publishing-envelope',
+                    time: 1,
+                    role: 'agent',
+                    ev: {
+                        t: 'interactive-preview',
+                        preview: {
+                            version: 1,
+                            id: previewId,
+                            title: 'Publishing preview',
+                            state: 'publishing',
+                            expiresAt: 2,
+                        },
+                    },
+                },
+            } as any);
+
+            expect(normalized).not.toBeNull();
+            const result = reducer(createReducer(), [normalized!]);
+
+            expect(result.messages).toMatchObject([{
+                kind: 'tool-call',
+                tool: {
+                    name: 'interactive-preview',
+                    state: 'running',
+                    input: { id: previewId, state: 'publishing' },
+                    completedAt: null,
+                    result: undefined,
+                },
+            }]);
+        });
+
+        it('keeps the final normalized preview snapshot authoritative when lifecycle events are batched', () => {
+            const previewId = '44444444-4444-4444-8444-444444444444';
+            const lifecycle = ['ready', 'failed', 'publishing'] as const;
+            const normalized = lifecycle.map((previewState, index) => normalizeRawMessage(
+                `preview-batch-db-${index}`,
+                null,
+                index + 1,
+                {
+                    role: 'session',
+                    content: {
+                        id: `preview-batch-envelope-${index}`,
+                        time: index + 1,
+                        role: 'agent',
+                        ev: {
+                            t: 'interactive-preview',
+                            preview: {
+                                version: 1,
+                                id: previewId,
+                                title: 'Retrying preview',
+                                state: previewState,
+                                ...(previewState === 'ready' ? { url: 'https://ready.example' } : {}),
+                                ...(previewState === 'failed' ? { errorCode: 'PUBLISH_FAILED' } : {}),
+                                expiresAt: 10,
+                            },
+                        },
+                    },
+                } as any,
+            )).filter((message): message is NormalizedMessage => message !== null);
+
+            const result = reducer(createReducer(), normalized);
+
+            expect(result.messages).toMatchObject([{
+                kind: 'tool-call',
+                tool: {
+                    state: 'running',
+                    input: { id: previewId, state: 'publishing' },
+                    completedAt: null,
+                    result: undefined,
+                    failure: undefined,
+                },
+            }]);
+            if (result.messages[0]?.kind === 'tool-call') {
+                expect(result.messages[0].tool.input).not.toHaveProperty('url');
+                expect(result.messages[0].tool.input).not.toHaveProperty('errorCode');
+            }
+        });
+
         it('should merge real tool-call patch args into matched permission messages', () => {
             const state = createReducer();
             const fileChanges = {

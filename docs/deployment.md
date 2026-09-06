@@ -25,6 +25,7 @@ This document describes how to deploy the Paws-compatible backend (`packages/hap
    - **Deployed separately** — not managed by this repo's Kubernetes manifests. In prod, the S3-compatible service (MinIO or similar) behind `S3_PUBLIC_URL` is provisioned and managed by external infrastructure. The app only consumes it via env vars: `S3_PUBLIC_URL` is set in the Deployment, and credentials come from Vault via ExternalSecret (`/handy-files`).
    - If `S3_HOST` is unset, the server falls back to local filesystem storage (`./data/files/`).
    - For local k8s dev, a MinIO pod is deployed via `deploy/overlays/local/minio.yaml`.
+   - Managed temporary previews require a second private bucket through `PREVIEW_S3_BUCKET`. It inherits the regular `S3_*` endpoint and credentials unless corresponding `PREVIEW_S3_*` overrides are provided. The server checks that this bucket exists at startup.
 
 ## Environment variables
 **Required**
@@ -32,6 +33,7 @@ This document describes how to deploy the Paws-compatible backend (`packages/hap
 - `HANDY_MASTER_SECRET`: master key for auth tokens and server-side encryption.
 - `REDIS_URL`: Redis connection string.
 - `S3_HOST`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_PUBLIC_URL`: object storage config.
+- `PREVIEW_S3_BUCKET`: dedicated temporary-preview bucket. Keep it private and apply a two-day lifecycle rule.
 
 **Common**
 - `PORT`: API server port (default `3005`).

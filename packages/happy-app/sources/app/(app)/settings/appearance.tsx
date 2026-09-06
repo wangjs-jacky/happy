@@ -62,6 +62,7 @@ export default function AppearanceSettingsScreen() {
                             applyTheme(themePack, nextTheme);
                         });
                     }}
+                    testID="appearance-theme-preference"
                 />
                 {/* 主题配色包选择器 — 一排色板，点选即切换 */}
                 <View style={styles.swatchRow}>
@@ -70,6 +71,7 @@ export default function AppearanceSettingsScreen() {
                         return (
                             <Pressable
                                 key={acc.id}
+                                testID={`appearance-theme-pack-${acc.id}`}
                                 style={styles.swatchItem}
                                 onPress={() => runThemeTransition(() => {
                                     setThemePack(acc.id as typeof themePack);

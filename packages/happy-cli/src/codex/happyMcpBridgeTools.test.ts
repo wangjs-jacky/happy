@@ -118,11 +118,13 @@ describe('registerHappyBridgeTools', () => {
         const result = await reportBrowserStep?.handler({
             path: '/tmp/ego-step.png',
             label: '已打开订单详情',
+            runId: 'ego-task-42',
+            skillName: 'ego-ops',
         });
 
         expect(callTool).toHaveBeenCalledWith({
             name: 'report_browser_step',
-            arguments: { path: '/tmp/ego-step.png', label: '已打开订单详情' },
+            arguments: { path: '/tmp/ego-step.png', label: '已打开订单详情', runId: 'ego-task-42', skillName: 'ego-ops' },
         });
         expect(result).toMatchObject({
             content: [{ type: 'text', text: 'ok report_browser_step' }],

@@ -12,7 +12,7 @@ import { z } from 'zod';
 
 import { BROWSER_STEP_TOOL_DESCRIPTION } from '@/browser/browserStepReportingPrompt';
 
-export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart'] as const;
+export const HAPPY_MCP_BRIDGE_TOOL_NAMES = ['change_title', 'send_image', 'send_file', 'report_browser_step', 'archive_session', 'finance_chart', 'create_preview', 'publish_preview'] as const;
 
 type HappyMcpBridgeToolName = typeof HAPPY_MCP_BRIDGE_TOOL_NAMES[number];
 
@@ -108,11 +108,18 @@ export function registerHappyBridgeTools(
       inputSchema: {
         path: z.string().describe('Absolute path to the browser screenshot (PNG/JPEG)'),
         label: z.string().trim().min(1).describe('Short description of the browser operation that just completed'),
+        runId: z.string().trim().min(1).max(128).optional().describe('Stable identifier reused for every frame in this Ego invocation'),
+        skillName: z.enum(['ego-browser', 'ego-ops']).optional().describe('Ego skill associated with this browser run'),
       },
     },
     async (args) => forwardHappyToolCall(
       'report_browser_step',
-      { path: args.path, label: args.label },
+      {
+        path: args.path,
+        label: args.label,
+        ...(args.runId ? { runId: args.runId } : {}),
+        ...(args.skillName ? { skillName: args.skillName } : {}),
+      },
       ensureHttpClient,
       'Failed to report browser step'
     )
@@ -156,5 +163,25 @@ export function registerHappyBridgeTools(
       ensureHttpClient,
       'Failed to fetch finance chart'
     )
+  );
+
+  server.registerTool(
+    'create_preview',
+    {
+      description: 'Create a Happy-managed static interaction-preview workspace. Only files in this issued workspace can be published.',
+      title: 'Create Interactive Preview',
+      inputSchema: { title: z.string().trim().min(1).max(160) },
+    },
+    async (args) => forwardHappyToolCall('create_preview', { title: args.title }, ensureHttpClient, 'Failed to create preview')
+  );
+
+  server.registerTool(
+    'publish_preview',
+    {
+      description: 'Validate and publish a Happy-managed static preview to Vercel for 24 hours.',
+      title: 'Publish Interactive Preview',
+      inputSchema: { previewId: z.string().uuid() },
+    },
+    async (args) => forwardHappyToolCall('publish_preview', { previewId: args.previewId }, ensureHttpClient, 'Failed to publish preview')
   );
 }

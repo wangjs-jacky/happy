@@ -333,6 +333,8 @@ export const ru: TranslationStructure = {
             `${feature} ${enabled ? 'включена' : 'отключена'}`,
     },
 
+    interactivePreviews: en.interactivePreviews,
+
     askApiSettings: {
         connection: 'Connection',
         apiKey: 'API Key',
@@ -415,6 +417,14 @@ export const ru: TranslationStructure = {
             upOneLevel: 'На уровень выше',
             loadError: 'Не удалось загрузить папку',
             retry: 'Повторить',
+        },
+        browserProgress: {
+            title: 'Ход работы в браузере',
+            view: 'Посмотреть ход',
+            close: 'Закрыть ход работы в браузере',
+            timelineTitle: 'Шаги в браузере',
+            liveCount: ({ count }: { count: number }) => `В реальном времени · ${count} шаг`,
+            stepPosition: ({ current, total }: { current: number; total: number }) => `Шаг ${current} из ${total}`,
         },
         meta: {
             available: 'Available in session',
