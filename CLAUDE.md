@@ -362,7 +362,10 @@ NODE_ENV=production APP_ENV="$VARIANT" \
 
 ### 发布到 GitHub Release
 
-- 同一代码 revision 的三包优先放在一个 GitHub Release，三个 asset 文件名必须包含 `production|development|preview`、runtime 和短 SHA。
+- GitHub Releases 公开列表只用于分发 Android 安装包；保留 Android 历史版本，不删除或复用已发布 tag。
+- 同一代码 revision 的 `production` 与 `preview` 包放在一个 GitHub Release，标题使用 `Paws Android <version> · Production / Preview`，正文开头提供两个明确的 APK 下载入口。development 包仅在明确需要时另行交付。
+- APK asset 文件名必须包含变体、runtime 和短 SHA；保留随包校验文件。包含 production 包的最新 Android Release 显式设为 Latest（`gh release edit <tag> --latest`）；仅 preview 的发布设为 prerelease，不抢占 Latest。
+- CLI（包括 `@wangjs-jacky/paws` 与 `@wangjs-jacky/paws-agent`）仅发布 npm 并保留 Git tag，不创建 GitHub Release。发布 tarball 与 SHA-256 等 CI 凭据使用 Actions artifact 保存，并说明其保留期限。
 - tag 必须以 `android-` 开头，并包含 App version 与 revision，例如 `android-v1.7.1-runtimes23-24-eb5c1a999`；不得覆盖已有 tag/release。
 - Release notes 必须列出每个 asset 的 package/channel/runtime、签名性质、大小和 SHA-256。production sideload APK 仍是 debug 签名，不等于 Play Store 正式签名包。
 - 发布后用 GitHub API 核对 `state=uploaded`、asset size/digest，并对 browser download URL 做最终 HTTP 200 检查。
@@ -502,6 +505,7 @@ pnpm publish --publish-branch release-x.y.z
 
 # 5. 打 tag（cli-v 前缀，与 android-v 系列区分）并推送
 git tag cli-vX.Y.Z <发布时的 main tip> && git push origin cli-vX.Y.Z
+# 到此完成版本追溯；不要为 CLI 创建 GitHub Release。
 ```
 
 ### 注意事项
