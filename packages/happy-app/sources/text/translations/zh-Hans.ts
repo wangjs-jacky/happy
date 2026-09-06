@@ -242,15 +242,15 @@ export const zhHans: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: '收件箱',
+        inbox: '动态中心',
         sessions: '终端',
         settings: '设置',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: '收件箱为空',
-        emptyDescription: '与好友建立连接，开始共享会话',
+        emptyTitle: '暂无动态',
+        emptyDescription: '发现的会话和更新会显示在这里。',
         updates: '更新',
         codexCandidates: '待接管的 Codex 会话',
         codexCandidateDescription: '已在电脑上发现，但尚未连接到 Paws。',

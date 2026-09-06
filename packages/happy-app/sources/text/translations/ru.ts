@@ -251,15 +251,15 @@ export const ru: TranslationStructure = {
     },
     tabs: {
         // Tab navigation labels
-        inbox: 'Входящие',
+        inbox: 'Центр активности',
         sessions: 'Терминалы',
         settings: 'Настройки',
     },
 
     inbox: {
         // Inbox screen
-        emptyTitle: 'Входящие пусты',
-        emptyDescription: 'Подключитесь к друзьям, чтобы начать делиться сессиями',
+        emptyTitle: 'Пока нет активности',
+        emptyDescription: 'Здесь появятся обнаруженные сессии и обновления.',
         updates: 'Обновления',
         codexCandidates: 'Сеансы Codex Desktop',
         codexCandidateDescription: 'Обнаружены на компьютере и ещё не подключены к Paws.',

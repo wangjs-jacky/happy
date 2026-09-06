@@ -1,9 +1,9 @@
-import { Stack } from 'expo-router';
+import { Stack } from '@/components/AppStack';
 import 'react-native-reanimated';
 import * as React from 'react';
 import { Typography } from '@/constants/Typography';
 import { createHeader } from '@/components/navigation/Header';
-import { Platform, TouchableOpacity, Text } from 'react-native';
+import { Platform } from 'react-native';
 import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -63,6 +63,24 @@ export default function RootLayout() {
                     headerBackTitle: t('common.home'),
                 }}
             />
+            <Stack.Screen name="settings/account" options={{ headerTitle: t('settings.account') }} />
+            <Stack.Screen name="settings/agents" options={{ headerTitle: t('settings.agentDefaults') }} />
+            <Stack.Screen name="settings/appearance" options={{ headerTitle: t('settings.appearance') }} />
+            <Stack.Screen name="settings/ask" options={{ headerTitle: t('settings.askApi') }} />
+            <Stack.Screen name="settings/connect/claude" options={{ headerTitle: t('connectClaude.title') }} />
+            <Stack.Screen name="settings/custom-instructions" options={{ headerTitle: t('settings.customInstructions') }} />
+            <Stack.Screen name="settings/features" options={{ headerTitle: t('settings.features') }} />
+            <Stack.Screen name="settings/language" options={{ headerTitle: t('settings.language') }} />
+            <Stack.Screen name="settings/my-agents" options={{ headerTitle: t('agents.title') }} />
+            <Stack.Screen name="settings/profile" options={{ headerTitle: t('settingsAccount.editProfile') }} />
+            <Stack.Screen name="settings/public-image-gateway" options={{ headerTitle: t('settings.publicImageGateway') }} />
+            <Stack.Screen name="settings/relationship-advisor" options={{ headerTitle: t('relationshipAdvisor.title') }} />
+            <Stack.Screen name="settings/skill" options={{ headerTitle: t('settingsSkills.detailTitle') }} />
+            <Stack.Screen name="settings/skills" options={{ headerTitle: t('settingsSkills.title') }} />
+            <Stack.Screen name="settings/usage" options={{ headerTitle: t('settings.usage') }} />
+            <Stack.Screen name="settings/temporary-previews" options={{ headerTitle: t('interactivePreviews.title') }} />
+            <Stack.Screen name="settings/voice" options={{ headerTitle: t('settings.voiceAssistant') }} />
+            <Stack.Screen name="settings/voice/language" options={{ headerTitle: t('settingsVoice.languageTitle') }} />
             <Stack.Screen
                 name="settings/device-environment"
                 options={{
@@ -204,42 +222,6 @@ export default function RootLayout() {
                 options={{
                     headerShown: true,
                     headerTitle: t('textSelection.title'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="friends/index"
-                options={({ navigation }) => ({
-                    headerShown: true,
-                    headerTitle: t('navigation.friends'),
-                    headerBackTitle: t('common.back'),
-                    headerRight: () => (
-                        <TouchableOpacity
-                            accessibilityLabel={t('friends.addFriend')}
-                            accessibilityRole="button"
-                            onPress={() => navigation.navigate('friends/search' as never)}
-                            style={{ paddingHorizontal: 16 }}
-                        >
-                            <Text style={{ color: theme.colors.header.tint, fontSize: 16 }}>
-                                {t('friends.addFriend')}
-                            </Text>
-                        </TouchableOpacity>
-                    ),
-                })}
-            />
-            <Stack.Screen
-                name="friends/search"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('friends.addFriend'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="user/[id]"
-                options={{
-                    headerShown: true,
-                    headerTitle: '',
                     headerBackTitle: t('common.back'),
                 }}
             />

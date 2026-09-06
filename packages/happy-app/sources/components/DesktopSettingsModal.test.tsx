@@ -41,17 +41,6 @@ vi.mock('react-native-unistyles', () => {
         useUnistyles: () => ({ theme }),
     };
 });
-vi.mock('@/components/SettingsView', async () => {
-    const { useSettingsRouter } = await import('./DesktopSettingsNavigation');
-    return { SettingsView: () => {
-        const router = useSettingsRouter();
-        return <button onClick={() => router.push('/settings/device-environment')}>Device environment</button>;
-    } };
-});
-vi.mock('@/app/(app)/settings/device-environment', () => ({ default: () => <div>Fleet overview</div> }));
-vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
-vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/utils/responsive', () => ({ useIsTablet: () => mocks.isTablet }));
 
 import {
@@ -81,20 +70,16 @@ describe('DesktopSettingsModalProvider', () => {
         renderer = undefined;
     });
 
-    it('opens settings as a desktop component modal without changing routes', () => {
+    it('opens settings and activity with a desktop modal boundary', () => {
         act(() => {
             renderer = TestRenderer.create(
                 <DesktopSettingsModalProvider><ControllerProbe /></DesktopSettingsModalProvider>,
             );
         });
-
         act(() => controller?.openSettings());
-        expect(renderer!.root.findByProps({ testID: 'settings-modal-panel' })).toBeDefined();
-        expect(mocks.routerPush).not.toHaveBeenCalled();
-
-        act(() => renderer!.root.findByProps({ testID: 'settings-modal-close' }).props.onPress());
-        expect(renderer!.root.findByType('Modal').props.visible).toBe(false);
-        expect(mocks.routerPush).not.toHaveBeenCalled();
+        expect(mocks.routerPush).toHaveBeenCalledWith({ pathname: '/settings', params: { desktopModal: '1' } });
+        act(() => controller?.openActivity());
+        expect(mocks.routerPush).toHaveBeenCalledWith({ pathname: '/inbox', params: { desktopModal: '1' } });
     });
 
     it('keeps route navigation for narrow web', () => {
@@ -108,19 +93,5 @@ describe('DesktopSettingsModalProvider', () => {
         act(() => controller?.openSettings());
         expect(mocks.routerPush).toHaveBeenCalledWith('/settings');
         expect(renderer!.root.findAllByProps({ testID: 'settings-modal-panel' })).toHaveLength(0);
-    });
-
-    it('opens Device Environment inside the desktop modal with a title and back navigation', async () => {
-        await act(async () => {
-            renderer = TestRenderer.create(<DesktopSettingsModalProvider><ControllerProbe /></DesktopSettingsModalProvider>);
-        });
-        act(() => controller?.openSettings());
-        await act(async () => renderer!.root.findByType('button').props.onClick());
-        expect(mocks.routerPush).not.toHaveBeenCalled();
-        expect(renderer!.root.findByType('Modal').props.visible).toBe(true);
-        expect(renderer!.root.findAllByType('Text').some((node: any) => node.props.children === 'deviceEnvironment.title')).toBe(true);
-        expect(renderer!.root.findByType('div').props.children).toBe('Fleet overview');
-        act(() => renderer!.root.findByProps({ testID: 'settings-modal-back' }).props.onPress());
-        expect(renderer!.root.findByType('button')).toBeDefined();
     });
 });

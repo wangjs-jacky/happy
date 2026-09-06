@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     pathname: '/',
     openCommandPalette: vi.fn(),
     openSettings: vi.fn(),
+    openActivity: vi.fn(),
     setDesktopSidebarMode: vi.fn(),
     commandPaletteAvailable: false,
     settingsModalIsDesktop: false,
@@ -84,7 +85,6 @@ vi.mock('react-native-unistyles', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 vi.mock('@/sync/storage', () => ({
     useRealtimeStatus: () => 'connected',
-    useFriendRequests: () => [],
     useProfile: () => null,
     useLocalSetting: () => [],
     useLocalSettingMutable: (name: string) => name === 'desktopSidebarMode'
@@ -100,6 +100,7 @@ vi.mock('./DesktopSettingsModal', () => ({
     useDesktopSettingsModal: () => ({
         isDesktop: mocks.settingsModalIsDesktop,
         openSettings: mocks.openSettings,
+        openActivity: mocks.openActivity,
     }),
 }));
 vi.mock('./VoiceAssistantStatusBar', () => ({ VoiceAssistantStatusBar: 'VoiceAssistantStatusBar' }));

@@ -70,10 +70,8 @@ import { systemPrompt } from './prompt/systemPrompt';
 import { fetchArtifact, fetchArtifacts, createArtifact, updateArtifact } from './apiArtifacts';
 import { DecryptedArtifact, Artifact, ArtifactCreateRequest, ArtifactUpdateRequest } from './artifactTypes';
 import { ArtifactEncryption } from './encryption/artifactEncryption';
-import { getFriendsList, getUserProfile } from './apiFriends';
 import { fetchFeed } from './apiFeed';
 import { FeedItem } from './feedTypes';
-import { UserProfile } from './friendTypes';
 import {
     getInitialSessionEventLocalNotificationsEnabled,
     maybeScheduleSessionEventLocalNotification,
@@ -362,8 +360,6 @@ class Sync {
     private pushTokenSync: InvalidateSync;
     private nativeUpdateSync: InvalidateSync;
     private artifactsSync: InvalidateSync;
-    private friendsSync: InvalidateSync;
-    private friendRequestsSync: InvalidateSync;
     private feedSync: InvalidateSync;
     private pluginCatalogSync: InvalidateSync;
     private pluginCatalogStore = new PluginCatalogStore();
@@ -395,8 +391,6 @@ class Sync {
         this.machinesSync = new InvalidateSync(this.fetchMachines);
         this.nativeUpdateSync = new InvalidateSync(this.fetchNativeUpdate);
         this.artifactsSync = new InvalidateSync(this.fetchArtifactsList);
-        this.friendsSync = new InvalidateSync(this.fetchFriends);
-        this.friendRequestsSync = new InvalidateSync(this.fetchFriendRequests);
         this.feedSync = new InvalidateSync(this.fetchFeed);
         this.pluginCatalogSync = new InvalidateSync(this.fetchPluginCatalog);
 
@@ -438,8 +432,6 @@ class Sync {
                         this.sessionBootstrapSync,
                         this.nativeUpdateSync,
                         this.artifactsSync,
-                        this.friendsSync,
-                        this.friendRequestsSync,
                         this.feedSync,
                         this.pluginCatalogSync,
                     ],
@@ -556,8 +548,6 @@ class Sync {
         this.machinesSync.invalidate();
         this.pushTokenSync.invalidate();
         this.nativeUpdateSync.invalidate();
-        this.friendsSync.invalidate();
-        this.friendRequestsSync.invalidate();
         this.artifactsSync.invalidate();
         this.feedSync.invalidate();
         this.pluginCatalogStore.beginAccount();
@@ -1436,40 +1426,6 @@ class Sync {
         }
     }
 
-    async assumeUsers(userIds: string[]): Promise<void> {
-        if (!this.credentials || userIds.length === 0) return;
-        
-        const state = storage.getState();
-        // Filter out users we already have in cache (including null for 404s)
-        const missingIds = userIds.filter(id => !(id in state.users));
-        
-        if (missingIds.length === 0) return;
-        
-        log.log(`👤 Fetching ${missingIds.length} missing users...`);
-        
-        // Fetch missing users in parallel
-        const results = await Promise.all(
-            missingIds.map(async (id) => {
-                try {
-                    const profile = await getUserProfile(this.credentials!, id);
-                    return { id, profile };  // profile is null if 404
-                } catch (error) {
-                    console.error(`Failed to fetch user ${id}:`, error);
-                    return { id, profile: null };  // Treat errors as 404
-                }
-            })
-        );
-        
-        // Convert to Record<string, UserProfile | null>
-        const usersMap: Record<string, UserProfile | null> = {};
-        results.forEach(({ id, profile }) => {
-            usersMap[id] = profile;
-        });
-        
-        storage.getState().applyUsers(usersMap);
-        log.log(`👤 Applied ${results.length} users to cache (${results.filter(r => r.profile).length} found, ${results.filter(r => !r.profile).length} not found)`);
-    }
-
     //
     // Private
     //
@@ -2272,26 +2228,6 @@ class Sync {
         log.log(`🖥️ fetchMachines completed - processed ${decryptedMachines.length} machines`);
     }
 
-    private fetchFriends = async () => {
-        if (!this.credentials) return;
-        
-        try {
-            log.log('👥 Fetching friends list...');
-            const friendsList = await getFriendsList(this.credentials);
-            storage.getState().applyFriends(friendsList);
-            log.log(`👥 fetchFriends completed - processed ${friendsList.length} friends`);
-        } catch (error) {
-            console.error('Failed to fetch friends:', error);
-            // Silently handle error - UI will show appropriate state
-        }
-    }
-
-    private fetchFriendRequests = async () => {
-        // Friend requests are now included in the friends list with status='pending'
-        // This method is kept for backward compatibility but does nothing
-        log.log('👥 fetchFriendRequests called - now handled by fetchFriends');
-    }
-
     private fetchFeed = async () => {
         if (!this.credentials) return;
 
@@ -2339,35 +2275,8 @@ class Sync {
                 allItems.push(...response.items);
             }
             
-            // Collect user IDs from friend-related feed items
-            const userIds = new Set<string>();
-            allItems.forEach(item => {
-                if (item.body && (item.body.kind === 'friend_request' || item.body.kind === 'friend_accepted')) {
-                    userIds.add(item.body.uid);
-                }
-            });
-            
-            // Fetch missing users
-            if (userIds.size > 0) {
-                await this.assumeUsers(Array.from(userIds));
-            }
-            
-            // Filter out items where user is not found (404)
-            const users = storage.getState().users;
-            const compatibleItems = allItems.filter(item => {
-                // Keep text items
-                if (item.body.kind === 'text') return true;
-                
-                // For friend-related items, check if user exists and is not null (404)
-                if (item.body.kind === 'friend_request' || item.body.kind === 'friend_accepted') {
-                    const userProfile = users[item.body.uid];
-                    // Keep item only if user exists and is not null
-                    return userProfile !== null && userProfile !== undefined;
-                }
-                
-                return true;
-            });
-            
+            const compatibleItems = allItems.filter(item => item.body.kind === 'text');
+
             // Apply only compatible items to storage
             storage.getState().applyFeedItems(compatibleItems);
             log.log(`📰 fetchFeed completed - loaded ${compatibleItems.length} compatible items (${allItems.length - compatibleItems.length} filtered)`);
@@ -3092,8 +3001,6 @@ class Sync {
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');
             this.artifactsSync.invalidate();
-            this.friendsSync.invalidate();
-            this.friendRequestsSync.invalidate();
             this.feedSync.invalidate();
             this.pluginCatalogSync.invalidate();
             // Messages are fetched lazily per-session via onSessionVisible (called by SessionView
@@ -3480,25 +3387,6 @@ class Sync {
                 this.encryption.removeMachineEncryption(machineId);
                 this.machineDataKeys.delete(machineId);
             }
-        } else if (updateData.body.t === 'relationship-updated') {
-            log.log('👥 Received relationship-updated update');
-            const relationshipUpdate = updateData.body;
-            
-            // Apply the relationship update to storage
-            storage.getState().applyRelationshipUpdate({
-                fromUserId: relationshipUpdate.fromUserId,
-                toUserId: relationshipUpdate.toUserId,
-                status: relationshipUpdate.status,
-                action: relationshipUpdate.action,
-                fromUser: relationshipUpdate.fromUser,
-                toUser: relationshipUpdate.toUser,
-                timestamp: relationshipUpdate.timestamp
-            });
-            
-            // Invalidate friends data to refresh with latest changes
-            this.friendsSync.invalidate();
-            this.friendRequestsSync.invalidate();
-            this.feedSync.invalidate();
         } else if (updateData.body.t === 'new-artifact') {
             log.log('📦 Received new-artifact update');
             const artifactUpdate = updateData.body;
@@ -3624,20 +3512,8 @@ class Sync {
                 counter: parseInt(feedUpdate.cursor.substring(2), 10)
             };
             
-            // Check if we need to fetch user for friend-related items
-            if (feedItem.body && (feedItem.body.kind === 'friend_request' || feedItem.body.kind === 'friend_accepted')) {
-                await this.assumeUsers([feedItem.body.uid]);
-                
-                // Check if user fetch failed (404) - don't store item if user not found
-                const users = storage.getState().users;
-                const userProfile = users[feedItem.body.uid];
-                if (userProfile === null || userProfile === undefined) {
-                    // User was not found or 404, don't store this item
-                    log.log(`📰 Skipping feed item ${feedItem.id} - user ${feedItem.body.uid} not found`);
-                    return;
-                }
-            }
-            
+            if (feedItem.body.kind !== 'text') return;
+
             // Apply to storage (will handle repeatKey replacement)
             storage.getState().applyFeedItems([feedItem]);
         }
